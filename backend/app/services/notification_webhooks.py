@@ -26,7 +26,11 @@ from app.services import notification_webhook_http
 from app.services.daily_brief_notifications import (
     get_latest_daily_brief_notification_context,
 )
-from app.services.integration_delivery import list_recoverable_webhook_delivery_ids
+from app.services.integration_delivery import (
+    WebhookDeliveryIneligibleError,
+    list_recoverable_webhook_delivery_ids,
+    lock_webhook_delivery_external_io_eligibility,
+)
 from app.services.notification_webhook_contexts import (  # noqa: F401 - compatibility re-exports
     FEED_FAILING_NOTIFICATION_THRESHOLD,
     build_alert_match_context_for_item,
@@ -895,31 +899,13 @@ def process_notification_webhook_delivery(
     actor_user = db.scalar(select(User).where(User.id == delivery.user_id))
     try:
         validate_notification_delivery_target_for_actor(delivery, actor_user=actor_user)
-    except ValueError as exc:
-        current_result = _delivery_result_from_model(delivery)
-        result = NotificationWebhookTestResponse(
-            success=False,
-            status_code=None,
-            duration_ms=0,
-            rendered_url=current_result.rendered_url,
-            rendered_method=current_result.rendered_method,
-            rendered_headers=current_result.rendered_headers,
-            rendered_query_params=current_result.rendered_query_params,
-            rendered_body=current_result.rendered_body,
-            response_body_preview=None,
-            error=f"{POLICY_FAILURE_ERROR_PREFIX}{exc}",
-        )
-        finalized, recorded = _finalize_notification_webhook_delivery(
+        _lock_notification_webhook_external_io_eligibility(db, delivery=delivery)
+    except (ValueError, WebhookDeliveryIneligibleError) as exc:
+        return _finalize_notification_webhook_policy_failure(
             db,
-            delivery_id=delivery.id,
-            expected_attempt_number=delivery.attempt_count,
-            result=result,
+            delivery=delivery,
+            error=exc,
             commit_outcome=commit_outcome,
-        )
-        return NotificationWebhookDeliveryAttempt(
-            result=_delivery_result_from_model(finalized),
-            delivery=finalized,
-            claimed=recorded,
         )
     if _delivery_has_presend_render_failure(delivery):
         current_result = _delivery_result_from_model(delivery)
@@ -948,7 +934,15 @@ def process_notification_webhook_delivery(
             claimed=recorded,
         )
     rendered = _rendered_request_from_delivery(delivery)
-    result = _send_rendered_notification_request(rendered)
+    try:
+        result = _send_rendered_notification_request(rendered)
+    except WebhookDeliveryIneligibleError as exc:
+        return _finalize_notification_webhook_policy_failure(
+            db,
+            delivery=delivery,
+            error=exc,
+            commit_outcome=commit_outcome,
+        )
     finalized, recorded = _finalize_notification_webhook_delivery(
         db,
         delivery_id=delivery.id,
@@ -958,6 +952,59 @@ def process_notification_webhook_delivery(
     )
     return NotificationWebhookDeliveryAttempt(
         result=result if recorded else _delivery_result_from_model(finalized),
+        delivery=finalized,
+        claimed=recorded,
+    )
+
+
+def _lock_notification_webhook_external_io_eligibility(
+    db: Session,
+    *,
+    delivery: NotificationWebhookDelivery,
+) -> None:
+    if delivery.integration_delivery_id is None:
+        raise WebhookDeliveryIneligibleError(
+            "webhook_projection_missing",
+            "Webhook integration delivery configuration is incomplete.",
+        )
+    lock_webhook_delivery_external_io_eligibility(
+        db,
+        webhook_id=delivery.webhook_id,
+        legacy_delivery_id=delivery.id,
+        integration_delivery_id=delivery.integration_delivery_id,
+        expected_attempt_number=max(1, int(delivery.attempt_count or 0)),
+    )
+
+
+def _finalize_notification_webhook_policy_failure(
+    db: Session,
+    *,
+    delivery: NotificationWebhookDelivery,
+    error: Exception,
+    commit_outcome: bool,
+) -> NotificationWebhookDeliveryAttempt:
+    current_result = _delivery_result_from_model(delivery)
+    result = NotificationWebhookTestResponse(
+        success=False,
+        status_code=None,
+        duration_ms=0,
+        rendered_url=current_result.rendered_url,
+        rendered_method=current_result.rendered_method,
+        rendered_headers=current_result.rendered_headers,
+        rendered_query_params=current_result.rendered_query_params,
+        rendered_body=current_result.rendered_body,
+        response_body_preview=None,
+        error=f"{POLICY_FAILURE_ERROR_PREFIX}{error}",
+    )
+    finalized, recorded = _finalize_notification_webhook_delivery(
+        db,
+        delivery_id=delivery.id,
+        expected_attempt_number=delivery.attempt_count,
+        result=result,
+        commit_outcome=commit_outcome,
+    )
+    return NotificationWebhookDeliveryAttempt(
+        result=_delivery_result_from_model(finalized),
         delivery=finalized,
         claimed=recorded,
     )

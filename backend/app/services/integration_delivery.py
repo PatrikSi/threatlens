@@ -19,6 +19,12 @@ from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.services.integration_compat import ensure_webhook_integration
 from app.services.integration_delivery_replay import smtp_replay_recipient_override
+from app.services.webhook_delivery_eligibility import (
+    WebhookDeliveryIneligibleError as WebhookDeliveryIneligibleError,
+)
+from app.services.webhook_delivery_eligibility import (
+    lock_webhook_delivery_external_io_eligibility as lock_webhook_delivery_external_io_eligibility,
+)
 
 settings = get_settings()
 

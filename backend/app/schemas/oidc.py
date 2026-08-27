@@ -8,6 +8,24 @@ from app.core.rbac import ROLE_VIEWER
 
 OIDCAuthMethod = Literal["client_secret_basic", "client_secret_post", "none"]
 OIDCRole = Literal["admin", "analyst", "viewer"]
+OIDCReauthenticationErrorCode = Literal[
+    "callback_rate_limited",
+    "provider_configuration_changed",
+    "provider_rejected",
+    "missing_code",
+    "reauthentication_failed",
+    "reauth_session_expired",
+    "reauth_identity_mismatch",
+    "authentication_failed",
+]
+OIDCReauthenticationStartErrorCode = Literal[
+    "browser_session_required",
+    "opaque_session_required",
+    "oidc_session_required",
+    "session_inactive",
+    "oidc_provider_unavailable",
+    "oidc_reauthentication_start_failed",
+]
 
 
 class OIDCRoleMapping(BaseModel):
@@ -24,6 +42,7 @@ class OIDCRoleMapping(BaseModel):
 
 
 class OIDCProviderUpdateRequest(BaseModel):
+    expected_config_revision: int | None = Field(default=None, ge=0)
     name: str = Field(default="Company SSO", min_length=1, max_length=100)
     enabled: bool = False
     issuer_url: str = Field(default="", max_length=2048)
@@ -36,8 +55,12 @@ class OIDCProviderUpdateRequest(BaseModel):
     clear_client_secret: bool = False
     client_auth_method: OIDCAuthMethod = "client_secret_basic"
     public_base_url: str = Field(default="", max_length=2048)
-    scopes: list[str] = Field(default_factory=lambda: ["openid", "profile", "email"], max_length=32)
-    role_claim: str = Field(default="groups", min_length=1, max_length=255, pattern=r"^[A-Za-z0-9_.:-]+$")
+    scopes: list[str] = Field(
+        default_factory=lambda: ["openid", "profile", "email"], max_length=32
+    )
+    role_claim: str = Field(
+        default="groups", min_length=1, max_length=255, pattern=r"^[A-Za-z0-9_.:-]+$"
+    )
     role_mappings: list[OIDCRoleMapping] = Field(default_factory=list, max_length=100)
     default_role: OIDCRole = ROLE_VIEWER
     jit_provisioning_enabled: bool = False
@@ -82,7 +105,9 @@ class OIDCProviderUpdateRequest(BaseModel):
             if not candidate or candidate in normalized:
                 continue
             if len(candidate) > 128 or any(char.isspace() for char in candidate):
-                raise ValueError("Each OIDC scope must be a non-blank value without whitespace")
+                raise ValueError(
+                    "Each OIDC scope must be a non-blank value without whitespace"
+                )
             normalized.append(candidate)
         if "openid" not in normalized:
             raise ValueError("OIDC scopes must include openid")
@@ -93,12 +118,19 @@ class OIDCProviderUpdateRequest(BaseModel):
         duplicate_values = sorted(
             claim_value
             for claim_value in {mapping.claim_value for mapping in self.role_mappings}
-            if sum(mapping.claim_value == claim_value for mapping in self.role_mappings) > 1
+            if sum(mapping.claim_value == claim_value for mapping in self.role_mappings)
+            > 1
         )
         if duplicate_values:
-            raise ValueError(f"Role mapping claim values must be unique: {', '.join(duplicate_values)}")
-        if self.enabled and (not self.issuer_url or not self.client_id or not self.public_base_url):
-            raise ValueError("Enabled OIDC requires issuer_url, client_id, and public_base_url")
+            raise ValueError(
+                f"Role mapping claim values must be unique: {', '.join(duplicate_values)}"
+            )
+        if self.enabled and (
+            not self.issuer_url or not self.client_id or not self.public_base_url
+        ):
+            raise ValueError(
+                "Enabled OIDC requires issuer_url, client_id, and public_base_url"
+            )
         if self.client_auth_method == "none" and self.client_secret is not None:
             raise ValueError("Public OIDC clients must not store a client secret")
         if self.auto_approve_users and not self.jit_provisioning_enabled:
@@ -109,6 +141,7 @@ class OIDCProviderUpdateRequest(BaseModel):
 class OIDCProviderResponse(BaseModel):
     id: uuid.UUID | None = None
     configured: bool
+    config_revision: int
     name: str
     enabled: bool
     issuer_url: str
@@ -133,10 +166,74 @@ class OIDCProviderResponse(BaseModel):
 class OIDCPublicSettingsResponse(BaseModel):
     enabled: bool
     provider_name: str | None = None
+    flow_contract: "OIDCFlowContractResponse" = Field(
+        default_factory=lambda: OIDCFlowContractResponse()
+    )
+
+
+class OIDCFlowContractResponse(BaseModel):
+    callback_path: Literal["/auth/oidc/callback"] = "/auth/oidc/callback"
+    login_error_query_parameter: Literal["oidc_error"] = "oidc_error"
+    link_result_query_parameter: Literal["oidc_link"] = "oidc_link"
+    reauthentication_start_path: Literal["/auth/oidc/reauth"] = "/auth/oidc/reauth"
+    reauthentication_redirect_path: Literal["/settings/account"] = "/settings/account"
+    reauthentication_result_query_parameter: Literal["oidc_reauth"] = "oidc_reauth"
+    reauthentication_success_code: Literal["success"] = "success"
+    provider_configuration_changed_code: Literal["provider_configuration_changed"] = (
+        "provider_configuration_changed"
+    )
+    callback_rate_limited_code: Literal["callback_rate_limited"] = (
+        "callback_rate_limited"
+    )
+    reauthentication_start_error_codes: list[OIDCReauthenticationStartErrorCode] = (
+        Field(
+            default_factory=lambda: [
+                "browser_session_required",
+                "opaque_session_required",
+                "oidc_session_required",
+                "session_inactive",
+                "oidc_provider_unavailable",
+                "oidc_reauthentication_start_failed",
+            ]
+        )
+    )
+    reauthentication_error_codes: list[OIDCReauthenticationErrorCode] = Field(
+        default_factory=lambda: [
+            "callback_rate_limited",
+            "provider_configuration_changed",
+            "provider_rejected",
+            "missing_code",
+            "reauthentication_failed",
+            "reauth_session_expired",
+            "reauth_identity_mismatch",
+            "authentication_failed",
+        ]
+    )
 
 
 class OIDCStartResponse(BaseModel):
     authorization_url: str
+
+
+class OIDCReauthenticationStartResponse(OIDCStartResponse):
+    mode: Literal["reauth"] = "reauth"
+    result_query_parameter: Literal["oidc_reauth"] = "oidc_reauth"
+    success_code: Literal["success"] = "success"
+
+
+class OIDCLinkStartRequest(BaseModel):
+    current_password: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=256,
+        json_schema_extra={"format": "password", "writeOnly": True},
+    )
+    code: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=128,
+        json_schema_extra={"format": "password", "writeOnly": True},
+    )
 
 
 class OIDCAccountStatusResponse(BaseModel):
@@ -153,6 +250,12 @@ class OIDCUnlinkRequest(BaseModel):
         min_length=1,
         max_length=256,
         json_schema_extra={"format": "password", "writeOnly": True},
+    )
+    code: str | None = Field(
+        default=None,
+        min_length=6,
+        max_length=64,
+        json_schema_extra={"writeOnly": True},
     )
 
 

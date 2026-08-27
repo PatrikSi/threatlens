@@ -14,6 +14,7 @@ from app.models.item_classification import ItemClassification
 def run_classify_item(item_id: str, *, runtime: ModuleType):
     r = runtime
     integration_event_ids: list[uuid.UUID] = []
+    alert_evaluation_request_ids: list[uuid.UUID] = []
     with r.db_session() as db:
         parsed_item_id = _parse_uuid(item_id)
         if parsed_item_id is None:
@@ -83,15 +84,14 @@ def run_classify_item(item_id: str, *, runtime: ModuleType):
         _sync_classification_tags(
             db, item, article, feed_name, feed_url, row, runtime=r
         )
-        if (
-            feed is not None
-            and r.build_alert_match_context_for_item(db, item=item) is not None
-        ):
-            integration_event_ids.append(
-                r._emit_item_integration_event(
-                    db, event_type="alert_match", item=item, feed=feed
-                )
+        if feed is not None:
+            evaluation_intent = r.persist_alert_evaluation_intent(
+                db,
+                item=item,
+                classification=row,
             )
+            if evaluation_intent.created:
+                alert_evaluation_request_ids.append(evaluation_intent.request_id)
         primary_category = row.primary_category
         db.commit()
 
@@ -104,6 +104,7 @@ def run_classify_item(item_id: str, *, runtime: ModuleType):
         ai_skip_reason,
         queue_ai_enrichment,
         integration_event_ids,
+        alert_evaluation_request_ids,
         up_to_date=up_to_date,
         runtime=r,
     )
@@ -184,18 +185,26 @@ def _complete_classification(
     ai_skip_reason: str | None,
     queue_ai_enrichment: bool,
     integration_event_ids: list[uuid.UUID],
+    alert_evaluation_request_ids: list[uuid.UUID],
     *,
     up_to_date: bool,
     runtime: ModuleType,
 ):
-    notification_enqueue_ok = runtime.enqueue_integration_event_routing(
+    integration_enqueue_ok = runtime.enqueue_integration_event_routing(
         integration_event_ids
     )
-    if integration_event_ids and not notification_enqueue_ok:
+    evaluation_enqueue_ok = runtime.enqueue_alert_evaluation_requests(
+        alert_evaluation_request_ids
+    )
+    notification_enqueue_ok = integration_enqueue_ok and evaluation_enqueue_ok
+    if (
+        integration_event_ids or alert_evaluation_request_ids
+    ) and not notification_enqueue_ok:
         runtime.logger.warning(
-            "classification_notification_enqueue_failed item_id=%s event_count=%s",
+            "classification_notification_enqueue_failed item_id=%s event_count=%s evaluation_count=%s",
             parsed_item_id,
             len(integration_event_ids),
+            len(alert_evaluation_request_ids),
         )
     ioc_enqueue_ok = runtime._safe_enqueue_item_iocs(parsed_item_id)
     ai_enqueue_ok = _queue_or_record_ai_skip(
@@ -212,10 +221,15 @@ def _complete_classification(
         **({"reason": "up_to_date"} if up_to_date else {}),
         "item_id": item_id,
         "category": category,
-        "notification_enqueue_failed": bool(integration_event_ids)
+        "notification_enqueue_failed": bool(
+            integration_event_ids or alert_evaluation_request_ids
+        )
         and not notification_enqueue_ok,
-        "smtp_notification_enqueue_failed": bool(integration_event_ids)
+        "smtp_notification_enqueue_failed": bool(
+            integration_event_ids or alert_evaluation_request_ids
+        )
         and not notification_enqueue_ok,
+        "alert_evaluation_requests": len(alert_evaluation_request_ids),
         "ioc_enqueue_failed": not ioc_enqueue_ok,
         "ai_enqueue_failed": queue_ai_enrichment and not ai_enqueue_ok,
     }

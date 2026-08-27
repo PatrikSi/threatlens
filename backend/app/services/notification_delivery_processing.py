@@ -18,6 +18,7 @@ from app.services.integration_delivery import (
     DELIVERY_FAILED,
     DELIVERY_RETRY_WAIT,
     defer_integration_delivery,
+    lock_webhook_delivery_external_io_eligibility,
     record_integration_delivery_unknown_outcome,
     renew_integration_delivery_lease,
 )
@@ -67,10 +68,12 @@ def process_reserved_notification_deliveries(
     for delivery_id in delivery_ids:
         try:
             with notification_delivery_lease_heartbeat(
-                lambda lease_seconds, delivery_id=delivery_id: _renew_webhook_delivery_lease(
-                    db,
-                    delivery_id=delivery_id,
-                    lease_seconds=lease_seconds,
+                lambda lease_seconds, delivery_id=delivery_id: (
+                    _renew_webhook_delivery_lease(
+                        db,
+                        delivery_id=delivery_id,
+                        lease_seconds=lease_seconds,
+                    )
                 )
             ):
                 attempt = process_delivery(db, delivery_id=delivery_id)
@@ -249,7 +252,19 @@ def _renew_webhook_delivery_lease(
     delivery.claimed_at = current_time
     delivery.not_before = current_time + timedelta(seconds=max(1, int(lease_seconds)))
     db.add(delivery)
+    webhook_id = delivery.webhook_id
+    integration_delivery_id = delivery.integration_delivery_id
+    attempt_number = max(1, int(delivery.attempt_count or 0))
     db.commit()
+    if integration_delivery_id is None:
+        raise RuntimeError("Webhook integration delivery configuration is incomplete")
+    lock_webhook_delivery_external_io_eligibility(
+        db,
+        webhook_id=webhook_id,
+        legacy_delivery_id=delivery_id,
+        integration_delivery_id=integration_delivery_id,
+        expected_attempt_number=attempt_number,
+    )
 
 
 def _record_webhook_processing_failure(

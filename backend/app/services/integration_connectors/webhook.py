@@ -186,6 +186,7 @@ class WebhookIntegrationConnector:
             if resources is not None and resources.from_snapshot:
                 return self._reserve_snapshot_alert_deliveries(
                     db,
+                    event=event,
                     item=item,
                     feed=feed,
                     resources=resources,
@@ -224,11 +225,32 @@ class WebhookIntegrationConnector:
         self,
         db: Session,
         *,
+        event: IntegrationEvent,
         item,
         feed,
         resources,
         webhooks: list[NotificationWebhook],
     ) -> NotificationDeliveryReservationBatch:
+        scope_key = f"alert_event:{event.id}"
+        existing_by_webhook: dict[uuid.UUID, NotificationWebhookDelivery] = {}
+        existing_projections = db.scalars(
+            select(NotificationWebhookDelivery)
+            .join(
+                IntegrationDelivery,
+                IntegrationDelivery.id
+                == NotificationWebhookDelivery.integration_delivery_id,
+            )
+            .where(
+                IntegrationDelivery.event_id == event.id,
+                IntegrationDelivery.delivery_kind == "live",
+                NotificationWebhookDelivery.event_type_snapshot == "alert_match",
+                NotificationWebhookDelivery.delivery_kind == "live",
+            )
+            .order_by(NotificationWebhookDelivery.attempted_at.asc())
+        ).all()
+        for existing in existing_projections:
+            existing_by_webhook.setdefault(existing.webhook_id, existing)
+
         delivery_ids: list[uuid.UUID] = []
         skipped = 0
         for webhook in webhooks:
@@ -245,7 +267,17 @@ class WebhookIntegrationConnector:
                 webhook_id=webhook.id,
                 event_type="alert_match",
                 item_id=item.id,
+                scope_key=scope_key,
             ):
+                skipped += 1
+                continue
+            existing = existing_by_webhook.get(webhook.id)
+            if existing is not None:
+                if existing.scope_key is None:
+                    # Rows routed before event-scoped deduplication remain the
+                    # compatibility history for this exact integration event.
+                    existing.scope_key = scope_key
+                    db.add(existing)
                 skipped += 1
                 continue
             if has_recent_notification_delivery(
@@ -253,6 +285,7 @@ class WebhookIntegrationConnector:
                 webhook_id=webhook.id,
                 event_type="alert_match",
                 item_id=item.id,
+                scope_key=scope_key,
             ):
                 skipped += 1
                 continue
@@ -264,6 +297,7 @@ class WebhookIntegrationConnector:
                 item=item,
                 feed=feed,
                 alert_context=alert_context,
+                scope_key=scope_key,
             )
             delivery_ids.append(delivery.id)
         return NotificationDeliveryReservationBatch(

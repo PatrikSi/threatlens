@@ -48,10 +48,12 @@ class ApiHTTPException(StarletteHTTPException):
         status_code: int,
         detail: Any,
         error_code: str,
+        error_context: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
     ) -> None:
         super().__init__(status_code=status_code, detail=detail, headers=headers)
         self.error_code = error_code
+        self.error_context = error_context
 
 
 def install_api_error_handlers(application: FastAPI) -> None:
@@ -70,6 +72,7 @@ async def http_exception_handler(
     detail = exc.detail
     message = _detail_message(detail, status_code)
     error_code = getattr(exc, "error_code", None) or error_code_for_status(status_code)
+    error_context = getattr(exc, "error_context", None)
     logger.debug(
         "request_rejected error_code=%s detail=%s",
         error_code,
@@ -82,6 +85,7 @@ async def http_exception_handler(
         message=message,
         request_id=request_id,
         code=error_code,
+        error_context=error_context,
         headers=exc.headers,
     )
 
@@ -133,22 +137,26 @@ def error_response(
     message: str,
     request_id: str,
     code: str | None = None,
+    error_context: dict[str, Any] | None = None,
     headers: dict[str, str] | None = None,
 ) -> JSONResponse:
     response_headers = dict(headers or {})
     response_headers["X-Request-ID"] = request_id
+    error_payload: dict[str, Any] = {
+        "code": code or error_code_for_status(status_code),
+        "message": message,
+        "request_id": request_id,
+        "status": status_code,
+        "retryable": status_code in _RETRYABLE_STATUS_CODES,
+    }
+    if error_context is not None:
+        error_payload["context"] = error_context
     return JSONResponse(
         status_code=status_code,
         headers=response_headers,
         content={
             "detail": detail,
-            "error": {
-                "code": code or error_code_for_status(status_code),
-                "message": message,
-                "request_id": request_id,
-                "status": status_code,
-                "retryable": status_code in _RETRYABLE_STATUS_CODES,
-            },
+            "error": error_payload,
         },
     )
 

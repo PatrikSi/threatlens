@@ -4,11 +4,10 @@ from sqlalchemy.exc import IntegrityError
 from app.core.rbac import ROLE_ADMIN
 from app.core.config import get_settings
 from app.core.security import get_password_hash
-from app.models.api_token import ApiToken
 from app.db.session import SessionLocal
 from app.models.user import User
 from app.services.audit import record_audit
-from app.services.user_access import revoke_user_credentials
+from app.services.user_access import revoke_user_credentials_with_counts
 
 
 def seed_admin() -> None:
@@ -16,7 +15,12 @@ def seed_admin() -> None:
     db = SessionLocal()
     try:
         email = settings.admin_email.lower()
-        existing = db.scalar(select(User).where(User.email == email))
+        existing = db.scalar(
+            select(User)
+            .where(User.email == email)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
         if existing is None:
             admin = User(
                 email=email,
@@ -39,17 +43,25 @@ def seed_admin() -> None:
                 return
             except IntegrityError:
                 db.rollback()
-                existing = db.scalar(select(User).where(User.email == email))
+                existing = db.scalar(
+                    select(User)
+                    .where(User.email == email)
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
+                )
                 if existing is None:
                     raise
 
         changed = False
         credentials_rotated = False
+        revoked_api_tokens = 0
+        revoked_auth_sessions = 0
         changed_fields: list[str] = []
         if settings.seed_admin_reset_password_on_startup:
             existing.password_hash = get_password_hash(settings.admin_password)
-            existing.auth_token_version = int(existing.auth_token_version or 0) + 1
-            db.query(ApiToken).filter(ApiToken.user_id == existing.id).delete(synchronize_session=False)
+            revoked = revoke_user_credentials_with_counts(db, existing)
+            revoked_api_tokens = revoked.api_tokens
+            revoked_auth_sessions = revoked.auth_sessions
             changed = True
             credentials_rotated = True
             changed_fields.append("password")
@@ -62,9 +74,10 @@ def seed_admin() -> None:
             changed = True
             changed_fields.append("is_active")
         if changed:
-            revoked_api_tokens = 0
             if not credentials_rotated:
-                revoked_api_tokens = revoke_user_credentials(db, existing)
+                revoked = revoke_user_credentials_with_counts(db, existing)
+                revoked_api_tokens = revoked.api_tokens
+                revoked_auth_sessions = revoked.auth_sessions
             db.add(existing)
             record_audit(
                 db,
@@ -77,6 +90,7 @@ def seed_admin() -> None:
                     "changed_fields": changed_fields,
                     "auth_token_version": int(existing.auth_token_version or 0),
                     "revoked_api_tokens": int(revoked_api_tokens),
+                    "revoked_auth_sessions": int(revoked_auth_sessions),
                 },
             )
         db.commit()

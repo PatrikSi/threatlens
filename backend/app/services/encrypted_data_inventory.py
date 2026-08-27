@@ -9,17 +9,26 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings, get_settings
 from app.models.feed import Feed
 from app.models.integration import IntegrationInstance
+from app.models.mfa import UserRecoveryCode, UserTOTPCredential
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
+from app.models.oidc import OIDCProvider
 from app.schemas.health import (
     EncryptedDataInventoryCategory,
     EncryptedDataInventoryResponse,
     EncryptedDataInventorySummary,
     EncryptedDataStartupScan,
+    RecoveryCodeHashInventory,
 )
 from app.services.feed_storage import try_decrypt_feed_url
 from app.services.notification_webhook_storage import decrypt_notification_json, decrypt_notification_text
-from app.services.secret_storage import is_encrypted_json, is_encrypted_text
+from app.services.secret_storage import (
+    configured_hashing_key_ids,
+    decrypt_text,
+    is_encrypted_json,
+    is_encrypted_text,
+    stored_keyed_digest_key_id,
+)
 
 _startup_inventory_lock = Lock()
 _startup_inventory_state = EncryptedDataStartupScan()
@@ -35,30 +44,62 @@ def scan_encrypted_data_inventory(
     integration_secrets = _scan_integration_secrets(db)
     notification_webhooks = _scan_notification_webhooks(db)
     notification_delivery_snapshots = _scan_notification_delivery_snapshots(db)
-    summary = _build_summary(feeds, integration_secrets, notification_webhooks, notification_delivery_snapshots)
+    oidc_client_secrets = _scan_encrypted_text_column(db, OIDCProvider.client_secret_encrypted)
+    mfa_secrets = _scan_encrypted_text_column(db, UserTOTPCredential.secret_encrypted)
+    recovery_hashes = _scan_recovery_code_hashes(db, settings=active_settings)
+    summary = _build_summary(
+        feeds,
+        integration_secrets,
+        notification_webhooks,
+        notification_delivery_snapshots,
+        oidc_client_secrets,
+        mfa_secrets,
+        recovery_hashes,
+    )
 
     warnings: list[str] = []
     if active_settings.app_data_encryption_key_was_derived:
         warnings.append(
             "APP_DATA_ENCRYPTION_KEY is using a derived development fallback. Set an explicit persistent value before relying on durable data."
         )
+    if recovery_hashes.previous_key_codes:
+        warnings.append(
+            f"{recovery_hashes.previous_key_codes} unused MFA recovery codes still depend on a previous application data key. Regenerate those users' recovery codes before retiring that key."
+        )
+    if recovery_hashes.legacy_unversioned_codes:
+        warnings.append(
+            f"{recovery_hashes.legacy_unversioned_codes} unused MFA recovery codes use legacy unversioned hashes. Their key dependency cannot be proven; regenerate them before retiring any configured key."
+        )
+    if recovery_hashes.missing_key_codes:
+        warnings.append(
+            f"{recovery_hashes.missing_key_codes} unused MFA recovery codes reference a key that is not configured and cannot be verified."
+        )
 
     status = _resolve_inventory_status(
-        total_unreadable_fields=summary.unreadable_fields,
+        total_unreadable_fields=(
+            summary.unreadable_fields + recovery_hashes.missing_key_codes
+        ),
         warnings=warnings,
     )
     return EncryptedDataInventoryResponse(
-        ok=summary.unreadable_fields == 0,
+        ok=(
+            summary.unreadable_fields == 0
+            and recovery_hashes.missing_key_codes == 0
+        ),
         status=status,
         scanned_at=datetime.now(timezone.utc),
         warnings=warnings,
         require_explicit_app_data_encryption_key=active_settings.require_explicit_data_encryption_key,
         using_derived_app_data_encryption_key=active_settings.app_data_encryption_key_was_derived,
+        key_retirement_blocked=recovery_hashes.key_retirement_blocked,
         startup_scan=get_startup_encrypted_data_inventory(),
         feeds=feeds,
         integration_secrets=integration_secrets,
         notification_webhooks=notification_webhooks,
         notification_delivery_snapshots=notification_delivery_snapshots,
+        oidc_client_secrets=oidc_client_secrets,
+        mfa_secrets=mfa_secrets,
+        mfa_recovery_code_hashes=recovery_hashes,
         summary=summary,
     )
 
@@ -85,6 +126,7 @@ def record_startup_encrypted_data_inventory_error(error: str) -> None:
         _startup_inventory_state.error = error
         _startup_inventory_state.total_unreadable_records = None
         _startup_inventory_state.total_unreadable_fields = None
+        _startup_inventory_state.key_retirement_blocked = None
 
 
 def _store_startup_inventory_success(snapshot: EncryptedDataInventoryResponse) -> None:
@@ -92,8 +134,41 @@ def _store_startup_inventory_success(snapshot: EncryptedDataInventoryResponse) -
         _startup_inventory_state.completed_at = snapshot.scanned_at
         _startup_inventory_state.status = snapshot.status
         _startup_inventory_state.error = None
-        _startup_inventory_state.total_unreadable_records = snapshot.summary.unreadable_records
-        _startup_inventory_state.total_unreadable_fields = snapshot.summary.unreadable_fields
+        missing_hashes = snapshot.mfa_recovery_code_hashes.missing_key_codes
+        _startup_inventory_state.total_unreadable_records = (
+            snapshot.summary.unreadable_records + missing_hashes
+        )
+        _startup_inventory_state.total_unreadable_fields = (
+            snapshot.summary.unreadable_fields + missing_hashes
+        )
+        _startup_inventory_state.key_retirement_blocked = snapshot.key_retirement_blocked
+
+
+def _scan_recovery_code_hashes(
+    db: Session, *, settings: Settings
+) -> RecoveryCodeHashInventory:
+    active_key_id, previous_key_ids = configured_hashing_key_ids(settings)
+    previous = set(previous_key_ids)
+    inventory = RecoveryCodeHashInventory()
+    for (code_hash,) in db.execute(
+        select(UserRecoveryCode.code_hash).where(UserRecoveryCode.used_at.is_(None))
+    ):
+        inventory.unused_codes += 1
+        key_id = stored_keyed_digest_key_id(code_hash)
+        if key_id is None:
+            inventory.legacy_unversioned_codes += 1
+        elif key_id == active_key_id:
+            inventory.active_key_codes += 1
+        elif key_id in previous:
+            inventory.previous_key_codes += 1
+        else:
+            inventory.missing_key_codes += 1
+    inventory.key_retirement_blocked = bool(
+        inventory.previous_key_codes
+        or inventory.legacy_unversioned_codes
+        or inventory.missing_key_codes
+    )
+    return inventory
 
 
 def _scan_feeds(db: Session) -> EncryptedDataInventoryCategory:
@@ -181,6 +256,22 @@ def _scan_notification_delivery_snapshots(db: Session) -> EncryptedDataInventory
     return category
 
 
+def _scan_encrypted_text_column(db: Session, column) -> EncryptedDataInventoryCategory:
+    category = EncryptedDataInventoryCategory()
+    for (value,) in db.execute(select(column)):
+        category.total_records += 1
+        if not is_encrypted_text(value):
+            continue
+        category.encrypted_records += 1
+        category.encrypted_fields += 1
+        try:
+            decrypt_text(value)
+        except ValueError:
+            category.unreadable_records += 1
+            category.unreadable_fields += 1
+    return category
+
+
 def _apply_record_counts(
     category: EncryptedDataInventoryCategory,
     *,
@@ -228,8 +319,18 @@ def _build_summary(
     integration_secrets: EncryptedDataInventoryCategory,
     notification_webhooks: EncryptedDataInventoryCategory,
     notification_delivery_snapshots: EncryptedDataInventoryCategory,
+    oidc_client_secrets: EncryptedDataInventoryCategory,
+    mfa_secrets: EncryptedDataInventoryCategory,
+    recovery_hashes: RecoveryCodeHashInventory,
 ) -> EncryptedDataInventorySummary:
-    categories = (feeds, integration_secrets, notification_webhooks, notification_delivery_snapshots)
+    categories = (
+        feeds,
+        integration_secrets,
+        notification_webhooks,
+        notification_delivery_snapshots,
+        oidc_client_secrets,
+        mfa_secrets,
+    )
     return EncryptedDataInventorySummary(
         total_records=sum(category.total_records for category in categories),
         encrypted_records=sum(category.encrypted_records for category in categories),

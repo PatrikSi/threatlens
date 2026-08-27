@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.feed import Feed
@@ -13,6 +14,7 @@ from app.models.integration import (
 from app.models.item import Item
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
+from app.models.user import User
 from app.services.integration_delivery import (
     CLAIMED,
     claim_integration_delivery,
@@ -40,9 +42,14 @@ RETRYABLE_SMTP_ERROR_CODES = frozenset(
         "transient_smtp_error",
     }
 )
+SMTP_OWNER_NOT_ELIGIBLE = "smtp_owner_not_eligible"
 
 
 class IntegrationDeliveryContextError(ValueError):
+    pass
+
+
+class SMTPIntegrationOwnerNotEligible(RuntimeError):
     pass
 
 
@@ -99,6 +106,28 @@ def process_smtp_integration_delivery(
                 delivery.id, outcome.state or "succeeded", context["skip_reason"]
             )
 
+        if not _smtp_integration_owner_is_eligible(db, instance=instance):
+            outcome = finalize_integration_delivery(
+                db,
+                delivery_id=delivery.id,
+                expected_attempt_number=claim.attempt_number,
+                success=True,
+                duration_ms=0,
+                error_code=None,
+                error_message=None,
+                retryable=False,
+                response_json={
+                    "skipped": True,
+                    "reason": SMTP_OWNER_NOT_ELIGIBLE,
+                },
+            )
+            db.commit()
+            return IntegrationDeliveryProcessingResult(
+                delivery.id,
+                outcome.state or "succeeded",
+                SMTP_OWNER_NOT_ELIGIBLE,
+            )
+
         def _renew_lease(lease_seconds: int) -> None:
             renewed = renew_integration_delivery_lease(
                 db,
@@ -112,24 +141,49 @@ def process_smtp_integration_delivery(
                     "SMTP delivery lease is no longer owned by this worker"
                 )
             db.commit()
+            if not _smtp_integration_owner_is_eligible(db, instance=instance):
+                raise SMTPIntegrationOwnerNotEligible
 
-        dispatch = attempt_smtp_integration_delivery(
-            db,
-            instance=instance,
-            delivery_id=delivery.id,
-            dedupe_key=delivery.idempotency_key,
-            event_type=delivery.event_type,
-            feed=context["feed"],
-            item=context["item"],
-            alert_context=context["alert_context"],
-            failed_webhook_context=context["failed_webhook_context"],
-            digest_context=context["digest_context"],
-            delivery_kind=delivery.delivery_kind,
-            source_delivery_id=context["source_delivery_id"],
-            scope_key=context["scope_key"],
-            recipient_override=context["recipient_override"],
-            lease_heartbeat=_renew_lease,
-        )
+        try:
+            dispatch = attempt_smtp_integration_delivery(
+                db,
+                instance=instance,
+                delivery_id=delivery.id,
+                dedupe_key=delivery.idempotency_key,
+                event_type=delivery.event_type,
+                feed=context["feed"],
+                item=context["item"],
+                alert_context=context["alert_context"],
+                failed_webhook_context=context["failed_webhook_context"],
+                digest_context=context["digest_context"],
+                delivery_kind=delivery.delivery_kind,
+                source_delivery_id=context["source_delivery_id"],
+                scope_key=context["scope_key"],
+                recipient_override=context["recipient_override"],
+                lease_heartbeat=_renew_lease,
+            )
+        except SMTPIntegrationOwnerNotEligible:
+            db.rollback()
+            outcome = finalize_integration_delivery(
+                db,
+                delivery_id=delivery.id,
+                expected_attempt_number=claim.attempt_number,
+                success=True,
+                duration_ms=0,
+                error_code=None,
+                error_message=None,
+                retryable=False,
+                response_json={
+                    "skipped": True,
+                    "reason": SMTP_OWNER_NOT_ELIGIBLE,
+                },
+            )
+            db.commit()
+            return IntegrationDeliveryProcessingResult(
+                delivery.id,
+                outcome.state or "succeeded",
+                SMTP_OWNER_NOT_ELIGIBLE,
+            )
         result = dispatch.delivery
         if result is None:
             outcome = finalize_integration_delivery(
@@ -218,6 +272,22 @@ def process_smtp_integration_delivery(
         )
 
 
+def _smtp_integration_owner_is_eligible(
+    db: Session,
+    *,
+    instance: IntegrationInstance,
+) -> bool:
+    if instance.owner_user_id is None:
+        return True
+    owner = db.scalar(
+        select(User)
+        .where(User.id == instance.owner_user_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    return owner is not None and owner.is_active and owner.is_approved
+
+
 def _load_smtp_delivery_context(db: Session, *, delivery: IntegrationDelivery) -> dict:
     payload = delivery.payload_json if isinstance(delivery.payload_json, dict) else {}
     try:
@@ -272,8 +342,9 @@ def _load_smtp_delivery_context(db: Session, *, delivery: IntegrationDelivery) -
                 f"{delivery.event_type} delivery is missing its feed"
             )
         if delivery.event_type == "alert_match":
-            alert_context = snapshot_alert_context or build_alert_match_context_for_item(
-                db, item=item
+            alert_context = (
+                snapshot_alert_context
+                or build_alert_match_context_for_item(db, item=item)
             )
             if alert_context is None:
                 skip_reason = "no_alert_match"

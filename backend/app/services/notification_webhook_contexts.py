@@ -15,6 +15,7 @@ from app.models.item_classification import ItemClassification
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.schemas.notification import NotificationEventType, NotificationWebhookWrite
+from app.services.alert_matching import build_item_haystack, match_alert_keywords
 from app.services.daily_brief_notifications import (
     DailyBriefNotificationContextError,
     daily_brief_context_from_payload,
@@ -153,11 +154,7 @@ def build_alert_match_context_for_item(
     matched_categories: list[str] = []
     matched_keywords: list[str] = []
     for alert in alerts:
-        keywords = [
-            keyword
-            for keyword in (alert.keywords or [])
-            if keyword and keyword in haystack
-        ]
+        keywords = match_alert_keywords(alert.keywords or [], haystack)
         if not keywords:
             continue
         matched_names.append(alert.name)
@@ -225,16 +222,3 @@ def build_failed_webhook_retry_context(
         error=notification_error_for_display(source_delivery.error),
         attempted_at=source_delivery.attempted_at,
     )
-
-
-def build_item_haystack(
-    *,
-    title: str,
-    summary: str | None,
-    url: str,
-    canonical_url: str | None,
-    classification: str | None,
-) -> str:
-    return " ".join(
-        [title, summary or "", url, canonical_url or "", classification or ""]
-    ).lower()

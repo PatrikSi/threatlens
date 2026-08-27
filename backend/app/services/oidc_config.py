@@ -47,6 +47,7 @@ def provider_response(provider: OIDCProvider | None) -> OIDCProviderResponse:
     if provider is None:
         return OIDCProviderResponse(
             configured=False,
+            config_revision=0,
             name="Company SSO",
             enabled=False,
             issuer_url="",
@@ -69,6 +70,7 @@ def provider_response(provider: OIDCProvider | None) -> OIDCProviderResponse:
     return OIDCProviderResponse(
         id=provider.id,
         configured=True,
+        config_revision=provider.config_revision,
         name=provider.name,
         enabled=provider.enabled,
         issuer_url=provider.issuer_url,
