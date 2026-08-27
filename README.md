@@ -135,6 +135,7 @@ Update to the latest published images:
 
 ```bash
 docker compose pull
+docker compose stop api beat worker worker-ai worker-maintenance worker-notifications
 docker compose up -d
 ```
 
@@ -142,8 +143,13 @@ Update to a pinned release:
 
 ```bash
 THREATLENS_IMAGE_TAG=1.0.0 docker compose pull
+docker compose stop api beat worker worker-ai worker-maintenance worker-notifications
 THREATLENS_IMAGE_TAG=1.0.0 docker compose up -d
 ```
+
+Stopping every API and worker process before recreation is required for schema
+compatibility. PostgreSQL, Redis, and the web proxy may remain running; the web
+interface will report the brief API outage until the matching release starts.
 
 Check services:
 

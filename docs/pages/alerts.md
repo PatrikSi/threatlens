@@ -103,6 +103,12 @@ application version to every worker; then resume queues. Web/API nodes may overl
 briefly after the migration because the database triggers protect rule writes and
 event routing, but evaluation workers must not overlap across versions.
 
+Downgrade refuses to remove Alerting v2 while an evaluation is nonterminal or a
+schema-3 alert event is still pending, routing, or retryable. Let those records
+finish or explicitly dead-letter them before retrying; the guard prevents a
+rollback from silently deleting accepted work that the older application cannot
+resume.
+
 Administrators can preview and apply bounded historical reconciliation. Preview
 tokens are short-lived, actor-bound snapshots with keyset cursors. Applying a
 preview is idempotent, never enables notifications, and may be repeated page by page.

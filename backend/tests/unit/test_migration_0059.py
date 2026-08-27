@@ -607,6 +607,7 @@ def test_alerting_v2_populated_upgrade_downgrade_has_explicit_future_cutover(
 
             with schema_engine.begin() as connection:
                 request_id = uuid.uuid4()
+                pending_request_id = uuid.uuid4()
                 occurrence_id = uuid.uuid4()
                 connection.execute(
                     text(
@@ -615,6 +616,18 @@ def test_alerting_v2_populated_upgrade_downgrade_has_explicit_future_cutover(
                         "VALUES (:id, :item_id, :content_hash, 'succeeded', CURRENT_TIMESTAMP)"
                     ),
                     {"id": request_id, "item_id": item_id, "content_hash": "a" * 64},
+                )
+                connection.execute(
+                    text(
+                        "INSERT INTO alert_evaluation_requests "
+                        "(id, item_id, item_content_hash, state) "
+                        "VALUES (:id, :item_id, :content_hash, 'pending')"
+                    ),
+                    {
+                        "id": pending_request_id,
+                        "item_id": new_item_id,
+                        "content_hash": "b" * 64,
+                    },
                 )
                 connection.execute(
                     text(
@@ -639,6 +652,53 @@ def test_alerting_v2_populated_upgrade_downgrade_has_explicit_future_cutover(
                         "(id, occurrence_id, action) VALUES (:id, :occurrence_id, 'created')"
                     ),
                     {"id": uuid.uuid4(), "occurrence_id": occurrence_id},
+                )
+
+            with pytest.raises(DBAPIError, match="alert evaluations are nonterminal"):
+                command.downgrade(config, "0058_investigations")
+            with schema_engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "UPDATE alert_evaluation_requests "
+                        "SET state = 'dead_letter', completed_at = CURRENT_TIMESTAMP "
+                        "WHERE id = :id"
+                    ),
+                    {"id": pending_request_id},
+                )
+                pending_schema_3_event_id = uuid.uuid4()
+                connection.execute(
+                    text(
+                        "INSERT INTO integration_events "
+                        "(id, event_type, schema_version, source_type, source_id, "
+                        "idempotency_key, payload_json, routing_state) VALUES "
+                        "(:id, 'alert_match', 3, 'item', :source_id, :key, "
+                        "CAST(:payload AS json), 'pending')"
+                    ),
+                    {
+                        "id": pending_schema_3_event_id,
+                        "source_id": str(item_id),
+                        "key": f"pending-schema-3-alert:{pending_schema_3_event_id}",
+                        "payload": json.dumps(
+                            {
+                                "schema_version": 3,
+                                "item_id": str(item_id),
+                                "owner_user_id": str(user_id),
+                                "evaluation_request_id": str(request_id),
+                            }
+                        ),
+                    },
+                )
+
+            with pytest.raises(DBAPIError, match="schema-3 alert events are nonterminal"):
+                command.downgrade(config, "0058_investigations")
+            with schema_engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "UPDATE integration_events "
+                        "SET routing_state = 'routed', routed_at = CURRENT_TIMESTAMP "
+                        "WHERE id = :id"
+                    ),
+                    {"id": pending_schema_3_event_id},
                 )
 
             command.downgrade(config, "0058_investigations")
