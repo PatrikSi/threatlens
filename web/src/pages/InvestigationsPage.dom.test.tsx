@@ -78,6 +78,7 @@ const baseDetail: InvestigationDetail = {
     },
   ],
   evidence: [],
+  evidence_truncated: false,
   notes: [
     {
       id: 'note-1',
@@ -251,6 +252,15 @@ describe('InvestigationsPage DOM workflows', () => {
           ? Promise.reject(new ApiError('The investigation changed after you loaded it.', 409, path))
           : Promise.resolve(saved)
       }
+      if (path.includes(`/investigations/${baseDetail.id}/notes?page=`)) {
+        const source = noteWrites > 1 ? saved : refreshed
+        return Promise.resolve({
+          notes: source.notes,
+          total: source.note_count,
+          page: 1,
+          page_size: 25,
+        })
+      }
       if (path === `/investigations/${baseDetail.id}`) return Promise.resolve(refreshed)
       return Promise.reject(new Error(`Unexpected request: ${path}`))
     })
@@ -276,7 +286,22 @@ describe('InvestigationsPage DOM workflows', () => {
 
   it('requires confirmation and sends both versions when removing a note', async () => {
     const withoutNote = { ...baseDetail, version: 8, note_count: 0, notes: [] }
-    domMocks.apiFetch.mockResolvedValue(withoutNote)
+    let removed = false
+    domMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
+      if (path.includes(`/investigations/${baseDetail.id}/notes?page=`)) {
+        return Promise.resolve({
+          notes: removed ? [] : baseDetail.notes,
+          total: removed ? 0 : 1,
+          page: 1,
+          page_size: 25,
+        })
+      }
+      if (path.includes('/notes/note-1') && options?.method === 'DELETE') {
+        removed = true
+        return Promise.resolve(withoutNote)
+      }
+      return Promise.reject(new Error(`Unexpected request: ${path}`))
+    })
     await renderDetail(baseDetail, '?tab=notes')
 
     act(() => findButton('Remove')?.click())
@@ -298,13 +323,23 @@ describe('InvestigationsPage DOM workflows', () => {
   })
 
   it('keeps a failed destructive action open and shows its actionable error in the dialog', async () => {
-    domMocks.apiFetch.mockRejectedValue(new ApiError(
-      'The note changed after you loaded it. Refresh and review the latest version.',
-      409,
-      `/investigations/${baseDetail.id}/notes/note-1`,
-      null,
-      { code: 'investigation_note_version_conflict' },
-    ))
+    domMocks.apiFetch.mockImplementation((path: string) => {
+      if (path.includes(`/investigations/${baseDetail.id}/notes?page=`)) {
+        return Promise.resolve({
+          notes: baseDetail.notes,
+          total: 1,
+          page: 1,
+          page_size: 25,
+        })
+      }
+      return Promise.reject(new ApiError(
+        'The note changed after you loaded it. Refresh and review the latest version.',
+        409,
+        `/investigations/${baseDetail.id}/notes/note-1`,
+        null,
+        { code: 'investigation_note_version_conflict' },
+      ))
+    })
     await renderDetail(baseDetail, '?tab=notes')
 
     act(() => findButton('Remove')?.click())
@@ -377,6 +412,9 @@ describe('InvestigationsPage DOM workflows', () => {
     expect(pageText()).toContain('responder@example.com')
     const finalOwnerButton = findButton('Final owner')
     expect(finalOwnerButton?.disabled).toBe(true)
+    expect(pageText()).toContain(
+      'This is the final owner. Add another owner before changing or removing this member.',
+    )
     const candidate = document.querySelector<HTMLInputElement>('input[value="user-2"]')
     act(() => candidate?.click())
     act(() => findButton('Add member')?.click())
@@ -385,6 +423,282 @@ describe('InvestigationsPage DOM workflows', () => {
     const addCall = domMocks.apiFetch.mock.calls.find((call) => call[0].endsWith('/members') && call[1]?.method === 'POST')
     expect(JSON.parse(addCall?.[1].body as string)).toEqual({ user_id: 'user-2', role: 'viewer', expected_version: 7 })
     expect(pageText()).toContain('Member added.')
+  })
+
+  it('requires explicit confirmation before reducing an investigation member role', async () => {
+    const detail = {
+      ...baseDetail,
+      member_count: 3,
+      members: [
+        ...baseDetail.members,
+        {
+          user_id: 'user-2',
+          email: 'owner-two@example.com',
+          role: 'owner' as const,
+          created_at: '2026-08-21T09:00:00Z',
+        },
+        {
+          user_id: 'user-3',
+          email: 'editor@example.com',
+          role: 'editor' as const,
+          created_at: '2026-08-22T09:00:00Z',
+        },
+      ],
+    }
+    const updated = {
+      ...detail,
+      version: 8,
+      members: detail.members.map((member) =>
+        member.user_id === 'user-3' ? { ...member, role: 'viewer' as const } : member,
+      ),
+    }
+    domMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
+      if (path.startsWith('/investigations/member-candidates')) {
+        return Promise.resolve({ users: [], total: 0, page: 1, page_size: 20 })
+      }
+      if (path.endsWith('/members/user-3') && options?.method === 'PATCH') {
+        return Promise.resolve(updated)
+      }
+      return Promise.reject(new Error(`Unexpected request: ${path}`))
+    })
+    await renderDetail(detail, '?tab=members')
+    await flushRequests(2)
+
+    const role = document.querySelector<HTMLSelectElement>('#investigation-member-role-user-3')!
+    act(() => setSelectValue(role, 'viewer'))
+
+    const dialog = document.querySelector('[role="alertdialog"]')
+    expect(dialog?.textContent).toContain('Reduce investigation access?')
+    expect(dialog?.textContent).toContain('Editor to Viewer')
+    expect(
+      domMocks.apiFetch.mock.calls.some(
+        ([path, options]) => path.endsWith('/members/user-3') && options?.method === 'PATCH',
+      ),
+    ).toBe(false)
+
+    const confirm = Array.from(dialog?.querySelectorAll<HTMLButtonElement>('button') ?? []).find(
+      (button) => button.textContent === 'Change member role',
+    )
+    act(() => confirm?.click())
+    await flushRequests()
+
+    const roleChange = domMocks.apiFetch.mock.calls.find(
+      ([path, options]) => path.endsWith('/members/user-3') && options?.method === 'PATCH',
+    )
+    expect(JSON.parse(roleChange?.[1].body as string)).toEqual({
+      role: 'viewer',
+      expected_version: 7,
+    })
+    expect(pageText()).toContain('Member role updated.')
+  })
+
+  it('uses the paginated evidence API with mobile-safe page controls', async () => {
+    const paginatedDetail = {
+      ...baseDetail,
+      evidence_count: 201,
+      evidence_truncated: true,
+      evidence: [],
+    }
+    domMocks.apiFetch.mockImplementation((path: string) => {
+      if (path.includes('/evidence?page=1&page_size=25')) {
+        return Promise.resolve({
+          evidence: Array.from({ length: 25 }, (_, index) =>
+            evidenceRecord(index + 1, `Evidence page one ${index + 1}`),
+          ),
+          total: 201,
+          page: 1,
+          page_size: 25,
+        })
+      }
+      if (path.includes('/evidence?page=2&page_size=25')) {
+        return Promise.resolve({
+          evidence: Array.from({ length: 25 }, (_, index) =>
+            evidenceRecord(index + 26, `Evidence page two ${index + 1}`),
+          ),
+          total: 201,
+          page: 2,
+          page_size: 25,
+        })
+      }
+      return Promise.reject(new Error(`Unexpected request: ${path}`))
+    })
+    await renderDetailWithCollectionFetch(paginatedDetail, '?tab=evidence')
+    await flushRequests(2)
+
+    expect(domMocks.apiFetch).toHaveBeenCalledWith(
+      `/investigations/${baseDetail.id}/evidence?page=1&page_size=25`,
+    )
+    expect(pageText()).toContain('Evidence page one 1')
+    expect(pageText()).toContain('1-25 of 201 · Page 1 of 9')
+    const next = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="Next page of evidence"]',
+    )
+    expect(next?.className).toContain('min-h-11')
+    expect(next?.className).toContain('sm:min-h-0')
+    expect(next?.parentElement?.className).toContain('grid-cols-2')
+
+    act(() => next?.click())
+    await flushRequests(2)
+
+    expect(domMocks.apiFetch).toHaveBeenCalledWith(
+      `/investigations/${baseDetail.id}/evidence?page=2&page_size=25`,
+    )
+    expect(pageText()).toContain('Evidence page two 1')
+    expect(pageText()).not.toContain('Evidence page one 1')
+    expect(pageText()).toContain('26-50 of 201 · Page 2 of 9')
+  })
+
+  it('describes a truncated collection while its complete first page is loading', async () => {
+    domMocks.apiFetch.mockImplementation(() => new Promise(() => {}))
+    await renderDetailWithCollectionFetch(
+      {
+        ...baseDetail,
+        evidence_count: 201,
+        evidence_truncated: true,
+      },
+      '?tab=evidence',
+    )
+
+    expect(document.querySelector('[role="status"]')?.textContent).toContain(
+      'Loading the first page of 201 evidence',
+    )
+  })
+
+  it('offers retry after an initial notes failure without showing a false empty state', async () => {
+    let reads = 0
+    domMocks.apiFetch.mockImplementation((path: string) => {
+      if (!path.includes('/notes?page=1&page_size=25')) {
+        return Promise.reject(new Error(`Unexpected request: ${path}`))
+      }
+      reads += 1
+      return reads === 1
+        ? Promise.reject(new Error('notes storage timed out'))
+        : Promise.resolve({ notes: [], total: 0, page: 1, page_size: 25 })
+    })
+    await renderDetailWithCollectionFetch(
+      { ...baseDetail, note_count: 0, notes: [] },
+      '?tab=notes',
+    )
+    await flushRequests(2)
+
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain(
+      'notes storage timed out',
+    )
+    expect(pageText()).not.toContain('No analyst notes have been recorded')
+    act(() => findButton('Retry analyst notes')?.click())
+    await flushRequests(2)
+
+    expect(reads).toBe(2)
+    expect(pageText()).toContain('No analyst notes have been recorded')
+    expect(pageText()).not.toContain('The last loaded page remains visible')
+  })
+
+  it('keeps a stale notes page visible after a refresh failure', async () => {
+    const staleNote = { ...baseDetail.notes[0], body: 'Last loaded analyst context' }
+    const client = createQueryClient()
+    client.setQueryData(['investigations', 'detail', baseDetail.id], baseDetail)
+    client.setQueryData(
+      ['investigations', 'notes', baseDetail.id, 1],
+      { notes: [staleNote], total: 1, page: 1, page_size: 25 },
+      { updatedAt: 1 },
+    )
+    domMocks.apiFetch.mockRejectedValue(new Error('notes refresh unavailable'))
+    await renderAt(`/investigations/${baseDetail.id}?tab=notes`, true, client)
+    await flushRequests(2)
+
+    expect(pageText()).toContain('Last loaded analyst context')
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain(
+      'notes refresh unavailable',
+    )
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain(
+      'The last loaded page remains visible',
+    )
+  })
+
+  it('fails closed instead of showing a cached notes page after collection access is denied', async () => {
+    const client = createQueryClient()
+    client.setQueryData(['investigations', 'detail', baseDetail.id], baseDetail)
+    client.setQueryData(
+      ['investigations', 'notes', baseDetail.id, 1],
+      {
+        notes: [{ ...baseDetail.notes[0], body: 'Sensitive cached note' }],
+        total: 1,
+        page: 1,
+        page_size: 25,
+      },
+      { updatedAt: 1 },
+    )
+    domMocks.apiFetch.mockRejectedValue(
+      new ApiError('Investigation access is no longer available.', 403, '/investigations/notes'),
+    )
+    await renderAt(`/investigations/${baseDetail.id}?tab=notes`, true, client)
+    await flushRequests(2)
+
+    expect(pageText()).not.toContain('Sensitive cached note')
+    expect(document.querySelector('#investigation-new-note')).toBeNull()
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain(
+      'Investigation access is no longer available',
+    )
+  })
+
+  it('edits a paginated note with its page version and refreshes that page after saving', async () => {
+    const olderNote = {
+      ...baseDetail.notes[0],
+      id: 'older-note',
+      body: 'Historical working theory',
+      version: 11,
+    }
+    const updatedDetail = {
+      ...baseDetail,
+      version: 8,
+      note_count: 201,
+      notes_truncated: true,
+      notes: [],
+    }
+    let saved = false
+    let noteReads = 0
+    domMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
+      if (path.includes('/notes?page=1&page_size=25')) {
+        noteReads += 1
+        return Promise.resolve({
+          notes: [
+            saved
+              ? { ...olderNote, body: 'Revised historical theory', version: 12 }
+              : olderNote,
+          ],
+          total: 201,
+          page: 1,
+          page_size: 25,
+        })
+      }
+      if (path.endsWith('/notes/older-note') && options?.method === 'PATCH') {
+        saved = true
+        return Promise.resolve(updatedDetail)
+      }
+      return Promise.reject(new Error(`Unexpected request: ${path}`))
+    })
+    await renderDetailWithCollectionFetch(updatedDetail, '?tab=notes')
+    await flushRequests(2)
+
+    act(() => findButton('Edit')?.click())
+    const editor = document.querySelector<HTMLTextAreaElement>(
+      '#investigation-note-edit-older-note',
+    )
+    act(() => setTextAreaValue(editor!, 'Revised historical theory'))
+    act(() => findButton('Save note')?.click())
+    await flushRequests(3)
+
+    const update = domMocks.apiFetch.mock.calls.find(
+      ([path, options]) => path.endsWith('/notes/older-note') && options?.method === 'PATCH',
+    )
+    expect(JSON.parse(update?.[1].body as string)).toEqual({
+      body: 'Revised historical theory',
+      expected_note_version: 11,
+      expected_investigation_version: 8,
+    })
+    expect(noteReads).toBeGreaterThanOrEqual(2)
+    expect(pageText()).toContain('Revised historical theory')
+    expect(pageText()).toContain('Note updated.')
   })
 
   it('preserves alert occurrence evidence input and marks the capability unavailable after the explicit API response', async () => {
@@ -456,6 +770,24 @@ describe('InvestigationsPage DOM workflows', () => {
 })
 
 async function renderDetail(detail: InvestigationDetail, suffix = '') {
+  const client = createQueryClient()
+  client.setQueryData(['investigations', 'detail', detail.id], detail)
+  client.setQueryData(['investigations', 'evidence', detail.id, 1], {
+    evidence: detail.evidence.slice(0, 25),
+    total: detail.evidence_count,
+    page: 1,
+    page_size: 25,
+  })
+  client.setQueryData(['investigations', 'notes', detail.id, 1], {
+    notes: detail.notes.slice(0, 25),
+    total: detail.note_count,
+    page: 1,
+    page_size: 25,
+  })
+  return renderAt(`/investigations/${detail.id}${suffix}`, true, client)
+}
+
+async function renderDetailWithCollectionFetch(detail: InvestigationDetail, suffix: string) {
   const client = createQueryClient()
   client.setQueryData(['investigations', 'detail', detail.id], detail)
   return renderAt(`/investigations/${detail.id}${suffix}`, true, client)
@@ -544,4 +876,19 @@ function setSelectValue(select: HTMLSelectElement, value: string) {
   const descriptor = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value')
   descriptor?.set?.call(select, value)
   select.dispatchEvent(new Event('change', { bubbles: true }))
+}
+
+function evidenceRecord(index: number, title: string) {
+  return {
+    id: `evidence-${index}`,
+    source_type: 'ioc' as const,
+    source_id: `source-${index}`,
+    title_snapshot: title,
+    description_snapshot: null,
+    url_snapshot: null,
+    metadata_snapshot: {},
+    note: null,
+    added_by_user_id: 'user-1',
+    created_at: '2026-08-27T12:00:00Z',
+  }
 }

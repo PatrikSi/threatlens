@@ -83,6 +83,7 @@ export interface InvestigationSummary {
 export interface InvestigationDetail extends InvestigationSummary {
   members: InvestigationMember[]
   evidence: InvestigationEvidence[]
+  evidence_truncated: boolean
   notes: InvestigationNote[]
   notes_truncated: boolean
 }
@@ -96,6 +97,20 @@ export interface InvestigationListResponse {
 
 export interface InvestigationActivityListResponse {
   activities: InvestigationActivity[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export interface InvestigationEvidenceListResponse {
+  evidence: InvestigationEvidence[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export interface InvestigationNoteListResponse {
+  notes: InvestigationNote[]
   total: number
   page: number
   page_size: number

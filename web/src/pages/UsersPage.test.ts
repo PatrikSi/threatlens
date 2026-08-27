@@ -53,6 +53,7 @@ describe('buildUserSettingsConfirmation', () => {
       'This grants full administrative access across user management, global settings, and operational controls.',
       'Sign-in will be blocked until the account is reactivated.',
       'The account will return to pending approval.',
+      'All existing browser sessions and API tokens will be revoked so the updated access policy takes effect.',
     ])
   })
 
@@ -92,6 +93,23 @@ describe('buildUserSettingsConfirmation', () => {
       'You are sending your own account back to pending approval. Another admin must approve it before you can sign in again.',
     ])
   })
+
+  it('binds privileged and credential changes to the loaded security version', () => {
+    const versionedUser = { ...BASE_USER, security_version: 12 }
+    expect(
+      buildUserSettingsConfirmation(versionedUser, {
+        role: 'admin',
+        isActive: true,
+        isApproved: true,
+      })?.payload,
+    ).toEqual({ role: 'admin', expected_security_version: 12 })
+    expect(
+      buildPasswordResetConfirmation(versionedUser, 'new-password')?.payload,
+    ).toEqual({
+      password: 'new-password',
+      expected_security_version: 12,
+    })
+  })
 })
 
 describe('resolveSelfLockoutWarnings', () => {
@@ -124,20 +142,32 @@ describe('buildPasswordResetConfirmation', () => {
   })
 
   it('describes the operational impact of resetting a password', () => {
-    const confirmation = buildPasswordResetConfirmation(BASE_USER, ' replaced-password ')
+    const confirmation = buildPasswordResetConfirmation(
+      BASE_USER,
+      ' replaced-password ',
+    )
 
     expect(confirmation).toMatchObject({
       title: 'Reset user password?',
       confirmLabel: 'Reset password',
       confirmTone: 'primary',
-      payload: { password: 'replaced-password' },
+      payload: { password: ' replaced-password ' },
     })
     expect(confirmation?.details).toEqual([
       'You are updating credentials for analyst@example.com.',
       'The current password will stop working as soon as you confirm.',
-      'The new password meets the minimum length requirement with 17 characters.',
+      'The new password meets the minimum length requirement with 19 characters.',
+      'All existing browser sessions and API tokens will be revoked. The user must sign in again.',
       'Share the new password through a secure channel.',
     ])
+  })
+
+  it('preserves leading and trailing password characters exactly', () => {
+    expect(
+      buildPasswordResetConfirmation(BASE_USER, ' 123456 ')?.payload,
+    ).toEqual({
+      password: ' 123456 ',
+    })
   })
 })
 
@@ -186,29 +216,33 @@ describe('syncUserSettingsDrafts', () => {
     ]
 
     expect(
-      syncUserSettingsDrafts(nextUsers, {
-        'user-1': {
-          role: 'admin',
-          isActive: false,
-          isApproved: true,
+      syncUserSettingsDrafts(
+        nextUsers,
+        {
+          'user-1': {
+            role: 'admin',
+            isActive: false,
+            isApproved: true,
+          },
+          'user-2': {
+            role: 'viewer',
+            isActive: true,
+            isApproved: true,
+          },
         },
-        'user-2': {
-          role: 'viewer',
-          isActive: true,
-          isApproved: true,
+        {
+          'user-1': {
+            role: 'analyst',
+            isActive: true,
+            isApproved: true,
+          },
+          'user-2': {
+            role: 'viewer',
+            isActive: true,
+            isApproved: true,
+          },
         },
-      }, {
-        'user-1': {
-          role: 'analyst',
-          isActive: true,
-          isApproved: true,
-        },
-        'user-2': {
-          role: 'viewer',
-          isActive: true,
-          isApproved: true,
-        },
-      }),
+      ),
     ).toEqual({
       drafts: {
         'user-1': {
@@ -234,6 +268,50 @@ describe('syncUserSettingsDrafts', () => {
           isApproved: true,
         },
       },
+      conflicts: {},
+    })
+  })
+
+  it('adopts unrelated server changes and blocks overlapping operator changes', () => {
+    const previousBaseline = {
+      role: 'analyst' as const,
+      isActive: true,
+      isApproved: true,
+    }
+    const result = syncUserSettingsDrafts(
+      [
+        {
+          ...BASE_USER,
+          role: 'viewer',
+          is_active: false,
+        },
+      ],
+      {
+        'user-1': {
+          role: 'admin',
+          isActive: true,
+          isApproved: false,
+        },
+      },
+      { 'user-1': previousBaseline },
+    )
+
+    expect(result.drafts['user-1']).toEqual({
+      role: 'admin',
+      isActive: false,
+      isApproved: false,
+    })
+    expect(result.conflicts['user-1']).toEqual({
+      serverDraft: { role: 'viewer', isActive: false, isApproved: true },
+      reappliedDraft: { role: 'admin', isActive: false, isApproved: false },
+      overlappingFields: [
+        {
+          field: 'role',
+          label: 'Role',
+          serverValue: 'viewer',
+          operatorValue: 'admin',
+        },
+      ],
     })
   })
 })

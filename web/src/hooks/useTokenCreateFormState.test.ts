@@ -16,7 +16,10 @@ describe('reduceTokenCreateFormState', () => {
       },
     }
 
-    expect(reduceTokenCreateFormState(stateWithToken, { type: 'createStarted' }).createdToken).toBeNull()
+    expect(
+      reduceTokenCreateFormState(stateWithToken, { type: 'createStarted' })
+        .createdToken,
+    ).toBeNull()
   })
 
   it('clears a previously created token after a failed retry', () => {
@@ -29,6 +32,26 @@ describe('reduceTokenCreateFormState', () => {
       },
     }
 
-    expect(reduceTokenCreateFormState(stateWithToken, { type: 'createFailed' }).createdToken).toBeNull()
+    expect(
+      reduceTokenCreateFormState(stateWithToken, { type: 'createFailed' })
+        .createdToken,
+    ).toBeNull()
+  })
+
+  it('removes an acknowledged one-time token from state', () => {
+    const stateWithToken = {
+      ...createInitialTokenCreateFormState(),
+      createdToken: {
+        token: 'tl_secret',
+        token_prefix: 'tl_secret',
+        expires_at: null,
+      },
+    }
+
+    expect(
+      reduceTokenCreateFormState(stateWithToken, {
+        type: 'dismissCreatedToken',
+      }).createdToken,
+    ).toBeNull()
   })
 })

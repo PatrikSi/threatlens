@@ -25,6 +25,10 @@ export function InvestigationMembersPanel({
   const [selectedUserId, setSelectedUserId] = useState('')
   const [newMemberRole, setNewMemberRole] = useState<InvestigationMemberRole>('viewer')
   const [pendingRemoval, setPendingRemoval] = useState<InvestigationMember | null>(null)
+  const [pendingRoleChange, setPendingRoleChange] = useState<{
+    member: InvestigationMember
+    role: InvestigationMemberRole
+  } | null>(null)
   if (!detail || !controller.access) return null
 
   const candidateResponse = controller.memberCandidatesQuery.data
@@ -38,6 +42,15 @@ export function InvestigationMembersPanel({
     controller.mutation.variables?.kind === 'remove-member' &&
     controller.mutation.variables.userId === pendingRemoval.user_id
       ? resolveApiErrorMessage(controller.mutation.error, 'Member could not be removed', {
+          retryGuidance: 'Review the member list and try again.',
+        })
+      : null
+  const roleChangeError =
+    pendingRoleChange &&
+    controller.mutation.isError &&
+    controller.mutation.variables?.kind === 'update-member' &&
+    controller.mutation.variables.userId === pendingRoleChange.member.user_id
+      ? resolveApiErrorMessage(controller.mutation.error, 'Member role could not be changed', {
           retryGuidance: 'Review the member list and try again.',
         })
       : null
@@ -158,14 +171,43 @@ export function InvestigationMembersPanel({
         currentUserId={controller.currentUserQuery.data?.id}
         canManage={controller.access.canManageMembers}
         pending={controller.mutation.isPending}
-        onRoleChange={(member, role) =>
+        onRoleChange={(member, role) => {
+          if (isAccessReducingRoleChange(member.role, role)) {
+            setPendingRoleChange({ member, role })
+            return
+          }
           controller.mutation.mutate({
             kind: 'update-member',
             userId: member.user_id,
             role,
           })
-        }
+        }}
         onRemove={setPendingRemoval}
+      />
+
+      <InvestigationConfirmDialog
+        open={Boolean(pendingRoleChange)}
+        title="Reduce investigation access?"
+        description={
+          pendingRoleChange
+            ? `Change ${pendingRoleChange.member.email} from ${roleLabel(pendingRoleChange.member.role)} to ${roleLabel(pendingRoleChange.role)}? They will immediately lose the permissions provided by their current role.`
+            : undefined
+        }
+        confirmLabel="Change member role"
+        isConfirming={controller.mutation.isPending}
+        error={roleChangeError}
+        onCancel={() => setPendingRoleChange(null)}
+        onConfirm={() => {
+          if (!pendingRoleChange) return
+          controller.mutation.mutate(
+            {
+              kind: 'update-member',
+              userId: pendingRoleChange.member.user_id,
+              role: pendingRoleChange.role,
+            },
+            { onSuccess: () => setPendingRoleChange(null) },
+          )
+        }}
       />
 
       <InvestigationConfirmDialog
@@ -291,6 +333,7 @@ function MembersList({
     <div className="mt-4 divide-y divide-slate/15 border-y border-slate/15 dark:divide-white/10 dark:border-white/10">
       {members.map((member) => {
         const finalOwner = isFinalInvestigationOwner(members, member.user_id)
+        const finalOwnerDescriptionId = `investigation-final-owner-${member.user_id}`
         return (
           <article
             key={member.user_id}
@@ -304,6 +347,14 @@ function MembersList({
               <p className="mt-0.5 text-xs text-slate dark:text-slate-400">
                 Added <time dateTime={member.created_at}>{formatDateTime(member.created_at)}</time>
               </p>
+              {canManage && finalOwner && (
+                <p
+                  id={finalOwnerDescriptionId}
+                  className="mt-1 text-xs font-medium text-amber-800 dark:text-amber-200"
+                >
+                  This is the final owner. Add another owner before changing or removing this member.
+                </p>
+              )}
             </div>
             {canManage ? (
               <div>
@@ -315,7 +366,7 @@ function MembersList({
                   className="min-h-11 w-full rounded border border-slate/30 bg-white px-2 py-2 text-sm disabled:opacity-60 md:min-h-0 md:py-1.5 dark:border-cyan-900/40 dark:bg-[#072019]"
                   value={member.role}
                   disabled={pending || finalOwner}
-                  title={finalOwner ? 'Add another owner before changing this owner.' : undefined}
+                  aria-describedby={finalOwner ? finalOwnerDescriptionId : undefined}
                   onChange={(event) =>
                     onRoleChange(member, event.target.value as InvestigationMemberRole)
                   }
@@ -335,7 +386,7 @@ function MembersList({
                 type="button"
                 className="min-h-11 rounded border border-slate/20 px-3 py-2 text-sm font-semibold text-red-700 disabled:opacity-50 md:min-h-0 md:py-1.5 dark:border-white/10 dark:text-red-300"
                 disabled={pending || finalOwner}
-                title={finalOwner ? 'The final owner cannot be removed.' : undefined}
+                aria-describedby={finalOwner ? finalOwnerDescriptionId : undefined}
                 aria-label={
                   finalOwner
                     ? `${member.email} is the final investigation owner`
@@ -353,4 +404,20 @@ function MembersList({
       })}
     </div>
   )
+}
+
+function isAccessReducingRoleChange(
+  currentRole: InvestigationMemberRole,
+  nextRole: InvestigationMemberRole,
+): boolean {
+  const rank: Record<InvestigationMemberRole, number> = {
+    viewer: 1,
+    editor: 2,
+    owner: 3,
+  }
+  return rank[nextRole] < rank[currentRole]
+}
+
+function roleLabel(role: InvestigationMemberRole): string {
+  return MEMBER_ROLES.find((candidate) => candidate.value === role)?.label ?? role
 }

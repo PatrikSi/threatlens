@@ -6,6 +6,7 @@ import {
   buildInvestigationListPath,
   canEditInvestigationNote,
   formatInvestigationActivityAction,
+  investigationCollectionPageCount,
   isAlertOccurrenceUnavailable,
   isFinalInvestigationOwner,
   isInvestigationVersionConflict,
@@ -117,5 +118,12 @@ describe('investigation page model', () => {
     expect(safeInvestigationExternalUrl('http://local.example/report')).toBe('http://local.example/report')
     expect(safeInvestigationExternalUrl('javascript:alert(1)')).toBeNull()
     expect(safeInvestigationExternalUrl('/relative/path')).toBeNull()
+  })
+
+  it('bounds collection page counts for empty and malformed totals', () => {
+    expect(investigationCollectionPageCount(51, 25)).toBe(3)
+    expect(investigationCollectionPageCount(0, 25)).toBe(1)
+    expect(investigationCollectionPageCount(-1, 25)).toBe(1)
+    expect(investigationCollectionPageCount(20, 0)).toBe(1)
   })
 })

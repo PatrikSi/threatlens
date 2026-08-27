@@ -7,16 +7,21 @@ import { useCurrentUser } from '../hooks/useCurrentUser'
 import type {
   InvestigationActivityListResponse,
   InvestigationDetail,
+  InvestigationEvidenceListResponse,
   InvestigationEvidenceType,
   InvestigationMemberCandidateListResponse,
   InvestigationMemberRole,
+  InvestigationNoteListResponse,
   InvestigationSeverity,
   InvestigationUpdateRequest,
   InvestigationVisibility,
 } from '../types/investigations'
 import {
   INVESTIGATION_ACTIVITY_PAGE_SIZE,
+  INVESTIGATION_EVIDENCE_PAGE_SIZE,
   INVESTIGATION_MEMBER_PAGE_SIZE,
+  INVESTIGATION_NOTE_PAGE_SIZE,
+  investigationCollectionPageCount,
   isAlertOccurrenceUnavailable,
   isInvestigationVersionConflict,
   readInvestigationTab,
@@ -45,8 +50,8 @@ export type InvestigationMutationOperation =
   | { kind: 'add-evidence'; sourceType: InvestigationEvidenceType; sourceId: string; note: string }
   | { kind: 'remove-evidence'; evidenceId: string }
   | { kind: 'add-note'; body: string }
-  | { kind: 'update-note'; noteId: string; body: string }
-  | { kind: 'remove-note'; noteId: string }
+  | { kind: 'update-note'; noteId: string; noteVersion: number; body: string }
+  | { kind: 'remove-note'; noteId: string; noteVersion: number }
 
 const EMPTY_OVERVIEW_DRAFT: InvestigationOverviewDraft = {
   title: '',
@@ -78,9 +83,16 @@ export function useInvestigationDetail(investigationId: string) {
   const [memberSearch, setMemberSearch] = useState('')
   const [debouncedMemberSearch, setDebouncedMemberSearch] = useState('')
   const [memberPage, setMemberPage] = useState(1)
+  const [evidencePage, setEvidencePage] = useState(1)
+  const [notePage, setNotePage] = useState(1)
   const [activityPage, setActivityPage] = useState(1)
   const [conflictNotice, setConflictNotice] = useState<string | null>(null)
   const [successNotice, setSuccessNotice] = useState<string | null>(null)
+
+  useEffect(() => {
+    setEvidencePage(1)
+    setNotePage(1)
+  }, [investigationId])
 
   const detailQuery = useQuery({
     queryKey: detailKey,
@@ -133,6 +145,40 @@ export function useInvestigationDetail(investigationId: string) {
     return (memberCandidatesQuery.data?.users ?? []).filter((candidate) => !memberIds.has(candidate.id))
   }, [detail?.members, memberCandidatesQuery.data?.users])
 
+  const evidenceQuery = useQuery({
+    queryKey: ['investigations', 'evidence', investigationId, evidencePage],
+    queryFn: () =>
+      apiFetch<InvestigationEvidenceListResponse>(
+        `/investigations/${investigationId}/evidence?page=${evidencePage}&page_size=${INVESTIGATION_EVIDENCE_PAGE_SIZE}`,
+      ),
+    enabled: Boolean(detail && activeTab === 'evidence'),
+    staleTime: 15_000,
+  })
+
+  const notesQuery = useQuery({
+    queryKey: ['investigations', 'notes', investigationId, notePage],
+    queryFn: () =>
+      apiFetch<InvestigationNoteListResponse>(
+        `/investigations/${investigationId}/notes?page=${notePage}&page_size=${INVESTIGATION_NOTE_PAGE_SIZE}`,
+      ),
+    enabled: Boolean(detail && activeTab === 'notes'),
+    staleTime: 15_000,
+  })
+
+  useEffect(() => {
+    const total = evidenceQuery.data?.total ?? detail?.evidence_count
+    if (total === undefined) return
+    const lastPage = investigationCollectionPageCount(total, INVESTIGATION_EVIDENCE_PAGE_SIZE)
+    setEvidencePage((current) => Math.min(current, lastPage))
+  }, [detail?.evidence_count, evidenceQuery.data?.total])
+
+  useEffect(() => {
+    const total = notesQuery.data?.total ?? detail?.note_count
+    if (total === undefined) return
+    const lastPage = investigationCollectionPageCount(total, INVESTIGATION_NOTE_PAGE_SIZE)
+    setNotePage((current) => Math.min(current, lastPage))
+  }, [detail?.note_count, notesQuery.data?.total])
+
   const activityQuery = useQuery({
     queryKey: ['investigations', 'activity', investigationId, activityPage],
     queryFn: () =>
@@ -155,6 +201,30 @@ export function useInvestigationDetail(investigationId: string) {
     onSuccess: (updated, operation) => {
       queryClient.setQueryData(detailKey, updated)
       void queryClient.invalidateQueries({ queryKey: ['investigations', 'list'] })
+      if (isEvidenceMutation(operation)) {
+        const lastPage = investigationCollectionPageCount(
+          updated.evidence_count,
+          INVESTIGATION_EVIDENCE_PAGE_SIZE,
+        )
+        setEvidencePage((current) =>
+          operation.kind === 'add-evidence' ? 1 : Math.min(current, lastPage),
+        )
+        void queryClient.invalidateQueries({
+          queryKey: ['investigations', 'evidence', investigationId],
+        })
+      }
+      if (isNoteMutation(operation)) {
+        const lastPage = investigationCollectionPageCount(
+          updated.note_count,
+          INVESTIGATION_NOTE_PAGE_SIZE,
+        )
+        setNotePage((current) =>
+          operation.kind === 'add-note' ? 1 : Math.min(current, lastPage),
+        )
+        void queryClient.invalidateQueries({
+          queryKey: ['investigations', 'notes', investigationId],
+        })
+      }
       if (operation.kind === 'update' && isOverviewFieldUpdate(operation.changes)) {
         const nextOverview = overviewDraftFromDetail(updated)
         setOverviewDraft(nextOverview)
@@ -163,12 +233,22 @@ export function useInvestigationDetail(investigationId: string) {
       resetSuccessfulDraft(operation)
       setSuccessNotice(successMessage(operation))
     },
-    onError: (error) => {
+    onError: (error, operation) => {
       if (isInvestigationVersionConflict(error)) {
         setConflictNotice(
           'This investigation changed after you loaded it. Refresh and review the latest version before retrying. Your unsaved text has been preserved.',
         )
         void queryClient.invalidateQueries({ queryKey: detailKey, exact: true })
+        if (isEvidenceMutation(operation)) {
+          void queryClient.invalidateQueries({
+            queryKey: ['investigations', 'evidence', investigationId],
+          })
+        }
+        if (isNoteMutation(operation)) {
+          void queryClient.invalidateQueries({
+            queryKey: ['investigations', 'notes', investigationId],
+          })
+        }
       }
       if (isAlertOccurrenceUnavailable(error)) setAlertOccurrenceUnavailable(true)
     },
@@ -214,11 +294,15 @@ export function useInvestigationDetail(investigationId: string) {
     editingNoteBody,
     editingNoteId,
     evidenceDraft,
+    evidencePage,
+    evidenceQuery,
     memberCandidatesQuery,
     memberPage,
     memberSearch,
     mutation,
     noteDraft,
+    notePage,
+    notesQuery,
     overviewBaseline,
     overviewDraft,
     overviewDirty,
@@ -228,9 +312,11 @@ export function useInvestigationDetail(investigationId: string) {
     setEditingNoteBody,
     setEditingNoteId,
     setEvidenceDraft,
+    setEvidencePage,
     setMemberPage,
     setMemberSearch,
     setNoteDraft,
+    setNotePage,
     setOverviewDraft,
     successNotice,
   }
@@ -295,11 +381,12 @@ export async function executeInvestigationMutation(
     })
   }
 
-  const latestNote = latest.notes.find((note) => note.id === operation.noteId)
-  if (!latestNote) throw new Error('The note is no longer available. Refresh the investigation before retrying.')
+  if (!Number.isInteger(operation.noteVersion) || operation.noteVersion < 1) {
+    throw new Error('The displayed note version is unavailable. Refresh the note page before retrying.')
+  }
   if (operation.kind === 'remove-note') {
     const params = new URLSearchParams({
-      expected_note_version: String(latestNote.version),
+      expected_note_version: String(operation.noteVersion),
       expected_investigation_version: String(expectedVersion),
     })
     return apiFetch<InvestigationDetail>(`${basePath}/notes/${operation.noteId}?${params.toString()}`, {
@@ -310,7 +397,7 @@ export async function executeInvestigationMutation(
     method: 'PATCH',
     body: JSON.stringify({
       body: operation.body,
-      expected_note_version: latestNote.version,
+      expected_note_version: operation.noteVersion,
       expected_investigation_version: expectedVersion,
     }),
   })
@@ -352,6 +439,16 @@ function successMessage(operation: InvestigationMutationOperation): string {
     'remove-note': 'Note removed.',
   }
   return labels[operation.kind]
+}
+
+function isEvidenceMutation(operation: InvestigationMutationOperation): boolean {
+  return operation.kind === 'add-evidence' || operation.kind === 'remove-evidence'
+}
+
+function isNoteMutation(operation: InvestigationMutationOperation): boolean {
+  return operation.kind === 'add-note'
+    || operation.kind === 'update-note'
+    || operation.kind === 'remove-note'
 }
 
 export type InvestigationDetailController = ReturnType<typeof useInvestigationDetail>
