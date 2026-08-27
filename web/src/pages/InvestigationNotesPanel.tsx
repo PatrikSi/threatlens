@@ -1,9 +1,16 @@
-import { FormEvent, useState } from 'react'
+import { FormEvent, useEffect, useState } from 'react'
 
 import { resolveApiErrorMessage } from '../api/errors'
 import type { InvestigationNote } from '../types/investigations'
 import { formatDateTime } from '../utils/datetime'
-import { canEditInvestigationNote } from './investigationPageModel'
+import {
+  canEditInvestigationNote,
+  isTerminalInvestigationAccessError,
+} from './investigationPageModel'
+import {
+  InvestigationCollectionPagination,
+  InvestigationCollectionQueryState,
+} from './InvestigationCollectionPagination'
 import { InvestigationConfirmDialog } from './InvestigationShared'
 import type { InvestigationDetailController } from './useInvestigationDetail'
 
@@ -14,7 +21,24 @@ export function InvestigationNotesPanel({
 }) {
   const detail = controller.detailQuery.data
   const [pendingRemoval, setPendingRemoval] = useState<InvestigationNote | null>(null)
+  const terminalCollectionError =
+    controller.notesQuery.isError &&
+    isTerminalInvestigationAccessError(controller.notesQuery.error)
+  const notesPage = terminalCollectionError ? undefined : controller.notesQuery.data
+
+  useEffect(() => {
+    if (!pendingRemoval || !notesPage || !controller.mutation.isError) return
+    const latest = notesPage.notes.find((note) => note.id === pendingRemoval.id)
+    if (!latest) {
+      setPendingRemoval(null)
+      return
+    }
+    if (latest.version !== pendingRemoval.version) setPendingRemoval(latest)
+  }, [controller.mutation.isError, notesPage, pendingRemoval])
+
   if (!detail || !controller.access) return null
+  const hasNotesPage = Boolean(notesPage)
+  const noteTotal = notesPage?.total ?? detail.note_count
   const removalError =
     pendingRemoval &&
     controller.mutation.isError &&
@@ -35,14 +59,14 @@ export function InvestigationNotesPanel({
     <section aria-labelledby="investigation-notes-heading" className="min-w-0">
       <div>
         <h2 id="investigation-notes-heading" className="text-base font-semibold">
-          Analyst notes ({detail.note_count})
+          Analyst notes ({noteTotal})
         </h2>
         <p className="mt-0.5 text-sm text-slate dark:text-slate-300">
           Record decisions, hypotheses, handoff context, and follow-up work in plain text.
         </p>
       </div>
 
-      {controller.access.canWrite && (
+      {controller.access.canWrite && !terminalCollectionError && (
         <form
           className="mt-4 border-y border-slate/15 py-3 dark:border-white/10"
           onSubmit={addNote}
@@ -74,23 +98,28 @@ export function InvestigationNotesPanel({
         </form>
       )}
 
-      {detail.notes_truncated && (
-        <p
-          role="status"
-          className="mt-3 rounded border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700/40 dark:bg-amber-950/30 dark:text-amber-100"
-        >
-          Showing the 200 most recent notes out of {detail.note_count}. Older note events remain
-          available in Activity.
-        </p>
-      )}
+      <InvestigationCollectionQueryState
+        label="analyst notes"
+        total={noteTotal}
+        truncated={detail.notes_truncated}
+        loading={controller.notesQuery.isLoading}
+        fetching={controller.notesQuery.isFetching}
+        error={controller.notesQuery.isError ? controller.notesQuery.error : null}
+        hasData={hasNotesPage}
+        onRetry={() => void controller.notesQuery.refetch()}
+      />
 
-      {detail.notes.length === 0 ? (
+      {notesPage && notesPage.notes.length === 0 && notesPage.total === 0 ? (
         <p className="py-8 text-center text-sm text-slate dark:text-slate-300">
           No analyst notes have been recorded.
         </p>
-      ) : (
+      ) : notesPage && notesPage.notes.length === 0 ? (
+        <p role="status" className="py-8 text-center text-sm text-slate dark:text-slate-300">
+          This page no longer contains notes. Returning to the last available page...
+        </p>
+      ) : notesPage ? (
         <div className="mt-4 divide-y divide-slate/15 border-y border-slate/15 dark:divide-white/10 dark:border-white/10">
-          {detail.notes.map((note) => {
+          {notesPage.notes.map((note) => {
             const editing = controller.editingNoteId === note.id
             const canEdit =
               controller.access?.canWrite &&
@@ -162,6 +191,7 @@ export function InvestigationNotesPanel({
                         controller.mutation.mutate({
                           kind: 'update-note',
                           noteId: note.id,
+                          noteVersion: note.version,
                           body,
                         })
                     }}
@@ -209,6 +239,24 @@ export function InvestigationNotesPanel({
             )
           })}
         </div>
+      ) : null}
+
+      {notesPage && (
+        <InvestigationCollectionPagination
+          label="analyst notes"
+          total={notesPage.total}
+          page={notesPage.page}
+          pageSize={notesPage.page_size}
+          itemCount={notesPage.notes.length}
+          fetching={controller.notesQuery.isFetching}
+          disabled={controller.mutation.isPending || controller.editingNoteId !== null}
+          disabledReason={
+            controller.editingNoteId !== null
+              ? 'Save or cancel the current note edit before changing pages.'
+              : 'Wait for the current note change to finish before changing pages.'
+          }
+          onPageChange={controller.setNotePage}
+        />
       )}
 
       <InvestigationConfirmDialog
@@ -222,7 +270,11 @@ export function InvestigationNotesPanel({
         onConfirm={() => {
           if (!pendingRemoval) return
           controller.mutation.mutate(
-            { kind: 'remove-note', noteId: pendingRemoval.id },
+            {
+              kind: 'remove-note',
+              noteId: pendingRemoval.id,
+              noteVersion: pendingRemoval.version,
+            },
             { onSuccess: () => setPendingRemoval(null) },
           )
         }}

@@ -336,15 +336,21 @@ describe('API type barrel', () => {
       [
         Api.InvestigationDetail,
         Api.InvestigationEvidence,
+        Api.InvestigationEvidenceListResponse,
+        Api.InvestigationNoteListResponse,
         Api.InvestigationActivityListResponse,
       ]
     >().toEqualTypeOf<
       [
         Investigations.InvestigationDetail,
         Investigations.InvestigationEvidence,
+        Investigations.InvestigationEvidenceListResponse,
+        Investigations.InvestigationNoteListResponse,
         Investigations.InvestigationActivityListResponse,
       ]
     >()
+    expectTypeOf<Api.InvestigationDetail['evidence_truncated']>().toEqualTypeOf<boolean>()
+    expectTypeOf<Api.InvestigationDetail['notes_truncated']>().toEqualTypeOf<boolean>()
   })
 
   it('re-exports tagging types', () => {

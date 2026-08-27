@@ -75,13 +75,13 @@ describe('investigation mutation requests', () => {
       body: { body: 'Working theory', expected_version: 7 },
     },
     {
-      operation: { kind: 'update-note', noteId: 'note-1', body: 'Revised theory' },
+      operation: { kind: 'update-note', noteId: 'note-1', noteVersion: 3, body: 'Revised theory' },
       path: '/investigations/investigation-1/notes/note-1',
       method: 'PATCH',
       body: { body: 'Revised theory', expected_note_version: 3, expected_investigation_version: 7 },
     },
     {
-      operation: { kind: 'remove-note', noteId: 'note-1' },
+      operation: { kind: 'remove-note', noteId: 'note-1', noteVersion: 3 },
       path: '/investigations/investigation-1/notes/note-1?expected_note_version=3&expected_investigation_version=7',
       method: 'DELETE',
     },
@@ -113,6 +113,33 @@ describe('investigation mutation requests', () => {
       kind: 'add-note',
       body: 'Unsafe write',
     })).rejects.toThrow('latest investigation version is unavailable')
+    expect(apiFetchMock).not.toHaveBeenCalled()
+  })
+
+  it('uses the paginated note version when the note is absent from the detail snapshot', async () => {
+    queryClient.setQueryData(detailKey, { ...detail, notes: [] })
+
+    await executeInvestigationMutation(queryClient, detailKey, 'investigation-1', {
+      kind: 'update-note',
+      noteId: 'older-note',
+      noteVersion: 11,
+      body: 'Updated historical context',
+    })
+
+    expect(JSON.parse(apiFetchMock.mock.calls[0][1].body)).toMatchObject({
+      expected_note_version: 11,
+      expected_investigation_version: 7,
+    })
+  })
+
+  it('rejects a note write when the displayed page has no valid note version', async () => {
+    await expect(
+      executeInvestigationMutation(queryClient, detailKey, 'investigation-1', {
+        kind: 'remove-note',
+        noteId: 'note-1',
+        noteVersion: 0,
+      }),
+    ).rejects.toThrow('displayed note version is unavailable')
     expect(apiFetchMock).not.toHaveBeenCalled()
   })
 })

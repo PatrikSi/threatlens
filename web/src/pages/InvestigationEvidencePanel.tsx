@@ -6,8 +6,13 @@ import { formatDateTime } from '../utils/datetime'
 import {
   formatEvidenceType,
   INVESTIGATION_EVIDENCE_TYPES,
+  isTerminalInvestigationAccessError,
   safeInvestigationExternalUrl,
 } from './investigationPageModel'
+import {
+  InvestigationCollectionPagination,
+  InvestigationCollectionQueryState,
+} from './InvestigationCollectionPagination'
 import { InvestigationConfirmDialog, InvestigationInlineMessage } from './InvestigationShared'
 import type { InvestigationDetailController } from './useInvestigationDetail'
 
@@ -23,6 +28,12 @@ export function InvestigationEvidencePanel({
   const [pendingRemoval, setPendingRemoval] = useState<InvestigationEvidence | null>(null)
   if (!detail || !controller.access) return null
   const draft = controller.evidenceDraft
+  const terminalCollectionError =
+    controller.evidenceQuery.isError &&
+    isTerminalInvestigationAccessError(controller.evidenceQuery.error)
+  const evidencePage = terminalCollectionError ? undefined : controller.evidenceQuery.data
+  const hasEvidencePage = Boolean(evidencePage)
+  const evidenceTotal = evidencePage?.total ?? detail.evidence_count
   const selectedType =
     INVESTIGATION_EVIDENCE_TYPES.find((entry) => entry.value === draft.sourceType) ??
     INVESTIGATION_EVIDENCE_TYPES[0]
@@ -53,7 +64,7 @@ export function InvestigationEvidencePanel({
     <section aria-labelledby="investigation-evidence-heading" className="min-w-0">
       <div>
         <h2 id="investigation-evidence-heading" className="text-base font-semibold">
-          Evidence ({detail.evidence_count})
+          Evidence ({evidenceTotal})
         </h2>
         <p className="mt-0.5 text-sm text-slate dark:text-slate-300">
           Evidence keeps a point-in-time snapshot so the investigation remains understandable as
@@ -61,7 +72,7 @@ export function InvestigationEvidencePanel({
         </p>
       </div>
 
-      {controller.access.canWrite && (
+      {controller.access.canWrite && !terminalCollectionError && (
         <form className="mt-4 border-y border-slate/15 py-3 dark:border-white/10" onSubmit={submit}>
           <div className="grid min-w-0 gap-3 sm:grid-cols-2">
             <div>
@@ -160,13 +171,28 @@ export function InvestigationEvidencePanel({
         </form>
       )}
 
-      {detail.evidence.length === 0 ? (
+      <InvestigationCollectionQueryState
+        label="evidence"
+        total={evidenceTotal}
+        truncated={detail.evidence_truncated}
+        loading={controller.evidenceQuery.isLoading}
+        fetching={controller.evidenceQuery.isFetching}
+        error={controller.evidenceQuery.isError ? controller.evidenceQuery.error : null}
+        hasData={hasEvidencePage}
+        onRetry={() => void controller.evidenceQuery.refetch()}
+      />
+
+      {evidencePage && evidencePage.evidence.length === 0 && evidencePage.total === 0 ? (
         <p className="py-8 text-center text-sm text-slate dark:text-slate-300">
           No evidence has been added to this investigation.
         </p>
-      ) : (
+      ) : evidencePage && evidencePage.evidence.length === 0 ? (
+        <p role="status" className="py-8 text-center text-sm text-slate dark:text-slate-300">
+          This page no longer contains evidence. Returning to the last available page...
+        </p>
+      ) : evidencePage ? (
         <div className="mt-4 divide-y divide-slate/15 border-y border-slate/15 dark:divide-white/10 dark:border-white/10">
-          {detail.evidence.map((evidence) => (
+          {evidencePage.evidence.map((evidence) => (
             <EvidenceEntry
               key={evidence.id}
               evidence={evidence}
@@ -176,6 +202,20 @@ export function InvestigationEvidencePanel({
             />
           ))}
         </div>
+      ) : null}
+
+      {evidencePage && (
+        <InvestigationCollectionPagination
+          label="evidence"
+          total={evidencePage.total}
+          page={evidencePage.page}
+          pageSize={evidencePage.page_size}
+          itemCount={evidencePage.evidence.length}
+          fetching={controller.evidenceQuery.isFetching}
+          disabled={controller.mutation.isPending}
+          disabledReason="Wait for the current evidence change to finish before changing pages."
+          onPageChange={controller.setEvidencePage}
+        />
       )}
 
       <InvestigationConfirmDialog

@@ -15,6 +15,7 @@ type DialogSurfaceProps = {
   dismissDisabled?: boolean
   ariaBusy?: boolean
   initialFocusRef?: RefObject<HTMLElement | null>
+  describeBody?: boolean
   panelClassName?: string
   bodyClassName?: string
   footerClassName?: string
@@ -34,6 +35,7 @@ type ConfirmDialogProps = {
   cancelDisabled?: boolean
   confirmTone?: 'danger' | 'primary'
   role?: 'dialog' | 'alertdialog'
+  initialFocusRef?: RefObject<HTMLElement | null>
   onConfirm: () => void
   onCancel: () => void
 }
@@ -50,6 +52,7 @@ export function DialogSurface({
   dismissDisabled = false,
   ariaBusy = false,
   initialFocusRef,
+  describeBody = true,
   panelClassName = 'max-w-xl',
   bodyClassName = 'mt-4 space-y-3 text-sm text-slate dark:text-white/75',
   footerClassName = 'mt-5 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center sm:justify-end',
@@ -73,7 +76,13 @@ export function DialogSurface({
     return null
   }
 
-  const describedBy = [description ? descriptionId : null, children ? bodyId : null].filter(Boolean).join(' ') || undefined
+  const describedBy =
+    [
+      description ? descriptionId : null,
+      children && describeBody ? bodyId : null,
+    ]
+      .filter(Boolean)
+      .join(' ') || undefined
 
   const dialog = (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 px-3 py-3 sm:px-4 sm:py-6">
@@ -89,13 +98,23 @@ export function DialogSurface({
         tabIndex={-1}
       >
         <div className="flex items-start justify-between gap-4">
-          <div className="space-y-1">
-            {eyebrow && <p className="text-xs font-semibold text-slate dark:text-white/55">{eyebrow}</p>}
-            <h3 id={titleId} className="font-display text-xl text-ink dark:text-white">
+          <div className="min-w-0 flex-1 space-y-1">
+            {eyebrow && (
+              <p className="text-xs font-semibold text-slate dark:text-white/55">
+                {eyebrow}
+              </p>
+            )}
+            <h3
+              id={titleId}
+              className="break-words font-display text-xl text-ink [overflow-wrap:anywhere] dark:text-white"
+            >
               {title}
             </h3>
             {description && (
-              <div id={descriptionId} className="text-sm text-slate dark:text-white/75">
+              <div
+                id={descriptionId}
+                className="text-sm text-slate dark:text-white/75"
+              >
                 {description}
               </div>
             )}
@@ -103,7 +122,7 @@ export function DialogSurface({
           <button
             ref={closeButtonRef}
             type="button"
-            className="rounded border border-slate/20 px-2 py-1 text-xs dark:border-cyan-900/40"
+            className="shrink-0 rounded border border-slate/20 px-2 py-1 text-xs dark:border-cyan-900/40"
             onClick={onClose}
             disabled={dismissDisabled}
             aria-label={closeLabel}
@@ -143,12 +162,15 @@ export function ConfirmDialog({
   cancelDisabled = false,
   confirmTone = 'danger',
   role = 'alertdialog',
+  initialFocusRef: requestedInitialFocusRef,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
   const dismissDisabled = cancelDisabled || isConfirming
   const cancelButtonRef = useRef<HTMLButtonElement | null>(null)
-  const initialFocusRef = dismissDisabled ? undefined : cancelButtonRef
+  const initialFocusRef = dismissDisabled
+    ? undefined
+    : (requestedInitialFocusRef ?? cancelButtonRef)
   const showHeaderDescription = Boolean(description) && !children
   const confirmButtonClassName =
     confirmTone === 'primary'

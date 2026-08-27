@@ -14,6 +14,8 @@ import type {
 export const INVESTIGATION_PAGE_SIZE = 25
 export const INVESTIGATION_ACTIVITY_PAGE_SIZE = 25
 export const INVESTIGATION_MEMBER_PAGE_SIZE = 20
+export const INVESTIGATION_EVIDENCE_PAGE_SIZE = 25
+export const INVESTIGATION_NOTE_PAGE_SIZE = 25
 
 export const INVESTIGATION_STATUSES: ReadonlyArray<{ value: InvestigationStatus; label: string }> = [
   { value: 'open', label: 'Open' },
@@ -209,6 +211,12 @@ export function investigationResultRange(total: number, page: number, pageSize: 
   const first = (page - 1) * pageSize + 1
   const last = Math.min(total, first + count - 1)
   return `${first}-${last} of ${total}`
+}
+
+export function investigationCollectionPageCount(total: number, pageSize: number): number {
+  if (!Number.isFinite(total) || total <= 0) return 1
+  if (!Number.isFinite(pageSize) || pageSize <= 0) return 1
+  return Math.max(1, Math.ceil(total / pageSize))
 }
 
 export function safeInvestigationExternalUrl(value: string | null): string | null {

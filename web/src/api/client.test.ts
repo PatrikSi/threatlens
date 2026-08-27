@@ -1,6 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { ApiError, ApiRequestError, ApiTransportError, apiDownload, apiFetch } from './client'
+import {
+  ApiError,
+  ApiRequestError,
+  ApiTransportError,
+  apiDownload,
+  apiFetch,
+  apiFetchWithResponse,
+} from './client'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -17,10 +24,41 @@ describe('apiFetch', () => {
     await expect(apiFetch('/empty')).resolves.toBeUndefined()
   })
 
+  it('exposes successful response status and headers without changing JSON parsing', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(null, {
+            status: 204,
+            headers: {
+              'X-ThreatLens-Revoked-Token-Count': '3',
+            },
+          }),
+        ),
+      ),
+    )
+
+    const result = await apiFetchWithResponse<void>('/tokens/token-1', {
+      method: 'DELETE',
+    })
+
+    expect(result.data).toBeUndefined()
+    expect(result.status).toBe(204)
+    expect(result.headers.get('X-ThreatLens-Revoked-Token-Count')).toBe('3')
+  })
+
   it('throws for non-JSON successful API responses', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(() => Promise.resolve(new Response('accepted', { status: 202, headers: { 'content-type': 'text/plain' } }))),
+      vi.fn(() =>
+        Promise.resolve(
+          new Response('accepted', {
+            status: 202,
+            headers: { 'content-type': 'text/plain' },
+          }),
+        ),
+      ),
     )
 
     await expect(apiFetch('/accepted')).rejects.toMatchObject({
@@ -33,7 +71,14 @@ describe('apiFetch', () => {
   it('preserves JSON null successful responses', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(() => Promise.resolve(new Response('null', { status: 200, headers: { 'content-type': 'application/json' } }))),
+      vi.fn(() =>
+        Promise.resolve(
+          new Response('null', {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          }),
+        ),
+      ),
     )
 
     await expect(apiFetch<null>('/nullable')).resolves.toBeNull()
@@ -49,7 +94,14 @@ describe('apiFetch', () => {
               detail: [
                 {
                   type: 'extra_forbidden',
-                  loc: ['body', 'query_json', 'windows', 1, 'rss_filters', 'time_range'],
+                  loc: [
+                    'body',
+                    'query_json',
+                    'windows',
+                    1,
+                    'rss_filters',
+                    'time_range',
+                  ],
                   msg: 'Extra inputs are not permitted',
                 },
               ],
@@ -60,9 +112,12 @@ describe('apiFetch', () => {
       ),
     )
 
-    await expect(apiFetch('/views/view-1', { method: 'PATCH', body: '{}' })).rejects.toMatchObject({
+    await expect(
+      apiFetch('/views/view-1', { method: 'PATCH', body: '{}' }),
+    ).rejects.toMatchObject({
       status: 422,
-      message: 'body.query_json.windows.1.rss_filters.time_range: Extra inputs are not permitted',
+      message:
+        'body.query_json.windows.1.rss_filters.time_range: Extra inputs are not permitted',
     })
   })
 
@@ -82,7 +137,13 @@ describe('apiFetch', () => {
                 retryable: true,
               },
             }),
-            { status: 503, headers: { 'content-type': 'application/json', 'retry-after': '17' } },
+            {
+              status: 503,
+              headers: {
+                'content-type': 'application/json',
+                'retry-after': '17',
+              },
+            },
           ),
         ),
       ),
@@ -106,11 +167,14 @@ describe('apiFetch', () => {
       'fetch',
       vi.fn(() =>
         Promise.resolve(
-          new Response('<html><body>proxy implementation detail</body></html>', {
-            status: 502,
-            statusText: 'Bad Gateway',
-            headers: { 'content-type': 'text/html' },
-          }),
+          new Response(
+            '<html><body>proxy implementation detail</body></html>',
+            {
+              status: 502,
+              statusText: 'Bad Gateway',
+              headers: { 'content-type': 'text/html' },
+            },
+          ),
         ),
       ),
     )
@@ -119,9 +183,12 @@ describe('apiFetch', () => {
 
     expect(error).toMatchObject({
       status: 502,
-      message: 'The API returned HTTP 502 Bad Gateway with a non-JSON response.',
+      message:
+        'The API returned HTTP 502 Bad Gateway with a non-JSON response.',
     })
-    expect((error as ApiError).message).not.toContain('proxy implementation detail')
+    expect((error as ApiError).message).not.toContain(
+      'proxy implementation detail',
+    )
   })
 
   it('supports HTTP-date Retry-After headers', async () => {
@@ -133,24 +200,33 @@ describe('apiFetch', () => {
         Promise.resolve(
           new Response(JSON.stringify({ detail: 'Rate limit reached.' }), {
             status: 429,
-            headers: { 'content-type': 'application/json', 'retry-after': 'Thu, 06 Aug 2026 12:00:30 GMT' },
+            headers: {
+              'content-type': 'application/json',
+              'retry-after': 'Thu, 06 Aug 2026 12:00:30 GMT',
+            },
           }),
         ),
       ),
     )
 
-    await expect(apiFetch('/limited')).rejects.toMatchObject({ retryAfterSeconds: 30 })
+    await expect(apiFetch('/limited')).rejects.toMatchObject({
+      retryAfterSeconds: 30,
+    })
   })
 
   it('turns connection failures into actionable transport errors', async () => {
-    vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new TypeError('Failed to fetch'))))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.reject(new TypeError('Failed to fetch'))),
+    )
 
     await expect(apiFetch('/health')).rejects.toMatchObject({
       name: 'ApiTransportError',
       kind: 'network',
       path: '/health',
       retryable: true,
-      message: 'ThreatLens could not reach the API. Check the network connection and API container health.',
+      message:
+        'ThreatLens could not reach the API. Check the network connection and API container health.',
     } satisfies Partial<ApiTransportError>)
   })
 
@@ -159,7 +235,10 @@ describe('apiFetch', () => {
     vi.stubGlobal('fetch', fetchMock)
     vi.stubGlobal('document', { cookie: 'threatlens_csrf=%E0%A4%A' })
 
-    const error = await apiFetch('/feeds/feed-1', { method: 'PATCH', body: '{}' }).catch((caught) => caught)
+    const error = await apiFetch('/feeds/feed-1', {
+      method: 'PATCH',
+      body: '{}',
+    }).catch((caught) => caught)
 
     expect(error).toBeInstanceOf(ApiRequestError)
     expect(error).toMatchObject({
@@ -175,10 +254,13 @@ describe('apiFetch', () => {
     vi.useFakeTimers()
     vi.stubGlobal(
       'fetch',
-      vi.fn((_url: string, options: RequestInit) =>
-        new Promise((_resolve, reject) => {
-          options.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
-        }),
+      vi.fn(
+        (_url: string, options: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            options.signal?.addEventListener('abort', () =>
+              reject(new DOMException('Aborted', 'AbortError')),
+            )
+          }),
       ),
     )
 
@@ -197,10 +279,13 @@ describe('apiFetch', () => {
     vi.useFakeTimers()
     vi.stubGlobal(
       'fetch',
-      vi.fn((_url: string, options: RequestInit) =>
-        new Promise((_resolve, reject) => {
-          options.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
-        }),
+      vi.fn(
+        (_url: string, options: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            options.signal?.addEventListener('abort', () =>
+              reject(new DOMException('Aborted', 'AbortError')),
+            )
+          }),
       ),
     )
 
@@ -220,10 +305,13 @@ describe('apiFetch', () => {
       'fetch',
       vi.fn(() =>
         Promise.resolve(
-          new Response(JSON.stringify({ detail: ['first problem', 'second problem'] }), {
-            status: 422,
-            headers: { 'content-type': 'application/json' },
-          }),
+          new Response(
+            JSON.stringify({ detail: ['first problem', 'second problem'] }),
+            {
+              status: 422,
+              headers: { 'content-type': 'application/json' },
+            },
+          ),
         ),
       ),
     )
@@ -245,7 +333,8 @@ describe('apiDownload', () => {
             status: 200,
             headers: {
               'content-type': 'application/zip',
-              'content-disposition': "attachment; filename*=UTF-8''ThreatLens%20research.zip",
+              'content-disposition':
+                "attachment; filename*=UTF-8''ThreatLens%20research.zip",
             },
           }),
         ),
@@ -266,13 +355,17 @@ describe('apiDownload', () => {
         Promise.resolve(
           new Response('csv', {
             status: 200,
-            headers: { 'content-disposition': 'attachment; filename="../unsafe.csv"' },
+            headers: {
+              'content-disposition': 'attachment; filename="../unsafe.csv"',
+            },
           }),
         ),
       ),
     )
 
-    await expect(apiDownload('/exports', { method: 'POST', body: '{}' })).resolves.toMatchObject({
+    await expect(
+      apiDownload('/exports', { method: 'POST', body: '{}' }),
+    ).resolves.toMatchObject({
       filename: '..-unsafe.csv',
     })
   })
@@ -284,13 +377,18 @@ describe('apiDownload', () => {
         Promise.resolve(
           new Response(JSON.stringify({ detail: 'Narrow the filters.' }), {
             status: 413,
-            headers: { 'content-type': 'application/json', 'x-request-id': 'export-request' },
+            headers: {
+              'content-type': 'application/json',
+              'x-request-id': 'export-request',
+            },
           }),
         ),
       ),
     )
 
-    await expect(apiDownload('/exports', { method: 'POST', body: '{}' })).rejects.toMatchObject({
+    await expect(
+      apiDownload('/exports', { method: 'POST', body: '{}' }),
+    ).rejects.toMatchObject({
       status: 413,
       message: 'Narrow the filters.',
       requestId: 'export-request',
@@ -339,7 +437,9 @@ describe('apiDownload', () => {
       }),
     )
 
-    const request = apiDownload('/exports', { signal: requestController.signal })
+    const request = apiDownload('/exports', {
+      signal: requestController.signal,
+    })
     await Promise.resolve()
     requestController.abort()
 
