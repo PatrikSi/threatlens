@@ -24,11 +24,13 @@ from app.schemas.investigation import (
     InvestigationCreate,
     InvestigationDetailResponse,
     InvestigationEvidenceAdd,
+    InvestigationEvidenceListResponse,
     InvestigationListResponse,
     InvestigationMemberAdd,
     InvestigationMemberCandidateListResponse,
     InvestigationMemberUpdate,
     InvestigationNoteCreate,
+    InvestigationNoteListResponse,
     InvestigationNoteUpdate,
     InvestigationUpdate,
 )
@@ -45,8 +47,10 @@ from app.services.investigations import (
     delete_note,
     get_investigation_detail,
     list_activity,
+    list_evidence,
     list_investigations,
     list_member_candidates,
+    list_notes,
     remove_evidence,
     remove_member,
     update_investigation,
@@ -59,10 +63,10 @@ router = APIRouter(prefix="/investigations", tags=["investigations"])
 VALID_STATUSES = frozenset({"open", "monitoring", "closed", "archived"})
 VALID_SEVERITIES = frozenset({"low", "medium", "high", "critical"})
 EVIDENCE_SOURCE_READ_SCOPES = {
-    "item": SCOPE_READ_ITEMS,
-    "ioc": SCOPE_READ_ITEMS,
-    "report": SCOPE_READ_REPORTS,
-    "alert_occurrence": SCOPE_READ_ALERTS,
+    "item": (SCOPE_READ_ITEMS,),
+    "ioc": (SCOPE_READ_ITEMS,),
+    "report": (SCOPE_READ_REPORTS,),
+    "alert_occurrence": (SCOPE_READ_ALERTS, SCOPE_READ_ITEMS),
 }
 
 
@@ -318,6 +322,29 @@ def delete_investigation_member(
         _raise_service_error(db, exc)
 
 
+@router.get(
+    "/{investigation_id}/evidence",
+    response_model=InvestigationEvidenceListResponse,
+)
+def get_investigation_evidence(
+    investigation_id: uuid.UUID,
+    page: int = Query(default=1, ge=1, le=1_000_000),
+    page_size: int = Query(default=50, ge=1, le=100),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_token_scopes(SCOPE_READ_INVESTIGATIONS)),
+):
+    try:
+        return list_evidence(
+            db,
+            investigation_id=investigation_id,
+            user=user,
+            page=page,
+            page_size=page_size,
+        )
+    except Exception as exc:
+        _raise_service_error(db, exc)
+
+
 @router.post("/{investigation_id}/evidence", response_model=InvestigationDetailResponse)
 def post_investigation_evidence(
     investigation_id: uuid.UUID,
@@ -389,6 +416,29 @@ def delete_investigation_evidence(
         db.commit()
         return get_investigation_detail(
             db, investigation_id=investigation_id, user=user
+        )
+    except Exception as exc:
+        _raise_service_error(db, exc)
+
+
+@router.get(
+    "/{investigation_id}/notes",
+    response_model=InvestigationNoteListResponse,
+)
+def get_investigation_notes(
+    investigation_id: uuid.UUID,
+    page: int = Query(default=1, ge=1, le=1_000_000),
+    page_size: int = Query(default=50, ge=1, le=100),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_token_scopes(SCOPE_READ_INVESTIGATIONS)),
+):
+    try:
+        return list_notes(
+            db,
+            investigation_id=investigation_id,
+            user=user,
+            page=page,
+            page_size=page_size,
         )
     except Exception as exc:
         _raise_service_error(db, exc)
@@ -538,11 +588,17 @@ def _require_evidence_source_read_scope(request: Request, source_type: str) -> N
     granted_scopes = set(token_scopes)
     if not granted_scopes and get_settings().allow_legacy_unscoped_tokens:
         return
-    required_scope = EVIDENCE_SOURCE_READ_SCOPES[source_type]
-    if not has_required_scope(granted_scopes, required_scope):
+    required_scopes = EVIDENCE_SOURCE_READ_SCOPES[source_type]
+    missing_scopes = [
+        scope
+        for scope in required_scopes
+        if not has_required_scope(granted_scopes, scope)
+    ]
+    if missing_scopes:
+        scope_label = ", ".join(missing_scopes)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Attaching {source_type} evidence requires the {required_scope} token scope.",
+            detail=f"Attaching {source_type} evidence requires these token scopes: {scope_label}.",
         )
 
 

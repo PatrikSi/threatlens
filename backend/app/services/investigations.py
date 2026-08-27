@@ -19,17 +19,23 @@ from app.schemas.investigation import (
     InvestigationActivityListResponse,
     InvestigationActivityResponse,
     InvestigationDetailResponse,
-    InvestigationEvidenceResponse,
+    InvestigationEvidenceListResponse,
     InvestigationListResponse,
     InvestigationMemberCandidate,
     InvestigationMemberCandidateListResponse,
     InvestigationMemberResponse,
-    InvestigationNoteResponse,
+    InvestigationNoteListResponse,
     InvestigationSummaryResponse,
 )
 from app.services.investigation_evidence import (
     EvidenceSourceError,
     build_evidence_snapshot,
+)
+from app.services.investigation_collections import (
+    list_evidence_page,
+    list_note_page,
+    list_recent_evidence,
+    list_recent_notes,
 )
 
 WRITE_MEMBER_ROLES = frozenset({"owner", "editor"})
@@ -177,6 +183,12 @@ def create_investigation(
         raise InvestigationValidationError(
             "The initial assignee must be the creator. Add another member before assigning the investigation to them."
         )
+    creator = _lock_membership_account(db, user.id)
+    if creator is None:
+        raise InvestigationValidationError(
+            "The investigation creator account is no longer available. Refresh and try again."
+        )
+    _validate_member_role_for_account(creator, OWNER_MEMBER_ROLE)
     investigation = Investigation(
         title=normalized_title,
         description=description.strip(),
@@ -246,8 +258,8 @@ def get_investigation_detail(
         db, investigation_id=investigation_id, user=user
     )
     members = _list_members(db, investigation_id)
-    evidence = _list_evidence(db, investigation_id)
-    notes, note_count = _list_notes(db, investigation_id)
+    evidence, evidence_count = list_recent_evidence(db, investigation_id)
+    notes, note_count = list_recent_notes(db, investigation_id)
     assignee_email = db.scalar(
         select(User.email).where(User.id == investigation.assignee_user_id)
     )
@@ -255,15 +267,50 @@ def get_investigation_detail(
         **_summary_response(
             investigation,
             current_user_role=current_role,
-            evidence_count=len(evidence),
+            evidence_count=evidence_count,
             member_count=len(members),
             note_count=note_count,
             assignee_email=assignee_email,
         ).model_dump(),
         members=members,
         evidence=evidence,
+        evidence_truncated=evidence_count > len(evidence),
         notes=notes,
         notes_truncated=note_count > len(notes),
+    )
+
+
+def list_evidence(
+    db: Session,
+    *,
+    investigation_id: uuid.UUID,
+    user: User,
+    page: int,
+    page_size: int,
+) -> InvestigationEvidenceListResponse:
+    _get_visible_investigation(db, investigation_id=investigation_id, user=user)
+    return list_evidence_page(
+        db,
+        investigation_id=investigation_id,
+        page=page,
+        page_size=page_size,
+    )
+
+
+def list_notes(
+    db: Session,
+    *,
+    investigation_id: uuid.UUID,
+    user: User,
+    page: int,
+    page_size: int,
+) -> InvestigationNoteListResponse:
+    _get_visible_investigation(db, investigation_id=investigation_id, user=user)
+    return list_note_page(
+        db,
+        investigation_id=investigation_id,
+        page=page,
+        page_size=page_size,
     )
 
 
@@ -275,6 +322,12 @@ def update_investigation(
     expected_version: int,
     changes: dict,
 ) -> tuple[Investigation, list[str]]:
+    requested_assignee_id = changes.get("assignee_user_id")
+    requested_assignee = (
+        _lock_membership_account(db, requested_assignee_id)
+        if requested_assignee_id is not None
+        else None
+    )
     investigation, member = _lock_for_write(
         db, investigation_id=investigation_id, user=user
     )
@@ -306,22 +359,20 @@ def update_investigation(
     if "assignee_user_id" in changes:
         assignee_user_id = changes["assignee_user_id"]
         if assignee_user_id is not None:
-            assignee = db.execute(
-                select(InvestigationMember, User)
-                .join(User, User.id == InvestigationMember.user_id)
-                .where(
+            assignee_membership = db.scalar(
+                select(InvestigationMember).where(
                     InvestigationMember.investigation_id == investigation.id,
                     InvestigationMember.user_id == assignee_user_id,
                     InvestigationMember.role.in_(WRITE_MEMBER_ROLES),
-                    User.is_active.is_(True),
-                    User.is_approved.is_(True),
-                    User.role.in_((ROLE_ADMIN, ROLE_ANALYST)),
                 )
-            ).first()
-            if assignee is None:
+            )
+            if requested_assignee is None or assignee_membership is None:
                 raise InvestigationValidationError(
                     "The assignee must be an owner or editor of this investigation."
                 )
+            _validate_member_role_for_account(
+                requested_assignee, assignee_membership.role
+            )
         if investigation.assignee_user_id != assignee_user_id:
             investigation.assignee_user_id = assignee_user_id
             changed_fields.append("assignee_user_id")
@@ -380,16 +431,14 @@ def add_member(
     role: str,
     expected_version: int,
 ) -> InvestigationMember:
+    target = _lock_membership_account(db, member_user_id)
     investigation, actor_member = _lock_for_write(
         db, investigation_id=investigation_id, user=user
     )
     _require_owner(actor_member)
     _require_expected_version(investigation, expected_version)
     _require_mutable_investigation(investigation, action="managing members")
-    target = db.scalar(
-        select(User).where(User.id == member_user_id, User.is_active.is_(True))
-    )
-    if target is None or not target.is_approved:
+    if target is None or not target.is_active or not target.is_approved:
         raise InvestigationValidationError(
             "The selected user is not an active, approved ThreatLens account."
         )
@@ -435,6 +484,7 @@ def update_member(
     role: str,
     expected_version: int,
 ) -> tuple[InvestigationMember, bool]:
+    target = _lock_membership_account(db, member_user_id)
     investigation, actor_member = _lock_for_write(
         db, investigation_id=investigation_id, user=user
     )
@@ -452,7 +502,6 @@ def update_member(
             "Investigation member not found.",
             code="investigation_member_not_found",
         )
-    target = db.scalar(select(User).where(User.id == member_user_id))
     if target is None:
         raise InvestigationConflictError(
             "The investigation member account no longer exists.",
@@ -566,7 +615,11 @@ def add_evidence(
         )
     try:
         snapshot = build_evidence_snapshot(
-            db, source_type=source_type, source_id=source_id
+            db,
+            source_type=source_type,
+            source_id=source_id,
+            requesting_user_id=user.id,
+            requesting_user_is_admin=user.role == ROLE_ADMIN,
         )
     except EvidenceSourceError as exc:
         raise InvestigationValidationError(str(exc)) from exc
@@ -839,21 +892,6 @@ def list_activity(
     )
 
 
-def evidence_response(evidence: InvestigationEvidence) -> InvestigationEvidenceResponse:
-    return InvestigationEvidenceResponse(
-        id=evidence.id,
-        source_type=evidence.source_type,
-        source_id=evidence.source_id,
-        title_snapshot=evidence.title_snapshot,
-        description_snapshot=evidence.description_snapshot,
-        url_snapshot=evidence.url_snapshot,
-        metadata_snapshot=dict(evidence.metadata_snapshot_json or {}),
-        note=evidence.note,
-        added_by_user_id=evidence.added_by_user_id,
-        created_at=evidence.created_at,
-    )
-
-
 def member_response(
     db: Session, member: InvestigationMember
 ) -> InvestigationMemberResponse:
@@ -867,19 +905,6 @@ def member_response(
         email=email,
         role=member.role,
         created_at=member.created_at,
-    )
-
-
-def note_response(db: Session, note: InvestigationNote) -> InvestigationNoteResponse:
-    author_email = db.scalar(select(User.email).where(User.id == note.author_user_id))
-    return InvestigationNoteResponse(
-        id=note.id,
-        author_user_id=note.author_user_id,
-        author_email=author_email,
-        body=note.body,
-        version=note.version,
-        created_at=note.created_at,
-        updated_at=note.updated_at,
     )
 
 
@@ -955,50 +980,6 @@ def _list_members(
     ]
 
 
-def _list_evidence(
-    db: Session, investigation_id: uuid.UUID
-) -> list[InvestigationEvidenceResponse]:
-    rows = db.scalars(
-        select(InvestigationEvidence)
-        .where(InvestigationEvidence.investigation_id == investigation_id)
-        .order_by(
-            InvestigationEvidence.created_at.desc(), InvestigationEvidence.id.desc()
-        )
-    ).all()
-    return [evidence_response(row) for row in rows]
-
-
-def _list_notes(
-    db: Session, investigation_id: uuid.UUID
-) -> tuple[list[InvestigationNoteResponse], int]:
-    author = aliased(User)
-    filters = (
-        InvestigationNote.investigation_id == investigation_id,
-        InvestigationNote.deleted_at.is_(None),
-    )
-    total = db.scalar(select(func.count(InvestigationNote.id)).where(*filters)) or 0
-    rows = db.execute(
-        select(InvestigationNote, author.email.label("author_email"))
-        .outerjoin(author, author.id == InvestigationNote.author_user_id)
-        .where(*filters)
-        .order_by(InvestigationNote.created_at.desc(), InvestigationNote.id.desc())
-        .limit(200)
-    ).all()
-    notes = [
-        InvestigationNoteResponse(
-            id=row.InvestigationNote.id,
-            author_user_id=row.InvestigationNote.author_user_id,
-            author_email=row.author_email,
-            body=row.InvestigationNote.body,
-            version=row.InvestigationNote.version,
-            created_at=row.InvestigationNote.created_at,
-            updated_at=row.InvestigationNote.updated_at,
-        )
-        for row in rows
-    ]
-    return notes, int(total)
-
-
 def _summary_response(
     investigation: Investigation,
     *,
@@ -1068,6 +1049,16 @@ def _validate_member_role_for_account(user: User, member_role: str) -> None:
         raise InvestigationValidationError(
             "Owner and editor membership requires an analyst or administrator account."
         )
+
+
+def _lock_membership_account(db: Session, user_id: uuid.UUID) -> User | None:
+    """Serialize membership eligibility with IAM access reductions."""
+    return db.scalar(
+        select(User)
+        .where(User.id == user_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
 
 
 def eligible_investigation_owner_ids_query(

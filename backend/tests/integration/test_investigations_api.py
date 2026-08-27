@@ -14,11 +14,20 @@ from app.core.token_scopes import (
     SCOPE_WRITE_INVESTIGATIONS,
 )
 from app.models.api_token import ApiToken
+from app.models.alert_occurrence import AlertOccurrence
 from app.models.audit_log import AuditLog
 from app.models.feed import Feed
-from app.models.investigation import InvestigationActivity
+from app.models.investigation import (
+    InvestigationActivity,
+    InvestigationEvidence,
+    InvestigationNote,
+)
 from app.models.item import Item
-from app.services.investigations import eligible_investigation_owner_ids_query
+from app.models.report import Report
+from app.services.investigation_collections import INVESTIGATION_DETAIL_COLLECTION_LIMIT
+from app.services.investigations import (
+    eligible_investigation_owner_ids_query,
+)
 
 
 def _create_investigation(
@@ -78,6 +87,58 @@ def _create_api_token(db_session, user, *, name: str, scopes: list[str]) -> str:
     )
     db_session.commit()
     return token_value
+
+
+def _create_alert_occurrence(db_session, *, owner, item: Item) -> AlertOccurrence:
+    occurrence = AlertOccurrence(
+        rule_id_snapshot=uuid.uuid4(),
+        owner_user_id=owner.id,
+        item_id=item.id,
+        item_id_snapshot=item.id,
+        rule_revision=3,
+        item_content_hash=item.content_hash,
+        alert_name_snapshot="Credential theft watch",
+        alert_category_snapshot="identity",
+        alert_keywords_snapshot=["credential", "token"],
+        matched_keywords=["credential"],
+        source_snapshot_json={
+            "item": {
+                "id": str(item.id),
+                "title": item.title,
+                "summary": item.summary,
+                "url": item.url,
+                "canonical_url": item.canonical_url,
+                "published_at": item.published_at.isoformat(),
+                "first_seen_at": item.first_seen_at.isoformat(),
+            },
+            "feed": {"id": str(item.feed_id), "name": "Investigation source"},
+            "classification": {"primary_category": "credential_access"},
+        },
+        severity_snapshot="high",
+        lifecycle_state="investigating",
+    )
+    db_session.add(occurrence)
+    db_session.commit()
+    return occurrence
+
+
+def _create_report(db_session, *, owner) -> Report:
+    now = datetime.now(timezone.utc)
+    report = Report(
+        owner_user_id=owner.id,
+        title="Private threat landscape report",
+        report_type="custom",
+        status="ready",
+        trigger_source="manual",
+        generation_stage="completed",
+        period_start=now - timedelta(days=7),
+        period_end=now,
+        summary_text="Owner-scoped report summary.",
+        generated_at=now,
+    )
+    db_session.add(report)
+    db_session.commit()
+    return report
 
 
 def test_private_and_team_visibility_are_membership_aware(
@@ -275,6 +336,234 @@ def test_evidence_uses_bounded_snapshot_that_survives_source_removal(
         detail.json()["evidence"][0]["title_snapshot"]
         == "Observed credential theft infrastructure"
     )
+
+
+def test_detail_collections_are_bounded_and_complete_pages_remain_authorized(
+    client: TestClient,
+    auth_headers,
+    db_session,
+    seed_users,
+):
+    investigation = _create_investigation(client, auth_headers["analyst"])
+    investigation_id = uuid.UUID(investigation["id"])
+    note_ids: list[uuid.UUID] = []
+    evidence_ids: list[uuid.UUID] = []
+    for index in range(INVESTIGATION_DETAIL_COLLECTION_LIMIT + 5):
+        note_id = uuid.uuid4()
+        evidence_id = uuid.uuid4()
+        note_ids.append(note_id)
+        evidence_ids.append(evidence_id)
+        db_session.add(
+            InvestigationNote(
+                id=note_id,
+                investigation_id=investigation_id,
+                author_user_id=seed_users["analyst"].id,
+                body=f"Investigation note {index:03d}",
+            )
+        )
+        db_session.add(
+            InvestigationEvidence(
+                id=evidence_id,
+                investigation_id=investigation_id,
+                source_type="item",
+                source_id=uuid.uuid4(),
+                title_snapshot=f"Evidence {index:03d}",
+                description_snapshot=None,
+                url_snapshot=None,
+                metadata_snapshot_json={"sequence": index},
+                note=None,
+                added_by_user_id=seed_users["analyst"].id,
+            )
+        )
+    db_session.commit()
+
+    detail = client.get(
+        f"/investigations/{investigation['id']}", headers=auth_headers["analyst"]
+    )
+    assert detail.status_code == 200, detail.text
+    payload = detail.json()
+    assert payload["note_count"] == INVESTIGATION_DETAIL_COLLECTION_LIMIT + 5
+    assert payload["evidence_count"] == INVESTIGATION_DETAIL_COLLECTION_LIMIT + 5
+    assert len(payload["notes"]) == INVESTIGATION_DETAIL_COLLECTION_LIMIT
+    assert len(payload["evidence"]) == INVESTIGATION_DETAIL_COLLECTION_LIMIT
+    assert payload["notes_truncated"] is True
+    assert payload["evidence_truncated"] is True
+
+    note_pages = [
+        client.get(
+            f"/investigations/{investigation['id']}/notes",
+            params={"page": page, "page_size": 100},
+            headers=auth_headers["analyst"],
+        )
+        for page in (1, 2, 3)
+    ]
+    evidence_pages = [
+        client.get(
+            f"/investigations/{investigation['id']}/evidence",
+            params={"page": page, "page_size": 100},
+            headers=auth_headers["analyst"],
+        )
+        for page in (1, 2, 3)
+    ]
+    assert all(response.status_code == 200 for response in note_pages)
+    assert all(response.status_code == 200 for response in evidence_pages)
+    assert [len(response.json()["notes"]) for response in note_pages] == [100, 100, 5]
+    assert [len(response.json()["evidence"]) for response in evidence_pages] == [100, 100, 5]
+    assert {entry["id"] for response in note_pages for entry in response.json()["notes"]} == {
+        str(note_id) for note_id in note_ids
+    }
+    assert {
+        entry["id"]
+        for response in evidence_pages
+        for entry in response.json()["evidence"]
+    } == {str(evidence_id) for evidence_id in evidence_ids}
+
+    for suffix in ("notes", "evidence"):
+        hidden = client.get(
+            f"/investigations/{investigation['id']}/{suffix}",
+            headers=auth_headers["viewer"],
+        )
+        assert hidden.status_code == 404
+        oversized = client.get(
+            f"/investigations/{investigation['id']}/{suffix}",
+            params={"page_size": 101},
+            headers=auth_headers["analyst"],
+        )
+        assert oversized.status_code == 422
+        excessive_page = client.get(
+            f"/investigations/{investigation['id']}/{suffix}",
+            params={"page": 1_000_001},
+            headers=auth_headers["analyst"],
+        )
+        assert excessive_page.status_code == 422
+
+
+def test_alert_occurrence_evidence_is_owner_authorized_and_immutable(
+    client: TestClient,
+    auth_headers,
+    db_session,
+    seed_users,
+):
+    item = _create_item(db_session)
+    occurrence = _create_alert_occurrence(
+        db_session,
+        owner=seed_users["analyst"],
+        item=item,
+    )
+    investigation = _create_investigation(client, auth_headers["analyst"])
+    alert_only_token = _create_api_token(
+        db_session,
+        seed_users["analyst"],
+        name="alert-evidence-without-item-read",
+        scopes=[SCOPE_WRITE_INVESTIGATIONS, SCOPE_READ_ALERTS],
+    )
+    missing_item_scope = client.post(
+        f"/investigations/{investigation['id']}/evidence",
+        headers={"Authorization": f"Bearer {alert_only_token}"},
+        json={
+            "source_type": "alert_occurrence",
+            "source_id": str(occurrence.id),
+            "expected_version": investigation["version"],
+        },
+    )
+    assert missing_item_scope.status_code == 403
+    assert SCOPE_READ_ITEMS in missing_item_scope.json()["detail"]
+
+    attached = client.post(
+        f"/investigations/{investigation['id']}/evidence",
+        headers=auth_headers["analyst"],
+        json={
+            "source_type": "alert_occurrence",
+            "source_id": str(occurrence.id),
+            "expected_version": investigation["version"],
+        },
+    )
+    assert attached.status_code == 200, attached.text
+    snapshot = attached.json()["evidence"][0]
+    assert snapshot["title_snapshot"].startswith("Credential theft watch:")
+    assert snapshot["metadata_snapshot"]["rule_revision"] == 3
+    assert snapshot["metadata_snapshot"]["lifecycle_state_at_attachment"] == (
+        "investigating"
+    )
+    assert snapshot["metadata_snapshot"]["item_content_hash"] == item.content_hash
+
+    occurrence.alert_name_snapshot = "Changed after attachment"
+    occurrence.lifecycle_state = "closed"
+    occurrence.closure_disposition = "true_positive"
+    db_session.commit()
+    db_session.delete(occurrence)
+    db_session.commit()
+
+    evidence_page = client.get(
+        f"/investigations/{investigation['id']}/evidence",
+        headers=auth_headers["analyst"],
+    )
+    assert evidence_page.status_code == 200, evidence_page.text
+    assert evidence_page.json()["evidence"][0] == snapshot
+
+    other_occurrence = _create_alert_occurrence(
+        db_session,
+        owner=seed_users["admin"],
+        item=item,
+    )
+    denied = client.post(
+        f"/investigations/{investigation['id']}/evidence",
+        headers=auth_headers["analyst"],
+        json={
+            "source_type": "alert_occurrence",
+            "source_id": str(other_occurrence.id),
+            "expected_version": attached.json()["version"],
+        },
+    )
+    assert denied.status_code == 422
+    assert "does not exist or is not available" in denied.json()["detail"]
+
+
+def test_report_evidence_enforces_report_owner_or_admin_access(
+    client: TestClient,
+    auth_headers,
+    db_session,
+    seed_users,
+):
+    report = _create_report(db_session, owner=seed_users["viewer"])
+    investigation = _create_investigation(client, auth_headers["analyst"])
+
+    denied = client.post(
+        f"/investigations/{investigation['id']}/evidence",
+        headers=auth_headers["analyst"],
+        json={
+            "source_type": "report",
+            "source_id": str(report.id),
+            "expected_version": investigation["version"],
+        },
+    )
+    assert denied.status_code == 422
+    assert "does not exist or is not available" in denied.json()["detail"]
+
+    add_admin = client.post(
+        f"/investigations/{investigation['id']}/members",
+        headers=auth_headers["analyst"],
+        json={
+            "user_id": str(seed_users["admin"].id),
+            "role": "owner",
+            "expected_version": investigation["version"],
+        },
+    )
+    assert add_admin.status_code == 200, add_admin.text
+
+    attached = client.post(
+        f"/investigations/{investigation['id']}/evidence",
+        headers=auth_headers["admin"],
+        json={
+            "source_type": "report",
+            "source_id": str(report.id),
+            "expected_version": add_admin.json()["version"],
+        },
+    )
+    assert attached.status_code == 200, attached.text
+    snapshot = attached.json()["evidence"][0]
+    assert snapshot["title_snapshot"] == report.title
+    assert snapshot["description_snapshot"] == report.summary_text
 
 
 def test_notes_are_versioned_and_activity_does_not_duplicate_note_body(
