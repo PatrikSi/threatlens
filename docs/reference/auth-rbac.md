@@ -49,7 +49,7 @@ Defined in `backend/app/core/security.py`:
 - Admin updates that change `password`, `is_active`, or `is_approved` also rotate `auth_token_version` and invalidate existing JWTs/sessions.
 - Role changes rotate browser sessions and revoke active API tokens so old privileges cannot survive a promotion or demotion.
 - Email-only changes do not rotate credentials.
-- Password, role, active-state, and approval updates require the loaded `expected_security_version`. A missing precondition returns `user_security_version_required` with HTTP 428; a stale value returns `user_security_version_conflict` with HTTP 409 and the current version in `X-Current-Security-Version`.
+- Role, active-state, and approval updates require the loaded `expected_security_version`. A missing precondition returns `user_security_version_required` with HTTP 428; a stale value returns `user_security_version_conflict` with HTTP 409 and the current version in `X-Current-Security-Version`. Password-only legacy requests may omit the precondition for backward compatibility; a supplied version is still enforced, and unversioned use is recorded in logs and audit history.
 - A change that would remove the final active, approved administrator returns the stable `last_active_admin` conflict and is written to the audit log as a rejected operation.
 
 Legacy browser JWTs remain accepted during the compatibility window, but newly

@@ -30,7 +30,8 @@ class UserUpdateRequest(BaseModel):
         default=None,
         ge=0,
         description=(
-            "Required when changing role, active, approval, or password state. Use "
+            "Required when changing role, active, or approval state. Password-only "
+            "legacy requests may omit it; when supplied, it is always enforced. Use "
             "security_version from the latest user-directory response."
         ),
     )

@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "1.7.0",
-    "x-threatlens-contract-sha256": "f71dcd43d4ea64e6aaf4845a323a3a614a7f5cb3abc9ef06737c3689154f9960"
+    "x-threatlens-contract-sha256": "0fac61981f0ca825ce28bb79c0f57bc625bb4cb22d0469625c5e0ef0191bcd8b"
   },
   "servers": [
     {
@@ -6370,7 +6370,7 @@
             }
           },
           "428": {
-            "description": "`user_security_version_required` for role, active, approval, or password changes."
+            "description": "`user_security_version_required` for role, active, or approval changes."
           },
           "409": {
             "description": "Includes `user_security_version_conflict`; the current version is returned in `X-Current-Security-Version`."
@@ -28874,7 +28874,7 @@
               }
             ],
             "title": "Expected Security Version",
-            "description": "Required when changing role, active, approval, or password state. Use security_version from the latest user-directory response."
+            "description": "Required when changing role, active, or approval state. Password-only legacy requests may omit it; when supplied, it is always enforced. Use security_version from the latest user-directory response."
           },
           "email": {
             "anyOf": [

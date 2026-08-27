@@ -13,8 +13,8 @@ import pytest
 from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
-from app.core.security import create_access_token, verify_password
 from app.core.config import get_settings
+from app.core.security import create_access_token, get_password_hash, verify_password
 from app.models.api_token import ApiToken
 from app.models.audit_log import AuditLog
 from app.models.auth_session import AuthSession
@@ -50,9 +50,13 @@ from app.services.local_mfa import (
 from app.services.secret_storage import decrypt_text
 from app.services.encrypted_data_inventory import scan_encrypted_data_inventory
 from app.services.user_access import (
+    LocalBreakGlassAdminRequiredError,
     acquire_active_admin_invariant_lock,
     acquire_oidc_provider_config_lock,
     acquire_oidc_provider_config_read_lock,
+    ensure_active_approved_admin_remains,
+    ensure_local_break_glass_admin_remains_when_oidc_disabled,
+    ensure_viable_local_break_glass_admin_exists,
     load_user_for_access_update,
     lock_users_for_security_change,
 )
@@ -355,7 +359,7 @@ def test_user_access_updates_require_and_fence_on_security_version(
     assert viewer.is_approved is True
 
 
-def test_user_password_reset_requires_and_fences_on_security_version(
+def test_user_password_reset_preserves_legacy_request_and_fences_supplied_version(
     client: TestClient,
     auth_headers,
     db_session,
@@ -364,20 +368,32 @@ def test_user_password_reset_requires_and_fences_on_security_version(
     viewer = seed_users["viewer"]
     original_version = int(viewer.auth_token_version or 0)
 
-    missing = client.patch(
+    legacy = client.patch(
         f"/users/{viewer.id}",
         headers=auth_headers["admin"],
         json={"password": "UpdatedViewerPass123!"},
     )
-    assert missing.status_code == 428
-    assert missing.json()["error"]["code"] == "user_security_version_required"
+    assert legacy.status_code == 200, legacy.text
+    assert legacy.json()["security_version"] == original_version + 1
+    compatibility_audit = db_session.scalar(
+        select(AuditLog)
+        .where(
+            AuditLog.action == "users.compatibility.unversioned_password_update",
+            AuditLog.resource_id == str(viewer.id),
+        )
+        .order_by(AuditLog.created_at.desc())
+    )
+    assert compatibility_audit is not None
+    assert compatibility_audit.metadata_json["security_version_before_update"] == (
+        original_version
+    )
 
     stale = client.patch(
         f"/users/{viewer.id}",
         headers=auth_headers["admin"],
         json={
-            "password": "UpdatedViewerPass123!",
-            "expected_security_version": original_version + 1,
+            "password": "SecondViewerPass123!",
+            "expected_security_version": original_version,
         },
     )
     assert stale.status_code == 409
@@ -387,14 +403,197 @@ def test_user_password_reset_requires_and_fences_on_security_version(
         f"/users/{viewer.id}",
         headers=auth_headers["admin"],
         json={
-            "password": "UpdatedViewerPass123!",
-            "expected_security_version": original_version,
+            "password": "SecondViewerPass123!",
+            "expected_security_version": original_version + 1,
         },
     )
     assert updated.status_code == 200, updated.text
-    assert updated.json()["security_version"] == original_version + 1
+    assert updated.json()["security_version"] == original_version + 2
     db_session.refresh(viewer)
-    assert verify_password("UpdatedViewerPass123!", viewer.password_hash)
+    assert verify_password("SecondViewerPass123!", viewer.password_hash)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"role": "viewer"},
+        {"is_active": False},
+        {"is_approved": False},
+    ],
+)
+def test_oidc_disabled_preserves_local_break_glass_admin(
+    client: TestClient,
+    auth_headers,
+    db_session,
+    seed_users,
+    payload,
+):
+    actor = seed_users["admin"]
+    actor.password_login_enabled = False
+    actor.provisioning_source = PROVISIONING_SOURCE_OIDC
+    local_admin = User(
+        email=f"local.break.glass.{uuid.uuid4()}@example.com",
+        password_hash=get_password_hash("LocalAdminPass123!"),
+        role="admin",
+        is_active=True,
+        is_approved=True,
+        password_login_enabled=True,
+        provisioning_source=PROVISIONING_SOURCE_LOCAL,
+    )
+    db_session.add_all(
+        [
+            local_admin,
+            OIDCProvider(
+                system_key="primary",
+                name="Disabled SSO",
+                enabled=False,
+                issuer_url="https://idp.example.com",
+                client_id="threatlens",
+                client_auth_method="none",
+                public_base_url="https://threatlens.example.com",
+                scopes=["openid", "email"],
+            ),
+        ]
+    )
+    db_session.commit()
+
+    response = client.patch(
+        f"/users/{local_admin.id}",
+        headers=auth_headers["admin"],
+        json={
+            **payload,
+            "expected_security_version": local_admin.auth_token_version,
+        },
+    )
+
+    assert response.status_code == 409, response.text
+    assert response.json()["error"]["code"] == "oidc_break_glass_admin_required"
+    db_session.refresh(local_admin)
+    assert local_admin.role == "admin"
+    assert local_admin.is_active is True
+    assert local_admin.is_approved is True
+    rejected_audit = db_session.scalar(
+        select(AuditLog)
+        .where(
+            AuditLog.action == "users.update",
+            AuditLog.resource_id == str(local_admin.id),
+            AuditLog.success.is_(False),
+        )
+        .order_by(AuditLog.created_at.desc())
+    )
+    assert rejected_audit is not None
+    assert rejected_audit.metadata_json["reason"] == ("oidc_break_glass_admin_required")
+
+
+def test_concurrent_oidc_disable_and_admin_demotion_preserve_break_glass(
+    database_engine,
+):
+    local_admin_id = uuid.uuid4()
+    sso_admin_id = uuid.uuid4()
+    provider_id = uuid.uuid4()
+    with Session(bind=database_engine) as seed_session:
+        seed_session.add_all(
+            [
+                User(
+                    id=local_admin_id,
+                    email=f"concurrent.local.{uuid.uuid4()}@example.com",
+                    password_hash=get_password_hash("LocalAdminPass123!"),
+                    role="admin",
+                    is_active=True,
+                    is_approved=True,
+                    password_login_enabled=True,
+                ),
+                User(
+                    id=sso_admin_id,
+                    email=f"concurrent.sso.{uuid.uuid4()}@example.com",
+                    password_hash=get_password_hash("UnusedAdminPass123!"),
+                    role="admin",
+                    is_active=True,
+                    is_approved=True,
+                    password_login_enabled=False,
+                    provisioning_source=PROVISIONING_SOURCE_OIDC,
+                ),
+                OIDCProvider(
+                    id=provider_id,
+                    system_key="primary",
+                    name="Concurrent SSO",
+                    enabled=True,
+                    issuer_url="https://idp.example.com",
+                    client_id="threatlens",
+                    client_auth_method="none",
+                    public_base_url="https://threatlens.example.com",
+                    scopes=["openid", "email"],
+                ),
+            ]
+        )
+        seed_session.commit()
+
+    started = Event()
+
+    def _demote_local_admin() -> str:
+        with Session(bind=database_engine) as contender_session:
+            started.set()
+            try:
+                locked = lock_users_for_security_change(
+                    contender_session, [local_admin_id]
+                )[local_admin_id]
+                ensure_active_approved_admin_remains(
+                    contender_session,
+                    locked,
+                    next_role="viewer",
+                    next_is_active=True,
+                    next_is_approved=True,
+                )
+                ensure_local_break_glass_admin_remains_when_oidc_disabled(
+                    contender_session,
+                    locked,
+                    next_role="viewer",
+                    next_is_active=True,
+                    next_is_approved=True,
+                    next_password_login_enabled=True,
+                )
+                locked.role = "viewer"
+                contender_session.commit()
+                return "committed"
+            except LocalBreakGlassAdminRequiredError:
+                contender_session.rollback()
+                return "rejected"
+
+    provider_session = Session(bind=database_engine)
+    try:
+        acquire_active_admin_invariant_lock(provider_session)
+        acquire_oidc_provider_config_lock(provider_session)
+        provider = provider_session.scalar(
+            select(OIDCProvider).where(OIDCProvider.id == provider_id).with_for_update()
+        )
+        assert provider is not None
+        ensure_viable_local_break_glass_admin_exists(provider_session)
+        provider.enabled = False
+        provider_session.flush()
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            contender = executor.submit(_demote_local_admin)
+            assert started.wait(timeout=2)
+            time.sleep(0.1)
+            assert not contender.done()
+            provider_session.commit()
+            assert contender.result(timeout=5) == "rejected"
+    finally:
+        provider_session.rollback()
+        provider_session.close()
+
+    with Session(bind=database_engine) as verify_session:
+        local_admin = verify_session.get(User, local_admin_id)
+        provider = verify_session.get(OIDCProvider, provider_id)
+        assert local_admin is not None and local_admin.role == "admin"
+        assert provider is not None and provider.enabled is False
+        verify_session.execute(
+            delete(OIDCProvider).where(OIDCProvider.id == provider_id)
+        )
+        verify_session.execute(
+            delete(User).where(User.id.in_([local_admin_id, sso_admin_id]))
+        )
+        verify_session.commit()
 
 
 def test_admin_can_load_one_user_outside_the_directory_page(
@@ -1840,9 +2039,9 @@ def test_recent_oidc_browser_session_without_mfa_cannot_create_api_token(
 
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "oidc_mfa_assurance_required"
-    assert db_session.scalar(
-        select(ApiToken).where(ApiToken.user_id == viewer.id)
-    ) is None
+    assert (
+        db_session.scalar(select(ApiToken).where(ApiToken.user_id == viewer.id)) is None
+    )
 
 
 def test_stale_oidc_browser_session_requires_provider_reauthentication_for_token(
