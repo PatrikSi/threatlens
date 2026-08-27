@@ -7,6 +7,7 @@ import type * as Api from './api'
 import type * as Feeds from './feeds'
 import type * as Identity from './identity'
 import type * as Integrations from './integrations'
+import type * as Investigations from './investigations'
 import type * as Items from './items'
 import type * as Notifications from './notifications'
 import type * as SavedViews from './savedViews'
@@ -326,6 +327,22 @@ describe('API type barrel', () => {
         Integrations.SMTPTestRun,
         Integrations.SMTPTestRunListResponse,
         Integrations.IntegrationDeliveryReplayResponse,
+      ]
+    >()
+  })
+
+  it('re-exports investigation types', () => {
+    expectTypeOf<
+      [
+        Api.InvestigationDetail,
+        Api.InvestigationEvidence,
+        Api.InvestigationActivityListResponse,
+      ]
+    >().toEqualTypeOf<
+      [
+        Investigations.InvestigationDetail,
+        Investigations.InvestigationEvidence,
+        Investigations.InvestigationActivityListResponse,
       ]
     >()
   })
