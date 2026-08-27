@@ -576,6 +576,42 @@ def delivery_payload_for_owner(
     return payload
 
 
+def delivery_payload_for_global_alert(
+    event: IntegrationEvent,
+    *,
+    owner_user_ids: frozenset[uuid.UUID] | None = None,
+) -> dict:
+    """Return a tenant-wide alert snapshot without owner-specific identifiers."""
+
+    payload = (
+        deepcopy(event.payload_json) if isinstance(event.payload_json, dict) else {}
+    )
+    if event.event_type != "alert_match":
+        return payload
+    if int(event.schema_version or 1) < RESOURCE_SNAPSHOT_SCHEMA_VERSION:
+        return payload
+    global_context, contexts_by_owner = _alert_contexts_from_snapshot(payload)
+    if owner_user_ids is not None:
+        contexts_by_owner = {
+            owner_id: context
+            for owner_id, context in contexts_by_owner.items()
+            if owner_id in owner_user_ids
+        }
+        global_context = _combine_alert_contexts(list(contexts_by_owner.values()))
+    if global_context is None or not contexts_by_owner:
+        raise IntegrationEventContextError(
+            "Alert-match event has no accepted alert context"
+        )
+    payload["alert"] = _serialize_alert_context(global_context)
+    payload["occurrence_ids"] = []
+    payload["occurrence_count"] = global_context.count
+    payload["occurrence_ids_truncated"] = global_context.count > 0
+    payload.pop("owner_user_id", None)
+    payload.pop("alert_matches", None)
+    payload.pop("occurrence_ids_by_owner", None)
+    return payload
+
+
 def alert_match_event_owner_ids(
     event: IntegrationEvent,
 ) -> frozenset[uuid.UUID] | None:

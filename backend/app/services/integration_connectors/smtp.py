@@ -53,46 +53,104 @@ class SMTPIntegrationConnector:
     def prepare_routing(self, db: Session, *, event: IntegrationEvent) -> None:
         instances = db.scalars(
             select(IntegrationInstance).where(
-                IntegrationInstance.integration_type == self.definition.integration_type,
+                IntegrationInstance.integration_type
+                == self.definition.integration_type,
                 IntegrationInstance.enabled.is_(True),
             )
         ).all()
         for instance in instances:
             sync_smtp_subscriptions(db, instance)
 
-    def route_event(self, db: Session, *, event: IntegrationEvent) -> ConnectorRoutingResult:
+    def route_event(
+        self, db: Session, *, event: IntegrationEvent
+    ) -> ConnectorRoutingResult:
         from app.services.integration_events import alert_match_event_owner_ids
 
         feed_id = _payload_uuid(event, "feed_id", required=False)
+        eligible_owner_ids: frozenset[uuid.UUID] | None = None
         query = (
             select(IntegrationSubscription, IntegrationInstance)
-            .join(IntegrationInstance, IntegrationInstance.id == IntegrationSubscription.integration_id)
+            .join(
+                IntegrationInstance,
+                IntegrationInstance.id == IntegrationSubscription.integration_id,
+            )
             .where(
-                IntegrationInstance.integration_type == self.definition.integration_type,
+                IntegrationInstance.integration_type
+                == self.definition.integration_type,
                 IntegrationInstance.enabled.is_(True),
                 IntegrationSubscription.enabled.is_(True),
                 IntegrationSubscription.event_type == event.event_type,
             )
         )
         if event.event_type == "alert_match":
-            query = query.join(
-                User, User.id == IntegrationInstance.owner_user_id
-            ).where(
-                User.is_active.is_(True),
-                User.is_approved.is_(True),
-            )
             owner_ids = alert_match_event_owner_ids(event)
             if owner_ids is not None:
                 if not owner_ids:
                     return ConnectorRoutingResult()
-                query = query.where(IntegrationInstance.owner_user_id.in_(owner_ids))
+                eligible_owner_ids = frozenset(
+                    db.scalars(
+                        select(User.id).where(
+                            User.id.in_(owner_ids),
+                            User.is_active.is_(True),
+                            User.is_approved.is_(True),
+                        )
+                    ).all()
+                )
+                if not eligible_owner_ids:
+                    return ConnectorRoutingResult()
+                query = query.outerjoin(
+                    User, User.id == IntegrationInstance.owner_user_id
+                ).where(
+                    or_(
+                        IntegrationInstance.owner_user_id.is_(None),
+                        and_(
+                            IntegrationInstance.owner_user_id.in_(eligible_owner_ids),
+                            User.is_active.is_(True),
+                            User.is_approved.is_(True),
+                        ),
+                    )
+                )
+            else:
+                legacy_owner_id = _payload_uuid(event, "owner_user_id", required=False)
+                query = query.outerjoin(
+                    User, User.id == IntegrationInstance.owner_user_id
+                )
+                if legacy_owner_id is None:
+                    query = query.where(
+                        or_(
+                            IntegrationInstance.owner_user_id.is_(None),
+                            and_(
+                                User.is_active.is_(True),
+                                User.is_approved.is_(True),
+                            ),
+                        )
+                    )
+                else:
+                    eligible_owner_ids = frozenset(
+                        db.scalars(
+                            select(User.id).where(
+                                User.id == legacy_owner_id,
+                                User.is_active.is_(True),
+                                User.is_approved.is_(True),
+                            )
+                        ).all()
+                    )
+                    if not eligible_owner_ids:
+                        return ConnectorRoutingResult()
+                    query = query.where(
+                        or_(
+                            IntegrationInstance.owner_user_id.is_(None),
+                            IntegrationInstance.owner_user_id == legacy_owner_id,
+                        )
+                    )
         if feed_id is None and event.event_type not in {"daily_digest", "report_ready"}:
             query = query.where(IntegrationSubscription.feed_scope == "all")
         elif feed_id is not None:
             query = query.outerjoin(
                 IntegrationSubscriptionFeed,
                 and_(
-                    IntegrationSubscriptionFeed.subscription_id == IntegrationSubscription.id,
+                    IntegrationSubscriptionFeed.subscription_id
+                    == IntegrationSubscription.id,
                     IntegrationSubscriptionFeed.feed_id == feed_id,
                 ),
             ).where(
@@ -104,10 +162,19 @@ class SMTPIntegrationConnector:
 
         delivery_ids: list[uuid.UUID] = []
         for subscription, instance in db.execute(query).unique().all():
+            delivery_owner_id = instance.owner_user_id
+            if (
+                event.event_type == "alert_match"
+                and delivery_owner_id is None
+                and eligible_owner_ids
+                and len(eligible_owner_ids) == 1
+            ):
+                delivery_owner_id = next(iter(eligible_owner_ids))
             delivery_payload = _smtp_delivery_payload_for_owner(
                 db,
                 event=event,
-                owner_user_id=instance.owner_user_id,
+                owner_user_id=delivery_owner_id,
+                eligible_owner_ids=eligible_owner_ids,
             )
             if delivery_payload is None:
                 continue
@@ -125,14 +192,16 @@ class SMTPIntegrationConnector:
                 integration_id=instance.id,
                 subscription_id=subscription.id,
                 event_id=event.id,
-                owner_user_id=instance.owner_user_id,
+                owner_user_id=delivery_owner_id,
                 connector_type=self.definition.integration_type,
                 event_type=event.event_type,
                 delivery_kind="live",
                 state="pending",
                 idempotency_key=f"event:{event.id}:subscription:{subscription.id}:live",
                 payload_json=delivery_payload,
-                max_attempts=max(1, int(settings.integration_delivery_retry_max_attempts)),
+                max_attempts=max(
+                    1, int(settings.integration_delivery_retry_max_attempts)
+                ),
             )
             db.add(delivery)
             db.flush()
@@ -154,16 +223,24 @@ class SMTPIntegrationConnector:
         )
 
 
-def _payload_uuid(event: IntegrationEvent, key: str, *, required: bool = True) -> uuid.UUID | None:
-    value = event.payload_json.get(key) if isinstance(event.payload_json, dict) else None
+def _payload_uuid(
+    event: IntegrationEvent, key: str, *, required: bool = True
+) -> uuid.UUID | None:
+    value = (
+        event.payload_json.get(key) if isinstance(event.payload_json, dict) else None
+    )
     if value is None or value == "":
         if required:
-            raise IntegrationEventContextError(f"{event.event_type} event is missing {key}")
+            raise IntegrationEventContextError(
+                f"{event.event_type} event is missing {key}"
+            )
         return None
     try:
         return uuid.UUID(str(value))
     except (TypeError, ValueError) as exc:
-        raise IntegrationEventContextError(f"{event.event_type} event has invalid {key}") from exc
+        raise IntegrationEventContextError(
+            f"{event.event_type} event has invalid {key}"
+        ) from exc
 
 
 def _smtp_delivery_payload_for_owner(
@@ -171,19 +248,25 @@ def _smtp_delivery_payload_for_owner(
     *,
     event: IntegrationEvent,
     owner_user_id: uuid.UUID | None,
+    eligible_owner_ids: frozenset[uuid.UUID] | None = None,
 ) -> dict | None:
     from app.services.integration_events import (
         build_alert_match_snapshot_payload,
+        delivery_payload_for_global_alert,
         delivery_payload_for_owner,
         hydrate_integration_event_resources,
     )
 
-    if event.event_type != "alert_match" or int(event.schema_version or 1) >= 2:
+    if event.event_type != "alert_match":
+        return delivery_payload_for_owner(event, owner_user_id=owner_user_id)
+    if int(event.schema_version or 1) >= 2:
+        if owner_user_id is None:
+            return delivery_payload_for_global_alert(
+                event, owner_user_ids=eligible_owner_ids
+            )
         return delivery_payload_for_owner(event, owner_user_id=owner_user_id)
     if owner_user_id is None:
-        raise IntegrationEventContextError(
-            "Legacy alert-match SMTP delivery requires an owning user"
-        )
+        return delivery_payload_for_global_alert(event)
 
     from app.services.notification_webhooks import build_alert_match_context_for_item
 
