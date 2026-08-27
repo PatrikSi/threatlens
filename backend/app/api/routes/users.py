@@ -291,11 +291,6 @@ def create_user(
     "/{user_id}",
     response_model=UserAdminResponse,
     responses={
-        428: {
-            "description": (
-                "`user_security_version_required` for role, active, or approval changes."
-            )
-        },
         status.HTTP_409_CONFLICT: {
             "description": (
                 "Includes `user_security_version_conflict`; the current version is returned "
@@ -344,19 +339,15 @@ def update_user(
     _ensure_locally_managed_changes(user, payload, management)
 
     current_security_version = int(user.auth_token_version or 0)
-    if access_state_update and payload.expected_security_version is None:
-        raise ApiHTTPException(
-            status_code=428,
-            detail=(
-                "User security changes require the latest security version. Reload the "
-                "user directory and retry."
-            ),
-            error_code="user_security_version_required",
-            error_context={
-                "user_id": str(user.id),
-                "current_security_version": current_security_version,
-            },
-            headers={"X-Current-Security-Version": str(current_security_version)},
+    legacy_unversioned_access_update = (
+        access_state_update and payload.expected_security_version is None
+    )
+    if legacy_unversioned_access_update:
+        logger.warning(
+            "Accepted compatibility user security update without a version precondition "
+            "actor_user_id=%s target_user_id=%s",
+            admin.id,
+            user.id,
         )
     if (
         payload.expected_security_version is not None
@@ -482,6 +473,15 @@ def update_user(
             db,
             actor_user_id=admin.id,
             action="users.compatibility.unversioned_password_update",
+            resource_type="user",
+            resource_id=str(user.id),
+            metadata={"security_version_before_update": current_security_version},
+        )
+    if legacy_unversioned_access_update:
+        record_audit(
+            db,
+            actor_user_id=admin.id,
+            action="users.compatibility.unversioned_security_update",
             resource_type="user",
             resource_id=str(user.id),
             metadata={"security_version_before_update": current_security_version},

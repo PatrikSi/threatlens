@@ -27,7 +27,7 @@ from app.models.mfa import (
 from app.models.oidc import OIDCProvider
 from app.models.user import PROVISIONING_SOURCE_LOCAL, PROVISIONING_SOURCE_OIDC, User
 from app.services.investigations import (
-    InvestigationValidationError,
+    InvestigationActorNotEligibleError,
     create_investigation,
 )
 from app.services.auth_sessions import (
@@ -309,7 +309,7 @@ def test_account_access_reduction_requires_another_eligible_investigation_owner(
     assert activity.actor_user_id == admin.id
 
 
-def test_user_access_updates_require_and_fence_on_security_version(
+def test_user_access_updates_preserve_legacy_requests_and_fence_supplied_version(
     client: TestClient,
     auth_headers,
     db_session,
@@ -318,26 +318,38 @@ def test_user_access_updates_require_and_fence_on_security_version(
     viewer = seed_users["viewer"]
     original_version = viewer.auth_token_version
 
-    missing = client.patch(
+    legacy = client.patch(
         f"/users/{viewer.id}",
         headers=auth_headers["admin"],
         json={"role": "analyst"},
     )
-    assert missing.status_code == 428
-    assert missing.json()["error"]["code"] == "user_security_version_required"
-    assert missing.headers["x-current-security-version"] == str(original_version)
+    assert legacy.status_code == 200, legacy.text
+    assert legacy.json()["role"] == "analyst"
+    assert legacy.json()["security_version"] == original_version + 1
+    compatibility_audit = db_session.scalar(
+        select(AuditLog)
+        .where(
+            AuditLog.action == "users.compatibility.unversioned_security_update",
+            AuditLog.resource_id == str(viewer.id),
+        )
+        .order_by(AuditLog.created_at.desc())
+    )
+    assert compatibility_audit is not None
+    assert compatibility_audit.metadata_json["security_version_before_update"] == (
+        original_version
+    )
 
     first = client.patch(
         f"/users/{viewer.id}",
         headers=auth_headers["admin"],
         json={
-            "role": "analyst",
-            "expected_security_version": original_version,
+            "role": "viewer",
+            "expected_security_version": original_version + 1,
         },
     )
     assert first.status_code == 200, first.text
-    assert first.json()["role"] == "analyst"
-    assert first.json()["security_version"] == original_version + 1
+    assert first.json()["role"] == "viewer"
+    assert first.json()["security_version"] == original_version + 2
 
     stale = client.patch(
         f"/users/{viewer.id}",
@@ -349,13 +361,13 @@ def test_user_access_updates_require_and_fence_on_security_version(
     )
     assert stale.status_code == 409
     assert stale.json()["error"]["code"] == "user_security_version_conflict"
-    assert stale.headers["x-current-security-version"] == str(original_version + 1)
+    assert stale.headers["x-current-security-version"] == str(original_version + 2)
     assert stale.json()["error"]["context"]["current_security_version"] == (
-        original_version + 1
+        original_version + 2
     )
 
     db_session.refresh(viewer)
-    assert viewer.role == "analyst"
+    assert viewer.role == "viewer"
     assert viewer.is_approved is True
 
 
@@ -690,7 +702,7 @@ def test_investigation_creation_rechecks_owner_after_concurrent_role_reduction(
                     visibility="private",
                     assignee_user_id=analyst_id,
                 )
-            except InvestigationValidationError as exc:
+            except InvestigationActorNotEligibleError as exc:
                 candidate_db.rollback()
                 return str(exc)
             candidate_db.commit()

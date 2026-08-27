@@ -54,6 +54,14 @@ def test_openapi_operations_preserve_required_token_scope_extensions():
     assert schema["paths"]["/v1/feeds"]["post"]["x-threatlens-required-token-scopes"] == ["write:feeds"]
 
 
+def test_openapi_marks_browser_only_identity_mutation_accurately():
+    operation = app.openapi()["paths"]["/v1/auth/oidc/provider"]["put"]
+
+    assert operation["security"] == [{"SessionCookieAuth": []}]
+    assert "x-threatlens-required-token-scopes" not in operation
+    assert "x-threatlens-browser-session-only" not in operation
+
+
 def test_openapi_preserves_saved_view_query_component_names():
     schemas = app.openapi()["components"]["schemas"]
 
