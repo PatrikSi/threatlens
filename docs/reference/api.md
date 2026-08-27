@@ -5,7 +5,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ## Published Contract
 
 - Schema version: `1.7.0`
-- OpenAPI contract anchor: `openapi-sha256:ac3f8196a783871ef514a976f0a36d925e4adcb5435b3d68a8c24150d2fc0e7d`
+- OpenAPI contract anchor: `openapi-sha256:1d16294d319fbe3c1ab479d5dc8b16a00751897422df10ee5ab4dc234bda504c`
 - API service base path: `/v1`
 - Web proxy base path: `/api/v1`
 - Bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`.
@@ -1260,6 +1260,15 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Token scopes: `write:tokens`
 - Request body: `application/json` -> ApiTokenCreateRequest
 - Responses: `201` `application/json` -> ApiTokenCreateResponse, `403`, `422` `application/json` -> HTTPValidationError
+### `GET /v1/tokens/inventory`
+- Summary: List Token Inventory
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:tokens`
+- Parameters:
+  - `user_id` (query, optional): User Id
+  - `page` (query, optional): integer
+  - `page_size` (query, optional): integer
+- Responses: `200` `application/json` -> ApiTokenListResponse, `422` `application/json` -> HTTPValidationError
 ### `DELETE /v1/tokens/{token_id}`
 - Summary: Revoke Token
 - Auth: ApiTokenBearer or SessionCookieAuth

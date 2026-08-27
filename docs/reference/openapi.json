@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "1.7.0",
-    "x-threatlens-contract-sha256": "ac3f8196a783871ef514a976f0a36d925e4adcb5435b3d68a8c24150d2fc0e7d"
+    "x-threatlens-contract-sha256": "1d16294d319fbe3c1ab479d5dc8b16a00751897422df10ee5ab4dc234bda504c"
   },
   "servers": [
     {
@@ -5991,6 +5991,91 @@
         },
         "x-threatlens-required-token-scopes": [
           "write:tokens"
+        ]
+      }
+    },
+    "/v1/tokens/inventory": {
+      "get": {
+        "tags": [
+          "tokens"
+        ],
+        "summary": "List Token Inventory",
+        "operationId": "list_token_inventory_v1_tokens_inventory_get",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "User Id"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100000,
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 25,
+              "title": "Page Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTokenListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "read:tokens"
         ]
       }
     },
@@ -15925,6 +16010,37 @@
           "expires_at"
         ],
         "title": "ApiTokenCreateResponse"
+      },
+      "ApiTokenListResponse": {
+        "properties": {
+          "tokens": {
+            "items": {
+              "$ref": "#/components/schemas/ApiTokenResponse"
+            },
+            "type": "array",
+            "title": "Tokens"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tokens",
+          "total",
+          "page",
+          "page_size"
+        ],
+        "title": "ApiTokenListResponse"
       },
       "ApiTokenResponse": {
         "properties": {

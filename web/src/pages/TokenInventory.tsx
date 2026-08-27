@@ -1,15 +1,17 @@
-import { FormEvent, useState } from 'react'
+import { FormEvent, useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { apiFetch, apiFetchWithResponse } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
 import { ConfirmDialog } from '../components/ConfirmDialog'
-import type { ApiToken } from '../types/api'
+import type { ApiToken, ApiTokenListResponse } from '../types/api'
 import { formatDateTime } from '../utils/datetime'
 import {
   formatTokenRevocationImpact,
   parseTokenRevocationImpact,
 } from './tokenRevocationModel'
+
+const TOKEN_PAGE_SIZE = 25
 
 export function TokenInventory({
   isAdmin,
@@ -22,6 +24,7 @@ export function TokenInventory({
   const [adminUserFilterDraft, setAdminUserFilterDraft] = useState('')
   const [adminUserFilter, setAdminUserFilter] = useState('')
   const [adminUserFilterError, setAdminUserFilterError] = useState('')
+  const [page, setPage] = useState(1)
   const [pendingRevocation, setPendingRevocation] = useState<ApiToken | null>(
     null,
   )
@@ -30,13 +33,17 @@ export function TokenInventory({
     message: string
   } | null>(null)
   const tokensQuery = useQuery({
-    queryKey: ['tokens', adminUserFilter],
+    queryKey: ['tokens', 'inventory', adminUserFilter, page],
     queryFn: () => {
-      const params = new URLSearchParams()
+      const params = new URLSearchParams({
+        page: String(page),
+        page_size: String(TOKEN_PAGE_SIZE),
+      })
       if (isAdmin && adminUserFilter.trim())
         params.set('user_id', adminUserFilter.trim())
-      const suffix = params.toString() ? `?${params.toString()}` : ''
-      return apiFetch<ApiToken[]>(`/tokens${suffix}`)
+      return apiFetch<ApiTokenListResponse>(
+        `/tokens/inventory?${params.toString()}`,
+      )
     },
   })
   const revokeToken = useMutation({
@@ -48,7 +55,22 @@ export function TokenInventory({
       return parseTokenRevocationImpact(response.headers)
     },
     onMutate: () => setRevocationNotice(null),
-    onSuccess: (impact) => {
+    onSuccess: (impact, tokenId) => {
+      const revokedAt = new Date().toISOString()
+      queryClient.setQueriesData<ApiTokenListResponse>(
+        { queryKey: ['tokens', 'inventory'] },
+        (current) =>
+          current
+            ? {
+                ...current,
+                tokens: current.tokens.map((token) =>
+                  token.id === tokenId
+                    ? { ...token, revoked_at: revokedAt }
+                    : token,
+                ),
+              }
+            : current,
+      )
       setPendingRevocation(null)
       setRevocationNotice({
         tone: 'success',
@@ -67,7 +89,15 @@ export function TokenInventory({
     },
   })
   const legacyUnscopedTokens =
-    tokensQuery.data?.filter((token) => token.scopes.length === 0) ?? []
+    tokensQuery.data?.tokens.filter((token) => token.scopes.length === 0) ?? []
+  const pageCount = Math.max(
+    1,
+    Math.ceil((tokensQuery.data?.total ?? 0) / TOKEN_PAGE_SIZE),
+  )
+
+  useEffect(() => {
+    if (tokensQuery.data && page > pageCount) setPage(pageCount)
+  }, [page, pageCount, tokensQuery.data])
 
   const applyAdminUserFilter = (event: FormEvent) => {
     event.preventDefault()
@@ -84,6 +114,7 @@ export function TokenInventory({
       return
     }
     setAdminUserFilterError('')
+    setPage(1)
     setAdminUserFilter(nextFilter)
   }
 
@@ -111,6 +142,7 @@ export function TokenInventory({
                 setAdminUserFilterDraft('')
                 setAdminUserFilter('')
                 setAdminUserFilterError('')
+                setPage(1)
               }}
             />
           )}
@@ -152,9 +184,9 @@ export function TokenInventory({
               {revocationNotice.message}
             </p>
           )}
-          {tokensQuery.data && tokensQuery.data.length > 0 && (
+          {tokensQuery.data && tokensQuery.data.tokens.length > 0 && (
             <ul className="space-y-2" aria-label="API tokens">
-              {tokensQuery.data.map((token) => (
+              {tokensQuery.data.tokens.map((token) => (
                 <TokenInventoryRow
                   key={token.id}
                   token={token}
@@ -168,6 +200,16 @@ export function TokenInventory({
                 />
               ))}
             </ul>
+          )}
+          {tokensQuery.data && tokensQuery.data.tokens.length > 0 && (
+            <TokenInventoryPagination
+              page={page}
+              pageCount={pageCount}
+              total={tokensQuery.data.total}
+              itemCount={tokensQuery.data.tokens.length}
+              disabled={tokensQuery.isFetching || revokeToken.isPending}
+              onPageChange={setPage}
+            />
           )}
           {tokensQuery.isLoading && (
             <p role="status" className="text-sm text-slate dark:text-slate-300">
@@ -199,7 +241,7 @@ export function TokenInventory({
           )}
           {!tokensQuery.isLoading &&
             !tokensQuery.isError &&
-            tokensQuery.data?.length === 0 && (
+            tokensQuery.data?.tokens.length === 0 && (
               <div className="rounded-lg border border-dashed border-slate/25 px-3 py-4 text-center text-sm text-slate dark:border-cyan-900/40 dark:text-slate-300">
                 {adminUserFilter
                   ? `No API tokens were found for user ${adminUserFilter}.`
@@ -257,6 +299,48 @@ export function TokenInventory({
         )}
       </ConfirmDialog>
     </>
+  )
+}
+
+function TokenInventoryPagination({
+  page,
+  pageCount,
+  total,
+  itemCount,
+  disabled,
+  onPageChange,
+}: {
+  page: number
+  pageCount: number
+  total: number
+  itemCount: number
+  disabled: boolean
+  onPageChange: (page: number) => void
+}) {
+  const first = total === 0 ? 0 : (page - 1) * TOKEN_PAGE_SIZE + 1
+  const last = first === 0 ? 0 : first + itemCount - 1
+  return (
+    <div className="grid grid-cols-[auto_1fr_auto] items-center gap-2 pt-2 text-sm sm:flex sm:justify-between">
+      <button
+        type="button"
+        className="min-h-11 rounded border border-slate/30 px-3 py-2 disabled:opacity-50 dark:border-cyan-900/40"
+        disabled={disabled || page <= 1}
+        onClick={() => onPageChange(page - 1)}
+      >
+        Previous
+      </button>
+      <span className="text-center">
+        {first}-{last} of {total} · Page {page} of {pageCount}
+      </span>
+      <button
+        type="button"
+        className="min-h-11 rounded border border-slate/30 px-3 py-2 disabled:opacity-50 dark:border-cyan-900/40"
+        disabled={disabled || page >= pageCount}
+        onClick={() => onPageChange(page + 1)}
+      >
+        Next
+      </button>
+    </div>
   )
 }
 
