@@ -149,6 +149,78 @@ afterEach(async () => {
 })
 
 describe('AccountSecuritySection', () => {
+  it('disables MFA and session mutations when a refresh leaves cached security data stale', async () => {
+    let refreshFails = false
+    securityMocks.apiFetch.mockImplementation((path: string) => {
+      if (refreshFails)
+        return Promise.reject(new Error('security backend unavailable'))
+      if (path === '/auth/security/mfa') {
+        return Promise.resolve({
+          local_mfa_available: true,
+          managed_by: 'local',
+          enabled: true,
+          confirmed_at: '2026-08-27T08:00:00Z',
+          recovery_codes_remaining: 8,
+        })
+      }
+      if (path === '/auth/security/sessions') {
+        return Promise.resolve({
+          sessions: [
+            currentSession,
+            {
+              ...currentSession,
+              id: '22222222-2222-4222-8222-222222222222',
+              current: false,
+              client_ip: '192.0.2.20',
+            },
+          ],
+          active_count: 2,
+          history_truncated: false,
+          active_truncated: false,
+        })
+      }
+      return Promise.resolve({})
+    })
+    const view = renderSection()
+    await act(async () => {
+      await settle()
+    })
+    refreshFails = true
+
+    const refresh = Array.from(
+      view.querySelectorAll<HTMLButtonElement>('button'),
+    ).find((button) => button.textContent === 'Refresh security status')
+    await act(async () => {
+      refresh?.click()
+      await new Promise((resolve) => window.setTimeout(resolve, 25))
+    })
+    expect(queryClient?.isFetching()).toBe(0)
+
+    expect(view.textContent).toContain(
+      'Security actions are disabled until the current MFA status can be loaded.',
+    )
+    expect(view.textContent).toContain(
+      'Session actions are disabled until the current session list can be loaded.',
+    )
+    for (const label of [
+      'Generate new recovery codes',
+      'Disable MFA',
+      'Revoke all other sessions',
+    ]) {
+      const button = Array.from(
+        view.querySelectorAll<HTMLButtonElement>('button'),
+      ).find((candidate) => candidate.textContent === label)
+      expect(button?.disabled).toBe(true)
+    }
+    expect(
+      Array.from(
+        view.querySelectorAll<HTMLButtonElement>(
+          'button[aria-label^="Revoke "]',
+        ),
+      ).every((button) => button.disabled),
+    ).toBe(true)
+  })
+
   it('explains identity-provider ownership without exposing local MFA controls', async () => {
     securityMocks.apiFetch.mockImplementation((path: string) => {
       if (path === '/auth/security/mfa') {

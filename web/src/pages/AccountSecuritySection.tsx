@@ -533,6 +533,7 @@ export function AccountSecuritySection({
           status={mfaQuery.data}
           isLoading={mfaQuery.isLoading}
           loadError={mfaQuery.error}
+          actionsDisabled={mfaQuery.isError}
           enrollment={enrollment}
           enrollmentPassword={enrollmentPassword}
           confirmationCode={confirmationCode}
@@ -548,6 +549,7 @@ export function AccountSecuritySection({
           data={sessionsQuery.data}
           isLoading={sessionsQuery.isLoading}
           loadError={sessionsQuery.error}
+          actionsDisabled={sessionsQuery.isError}
           onRevoke={setSessionToRevoke}
           onRevokeOthers={() => setRevokeOthersOpen(true)}
         />
@@ -558,6 +560,7 @@ export function AccountSecuritySection({
         draft={sensitiveDraft}
         error={sensitiveMutation.error}
         isPending={sensitiveMutation.isPending}
+        actionsDisabled={mfaQuery.isError}
         onDraftChange={setSensitiveDraft}
         onConfirm={() =>
           sensitiveAction && sensitiveMutation.mutate(sensitiveAction)
@@ -593,7 +596,10 @@ export function AccountSecuritySection({
             : 'Revoke browser access'
         }
         isConfirming={revokeSessionMutation.isPending}
-        confirmDisabled={singleSessionReauthenticationRequired}
+        confirmDisabled={disableWhen(
+          singleSessionReauthenticationRequired,
+          sessionsQuery.isError,
+        )}
         onConfirm={() =>
           sessionToRevoke && revokeSessionMutation.mutate(sessionToRevoke)
         }
@@ -640,7 +646,10 @@ export function AccountSecuritySection({
         description="Every active browser session except this one will be revoked. API tokens are not affected."
         confirmLabel="Revoke other sessions"
         isConfirming={revokeOthersMutation.isPending}
-        confirmDisabled={otherSessionsReauthenticationRequired}
+        confirmDisabled={disableWhen(
+          otherSessionsReauthenticationRequired,
+          sessionsQuery.isError,
+        )}
         onConfirm={() => revokeOthersMutation.mutate()}
         onCancel={() => {
           setRevokeOthersOpen(false)
@@ -692,6 +701,7 @@ function MFAWorkspace({
   status,
   isLoading,
   loadError,
+  actionsDisabled,
   enrollment,
   enrollmentPassword,
   confirmationCode,
@@ -706,6 +716,7 @@ function MFAWorkspace({
   status?: MFAStatusResponse
   isLoading: boolean
   loadError: unknown
+  actionsDisabled: boolean
   enrollment: MFAEnrollmentResponse | null
   enrollmentPassword: string
   confirmationCode: string
@@ -750,6 +761,16 @@ function MFAWorkspace({
           fallback="MFA status could not be loaded"
         />
       )}
+      {actionsDisabled && (
+        <p
+          id="mfa-actions-stale"
+          role="status"
+          className="mt-2 text-xs font-semibold text-amber-800 dark:text-amber-200"
+        >
+          Security actions are disabled until the current MFA status can be
+          loaded.
+        </p>
+      )}
       {status?.managed_by === 'identity_provider' && (
         <div className="mt-3 rounded border border-cyan/25 bg-cyan/5 px-3 py-3 text-sm">
           <p className="font-semibold">Managed by your identity provider</p>
@@ -781,6 +802,8 @@ function MFAWorkspace({
             onChange={(event) => onEnrollmentPasswordChange(event.target.value)}
             className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
             required
+            disabled={actionsDisabled}
+            aria-describedby={actionsDisabled ? 'mfa-actions-stale' : undefined}
           />
           {enrollmentMutation.isError && (
             <DialogError
@@ -791,7 +814,11 @@ function MFAWorkspace({
           <button
             type="submit"
             className="mt-3 min-h-11 rounded bg-ink px-3 py-2 text-sm font-semibold text-white dark:bg-cyan dark:text-[#053c2e]"
-            disabled={!enrollmentPassword || enrollmentMutation.isPending}
+            disabled={disableWhen(
+              actionsDisabled,
+              !enrollmentPassword,
+              enrollmentMutation.isPending,
+            )}
           >
             {enrollmentMutation.isPending
               ? 'Starting...'
@@ -836,6 +863,8 @@ function MFAWorkspace({
               onChange={(event) => onConfirmationCodeChange(event.target.value)}
               className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 font-mono dark:border-cyan-900/40 dark:bg-[#072019]"
               required
+              disabled={actionsDisabled}
+              aria-describedby={actionsDisabled ? 'mfa-actions-stale' : undefined}
             />
             {confirmationMutation.isError && (
               <DialogError
@@ -853,9 +882,11 @@ function MFAWorkspace({
               <button
                 type="submit"
                 className="min-h-11 rounded bg-ink px-3 py-2 text-sm font-semibold text-white dark:bg-cyan dark:text-[#053c2e]"
-                disabled={
-                  !confirmationCode.trim() || confirmationMutation.isPending
-                }
+                disabled={disableWhen(
+                  !confirmationCode.trim(),
+                  confirmationMutation.isPending,
+                  actionsDisabled,
+                )}
               >
                 {confirmationMutation.isPending ? 'Verifying...' : 'Enable MFA'}
               </button>
@@ -863,10 +894,11 @@ function MFAWorkspace({
                 type="button"
                 className="min-h-11 rounded border border-slate/20 px-3 py-2 text-sm font-semibold dark:border-cyan-900/40"
                 onClick={onCancelEnrollment}
-                disabled={
-                  confirmationMutation.isPending ||
-                  enrollmentCancellationMutation.isPending
-                }
+                disabled={disableWhen(
+                  confirmationMutation.isPending,
+                  enrollmentCancellationMutation.isPending,
+                  actionsDisabled,
+                )}
               >
                 {enrollmentCancellationMutation.isPending
                   ? 'Cancelling...'
@@ -901,6 +933,8 @@ function MFAWorkspace({
               type="button"
               className="min-h-11 rounded border border-slate/20 px-3 py-2 font-semibold dark:border-cyan-900/40"
               onClick={() => onSensitiveAction('regenerate')}
+              disabled={actionsDisabled}
+              aria-describedby={actionsDisabled ? 'mfa-actions-stale' : undefined}
             >
               Generate new recovery codes
             </button>
@@ -908,6 +942,8 @@ function MFAWorkspace({
               type="button"
               className="tl-button-danger min-h-11 rounded px-3 py-2 font-semibold"
               onClick={() => onSensitiveAction('disable')}
+              disabled={actionsDisabled}
+              aria-describedby={actionsDisabled ? 'mfa-actions-stale' : undefined}
             >
               Disable MFA
             </button>
@@ -962,6 +998,7 @@ function SensitiveActionDialog({
   draft,
   error,
   isPending,
+  actionsDisabled,
   onDraftChange,
   onConfirm,
   onCancel,
@@ -970,6 +1007,7 @@ function SensitiveActionDialog({
   draft: SensitiveDraft
   error: unknown
   isPending: boolean
+  actionsDisabled: boolean
   onDraftChange: (draft: SensitiveDraft) => void
   onConfirm: () => void
   onCancel: () => void
@@ -991,7 +1029,11 @@ function SensitiveActionDialog({
       }
       confirmLabel={regenerating ? 'Generate new codes' : 'Disable MFA'}
       confirmTone={regenerating ? 'primary' : 'danger'}
-      confirmDisabled={!draft.currentPassword || !draft.code.trim()}
+      confirmDisabled={disableWhen(
+        actionsDisabled,
+        !draft.currentPassword,
+        !draft.code.trim(),
+      )}
       isConfirming={isPending}
       initialFocusRef={passwordInputRef}
       onConfirm={onConfirm}
@@ -1010,6 +1052,7 @@ function SensitiveActionDialog({
           onDraftChange({ ...draft, currentPassword: event.target.value })
         }
         className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
+        disabled={actionsDisabled}
       />
       <label htmlFor="mfa-sensitive-code" className="mt-3 block font-semibold">
         {regenerating
@@ -1026,7 +1069,14 @@ function SensitiveActionDialog({
           onDraftChange({ ...draft, code: event.target.value })
         }
         className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 font-mono dark:border-cyan-900/40 dark:bg-[#072019]"
+        disabled={actionsDisabled}
       />
+      {actionsDisabled && (
+        <p role="alert" className="mt-3 text-sm text-amber-800 dark:text-amber-200">
+          The current MFA status is unavailable. Close this dialog, refresh
+          security status, and retry.
+        </p>
+      )}
       {Boolean(error) && (
         <DialogError
           error={error}
@@ -1156,4 +1206,8 @@ function DialogError({
       {resolveApiErrorMessage(error, fallback)}
     </p>
   )
+}
+
+function disableWhen(...conditions: boolean[]): boolean {
+  return conditions.some(Boolean)
 }

@@ -138,12 +138,14 @@ export function OperationsPage() {
       <RunsSection
         runs={runsQuery.data?.runs ?? []}
         loading={runsQuery.isLoading}
+        updating={runsQuery.isFetching && Boolean(runsQuery.data)}
         error={runsQuery.isError ? resolveApiErrorMessage(runsQuery.error, 'Recovery history could not be loaded') : ''}
         page={runPage}
         totalPages={totalRunPages}
         operationType={operationType}
         operationStatus={operationStatus}
         onPageChange={setRunPage}
+        onRetry={() => void runsQuery.refetch()}
         onTypeChange={(value) => {
           setRunPage(1)
           setOperationType(value)
@@ -336,23 +338,27 @@ function StorageSection({ storage }: { storage: OperationsOverviewResponse['stor
 function RunsSection({
   runs,
   loading,
+  updating,
   error,
   page,
   totalPages,
   operationType,
   operationStatus,
   onPageChange,
+  onRetry,
   onTypeChange,
   onStatusChange,
 }: {
   runs: SystemOperationRun[]
   loading: boolean
+  updating: boolean
   error: string
   page: number
   totalPages: number
   operationType: SystemOperationType | ''
   operationStatus: SystemOperationStatus | ''
   onPageChange: (page: number) => void
+  onRetry: () => void
   onTypeChange: (value: SystemOperationType | '') => void
   onStatusChange: (value: SystemOperationStatus | '') => void
 }) {
@@ -393,18 +399,47 @@ function RunsSection({
           </label>
         </div>
       </div>
-      {error && <InlineMessage tone="error">{error}</InlineMessage>}
+      {error && (
+        <div
+          role="alert"
+          className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm text-red-700 dark:text-red-300"
+        >
+          <span>
+            {error}
+            {runs.length > 0 ? ' The last loaded operation history remains visible.' : ''}
+          </span>
+          <button
+            type="button"
+            className="min-h-11 rounded border border-current px-3 py-2 font-semibold"
+            onClick={onRetry}
+            disabled={updating}
+          >
+            {updating ? 'Retrying...' : 'Retry history'}
+          </button>
+        </div>
+      )}
       {loading && <p className="py-6 text-center text-sm text-slate dark:text-slate-300">Loading operation history...</p>}
+      {updating && !loading && (
+        <p role="status" className="mt-3 text-sm text-slate dark:text-slate-300">
+          Updating operation history for the selected filters...
+        </p>
+      )}
       {!loading && !error && runs.length === 0 && (
         <p className="mt-3 border-y border-dashed border-slate/20 py-5 text-center text-sm text-slate dark:border-white/10 dark:text-slate-300">
           No operation runs match these filters.
         </p>
       )}
-      <div className="mt-3 space-y-2 sm:hidden">
+      <div
+        aria-busy={updating}
+        className={`mt-3 space-y-2 sm:hidden ${updating ? 'opacity-60' : ''}`}
+      >
         {runs.map((run) => <RunMobileRow key={run.id} run={run} />)}
       </div>
       {runs.length > 0 && (
-        <div className="mt-3 hidden overflow-x-auto sm:block">
+        <div
+          aria-busy={updating}
+          className={`mt-3 hidden overflow-x-auto sm:block ${updating ? 'opacity-60' : ''}`}
+        >
           <table className="min-w-[760px] w-full text-left text-sm">
             <thead>
               <tr className="border-b border-slate/20 dark:border-white/10">
@@ -435,7 +470,7 @@ function RunsSection({
         <button
           type="button"
           className="min-h-11 rounded border border-slate/30 px-3 py-2 disabled:opacity-50 dark:border-cyan-900/40"
-          disabled={page <= 1}
+          disabled={page <= 1 || updating}
           onClick={() => onPageChange(page - 1)}
         >
           Previous
@@ -444,7 +479,7 @@ function RunsSection({
         <button
           type="button"
           className="min-h-11 rounded border border-slate/30 px-3 py-2 disabled:opacity-50 dark:border-cyan-900/40"
-          disabled={page >= totalPages}
+          disabled={page >= totalPages || updating}
           onClick={() => onPageChange(page + 1)}
         >
           Next

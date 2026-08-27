@@ -12,12 +12,14 @@ export function AccountSessionsWorkspace({
   data,
   isLoading,
   loadError,
+  actionsDisabled,
   onRevoke,
   onRevokeOthers,
 }: {
   data?: AuthSessionListResponse
   isLoading: boolean
   loadError: unknown
+  actionsDisabled: boolean
   onRevoke: (session: AuthSession) => void
   onRevokeOthers: () => void
 }) {
@@ -56,6 +58,16 @@ export function AccountSessionsWorkspace({
           {resolveApiErrorMessage(loadError, 'Browser sessions could not be loaded')}
         </p>
       )}
+      {data && actionsDisabled && (
+        <p
+          id="session-actions-stale"
+          role="status"
+          className="mt-2 text-xs font-semibold text-amber-800 dark:text-amber-200"
+        >
+          Session actions are disabled until the current session list can be
+          loaded.
+        </p>
+      )}
       {data && (
         <>
           {activeSessions.length === 0 ? (
@@ -69,7 +81,12 @@ export function AccountSessionsWorkspace({
               aria-label="Active browser sessions"
             >
               {activeSessions.map((session) => (
-                <SessionRow key={session.id} session={session} onRevoke={onRevoke} />
+                <SessionRow
+                  key={session.id}
+                  session={session}
+                  actionsDisabled={actionsDisabled}
+                  onRevoke={onRevoke}
+                />
               ))}
             </ul>
           )}
@@ -78,6 +95,10 @@ export function AccountSessionsWorkspace({
               type="button"
               className="mt-3 min-h-11 rounded border border-red-300/70 px-3 py-2 text-sm font-semibold text-red-700 dark:border-red-500/40 dark:text-red-200"
               onClick={onRevokeOthers}
+              disabled={actionsDisabled}
+              aria-describedby={
+                actionsDisabled ? 'session-actions-stale' : undefined
+              }
             >
               Revoke all other sessions
             </button>
@@ -92,7 +113,12 @@ export function AccountSessionsWorkspace({
                 aria-label="Inactive browser sessions"
               >
                 {historicalSessions.map((session) => (
-                  <SessionRow key={session.id} session={session} onRevoke={onRevoke} />
+                  <SessionRow
+                    key={session.id}
+                    session={session}
+                    actionsDisabled={actionsDisabled}
+                    onRevoke={onRevoke}
+                  />
                 ))}
               </ul>
             </details>
@@ -120,9 +146,11 @@ export function AccountSessionsWorkspace({
 
 function SessionRow({
   session,
+  actionsDisabled,
   onRevoke,
 }: {
   session: AuthSession
+  actionsDisabled: boolean
   onRevoke: (session: AuthSession) => void
 }) {
   const status = sessionStatus(session)
@@ -164,6 +192,10 @@ function SessionRow({
             type="button"
             className="min-h-11 shrink-0 rounded border border-red-300/70 px-3 py-2 text-sm font-semibold text-red-700 dark:border-red-500/40 dark:text-red-200"
             onClick={() => onRevoke(session)}
+            disabled={actionsDisabled}
+            aria-describedby={
+              actionsDisabled ? 'session-actions-stale' : undefined
+            }
             aria-label={`Revoke ${describeSessionClient(session)}${session.current ? ', current session' : ''}`}
           >
             Revoke
