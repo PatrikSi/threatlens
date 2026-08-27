@@ -5,7 +5,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ## Published Contract
 
 - Schema version: `1.7.0`
-- OpenAPI contract anchor: `openapi-sha256:d042989b348a811fe13edc77beb38d4f855ef85bda488f07837b1fec8bc5f1c2`
+- OpenAPI contract anchor: `openapi-sha256:f71dcd43d4ea64e6aaf4845a323a3a614a7f5cb3abc9ef06737c3689154f9960`
 - API service base path: `/v1`
 - Web proxy base path: `/api/v1`
 - Bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`.
@@ -176,6 +176,125 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `page_size` (query, optional): integer
   - `sort` (query, optional): string
 - Responses: `200` `application/json` -> AlertMatchListResponse, `422` `application/json` -> HTTPValidationError
+### `GET /v1/alerts/occurrences`
+- Summary: Get Alert Occurrences
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:alerts`, `read:items`
+- Parameters:
+  - `lifecycle_states` (query, optional): array[string]
+  - `severities` (query, optional): array[string]
+  - `alert_interest_id` (query, optional): Alert Interest Id
+  - `suppressed` (query, optional): Suppressed
+  - `snoozed` (query, optional): Snoozed
+  - `since` (query, optional): Since
+  - `until` (query, optional): Until
+  - `page` (query, optional): integer
+  - `page_size` (query, optional): integer
+- Responses: `200` `application/json` -> AlertOccurrenceListResponse, `422` `application/json` -> HTTPValidationError
+### `POST /v1/alerts/occurrences/bulk/acknowledge`
+- Summary: Bulk Acknowledge Alert Occurrences
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:alerts`, `read:items`
+- Request body: `application/json` -> AlertOccurrenceBulkUpdate
+- Responses: `200` `application/json` -> AlertOccurrenceBulkResponse, `422` `application/json` -> HTTPValidationError
+### `POST /v1/alerts/occurrences/bulk/close`
+- Summary: Bulk Close Alert Occurrences
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:alerts`, `read:items`
+- Request body: `application/json` -> AlertOccurrenceBulkUpdate
+- Responses: `200` `application/json` -> AlertOccurrenceBulkResponse, `422` `application/json` -> HTTPValidationError
+### `GET /v1/alerts/occurrences/evaluations`
+- Summary: Get Alert Evaluations
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:alerts`
+- Parameters:
+  - `states` (query, optional): array[string]
+  - `sources` (query, optional): array[string]
+  - `item_id` (query, optional): Item Id
+  - `needs_attention` (query, optional): boolean
+  - `page` (query, optional): integer
+  - `page_size` (query, optional): integer
+- Responses: `200` `application/json` -> AlertEvaluationRequestListResponse, `422` `application/json` -> HTTPValidationError
+### `GET /v1/alerts/occurrences/evaluations/{request_id}`
+- Summary: Get Alert Evaluation Detail
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:alerts`
+- Parameters:
+  - `request_id` (path, required): string
+- Responses: `200` `application/json` -> AlertEvaluationRequestResponse, `422` `application/json` -> HTTPValidationError
+### `GET /v1/alerts/occurrences/evaluations/{request_id}/activity`
+- Summary: Get Alert Evaluation Activity
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:alerts`
+- Parameters:
+  - `request_id` (path, required): string
+  - `page` (query, optional): integer
+  - `page_size` (query, optional): integer
+- Responses: `200` `application/json` -> AlertEvaluationActivityListResponse, `422` `application/json` -> HTTPValidationError
+### `POST /v1/alerts/occurrences/evaluations/{request_id}/replay`
+- Summary: Replay Alert Evaluation
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:alerts`
+- Parameters:
+  - `request_id` (path, required): string
+- Request body: `application/json` -> AlertEvaluationReplayRequest
+- Responses: `202` `application/json` -> AlertEvaluationReplayResponse, `422` `application/json` -> HTTPValidationError
+### `GET /v1/alerts/occurrences/metrics`
+- Summary: Get Alert Occurrence Metrics
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:alerts`
+- Parameters:
+  - `since` (query, optional): Since
+  - `until` (query, optional): Until
+  - `severities` (query, optional): array[string]
+  - `lifecycle_states` (query, optional): array[string]
+  - `suppressed` (query, optional): Suppressed
+  - `limit` (query, optional): integer
+- Responses: `200` `application/json` -> AlertOccurrenceMetricListResponse, `422` `application/json` -> HTTPValidationError
+### `POST /v1/alerts/occurrences/reconciliation/apply`
+- Summary: Apply Alert Occurrence Backfill
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:alerts`, `read:items`
+- Request body: `application/json` -> AlertBackfillApplyRequest
+- Responses: `202` `application/json` -> AlertBackfillApplyResponse, `422` `application/json` -> HTTPValidationError
+### `POST /v1/alerts/occurrences/reconciliation/preview`
+- Summary: Preview Alert Occurrence Backfill
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:alerts`, `read:items`
+- Request body: `application/json` -> AlertBackfillRequest
+- Responses: `200` `application/json` -> AlertBackfillPreviewResponse, `422` `application/json` -> HTTPValidationError
+### `GET /v1/alerts/occurrences/{occurrence_id}`
+- Summary: Get Alert Occurrence Detail
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:alerts`, `read:items`
+- Parameters:
+  - `occurrence_id` (path, required): string
+- Responses: `200` `application/json` -> AlertOccurrenceResponse, `422` `application/json` -> HTTPValidationError
+### `GET /v1/alerts/occurrences/{occurrence_id}/activity`
+- Summary: Get Alert Occurrence Activity
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:alerts`
+- Parameters:
+  - `occurrence_id` (path, required): string
+  - `page` (query, optional): integer
+  - `page_size` (query, optional): integer
+- Responses: `200` `application/json` -> AlertOccurrenceActivityListResponse, `422` `application/json` -> HTTPValidationError
+### `PATCH /v1/alerts/occurrences/{occurrence_id}/lifecycle`
+- Summary: Patch Alert Occurrence Lifecycle
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:alerts`, `read:items`
+- Parameters:
+  - `occurrence_id` (path, required): string
+- Request body: `application/json` -> AlertOccurrenceLifecycleUpdate
+- Responses: `200` `application/json` -> AlertOccurrenceResponse, `422` `application/json` -> HTTPValidationError
+### `PATCH /v1/alerts/occurrences/{occurrence_id}/snooze`
+- Summary: Patch Alert Occurrence Snooze
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:alerts`, `read:items`
+- Parameters:
+  - `occurrence_id` (path, required): string
+- Request body: `application/json` -> AlertOccurrenceSnoozeUpdate
+- Responses: `200` `application/json` -> AlertOccurrenceResponse, `422` `application/json` -> HTTPValidationError
 ### `POST /v1/alerts/preview`
 - Summary: Preview Alert Interest
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -188,6 +307,8 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Token scopes: `write:alerts`
 - Parameters:
   - `alert_id` (path, required): string
+  - `expected_revision` (query, optional): Expected Revision
+  - `expected_row_version` (query, optional): Expected Row Version
 - Responses: `204`, `422` `application/json` -> HTTPValidationError
 ### `PATCH /v1/alerts/{alert_id}`
 - Summary: Update Alert Interest
@@ -226,7 +347,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Summary: Change Password
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Request body: `application/json` -> ChangePasswordRequest
-- Responses: `200` `application/json` -> unspecified, `422` `application/json` -> HTTPValidationError
+- Responses: `200` `application/json` -> ChangePasswordResponse, `422` `application/json` -> HTTPValidationError
 ### `POST /v1/auth/login`
 - Summary: Login
 - Auth: none
@@ -240,6 +361,11 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Summary: Me
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Responses: `200` `application/json` -> CurrentUserResponse
+### `POST /v1/auth/mfa/verify`
+- Summary: Verify Mfa Login
+- Auth: none
+- Request body: `application/json` -> MFALoginVerifyRequest
+- Responses: `200` `application/json` -> TokenResponse, `422` `application/json` -> HTTPValidationError
 ### `DELETE /v1/auth/oidc/account`
 - Summary: Unlink Oidc Account
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -256,11 +382,12 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `state` (query, optional): State
   - `code` (query, optional): Code
   - `error` (query, optional): Error
-- Responses: `200` `application/json` -> unspecified, `422` `application/json` -> HTTPValidationError
+- Responses: `302`, `422` `application/json` -> HTTPValidationError
 ### `POST /v1/auth/oidc/link`
 - Summary: Start Oidc Link
 - Auth: ApiTokenBearer or SessionCookieAuth
-- Responses: `200` `application/json` -> OIDCStartResponse
+- Request body: `application/json` -> Payload
+- Responses: `200` `application/json` -> OIDCStartResponse, `422` `application/json` -> HTTPValidationError
 ### `GET /v1/auth/oidc/login`
 - Summary: Start Oidc Login
 - Auth: none
@@ -275,12 +402,16 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:users`
 - Request body: `application/json` -> OIDCProviderUpdateRequest
-- Responses: `200` `application/json` -> OIDCProviderResponse, `422` `application/json` -> HTTPValidationError
+- Responses: `200` `application/json` -> OIDCProviderResponse, `403`, `409`, `422` `application/json` -> HTTPValidationError
 ### `POST /v1/auth/oidc/provider/test`
 - Summary: Test Configured Oidc Provider
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:users`
 - Responses: `200` `application/json` -> OIDCProviderTestResponse
+### `POST /v1/auth/oidc/reauth`
+- Summary: Start Oidc Reauthentication
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Responses: `200` `application/json` -> OIDCReauthenticationStartResponse, `403`, `404`, `409`, `503`
 ### `GET /v1/auth/oidc/settings`
 - Summary: Public Oidc Settings
 - Auth: none
@@ -294,6 +425,53 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Summary: Registration Settings
 - Auth: none
 - Responses: `200` `application/json` -> RegistrationSettingsResponse
+### `DELETE /v1/auth/security/mfa`
+- Summary: Remove Totp
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Request body: `application/json` -> TOTPSensitiveActionRequest
+- Responses: `200` `application/json` -> TOTPDisableResponse, `422` `application/json` -> HTTPValidationError
+### `GET /v1/auth/security/mfa`
+- Summary: Get Mfa Status
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Responses: `200` `application/json` -> TOTPStatusResponse
+### `POST /v1/auth/security/mfa/confirm`
+- Summary: Confirm Totp
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Request body: `application/json` -> TOTPConfirmRequest
+- Responses: `200` `application/json` -> TOTPRecoveryCodesResponse, `422` `application/json` -> HTTPValidationError
+### `POST /v1/auth/security/mfa/enroll`
+- Summary: Enroll Totp
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Request body: `application/json` -> TOTPEnrollmentStartRequest
+- Responses: `200` `application/json` -> TOTPEnrollmentStartResponse, `422` `application/json` -> HTTPValidationError
+### `DELETE /v1/auth/security/mfa/enrollment`
+- Summary: Cancel Totp Enrollment
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Responses: `200` `application/json` -> TOTPEnrollmentCancelResponse
+### `POST /v1/auth/security/mfa/recovery-codes`
+- Summary: Replace Recovery Codes
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Request body: `application/json` -> TOTPSensitiveActionRequest
+- Responses: `200` `application/json` -> TOTPRecoveryCodesResponse, `422` `application/json` -> HTTPValidationError
+### `POST /v1/auth/security/reauthenticate`
+- Summary: Reauthenticate Local Session
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Request body: `application/json` -> RecentAuthenticationRequest
+- Responses: `200` `application/json` -> RecentAuthenticationResponse, `403`, `409`, `422` `application/json` -> HTTPValidationError
+### `GET /v1/auth/security/sessions`
+- Summary: List Sessions
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Responses: `200` `application/json` -> AuthSessionListResponse
+### `POST /v1/auth/security/sessions/revoke-others`
+- Summary: Revoke Other Sessions
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Responses: `200` `application/json` -> SessionBulkRevocationResponse
+### `DELETE /v1/auth/security/sessions/{session_id}`
+- Summary: Revoke Session
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Parameters:
+  - `session_id` (path, required): string
+- Responses: `200` `application/json` -> SessionRevocationResponse, `422` `application/json` -> HTTPValidationError
 
 ## Exports
 
@@ -513,6 +691,149 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Request body: `application/json` -> SMTPTestRequest
 - Responses: `200` `application/json` -> SMTPTestResponse, `422` `application/json` -> HTTPValidationError
 
+## Investigations
+
+### `GET /v1/investigations`
+- Summary: Get Investigations
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:investigations`
+- Parameters:
+  - `q` (query, optional): Q
+  - `statuses` (query, optional): array[string]
+  - `severities` (query, optional): array[string]
+  - `assigned_to_me` (query, optional): boolean
+  - `include_archived` (query, optional): boolean
+  - `page` (query, optional): integer
+  - `page_size` (query, optional): integer
+- Responses: `200` `application/json` -> InvestigationListResponse, `422` `application/json` -> HTTPValidationError
+### `POST /v1/investigations`
+- Summary: Post Investigation
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:investigations`
+- Request body: `application/json` -> InvestigationCreate
+- Responses: `201` `application/json` -> InvestigationDetailResponse, `422` `application/json` -> HTTPValidationError
+### `GET /v1/investigations/member-candidates`
+- Summary: Get Investigation Member Candidates
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:investigations`
+- Parameters:
+  - `q` (query, optional): Q
+  - `page` (query, optional): integer
+  - `page_size` (query, optional): integer
+- Responses: `200` `application/json` -> InvestigationMemberCandidateListResponse, `422` `application/json` -> HTTPValidationError
+### `GET /v1/investigations/{investigation_id}`
+- Summary: Get Investigation
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:investigations`
+- Parameters:
+  - `investigation_id` (path, required): string
+- Responses: `200` `application/json` -> InvestigationDetailResponse, `422` `application/json` -> HTTPValidationError
+### `PATCH /v1/investigations/{investigation_id}`
+- Summary: Patch Investigation
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:investigations`
+- Parameters:
+  - `investigation_id` (path, required): string
+- Request body: `application/json` -> InvestigationUpdate
+- Responses: `200` `application/json` -> InvestigationDetailResponse, `422` `application/json` -> HTTPValidationError
+### `GET /v1/investigations/{investigation_id}/activity`
+- Summary: Get Investigation Activity
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:investigations`
+- Parameters:
+  - `investigation_id` (path, required): string
+  - `page` (query, optional): integer
+  - `page_size` (query, optional): integer
+- Responses: `200` `application/json` -> InvestigationActivityListResponse, `422` `application/json` -> HTTPValidationError
+### `GET /v1/investigations/{investigation_id}/evidence`
+- Summary: Get Investigation Evidence
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:investigations`
+- Parameters:
+  - `investigation_id` (path, required): string
+  - `page` (query, optional): integer
+  - `page_size` (query, optional): integer
+- Responses: `200` `application/json` -> InvestigationEvidenceListResponse, `422` `application/json` -> HTTPValidationError
+### `POST /v1/investigations/{investigation_id}/evidence`
+- Summary: Post Investigation Evidence
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:investigations`
+- Parameters:
+  - `investigation_id` (path, required): string
+- Request body: `application/json` -> InvestigationEvidenceAdd
+- Responses: `200` `application/json` -> InvestigationDetailResponse, `422` `application/json` -> HTTPValidationError
+### `DELETE /v1/investigations/{investigation_id}/evidence/{evidence_id}`
+- Summary: Delete Investigation Evidence
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:investigations`
+- Parameters:
+  - `investigation_id` (path, required): string
+  - `evidence_id` (path, required): string
+  - `expected_version` (query, required): integer
+- Responses: `200` `application/json` -> InvestigationDetailResponse, `422` `application/json` -> HTTPValidationError
+### `POST /v1/investigations/{investigation_id}/members`
+- Summary: Post Investigation Member
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:investigations`
+- Parameters:
+  - `investigation_id` (path, required): string
+- Request body: `application/json` -> InvestigationMemberAdd
+- Responses: `200` `application/json` -> InvestigationDetailResponse, `422` `application/json` -> HTTPValidationError
+### `DELETE /v1/investigations/{investigation_id}/members/{member_user_id}`
+- Summary: Delete Investigation Member
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:investigations`
+- Parameters:
+  - `investigation_id` (path, required): string
+  - `member_user_id` (path, required): string
+  - `expected_version` (query, required): integer
+- Responses: `200` `application/json` -> InvestigationDetailResponse, `422` `application/json` -> HTTPValidationError
+### `PATCH /v1/investigations/{investigation_id}/members/{member_user_id}`
+- Summary: Patch Investigation Member
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:investigations`
+- Parameters:
+  - `investigation_id` (path, required): string
+  - `member_user_id` (path, required): string
+- Request body: `application/json` -> InvestigationMemberUpdate
+- Responses: `200` `application/json` -> InvestigationDetailResponse, `422` `application/json` -> HTTPValidationError
+### `GET /v1/investigations/{investigation_id}/notes`
+- Summary: Get Investigation Notes
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:investigations`
+- Parameters:
+  - `investigation_id` (path, required): string
+  - `page` (query, optional): integer
+  - `page_size` (query, optional): integer
+- Responses: `200` `application/json` -> InvestigationNoteListResponse, `422` `application/json` -> HTTPValidationError
+### `POST /v1/investigations/{investigation_id}/notes`
+- Summary: Post Investigation Note
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:investigations`
+- Parameters:
+  - `investigation_id` (path, required): string
+- Request body: `application/json` -> InvestigationNoteCreate
+- Responses: `200` `application/json` -> InvestigationDetailResponse, `422` `application/json` -> HTTPValidationError
+### `DELETE /v1/investigations/{investigation_id}/notes/{note_id}`
+- Summary: Delete Investigation Note
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:investigations`
+- Parameters:
+  - `investigation_id` (path, required): string
+  - `note_id` (path, required): string
+  - `expected_note_version` (query, required): integer
+  - `expected_investigation_version` (query, required): integer
+- Responses: `200` `application/json` -> InvestigationDetailResponse, `422` `application/json` -> HTTPValidationError
+### `PATCH /v1/investigations/{investigation_id}/notes/{note_id}`
+- Summary: Patch Investigation Note
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:investigations`
+- Parameters:
+  - `investigation_id` (path, required): string
+  - `note_id` (path, required): string
+- Request body: `application/json` -> InvestigationNoteUpdate
+- Responses: `200` `application/json` -> InvestigationDetailResponse, `422` `application/json` -> HTTPValidationError
+
 ## Items
 
 ### `GET /v1/items`
@@ -670,6 +991,29 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `webhook_id` (path, required): string
   - `delivery_id` (path, required): string
 - Responses: `200` `application/json` -> NotificationWebhookDeliveryResponse, `404`, `409`, `422`
+
+## Operations
+
+### `GET /v1/operations/diagnostics`
+- Summary: Diagnostics
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:operations`
+- Responses: `200` `application/json` -> OperationsDiagnosticsResponse
+### `GET /v1/operations/overview`
+- Summary: Overview
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:operations`
+- Responses: `200` `application/json` -> OperationsOverviewResponse
+### `GET /v1/operations/runs`
+- Summary: Runs
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:operations`
+- Parameters:
+  - `operation_type` (query, optional): Operation Type
+  - `status` (query, optional): Status
+  - `page` (query, optional): integer
+  - `page_size` (query, optional): integer
+- Responses: `200` `application/json` -> SystemOperationRunListResponse, `422` `application/json` -> HTTPValidationError
 
 ## Reports
 
@@ -916,7 +1260,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:tokens`
 - Request body: `application/json` -> ApiTokenCreateRequest
-- Responses: `201` `application/json` -> ApiTokenCreateResponse, `422` `application/json` -> HTTPValidationError
+- Responses: `201` `application/json` -> ApiTokenCreateResponse, `403`, `422` `application/json` -> HTTPValidationError
 ### `DELETE /v1/tokens/{token_id}`
 - Summary: Revoke Token
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -938,6 +1282,24 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Token scopes: `write:users`
 - Request body: `application/json` -> UserCreateRequest
 - Responses: `201` `application/json` -> UserAdminResponse, `422` `application/json` -> HTTPValidationError
+### `GET /v1/users/directory`
+- Summary: List User Directory
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:users`
+- Parameters:
+  - `q` (query, optional): Q
+  - `role` (query, optional): Role
+  - `provisioning_source` (query, optional): Provisioning Source
+  - `limit` (query, optional): integer
+  - `offset` (query, optional): integer
+- Responses: `200` `application/json` -> UserDirectoryResponse, `422` `application/json` -> HTTPValidationError
+### `GET /v1/users/{user_id}`
+- Summary: Get User
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:users`
+- Parameters:
+  - `user_id` (path, required): string
+- Responses: `200` `application/json` -> UserAdminResponse, `422` `application/json` -> HTTPValidationError
 ### `PATCH /v1/users/{user_id}`
 - Summary: Update User
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -945,7 +1307,15 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `user_id` (path, required): string
 - Request body: `application/json` -> UserUpdateRequest
-- Responses: `200` `application/json` -> UserAdminResponse, `422` `application/json` -> HTTPValidationError
+- Responses: `200` `application/json` -> UserAdminResponse, `409`, `422` `application/json` -> HTTPValidationError, `428`
+### `POST /v1/users/{user_id}/mfa/reset`
+- Summary: Reset User Mfa
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:users`
+- Parameters:
+  - `user_id` (path, required): string
+- Request body: `application/json` -> AdminMFAResetRequest
+- Responses: `200` `application/json` -> AdminMFAResetResponse, `422` `application/json` -> HTTPValidationError
 
 ## Views
 

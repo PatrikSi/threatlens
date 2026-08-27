@@ -179,8 +179,61 @@ Primary key on `item_id`:
 - `category: string(64)`
 - `keywords: JSON string[]`
 - `enabled: bool`
+- `severity: string(16)` (`low|medium|high|critical`)
+- `revision: int`
+- `row_version: int`
+- `durable_since: timestamptz?`
+- `suppression_until: timestamptz?`
+- `suppression_reason: string(500)?`
 - `created_at: timestamptz`
 - `updated_at: timestamptz`
+
+### Alerting V2
+
+`AlertEvaluationRequest` is the durable, idempotent intent to evaluate one item
+content hash. It records live, reconciliation, backfill, and replay provenance;
+publish and processing leases; bounded retry/dead-letter state; cutover and
+notification policy; accepted/evaluated counts; safe errors; and an optimistic
+version. `(item_id, item_content_hash)` is unique.
+
+`AlertEvaluationMatch` is the immutable rule snapshot accepted by an evaluation.
+It retains the rule ID and revision, owner, names, categories, keywords, severity,
+and suppression decision even when the live rule is later deleted. A request may
+contain only one row for a rule revision.
+
+`AlertEvaluationRequestActivity` is the append-only operator history for acceptance,
+promotion, retry, failure, replay, and completion. `AlertBackfillPreview` stores an
+administrator-bound, expiring candidate snapshot and its keyset continuation before
+non-notifying reconciliation is applied.
+
+`AlertOccurrence` is the durable analyst record. Its identity is unique across rule
+ID snapshot, rule revision, item ID snapshot, and item content hash. Optional live
+foreign keys use `SET NULL`; bounded source and rule snapshots preserve evidence.
+Lifecycle state, disposition, analyst attribution, suppression, snooze, integration
+event, optimistic version, and metrics-aggregation timestamps are retained.
+
+`AlertOccurrenceActivity` stores the append-only occurrence timeline.
+`AlertOccurrenceMetric` stores daily retained counts by owner, severity, lifecycle
+state, and suppression after closed detailed occurrences age out.
+
+### Investigations
+
+`Investigation` is the versioned aggregate for a collaborative analyst collection:
+title, description, `open|monitoring|closed|archived` status, severity,
+`private|team` visibility, disposition, assignee, creator, and lifecycle timestamps.
+
+`InvestigationMember` maps users to the `owner`, `editor`, or `viewer` object role.
+The composite membership key is unique and deletion of a member user is restricted
+until ownership and membership are deliberately reconciled.
+
+`InvestigationEvidence` links one unique `item`, `ioc`, `report`, or
+`alert_occurrence` to an investigation. It retains bounded title, description, URL,
+metadata, and analyst-note snapshots instead of copying full article text or private
+item notes.
+
+`InvestigationNote` is a versioned, soft-deletable analyst note.
+`InvestigationActivity` is the append-only audit timeline for aggregate, membership,
+evidence, and note changes.
 
 ### Generic Integration Platform
 
@@ -370,6 +423,19 @@ Report schedules use idempotent generation keys. Reports retain source, prompt, 
 - `AlertInterestCreate`, `AlertInterestUpdate`, `AlertInterestResponse`
 - `AlertInterestPreviewRequest`
 - `AlertMatchReference`, `AlertMatchEntry`, `AlertMatchListResponse`
+- occurrence detail, list, activity, lifecycle, snooze, and bulk-mutation schemas
+- bounded backfill preview and apply schemas
+- administrator evaluation detail, list, activity, replay, and metric schemas
+
+### Investigation Schemas
+
+- `InvestigationCreate`, `InvestigationUpdate`, `InvestigationVersionRequest`
+- `InvestigationSummaryResponse`, `InvestigationDetailResponse`,
+  `InvestigationListResponse`
+- member add, update, candidate, and response schemas
+- evidence add, response, and paginated-list schemas
+- note create, update, response, and paginated-list schemas
+- activity item and paginated activity schemas
 
 ### Other Schemas
 
