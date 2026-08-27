@@ -36,6 +36,7 @@ from app.api.routes import (
     items,
     notifications,
     oidc,
+    operations,
     reports,
     stats,
     tagging,
@@ -82,6 +83,7 @@ API_ROUTERS: tuple[APIRouter, ...] = (
     notifications.router,
     ai.router,
     stats.router,
+    operations.router,
     health.router,
 )
 
