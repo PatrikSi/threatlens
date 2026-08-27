@@ -620,6 +620,7 @@ export function OIDCProviderSaveDialog({
           <label className="flex items-start gap-2 rounded border border-red-300/60 bg-red-50 px-3 py-2 text-red-800 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-100">
             <input
               type="checkbox"
+              className="mt-0.5 h-5 w-5 shrink-0 sm:h-4 sm:w-4"
               checked={acknowledged}
               onChange={(event) => setAcknowledged(event.target.checked)}
             />

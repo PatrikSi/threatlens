@@ -445,9 +445,10 @@ export function IdentitySettingsPage() {
                     Register the callback URL exactly with the provider.
                   </p>
                 </div>
-                <label className="flex items-center gap-2 text-sm font-semibold">
+                <label className="flex min-h-11 items-center gap-2 text-sm font-semibold sm:min-h-0">
                   <input
                     type="checkbox"
+                    className="h-5 w-5 sm:h-4 sm:w-4"
                     checked={draft.enabled}
                     onChange={(event) =>
                       updateDraft((current) => ({
@@ -576,9 +577,10 @@ export function IdentitySettingsPage() {
                       }
                     />
                     {providerQuery.data.has_client_secret && (
-                      <label className="mt-2 flex items-center gap-2 text-xs text-slate dark:text-slate-300">
+                      <label className="mt-2 flex min-h-11 items-center gap-2 text-xs text-slate dark:text-slate-300 sm:min-h-0">
                         <input
                           type="checkbox"
+                          className="h-5 w-5 sm:h-4 sm:w-4"
                           checked={draft.clearClientSecret}
                           onChange={(event) =>
                             updateDraft((current) => ({
@@ -1033,9 +1035,10 @@ function Toggle({
   onChange: (checked: boolean) => void
 }) {
   return (
-    <label className="flex items-center gap-2 rounded border border-slate/20 px-3 py-2 text-sm font-semibold dark:border-white/10">
+    <label className="flex min-h-11 items-center gap-2 rounded border border-slate/20 px-3 py-2 text-sm font-semibold sm:min-h-0 dark:border-white/10">
       <input
         type="checkbox"
+        className="h-5 w-5 sm:h-4 sm:w-4"
         checked={checked}
         disabled={disabled}
         onChange={(event) => onChange(event.target.checked)}

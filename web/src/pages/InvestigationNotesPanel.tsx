@@ -109,6 +109,16 @@ export function InvestigationNotesPanel({
         onRetry={() => void controller.notesQuery.refetch()}
       />
 
+      {controller.editingNoteId && (
+        <p
+          id="investigation-note-edit-disabled-reason"
+          role="status"
+          className="mt-2 text-xs text-slate dark:text-slate-300"
+        >
+          Finish or cancel the current note edit before changing another note.
+        </p>
+      )}
+
       {notesPage && notesPage.notes.length === 0 && notesPage.total === 0 ? (
         <p className="py-8 text-center text-sm text-slate dark:text-slate-300">
           No analyst notes have been recorded.
@@ -157,6 +167,11 @@ export function InvestigationNotesPanel({
                             ? 'Finish or cancel the current note edit first.'
                             : undefined
                         }
+                        aria-describedby={
+                          controller.editingNoteId !== null
+                            ? 'investigation-note-edit-disabled-reason'
+                            : undefined
+                        }
                         aria-label={`Edit note by ${note.author_email ?? 'unknown author'}`}
                         onClick={() => controller.beginNoteEdit(note.id, note.body)}
                       >
@@ -171,6 +186,11 @@ export function InvestigationNotesPanel({
                         title={
                           controller.editingNoteId !== null
                             ? 'Finish or cancel the current note edit first.'
+                            : undefined
+                        }
+                        aria-describedby={
+                          controller.editingNoteId !== null
+                            ? 'investigation-note-edit-disabled-reason'
                             : undefined
                         }
                         aria-label={`Remove note by ${note.author_email ?? 'unknown author'}`}

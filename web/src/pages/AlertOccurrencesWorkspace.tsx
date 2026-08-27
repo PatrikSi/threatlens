@@ -469,6 +469,11 @@ function OccurrenceBulkToolbar({ controller }: { controller: AlertOccurrencesCon
             ? undefined
             : 'Only new occurrences can be acknowledged together.'
         }
+        aria-describedby={
+          controller.canBulkAcknowledge
+            ? undefined
+            : 'bulk-acknowledge-disabled-reason'
+        }
         onClick={controller.acknowledgeSelected}
       >
         Acknowledge selected
@@ -484,6 +489,9 @@ function OccurrenceBulkToolbar({ controller }: { controller: AlertOccurrencesCon
         title={
           controller.canBulkClose ? undefined : 'Closed occurrences cannot be closed again in bulk.'
         }
+        aria-describedby={
+          controller.canBulkClose ? undefined : 'bulk-close-disabled-reason'
+        }
         onClick={controller.requestCloseSelected}
       >
         Close selected
@@ -495,6 +503,24 @@ function OccurrenceBulkToolbar({ controller }: { controller: AlertOccurrencesCon
       >
         Clear selection
       </button>
+      {!controller.canBulkAcknowledge && (
+        <p
+          id="bulk-acknowledge-disabled-reason"
+          role="status"
+          className="basis-full text-xs text-slate dark:text-slate-300"
+        >
+          Only new occurrences can be acknowledged together.
+        </p>
+      )}
+      {!controller.canBulkClose && (
+        <p
+          id="bulk-close-disabled-reason"
+          role="status"
+          className="basis-full text-xs text-slate dark:text-slate-300"
+        >
+          Closed occurrences cannot be closed again in bulk.
+        </p>
+      )}
     </div>
   )
 }
@@ -627,14 +653,16 @@ function OccurrenceMobileList({ controller }: { controller: AlertOccurrencesCont
         return (
           <article key={occurrence.id} className="px-3 py-3">
             <div className="flex items-start gap-2.5">
-              <input
-                type="checkbox"
-                className="mt-1 accent-cyan"
-                checked={controller.selectedIds.has(occurrence.id)}
-                disabled={controller.occurrencesQuery.isPlaceholderData}
-                aria-label={`Select occurrence from ${occurrence.alert_name_snapshot}`}
-                onChange={() => controller.toggleSelection(occurrence.id)}
-              />
+              <label className="-ml-2 -mt-2 flex h-11 w-11 shrink-0 items-center justify-center">
+                <input
+                  type="checkbox"
+                  className="h-5 w-5 accent-cyan"
+                  checked={controller.selectedIds.has(occurrence.id)}
+                  disabled={controller.occurrencesQuery.isPlaceholderData}
+                  aria-label={`Select occurrence from ${occurrence.alert_name_snapshot}`}
+                  onChange={() => controller.toggleSelection(occurrence.id)}
+                />
+              </label>
               <div className="min-w-0 flex-1">
                 <h3 className="break-words text-sm font-semibold">{source.title}</h3>
                 <p className="mt-0.5 break-words text-xs text-slate dark:text-slate-400">
