@@ -52,6 +52,7 @@ export function useInvestigationsPage() {
     queryFn: () => apiFetch<InvestigationListResponse>(buildInvestigationListPath(filters)),
     placeholderData: (previous) => previous,
     staleTime: 15_000,
+    refetchOnWindowFocus: true,
   })
 
   const createInvestigation = useMutation({

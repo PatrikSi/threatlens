@@ -1,5 +1,5 @@
 import { FormEvent } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 
 import { resolveApiErrorMessage } from '../api/errors'
 import { DialogSurface } from '../components/ConfirmDialog'
@@ -21,6 +21,7 @@ import {
 import type { InvestigationsPageController } from './useInvestigationsPage'
 
 export function InvestigationListWorkspace({ controller }: { controller: InvestigationsPageController }) {
+  const location = useLocation()
   const { investigationsQuery, filters } = controller
   const data = investigationsQuery.data
   const activeFilterCount = filters.statuses.length
@@ -63,6 +64,11 @@ export function InvestigationListWorkspace({ controller }: { controller: Investi
             <span>Updated {formatDateTime(new Date(investigationsQuery.dataUpdatedAt))}</span>
           )}
         </div>
+        {investigationsQuery.isPlaceholderData && (
+          <p role="status" className="mt-2 text-xs text-amber-800 dark:text-amber-200">
+            Showing the previous results while the current filters load.
+          </p>
+        )}
       </header>
 
       {investigationsQuery.isError && data && (
@@ -94,7 +100,16 @@ export function InvestigationListWorkspace({ controller }: { controller: Investi
                 ? 'Create the first investigation to begin collecting evidence and analyst decisions.'
                 : 'No investigations are currently visible to your account.'}
           </p>
-          {activeFilterCount > 0 && (
+          {filters.page > 1 && (
+            <button
+              type="button"
+              className="mt-4 min-h-11 rounded border border-slate/30 px-3 py-2 text-sm font-semibold md:min-h-0 dark:border-white/15"
+              onClick={() => controller.updateFilters({ page: 1 })}
+            >
+              Return to first page
+            </button>
+          )}
+          {activeFilterCount > 0 && filters.page === 1 && (
             <button
               type="button"
               className="mt-4 min-h-11 rounded border border-slate/30 px-3 py-2 text-sm font-semibold md:min-h-0 dark:border-white/15"
@@ -108,8 +123,8 @@ export function InvestigationListWorkspace({ controller }: { controller: Investi
 
       {data && data.investigations.length > 0 && (
         <>
-          <InvestigationDesktopTable investigations={data.investigations} />
-          <InvestigationMobileCards investigations={data.investigations} />
+          <InvestigationDesktopTable investigations={data.investigations} listSearch={location.search} />
+          <InvestigationMobileCards investigations={data.investigations} listSearch={location.search} />
           <InvestigationPagination
             page={data.page}
             total={data.total}
@@ -230,7 +245,7 @@ function FilterMenu<T extends string>({
   )
 }
 
-function InvestigationDesktopTable({ investigations }: { investigations: InvestigationSummary[] }) {
+function InvestigationDesktopTable({ investigations, listSearch }: { investigations: InvestigationSummary[]; listSearch: string }) {
   return (
     <div className="hidden min-w-0 overflow-x-auto md:block">
       <table className="w-full table-fixed text-left text-sm" aria-label="Investigations">
@@ -247,7 +262,7 @@ function InvestigationDesktopTable({ investigations }: { investigations: Investi
           {investigations.map((investigation) => (
             <tr key={investigation.id} className="align-top hover:bg-cyan/5">
               <th scope="row" className="min-w-0 px-4 py-3 font-normal">
-                <Link className="break-words font-semibold text-ink hover:text-cyan dark:text-slate-100 dark:hover:text-cyan-200" to={`/investigations/${investigation.id}`}>
+                <Link className="break-words font-semibold text-ink hover:text-cyan dark:text-slate-100 dark:hover:text-cyan-200" to={`/investigations/${investigation.id}`} state={{ investigationListSearch: listSearch }}>
                   {investigation.title}
                 </Link>
                 {investigation.description && <p className="mt-1 line-clamp-2 text-xs text-slate dark:text-slate-400">{investigation.description}</p>}
@@ -272,13 +287,13 @@ function InvestigationDesktopTable({ investigations }: { investigations: Investi
   )
 }
 
-function InvestigationMobileCards({ investigations }: { investigations: InvestigationSummary[] }) {
+function InvestigationMobileCards({ investigations, listSearch }: { investigations: InvestigationSummary[]; listSearch: string }) {
   return (
     <div className="space-y-2 px-2 py-2 md:hidden" data-layout="mobile-cards">
       {investigations.map((investigation) => (
         <article key={investigation.id} className="min-w-0 rounded border border-slate/20 bg-white/60 p-3 dark:border-white/10 dark:bg-white/[0.025]">
           <div className="flex min-w-0 items-start justify-between gap-2">
-            <Link className="flex min-h-11 min-w-0 items-center break-words font-semibold leading-snug" to={`/investigations/${investigation.id}`}>{investigation.title}</Link>
+            <Link className="flex min-h-11 min-w-0 items-center break-words font-semibold leading-snug" to={`/investigations/${investigation.id}`} state={{ investigationListSearch: listSearch }}>{investigation.title}</Link>
             <InvestigationSeverityChip severity={investigation.severity} />
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-2"><InvestigationStatusChip status={investigation.status} /><span className="text-xs capitalize text-slate dark:text-slate-400">{investigation.current_user_role ?? 'team read-only'}</span></div>

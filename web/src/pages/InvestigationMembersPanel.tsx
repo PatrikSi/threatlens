@@ -22,6 +22,14 @@ export function InvestigationMembersPanel({ controller }: { controller: Investig
 
   const candidateResponse = controller.memberCandidatesQuery.data
   const candidatePages = Math.max(1, Math.ceil((candidateResponse?.total ?? 0) / (candidateResponse?.page_size ?? 20)))
+  const removalError = pendingRemoval
+    && controller.mutation.isError
+    && controller.mutation.variables?.kind === 'remove-member'
+    && controller.mutation.variables.userId === pendingRemoval.user_id
+    ? resolveApiErrorMessage(controller.mutation.error, 'Member could not be removed', {
+      retryGuidance: 'Review the member list and try again.',
+    })
+    : null
 
   const addMember = (event: FormEvent) => {
     event.preventDefault()
@@ -90,6 +98,7 @@ export function InvestigationMembersPanel({ controller }: { controller: Investig
         description={pendingRemoval ? `Remove ${pendingRemoval.email} from this investigation? Their account and other access will not be changed.` : undefined}
         confirmLabel="Remove member"
         isConfirming={controller.mutation.isPending}
+        error={removalError}
         onCancel={() => setPendingRemoval(null)}
         onConfirm={() => {
           if (!pendingRemoval) return
@@ -177,7 +186,7 @@ function MembersList({
               <div><label htmlFor={`investigation-member-role-${member.user_id}`} className="sr-only">Role for {member.email}</label><select id={`investigation-member-role-${member.user_id}`} className="min-h-11 w-full rounded border border-slate/30 bg-white px-2 py-2 text-sm disabled:opacity-60 md:min-h-0 md:py-1.5 dark:border-cyan-900/40 dark:bg-[#072019]" value={member.role} disabled={pending || finalOwner} title={finalOwner ? 'Add another owner before changing this owner.' : undefined} onChange={(event) => onRoleChange(member, event.target.value as InvestigationMemberRole)}>{MEMBER_ROLES.map((role) => <option key={role.value} value={role.value}>{role.label}</option>)}</select></div>
             ) : <span className="text-sm capitalize">{member.role}</span>}
             {canManage ? (
-              <button type="button" className="min-h-11 rounded border border-slate/20 px-3 py-2 text-sm font-semibold text-red-700 disabled:opacity-50 md:min-h-0 md:py-1.5 dark:border-white/10 dark:text-red-300" disabled={pending || finalOwner} title={finalOwner ? 'The final owner cannot be removed.' : undefined} onClick={() => onRemove(member)}>{finalOwner ? 'Final owner' : 'Remove'}</button>
+              <button type="button" className="min-h-11 rounded border border-slate/20 px-3 py-2 text-sm font-semibold text-red-700 disabled:opacity-50 md:min-h-0 md:py-1.5 dark:border-white/10 dark:text-red-300" disabled={pending || finalOwner} title={finalOwner ? 'The final owner cannot be removed.' : undefined} aria-label={finalOwner ? `${member.email} is the final investigation owner` : `Remove ${member.email} from investigation`} onClick={() => onRemove(member)}>{finalOwner ? 'Final owner' : 'Remove'}</button>
             ) : <span className="text-xs text-slate dark:text-slate-400">Read-only</span>}
           </article>
         )

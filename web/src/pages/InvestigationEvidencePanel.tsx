@@ -1,5 +1,6 @@
 import { FormEvent, useState } from 'react'
 
+import { resolveApiErrorMessage } from '../api/errors'
 import type { InvestigationEvidence, InvestigationEvidenceType } from '../types/investigations'
 import { formatDateTime } from '../utils/datetime'
 import { formatEvidenceType, INVESTIGATION_EVIDENCE_TYPES, safeInvestigationExternalUrl } from './investigationPageModel'
@@ -15,6 +16,14 @@ export function InvestigationEvidencePanel({ controller }: { controller: Investi
   const draft = controller.evidenceDraft
   const selectedType = INVESTIGATION_EVIDENCE_TYPES.find((entry) => entry.value === draft.sourceType) ?? INVESTIGATION_EVIDENCE_TYPES[0]
   const selectedAlertUnavailable = draft.sourceType === 'alert_occurrence' && controller.alertOccurrenceUnavailable
+  const removalError = pendingRemoval
+    && controller.mutation.isError
+    && controller.mutation.variables?.kind === 'remove-evidence'
+    && controller.mutation.variables.evidenceId === pendingRemoval.id
+    ? resolveApiErrorMessage(controller.mutation.error, 'Evidence could not be removed', {
+      retryGuidance: 'Review the latest evidence list and try again.',
+    })
+    : null
 
   const submit = (event: FormEvent) => {
     event.preventDefault()
@@ -57,7 +66,7 @@ export function InvestigationEvidencePanel({ controller }: { controller: Investi
         </div>
       )}
 
-      <InvestigationConfirmDialog open={Boolean(pendingRemoval)} title="Remove evidence?" description={pendingRemoval ? `Remove the saved snapshot “${pendingRemoval.title_snapshot}” from this investigation? The source record will not be deleted.` : undefined} confirmLabel="Remove evidence" isConfirming={controller.mutation.isPending} onCancel={() => setPendingRemoval(null)} onConfirm={() => { if (!pendingRemoval) return; controller.mutation.mutate({ kind: 'remove-evidence', evidenceId: pendingRemoval.id }, { onSuccess: () => setPendingRemoval(null) }) }} />
+      <InvestigationConfirmDialog open={Boolean(pendingRemoval)} title="Remove evidence?" description={pendingRemoval ? `Remove the saved snapshot “${pendingRemoval.title_snapshot}” from this investigation? The source record will not be deleted.` : undefined} confirmLabel="Remove evidence" isConfirming={controller.mutation.isPending} error={removalError} onCancel={() => setPendingRemoval(null)} onConfirm={() => { if (!pendingRemoval) return; controller.mutation.mutate({ kind: 'remove-evidence', evidenceId: pendingRemoval.id }, { onSuccess: () => setPendingRemoval(null) }) }} />
     </section>
   )
 }
@@ -75,7 +84,7 @@ function EvidenceEntry({ evidence, canRemove, pending, onRemove }: { evidence: I
           {sourceUrl && <a href={sourceUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex min-h-11 items-center break-all text-sm font-semibold text-cyan hover:underline md:min-h-0">Open captured source URL</a>}
           {evidence.url_snapshot && !sourceUrl && <p className="mt-2 text-xs text-amber-800 dark:text-amber-200">The captured source URL uses an unsupported or unsafe scheme and cannot be opened here.</p>}
         </div>
-        {canRemove && <button type="button" className="min-h-11 shrink-0 rounded border border-slate/20 px-3 py-2 text-sm font-semibold text-red-700 disabled:opacity-50 md:min-h-0 md:py-1.5 dark:border-white/10 dark:text-red-300" disabled={pending} onClick={() => onRemove(evidence)}>Remove</button>}
+        {canRemove && <button type="button" className="min-h-11 shrink-0 rounded border border-slate/20 px-3 py-2 text-sm font-semibold text-red-700 disabled:opacity-50 md:min-h-0 md:py-1.5 dark:border-white/10 dark:text-red-300" disabled={pending} aria-label={`Remove evidence ${evidence.title_snapshot}`} onClick={() => onRemove(evidence)}>Remove</button>}
       </div>
       {evidence.note && <div className="mt-2 border-l-2 border-cyan/40 pl-3"><p className="text-xs font-semibold text-slate dark:text-slate-400">Analyst context</p><p className="mt-0.5 whitespace-pre-wrap break-words text-sm">{evidence.note}</p></div>}
       {metadata.length > 0 && <details className="mt-2 text-xs"><summary className="min-h-11 cursor-pointer py-2 font-semibold text-slate md:min-h-0 md:py-1 dark:text-slate-300">Snapshot metadata</summary><dl className="mt-1 grid min-w-0 gap-x-4 gap-y-2 sm:grid-cols-2">{metadata.map(([key, value]) => <div key={key} className="min-w-0"><dt className="break-words text-slate dark:text-slate-400">{humanizeKey(key)}</dt><dd className="mt-0.5 break-all font-mono">{formatMetadataValue(value)}</dd></div>)}</dl></details>}

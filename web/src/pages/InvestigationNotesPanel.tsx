@@ -1,5 +1,6 @@
 import { FormEvent, useState } from 'react'
 
+import { resolveApiErrorMessage } from '../api/errors'
 import type { InvestigationNote } from '../types/investigations'
 import { formatDateTime } from '../utils/datetime'
 import { canEditInvestigationNote } from './investigationPageModel'
@@ -10,6 +11,14 @@ export function InvestigationNotesPanel({ controller }: { controller: Investigat
   const detail = controller.detailQuery.data
   const [pendingRemoval, setPendingRemoval] = useState<InvestigationNote | null>(null)
   if (!detail || !controller.access) return null
+  const removalError = pendingRemoval
+    && controller.mutation.isError
+    && controller.mutation.variables?.kind === 'remove-note'
+    && controller.mutation.variables.noteId === pendingRemoval.id
+    ? resolveApiErrorMessage(controller.mutation.error, 'Note could not be removed', {
+      retryGuidance: 'Review the latest note version and try again.',
+    })
+    : null
 
   const addNote = (event: FormEvent) => {
     event.preventDefault()
@@ -51,8 +60,8 @@ export function InvestigationNotesPanel({ controller }: { controller: Investigat
                   </div>
                   {canEdit && !editing && (
                     <div className="flex gap-2">
-                      <button type="button" className="min-h-11 rounded border border-slate/20 px-3 py-2 text-sm font-semibold disabled:opacity-50 md:min-h-0 md:py-1 dark:border-white/10" disabled={controller.mutation.isPending || controller.editingNoteId !== null} title={controller.editingNoteId !== null ? 'Finish or cancel the current note edit first.' : undefined} onClick={() => controller.beginNoteEdit(note.id, note.body)}>Edit</button>
-                      <button type="button" className="min-h-11 rounded border border-slate/20 px-3 py-2 text-sm font-semibold text-red-700 disabled:opacity-50 md:min-h-0 md:py-1 dark:border-white/10 dark:text-red-300" disabled={controller.mutation.isPending || controller.editingNoteId !== null} title={controller.editingNoteId !== null ? 'Finish or cancel the current note edit first.' : undefined} onClick={() => setPendingRemoval(note)}>Remove</button>
+                      <button type="button" className="min-h-11 rounded border border-slate/20 px-3 py-2 text-sm font-semibold disabled:opacity-50 md:min-h-0 md:py-1 dark:border-white/10" disabled={controller.mutation.isPending || controller.editingNoteId !== null} title={controller.editingNoteId !== null ? 'Finish or cancel the current note edit first.' : undefined} aria-label={`Edit note by ${note.author_email ?? 'unknown author'}`} onClick={() => controller.beginNoteEdit(note.id, note.body)}>Edit</button>
+                      <button type="button" className="min-h-11 rounded border border-slate/20 px-3 py-2 text-sm font-semibold text-red-700 disabled:opacity-50 md:min-h-0 md:py-1 dark:border-white/10 dark:text-red-300" disabled={controller.mutation.isPending || controller.editingNoteId !== null} title={controller.editingNoteId !== null ? 'Finish or cancel the current note edit first.' : undefined} aria-label={`Remove note by ${note.author_email ?? 'unknown author'}`} onClick={() => setPendingRemoval(note)}>Remove</button>
                     </div>
                   )}
                 </div>
@@ -77,6 +86,7 @@ export function InvestigationNotesPanel({ controller }: { controller: Investigat
         description="Remove this note from the investigation? Its content will no longer be visible, but the removal remains recorded in Activity and audit logs."
         confirmLabel="Remove note"
         isConfirming={controller.mutation.isPending}
+        error={removalError}
         onCancel={() => setPendingRemoval(null)}
         onConfirm={() => {
           if (!pendingRemoval) return

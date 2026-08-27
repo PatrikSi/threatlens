@@ -11,6 +11,7 @@ import type {
   InvestigationMemberCandidateListResponse,
   InvestigationMemberRole,
   InvestigationSeverity,
+  InvestigationUpdateRequest,
   InvestigationVisibility,
 } from '../types/investigations'
 import {
@@ -37,7 +38,7 @@ export interface InvestigationEvidenceDraft {
 }
 
 export type InvestigationMutationOperation =
-  | { kind: 'update'; changes: Record<string, unknown> }
+  | { kind: 'update'; changes: Omit<InvestigationUpdateRequest, 'expected_version'> }
   | { kind: 'add-member'; userId: string; role: InvestigationMemberRole }
   | { kind: 'update-member'; userId: string; role: InvestigationMemberRole }
   | { kind: 'remove-member'; userId: string }
@@ -85,6 +86,9 @@ export function useInvestigationDetail(investigationId: string) {
     queryKey: detailKey,
     queryFn: () => apiFetch<InvestigationDetail>(`/investigations/${investigationId}`),
     staleTime: 15_000,
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
   })
   const detail = detailQuery.data
   const access = detail
@@ -330,7 +334,7 @@ function sameOverviewDraft(left: InvestigationOverviewDraft, right: Investigatio
     && left.assigneeUserId === right.assigneeUserId
 }
 
-function isOverviewFieldUpdate(changes: Record<string, unknown>): boolean {
+function isOverviewFieldUpdate(changes: Omit<InvestigationUpdateRequest, 'expected_version'>): boolean {
   return ['title', 'description', 'severity', 'visibility', 'assignee_user_id']
     .some((field) => field in changes)
 }

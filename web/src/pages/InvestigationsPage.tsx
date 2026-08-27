@@ -8,7 +8,7 @@ import { useInvestigationsPage } from './useInvestigationsPage'
 export function InvestigationsPage() {
   const { investigationId } = useParams<{ investigationId: string }>()
   return investigationId
-    ? <InvestigationDetailRoute investigationId={investigationId} />
+    ? <InvestigationDetailRoute key={investigationId} investigationId={investigationId} />
     : <InvestigationListRoute />
 }
 

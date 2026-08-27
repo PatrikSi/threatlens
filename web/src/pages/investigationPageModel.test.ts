@@ -49,6 +49,15 @@ describe('investigation page model', () => {
     expect(readInvestigationTab(new URLSearchParams('tab=activity'))).toBe('activity')
   })
 
+  it('keeps the archived status filter independent from the include-archived toggle', () => {
+    const filters = readInvestigationListFilters(new URLSearchParams('status=archived'))
+
+    expect(filters.includeArchived).toBe(false)
+    expect(filters.statuses).toEqual(['archived'])
+    expect(buildInvestigationListPath(filters)).toContain('include_archived=true')
+    expect(writeInvestigationListFilters(filters).toString()).toBe('status=archived')
+  })
+
   it('keeps account role, membership, and archive authority separate', () => {
     expect(resolveInvestigationAccess(detail, 'analyst')).toMatchObject({
       canWrite: true,
@@ -80,7 +89,15 @@ describe('investigation page model', () => {
   })
 
   it('recognizes version conflicts and the explicit alert occurrence capability error', () => {
-    expect(isInvestigationVersionConflict(new ApiError('changed', 409, '/investigations/1'))).toBe(true)
+    expect(isInvestigationVersionConflict(new ApiError('changed', 409, '/investigations/1', null, {
+      code: 'investigation_version_conflict',
+    }))).toBe(true)
+    expect(isInvestigationVersionConflict(new ApiError(
+      'The investigation changed after you loaded it.',
+      409,
+      '/investigations/1',
+    ))).toBe(true)
+    expect(isInvestigationVersionConflict(new ApiError('already exists', 409, '/investigations/1'))).toBe(false)
     expect(isInvestigationVersionConflict(new ApiError('invalid', 422, '/investigations/1'))).toBe(false)
     expect(isAlertOccurrenceUnavailable(new ApiError(
       'Alert occurrence evidence is unavailable until durable Alerting v2 is enabled.',

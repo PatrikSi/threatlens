@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 
 import { resolveApiErrorMessage } from '../api/errors'
 import type { InvestigationDetailTab, InvestigationStatus } from '../types/investigations'
@@ -9,7 +9,11 @@ import { InvestigationEvidencePanel } from './InvestigationEvidencePanel'
 import { InvestigationMembersPanel } from './InvestigationMembersPanel'
 import { InvestigationNotesPanel } from './InvestigationNotesPanel'
 import { InvestigationOverviewPanel } from './InvestigationOverviewPanel'
-import { INVESTIGATION_TABS, isInvestigationVersionConflict } from './investigationPageModel'
+import {
+  INVESTIGATION_TABS,
+  isInvestigationVersionConflict,
+  isTerminalInvestigationAccessError,
+} from './investigationPageModel'
 import {
   InvestigationInlineMessage,
   InvestigationConfirmDialog,
@@ -25,13 +29,20 @@ type LifecycleConfirmation = 'close' | 'reopen' | 'archive' | null
 
 export function InvestigationDetailWorkspace({ controller }: { controller: InvestigationDetailController }) {
   const detail = controller.detailQuery.data
+  const location = useLocation()
   const [lifecycleConfirmation, setLifecycleConfirmation] = useState<LifecycleConfirmation>(null)
   const [closeDisposition, setCloseDisposition] = useState('')
+  const listSearch = (location.state as { investigationListSearch?: unknown } | null)?.investigationListSearch
+  const backPath = typeof listSearch === 'string' && listSearch.startsWith('?')
+    ? `/investigations${listSearch}`
+    : '/investigations'
+  const terminalAccessError = controller.detailQuery.isError
+    && isTerminalInvestigationAccessError(controller.detailQuery.error)
 
   if (!detail && controller.detailQuery.isLoading) {
     return <InvestigationLoading message="Loading investigation workspace..." />
   }
-  if (!detail && controller.detailQuery.isError) {
+  if (terminalAccessError || (!detail && controller.detailQuery.isError)) {
     return (
       <InvestigationPageError
         error={controller.detailQuery.error}
@@ -54,7 +65,7 @@ export function InvestigationDetailWorkspace({ controller }: { controller: Inves
   return (
     <div className="tl-surface min-w-0 overflow-hidden rounded-xl">
       <header className="border-b border-slate/20 px-3 py-3 dark:border-white/10 sm:px-4 sm:py-4">
-        <Link to="/investigations" className="inline-flex min-h-11 items-center text-sm font-semibold text-cyan hover:underline md:min-h-0">
+        <Link to={backPath} className="inline-flex min-h-11 items-center text-sm font-semibold text-cyan hover:underline md:min-h-0">
           Back to investigations
         </Link>
         <div className="mt-2 flex min-w-0 flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -68,7 +79,10 @@ export function InvestigationDetailWorkspace({ controller }: { controller: Inves
               <span>Assigned: {detail.assignee_email ?? 'Unassigned'}</span>
               <span className="capitalize">Access: {detail.current_user_role ?? 'team read-only'}</span>
               <span>Version {detail.version}</span>
-              <span>Updated <time dateTime={detail.updated_at}>{formatDateTime(detail.updated_at)}</time></span>
+              <span>Record updated <time dateTime={detail.updated_at}>{formatDateTime(detail.updated_at)}</time></span>
+              {controller.detailQuery.dataUpdatedAt > 0 && (
+                <span>Checked {formatDateTime(new Date(controller.detailQuery.dataUpdatedAt))}</span>
+              )}
             </div>
           </div>
           <LifecycleActions
@@ -80,6 +94,14 @@ export function InvestigationDetailWorkspace({ controller }: { controller: Inves
             onUpdateStatus={(status) => runLifecycleMutation({ kind: 'update', changes: { status } })}
             onConfirm={setLifecycleConfirmation}
           />
+          <button
+            type="button"
+            className="min-h-11 rounded border border-slate/30 px-3 py-2 text-sm font-semibold disabled:opacity-60 md:min-h-0 dark:border-white/15"
+            disabled={controller.detailQuery.isFetching}
+            onClick={() => void controller.refreshLatest()}
+          >
+            {controller.detailQuery.isFetching ? 'Refreshing...' : 'Refresh'}
+          </button>
         </div>
 
         <DetailTabs controller={controller} />
@@ -123,6 +145,11 @@ export function InvestigationDetailWorkspace({ controller }: { controller: Inves
         title={detail.title}
         disposition={closeDisposition}
         pending={controller.mutation.isPending}
+        error={lifecycleConfirmation && controller.mutation.isError && controller.mutation.variables?.kind === 'update'
+          ? resolveApiErrorMessage(controller.mutation.error, mutationFallback(controller.mutation.variables), {
+            retryGuidance: 'Review the latest investigation state and try again.',
+          })
+          : null}
         onDispositionChange={setCloseDisposition}
         onCancel={() => setLifecycleConfirmation(null)}
         onConfirm={() => {
@@ -206,6 +233,7 @@ function LifecycleDialog({
   title,
   disposition,
   pending,
+  error,
   onDispositionChange,
   onCancel,
   onConfirm,
@@ -214,6 +242,7 @@ function LifecycleDialog({
   title: string
   disposition: string
   pending: boolean
+  error: string | null
   onDispositionChange: (value: string) => void
   onCancel: () => void
   onConfirm: () => void
@@ -226,7 +255,7 @@ function LifecycleDialog({
   if (!kind) return null
   const selected = content[kind]
   return (
-    <InvestigationConfirmDialog open title={selected.title} description={selected.description} confirmLabel={selected.label} confirmTone={selected.tone} isConfirming={pending} onCancel={onCancel} onConfirm={onConfirm}>
+    <InvestigationConfirmDialog open title={selected.title} description={selected.description} error={error} confirmLabel={selected.label} confirmTone={selected.tone} isConfirming={pending} onCancel={onCancel} onConfirm={onConfirm}>
       {kind === 'close' ? <div><label htmlFor="investigation-close-disposition" className="text-sm font-semibold">Closure disposition (optional)</label><input id="investigation-close-disposition" maxLength={64} className="mt-1 min-h-11 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]" value={disposition} onChange={(event) => onDispositionChange(event.target.value)} placeholder="Resolved, benign, duplicate..." /></div> : undefined}
     </InvestigationConfirmDialog>
   )
