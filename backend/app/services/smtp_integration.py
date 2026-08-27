@@ -367,7 +367,7 @@ def attempt_smtp_integration_delivery(
     source_delivery_id: uuid.UUID | None = None,
     scope_key: str | None = None,
     recipient_override: list[str] | None = None,
-    lease_heartbeat: Callable[[int], None] | None = None,
+    lease_heartbeat: Callable[[int, ActiveSMTPSettings], None] | None = None,
 ) -> SMTPDispatchResult:
     """Attempt one already-claimed generic delivery and preserve SMTP audit history."""
     started_at = time.perf_counter()
@@ -389,6 +389,10 @@ def attempt_smtp_integration_delivery(
             server_message=None,
         )
     else:
+        if not active.enabled:
+            return SMTPDispatchResult(
+                status="skipped", reason="smtp_integration_disabled"
+            )
         if not _smtp_runtime_configured(active):
             result = _notification_failure_result(
                 started_at=started_at,
@@ -488,11 +492,12 @@ def send_smtp_notification(
     failed_webhook_context: FailedWebhookContext | None = None,
     digest_context: DailyDigestContext | None = None,
     delivery_id: uuid.UUID | None = None,
-    lease_heartbeat: Callable[[int], None] | None = None,
+    lease_heartbeat: Callable[[int, ActiveSMTPSettings], None] | None = None,
 ) -> SMTPNotificationResult:
     started_at = time.perf_counter()
     attempted_at = datetime.now(timezone.utc)
     resolved_delivery_id = delivery_id or uuid.uuid4()
+    _renew_smtp_operation_lease(lease_heartbeat, active)
     validation_error = _validate_notification_settings(active)
     if validation_error:
         return _notification_failure_result(
@@ -682,7 +687,7 @@ def _prepare_smtp_session(
     server: smtplib.SMTP,
     active: ActiveSMTPSettings,
     *,
-    lease_heartbeat: Callable[[int], None] | None = None,
+    lease_heartbeat: Callable[[int, ActiveSMTPSettings], None] | None = None,
 ) -> None:
     _renew_smtp_operation_lease(lease_heartbeat, active)
     server.ehlo()
@@ -1046,12 +1051,15 @@ def _matching_configured_recipients(
 
 
 def _renew_smtp_operation_lease(
-    lease_heartbeat: Callable[[int], None] | None,
+    lease_heartbeat: Callable[[int, ActiveSMTPSettings], None] | None,
     active: ActiveSMTPSettings,
 ) -> None:
     if lease_heartbeat is None:
         return
-    lease_heartbeat(max(30, (max(1, int(active.timeout_seconds)) * 2) + 15))
+    lease_heartbeat(
+        max(30, (max(1, int(active.timeout_seconds)) * 2) + 15),
+        active,
+    )
 
 
 def _apply_smtp_delivery_result(

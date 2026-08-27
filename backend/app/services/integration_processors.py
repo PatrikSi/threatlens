@@ -30,6 +30,11 @@ from app.services.notification_webhooks import (
     build_alert_match_context_for_item,
 )
 from app.services.smtp_integration import attempt_smtp_integration_delivery
+from app.services.smtp_delivery_eligibility import (
+    SMTPDeliveryIneligibleError,
+    lock_smtp_delivery_external_io_eligibility,
+)
+from app.services.integration_storage import ActiveSMTPSettings
 
 RETRYABLE_SMTP_ERROR_CODES = frozenset(
     {
@@ -46,10 +51,6 @@ SMTP_OWNER_NOT_ELIGIBLE = "smtp_owner_not_eligible"
 
 
 class IntegrationDeliveryContextError(ValueError):
-    pass
-
-
-class SMTPIntegrationOwnerNotEligible(RuntimeError):
     pass
 
 
@@ -128,7 +129,9 @@ def process_smtp_integration_delivery(
                 SMTP_OWNER_NOT_ELIGIBLE,
             )
 
-        def _renew_lease(lease_seconds: int) -> None:
+        def _renew_lease(
+            lease_seconds: int, expected_settings: ActiveSMTPSettings
+        ) -> None:
             renewed = renew_integration_delivery_lease(
                 db,
                 delivery_id=delivery.id,
@@ -141,8 +144,12 @@ def process_smtp_integration_delivery(
                     "SMTP delivery lease is no longer owned by this worker"
                 )
             db.commit()
-            if not _smtp_integration_owner_is_eligible(db, instance=instance):
-                raise SMTPIntegrationOwnerNotEligible
+            lock_smtp_delivery_external_io_eligibility(
+                db,
+                delivery_id=delivery.id,
+                expected_attempt_number=claim.attempt_number,
+                expected_settings=expected_settings,
+            )
 
         try:
             dispatch = attempt_smtp_integration_delivery(
@@ -162,7 +169,7 @@ def process_smtp_integration_delivery(
                 recipient_override=context["recipient_override"],
                 lease_heartbeat=_renew_lease,
             )
-        except SMTPIntegrationOwnerNotEligible:
+        except SMTPDeliveryIneligibleError as exc:
             db.rollback()
             outcome = finalize_integration_delivery(
                 db,
@@ -175,14 +182,15 @@ def process_smtp_integration_delivery(
                 retryable=False,
                 response_json={
                     "skipped": True,
-                    "reason": SMTP_OWNER_NOT_ELIGIBLE,
+                    "reason": exc.code,
+                    "message": str(exc),
                 },
             )
             db.commit()
             return IntegrationDeliveryProcessingResult(
                 delivery.id,
                 outcome.state or "succeeded",
-                SMTP_OWNER_NOT_ELIGIBLE,
+                exc.code,
             )
         result = dispatch.delivery
         if result is None:
