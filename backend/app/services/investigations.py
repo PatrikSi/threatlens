@@ -27,14 +27,23 @@ from app.schemas.investigation import (
     InvestigationNoteResponse,
     InvestigationSummaryResponse,
 )
-from app.services.investigation_evidence import EvidenceSourceError, build_evidence_snapshot
+from app.services.investigation_evidence import (
+    EvidenceSourceError,
+    build_evidence_snapshot,
+)
 
 WRITE_MEMBER_ROLES = frozenset({"owner", "editor"})
 OWNER_MEMBER_ROLE = "owner"
 
 
 class InvestigationNotFoundError(LookupError):
-    pass
+    code = "investigation_not_found"
+
+    def __init__(
+        self, detail: str = "Investigation not found.", *, code: str | None = None
+    ) -> None:
+        super().__init__(detail)
+        self.code = code or self.code
 
 
 class InvestigationPermissionError(PermissionError):
@@ -42,7 +51,11 @@ class InvestigationPermissionError(PermissionError):
 
 
 class InvestigationConflictError(RuntimeError):
-    pass
+    code = "investigation_conflict"
+
+    def __init__(self, detail: str, *, code: str | None = None) -> None:
+        super().__init__(detail)
+        self.code = code or self.code
 
 
 class InvestigationValidationError(ValueError):
@@ -92,7 +105,9 @@ def list_investigations(
         .scalar_subquery()
     )
     assignee = aliased(User)
-    visibility_filter = or_(Investigation.visibility == "team", membership_role.is_not(None))
+    visibility_filter = or_(
+        Investigation.visibility == "team", membership_role.is_not(None)
+    )
     filters = [visibility_filter]
     if not include_archived:
         filters.append(Investigation.status != "archived")
@@ -213,7 +228,9 @@ def list_member_candidates(
     ).all()
     return InvestigationMemberCandidateListResponse(
         users=[
-            InvestigationMemberCandidate(id=candidate.id, email=candidate.email, account_role=candidate.role)
+            InvestigationMemberCandidate(
+                id=candidate.id, email=candidate.email, account_role=candidate.role
+            )
             for candidate in users
         ],
         total=total,
@@ -222,12 +239,18 @@ def list_member_candidates(
     )
 
 
-def get_investigation_detail(db: Session, *, investigation_id: uuid.UUID, user: User) -> InvestigationDetailResponse:
-    investigation, current_role = _get_visible_investigation(db, investigation_id=investigation_id, user=user)
+def get_investigation_detail(
+    db: Session, *, investigation_id: uuid.UUID, user: User
+) -> InvestigationDetailResponse:
+    investigation, current_role = _get_visible_investigation(
+        db, investigation_id=investigation_id, user=user
+    )
     members = _list_members(db, investigation_id)
     evidence = _list_evidence(db, investigation_id)
     notes, note_count = _list_notes(db, investigation_id)
-    assignee_email = db.scalar(select(User.email).where(User.id == investigation.assignee_user_id))
+    assignee_email = db.scalar(
+        select(User.email).where(User.id == investigation.assignee_user_id)
+    )
     return InvestigationDetailResponse(
         **_summary_response(
             investigation,
@@ -252,14 +275,19 @@ def update_investigation(
     expected_version: int,
     changes: dict,
 ) -> tuple[Investigation, list[str]]:
-    investigation, member = _lock_for_write(db, investigation_id=investigation_id, user=user)
+    investigation, member = _lock_for_write(
+        db, investigation_id=investigation_id, user=user
+    )
     _require_expected_version(investigation, expected_version)
     if investigation.status == "archived" and changes.get("status") not in {"open"}:
         raise InvestigationConflictError(
-            "Archived investigations are read-only. Reopen the investigation before changing it."
+            "Archived investigations are read-only. Reopen the investigation before changing it.",
+            code="investigation_archived",
         )
     if changes.get("status") == "archived" and member.role != OWNER_MEMBER_ROLE:
-        raise InvestigationPermissionError("Only an investigation owner can archive it.")
+        raise InvestigationPermissionError(
+            "Only an investigation owner can archive it."
+        )
 
     changed_fields: list[str] = []
     now = datetime.now(timezone.utc)
@@ -291,21 +319,44 @@ def update_investigation(
                 )
             ).first()
             if assignee is None:
-                raise InvestigationValidationError("The assignee must be an owner or editor of this investigation.")
+                raise InvestigationValidationError(
+                    "The assignee must be an owner or editor of this investigation."
+                )
         if investigation.assignee_user_id != assignee_user_id:
             investigation.assignee_user_id = assignee_user_id
             changed_fields.append("assignee_user_id")
 
+    status_transition: dict[str, str] | None = None
     if "status" in changes and investigation.status != changes["status"]:
+        old_status = investigation.status
         new_status = changes["status"]
         investigation.status = new_status
-        investigation.closed_at = now if new_status == "closed" else None
-        investigation.archived_at = now if new_status == "archived" else None
+        if new_status == "closed":
+            investigation.closed_at = now
+        elif new_status in {"open", "monitoring"}:
+            investigation.closed_at = None
+        if new_status == "archived":
+            investigation.archived_at = now
+        elif old_status == "archived":
+            investigation.archived_at = None
+        status_transition = {"from": old_status, "to": new_status}
         changed_fields.append("status")
 
     if not changed_fields:
         return investigation, []
     _advance_version(investigation, now=now)
+    activity_details: dict[str, object] = {
+        "changed_fields": sorted(changed_fields),
+        "version": investigation.version,
+    }
+    if status_transition is not None:
+        activity_details["status_transition"] = status_transition
+        activity_details["closed_at"] = (
+            investigation.closed_at.isoformat() if investigation.closed_at else None
+        )
+        activity_details["archived_at"] = (
+            investigation.archived_at.isoformat() if investigation.archived_at else None
+        )
     _record_activity(
         db,
         investigation_id=investigation.id,
@@ -313,7 +364,7 @@ def update_investigation(
         action="investigation.updated",
         entity_type="investigation",
         entity_id=investigation.id,
-        details={"changed_fields": sorted(changed_fields), "version": investigation.version},
+        details=activity_details,
     )
     db.add(investigation)
     db.flush()
@@ -329,12 +380,19 @@ def add_member(
     role: str,
     expected_version: int,
 ) -> InvestigationMember:
-    investigation, actor_member = _lock_for_write(db, investigation_id=investigation_id, user=user)
+    investigation, actor_member = _lock_for_write(
+        db, investigation_id=investigation_id, user=user
+    )
     _require_owner(actor_member)
     _require_expected_version(investigation, expected_version)
-    target = db.scalar(select(User).where(User.id == member_user_id, User.is_active.is_(True)))
+    _require_mutable_investigation(investigation, action="managing members")
+    target = db.scalar(
+        select(User).where(User.id == member_user_id, User.is_active.is_(True))
+    )
     if target is None or not target.is_approved:
-        raise InvestigationValidationError("The selected user is not an active, approved ThreatLens account.")
+        raise InvestigationValidationError(
+            "The selected user is not an active, approved ThreatLens account."
+        )
     _validate_member_role_for_account(target, role)
     existing = db.scalar(
         select(InvestigationMember).where(
@@ -343,7 +401,10 @@ def add_member(
         )
     )
     if existing is not None:
-        raise InvestigationConflictError("The selected user is already an investigation member.")
+        raise InvestigationConflictError(
+            "The selected user is already an investigation member.",
+            code="investigation_member_exists",
+        )
     member = InvestigationMember(
         investigation_id=investigation.id,
         user_id=member_user_id,
@@ -373,10 +434,13 @@ def update_member(
     member_user_id: uuid.UUID,
     role: str,
     expected_version: int,
-) -> InvestigationMember:
-    investigation, actor_member = _lock_for_write(db, investigation_id=investigation_id, user=user)
+) -> tuple[InvestigationMember, bool]:
+    investigation, actor_member = _lock_for_write(
+        db, investigation_id=investigation_id, user=user
+    )
     _require_owner(actor_member)
     _require_expected_version(investigation, expected_version)
+    _require_mutable_investigation(investigation, action="managing members")
     member = db.scalar(
         select(InvestigationMember).where(
             InvestigationMember.investigation_id == investigation.id,
@@ -384,18 +448,27 @@ def update_member(
         )
     )
     if member is None:
-        raise InvestigationNotFoundError
+        raise InvestigationNotFoundError(
+            "Investigation member not found.",
+            code="investigation_member_not_found",
+        )
     target = db.scalar(select(User).where(User.id == member_user_id))
     if target is None:
-        raise InvestigationConflictError("The investigation member account no longer exists.")
+        raise InvestigationConflictError(
+            "The investigation member account no longer exists.",
+            code="investigation_member_account_missing",
+        )
     _validate_member_role_for_account(target, role)
     if member.role == OWNER_MEMBER_ROLE and role != OWNER_MEMBER_ROLE:
         _require_another_owner(db, investigation.id, excluding_user_id=member.user_id)
     if member.role == role:
-        return member
+        return member, False
     old_role = member.role
     member.role = role
-    if investigation.assignee_user_id == member.user_id and role not in WRITE_MEMBER_ROLES:
+    if (
+        investigation.assignee_user_id == member.user_id
+        and role not in WRITE_MEMBER_ROLES
+    ):
         investigation.assignee_user_id = None
     _advance_version(investigation)
     _record_activity(
@@ -408,7 +481,7 @@ def update_member(
         details={"from_role": old_role, "to_role": role},
     )
     db.flush()
-    return member
+    return member, True
 
 
 def remove_member(
@@ -419,9 +492,12 @@ def remove_member(
     member_user_id: uuid.UUID,
     expected_version: int,
 ) -> None:
-    investigation, actor_member = _lock_for_write(db, investigation_id=investigation_id, user=user)
+    investigation, actor_member = _lock_for_write(
+        db, investigation_id=investigation_id, user=user
+    )
     _require_owner(actor_member)
     _require_expected_version(investigation, expected_version)
+    _require_mutable_investigation(investigation, action="managing members")
     member = db.scalar(
         select(InvestigationMember).where(
             InvestigationMember.investigation_id == investigation.id,
@@ -429,7 +505,16 @@ def remove_member(
         )
     )
     if member is None:
-        raise InvestigationNotFoundError
+        raise InvestigationNotFoundError(
+            "Investigation member not found.",
+            code="investigation_member_not_found",
+        )
+    if member.user_id == user.id and investigation.visibility == "private":
+        raise InvestigationConflictError(
+            "You cannot remove yourself from a private investigation because you would immediately lose access "
+            "to the result. Ask another owner to remove you, or change the investigation visibility to team first.",
+            code="investigation_private_self_removal",
+        )
     if member.role == OWNER_MEMBER_ROLE:
         _require_another_owner(db, investigation.id, excluding_user_id=member.user_id)
     if investigation.assignee_user_id == member.user_id:
@@ -458,10 +543,15 @@ def add_evidence(
     note: str | None,
     expected_version: int,
 ) -> InvestigationEvidence:
-    investigation, _member = _lock_for_write(db, investigation_id=investigation_id, user=user)
+    investigation, _member = _lock_for_write(
+        db, investigation_id=investigation_id, user=user
+    )
     _require_expected_version(investigation, expected_version)
     if investigation.status == "archived":
-        raise InvestigationConflictError("Archived investigations are read-only. Reopen it before adding evidence.")
+        raise InvestigationConflictError(
+            "Archived investigations are read-only. Reopen it before adding evidence.",
+            code="investigation_archived",
+        )
     duplicate = db.scalar(
         select(InvestigationEvidence.id).where(
             InvestigationEvidence.investigation_id == investigation.id,
@@ -470,9 +560,14 @@ def add_evidence(
         )
     )
     if duplicate is not None:
-        raise InvestigationConflictError("This evidence is already included in the investigation.")
+        raise InvestigationConflictError(
+            "This evidence is already included in the investigation.",
+            code="investigation_evidence_exists",
+        )
     try:
-        snapshot = build_evidence_snapshot(db, source_type=source_type, source_id=source_id)
+        snapshot = build_evidence_snapshot(
+            db, source_type=source_type, source_id=source_id
+        )
     except EvidenceSourceError as exc:
         raise InvestigationValidationError(str(exc)) from exc
     evidence = InvestigationEvidence(
@@ -510,10 +605,15 @@ def remove_evidence(
     user: User,
     expected_version: int,
 ) -> None:
-    investigation, _member = _lock_for_write(db, investigation_id=investigation_id, user=user)
+    investigation, _member = _lock_for_write(
+        db, investigation_id=investigation_id, user=user
+    )
     _require_expected_version(investigation, expected_version)
     if investigation.status == "archived":
-        raise InvestigationConflictError("Archived investigations are read-only. Reopen it before removing evidence.")
+        raise InvestigationConflictError(
+            "Archived investigations are read-only. Reopen it before removing evidence.",
+            code="investigation_archived",
+        )
     evidence = db.scalar(
         select(InvestigationEvidence).where(
             InvestigationEvidence.id == evidence_id,
@@ -521,7 +621,10 @@ def remove_evidence(
         )
     )
     if evidence is None:
-        raise InvestigationNotFoundError
+        raise InvestigationNotFoundError(
+            "Investigation evidence not found.",
+            code="investigation_evidence_not_found",
+        )
     source_type = evidence.source_type
     source_id = evidence.source_id
     db.delete(evidence)
@@ -546,10 +649,15 @@ def add_note(
     body: str,
     expected_version: int,
 ) -> InvestigationNote:
-    investigation, _member = _lock_for_write(db, investigation_id=investigation_id, user=user)
+    investigation, _member = _lock_for_write(
+        db, investigation_id=investigation_id, user=user
+    )
     _require_expected_version(investigation, expected_version)
     if investigation.status == "archived":
-        raise InvestigationConflictError("Archived investigations are read-only. Reopen it before adding notes.")
+        raise InvestigationConflictError(
+            "Archived investigations are read-only. Reopen it before adding notes.",
+            code="investigation_archived",
+        )
     note = InvestigationNote(
         investigation_id=investigation.id,
         author_user_id=user.id,
@@ -580,11 +688,16 @@ def update_note(
     body: str,
     expected_note_version: int,
     expected_investigation_version: int,
-) -> InvestigationNote:
-    investigation, member = _lock_for_write(db, investigation_id=investigation_id, user=user)
+) -> tuple[InvestigationNote, bool]:
+    investigation, member = _lock_for_write(
+        db, investigation_id=investigation_id, user=user
+    )
     _require_expected_version(investigation, expected_investigation_version)
     if investigation.status == "archived":
-        raise InvestigationConflictError("Archived investigations are read-only. Reopen it before editing notes.")
+        raise InvestigationConflictError(
+            "Archived investigations are read-only. Reopen it before editing notes.",
+            code="investigation_archived",
+        )
     note = db.scalar(
         select(InvestigationNote)
         .where(
@@ -595,14 +708,22 @@ def update_note(
         .with_for_update()
     )
     if note is None:
-        raise InvestigationNotFoundError
+        raise InvestigationNotFoundError(
+            "Investigation note not found.",
+            code="investigation_note_not_found",
+        )
     if note.author_user_id != user.id and member.role != OWNER_MEMBER_ROLE:
-        raise InvestigationPermissionError("Only the note author or an investigation owner can edit this note.")
+        raise InvestigationPermissionError(
+            "Only the note author or an investigation owner can edit this note."
+        )
     if note.version != expected_note_version:
-        raise InvestigationConflictError("The note changed after you loaded it. Refresh and review the latest version.")
+        raise InvestigationConflictError(
+            "The note changed after you loaded it. Refresh and review the latest version.",
+            code="investigation_note_version_conflict",
+        )
     normalized_body = _required_text(body, "Note")
     if note.body == normalized_body:
-        return note
+        return note, False
     note.body = normalized_body
     note.version += 1
     _advance_version(investigation)
@@ -616,7 +737,7 @@ def update_note(
         details={"note_version": note.version},
     )
     db.flush()
-    return note
+    return note, True
 
 
 def delete_note(
@@ -628,10 +749,15 @@ def delete_note(
     expected_note_version: int,
     expected_investigation_version: int,
 ) -> None:
-    investigation, member = _lock_for_write(db, investigation_id=investigation_id, user=user)
+    investigation, member = _lock_for_write(
+        db, investigation_id=investigation_id, user=user
+    )
     _require_expected_version(investigation, expected_investigation_version)
     if investigation.status == "archived":
-        raise InvestigationConflictError("Archived investigations are read-only. Reopen it before removing notes.")
+        raise InvestigationConflictError(
+            "Archived investigations are read-only. Reopen it before removing notes.",
+            code="investigation_archived",
+        )
     note = db.scalar(
         select(InvestigationNote)
         .where(
@@ -642,11 +768,19 @@ def delete_note(
         .with_for_update()
     )
     if note is None:
-        raise InvestigationNotFoundError
+        raise InvestigationNotFoundError(
+            "Investigation note not found.",
+            code="investigation_note_not_found",
+        )
     if note.author_user_id != user.id and member.role != OWNER_MEMBER_ROLE:
-        raise InvestigationPermissionError("Only the note author or an investigation owner can remove this note.")
+        raise InvestigationPermissionError(
+            "Only the note author or an investigation owner can remove this note."
+        )
     if note.version != expected_note_version:
-        raise InvestigationConflictError("The note changed after you loaded it. Refresh and review the latest version.")
+        raise InvestigationConflictError(
+            "The note changed after you loaded it. Refresh and review the latest version.",
+            code="investigation_note_version_conflict",
+        )
     note.deleted_at = datetime.now(timezone.utc)
     note.version += 1
     _advance_version(investigation)
@@ -679,7 +813,9 @@ def list_activity(
     )
     total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
     rows = db.execute(
-        query.order_by(InvestigationActivity.created_at.desc(), InvestigationActivity.id.desc())
+        query.order_by(
+            InvestigationActivity.created_at.desc(), InvestigationActivity.id.desc()
+        )
         .offset((page - 1) * page_size)
         .limit(page_size)
     ).all()
@@ -718,10 +854,14 @@ def evidence_response(evidence: InvestigationEvidence) -> InvestigationEvidenceR
     )
 
 
-def member_response(db: Session, member: InvestigationMember) -> InvestigationMemberResponse:
+def member_response(
+    db: Session, member: InvestigationMember
+) -> InvestigationMemberResponse:
     email = db.scalar(select(User.email).where(User.id == member.user_id))
     if email is None:
-        raise InvestigationConflictError("The investigation member account no longer exists.")
+        raise InvestigationConflictError(
+            "The investigation member account no longer exists."
+        )
     return InvestigationMemberResponse(
         user_id=member.user_id,
         email=email,
@@ -755,7 +895,10 @@ def _get_visible_investigation(
         )
         .where(
             Investigation.id == investigation_id,
-            or_(Investigation.visibility == "team", InvestigationMember.user_id.is_not(None)),
+            or_(
+                Investigation.visibility == "team",
+                InvestigationMember.user_id.is_not(None),
+            ),
         )
     ).first()
     if row is None:
@@ -767,7 +910,9 @@ def _lock_for_write(
     db: Session, *, investigation_id: uuid.UUID, user: User
 ) -> tuple[Investigation, InvestigationMember]:
     investigation = db.scalar(
-        select(Investigation).where(Investigation.id == investigation_id).with_for_update()
+        select(Investigation)
+        .where(Investigation.id == investigation_id)
+        .with_for_update()
     )
     if investigation is None:
         raise InvestigationNotFoundError
@@ -780,13 +925,19 @@ def _lock_for_write(
     if member is None:
         if investigation.visibility == "private":
             raise InvestigationNotFoundError
-        raise InvestigationPermissionError("Join this investigation as an owner or editor before changing it.")
+        raise InvestigationPermissionError(
+            "Join this investigation as an owner or editor before changing it."
+        )
     if member.role not in WRITE_MEMBER_ROLES:
-        raise InvestigationPermissionError("Your investigation membership is read-only.")
+        raise InvestigationPermissionError(
+            "Your investigation membership is read-only."
+        )
     return investigation, member
 
 
-def _list_members(db: Session, investigation_id: uuid.UUID) -> list[InvestigationMemberResponse]:
+def _list_members(
+    db: Session, investigation_id: uuid.UUID
+) -> list[InvestigationMemberResponse]:
     rows = db.execute(
         select(InvestigationMember, User.email.label("email"))
         .join(User, User.id == InvestigationMember.user_id)
@@ -804,11 +955,15 @@ def _list_members(db: Session, investigation_id: uuid.UUID) -> list[Investigatio
     ]
 
 
-def _list_evidence(db: Session, investigation_id: uuid.UUID) -> list[InvestigationEvidenceResponse]:
+def _list_evidence(
+    db: Session, investigation_id: uuid.UUID
+) -> list[InvestigationEvidenceResponse]:
     rows = db.scalars(
         select(InvestigationEvidence)
         .where(InvestigationEvidence.investigation_id == investigation_id)
-        .order_by(InvestigationEvidence.created_at.desc(), InvestigationEvidence.id.desc())
+        .order_by(
+            InvestigationEvidence.created_at.desc(), InvestigationEvidence.id.desc()
+        )
     ).all()
     return [evidence_response(row) for row in rows]
 
@@ -899,46 +1054,94 @@ def _record_activity(
 
 def _require_owner(member: InvestigationMember) -> None:
     if member.role != OWNER_MEMBER_ROLE:
-        raise InvestigationPermissionError("Only an investigation owner can manage members.")
+        raise InvestigationPermissionError(
+            "Only an investigation owner can manage members."
+        )
 
 
 def _validate_member_role_for_account(user: User, member_role: str) -> None:
     if member_role in WRITE_MEMBER_ROLES and (
-        user.role not in {ROLE_ADMIN, ROLE_ANALYST} or not user.is_active or not user.is_approved
+        user.role not in {ROLE_ADMIN, ROLE_ANALYST}
+        or not user.is_active
+        or not user.is_approved
     ):
         raise InvestigationValidationError(
             "Owner and editor membership requires an analyst or administrator account."
         )
 
 
-def _require_another_owner(db: Session, investigation_id: uuid.UUID, *, excluding_user_id: uuid.UUID) -> None:
-    other_owner = db.scalar(
-        select(InvestigationMember.user_id).where(
+def eligible_investigation_owner_ids_query(
+    investigation_id: uuid.UUID,
+    *,
+    excluding_user_id: uuid.UUID | None = None,
+):
+    """Return eligible owner IDs for mutation guards and IAM reconciliation."""
+    query = (
+        select(InvestigationMember.user_id)
+        .join(User, User.id == InvestigationMember.user_id)
+        .where(
             InvestigationMember.investigation_id == investigation_id,
             InvestigationMember.role == OWNER_MEMBER_ROLE,
-            InvestigationMember.user_id != excluding_user_id,
+            User.is_active.is_(True),
+            User.is_approved.is_(True),
+            User.role.in_((ROLE_ADMIN, ROLE_ANALYST)),
         )
+    )
+    if excluding_user_id is not None:
+        query = query.where(InvestigationMember.user_id != excluding_user_id)
+    return query
+
+
+def _require_another_owner(
+    db: Session, investigation_id: uuid.UUID, *, excluding_user_id: uuid.UUID
+) -> None:
+    other_owner = db.scalar(
+        eligible_investigation_owner_ids_query(
+            investigation_id,
+            excluding_user_id=excluding_user_id,
+        ).limit(1)
     )
     if other_owner is None:
         raise InvestigationConflictError(
-            "An investigation must retain at least one owner. Promote another member before changing this owner."
+            "An investigation must retain at least one owner who is an active, approved analyst or administrator. "
+            "Promote an eligible member before changing this owner.",
+            code="investigation_owner_required",
         )
 
 
-def _require_expected_version(investigation: Investigation, expected_version: int) -> None:
+def _require_expected_version(
+    investigation: Investigation, expected_version: int
+) -> None:
     if investigation.version != expected_version:
         raise InvestigationConflictError(
-            "The investigation changed after you loaded it. Refresh, review the latest changes, and try again."
+            "The investigation changed after you loaded it. Refresh, review the latest changes, and try again.",
+            code="investigation_version_conflict",
         )
 
 
-def _advance_version(investigation: Investigation, *, now: datetime | None = None) -> None:
+def _require_mutable_investigation(
+    investigation: Investigation, *, action: str
+) -> None:
+    if investigation.status == "archived":
+        raise InvestigationConflictError(
+            f"Archived investigations are read-only. Reopen the investigation before {action}.",
+            code="investigation_archived",
+        )
+
+
+def _advance_version(
+    investigation: Investigation, *, now: datetime | None = None
+) -> None:
     investigation.version += 1
     investigation.updated_at = now or datetime.now(timezone.utc)
 
 
 def _required_text(value: str, label: str) -> str:
-    normalized = " ".join(value.strip().split()) if label == "Investigation title" else value.strip()
+    normalized = (
+        " ".join(value.strip().split())
+        if label == "Investigation title"
+        else value.strip()
+    )
     if not normalized:
         raise InvestigationValidationError(f"{label} cannot be empty.")
     return normalized
