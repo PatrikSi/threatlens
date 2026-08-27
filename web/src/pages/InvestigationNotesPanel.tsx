@@ -221,10 +221,7 @@ export function InvestigationNotesPanel({
                         type="button"
                         className="min-h-11 rounded border border-slate/20 px-3 py-2 text-sm font-semibold dark:border-white/10"
                         disabled={controller.mutation.isPending}
-                        onClick={() => {
-                          controller.setEditingNoteId(null)
-                          controller.setEditingNoteBody('')
-                        }}
+                        onClick={controller.cancelNoteEdit}
                       >
                         Cancel
                       </button>

@@ -203,6 +203,34 @@ describe('buildCreateUserConfirmation', () => {
 })
 
 describe('syncUserSettingsDrafts', () => {
+  it('retains dirty drafts that are temporarily outside the current result page', () => {
+    const dirtyDraft = {
+      role: 'admin' as const,
+      isActive: true,
+      isApproved: true,
+    }
+    const baseline = {
+      role: 'analyst' as const,
+      isActive: true,
+      isApproved: true,
+    }
+    const result = syncUserSettingsDrafts(
+      [],
+      {
+        'dirty-user': dirtyDraft,
+        'clean-user': baseline,
+      },
+      {
+        'dirty-user': baseline,
+        'clean-user': baseline,
+      },
+    )
+
+    expect(result.drafts).toEqual({ 'dirty-user': dirtyDraft })
+    expect(result.baselines).toEqual({ 'dirty-user': baseline })
+    expect(result.conflicts).toEqual({})
+  })
+
   it('keeps dirty row drafts while syncing untouched rows to the latest server copy', () => {
     const nextUsers: User[] = [
       BASE_USER,
