@@ -211,6 +211,71 @@ jobs:
           timeout 5m python -m alembic upgrade head
           python -m alembic current | grep -F '(head)'
 
+  recovery:
+    name: Recovery tooling tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install ShellCheck when absent
+        run: |
+          if ! command -v shellcheck >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install --yes shellcheck
+          fi
+
+      - name: Validate recovery shell
+        run: |
+          for script in scripts/recovery/*.sh; do
+            bash -n "$script"
+          done
+          shellcheck scripts/recovery/*.sh
+
+      - name: Run non-destructive recovery tests
+        run: >-
+          timeout 10m python -m unittest discover
+          --start-directory tests/recovery
+          --pattern 'test_*.py'
+          --verbose
+
+  recovery_docker:
+    name: Disposable PostgreSQL recovery drill
+    needs:
+      - recovery
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      RECOVERY_E2E_BACKEND_IMAGE: threatlens-backend:recovery-e2e
+      THREATLENS_RUN_DOCKER_RECOVERY_E2E: "1"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Build the recovery backend image
+        run: >-
+          timeout 20m docker build
+          --build-arg APP_VERSION="$(cat VERSION)"
+          --tag "$RECOVERY_E2E_BACKEND_IMAGE"
+          backend
+
+      - name: Exercise backup, verification, drill, restore, and reconciliation
+        run: >-
+          timeout 20m python -m unittest
+          tests.recovery.test_recovery_docker_e2e
+          --verbose
+
   codeql:
     name: CodeQL (${{ matrix.language }})
     runs-on: ubuntu-latest

@@ -183,6 +183,11 @@ def test_operation_metadata_is_recursively_redacted_and_bounded():
             "database_url": "postgresql://admin:secret@db.internal/threatlens",
             "smtp_password": "mail-secret",
             "oidc_client_secret": "oidc-secret",
+            "api_key": "api-key-secret",
+            "private_key": "private-key-secret",
+            "encryption_key": "encryption-key-secret",
+            "credentials": {"safe-looking": "credential-secret"},
+            "provider_credentials": "provider-credential-secret",
             "nested": {
                 "path": "/var/lib/threatlens/private.dump",
                 "message": (
@@ -202,11 +207,21 @@ def test_operation_metadata_is_recursively_redacted_and_bounded():
     assert sanitized["database_url"] == "[REDACTED]"
     assert sanitized["smtp_password"] == "[REDACTED]"
     assert sanitized["oidc_client_secret"] == "[REDACTED]"
+    assert sanitized["api_key"] == "[REDACTED]"
+    assert sanitized["private_key"] == "[REDACTED]"
+    assert sanitized["encryption_key"] == "[REDACTED]"
+    assert sanitized["credentials"] == "[REDACTED]"
+    assert sanitized["provider_credentials"] == "[REDACTED]"
     assert len(sanitized["values"]) == operations.MAX_METADATA_ENTRIES + 1
     for secret in (
         "admin:secret",
         "mail-secret",
         "oidc-secret",
+        "api-key-secret",
+        "private-key-secret",
+        "encryption-key-secret",
+        "credential-secret",
+        "provider-credential-secret",
         "/var/lib/threatlens",
         "abc.def",
         "auth.internal",
@@ -375,7 +390,7 @@ def test_overview_degrades_without_leaking_probe_errors(db_session, monkeypatch)
     )
     monkeypatch.setattr(
         operations_projections,
-        "_load_recovery_snapshot",
+        "_load_recovery_state",
         lambda _db: (_ for _ in ()).throw(RuntimeError("token=recovery-secret")),
     )
 
@@ -565,6 +580,43 @@ def test_recovery_readiness_reports_stale_success_and_incomplete_attempt(db_sess
     assert "latest_backup_not_verified" in issue_codes
 
 
+def test_recovery_readiness_reports_stale_drill_for_latest_archive(db_session):
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    checksum = "9" * 64
+    db_session.add_all(
+        [
+            _operation_run(
+                "backup",
+                "succeeded",
+                now - timedelta(hours=1),
+                archive_sha256=checksum,
+            ),
+            _operation_run(
+                "verify",
+                "succeeded",
+                now - timedelta(minutes=30),
+                archive_sha256=checksum,
+            ),
+            _operation_run(
+                "restore_drill",
+                "succeeded",
+                now - timedelta(days=32),
+                archive_sha256=checksum,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    issues = []
+    operations_projections.collect_recovery_snapshot(
+        db_session,
+        issues=issues,
+        database_ok=True,
+    )
+
+    assert "latest_restore_drill_stale" in {entry.code for entry in issues}
+
+
 def test_recovery_readiness_selects_matching_successful_evidence(db_session):
     now = datetime.now(timezone.utc).replace(microsecond=0)
     backup_checksum = "d" * 64
@@ -620,3 +672,59 @@ def test_recovery_readiness_selects_matching_successful_evidence(db_session):
     assert "latest_backup_verify_mismatch" not in issue_codes
     assert "latest_backup_not_drilled" not in issue_codes
     assert "latest_backup_drill_mismatch" not in issue_codes
+
+
+def test_recovery_readiness_ignores_failures_for_older_archives(db_session):
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    latest_checksum = "f" * 64
+    older_checksum = "0" * 64
+    db_session.add_all(
+        [
+            _operation_run(
+                "backup",
+                "succeeded",
+                now - timedelta(hours=4),
+                archive_sha256=latest_checksum,
+            ),
+            _operation_run(
+                "verify",
+                "succeeded",
+                now - timedelta(hours=3),
+                archive_sha256=latest_checksum,
+            ),
+            _operation_run(
+                "restore_drill",
+                "succeeded",
+                now - timedelta(hours=2),
+                archive_sha256=latest_checksum,
+            ),
+            _operation_run(
+                "verify",
+                "failed",
+                now - timedelta(hours=1),
+                archive_sha256=older_checksum,
+            ),
+            _operation_run(
+                "restore_drill",
+                "failed",
+                now - timedelta(minutes=30),
+                archive_sha256=older_checksum,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    issues = []
+    recovery = operations_projections.collect_recovery_snapshot(
+        db_session,
+        issues=issues,
+        database_ok=True,
+    )
+    issue_codes = {entry.code for entry in issues}
+
+    assert recovery.latest_verify is not None
+    assert recovery.latest_verify.status == "succeeded"
+    assert recovery.latest_restore_drill is not None
+    assert recovery.latest_restore_drill.status == "succeeded"
+    assert "latest_backup_verify_failed" not in issue_codes
+    assert "latest_restore_drill_failed" not in issue_codes

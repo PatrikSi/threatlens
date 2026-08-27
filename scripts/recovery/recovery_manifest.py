@@ -45,6 +45,7 @@ _LEDGER_FIELDS = frozenset(
         "catalog_checked",
         "outbound_quarantined",
         "journal_outcome",
+        "ledger_scope_id",
         "reconciled_after_interruption",
         "reconciled_forward",
         "redis_restored",

@@ -163,6 +163,47 @@ class RecoveryDockerEndToEndTests(unittest.TestCase):
         self.assertTrue((Path(backup) / "manifest.json").is_file())
         self._recovery("verify", "--backup", backup)
         self._recovery("drill", "--backup", backup)
+        ledger_scope_id = self._psql(
+            "SELECT metadata_json->>'ledger_scope_id' FROM system_operation_runs "
+            "WHERE operation_type = 'backup' ORDER BY started_at DESC LIMIT 1;"
+        )
+        self.assertRegex(ledger_scope_id, r"^[0-9a-f]{64}$")
+        interrupted_id = "30000000-0000-4000-8000-000000000001"
+        unrelated_id = "30000000-0000-4000-8000-000000000002"
+        self._psql(
+            "INSERT INTO system_operation_runs ("
+            "id, operation_type, status, initiated_by, source, metadata_json, started_at"
+            ") VALUES ("
+            f"'{interrupted_id}', 'verify', 'running', 'host-operator', "
+            "'host-recovery-cli', "
+            f"jsonb_build_object('ledger_scope_id', '{ledger_scope_id}'), now() - interval '2 hours'"
+            "), ("
+            f"'{unrelated_id}', 'verify', 'running', 'host-operator', "
+            "'host-recovery-cli', jsonb_build_object('ledger_scope_id', repeat('f', 64)), "
+            "now() - interval '2 hours');"
+        )
+        self._recovery("verify", "--backup", backup)
+        self.assertEqual(
+            self._psql(
+                "SELECT status || '|' || error_code || '|' || "
+                "(metadata_json->>'reconciled_after_interruption') "
+                f"FROM system_operation_runs WHERE id = '{interrupted_id}';"
+            ),
+            "failed|operation_interrupted|true",
+        )
+        self.assertEqual(
+            self._psql(
+                f"SELECT status FROM system_operation_runs WHERE id = '{unrelated_id}';"
+            ),
+            "running",
+        )
+        self.assertEqual(
+            self._psql(
+                "SELECT count(*) FROM system_operation_runs WHERE status = 'running' "
+                f"AND id <> '{unrelated_id}';"
+            ),
+            "0",
+        )
 
         self._psql("UPDATE recovery_e2e_marker SET value = 'after-backup';")
         confirmation = self._recovery(
