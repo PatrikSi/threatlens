@@ -648,9 +648,10 @@ export function UsersPage() {
               </select>
             </div>
             <div className="flex flex-wrap items-center gap-x-5 gap-y-2 sm:col-span-2 lg:col-span-3">
-              <label className="flex items-center gap-2 text-sm">
+              <label className="flex min-h-11 items-center gap-2 text-sm sm:min-h-0">
                 <input
                   type="checkbox"
+                  className="h-5 w-5 sm:h-4 sm:w-4"
                   checked={createForm.is_active}
                   onChange={(event) =>
                     updateCreateForm((form) => ({
@@ -661,9 +662,10 @@ export function UsersPage() {
                 />
                 Active
               </label>
-              <label className="flex items-center gap-2 text-sm">
+              <label className="flex min-h-11 items-center gap-2 text-sm sm:min-h-0">
                 <input
                   type="checkbox"
+                  className="h-5 w-5 sm:h-4 sm:w-4"
                   checked={createForm.is_approved}
                   onChange={(event) =>
                     updateCreateForm((form) => ({
