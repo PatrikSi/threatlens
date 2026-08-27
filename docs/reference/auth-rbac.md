@@ -31,6 +31,9 @@ Important contract details:
 - `POST /api/v1/auth/logout` also enforces CSRF when a session cookie is present.
 - `GET /api/v1/auth/registration-settings` is anonymous and exposes whether self-registration is enabled.
 - `POST /api/v1/auth/register` is anonymous when `ALLOW_SELF_REGISTRATION=true`, creates a user record, and leaves the new user pending approval.
+- `GET /api/v1/auth/me` includes an additive `authentication` object describing the credential kind and, for opaque browser sessions, the actual `session_auth_method`, MFA method, recent-auth validity/expiry, external-MFA boolean, and relative reauthentication endpoint. `recently_authenticated` is the canonical validity field; `recent_authentication_valid` remains an equivalent compatibility alias. The external-MFA boolean is recomputed against the current configured ACR/AMR policy; raw OIDC claims are never exposed. Hybrid accounts must use this session value rather than `provisioning_source` when choosing a step-up flow.
+- `DELETE /api/v1/auth/security/sessions/{session_id}` revokes only that exact session. Revoking the current session clears its cookies; revoking a non-current session leaves the current cookie, sibling sessions, and account auth generation unchanged. `POST /api/v1/auth/security/sessions/revoke-others` remains the explicit account-wide sibling-session action. Both destructive paths require recent authentication. The browser restores the requested exact-session or revoke-others action after local or OIDC verification, but requires the user to review and confirm it again; reauthentication never performs the revocation automatically.
+- `POST /api/v1/auth/security/reauthenticate` verifies a local password and, when local MFA is enabled, a current TOTP code. Recovery codes are not accepted. It rotates only the initiating opaque session and returns `session_id`, `authenticated_at`, and `valid_until`.
 
 ## JWT Behavior
 
@@ -46,6 +49,33 @@ Defined in `backend/app/core/security.py`:
 - Admin updates that change `password`, `is_active`, or `is_approved` also rotate `auth_token_version` and invalidate existing JWTs/sessions.
 - Role changes rotate browser sessions and revoke active API tokens so old privileges cannot survive a promotion or demotion.
 - Email-only changes do not rotate credentials.
+- Password, role, active-state, and approval updates require the loaded `expected_security_version`. A missing precondition returns `user_security_version_required` with HTTP 428; a stale value returns `user_security_version_conflict` with HTTP 409 and the current version in `X-Current-Security-Version`.
+- A change that would remove the final active, approved administrator returns the stable `last_active_admin` conflict and is written to the audit log as a rejected operation.
+
+Legacy browser JWTs remain accepted during the compatibility window, but newly
+created browser sessions use random opaque credentials stored only as hashes in
+PostgreSQL. A per-user authentication generation invalidates both formats after
+password, role, approval, account-state, MFA, or administrator reset changes.
+Session activity updates are deliberately best effort: a transient bookkeeping
+write failure does not reject an otherwise valid request.
+
+## Local Multi-Factor Authentication
+
+- Local-password accounts can enroll a TOTP authenticator from **Account > Account Security** after confirming their password.
+- Enrollment secrets expire if they are not confirmed, and cancelling setup deletes the pending credential server-side.
+- Successful enrollment returns single-use recovery codes once and rotates the current browser credential while revoking every copied or legacy session credential.
+- A TOTP code or unused recovery code can complete local sign-in. Reusing a TOTP time step or a consumed recovery code is rejected.
+- Replacing the full recovery-code set requires the local password and a current six-digit TOTP code. A recovery code cannot authorize replacement of every recovery code.
+- Disabling MFA requires the local password plus a valid second factor and revokes other browser sessions. Administrator reset additionally revokes the account's API tokens and requires a recorded reason.
+- MFA enrollment and privileged MFA actions use shared account and client-IP throttles. Privileged factor checks fail closed with a retriable `503` response when Redis is unavailable, so a multi-replica deployment cannot bypass a distributed lockout. Password sign-in retains its bounded in-process emergency limiter for availability.
+- OIDC-only accounts continue to use their identity provider's MFA and recovery controls. ThreatLens records provider MFA assurance only when the signed ID token contains an exact `mfa` authentication-method reference.
+
+Migration `0060_iam_hardening` is an application compatibility boundary. Stop
+API and worker processes, apply the migration, and deploy the matching release
+before accepting traffic; older processes cannot create or validate the opaque
+session and MFA records. Downgrade is blocked while any active local TOTP
+credential exists so operators cannot silently remove an enabled factor. Disable
+or inventory those credentials deliberately before attempting rollback.
 
 ## OpenID Connect
 
@@ -64,14 +94,31 @@ For Authentik's default per-provider issuer mode, use the issuer shown in the pr
 
 HTTPS is the secure default for both the IdP and callback origin. Local development can set `ALLOW_INSECURE_HTTP_OIDC=true`; private or internal IdPs additionally require `ALLOW_PRIVATE_NETWORK_OIDC=true`. Existing deployments that already enabled private-network OIDC retain private-HTTP compatibility, but setting both flags is recommended to make the plaintext and private-network trust decisions explicit. Never use plaintext OIDC across an untrusted network.
 
+Administrator MFA recovery is fail closed and follows the current session's actual authentication method, including for hybrid local-plus-SSO accounts. A locally authenticated administrator must verify the current password and their own local MFA. An OIDC-authenticated administrator must first use the CSRF-protected `POST /api/v1/auth/oidc/reauth` flow, which requests `prompt=login` and `max_age=0`, remains bound to the initiating opaque session and account generation, and rotates that session after validating signed `auth_time`, `acr`, and `amr` claims. Plain OIDC login is not treated as MFA. `AUTH_OIDC_ADMIN_MFA_AMR_VALUES` defaults to `mfa`; an empty AMR allow-list disables OIDC authorization for these sensitive actions. `AUTH_OIDC_ADMIN_MFA_ACR_VALUES` can additionally constrain accepted assurance classes, for example `urn:company:loa:2`.
+
+OIDC provider create, update, enable, and disable operations are browser-only control-plane actions. API tokens cannot authorize `PUT /api/v1/auth/oidc/provider`, even with `write:users` or wildcard scopes. The current opaque admin session must be recent. Local sessions can refresh that proof through `POST /api/v1/auth/security/reauthenticate`; OIDC sessions use `POST /api/v1/auth/oidc/reauth`. Local MFA-enabled admins must prove a current TOTP. OIDC reauthentication always forces `prompt=login` and `max_age=0`, and the resulting signed claims must match the configured ACR/AMR MFA policy or the operation returns `oidc_mfa_assurance_required`.
+
+Disabling the enabled provider is rejected with `oidc_break_glass_admin_required` unless at least one active, approved administrator has local password sign-in available. Test that account before an IdP maintenance window. If role synchronization would demote the final active administrator, ThreatLens keeps the administrator role, permits sign-in, and records a failed `oidc.role.sync` audit entry with reason `last_active_admin` so the mapping can be repaired without locking out the deployment.
+
+Provider writes use optimistic concurrency. Existing configurations require the loaded `expected_config_revision`; an explicit revision of `0` means "create only if no provider is configured." Omitting the field remains accepted for older clients. A stale update or concurrent create returns `oidc_provider_revision_conflict` with the current revision and does not overwrite the newer configuration.
+
+Recent-auth errors use stable codes. `local_reauthentication_required` and `oidc_reauthentication_required` include `error.context.action`, `reauthentication_method`, and a relative `reauthentication_endpoint` suitable for the API client. `browser_session_required`, `opaque_session_required`, and `session_inactive` distinguish token auth, legacy sessions, and rotated/revoked opaque sessions. A successful local step-up returns JSON; a successful OIDC step-up redirects with `oidc_reauth=success` and rotates only the initiating session.
+
+Creating a durable API token from an OIDC-authenticated browser session uses the same configured MFA assurance check. Recent SSO without matching external MFA returns `oidc_mfa_assurance_required`; API-token delegation remains governed separately by scope and child-token lifetime limits.
+
+Recovery-code hashes include a non-secret HMAC key identifier. The encrypted-data inventory reports active, previous, legacy-unversioned, and missing-key dependencies. Do not retire a previous `APP_DATA_ENCRYPTION_KEY` while `key_retirement_blocked` is true; regenerate affected users' recovery codes first. A missing referenced key is critical because those unused codes can no longer be verified.
+
 Protocol and identity behavior:
 
 - Authorization Code flow always uses PKCE S256, a signed short-lived transaction cookie, `state`, and `nonce`.
 - Discovery issuer matching is exact. ID tokens require a supported asymmetric signature and validated issuer, audience, expiry, nonce, and access-token hash when present.
 - Discovery, token, JWKS, and UserInfo requests use DNS-pinned outbound connections, bounded timeouts, and bounded response bodies. Unexpected endpoint redirects are rejected; discovery redirects are revalidated and capped.
 - The durable identity key is `(issuer, subject)`. ThreatLens never uses email as the external identity key and never automatically links an existing local account by email.
-- Linking an existing account starts through a CSRF-protected request from an active browser session and requires a fresh provider authorization flow. Unlinking requires the current local password and is blocked for OIDC-only accounts.
+- Linking an existing account starts through a CSRF-protected request from an active browser session, requires the current local password and current TOTP code when local MFA is enabled, and binds a fresh provider authorization flow to that exact initiating session. Unlinking requires the current local password and is blocked for OIDC-only accounts.
+- New authorization and linking flows request recent provider authentication and require a validated `auth_time` claim. Linking additionally requests an interactive provider login; stale, missing, or future authentication times are rejected with a restartable error.
 - Provider access tokens and ID tokens are not persisted. The client secret is encrypted with `APP_DATA_ENCRYPTION_KEY` and is never returned by the API.
+- Ordinary OIDC sign-in accepts providers that omit `auth_time`. Linking an identity to an existing local account always requests fresh provider authentication and fails when the signed ID token does not prove a sufficiently recent `auth_time`.
+- `GET /api/v1/auth/oidc/settings` returns a typed `flow_contract`. It names the relative callback/start and post-callback paths, `oidc_error`, `oidc_link`, and `oidc_reauth` query parameters, the `success` result, and separate inventories for JSON start errors and callback redirect errors. In particular, a signed in-progress flow redirects with `provider_configuration_changed` when its provider revision is stale and `callback_rate_limited` when its source-IP callback budget is exhausted. Reauthentication start failures use `oidc_provider_unavailable` or `oidc_reauthentication_start_failed`; invalid unsigned state always uses the login error channel and is not written to durable audit history.
 
 Provisioning and role mapping:
 
@@ -86,11 +133,23 @@ Account ownership and administration:
 
 - Every account has a durable provisioning source: `local` or `oidc`. Linking a local account to OIDC does not change its local provisioning source.
 - The user directory identifies local, SSO-provisioned, and local-plus-SSO accounts and lists their available sign-in methods.
+- User-directory `q` searches email, role, approved/pending and active/inactive labels, local/SSO/hybrid account labels, and linked provider name. Structured `role` and `provisioning_source` filters remain available.
+- Directory responses expose `security_version`. Role, active, and approval mutations must send it as `expected_security_version`; omission returns coded `428 user_security_version_required`, and a stale value returns coded `409 user_security_version_conflict` plus `X-Current-Security-Version`. Email- and password-only legacy PATCH requests remain compatible without this precondition.
 - Passwords and email identifiers for SSO-provisioned accounts remain owned by the identity provider. ThreatLens does not expose local password reset, email edit, or identity unlink actions for these accounts.
 - A linked local account retains its local password and may unlink OIDC after password confirmation.
 - When role synchronization is enabled, linked users' roles are read-only in ThreatLens because the next OIDC login would otherwise overwrite a local edit. Active and approved status remain locally managed so administrators can suspend or approve access independently of the provider.
 
 Local password login remains available as a break-glass path for local accounts. Keep at least one separate active, approved local admin and test that credential before enabling SSO. JIT-created OIDC accounts remain provider-managed and cannot be converted into local accounts by assigning a password.
+
+### Rotating the application data-encryption key
+
+1. Back up the database and the current key material before changing it.
+2. Set a new `APP_DATA_ENCRYPTION_KEY` and retain the old value in `APP_DATA_ENCRYPTION_PREVIOUS_KEYS` on every API and worker replica.
+3. Leave the fallback configured while encrypted records are rewritten. Local TOTP secrets are re-encrypted lazily after a successful authenticator-code verification. A recovery-code hash is moved to the active key after that individual code is used; unused recovery codes cannot be re-hashed without their plaintext and should be regenerated by each local-MFA user before key retirement.
+4. Rotate or re-save other encrypted integration and OIDC credentials through their documented maintenance paths, then verify sign-in, connector tests, and a recovery-code regeneration in a staging restore.
+5. In an isolated staging restore, remove the fallback key and run the administrator encrypted-data inventory scan plus connector and OIDC tests. Remove the old fallback in production only after that scan is fully readable, every local-MFA user has verified a TOTP code and regenerated recovery codes, and a verified backup contains the new key configuration.
+
+Removing a previous key early can make stored credentials permanently unreadable. Keep fallback keys with encrypted backups for as long as those backups must remain restorable.
 
 Authentik 2025.10 and newer returns `email_verified=false` by default. The preferred fix is a custom `email` scope mapping backed by a real verification attribute. For isolated deployments that already trust Authentik's user enrollment and email assignment, disable **Require verified email** in ThreatLens after reviewing the resulting JIT provisioning risk. See Authentik's [email scope verification guidance](https://docs.goauthentik.io/add-secure-apps/providers/oauth2/#email-scope-verification).
 
@@ -104,10 +163,11 @@ Token format and handling:
 - Stored: SHA-256 token hash, token prefix, scopes, expiry, revocation state
 - Last usage timestamp (`last_used_at`) is updated on successful auth
 - Creation endpoint: `POST /api/v1/tokens` only creates tokens for the currently authenticated user
-- Cookie-session callers creating durable API tokens must also supply `current_password` in the request body as a step-up confirmation
+- Local cookie sessions creating durable API tokens must supply `current_password` and, when enabled, a current MFA code. OIDC cookie sessions instead require recent provider authentication and do not accept or require a local password; the browser preserves the token draft across the explicit OIDC reauthentication redirect and still requires the user to submit it afterward.
 - Admins can list another user's tokens with `GET /api/v1/tokens?user_id=<uuid>` and can revoke any user's token
 - Omitting the `scopes` field applies `DEFAULT_API_TOKEN_SCOPES`; sending an explicit empty list is rejected
 - Tokens created while already authenticated with an API token can only delegate a subset of the parent token's scopes
+- Delegated tokens persist `parent_token_id`. Revoking any token recursively revokes all active descendants, including legacy deeper lineages. The existing `204` response now includes `X-ThreatLens-Revoked-Token-Count`, `X-ThreatLens-Revoked-Descendant-Count`, and `X-ThreatLens-Root-Token-Revoked` so clients can describe the impact without changing the legacy response body.
 
 Revocation/expiry checks:
 

@@ -34,7 +34,7 @@
 | `REDIS_PASSWORD` (`redis_password`) | _(empty)_ | Redis service password used by the bundled compose stack. Production requires an explicit non-default value. |
 | `JWT_SECRET` (`jwt_secret`) | _(empty)_ | JWT signing key. In non-production, missing or placeholder values fall back to a deterministic development-only secret derived from the local runtime settings; production requires an explicit strong value. |
 | `APP_DATA_ENCRYPTION_KEY` (`app_data_encryption_key`) | _(empty)_ | Dedicated secret used for encrypting stored webhook/request secrets and previews at rest. Keep distinct from `JWT_SECRET`. In non-production, missing or placeholder values fall back to a deterministic development-only key derived from the local runtime settings unless `REQUIRE_EXPLICIT_DATA_ENCRYPTION_KEY=true`; production requires an explicit strong value. |
-| `APP_DATA_ENCRYPTION_PREVIOUS_KEYS` (`app_data_encryption_previous_keys`) | _(empty)_ | Optional comma-separated decryption fallback keys for data-encryption rotation and legacy ciphertext migration. Preserve these with backups until all old ciphertext has been rotated. |
+| `APP_DATA_ENCRYPTION_PREVIOUS_KEYS` (`app_data_encryption_previous_keys`) | _(empty)_ | Optional comma-separated decryption fallback keys for data-encryption rotation and legacy ciphertext migration. Preserve these with backups until all old ciphertext has been rotated. Local TOTP secrets rotate after successful use; users must regenerate unused recovery codes before retiring the corresponding fallback key. |
 | `REQUIRE_EXPLICIT_DATA_ENCRYPTION_KEY` (`require_explicit_data_encryption_key`) | `false` | Forces `APP_DATA_ENCRYPTION_KEY` to be explicitly set even outside production. Use this for any deployment with durable volumes, backups, or long-lived test data. |
 | `JWT_ALGORITHM` (`jwt_algorithm`) | `HS256` | JWT signature algorithm. |
 | `JWT_EXPIRES_MINUTES` (`jwt_expires_minutes`) | `1440` | Access token TTL in minutes. |
@@ -66,6 +66,19 @@
 | `AUTH_LOGIN_IP_MAX_ATTEMPTS` (`auth_login_ip_max_attempts`) | `50` | Failed login attempts allowed per client IP in the same window. Must be at least `AUTH_LOGIN_MAX_ATTEMPTS`. |
 | `AUTH_LOGIN_WINDOW_SECONDS` (`auth_login_window_seconds`) | `300` | Sliding window for failed login attempt counting. |
 | `AUTH_LOGIN_LOCKOUT_SECONDS` (`auth_login_lockout_seconds`) | `900` | Login lockout duration after threshold breaches. |
+| `AUTH_SESSION_ABSOLUTE_TTL_SECONDS` (`auth_session_absolute_ttl_seconds`) | `86400` | Maximum lifetime of an opaque browser session, regardless of activity. |
+| `AUTH_SESSION_IDLE_TTL_SECONDS` (`auth_session_idle_ttl_seconds`) | `43200` | Maximum inactivity period for an opaque browser session. Must not exceed the absolute lifetime. |
+| `AUTH_SESSION_ACTIVITY_UPDATE_SECONDS` (`auth_session_activity_update_seconds`) | `300` | Minimum interval between best-effort session activity writes. Must not exceed the idle lifetime. |
+| `AUTH_SESSION_RETENTION_DAYS` (`auth_session_retention_days`) | `30` | Retention period for terminal browser-session history before maintenance removes it. |
+| `AUTH_MAX_ACTIVE_SESSIONS_PER_USER` (`auth_max_active_sessions_per_user`) | `100` | Maximum concurrently active opaque browser sessions for one account. Creating another session revokes the oldest excess sessions; inactive history is retained separately. |
+| `AUTH_MFA_CHALLENGE_COOKIE_NAME` (`auth_mfa_challenge_cookie_name`) | `threatlens_mfa_challenge` | HttpOnly cookie containing the short-lived local MFA login challenge. Use a name distinct from the auth, CSRF, and OIDC transaction cookies. |
+| `AUTH_MFA_CHALLENGE_TTL_SECONDS` (`auth_mfa_challenge_ttl_seconds`) | `300` | Lifetime of a local MFA login challenge. |
+| `AUTH_MFA_CHALLENGE_MAX_ATTEMPTS` (`auth_mfa_challenge_max_attempts`) | `6` | Maximum invalid MFA submissions accepted by one login challenge before it is invalidated. |
+| `AUTH_MFA_PENDING_ENROLLMENT_TTL_SECONDS` (`auth_mfa_pending_enrollment_ttl_seconds`) | `900` | Lifetime of an unconfirmed TOTP enrollment. Expired enrollments must be restarted. |
+| `AUTH_TOTP_ISSUER` (`auth_totp_issuer`) | `ThreatLens` | Issuer label displayed by authenticator applications. Changing it does not invalidate existing secrets but changes newly generated provisioning URIs. |
+| `AUTH_RECENT_AUTH_SECONDS` (`auth_recent_auth_seconds`) | `600` | Maximum age accepted for sensitive recent-authentication checks. OIDC account linking and OIDC provider control-plane changes require a signed or locally verified proof within this window; ordinary OIDC sign-in remains compatible with providers that omit `auth_time`. |
+| `AUTH_OIDC_ADMIN_MFA_ACR_VALUES` (`auth_oidc_admin_mfa_acr_values`) | empty | Optional comma-separated allow-list of signed OIDC `acr` values accepted for administrator MFA recovery. Empty means no additional ACR constraint; it does not waive AMR verification. Example: `urn:company:loa:2,urn:company:loa:3`. |
+| `AUTH_OIDC_ADMIN_MFA_AMR_VALUES` (`auth_oidc_admin_mfa_amr_values`) | `mfa` | Comma-separated allow-list of signed OIDC `amr` values accepted as external MFA. At least one configured value must occur in the ID token. An empty list fails closed and disables OIDC-backed administrator MFA recovery. Example: `mfa,otp,hwk`. |
 | `REDIS_CONNECT_TIMEOUT_SECONDS` (`redis_connect_timeout_seconds`) | `2.0` | Connection timeout for Redis-backed coordination and rate-limit operations. |
 | `REDIS_SOCKET_TIMEOUT_SECONDS` (`redis_socket_timeout_seconds`) | `2.0` | Socket operation timeout for Redis-backed coordination and rate-limit operations. |
 | `DATABASE_CONNECT_TIMEOUT_SECONDS` (`database_connect_timeout_seconds`) | `5` | PostgreSQL connection establishment timeout. |
@@ -73,7 +86,7 @@
 | `DATABASE_POOL_TIMEOUT_SECONDS` (`database_pool_timeout_seconds`) | `10` | Maximum wait for an available pooled database connection. |
 | `API_TOKEN_LAST_USED_UPDATE_INTERVAL_SECONDS` (`api_token_last_used_update_interval_seconds`) | `300` | Minimum interval between `last_used_at` writes per API token. |
 | `OIDC_TRANSACTION_COOKIE_NAME` (`oidc_transaction_cookie_name`) | `threatlens_oidc_transaction` | HttpOnly cookie used for the short-lived OIDC state, nonce, and PKCE transaction. |
-| `OIDC_TRANSACTION_TTL_SECONDS` (`oidc_transaction_ttl_seconds`) | `600` | Maximum age of an OIDC sign-in or account-link transaction. |
+| `OIDC_TRANSACTION_TTL_SECONDS` (`oidc_transaction_ttl_seconds`) | `600` | Maximum age of an OIDC sign-in, account-link, or explicit reauthentication transaction. Transactions are fenced to the provider configuration revision and, for account-bound flows, the exact opaque session and account security generation. |
 | `OIDC_CALLBACK_PATH` (`oidc_callback_path`) | `/api/v1/auth/oidc/callback` | Public callback path appended to the configured ThreatLens origin. Use `/v1/auth/oidc/callback` only when exposing the API directly without the bundled web proxy. |
 | `OIDC_METADATA_CACHE_SECONDS` (`oidc_metadata_cache_seconds`) | `300` | In-process cache lifetime for validated provider discovery metadata. |
 | `OIDC_CONNECT_TIMEOUT_SECONDS` (`oidc_connect_timeout_seconds`) | `5` | Connect timeout for discovery, token, JWKS, and UserInfo requests. |
