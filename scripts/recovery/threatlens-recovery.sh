@@ -14,7 +14,6 @@ readonly EXIT_DATABASE=5
 readonly EXIT_DRILL=6
 readonly EXIT_REFUSED=7
 readonly EXIT_RESTORE=8
-readonly RESTORE_CONFIRMATION="RESTORE THREATLENS POSTGRESQL"
 readonly ARCHIVE_FILENAME="database.dump"
 readonly MANIFEST_FILENAME="manifest.json"
 readonly DRILL_DATABASE="threatlens_restore_drill"
@@ -22,25 +21,47 @@ readonly DRILL_DATABASE="threatlens_restore_drill"
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 REPOSITORY_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
 MANIFEST_HELPER="${SCRIPT_DIR}/recovery_manifest.py"
+SAFETY_HELPER="${SCRIPT_DIR}/recovery_safety.py"
+JOURNAL_HELPER="${SCRIPT_DIR}/recovery_journal.py"
 
 declare -a COMPOSE_FILES=()
 declare -a COMPOSE_COMMAND=()
 ENV_FILE="${THREATLENS_ENV_FILE:-${REPOSITORY_ROOT}/.env}"
 COMPOSE_PROJECT="${THREATLENS_COMPOSE_PROJECT:-}"
 APP_VERSION_OVERRIDE="${THREATLENS_APP_VERSION:-}"
+RECOVERY_JOURNAL_ROOT="${THREATLENS_RECOVERY_JOURNAL_DIR:-${REPOSITORY_ROOT}/backups/recovery-journal}"
 
 TEMP_BACKUP_DIRECTORY=""
 DRILL_CONTAINER=""
+DRILL_APP_CONTAINER=""
 DRILL_VOLUME=""
 DRILL_NETWORK=""
-BACKUP_LOCK_FD=""
+DRILL_TABLE_COUNT=""
+DRILL_UPGRADED_REVISION=""
+RECOVERY_APP_CONTAINER=""
+RECOVERY_NETWORK=""
+RECOVERY_DATABASE_CONTAINER_ATTACHED=""
+BACKUP_LOCK_DIRECTORY=""
 COMPLETED_BACKUP_DIRECTORY=""
+RESTORE_STAGE_DIRECTORY=""
+RUNTIME_VALIDATION_DIRECTORY=""
+STAGED_QUARANTINE_HOOK=""
+STAGED_MANIFEST_HELPER=""
+STAGED_ARCHIVE_SHA256=""
+STAGED_HOOK_SHA256=""
+STAGED_HELPER_SHA256=""
+STAGED_MANIFEST_SHA256=""
 VERIFIED_MANIFEST=""
 VERIFIED_ARCHIVE=""
 VERIFIED_APP_VERSION=""
 VERIFIED_ALEMBIC_REVISION=""
 VERIFIED_ARCHIVE_SHA256=""
 VERIFIED_ARCHIVE_SIZE=""
+VERIFIED_ENCRYPTION_FINGERPRINT=""
+SUPPORTED_DATABASE_NAME=""
+SUPPORTED_REDIS_DATABASE=""
+TARGET_CONFIG_SHA256=""
+TARGET_DEPLOYMENT_IDENTITY=""
 OPERATION_TYPE=""
 OPERATION_STARTED_AT=""
 OPERATION_METADATA_JSON='{"tool_version":"1"}'
@@ -49,6 +70,26 @@ OPERATION_FINISHED=false
 CONTROLLED_EXIT=false
 RESTORE_REPLACEMENT_ACTIVE=false
 RESTORE_ROLLBACK_DATABASE=""
+RESTORE_PHASE="idle"
+RESTORE_RECOVERY_ROLE=""
+RESTORE_RECOVERY_PASSWORD=""
+RESTORE_ORIGINAL_ROLE_CAN_LOGIN=""
+RESTORE_ORIGINAL_DATABASE_ALLOW_CONNECTIONS=""
+RESTORE_ORIGINAL_DATABASE_OID=""
+RESTORE_REPLACEMENT_DATABASE_OID=""
+RESTORE_JOURNAL_ACTIVE=false
+RESTORE_JOURNAL_STATUS=""
+RESTORE_JOURNAL_OUTCOME=""
+RESTORE_JOURNAL_ERROR_CODE=""
+RESTORE_JOURNAL_TARGET_CONFIG_SHA256=""
+RECOVERY_OPERATION_LOCK_FD=""
+RESTORE_FORWARD_COMMITTED=false
+RESTORE_RECONCILED_ROLLBACK=false
+OPERATION_ID=""
+OPERATION_EVIDENCE_RECORDED=false
+PINNED_DATABASE_IMAGE=""
+PINNED_APPLICATION_IMAGE=""
+TARGET_BACKEND_SERVICES_TEXT=""
 
 
 timestamp() {
@@ -72,7 +113,36 @@ die() {
   shift 2
   CONTROLLED_EXIT=true
   printf '%s ERROR [%s] %s\n' "$(timestamp)" "${error_code}" "$*" >&2
+  if [[ "${RESTORE_REPLACEMENT_ACTIVE:-false}" == true ]]; then
+    _tlr_restore_emergency_rollback || true
+  fi
+  if [[ "${RESTORE_FORWARD_COMMITTED:-false}" == true ]]; then
+    set_operation_metadata \
+      --field tool_version=1 \
+      --field "archive_sha256=${VERIFIED_ARCHIVE_SHA256}" \
+      --field outbound_quarantined=true \
+      --field redis_restored=false \
+      --field reconciled_after_interruption=true \
+      --field reconciled_forward=true
+    if ! _tlr_restore_journal_terminal succeeded forward_committed ""; then
+      OPERATION_LEDGER_ALLOWED=false
+      warn "Forward commit was proved, but its terminal host journal could not be persisted; services remain stopped"
+      exit "${EXIT_RESTORE}"
+    fi
+    finish_operation_best_effort succeeded
+    archive_restore_journal_best_effort
+    printf 'RESTORE_STATUS=completed_quarantined_after_reconciliation\n'
+    exit 0
+  fi
+  if [[ "${RESTORE_RECONCILED_ROLLBACK:-false}" == true ]]; then
+    if ! _tlr_restore_journal_terminal failed rolled_back "${error_code}"; then
+      OPERATION_LEDGER_ALLOWED=false
+      warn "Rollback was proved, but its terminal host journal could not be persisted; services remain stopped"
+      exit "${EXIT_RESTORE}"
+    fi
+  fi
   finish_operation_best_effort failed "${error_code}"
+  archive_restore_journal_best_effort
   exit "${exit_code}"
 }
 
@@ -86,12 +156,14 @@ Usage:
   threatlens-recovery.sh [global options] verify --backup PATH
   threatlens-recovery.sh [global options] drill --backup PATH [options]
   threatlens-recovery.sh [global options] restore --backup PATH [safety options]
+  threatlens-recovery.sh [global options] reconcile
 
 Global options:
   --compose-file PATH    Compose file; repeat for overrides (default: docker-compose.yml)
   --env-file PATH        Compose environment file (default: repository .env)
   --project-name NAME    Explicit Compose project name
   --app-version VERSION  Override the repository VERSION value in backup metadata
+  --journal-dir PATH     Durable private destructive-recovery journal root
   --help                 Show this help
 
 Backup options:
@@ -105,10 +177,14 @@ Verify options:
 Drill options:
   --backup PATH          Completed backup directory or manifest.json
   --timeout-seconds N    PostgreSQL startup timeout, 10-600 (default: 90)
+  --quarantine-hook PATH Executable hook to preflight against the restored copy
+  --acknowledge-encryption-key-mismatch
+                         Permit a drill with a different encryption-key fingerprint
 
 Restore options:
   --backup PATH          Completed backup directory or manifest.json
-  --confirm TEXT         Must exactly equal: RESTORE THREATLENS POSTGRESQL
+  --show-confirmation    Validate the target and print its target-bound confirmation
+  --confirm TEXT         Exact confirmation printed by --show-confirmation
   --acknowledge-data-loss
                          Independent opt-in acknowledging destructive replacement
   --quarantine-hook PATH Executable application hook supporting preflight/apply/verify
@@ -116,11 +192,14 @@ Restore options:
                          Fresh pre-restore backup parent (default: ./backups/pre-restore)
   --allow-app-version-mismatch
                          Explicitly allow restore from another application version
+  --acknowledge-encryption-key-mismatch
+                         Allow a restore whose key fingerprint differs from this deployment
 
 Environment equivalents:
   THREATLENS_COMPOSE_FILE (colon-separated), THREATLENS_ENV_FILE,
   THREATLENS_COMPOSE_PROJECT, THREATLENS_APP_VERSION,
-  THREATLENS_BACKUP_DIR, THREATLENS_POST_RESTORE_HOOK.
+  THREATLENS_BACKUP_DIR, THREATLENS_POST_RESTORE_HOOK,
+  THREATLENS_RECOVERY_JOURNAL_DIR.
 
 Redis is deliberately excluded from every command. It is cleared after a successful
 destructive PostgreSQL restore and is never backed up or restored.
@@ -145,6 +224,12 @@ cleanup_partial_backup() {
 
 cleanup_drill_resources() {
   local cleanup_failed=0
+  if [[ -n "${DRILL_APP_CONTAINER}" ]]; then
+    if ! docker rm --force "${DRILL_APP_CONTAINER}" >/dev/null 2>&1; then
+      cleanup_failed=1
+    fi
+    DRILL_APP_CONTAINER=""
+  fi
   if [[ -n "${DRILL_CONTAINER}" ]]; then
     if ! docker rm --force "${DRILL_CONTAINER}" >/dev/null 2>&1; then
       cleanup_failed=1
@@ -167,6 +252,101 @@ cleanup_drill_resources() {
 }
 
 
+cleanup_recovery_network() {
+  local cleanup_failed=0
+  if [[ -n "${RECOVERY_APP_CONTAINER}" ]]; then
+    if ! docker rm --force "${RECOVERY_APP_CONTAINER}" >/dev/null 2>&1; then
+      cleanup_failed=1
+    fi
+    RECOVERY_APP_CONTAINER=""
+  fi
+  if [[ -n "${RECOVERY_DATABASE_CONTAINER_ATTACHED}" && -n "${RECOVERY_NETWORK}" ]]; then
+    if ! docker network disconnect --force "${RECOVERY_NETWORK}" \
+      "${RECOVERY_DATABASE_CONTAINER_ATTACHED}" >/dev/null 2>&1; then
+      cleanup_failed=1
+    fi
+    RECOVERY_DATABASE_CONTAINER_ATTACHED=""
+  fi
+  if [[ -n "${RECOVERY_NETWORK}" ]]; then
+    if ! docker network rm "${RECOVERY_NETWORK}" >/dev/null 2>&1; then
+      cleanup_failed=1
+    fi
+    RECOVERY_NETWORK=""
+  fi
+  return "${cleanup_failed}"
+}
+
+
+cleanup_restore_stage() {
+  if [[ -z "${RESTORE_STAGE_DIRECTORY}" ]]; then
+    return 0
+  fi
+  local basename
+  basename="$(basename -- "${RESTORE_STAGE_DIRECTORY}")"
+  if [[ "${basename}" == threatlens-recovery-stage.* \
+    && -d "${RESTORE_STAGE_DIRECTORY}" && ! -L "${RESTORE_STAGE_DIRECTORY}" ]]; then
+    rm -rf -- "${RESTORE_STAGE_DIRECTORY}"
+  else
+    warn "Refusing automatic cleanup of unexpected restore staging path: ${RESTORE_STAGE_DIRECTORY}"
+    return 1
+  fi
+  RESTORE_STAGE_DIRECTORY=""
+}
+
+
+cleanup_runtime_validation() {
+  if [[ -z "${RUNTIME_VALIDATION_DIRECTORY}" ]]; then
+    return 0
+  fi
+  local basename
+  basename="$(basename -- "${RUNTIME_VALIDATION_DIRECTORY}")"
+  if [[ "${basename}" == threatlens-runtime-validation.* \
+    && -d "${RUNTIME_VALIDATION_DIRECTORY}" && ! -L "${RUNTIME_VALIDATION_DIRECTORY}" ]]; then
+    rm -rf -- "${RUNTIME_VALIDATION_DIRECTORY}"
+  else
+    warn "Refusing automatic cleanup of unexpected runtime-validation path: ${RUNTIME_VALIDATION_DIRECTORY}"
+    return 1
+  fi
+  RUNTIME_VALIDATION_DIRECTORY=""
+}
+
+
+acquire_recovery_operation_lock() {
+  require_command flock
+  local lock_path
+  lock_path="$(python3 "${JOURNAL_HELPER}" prepare --root "${RECOVERY_JOURNAL_ROOT}")" \
+    || die "${EXIT_REFUSED}" "E721" \
+      "Recovery operation lock storage could not be prepared safely"
+  exec {RECOVERY_OPERATION_LOCK_FD}>"${lock_path}" \
+    || die "${EXIT_REFUSED}" "E722" "Recovery operation lock could not be opened"
+  flock --nonblock "${RECOVERY_OPERATION_LOCK_FD}" \
+    || die "${EXIT_REFUSED}" "E723" \
+      "Another destructive restore or reconciliation is active for this journal root"
+}
+
+
+release_recovery_operation_lock() {
+  if [[ -n "${RECOVERY_OPERATION_LOCK_FD}" ]]; then
+    flock --unlock "${RECOVERY_OPERATION_LOCK_FD}" >/dev/null 2>&1 || true
+    exec {RECOVERY_OPERATION_LOCK_FD}>&-
+  fi
+}
+
+
+archive_restore_journal_best_effort() {
+  if [[ "${RESTORE_JOURNAL_ACTIVE:-false}" != true \
+    || "${OPERATION_EVIDENCE_RECORDED:-false}" != true ]]; then
+    return 0
+  fi
+  if python3 "${JOURNAL_HELPER}" archive --root "${RECOVERY_JOURNAL_ROOT}" >/dev/null; then
+    RESTORE_JOURNAL_ACTIVE=false
+  else
+    warn "Terminal recovery journal could not be archived; run reconcile after correcting journal access"
+    return 1
+  fi
+}
+
+
 on_exit() {
   local original_exit="$1"
   set +e
@@ -178,10 +358,12 @@ on_exit() {
   fi
   cleanup_partial_backup
   cleanup_drill_resources
-  if [[ -n "${BACKUP_LOCK_FD}" ]]; then
-    exec {BACKUP_LOCK_FD}>&- 2>/dev/null
-    BACKUP_LOCK_FD=""
-  fi
+  cleanup_recovery_network
+  cleanup_restore_stage
+  cleanup_runtime_validation
+  release_backup_lock
+  archive_restore_journal_best_effort
+  release_recovery_operation_lock
   return "${original_exit}"
 }
 
@@ -226,9 +408,12 @@ start_operation() {
   case "${command}" in
     backup|verify|restore) OPERATION_TYPE="${command}" ;;
     drill) OPERATION_TYPE="restore_drill" ;;
+    reconcile) OPERATION_TYPE="" ;;
     *) return 0 ;;
   esac
   OPERATION_STARTED_AT="$(timestamp)"
+  OPERATION_ID="$(python3 -c 'import uuid; print(uuid.uuid4())')" \
+    || die "${EXIT_PREREQUISITE}" "E328" "Unable to generate an operation identifier"
   OPERATION_METADATA_JSON="$(
     python3 "${MANIFEST_HELPER}" ledger-metadata --field tool_version=1
   )" || OPERATION_METADATA_JSON='{"tool_version":"1"}'
@@ -237,6 +422,7 @@ start_operation() {
     OPERATION_LEDGER_ALLOWED=false
   fi
   OPERATION_FINISHED=false
+  OPERATION_EVIDENCE_RECORDED=false
 }
 
 
@@ -262,11 +448,13 @@ finish_operation_best_effort() {
     return 0
   fi
 
-  local run_id error_message=""
-  run_id="$(python3 -c 'import uuid; print(uuid.uuid4())' 2>/dev/null)" || {
-    warn "System operation history could not be recorded; UUID generation failed"
-    return 0
-  }
+  local run_id="${OPERATION_ID}" error_message=""
+  if [[ -z "${run_id}" ]]; then
+    run_id="$(python3 -c 'import uuid; print(uuid.uuid4())' 2>/dev/null)" || {
+      warn "System operation history could not be recorded; UUID generation failed"
+      return 0
+    }
+  fi
   if [[ "${status}" == "failed" ]]; then
     error_message="Host recovery command failed; inspect the host log using the recorded error code."
   fi
@@ -310,10 +498,13 @@ VALUES (
   NULLIF(:'"'"'operation_error_message'"'"', '"'"''"'"'),
   :'"'"'operation_started_at'"'"'::timestamptz,
   clock_timestamp()
-);
+)
+ON CONFLICT (id) DO NOTHING;
 SQL
-    ' >/dev/null 2>&1; then
+  ' >/dev/null 2>&1; then
     warn "System operation history is unavailable; the command result is unchanged"
+  else
+    OPERATION_EVIDENCE_RECORDED=true
   fi
   return 0
 }
@@ -326,7 +517,6 @@ validate_common_prerequisites() {
   require_command python3
   python3 -c 'import sys; raise SystemExit(sys.version_info < (3, 10))' \
     || die "${EXIT_PREREQUISITE}" "E317" "Python 3.10 or newer is required"
-  require_command flock
   require_command mktemp
   require_command date
   require_command grep
@@ -337,8 +527,13 @@ validate_common_prerequisites() {
   require_command mkdir
   require_command mv
   require_command rm
+  require_command rmdir
   [[ -f "${MANIFEST_HELPER}" ]] \
     || die "${EXIT_PREREQUISITE}" "E302" "Recovery metadata helper is missing: ${MANIFEST_HELPER}"
+  [[ -f "${SAFETY_HELPER}" ]] \
+    || die "${EXIT_PREREQUISITE}" "E318" "Recovery safety helper is missing: ${SAFETY_HELPER}"
+  [[ -f "${JOURNAL_HELPER}" && ! -L "${JOURNAL_HELPER}" ]] \
+    || die "${EXIT_PREREQUISITE}" "E327" "Recovery journal helper is missing or unsafe: ${JOURNAL_HELPER}"
   [[ -r "${ENV_FILE}" && ! -L "${ENV_FILE}" ]] \
     || die "${EXIT_PREREQUISITE}" "E303" "Environment file must be a readable regular file, not a symlink: ${ENV_FILE}"
   local compose_file
@@ -352,6 +547,144 @@ validate_common_prerequisites() {
     || die "${EXIT_PREREQUISITE}" "E305" "Docker Compose v2 is required"
   docker info >/dev/null 2>&1 \
     || die "${EXIT_PREREQUISITE}" "E306" "Docker daemon is unavailable"
+}
+
+
+validate_supported_local_targets() {
+  local validation
+  if ! validation="$(compose config --format json | python3 "${SAFETY_HELPER}" validate-target)"; then
+    die "${EXIT_REFUSED}" "E707" \
+      "Rendered application data targets are unsupported; recovery currently requires the local Compose db and redis services with Redis database 0"
+  fi
+  local -a fields=()
+  mapfile -t fields <<<"${validation}"
+  ((${#fields[@]} == 5)) \
+    || die "${EXIT_PREREQUISITE}" "E319" "Target validation returned an unexpected result"
+  SUPPORTED_DATABASE_NAME="${fields[0]}"
+  SUPPORTED_REDIS_DATABASE="${fields[2]}"
+  TARGET_CONFIG_SHA256="${fields[3]}"
+  TARGET_BACKEND_SERVICES_TEXT="${fields[4]}"
+  [[ "${SUPPORTED_REDIS_DATABASE}" == "0" ]] \
+    || die "${EXIT_REFUSED}" "E708" "Only Redis database 0 is supported by the local recovery adapter"
+}
+
+
+target_backend_services() {
+  local service_text="${TARGET_BACKEND_SERVICES_TEXT//,/$'\n'}"
+  [[ -n "${service_text}" ]] || return 0
+  printf '%s\n' "${service_text}"
+}
+
+
+validate_running_target_configuration() {
+  cleanup_runtime_validation || die "${EXIT_PREREQUISITE}" "E331" \
+    "Unable to clean a previous runtime-validation directory"
+  RUNTIME_VALIDATION_DIRECTORY="$(mktemp -d -- "${TMPDIR:-/tmp}/threatlens-runtime-validation.XXXXXXXX")" \
+    || die "${EXIT_PREREQUISITE}" "E332" "Unable to create private runtime-validation storage"
+  chmod 0700 "${RUNTIME_VALIDATION_DIRECTORY}" \
+    || die "${EXIT_PREREQUISITE}" "E333" "Unable to restrict runtime-validation storage"
+  local config_path="${RUNTIME_VALIDATION_DIRECTORY}/compose.json"
+  local inspect_path="${RUNTIME_VALIDATION_DIRECTORY}/inspect.json"
+  compose config --format json >"${config_path}" \
+    || die "${EXIT_PREREQUISITE}" "E334" "Unable to render Compose configuration for runtime validation"
+  chmod 0600 "${config_path}"
+
+  local -a services=(db redis)
+  local service
+  while IFS= read -r service; do
+    [[ -n "${service}" ]] && services+=("${service}")
+  done < <(target_backend_services)
+  local -a containers=()
+  local container
+  for service in "${services[@]}"; do
+    container="$(compose ps --quiet --all "${service}")" \
+      || die "${EXIT_PREREQUISITE}" "E335" "Unable to resolve runtime container for service '${service}'"
+    if [[ -n "${container}" ]]; then
+      [[ "${container}" != *$'\n'* ]] \
+        || die "${EXIT_REFUSED}" "E713" "Compose service '${service}' resolves to multiple containers"
+      containers+=("${container}")
+    fi
+  done
+  ((${#containers[@]} >= 2)) \
+    || die "${EXIT_REFUSED}" "E714" "Running db and redis containers are required for runtime validation"
+  docker inspect "${containers[@]}" >"${inspect_path}" \
+    || die "${EXIT_PREREQUISITE}" "E336" "Unable to inspect running recovery target containers"
+  chmod 0600 "${inspect_path}"
+  python3 "${SAFETY_HELPER}" validate-runtime \
+    --compose-config "${config_path}" --inspect "${inspect_path}" >/dev/null \
+    || die "${EXIT_REFUSED}" "E715" \
+      "Running container data targets differ from rendered Compose configuration"
+  cleanup_runtime_validation \
+    || die "${EXIT_PREREQUISITE}" "E337" "Runtime-validation storage could not be removed"
+}
+
+
+resolve_compose_container() {
+  local service="$1"
+  local container container_project container_service
+  container="$(compose ps --quiet "${service}")" \
+    || die "${EXIT_DATABASE}" "E525" "Unable to resolve the running ${service} container"
+  [[ -n "${container}" && "${container}" != *$'\n'* ]] \
+    || die "${EXIT_DATABASE}" "E526" "Compose service '${service}' does not resolve to one container"
+  container_project="$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.project" }}' \
+    "${container}")" \
+    || die "${EXIT_DATABASE}" "E529" "Unable to read the ${service} container project identity"
+  container_service="$(docker inspect --format '{{ index .Config.Labels "com.docker.compose.service" }}' \
+    "${container}")" \
+    || die "${EXIT_DATABASE}" "E530" "Unable to read the ${service} container service identity"
+  [[ "${container_project}" == "${COMPOSE_PROJECT}" && "${container_service}" == "${service}" ]] \
+    || die "${EXIT_REFUSED}" "E712" \
+      "Running container identity does not match project '${COMPOSE_PROJECT}' service '${service}'"
+  printf '%s\n' "${container}"
+}
+
+
+resolve_target_deployment_identity() {
+  local archive_sha256="$1"
+  local db_container redis_container db_identity redis_identity inspect_payload
+  db_container="$(resolve_compose_container db)"
+  redis_container="$(resolve_compose_container redis)"
+  db_identity="$(docker inspect --format \
+    '{{.Id}}|{{.Image}}|{{.Name}}|{{range .Mounts}}{{.Type}}:{{.Name}}:{{.Source}}:{{.Destination}};{{end}}' \
+    "${db_container}")" \
+    || die "${EXIT_DATABASE}" "E527" "Unable to inspect the live database container"
+  redis_identity="$(docker inspect --format \
+    '{{.Id}}|{{.Image}}|{{.Name}}|{{range .Mounts}}{{.Type}}:{{.Name}}:{{.Source}}:{{.Destination}};{{end}}' \
+    "${redis_container}")" \
+    || die "${EXIT_DATABASE}" "E531" "Unable to inspect the live Redis container"
+  inspect_payload="database=${db_identity}"$'\n'"redis=${redis_identity}"
+  TARGET_DEPLOYMENT_IDENTITY="$(
+    printf '%s' "${inspect_payload}" | python3 "${SAFETY_HELPER}" identity \
+      --project "${COMPOSE_PROJECT}" \
+      --database "${SUPPORTED_DATABASE_NAME}" \
+      --target-config-sha256 "${TARGET_CONFIG_SHA256}" \
+      --archive-sha256 "${archive_sha256}"
+  )" || die "${EXIT_PREREQUISITE}" "E320" "Unable to derive the target deployment identity"
+  [[ "${TARGET_DEPLOYMENT_IDENTITY}" =~ ^[0-9a-f]{64}$ ]] \
+    || die "${EXIT_PREREQUISITE}" "E321" "Target deployment identity is invalid"
+}
+
+
+revalidate_live_target_identity() {
+  local expected_config_sha256="$1"
+  local expected_deployment_identity="$2"
+  local archive_sha256="$3"
+  validate_supported_local_targets
+  [[ "${TARGET_CONFIG_SHA256}" == "${expected_config_sha256}" ]] \
+    || die "${EXIT_REFUSED}" "E716" \
+      "Rendered recovery target configuration changed after confirmation"
+  validate_running_target_configuration
+  resolve_target_deployment_identity "${archive_sha256}"
+  [[ "${TARGET_DEPLOYMENT_IDENTITY}" == "${expected_deployment_identity}" ]] \
+    || die "${EXIT_REFUSED}" "E717" \
+      "Live database or Redis container/image/mount identity changed after confirmation"
+}
+
+
+restore_confirmation_text() {
+  printf 'RESTORE THREATLENS project=%s database=%s archive=%s deployment=%s\n' \
+    "${COMPOSE_PROJECT}" "${SUPPORTED_DATABASE_NAME}" "${VERIFIED_ARCHIVE_SHA256}" \
+    "${TARGET_DEPLOYMENT_IDENTITY}"
 }
 
 
@@ -426,7 +759,24 @@ resolve_database_image() {
     die "${EXIT_PREREQUISITE}" "E313" \
       "PostgreSQL image '${image}' is not local; run docker compose pull db first"
   fi
-  printf '%s\n' "${image}"
+  docker image inspect --format '{{.Id}}' "${image}" \
+    || die "${EXIT_PREREQUISITE}" "E329" \
+      "Unable to pin PostgreSQL image '${image}' by immutable image ID"
+}
+
+
+resolve_application_image() {
+  local image
+  if ! image="$(compose config --format json | python3 "${MANIFEST_HELPER}" compose-image --service api)"; then
+    die "${EXIT_PREREQUISITE}" "E322" "Unable to resolve the current backend image from Compose service 'api'"
+  fi
+  if ! docker image inspect "${image}" >/dev/null 2>&1; then
+    die "${EXIT_PREREQUISITE}" "E323" \
+      "Backend image '${image}' is not local; pull or build the deployment image before recovery testing"
+  fi
+  docker image inspect --format '{{.Id}}' "${image}" \
+    || die "${EXIT_PREREQUISITE}" "E330" \
+      "Unable to pin backend image '${image}' by immutable image ID"
 }
 
 
@@ -443,7 +793,7 @@ prepare_verified_archive() {
   fi
   local -a fields=()
   mapfile -t fields <<<"${inspection}"
-  ((${#fields[@]} == 7)) \
+  ((${#fields[@]} == 8)) \
     || die "${EXIT_VALIDATION}" "E406" "Validated backup inspection returned an unexpected result"
   VERIFIED_MANIFEST="${fields[0]}"
   VERIFIED_ARCHIVE="${fields[1]}"
@@ -451,6 +801,96 @@ prepare_verified_archive() {
   VERIFIED_ALEMBIC_REVISION="${fields[3]}"
   VERIFIED_ARCHIVE_SHA256="${fields[4]}"
   VERIFIED_ARCHIVE_SIZE="${fields[5]}"
+  VERIFIED_ENCRYPTION_FINGERPRINT="${fields[7]}"
+}
+
+
+require_encryption_fingerprint_match() {
+  local acknowledge_mismatch="$1"
+  local deployment_fingerprint
+  deployment_fingerprint="$(
+    compose config --format json | python3 "${SAFETY_HELPER}" encryption-fingerprint
+  )" || die "${EXIT_PREREQUISITE}" "E324" \
+    "Unable to derive the deployment encryption-key fingerprint"
+  if [[ "${VERIFIED_ENCRYPTION_FINGERPRINT}" == "${deployment_fingerprint}" ]]; then
+    return 0
+  fi
+  [[ "${acknowledge_mismatch}" == true ]] \
+    || die "${EXIT_REFUSED}" "E709" \
+      "Backup encryption-key fingerprint differs from this deployment; supply the matching key or explicitly acknowledge the mismatch"
+  warn "Encryption-key fingerprint mismatch was explicitly acknowledged; encrypted restored values may be unreadable"
+}
+
+
+stage_restore_inputs() {
+  local hook="$1"
+  local manifest_sha256 hook_sha256 helper_sha256
+  local approved_app_version="${VERIFIED_APP_VERSION}"
+  local approved_alembic_revision="${VERIFIED_ALEMBIC_REVISION}"
+  local approved_archive_sha256="${VERIFIED_ARCHIVE_SHA256}"
+  local approved_archive_size="${VERIFIED_ARCHIVE_SIZE}"
+  local approved_encryption_fingerprint="${VERIFIED_ENCRYPTION_FINGERPRINT}"
+  manifest_sha256="$(python3 "${SAFETY_HELPER}" sha256 --path "${VERIFIED_MANIFEST}")" \
+    || die "${EXIT_REFUSED}" "E710" "Unable to hash the approved recovery manifest"
+  hook_sha256="$(python3 "${SAFETY_HELPER}" sha256 --path "${hook}")" \
+    || die "${EXIT_REFUSED}" "E710" "Unable to hash the approved quarantine hook"
+  helper_sha256="$(python3 "${SAFETY_HELPER}" sha256 --path "${MANIFEST_HELPER}")" \
+    || die "${EXIT_REFUSED}" "E710" "Unable to hash the approved manifest helper"
+  RESTORE_STAGE_DIRECTORY="$(mktemp -d -- "${TMPDIR:-/tmp}/threatlens-recovery-stage.XXXXXXXX")" \
+    || die "${EXIT_PREREQUISITE}" "E325" "Unable to create a private restore staging directory"
+  chmod 0700 "${RESTORE_STAGE_DIRECTORY}" \
+    || die "${EXIT_PREREQUISITE}" "E326" "Unable to restrict restore staging permissions"
+
+  local staging
+  if ! staging="$(python3 "${SAFETY_HELPER}" stage \
+    --manifest "${VERIFIED_MANIFEST}" \
+    --archive "${VERIFIED_ARCHIVE}" \
+    --hook "${hook}" \
+    --manifest-helper "${MANIFEST_HELPER}" \
+    --destination "${RESTORE_STAGE_DIRECTORY}" \
+    --expected-manifest-sha256 "${manifest_sha256}" \
+    --expected-archive-sha256 "${VERIFIED_ARCHIVE_SHA256}" \
+    --expected-hook-sha256 "${hook_sha256}" \
+    --expected-helper-sha256 "${helper_sha256}")"; then
+    die "${EXIT_VALIDATION}" "E407" \
+      "Restore inputs changed or could not be copied into private staging"
+  fi
+  local -a fields=()
+  mapfile -t fields <<<"${staging}"
+  ((${#fields[@]} == 9)) \
+    || die "${EXIT_VALIDATION}" "E408" "Restore staging returned an unexpected result"
+  VERIFIED_MANIFEST="${fields[0]}"
+  VERIFIED_ARCHIVE="${fields[1]}"
+  STAGED_QUARANTINE_HOOK="${fields[2]}"
+  STAGED_MANIFEST_HELPER="${fields[3]}"
+  STAGED_ARCHIVE_SHA256="${fields[4]}"
+  STAGED_HOOK_SHA256="${fields[5]}"
+  STAGED_HELPER_SHA256="${fields[6]}"
+  STAGED_MANIFEST_SHA256="${fields[7]}"
+  [[ "${fields[8]}" == "${VERIFIED_ARCHIVE_SIZE}" ]] \
+    || die "${EXIT_VALIDATION}" "E409" "Staged archive size differs from the approved manifest"
+  prepare_verified_archive "${VERIFIED_MANIFEST}"
+  [[ "${VERIFIED_APP_VERSION}" == "${approved_app_version}" \
+    && "${VERIFIED_ALEMBIC_REVISION}" == "${approved_alembic_revision}" \
+    && "${VERIFIED_ARCHIVE_SHA256}" == "${approved_archive_sha256}" \
+    && "${VERIFIED_ARCHIVE_SIZE}" == "${approved_archive_size}" \
+    && "${VERIFIED_ENCRYPTION_FINGERPRINT}" == "${approved_encryption_fingerprint}" ]] \
+    || die "${EXIT_VALIDATION}" "E410" \
+      "Staged recovery metadata differs from the approved manifest"
+}
+
+
+revalidate_staged_restore_inputs() {
+  local archive_sha hook_sha helper_sha manifest_sha
+  prepare_verified_archive "${VERIFIED_MANIFEST}"
+  archive_sha="${VERIFIED_ARCHIVE_SHA256}"
+  hook_sha="$(python3 "${SAFETY_HELPER}" sha256 --path "${STAGED_QUARANTINE_HOOK}")" || return 1
+  helper_sha="$(python3 "${SAFETY_HELPER}" sha256 --path "${STAGED_MANIFEST_HELPER}")" || return 1
+  manifest_sha="$(python3 "${SAFETY_HELPER}" sha256 --path "${VERIFIED_MANIFEST}")" || return 1
+  [[ "${archive_sha}" == "${STAGED_ARCHIVE_SHA256}" \
+    && "${hook_sha}" == "${STAGED_HOOK_SHA256}" \
+    && "${helper_sha}" == "${STAGED_HELPER_SHA256}" \
+    && "${manifest_sha}" == "${STAGED_MANIFEST_SHA256}" ]]
 }
 
 
@@ -469,20 +909,23 @@ check_pg_restore_catalog() {
 
 acquire_backup_lock() {
   local output_directory="$1"
-  local lock_file="${output_directory}/.threatlens-recovery.lock"
-  exec {BACKUP_LOCK_FD}>"${lock_file}"
-  chmod 0600 "${lock_file}"
-  if ! flock --nonblock "${BACKUP_LOCK_FD}"; then
-    die "${EXIT_DATABASE}" "E504" "Another recovery operation holds the backup-directory lock"
+  local lock_directory="${output_directory}/.threatlens-recovery.lock"
+  if ! mkdir --mode=0700 -- "${lock_directory}" 2>/dev/null; then
+    die "${EXIT_DATABASE}" "E504" \
+      "Another recovery operation holds the backup-directory lock, or the lock path is unsafe"
   fi
+  [[ -d "${lock_directory}" && ! -L "${lock_directory}" ]] \
+    || die "${EXIT_DATABASE}" "E528" "Backup lock is not a real directory"
+  BACKUP_LOCK_DIRECTORY="${lock_directory}"
 }
 
 
 release_backup_lock() {
-  if [[ -n "${BACKUP_LOCK_FD}" ]]; then
-    flock --unlock "${BACKUP_LOCK_FD}" || true
-    exec {BACKUP_LOCK_FD}>&-
-    BACKUP_LOCK_FD=""
+  if [[ -n "${BACKUP_LOCK_DIRECTORY}" ]]; then
+    if ! rmdir -- "${BACKUP_LOCK_DIRECTORY}" 2>/dev/null; then
+      warn "Backup lock directory could not be removed: ${BACKUP_LOCK_DIRECTORY}"
+    fi
+    BACKUP_LOCK_DIRECTORY=""
   fi
 }
 
@@ -498,6 +941,9 @@ perform_backup() {
   python3 "${MANIFEST_HELPER}" fsync-directory --path "${output_directory}" >/dev/null \
     || die "${EXIT_VALIDATION}" "E404" "Backup output directory is not a safe recovery path"
   acquire_backup_lock "${output_directory}"
+
+  validate_supported_local_targets
+  validate_running_target_configuration
 
   local partial
   for partial in "${output_directory}"/.threatlens-backup.partial.*; do
@@ -530,7 +976,7 @@ perform_backup() {
     || die "${EXIT_DATABASE}" "E510" "Unable to collect safe table-count estimates"
 
   encryption_fingerprint="$(
-    python3 "${MANIFEST_HELPER}" fingerprint-env --env-file "${ENV_FILE}"
+    compose config --format json | python3 "${SAFETY_HELPER}" encryption-fingerprint
   )" || die "${EXIT_PREREQUISITE}" "E315" "Unable to derive the non-secret encryption-key fingerprint"
 
   compact_time="$(date -u +'%Y%m%dT%H%M%SZ')"
@@ -667,25 +1113,11 @@ command_verify() {
 }
 
 
-wait_for_drill_database() {
-  local timeout_seconds="$1"
-  local deadline=$((SECONDS + timeout_seconds))
-  while ((SECONDS < deadline)); do
-    if docker exec "${DRILL_CONTAINER}" pg_isready --quiet --username postgres --dbname "${DRILL_DATABASE}"; then
-      return 0
-    fi
-    if [[ "$(docker inspect --format '{{.State.Running}}' "${DRILL_CONTAINER}" 2>/dev/null || true)" != "true" ]]; then
-      return 1
-    fi
-    sleep 1
-  done
-  return 1
-}
-
-
 command_drill() {
   local backup=""
   local timeout_seconds=90
+  local quarantine_hook="${THREATLENS_POST_RESTORE_HOOK:-${SCRIPT_DIR}/post_restore_quarantine.sh}"
+  local acknowledge_encryption_mismatch=false
   while (($#)); do
     case "$1" in
       --backup)
@@ -697,6 +1129,15 @@ command_drill() {
         (($# >= 2)) || die "${EXIT_USAGE}" "E209" "--timeout-seconds requires a value"
         timeout_seconds="$2"
         shift 2
+        ;;
+      --quarantine-hook)
+        (($# >= 2)) || die "${EXIT_USAGE}" "E216" "--quarantine-hook requires a path"
+        quarantine_hook="$2"
+        shift 2
+        ;;
+      --acknowledge-encryption-key-mismatch)
+        acknowledge_encryption_mismatch=true
+        shift
         ;;
       --help)
         usage
@@ -712,73 +1153,38 @@ command_drill() {
     || die "${EXIT_USAGE}" "E213" "--timeout-seconds must be between 10 and 600"
 
   prepare_verified_archive "${backup}"
-  local database_image expected_revision archive_checksum resource_suffix
-  database_image="$(resolve_database_image)"
+  require_encryption_fingerprint_match "${acknowledge_encryption_mismatch}"
+  validate_supported_local_targets
+  validate_running_target_configuration
+  quarantine_hook="$(_tlr_restore_resolve_hook "${quarantine_hook}")"
+  stage_restore_inputs "${quarantine_hook}"
+  quarantine_hook="${STAGED_QUARANTINE_HOOK}"
+  local database_image application_image archive_checksum
+  PINNED_DATABASE_IMAGE="$(resolve_database_image)"
+  PINNED_APPLICATION_IMAGE="$(resolve_application_image)"
+  database_image="${PINNED_DATABASE_IMAGE}"
+  application_image="${PINNED_APPLICATION_IMAGE}"
   check_pg_restore_catalog "${VERIFIED_ARCHIVE}" "${database_image}"
-  expected_revision="${VERIFIED_ALEMBIC_REVISION}"
   archive_checksum="${VERIFIED_ARCHIVE_SHA256}"
-  resource_suffix="$(python3 -c 'import secrets; print(secrets.token_hex(5))')"
-  DRILL_NETWORK="threatlens-recovery-net-${resource_suffix}"
-  DRILL_VOLUME="threatlens-recovery-db-${resource_suffix}"
-  DRILL_CONTAINER="threatlens-recovery-pg-${resource_suffix}"
-
-  log "Creating isolated restore-drill network and PostgreSQL target"
-  docker network create --internal --label threatlens.recovery=restore-drill \
-    "${DRILL_NETWORK}" >/dev/null \
-    || die "${EXIT_DRILL}" "E601" "Unable to create the isolated drill network"
-  docker volume create --label threatlens.recovery=restore-drill \
-    "${DRILL_VOLUME}" >/dev/null \
-    || die "${EXIT_DRILL}" "E602" "Unable to create the drill data volume"
-  docker run --detach --name "${DRILL_CONTAINER}" --network "${DRILL_NETWORK}" \
-    --mount "type=volume,source=${DRILL_VOLUME},target=/var/lib/postgresql/data" \
-    --env POSTGRES_HOST_AUTH_METHOD=trust --env "POSTGRES_DB=${DRILL_DATABASE}" \
-    --label threatlens.recovery=restore-drill "${database_image}" >/dev/null \
-    || die "${EXIT_DRILL}" "E603" "Unable to start the isolated PostgreSQL drill target"
-
-  wait_for_drill_database "${timeout_seconds}" \
-    || die "${EXIT_DRILL}" "E604" "Isolated PostgreSQL did not become ready before the timeout"
-  log "Restoring archive into the isolated target; no ThreatLens application service is running"
-  if ! docker exec --interactive "${DRILL_CONTAINER}" pg_restore \
-    --username postgres --dbname "${DRILL_DATABASE}" --exit-on-error \
-    --single-transaction --no-owner --no-privileges <"${VERIFIED_ARCHIVE}"; then
-    die "${EXIT_DRILL}" "E605" "Archive restore failed in the isolated target"
+  local drill_status=0
+  if tlr_run_isolated_drill \
+    "${timeout_seconds}" "${database_image}" "${application_image}" "${quarantine_hook}"; then
+    drill_status=0
+  else
+    drill_status=$?
   fi
-
-  local actual_revision table_count invalid_constraint_count smoke_value
-  if ! actual_revision="$(docker exec "${DRILL_CONTAINER}" psql --no-psqlrc \
-    --set=ON_ERROR_STOP=1 --tuples-only --no-align --username postgres \
-    --dbname "${DRILL_DATABASE}" --command \
-    "SELECT string_agg(version_num, ',' ORDER BY version_num) FROM alembic_version;" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"; then
-    die "${EXIT_DRILL}" "E606" "Restored Alembic revision could not be read"
-  fi
-  [[ "${actual_revision}" == "${expected_revision}" ]] \
-    || die "${EXIT_DRILL}" "E607" \
-      "Restored Alembic revision differs from manifest: expected=${expected_revision} actual=${actual_revision}"
-
-  table_count="$(docker exec "${DRILL_CONTAINER}" psql --no-psqlrc \
-    --set=ON_ERROR_STOP=1 --tuples-only --no-align --username postgres \
-    --dbname "${DRILL_DATABASE}" --command \
-    "SELECT count(*) FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p');" | tr -d '[:space:]')" \
-    || die "${EXIT_DRILL}" "E608" "Restored schema table count could not be read"
-  [[ "${table_count}" =~ ^[1-9][0-9]*$ ]] \
-    || die "${EXIT_DRILL}" "E609" "Restored schema contains no application tables"
-
-  invalid_constraint_count="$(docker exec "${DRILL_CONTAINER}" psql --no-psqlrc \
-    --set=ON_ERROR_STOP=1 --tuples-only --no-align --username postgres \
-    --dbname "${DRILL_DATABASE}" --command \
-    "SELECT count(*) FROM pg_catalog.pg_constraint WHERE NOT convalidated;" | tr -d '[:space:]')" \
-    || die "${EXIT_DRILL}" "E610" "Restored constraint validation state could not be read"
-  [[ "${invalid_constraint_count}" == "0" ]] \
-    || die "${EXIT_DRILL}" "E611" "Restored schema has ${invalid_constraint_count} unvalidated constraints"
-
-  smoke_value="$(docker exec "${DRILL_CONTAINER}" psql --no-psqlrc \
-    --set=ON_ERROR_STOP=1 --tuples-only --no-align --username postgres \
-    --dbname "${DRILL_DATABASE}" --command \
-    "SELECT 1 FROM users LIMIT 1;" | tr -d '[:space:]')" \
-    || die "${EXIT_DRILL}" "E612" "Restored application-table smoke query failed"
-  if [[ -n "${smoke_value}" && "${smoke_value}" != "1" ]]; then
-    die "${EXIT_DRILL}" "E613" "Restored application-table smoke query returned an unexpected value"
-  fi
+  case "${drill_status}" in
+    0) ;;
+    11) die "${EXIT_DRILL}" "E601" "Unable to create the isolated drill network" ;;
+    12) die "${EXIT_DRILL}" "E602" "Unable to create the drill data volume" ;;
+    13) die "${EXIT_DRILL}" "E603" "Unable to start the isolated PostgreSQL drill target" ;;
+    14) die "${EXIT_DRILL}" "E604" "Isolated PostgreSQL did not become ready before the timeout" ;;
+    16) die "${EXIT_DRILL}" "E605" "Archive restore failed in the isolated target" ;;
+    22) die "${EXIT_DRILL}" "E607" "Restored Alembic revision differs from the approved manifest" ;;
+    40) die "${EXIT_DRILL}" "E615" "Packaged Alembic upgrade or API/schema smoke failed in isolation" ;;
+    42) die "${EXIT_DRILL}" "E616" "Quarantine hook preflight rejected the upgraded isolated archive" ;;
+    *) die "${EXIT_DRILL}" "E617" "Isolated recovery validation failed at stage ${drill_status}" ;;
+  esac
 
   if ! cleanup_drill_resources; then
     die "${EXIT_DRILL}" "E614" "Drill passed, but one or more isolated Docker resources could not be removed"
@@ -786,15 +1192,18 @@ command_drill() {
   set_operation_metadata \
     --field tool_version=1 \
     --field "archive_sha256=${archive_checksum}" \
-    --field "alembic_revision=${actual_revision}" \
-    --field "table_count=${table_count}" \
+    --field "alembic_revision=${DRILL_UPGRADED_REVISION}" \
+    --field "table_count=${DRILL_TABLE_COUNT}" \
     --field catalog_checked=true \
     --field redis_restored=false
-  log "True isolated restore drill passed and all temporary resources were removed"
+  log "Isolated restore, current migration, API/schema smoke, and quarantine preflight passed"
   printf 'RESTORE_DRILL_STATUS=passed\nARCHIVE_SHA256=%s\nALEMBIC_REVISION=%s\nTABLE_COUNT=%s\n' \
-    "${archive_checksum}" "${actual_revision}" "${table_count}"
+    "${archive_checksum}" "${DRILL_UPGRADED_REVISION}" "${DRILL_TABLE_COUNT}"
 }
 
+
+# shellcheck source=scripts/recovery/recovery_drill_lib.sh
+source "${SCRIPT_DIR}/recovery_drill_lib.sh"
 
 # shellcheck source=scripts/recovery/recovery_restore_lib.sh
 source "${SCRIPT_DIR}/recovery_restore_lib.sh"
@@ -833,11 +1242,16 @@ parse_global_options() {
         APP_VERSION_OVERRIDE="$2"
         shift 2
         ;;
+      --journal-dir)
+        (($# >= 2)) || die "${EXIT_USAGE}" "E229" "--journal-dir requires a path"
+        RECOVERY_JOURNAL_ROOT="$2"
+        shift 2
+        ;;
       --help|-h)
         usage
         exit 0
         ;;
-      backup|verify|drill|restore)
+      backup|verify|drill|restore|reconcile)
         COMMAND="$1"
         shift
         COMMAND_ARGUMENTS=("$@")
@@ -861,9 +1275,11 @@ main() {
     verify) command_verify "${COMMAND_ARGUMENTS[@]}" ;;
     drill) command_drill "${COMMAND_ARGUMENTS[@]}" ;;
     restore) tlr_restore_command "${COMMAND_ARGUMENTS[@]}" ;;
+    reconcile) tlr_reconcile_command "${COMMAND_ARGUMENTS[@]}" ;;
     *) die "${EXIT_USAGE}" "E226" "Unsupported command: ${COMMAND}" ;;
   esac
   finish_operation_best_effort succeeded
+  archive_restore_journal_best_effort
 }
 
 

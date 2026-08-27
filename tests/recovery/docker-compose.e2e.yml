@@ -1,0 +1,84 @@
+x-database: &database
+  POSTGRES_DB: threatlens
+  POSTGRES_USER: postgres
+  POSTGRES_PASSWORD: "${RECOVERY_E2E_POSTGRES_PASSWORD:?required}"
+
+x-backend: &backend
+  APP_ENV: development
+  DATABASE_URL: "postgresql+psycopg://postgres:${RECOVERY_E2E_POSTGRES_PASSWORD:?required}@db:5432/threatlens"
+  REDIS_URL: "redis://:${RECOVERY_E2E_REDIS_PASSWORD:?required}@redis:6379/0"
+  POSTGRES_DB: threatlens
+  POSTGRES_USER: postgres
+  POSTGRES_PASSWORD: "${RECOVERY_E2E_POSTGRES_PASSWORD:?required}"
+  REDIS_PASSWORD: "${RECOVERY_E2E_REDIS_PASSWORD:?required}"
+  JWT_SECRET: "${RECOVERY_E2E_JWT_SECRET:?required}"
+  APP_DATA_ENCRYPTION_KEY: "${RECOVERY_E2E_ENCRYPTION_KEY:?required}"
+  ADMIN_EMAIL: recovery-e2e@invalid.example
+  ADMIN_PASSWORD: "${RECOVERY_E2E_ADMIN_PASSWORD:?required}"
+  AI_ENABLED: "false"
+  ALLOW_PRIVATE_NETWORK_AI: "false"
+  ALLOW_PRIVATE_NETWORK_FETCH: "false"
+  ALLOW_PRIVATE_NETWORK_OIDC: "false"
+  ALLOW_PRIVATE_NETWORK_WEBHOOKS: "false"
+  RUN_MIGRATIONS_ON_STARTUP: "false"
+  SEED_ADMIN_ON_STARTUP: "false"
+
+services:
+  db:
+    image: postgres:16
+    environment: *database
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d threatlens"]
+      interval: 1s
+      timeout: 2s
+      retries: 30
+    networks: [backplane]
+    volumes:
+      - database:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    environment:
+      REDIS_PASSWORD: "${RECOVERY_E2E_REDIS_PASSWORD:?required}"
+    command:
+      - sh
+      - -ceu
+      - exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - redis-cli --no-auth-warning -a "$$REDIS_PASSWORD" ping
+      interval: 1s
+      timeout: 2s
+      retries: 30
+    networks: [backplane]
+    volumes:
+      - redis:/data
+
+  api: &backend-service
+    image: "${RECOVERY_E2E_BACKEND_IMAGE:-ghcr.io/patriksi/threatlens-backend:latest}"
+    environment: *backend
+    networks: [backplane]
+
+  worker:
+    <<: *backend-service
+  worker-ai:
+    <<: *backend-service
+  worker-maintenance:
+    <<: *backend-service
+  worker-notifications:
+    <<: *backend-service
+  beat:
+    <<: *backend-service
+
+  web:
+    image: ghcr.io/patriksi/threatlens-web:latest
+    networks: [backplane]
+
+networks:
+  backplane:
+    internal: true
+
+volumes:
+  database:
+  redis:

@@ -22,7 +22,9 @@ class RecoveryManifestTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temporary_directory.cleanup()
 
-    def _run(self, *arguments: str, check: bool = False) -> subprocess.CompletedProcess[str]:
+    def _run(
+        self, *arguments: str, check: bool = False
+    ) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             [sys.executable, str(HELPER), *arguments],
             check=check,
@@ -30,7 +32,9 @@ class RecoveryManifestTests(unittest.TestCase):
             text=True,
         )
 
-    def _create_backup(self, *, directory_name: str = "threatlens-postgresql-test") -> Path:
+    def _create_backup(
+        self, *, directory_name: str = "threatlens-postgresql-test"
+    ) -> Path:
         backup = self.root / directory_name
         backup.mkdir(mode=0o700)
         archive = backup / "database.dump"
@@ -83,11 +87,13 @@ class RecoveryManifestTests(unittest.TestCase):
     def test_inspect_returns_all_bounded_fields_after_one_validation(self) -> None:
         backup = self._create_backup()
 
-        result = self._run("inspect", "--backup", str(backup), "--expected-app-version", "1.7.0")
+        result = self._run(
+            "inspect", "--backup", str(backup), "--expected-app-version", "1.7.0"
+        )
 
         self.assertEqual(result.returncode, 0, result.stderr)
         fields = result.stdout.splitlines()
-        self.assertEqual(len(fields), 7)
+        self.assertEqual(len(fields), 8)
         self.assertEqual(Path(fields[0]), (backup / "manifest.json").absolute())
         self.assertEqual(Path(fields[1]), (backup / "database.dump").absolute())
         self.assertEqual(fields[2], "1.7.0")
@@ -95,6 +101,7 @@ class RecoveryManifestTests(unittest.TestCase):
         self.assertRegex(fields[4], r"^[0-9a-f]{64}$")
         self.assertEqual(int(fields[5]), (backup / "database.dump").stat().st_size)
         self.assertEqual(fields[6], "16.10 (Debian 16.10-1)")
+        self.assertEqual(fields[7], "sha256:0123456789abcdef0123456789abcdef")
 
     def test_malformed_manifest_is_rejected(self) -> None:
         backup = self._create_backup()
@@ -176,7 +183,9 @@ class RecoveryManifestTests(unittest.TestCase):
         self.assertIn("Backup app version does not match", result.stderr)
 
     def test_interrupted_partial_directory_is_rejected(self) -> None:
-        backup = self._create_backup(directory_name=".threatlens-backup.partial.abcd1234")
+        backup = self._create_backup(
+            directory_name=".threatlens-backup.partial.abcd1234"
+        )
 
         result = self._run("verify", "--backup", str(backup))
 

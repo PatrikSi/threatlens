@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
@@ -15,7 +16,11 @@ from app.schemas.operations import (
     OperationsRecoverySnapshot,
     SystemOperationRunResponse,
 )
-from app.services.ai_ops_common import AI_STATUS_ERROR, AI_STATUS_QUEUED, AI_STATUS_RUNNING
+from app.services.ai_ops_common import (
+    AI_STATUS_ERROR,
+    AI_STATUS_QUEUED,
+    AI_STATUS_RUNNING,
+)
 from app.services.integration_delivery import (
     DELIVERY_DEAD_LETTER,
     DELIVERY_FAILED,
@@ -28,6 +33,15 @@ from app.services.operations_runs import system_operation_run_response
 
 
 _RECOVERY_OPERATION_TYPES = ("backup", "verify", "restore_drill", "restore")
+_BACKUP_FRESHNESS = timedelta(hours=26)
+_RESTORE_DRILL_FRESHNESS = timedelta(days=31)
+
+
+@dataclass(frozen=True)
+class _RecoveryCorrelation:
+    backup: SystemOperationRunResponse | None
+    verify: SystemOperationRunResponse | None
+    restore_drill: SystemOperationRunResponse | None
 
 
 def collect_backlog_snapshots(
@@ -38,11 +52,15 @@ def collect_backlog_snapshots(
     issues: list[OperationsIssue],
     database_ok: bool,
 ) -> list[OperationsBacklogSnapshot]:
-    delivery_threshold = max(1, int(settings.notification_delivery_queue_degraded_after_seconds))
+    delivery_threshold = max(
+        1, int(settings.notification_delivery_queue_degraded_after_seconds)
+    )
     report_threshold = max(1, int(settings.report_dispatch_start_grace_seconds))
     if not database_ok:
         return [
-            _unknown_backlog("integration_deliveries", "Integration deliveries", delivery_threshold),
+            _unknown_backlog(
+                "integration_deliveries", "Integration deliveries", delivery_threshold
+            ),
             _unknown_backlog("reports", "Report generation", report_threshold),
         ]
 
@@ -50,7 +68,9 @@ def collect_backlog_snapshots(
         db,
         "integration_delivery_backlog",
         lambda: _load_delivery_backlog(db, settings=settings, now=now),
-        _unknown_backlog("integration_deliveries", "Integration deliveries", delivery_threshold),
+        _unknown_backlog(
+            "integration_deliveries", "Integration deliveries", delivery_threshold
+        ),
     )
     report = safe_db_probe(
         db,
@@ -72,13 +92,13 @@ def collect_recovery_snapshot(
     if not database_ok:
         return OperationsRecoverySnapshot()
 
-    recovery = safe_db_probe(
+    loaded = safe_db_probe(
         db,
         "recovery_history",
-        lambda: _load_recovery_snapshot(db),
+        lambda: (_load_recovery_snapshot(db), _load_recovery_correlation(db)),
         None,
     )
-    if recovery is None:
+    if loaded is None:
         issues.append(
             issue(
                 "recovery_history_unavailable",
@@ -90,7 +110,8 @@ def collect_recovery_snapshot(
             )
         )
         return OperationsRecoverySnapshot()
-    _append_recovery_issues(recovery, issues)
+    recovery, correlation = loaded
+    _append_recovery_issues(recovery, issues, correlation=correlation)
     return recovery
 
 
@@ -106,8 +127,12 @@ def _load_delivery_backlog(
     pending_states = (DELIVERY_PENDING, DELIVERY_RETRY_WAIT)
     row = db.execute(
         select(
-            func.count(IntegrationDelivery.id).filter(IntegrationDelivery.state.in_(pending_states)),
-            func.count(IntegrationDelivery.id).filter(IntegrationDelivery.state == DELIVERY_SENDING),
+            func.count(IntegrationDelivery.id).filter(
+                IntegrationDelivery.state.in_(pending_states)
+            ),
+            func.count(IntegrationDelivery.id).filter(
+                IntegrationDelivery.state == DELIVERY_SENDING
+            ),
             func.count(IntegrationDelivery.id).filter(
                 IntegrationDelivery.state == DELIVERY_SENDING,
                 or_(
@@ -155,7 +180,9 @@ def _load_report_backlog(
     settings: Settings,
     now: datetime,
 ) -> OperationsBacklogSnapshot:
-    stale_cutoff = now - timedelta(seconds=max(1, int(settings.report_generation_lease_seconds)))
+    stale_cutoff = now - timedelta(
+        seconds=max(1, int(settings.report_generation_lease_seconds))
+    )
     stale_predicate = and_(
         Report.status == AI_STATUS_RUNNING,
         or_(
@@ -204,10 +231,14 @@ def _load_recovery_snapshot(db: Session) -> OperationsRecoverySnapshot:
         run = db.scalar(
             select(SystemOperationRun)
             .where(SystemOperationRun.operation_type == operation_type)
-            .order_by(SystemOperationRun.started_at.desc(), SystemOperationRun.id.desc())
+            .order_by(
+                SystemOperationRun.started_at.desc(), SystemOperationRun.id.desc()
+            )
             .limit(1)
         )
-        latest[operation_type] = system_operation_run_response(run) if run is not None else None
+        latest[operation_type] = (
+            system_operation_run_response(run) if run is not None else None
+        )
     return OperationsRecoverySnapshot(
         latest_backup=latest["backup"],
         latest_verify=latest["verify"],
@@ -216,10 +247,65 @@ def _load_recovery_snapshot(db: Session) -> OperationsRecoverySnapshot:
     )
 
 
+def _load_recovery_correlation(db: Session) -> _RecoveryCorrelation:
+    backup_model = db.scalar(
+        select(SystemOperationRun)
+        .where(
+            SystemOperationRun.operation_type == "backup",
+            SystemOperationRun.status == "succeeded",
+        )
+        .order_by(SystemOperationRun.finished_at.desc(), SystemOperationRun.id.desc())
+        .limit(1)
+    )
+    if backup_model is None:
+        return _RecoveryCorrelation(backup=None, verify=None, restore_drill=None)
+    backup = system_operation_run_response(backup_model)
+    checksum = _archive_checksum(backup)
+    if checksum is None:
+        return _RecoveryCorrelation(backup=backup, verify=None, restore_drill=None)
+
+    def matching(operation_type: str) -> SystemOperationRunResponse | None:
+        model = db.scalar(
+            select(SystemOperationRun)
+            .where(
+                SystemOperationRun.operation_type == operation_type,
+                SystemOperationRun.status == "succeeded",
+                SystemOperationRun.metadata_json["archive_sha256"].as_string()
+                == checksum,
+            )
+            .order_by(
+                SystemOperationRun.finished_at.desc(), SystemOperationRun.id.desc()
+            )
+            .limit(1)
+        )
+        if model is None:
+            model = db.scalar(
+                select(SystemOperationRun)
+                .where(
+                    SystemOperationRun.operation_type == operation_type,
+                    SystemOperationRun.status == "succeeded",
+                )
+                .order_by(
+                    SystemOperationRun.finished_at.desc(), SystemOperationRun.id.desc()
+                )
+                .limit(1)
+            )
+        return system_operation_run_response(model) if model is not None else None
+
+    return _RecoveryCorrelation(
+        backup=backup,
+        verify=matching("verify"),
+        restore_drill=matching("restore_drill"),
+    )
+
+
 def _append_recovery_issues(
     recovery: OperationsRecoverySnapshot,
     issues: list[OperationsIssue],
+    *,
+    correlation: _RecoveryCorrelation,
 ) -> None:
+    observed_at = datetime.now(timezone.utc)
     if recovery.latest_backup is None:
         issues.append(
             issue(
@@ -240,6 +326,30 @@ def _append_recovery_issues(
                 "The latest backup run failed.",
                 "Recent durable state may not have a recoverable backup.",
                 "Review the run error code, correct the backup target, and retry offline.",
+            )
+        )
+    elif recovery.latest_backup.status == "running":
+        issues.append(
+            issue(
+                "latest_backup_incomplete",
+                "critical",
+                "recovery",
+                "The latest backup run has not completed.",
+                "No completed archive is proven for the latest backup attempt.",
+                "Inspect the host recovery process and do not treat its partial directory as a backup.",
+            )
+        )
+    elif _run_is_stale(
+        recovery.latest_backup, observed_at=observed_at, maximum_age=_BACKUP_FRESHNESS
+    ):
+        issues.append(
+            issue(
+                "latest_backup_stale",
+                "warning",
+                "recovery",
+                "The latest successful backup is older than 26 hours.",
+                "The recoverable data point may be outside a daily backup objective.",
+                "Run and verify a fresh offline backup, then confirm off-host retention.",
             )
         )
     if recovery.latest_restore_drill is None:
@@ -264,6 +374,32 @@ def _append_recovery_issues(
                 "Correct the recorded failure and complete another isolated restore drill.",
             )
         )
+    elif recovery.latest_restore_drill.status == "running":
+        issues.append(
+            issue(
+                "latest_restore_drill_incomplete",
+                "warning",
+                "recovery",
+                "The latest isolated restore drill has not completed.",
+                "Restore compatibility and cleanup cannot yet be confirmed.",
+                "Inspect the host drill and remove only resources proven to belong to the interrupted run.",
+            )
+        )
+    elif _run_is_stale(
+        recovery.latest_restore_drill,
+        observed_at=observed_at,
+        maximum_age=_RESTORE_DRILL_FRESHNESS,
+    ):
+        issues.append(
+            issue(
+                "latest_restore_drill_stale",
+                "warning",
+                "recovery",
+                "The latest successful restore drill is older than 31 days.",
+                "Current images, migrations, and quarantine logic have not been proven recently.",
+                "Run the isolated packaged-code restore drill against a current backup.",
+            )
+        )
     if recovery.latest_verify is not None and recovery.latest_verify.status == "failed":
         issues.append(
             issue(
@@ -275,7 +411,24 @@ def _append_recovery_issues(
                 "Correct the verification failure and verify a fresh archive offline.",
             )
         )
-    if recovery.latest_restore is not None and recovery.latest_restore.status == "failed":
+    elif (
+        recovery.latest_verify is not None
+        and recovery.latest_verify.status == "running"
+    ):
+        issues.append(
+            issue(
+                "latest_backup_verify_incomplete",
+                "warning",
+                "recovery",
+                "The latest backup verification has not completed.",
+                "Archive integrity and catalog readability are not yet confirmed.",
+                "Inspect the host verification process and rerun it if the process is no longer active.",
+            )
+        )
+    if (
+        recovery.latest_restore is not None
+        and recovery.latest_restore.status == "failed"
+    ):
         issues.append(
             issue(
                 "latest_restore_failed",
@@ -286,6 +439,116 @@ def _append_recovery_issues(
                 "Keep outbound work quarantined and complete the documented recovery checks offline.",
             )
         )
+    elif (
+        recovery.latest_restore is not None
+        and recovery.latest_restore.status == "running"
+    ):
+        issues.append(
+            issue(
+                "latest_restore_incomplete",
+                "critical",
+                "recovery",
+                "The latest destructive restore has not recorded completion.",
+                "Database identity, quarantine, or connectivity may require operator verification.",
+                "Keep application services stopped and follow the offline rollback inspection runbook.",
+            )
+        )
+    _append_recovery_correlation_issues(correlation, issues)
+
+
+def _append_recovery_correlation_issues(
+    correlation: _RecoveryCorrelation,
+    issues: list[OperationsIssue],
+) -> None:
+    backup = correlation.backup
+    if backup is None:
+        return
+    backup_checksum = _archive_checksum(backup)
+    if backup_checksum is None:
+        issues.append(
+            issue(
+                "latest_backup_identity_missing",
+                "warning",
+                "recovery",
+                "The latest successful backup has no archive identity metadata.",
+                "Verification and drill evidence cannot be correlated to that backup.",
+                "Create a new backup with the supported host recovery utility.",
+            )
+        )
+        return
+
+    _append_artifact_correlation_issue(
+        backup_checksum=backup_checksum,
+        evidence=correlation.verify,
+        missing_code="latest_backup_not_verified",
+        mismatch_code="latest_backup_verify_mismatch",
+        evidence_label="verification",
+        issues=issues,
+    )
+    _append_artifact_correlation_issue(
+        backup_checksum=backup_checksum,
+        evidence=correlation.restore_drill,
+        missing_code="latest_backup_not_drilled",
+        mismatch_code="latest_backup_drill_mismatch",
+        evidence_label="restore drill",
+        issues=issues,
+    )
+
+
+def _append_artifact_correlation_issue(
+    *,
+    backup_checksum: str,
+    evidence: SystemOperationRunResponse | None,
+    missing_code: str,
+    mismatch_code: str,
+    evidence_label: str,
+    issues: list[OperationsIssue],
+) -> None:
+    if evidence is None or evidence.status != "succeeded":
+        issues.append(
+            issue(
+                missing_code,
+                "warning",
+                "recovery",
+                f"The latest backup has no successful correlated {evidence_label}.",
+                "The newest archive is not proven by the corresponding recovery check.",
+                f"Run the supported {evidence_label} workflow against the latest backup.",
+            )
+        )
+        return
+    evidence_checksum = _archive_checksum(evidence)
+    if evidence_checksum != backup_checksum:
+        issues.append(
+            issue(
+                mismatch_code,
+                "warning",
+                "recovery",
+                f"The latest successful {evidence_label} covers a different archive.",
+                "The newest backup cannot inherit evidence from older recovery material.",
+                f"Run the supported {evidence_label} workflow against the latest backup checksum.",
+            )
+        )
+
+
+def _archive_checksum(run: SystemOperationRunResponse) -> str | None:
+    value = run.metadata.get("archive_sha256")
+    if not isinstance(value, str) or len(value) != 64:
+        return None
+    if any(character not in "0123456789abcdef" for character in value):
+        return None
+    return value
+
+
+def _run_is_stale(
+    run: SystemOperationRunResponse,
+    *,
+    observed_at: datetime,
+    maximum_age: timedelta,
+) -> bool:
+    reference = run.finished_at or run.started_at
+    if reference.tzinfo is None:
+        reference = reference.replace(tzinfo=timezone.utc)
+    return observed_at - reference.astimezone(timezone.utc) > maximum_age
 
 
 def _append_backlog_issue(
