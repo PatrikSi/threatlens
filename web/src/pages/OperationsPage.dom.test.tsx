@@ -8,6 +8,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const operationsDomMocks = vi.hoisted(() => ({
   overviewError: null as Error | null,
+  runsError: null as Error | null,
+  runsFetching: false,
+  runsRefetch: vi.fn(),
   diagnosticsError: null as Error | null,
   diagnosticsRequested: vi.fn(),
 }))
@@ -104,8 +107,10 @@ vi.mock('@tanstack/react-query', () => ({
     return {
       data: { runs: [run], total: 1, page: 1, page_size: 20 },
       isLoading: false,
-      isError: false,
-      error: null,
+      isFetching: operationsDomMocks.runsFetching,
+      isError: Boolean(operationsDomMocks.runsError),
+      error: operationsDomMocks.runsError,
+      refetch: operationsDomMocks.runsRefetch,
     }
   },
   useMutation: (options: { onSuccess?: (payload: unknown) => void; onError?: (error: Error) => void }) => ({
@@ -149,6 +154,9 @@ afterEach(() => {
   container = null
   document.body.innerHTML = ''
   operationsDomMocks.overviewError = null
+  operationsDomMocks.runsError = null
+  operationsDomMocks.runsFetching = false
+  operationsDomMocks.runsRefetch.mockReset()
   operationsDomMocks.diagnosticsError = null
   operationsDomMocks.diagnosticsRequested.mockReset()
   vi.restoreAllMocks()
@@ -175,6 +183,40 @@ describe('OperationsPage DOM workflows', () => {
     const alert = view.querySelector('[role="alert"]')
     expect(alert?.textContent).toContain('Displaying the last successful snapshot')
     expect(view.textContent).toContain('PostgreSQL')
+  })
+
+  it('labels retained operation rows while updating selected history', () => {
+    operationsDomMocks.runsFetching = true
+    operationsDomMocks.runsError = new Error('history query timed out')
+    const view = renderPage()
+
+    expect(view.textContent).toContain(
+      'Updating operation history for the selected filters...',
+    )
+    expect(view.textContent).toContain(
+      'The last loaded operation history remains visible.',
+    )
+    expect(view.textContent).toContain('Restore drill')
+    expect(view.querySelector('[aria-busy="true"]')).not.toBeNull()
+
+    operationsDomMocks.runsFetching = false
+    const retry = Array.from(
+      view.querySelectorAll<HTMLButtonElement>('button'),
+    ).find((button) => button.textContent === 'Retrying...')
+    expect(retry?.disabled).toBe(true)
+  })
+
+  it('offers retry while retaining the last loaded history after failure', () => {
+    operationsDomMocks.runsError = new Error('history query timed out')
+    const view = renderPage()
+
+    const retry = Array.from(
+      view.querySelectorAll<HTMLButtonElement>('button'),
+    ).find((button) => button.textContent === 'Retry history')
+    expect(retry?.disabled).toBe(false)
+    act(() => retry?.click())
+    expect(operationsDomMocks.runsRefetch).toHaveBeenCalled()
+    expect(view.textContent).toContain('Restore drill')
   })
 
   it('downloads the bounded diagnostics snapshot and announces completion', () => {
