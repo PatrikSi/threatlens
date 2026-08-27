@@ -4,6 +4,7 @@ import { useSearchParams } from 'react-router-dom'
 
 import { apiFetch } from '../api/client'
 import { useCurrentUser } from '../hooks/useCurrentUser'
+import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import type {
   InvestigationActivityListResponse,
   InvestigationDetail,
@@ -78,6 +79,7 @@ export function useInvestigationDetail(investigationId: string) {
   const [noteDraft, setNoteDraft] = useState('')
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null)
   const [editingNoteBody, setEditingNoteBody] = useState('')
+  const [editingNoteBaseline, setEditingNoteBaseline] = useState('')
   const [evidenceDraft, setEvidenceDraft] = useState<InvestigationEvidenceDraft>(EMPTY_EVIDENCE_DRAFT)
   const [alertOccurrenceUnavailable, setAlertOccurrenceUnavailable] = useState(false)
   const [memberSearch, setMemberSearch] = useState('')
@@ -90,6 +92,13 @@ export function useInvestigationDetail(investigationId: string) {
   const [successNotice, setSuccessNotice] = useState<string | null>(null)
 
   useEffect(() => {
+    setOverviewDraft(EMPTY_OVERVIEW_DRAFT)
+    setOverviewBaseline(EMPTY_OVERVIEW_DRAFT)
+    setNoteDraft('')
+    setEditingNoteId(null)
+    setEditingNoteBody('')
+    setEditingNoteBaseline('')
+    setEvidenceDraft(EMPTY_EVIDENCE_DRAFT)
     setEvidencePage(1)
     setNotePage(1)
   }, [investigationId])
@@ -107,6 +116,16 @@ export function useInvestigationDetail(investigationId: string) {
     ? resolveInvestigationAccess(detail, currentUserQuery.data?.role)
     : null
   const overviewDirty = !sameOverviewDraft(overviewDraft, overviewBaseline)
+  const hasUnsavedChanges =
+    overviewDirty ||
+    noteDraft.length > 0 ||
+    (editingNoteId !== null && editingNoteBody !== editingNoteBaseline) ||
+    !sameEvidenceDraft(evidenceDraft, EMPTY_EVIDENCE_DRAFT)
+  const confirmDiscardChanges = useUnsavedChangesWarning(
+    hasUnsavedChanges,
+    'Discard unsaved investigation changes?',
+    { ignoreSearchChanges: true },
+  )
 
   useEffect(() => {
     if (!detail || overviewDirty) return
@@ -259,6 +278,7 @@ export function useInvestigationDetail(investigationId: string) {
     if (operation.kind === 'update-note') {
       setEditingNoteId(null)
       setEditingNoteBody('')
+      setEditingNoteBaseline('')
     }
     if (operation.kind === 'add-evidence') setEvidenceDraft(EMPTY_EVIDENCE_DRAFT)
   }
@@ -278,6 +298,13 @@ export function useInvestigationDetail(investigationId: string) {
   const beginNoteEdit = (noteId: string, body: string) => {
     setEditingNoteId(noteId)
     setEditingNoteBody(body)
+    setEditingNoteBaseline(body)
+  }
+
+  const cancelNoteEdit = () => {
+    setEditingNoteId(null)
+    setEditingNoteBody('')
+    setEditingNoteBaseline('')
   }
 
   return {
@@ -288,6 +315,8 @@ export function useInvestigationDetail(investigationId: string) {
     alertOccurrenceUnavailable,
     availableMemberCandidates,
     beginNoteEdit,
+    cancelNoteEdit,
+    confirmDiscardChanges,
     conflictNotice,
     currentUserQuery,
     detailQuery,
@@ -296,6 +325,7 @@ export function useInvestigationDetail(investigationId: string) {
     evidenceDraft,
     evidencePage,
     evidenceQuery,
+    hasUnsavedChanges,
     memberCandidatesQuery,
     memberPage,
     memberSearch,
@@ -310,7 +340,6 @@ export function useInvestigationDetail(investigationId: string) {
     setActiveTab,
     setActivityPage,
     setEditingNoteBody,
-    setEditingNoteId,
     setEvidenceDraft,
     setEvidencePage,
     setMemberPage,
@@ -419,6 +448,17 @@ function sameOverviewDraft(left: InvestigationOverviewDraft, right: Investigatio
     && left.severity === right.severity
     && left.visibility === right.visibility
     && left.assigneeUserId === right.assigneeUserId
+}
+
+function sameEvidenceDraft(
+  left: InvestigationEvidenceDraft,
+  right: InvestigationEvidenceDraft,
+): boolean {
+  return (
+    left.sourceType === right.sourceType &&
+    left.sourceId === right.sourceId &&
+    left.note === right.note
+  )
 }
 
 function isOverviewFieldUpdate(changes: Omit<InvestigationUpdateRequest, 'expected_version'>): boolean {

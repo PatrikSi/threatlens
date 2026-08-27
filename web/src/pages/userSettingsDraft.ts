@@ -279,6 +279,18 @@ export function syncUserSettingsDrafts(
     nextBaselines[user.id] = nextBaseline
   }
 
+  for (const [userId, persistedDraft] of Object.entries(drafts)) {
+    if (nextDrafts[userId]) continue
+    const persistedBaseline = baselines[userId]
+    if (
+      persistedBaseline &&
+      !isUserSettingsDraftEqual(persistedDraft, persistedBaseline)
+    ) {
+      nextDrafts[userId] = persistedDraft
+      nextBaselines[userId] = persistedBaseline
+    }
+  }
+
   return {
     drafts: nextDrafts,
     baselines: nextBaselines,

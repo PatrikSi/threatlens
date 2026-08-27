@@ -3,7 +3,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -381,6 +381,38 @@ describe('InvestigationsPage DOM workflows', () => {
     expect(description.value).toBe('Unsaved analyst scope refinement')
     expect(pageText()).toContain('Monitoring')
     expect(pageText()).toContain('Version 8')
+  })
+
+  it('preserves drafts across tabs and confirms before leaving the workspace', async () => {
+    await renderDetail(baseDetail)
+    const description = document.querySelector<HTMLTextAreaElement>(
+      '#investigation-description',
+    )!
+    act(() => setTextAreaValue(description, 'Unsaved cross-tab context'))
+
+    act(() => findButton('Notes')?.click())
+    await flushRequests()
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull()
+    act(() => findButton('Overview')?.click())
+    await flushRequests()
+    expect(
+      document.querySelector<HTMLTextAreaElement>(
+        '#investigation-description',
+      )?.value,
+    ).toBe('Unsaved cross-tab context')
+
+    const backLink = document.querySelector<HTMLAnchorElement>(
+      'a[href="/investigations"]',
+    )
+    act(() => backLink?.click())
+    await flushRequests()
+    expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain(
+      'Discard unsaved investigation changes?',
+    )
+    expect(pageText()).toContain('Exchange exploitation review')
+
+    act(() => findButton('Cancel')?.click())
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull()
   })
 
   it('uses the narrow candidate directory, filters current members, and protects the final owner', async () => {
@@ -798,15 +830,20 @@ async function renderAt(path: string, settle = true, client = createQueryClient(
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
+  const router = createMemoryRouter(
+    [
+      { path: '/investigations', element: <InvestigationsPage /> },
+      {
+        path: '/investigations/:investigationId',
+        element: <InvestigationsPage />,
+      },
+    ],
+    { initialEntries: [path] },
+  )
   await act(async () => {
     root?.render(
       <QueryClientProvider client={client}>
-        <MemoryRouter initialEntries={[path]}>
-          <Routes>
-            <Route path="/investigations" element={<InvestigationsPage />} />
-            <Route path="/investigations/:investigationId" element={<InvestigationsPage />} />
-          </Routes>
-        </MemoryRouter>
+        <RouterProvider router={router} />
       </QueryClientProvider>,
     )
   })

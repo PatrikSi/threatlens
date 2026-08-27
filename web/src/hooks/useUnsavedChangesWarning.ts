@@ -12,6 +12,10 @@ type PendingUnsavedChangesAction = {
   onCancel?: () => void
 }
 
+type UnsavedChangesWarningOptions = {
+  ignoreSearchChanges?: boolean
+}
+
 export type ConfirmDiscardChanges = {
   (onDiscard?: () => void): boolean
   discardDialog: ReactNode
@@ -57,8 +61,14 @@ export function handleBlockedUnsavedChangesNavigation(
 export function useUnsavedChangesWarning(
   isDirty: boolean,
   message = 'You have unsaved changes. Leave without saving?',
+  options: UnsavedChangesWarningOptions = {},
 ): ConfirmDiscardChanges {
-  const blocker = useBlocker(isDirty)
+  const blocker = useBlocker(
+    options.ignoreSearchChanges
+      ? ({ currentLocation, nextLocation }) =>
+          isDirty && currentLocation.pathname !== nextLocation.pathname
+      : isDirty,
+  )
   const [pendingAction, setPendingAction] = useState<PendingUnsavedChangesAction | null>(null)
 
   const clearPendingAction = useCallback(

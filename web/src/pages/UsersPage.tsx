@@ -398,14 +398,17 @@ export function UsersPage() {
     setSettingsDraftsByUserId(synced.drafts)
     setSettingsConflictsByUserId(synced.conflicts)
     setPasswordDraftsByUserId((current) => {
-      const validUserIds = new Set(
-        users
-          .filter((user) => resolveCredentialManagementSource(user) === 'local')
-          .map((user) => user.id),
-      )
+      const visibleUsersById = new Map(users.map((user) => [user.id, user]))
       const next = Object.fromEntries(
         Object.entries(current).filter(
-          ([userId, draft]) => validUserIds.has(userId) && draft.length > 0,
+          ([userId, draft]) => {
+            if (!draft.length) return false
+            const visibleUser = visibleUsersById.get(userId)
+            return (
+              !visibleUser ||
+              resolveCredentialManagementSource(visibleUser) === 'local'
+            )
+          },
         ),
       ) as Record<string, string>
       return next

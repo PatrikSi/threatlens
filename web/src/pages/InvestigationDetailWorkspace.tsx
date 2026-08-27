@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 
 import { resolveApiErrorMessage } from '../api/errors'
@@ -239,12 +239,20 @@ export function InvestigationDetailWorkspace({
           }
         }}
       />
+      {controller.confirmDiscardChanges.discardDialog}
     </div>
   )
 }
 
 function DetailTabs({ controller }: { controller: InvestigationDetailController }) {
   const detail = controller.detailQuery.data
+  const tabsRef = useRef<HTMLElement>(null)
+  useEffect(() => {
+    const activeTab = tabsRef.current?.querySelector<HTMLElement>(
+      '[aria-current="page"]',
+    )
+    activeTab?.scrollIntoView?.({ block: 'nearest', inline: 'center' })
+  }, [controller.activeTab])
   if (!detail) return null
   const counts: Partial<Record<InvestigationDetailTab, number>> = {
     members: detail.member_count,
@@ -254,6 +262,7 @@ function DetailTabs({ controller }: { controller: InvestigationDetailController 
   }
   return (
     <nav
+      ref={tabsRef}
       aria-label="Investigation workspace"
       className="mt-3 flex gap-1 overflow-x-auto border-t border-slate/15 pt-3 dark:border-white/10"
     >
