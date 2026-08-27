@@ -10,14 +10,20 @@ from sqlalchemy.orm import Session
 from app.core.rbac import ROLE_ADMIN
 from app.models.api_token import ApiToken
 from app.models.mfa import UserTOTPCredential
+from app.models.oidc import OIDCProvider
 from app.models.user import User
 from app.services.auth_sessions import lock_user_auth_states, revoke_all_auth_sessions
+from app.services.oidc_config import OIDC_PROVIDER_SYSTEM_KEY
 
 ACTIVE_ADMIN_ADVISORY_LOCK_ID = 6072351299479551566
 OIDC_PROVIDER_CONFIG_ADVISORY_LOCK_ID = 6072351299479551567
 
 
 class LastActiveAdminError(ValueError):
+    pass
+
+
+class LocalBreakGlassAdminRequiredError(ValueError):
     pass
 
 
@@ -66,9 +72,7 @@ def acquire_oidc_provider_config_read_lock(db: Session) -> None:
     if bind is not None and bind.dialect.name == "postgresql":
         db.scalar(
             select(
-                func.pg_advisory_xact_lock_shared(
-                    OIDC_PROVIDER_CONFIG_ADVISORY_LOCK_ID
-                )
+                func.pg_advisory_xact_lock_shared(OIDC_PROVIDER_CONFIG_ADVISORY_LOCK_ID)
             )
         )
 
@@ -86,9 +90,10 @@ def lock_users_for_security_change(
     db: Session,
     user_ids: set[uuid.UUID] | list[uuid.UUID] | tuple[uuid.UUID, ...],
 ) -> dict[uuid.UUID, User]:
-    """Lock user rows for a change that can affect the final-admin invariant."""
+    """Lock user rows for a change that can affect administrator invariants."""
 
     acquire_active_admin_invariant_lock(db)
+    acquire_oidc_provider_config_read_lock(db)
     return lock_user_auth_states(db, user_ids)
 
 
@@ -120,6 +125,67 @@ def ensure_active_approved_admin_remains(
         raise LastActiveAdminError(
             "At least one active approved admin user is required"
         )
+
+
+def ensure_viable_local_break_glass_admin_exists(db: Session) -> None:
+    if _viable_local_admin_count(db) == 0:
+        raise LocalBreakGlassAdminRequiredError(
+            "At least one active, approved administrator with local password sign-in "
+            "is required while OIDC is disabled"
+        )
+
+
+def ensure_local_break_glass_admin_remains_when_oidc_disabled(
+    db: Session,
+    user: User,
+    *,
+    next_role: str,
+    next_is_active: bool,
+    next_is_approved: bool,
+    next_password_login_enabled: bool,
+) -> None:
+    provider_enabled = db.scalar(
+        select(OIDCProvider.enabled).where(
+            OIDCProvider.system_key == OIDC_PROVIDER_SYSTEM_KEY
+        )
+    )
+    if provider_enabled:
+        return
+
+    currently_viable = (
+        user.role == ROLE_ADMIN
+        and user.is_active
+        and user.is_approved
+        and user.password_login_enabled
+    )
+    remains_viable = (
+        next_role == ROLE_ADMIN
+        and next_is_active
+        and next_is_approved
+        and next_password_login_enabled
+    )
+    if remains_viable or not currently_viable:
+        return
+
+    if _viable_local_admin_count(db, excluding_user_id=user.id) == 0:
+        raise LocalBreakGlassAdminRequiredError(
+            "This change would remove the only active, approved administrator with "
+            "local password sign-in while OIDC is disabled"
+        )
+
+
+def _viable_local_admin_count(
+    db: Session, *, excluding_user_id: uuid.UUID | None = None
+) -> int:
+    filters = [
+        User.role == ROLE_ADMIN,
+        User.is_active.is_(True),
+        User.is_approved.is_(True),
+        User.password_login_enabled.is_(True),
+    ]
+    if excluding_user_id is not None:
+        filters.append(User.id != excluding_user_id)
+    return int(db.scalar(select(func.count(User.id)).where(*filters)) or 0)
 
 
 def revoke_user_credentials(

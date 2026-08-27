@@ -47,7 +47,12 @@ from app.services.recent_auth import (
     recent_authentication_error_context,
     recent_authentication_state,
 )
-from app.services.user_access import acquire_oidc_provider_config_lock
+from app.services.user_access import (
+    LocalBreakGlassAdminRequiredError,
+    acquire_active_admin_invariant_lock,
+    acquire_oidc_provider_config_lock,
+    ensure_viable_local_break_glass_admin_exists,
+)
 
 router = APIRouter()
 logger = logging.getLogger("threatlens.oidc")
@@ -108,6 +113,7 @@ def update_oidc_provider(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
         ) from exc
 
+    acquire_active_admin_invariant_lock(db)
     acquire_oidc_provider_config_lock(db)
     provider = db.scalar(
         select(OIDCProvider)
@@ -325,8 +331,9 @@ def _require_recent_provider_admin(
             error_code=error_code,
             error_context=recent_authentication_error_context(session, action=action),
         )
-    if session.auth_method == "oidc" and not auth_session_has_configured_oidc_mfa_assurance(
-        session
+    if (
+        session.auth_method == "oidc"
+        and not auth_session_has_configured_oidc_mfa_assurance(session)
     ):
         raise ApiHTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -346,18 +353,11 @@ def _require_viable_local_break_glass_admin(
     actor_user_id: uuid.UUID,
     provider_id: uuid.UUID,
 ) -> None:
-    viable_admin_count = int(
-        db.scalar(
-            select(func.count(User.id)).where(
-                User.role == ROLE_ADMIN,
-                User.is_active.is_(True),
-                User.is_approved.is_(True),
-                User.password_login_enabled.is_(True),
-            )
-        )
-        or 0
-    )
-    if viable_admin_count:
+    try:
+        ensure_viable_local_break_glass_admin_exists(db)
+    except LocalBreakGlassAdminRequiredError:
+        pass
+    else:
         return
     record_audit(
         db,

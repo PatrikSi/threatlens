@@ -1,3 +1,4 @@
+import logging
 import uuid
 from datetime import datetime, timezone
 
@@ -51,8 +52,10 @@ from app.services.recent_auth import (
 )
 from app.services.user_access import (
     LastActiveAdminError,
+    LocalBreakGlassAdminRequiredError,
     acquire_active_admin_invariant_lock,
     ensure_active_approved_admin_remains,
+    ensure_local_break_glass_admin_remains_when_oidc_disabled,
     load_user_for_access_update,
     lock_users_for_security_change,
     revoke_user_credentials_with_counts,
@@ -65,6 +68,7 @@ from app.services.user_directory import (
 )
 
 router = APIRouter(prefix="/users", tags=["users"])
+logger = logging.getLogger("threatlens.users")
 
 
 def _acquire_active_admin_invariant_lock(db: Session) -> None:
@@ -104,11 +108,26 @@ def _ensure_active_approved_admin_remains(
             next_is_active=next_is_active,
             next_is_approved=next_is_approved,
         )
+        ensure_local_break_glass_admin_remains_when_oidc_disabled(
+            db,
+            user,
+            next_role=next_role,
+            next_is_active=next_is_active,
+            next_is_approved=next_is_approved,
+            next_password_login_enabled=user.password_login_enabled,
+        )
     except LastActiveAdminError as exc:
         raise ApiHTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(exc),
             error_code="last_active_admin",
+            error_context={"user_id": str(user.id)},
+        ) from exc
+    except LocalBreakGlassAdminRequiredError as exc:
+        raise ApiHTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+            error_code="oidc_break_glass_admin_required",
             error_context={"user_id": str(user.id)},
         ) from exc
 
@@ -274,7 +293,7 @@ def create_user(
     responses={
         428: {
             "description": (
-                "`user_security_version_required` for role, active, approval, or password changes."
+                "`user_security_version_required` for role, active, or approval changes."
             )
         },
         status.HTTP_409_CONFLICT: {
@@ -324,9 +343,8 @@ def update_user(
     management = load_user_management_context(db, user.id)
     _ensure_locally_managed_changes(user, payload, management)
 
-    security_state_update = access_state_update or payload.password is not None
     current_security_version = int(user.auth_token_version or 0)
-    if security_state_update and payload.expected_security_version is None:
+    if access_state_update and payload.expected_security_version is None:
         raise ApiHTTPException(
             status_code=428,
             detail=(
@@ -360,9 +378,10 @@ def update_user(
 
     try:
         _ensure_active_approved_admin_remains(db, user, payload)
-    except ApiHTTPException:
+    except ApiHTTPException as exc:
         actor_user_id = admin.id
         target_user_id = user.id
+        rejection_reason = exc.error_code
         db.rollback()
         record_audit(
             db,
@@ -371,7 +390,7 @@ def update_user(
             resource_type="user",
             resource_id=str(target_user_id),
             success=False,
-            metadata={"reason": "last_active_admin"},
+            metadata={"reason": rejection_reason},
         )
         db.commit()
         raise
@@ -455,6 +474,18 @@ def update_user(
         revoked_auth_sessions = revoked.auth_sessions
 
     db.add(user)
+    legacy_unversioned_password_update = (
+        payload.password is not None and payload.expected_security_version is None
+    )
+    if legacy_unversioned_password_update:
+        record_audit(
+            db,
+            actor_user_id=admin.id,
+            action="users.compatibility.unversioned_password_update",
+            resource_type="user",
+            resource_id=str(user.id),
+            metadata={"security_version_before_update": current_security_version},
+        )
     record_audit(
         db,
         actor_user_id=admin.id,
@@ -481,6 +512,12 @@ def update_user(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Email already in use"
         ) from exc
     db.refresh(user)
+    if legacy_unversioned_password_update:
+        logger.warning(
+            "legacy_unversioned_password_update actor_user_id=%s target_user_id=%s",
+            admin.id,
+            user.id,
+        )
     return _user_admin_response(
         user,
         load_user_management_context(db, user.id),
