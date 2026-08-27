@@ -49,6 +49,7 @@ This documentation covers:
 
 - [Dashboard](./pages/dashboard.md)
 - [Alerts](./pages/alerts.md)
+- [Investigations](./pages/investigations.md)
 - [Feeds](./pages/feeds.md)
 - [Export](./pages/export.md)
 - [Reporting](./pages/reporting.md)
