@@ -167,6 +167,14 @@ describe('InvestigationsPage DOM workflows', () => {
     expect(pageText()).toContain('Exchange exploitation review')
   })
 
+  it('offers recovery when a saved list page is now beyond the available results', async () => {
+    domMocks.apiFetch.mockResolvedValue({ ...listResponse, investigations: [], total: 0, page: 3 })
+    await renderAt('/investigations?page=3')
+
+    expect(pageText()).toContain('No matching investigations')
+    expect(findButton('Return to first page')).not.toBeNull()
+  })
+
   it('creates an investigation with the analyst draft and navigates to its cached workspace', async () => {
     domMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
       if (path === '/investigations' && options?.method === 'POST') return Promise.resolve(baseDetail)
@@ -287,6 +295,44 @@ describe('InvestigationsPage DOM workflows', () => {
     )
     expect(pageText()).toContain('Note removed.')
     expect(pageText()).toContain('No analyst notes have been recorded.')
+  })
+
+  it('keeps a failed destructive action open and shows its actionable error in the dialog', async () => {
+    domMocks.apiFetch.mockRejectedValue(new ApiError(
+      'The note changed after you loaded it. Refresh and review the latest version.',
+      409,
+      `/investigations/${baseDetail.id}/notes/note-1`,
+      null,
+      { code: 'investigation_note_version_conflict' },
+    ))
+    await renderDetail(baseDetail, '?tab=notes')
+
+    act(() => findButton('Remove')?.click())
+    const confirm = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button'))
+      .find((button) => button.textContent === 'Remove note')
+    act(() => confirm?.click())
+    await flushRequests()
+
+    const dialog = document.querySelector('[role="alertdialog"]')
+    expect(dialog).not.toBeNull()
+    expect(dialog?.textContent).toContain('The note changed after you loaded it')
+  })
+
+  it('fails closed instead of displaying cached investigation data after access is revoked', async () => {
+    domMocks.apiFetch.mockRejectedValue(new ApiError(
+      'Investigation not found.',
+      404,
+      `/investigations/${baseDetail.id}`,
+      null,
+      { code: 'investigation_not_found' },
+    ))
+    const client = createQueryClient()
+    client.setQueryData(['investigations', 'detail', baseDetail.id], baseDetail, { updatedAt: 1 })
+    await renderAt(`/investigations/${baseDetail.id}`, true, client)
+
+    expect(pageText()).toContain('Investigation not found.')
+    expect(pageText()).not.toContain('Exchange exploitation review')
+    expect(findButton('Retry')).not.toBeNull()
   })
 
   it('does not discard an unsaved overview draft after an unrelated lifecycle mutation', async () => {

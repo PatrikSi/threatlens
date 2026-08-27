@@ -106,6 +106,7 @@ export function InvestigationConfirmDialog({
   title,
   description,
   children,
+  error,
   confirmLabel,
   confirmTone = 'danger',
   isConfirming,
@@ -116,6 +117,7 @@ export function InvestigationConfirmDialog({
   title: string
   description?: ReactNode
   children?: ReactNode
+  error?: ReactNode
   confirmLabel: string
   confirmTone?: 'danger' | 'primary'
   isConfirming: boolean
@@ -144,7 +146,13 @@ export function InvestigationConfirmDialog({
         </>
       }
     >
-      {children ? <>{description && <p>{description}</p>}{children}</> : undefined}
+      {(children || error) ? (
+        <>
+          {children && description && <p>{description}</p>}
+          {children}
+          {error && <div className="mt-3"><InvestigationInlineMessage tone="error">{error}</InvestigationInlineMessage></div>}
+        </>
+      ) : undefined}
     </DialogSurface>
   )
 }

@@ -1,4 +1,4 @@
-import type { ApiError } from '../api/client'
+import { ApiError } from '../api/client'
 import type {
   InvestigationAccountRole,
   InvestigationDetail,
@@ -119,7 +119,7 @@ export function readInvestigationListFilters(searchParams: URLSearchParams): Inv
     statuses,
     severities,
     assignedToMe: searchParams.get('mine') === '1',
-    includeArchived: searchParams.get('archived') === '1' || statuses.includes('archived'),
+    includeArchived: searchParams.get('archived') === '1',
     page: Number.isInteger(rawPage) && rawPage > 0 ? rawPage : 1,
   }
 }
@@ -185,9 +185,14 @@ export function formatInvestigationActivityAction(action: string): string {
 }
 
 export function isInvestigationVersionConflict(error: unknown): error is ApiError {
-  return error instanceof Error
-    && error.name === 'ApiError'
-    && (error as Partial<ApiError>).status === 409
+  if (!(error instanceof ApiError) || error.status !== 409) return false
+  return error.code === 'investigation_version_conflict'
+    || error.code === 'investigation_note_version_conflict'
+    || (error.code === null && /changed after you loaded/i.test(error.message))
+}
+
+export function isTerminalInvestigationAccessError(error: unknown): error is ApiError {
+  return error instanceof ApiError && [401, 403, 404].includes(error.status)
 }
 
 export const INVESTIGATION_CONFLICT_MESSAGE =
