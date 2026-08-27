@@ -1,9 +1,13 @@
+import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+from threading import Event
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
+from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.security import generate_api_token
@@ -18,14 +22,19 @@ from app.models.alert_occurrence import AlertOccurrence
 from app.models.audit_log import AuditLog
 from app.models.feed import Feed
 from app.models.investigation import (
+    Investigation,
     InvestigationActivity,
     InvestigationEvidence,
+    InvestigationMember,
     InvestigationNote,
 )
 from app.models.item import Item
 from app.models.report import Report
+from app.models.user import User
 from app.services.investigation_collections import INVESTIGATION_DETAIL_COLLECTION_LIMIT
 from app.services.investigations import (
+    InvestigationActorNotEligibleError,
+    add_note,
     eligible_investigation_owner_ids_query,
 )
 
@@ -87,6 +96,116 @@ def _create_api_token(db_session, user, *, name: str, scopes: list[str]) -> str:
     )
     db_session.commit()
     return token_value
+
+
+def test_inflight_write_revalidates_actor_after_access_reduction(database_engine):
+    owner_id = uuid.uuid4()
+    editor_id = uuid.uuid4()
+    investigation_id = uuid.uuid4()
+    with Session(database_engine) as setup_db:
+        owner = User(
+            id=owner_id,
+            email=f"investigation-owner-{uuid.uuid4()}@example.com",
+            password_hash="x",
+            role="analyst",
+            is_active=True,
+            is_approved=True,
+        )
+        editor = User(
+            id=editor_id,
+            email=f"investigation-editor-{uuid.uuid4()}@example.com",
+            password_hash="x",
+            role="analyst",
+            is_active=True,
+            is_approved=True,
+        )
+        investigation = Investigation(
+            id=investigation_id,
+            title="Concurrent access reduction",
+            description="Ensure stale authorization cannot write analyst notes.",
+            severity="high",
+            visibility="private",
+            created_by_user_id=owner_id,
+        )
+        setup_db.add_all([owner, editor])
+        setup_db.flush()
+        setup_db.add(investigation)
+        setup_db.flush()
+        setup_db.add_all(
+            [
+                InvestigationMember(
+                    investigation_id=investigation_id,
+                    user_id=owner_id,
+                    role="owner",
+                    added_by_user_id=owner_id,
+                ),
+                InvestigationMember(
+                    investigation_id=investigation_id,
+                    user_id=editor_id,
+                    role="editor",
+                    added_by_user_id=owner_id,
+                ),
+            ]
+        )
+        setup_db.commit()
+
+    writer_started = Event()
+    access_db = Session(database_engine)
+
+    def _write_with_stale_actor() -> str:
+        with Session(database_engine) as writer_db:
+            stale_actor = writer_db.get(User, editor_id)
+            assert stale_actor is not None and stale_actor.is_active is True
+            writer_started.set()
+            try:
+                add_note(
+                    writer_db,
+                    investigation_id=investigation_id,
+                    user=stale_actor,
+                    body="This note must not commit after deactivation.",
+                    expected_version=1,
+                )
+                writer_db.commit()
+                return "committed"
+            except InvestigationActorNotEligibleError as exc:
+                writer_db.rollback()
+                return exc.code
+
+    try:
+        editor = access_db.scalar(
+            select(User).where(User.id == editor_id).with_for_update()
+        )
+        assert editor is not None
+        editor.is_active = False
+        access_db.add(editor)
+        access_db.flush()
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            writer = executor.submit(_write_with_stale_actor)
+            assert writer_started.wait(timeout=2)
+            time.sleep(0.1)
+            assert not writer.done()
+            access_db.commit()
+            assert writer.result(timeout=5) == "investigation_actor_not_eligible"
+
+        with Session(database_engine) as verify_db:
+            investigation = verify_db.get(Investigation, investigation_id)
+            note_count = verify_db.scalar(
+                select(func.count(InvestigationNote.id)).where(
+                    InvestigationNote.investigation_id == investigation_id
+                )
+            )
+            assert investigation is not None and investigation.version == 1
+            assert note_count == 0
+    finally:
+        access_db.rollback()
+        access_db.close()
+        with Session(database_engine) as cleanup_db:
+            cleanup_db.execute(
+                delete(Investigation).where(Investigation.id == investigation_id)
+            )
+            cleanup_db.execute(delete(User).where(User.id.in_([owner_id, editor_id])))
+            cleanup_db.commit()
 
 
 def _create_alert_occurrence(db_session, *, owner, item: Item) -> AlertOccurrence:
@@ -408,10 +527,14 @@ def test_detail_collections_are_bounded_and_complete_pages_remain_authorized(
     assert all(response.status_code == 200 for response in note_pages)
     assert all(response.status_code == 200 for response in evidence_pages)
     assert [len(response.json()["notes"]) for response in note_pages] == [100, 100, 5]
-    assert [len(response.json()["evidence"]) for response in evidence_pages] == [100, 100, 5]
-    assert {entry["id"] for response in note_pages for entry in response.json()["notes"]} == {
-        str(note_id) for note_id in note_ids
-    }
+    assert [len(response.json()["evidence"]) for response in evidence_pages] == [
+        100,
+        100,
+        5,
+    ]
+    assert {
+        entry["id"] for response in note_pages for entry in response.json()["notes"]
+    } == {str(note_id) for note_id in note_ids}
     assert {
         entry["id"]
         for response in evidence_pages

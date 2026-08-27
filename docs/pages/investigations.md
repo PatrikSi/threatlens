@@ -55,6 +55,12 @@ user is blocked when that user is the final owner of an investigation, and activ
 assignments are reconciled as part of the same transaction. Inaccessible private
 investigations return the same not-found response as nonexistent records.
 
+Every write revalidates the actor's active, approved analyst/administrator state
+under the same database lock used by IAM access reductions. A write already waiting
+when access is reduced is rejected with `investigation_actor_not_eligible`; it cannot
+commit using stale authorization. Read requests use the authorization snapshot for
+that request, while session revocation prevents subsequent requests.
+
 ## Concurrent Changes
 
 Investigation, membership, evidence, and note mutations carry an expected resource

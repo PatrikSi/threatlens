@@ -27,6 +27,7 @@ from app.schemas.investigation import (
     InvestigationNoteListResponse,
     InvestigationSummaryResponse,
 )
+from app.services.auth_sessions import lock_user_auth_state, lock_user_auth_states
 from app.services.investigation_evidence import (
     EvidenceSourceError,
     build_evidence_snapshot,
@@ -54,6 +55,10 @@ class InvestigationNotFoundError(LookupError):
 
 class InvestigationPermissionError(PermissionError):
     pass
+
+
+class InvestigationActorNotEligibleError(InvestigationPermissionError):
+    code = "investigation_actor_not_eligible"
 
 
 class InvestigationConflictError(RuntimeError):
@@ -183,12 +188,7 @@ def create_investigation(
         raise InvestigationValidationError(
             "The initial assignee must be the creator. Add another member before assigning the investigation to them."
         )
-    creator = _lock_membership_account(db, user.id)
-    if creator is None:
-        raise InvestigationValidationError(
-            "The investigation creator account is no longer available. Refresh and try again."
-        )
-    _validate_member_role_for_account(creator, OWNER_MEMBER_ROLE)
+    _lock_eligible_actor(db, user.id)
     investigation = Investigation(
         title=normalized_title,
         description=description.strip(),
@@ -323,8 +323,13 @@ def update_investigation(
     changes: dict,
 ) -> tuple[Investigation, list[str]]:
     requested_assignee_id = changes.get("assignee_user_id")
+    locked_accounts = lock_user_auth_states(
+        db,
+        [user.id]
+        + ([requested_assignee_id] if requested_assignee_id is not None else []),
+    )
     requested_assignee = (
-        _lock_membership_account(db, requested_assignee_id)
+        locked_accounts.get(requested_assignee_id)
         if requested_assignee_id is not None
         else None
     )
@@ -431,7 +436,7 @@ def add_member(
     role: str,
     expected_version: int,
 ) -> InvestigationMember:
-    target = _lock_membership_account(db, member_user_id)
+    target = lock_user_auth_states(db, [user.id, member_user_id]).get(member_user_id)
     investigation, actor_member = _lock_for_write(
         db, investigation_id=investigation_id, user=user
     )
@@ -484,7 +489,7 @@ def update_member(
     role: str,
     expected_version: int,
 ) -> tuple[InvestigationMember, bool]:
-    target = _lock_membership_account(db, member_user_id)
+    target = lock_user_auth_states(db, [user.id, member_user_id]).get(member_user_id)
     investigation, actor_member = _lock_for_write(
         db, investigation_id=investigation_id, user=user
     )
@@ -934,6 +939,7 @@ def _get_visible_investigation(
 def _lock_for_write(
     db: Session, *, investigation_id: uuid.UUID, user: User
 ) -> tuple[Investigation, InvestigationMember]:
+    _lock_eligible_actor(db, user.id)
     investigation = db.scalar(
         select(Investigation)
         .where(Investigation.id == investigation_id)
@@ -1053,12 +1059,22 @@ def _validate_member_role_for_account(user: User, member_role: str) -> None:
 
 def _lock_membership_account(db: Session, user_id: uuid.UUID) -> User | None:
     """Serialize membership eligibility with IAM access reductions."""
-    return db.scalar(
-        select(User)
-        .where(User.id == user_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
+    return lock_user_auth_state(db, user_id)
+
+
+def _lock_eligible_actor(db: Session, user_id: uuid.UUID) -> User:
+    actor = _lock_membership_account(db, user_id)
+    if (
+        actor is None
+        or actor.role not in {ROLE_ADMIN, ROLE_ANALYST}
+        or not actor.is_active
+        or not actor.is_approved
+    ):
+        raise InvestigationActorNotEligibleError(
+            "Your account is no longer active, approved, or assigned the analyst or "
+            "administrator role. Sign in again before changing investigations."
+        )
+    return actor
 
 
 def eligible_investigation_owner_ids_query(
