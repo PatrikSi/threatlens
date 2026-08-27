@@ -896,14 +896,20 @@ def process_notification_webhook_delivery(
             claimed=False,
         )
 
+    claimed_attempt_number = max(1, int(delivery.attempt_count or 0))
     actor_user = db.scalar(select(User).where(User.id == delivery.user_id))
     try:
         validate_notification_delivery_target_for_actor(delivery, actor_user=actor_user)
-        _lock_notification_webhook_external_io_eligibility(db, delivery=delivery)
+        _lock_notification_webhook_external_io_eligibility(
+            db,
+            delivery=delivery,
+            expected_attempt_number=claimed_attempt_number,
+        )
     except (ValueError, WebhookDeliveryIneligibleError) as exc:
         return _finalize_notification_webhook_policy_failure(
             db,
             delivery=delivery,
+            expected_attempt_number=claimed_attempt_number,
             error=exc,
             commit_outcome=commit_outcome,
         )
@@ -924,7 +930,7 @@ def process_notification_webhook_delivery(
         finalized, recorded = _finalize_notification_webhook_delivery(
             db,
             delivery_id=delivery.id,
-            expected_attempt_number=delivery.attempt_count,
+            expected_attempt_number=claimed_attempt_number,
             result=result,
             commit_outcome=commit_outcome,
         )
@@ -940,13 +946,14 @@ def process_notification_webhook_delivery(
         return _finalize_notification_webhook_policy_failure(
             db,
             delivery=delivery,
+            expected_attempt_number=claimed_attempt_number,
             error=exc,
             commit_outcome=commit_outcome,
         )
     finalized, recorded = _finalize_notification_webhook_delivery(
         db,
         delivery_id=delivery.id,
-        expected_attempt_number=delivery.attempt_count,
+        expected_attempt_number=claimed_attempt_number,
         result=result,
         commit_outcome=commit_outcome,
     )
@@ -961,6 +968,7 @@ def _lock_notification_webhook_external_io_eligibility(
     db: Session,
     *,
     delivery: NotificationWebhookDelivery,
+    expected_attempt_number: int,
 ) -> None:
     if delivery.integration_delivery_id is None:
         raise WebhookDeliveryIneligibleError(
@@ -972,7 +980,7 @@ def _lock_notification_webhook_external_io_eligibility(
         webhook_id=delivery.webhook_id,
         legacy_delivery_id=delivery.id,
         integration_delivery_id=delivery.integration_delivery_id,
-        expected_attempt_number=max(1, int(delivery.attempt_count or 0)),
+        expected_attempt_number=expected_attempt_number,
     )
 
 
@@ -980,6 +988,7 @@ def _finalize_notification_webhook_policy_failure(
     db: Session,
     *,
     delivery: NotificationWebhookDelivery,
+    expected_attempt_number: int,
     error: Exception,
     commit_outcome: bool,
 ) -> NotificationWebhookDeliveryAttempt:
@@ -999,7 +1008,7 @@ def _finalize_notification_webhook_policy_failure(
     finalized, recorded = _finalize_notification_webhook_delivery(
         db,
         delivery_id=delivery.id,
-        expected_attempt_number=delivery.attempt_count,
+        expected_attempt_number=expected_attempt_number,
         result=result,
         commit_outcome=commit_outcome,
     )

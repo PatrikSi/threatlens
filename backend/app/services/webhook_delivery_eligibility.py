@@ -40,6 +40,17 @@ def lock_webhook_delivery_external_io_eligibility(
     between this check and the outbound request. Lease renewal may commit, but it
     must invoke this function again before the next request or redirect.
     """
+    webhook = db.scalar(
+        select(NotificationWebhook)
+        .where(NotificationWebhook.id == webhook_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if webhook is None:
+        raise WebhookDeliveryIneligibleError(
+            "webhook_missing", "Webhook configuration no longer exists."
+        )
+
     legacy = db.scalar(
         select(NotificationWebhookDelivery)
         .where(NotificationWebhookDelivery.id == legacy_delivery_id)
@@ -51,26 +62,11 @@ def lock_webhook_delivery_external_io_eligibility(
             "webhook_delivery_missing",
             "Webhook delivery no longer exists or belongs to this webhook.",
         )
-
-    webhook = db.scalar(
-        select(NotificationWebhook)
-        .where(NotificationWebhook.id == webhook_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    if webhook is None:
-        raise WebhookDeliveryIneligibleError(
-            "webhook_missing", "Webhook configuration no longer exists."
-        )
-    if not webhook.enabled:
-        raise WebhookDeliveryIneligibleError(
-            "webhook_disabled", "Webhook configuration is disabled."
-        )
-    if webhook.integration_id is None or webhook.subscription_id is None:
-        raise WebhookDeliveryIneligibleError(
-            "webhook_projection_missing",
-            "Webhook integration configuration is incomplete.",
-        )
+    if (
+        legacy.delivery_state != _DELIVERY_SENDING
+        or int(legacy.attempt_count or 0) != int(expected_attempt_number)
+    ):
+        raise RuntimeError("Webhook delivery lease is no longer owned by this worker")
 
     generic = db.scalar(
         select(IntegrationDelivery)
@@ -89,6 +85,16 @@ def lock_webhook_delivery_external_io_eligibility(
         or int(generic.attempt_count or 0) != int(expected_attempt_number)
     ):
         raise RuntimeError("Webhook delivery lease is no longer owned by this worker")
+
+    if not webhook.enabled:
+        raise WebhookDeliveryIneligibleError(
+            "webhook_disabled", "Webhook configuration is disabled."
+        )
+    if webhook.integration_id is None or webhook.subscription_id is None:
+        raise WebhookDeliveryIneligibleError(
+            "webhook_projection_missing",
+            "Webhook integration configuration is incomplete.",
+        )
     if generic.integration_id != webhook.integration_id:
         raise WebhookDeliveryIneligibleError(
             "integration_projection_mismatch",
@@ -127,11 +133,7 @@ def lock_webhook_delivery_external_io_eligibility(
             "Webhook event subscription is disabled or no longer exists.",
         )
 
-    if (
-        legacy.integration_delivery_id != generic.id
-        or legacy.delivery_state != _DELIVERY_SENDING
-        or int(legacy.attempt_count or 0) != int(expected_attempt_number)
-    ):
+    if legacy.integration_delivery_id != generic.id:
         raise RuntimeError("Webhook delivery lease is no longer owned by this worker")
 
     if instance.owner_user_id is None:
