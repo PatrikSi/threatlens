@@ -136,6 +136,42 @@ def claim_integration_delivery(
         return _claim_result(
             delivery, status=DEFERRED, reason=reason, scheduled_for=scheduled_for
         )
+    stale_cutoff = current_time - timedelta(
+        seconds=settings.notification_delivery_sending_stale_after_seconds
+    )
+    claimed_at = _coerce_utc(delivery.claimed_at)
+    if (
+        delivery.state == DELIVERY_SENDING
+        and claimed_at is not None
+        and claimed_at >= stale_cutoff
+    ):
+        return _claim_result(
+            delivery,
+            status=DEFERRED,
+            reason="already_claimed",
+            scheduled_for=claimed_at,
+        )
+
+    if delivery.state == DELIVERY_SENDING:
+        side_effect_possible = interrupt_running_attempt(
+            db, delivery=delivery, now=current_time
+        )
+        if delivery.connector_type == "smtp" and side_effect_possible is not False:
+            _dead_letter_without_attempt(
+                delivery,
+                code="unknown_delivery_outcome",
+                message=(
+                    "The SMTP worker stopped after delivery began, so message acceptance "
+                    "is unknown. Replay the delivery explicitly to avoid an automatic duplicate."
+                ),
+                now=current_time,
+            )
+            db.commit()
+            return _claim_result(
+                delivery,
+                status=TERMINAL,
+                reason="unknown_delivery_outcome",
+            )
 
     instance = db.scalar(
         select(IntegrationInstance)
@@ -161,42 +197,6 @@ def claim_integration_delivery(
         )
         db.commit()
         return _claim_result(delivery, status=TERMINAL, reason="integration_disabled")
-
-    stale_cutoff = current_time - timedelta(
-        seconds=settings.notification_delivery_sending_stale_after_seconds
-    )
-    claimed_at = _coerce_utc(delivery.claimed_at)
-    if (
-        delivery.state == DELIVERY_SENDING
-        and claimed_at is not None
-        and claimed_at >= stale_cutoff
-    ):
-        return _claim_result(
-            delivery,
-            status=DEFERRED,
-            reason="already_claimed",
-            scheduled_for=claimed_at,
-        )
-    if delivery.state == DELIVERY_SENDING:
-        side_effect_possible = interrupt_running_attempt(
-            db, delivery=delivery, now=current_time
-        )
-        if delivery.connector_type == "smtp" and side_effect_possible is not False:
-            _dead_letter_without_attempt(
-                delivery,
-                code="unknown_delivery_outcome",
-                message=(
-                    "The SMTP worker stopped after delivery began, so message acceptance "
-                    "is unknown. Replay the delivery explicitly to avoid an automatic duplicate."
-                ),
-                now=current_time,
-            )
-            db.commit()
-            return _claim_result(
-                delivery,
-                status=TERMINAL,
-                reason="unknown_delivery_outcome",
-            )
 
     if int(delivery.attempt_count or 0) >= max(1, int(delivery.max_attempts or 1)):
         _dead_letter_without_attempt(

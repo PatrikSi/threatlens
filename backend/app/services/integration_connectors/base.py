@@ -26,6 +26,7 @@ class IntegrationConnectorDefinition:
     description: str
     config_schema_version: int
     supports_test: bool
+    handles_delivery_compatibility: bool = False
     supported_event_types: tuple[str, ...] = ()
     capabilities: tuple[str, ...] = ()
 

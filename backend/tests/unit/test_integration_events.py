@@ -34,6 +34,7 @@ from app.services.integration_storage import (
 )
 from app.services.integration_smtp_hooks import create_smtp_hook
 from app.services.integration_registry import get_integration_connector
+from app.services.integration_registry_constants import SMTP_CONFIG_SCHEMA_VERSION
 from app.services.notification_webhook_storage import decrypt_notification_text
 from app.services.smtp_delivery_eligibility import SMTP_SOURCE_OWNER_IDS_KEY
 from app.services.smtp_integration import SMTPNotificationResult
@@ -621,6 +622,45 @@ def test_future_resource_event_with_non_object_payload_waits_before_connectors(
         is None
     )
     assert db_session.scalar(select(NotificationWebhookDelivery.id)) is None
+
+
+def test_future_smtp_config_schema_waits_without_normalizing_configuration(db_session):
+    future_config = {"event_types": ["future_event"], "future_option": {"mode": "v4"}}
+    smtp = IntegrationInstance(
+        name="Future SMTP configuration",
+        integration_type="smtp",
+        direction="destination",
+        enabled=True,
+        schema_version=SMTP_CONFIG_SCHEMA_VERSION + 1,
+        config_json=future_config,
+    )
+    db_session.add(smtp)
+    db_session.flush()
+    event = emit_integration_event(
+        db_session,
+        event_type="rss_item_new",
+        source_type="item",
+        source_id=uuid.uuid4(),
+        idempotency_key=f"future-smtp-config:{uuid.uuid4()}",
+        payload={"item_id": str(uuid.uuid4())},
+        schema_version=1,
+    )
+
+    result = route_integration_event(db_session, event_id=event.id)
+
+    db_session.refresh(event)
+    db_session.refresh(smtp)
+    subscriptions = db_session.scalars(
+        select(IntegrationSubscription).where(
+            IntegrationSubscription.integration_id == smtp.id
+        )
+    ).all()
+    assert result.status == "failed"
+    assert event.routing_attempt_count == 0
+    assert all(error.compatibility_wait for error in result.routing_errors)
+    assert "newer configuration schema version" in (event.last_error or "")
+    assert smtp.config_json == future_config
+    assert subscriptions == []
 
 
 def test_smtp_route_rejects_oversized_legacy_v2_owner_context(db_session):

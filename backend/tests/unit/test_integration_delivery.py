@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime, timedelta, timezone
 
+import pytest
 from sqlalchemy import select
 
 from app.models.integration import (
@@ -306,6 +307,107 @@ def test_active_operation_lease_prevents_stale_reclaim(db_session, monkeypatch):
     db_session.refresh(attempt)
     assert attempt.status == "interrupted"
     assert attempt.response_json["delivery_outcome"] == "unknown"
+
+
+def test_fresh_claim_is_preserved_when_integration_is_disabled(db_session, monkeypatch):
+    delivery = _persist_generic_delivery(db_session)
+    monkeypatch.setattr(
+        "app.services.integration_delivery.settings.notification_delivery_sending_stale_after_seconds",
+        30,
+    )
+    started_at = datetime(2026, 7, 14, 12, 0, tzinfo=timezone.utc)
+    claimed = claim_integration_delivery(
+        db_session,
+        delivery_id=delivery.id,
+        now=started_at,
+    )
+    instance = db_session.get(IntegrationInstance, delivery.integration_id)
+    assert claimed.attempt_number == 1
+    assert instance is not None
+    instance.enabled = False
+    db_session.add(instance)
+    db_session.commit()
+
+    duplicate = claim_integration_delivery(
+        db_session,
+        delivery_id=delivery.id,
+        now=started_at + timedelta(seconds=1),
+    )
+
+    db_session.refresh(delivery)
+    attempt = db_session.scalar(
+        select(IntegrationAttempt).where(IntegrationAttempt.delivery_id == delivery.id)
+    )
+    assert duplicate.status == "deferred"
+    assert duplicate.reason == "already_claimed"
+    assert delivery.state == "sending"
+    assert delivery.attempt_count == 1
+    assert attempt is not None and attempt.status == "running"
+
+
+@pytest.mark.parametrize(
+    ("marker", "expected_reason"),
+    [
+        (False, "integration_disabled"),
+        (True, "unknown_delivery_outcome"),
+        (None, "unknown_delivery_outcome"),
+    ],
+)
+def test_stale_smtp_attempt_is_classified_before_disabled_integration(
+    db_session,
+    monkeypatch,
+    marker,
+    expected_reason,
+):
+    delivery = _persist_generic_delivery(db_session)
+    monkeypatch.setattr(
+        "app.services.integration_delivery.settings.notification_delivery_sending_stale_after_seconds",
+        30,
+    )
+    started_at = datetime(2026, 7, 14, 12, 0, tzinfo=timezone.utc)
+    claimed = claim_integration_delivery(
+        db_session,
+        delivery_id=delivery.id,
+        now=started_at,
+    )
+    assert claimed.attempt_number == 1
+    instance = db_session.get(IntegrationInstance, delivery.integration_id)
+    attempt = db_session.scalar(
+        select(IntegrationAttempt).where(IntegrationAttempt.delivery_id == delivery.id)
+    )
+    assert instance is not None
+    assert attempt is not None
+    attempt.response_json = (
+        {
+            "delivery_outcome": "unknown",
+            "external_side_effect_possible": True,
+        }
+        if marker is True
+        else {
+            "delivery_outcome": "not_attempted",
+            "external_side_effect_possible": False,
+        }
+        if marker is False
+        else {}
+    )
+    instance.enabled = False
+    db_session.add_all([attempt, instance])
+    db_session.commit()
+
+    recovered = claim_integration_delivery(
+        db_session,
+        delivery_id=delivery.id,
+        now=started_at + timedelta(seconds=31),
+    )
+
+    db_session.refresh(delivery)
+    db_session.refresh(attempt)
+    assert recovered.status == "terminal"
+    assert recovered.reason == expected_reason
+    assert delivery.state == "dead_letter"
+    assert delivery.last_error_code == expected_reason
+    assert attempt.status == "interrupted"
+    assert attempt.response_json["external_side_effect_possible"] is (marker is not False)
 
 
 def test_stale_smtp_attempt_before_external_side_effect_is_reclaimed(

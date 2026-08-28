@@ -31,6 +31,7 @@ from app.services.smtp_delivery_errors import (
     SMTPDeliverySourceContextError,
 )
 from app.services.smtp_schema_compatibility import (
+    ensure_smtp_config_schema_compatible,
     ensure_smtp_delivery_schema_compatible as ensure_smtp_delivery_schema_compatible,
 )
 from app.services.integration_storage import (
@@ -480,6 +481,10 @@ def lock_smtp_delivery_external_io_eligibility(
         )
 
     credential_source = _lock_credential_source(db, instance=instance)
+    ensure_smtp_config_schema_compatible(
+        instance=instance,
+        credential_source=credential_source,
+    )
     try:
         current_settings = build_active_smtp_settings(
             instance,

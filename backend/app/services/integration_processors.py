@@ -20,12 +20,13 @@ from app.models.user import User
 from app.services.integration_delivery import (
     CLAIMED,
     claim_integration_delivery,
-    defer_unclaimed_integration_delivery,
     finalize_integration_delivery,
     renew_integration_delivery_lease,
 )
+from app.services.integration_delivery_compatibility import (
+    defer_integration_delivery_for_compatibility,
+)
 from app.services.integration_delivery_attempts import (
-    defer_stale_pre_side_effect_attempt,
     persist_external_side_effect_marker,
 )
 from app.services.daily_brief_notifications import (
@@ -483,43 +484,20 @@ def _defer_incompatible_smtp_delivery(
             ensure_smtp_delivery_schema_compatible(db, delivery=pending_delivery)
         except SMTPDeliverySourceCompatibilityError as exc:
             db.rollback()
-            deferred = defer_unclaimed_integration_delivery(
+            deferral = defer_integration_delivery_for_compatibility(
                 db,
                 delivery_id=delivery_id,
                 error_code=exc.code,
                 error_message=str(exc),
                 delay_seconds=SMTP_COMPATIBILITY_RETRY_SECONDS,
             )
-            if not deferred:
-                db.rollback()
-                deferred = defer_stale_pre_side_effect_attempt(
-                    db,
-                    delivery_id=delivery_id,
-                    error_code=exc.code,
-                    error_message=str(exc),
-                    delay_seconds=SMTP_COMPATIBILITY_RETRY_SECONDS,
-                )
-            if not deferred:
-                db.rollback()
-                compatibility_claim = claim_integration_delivery(
-                    db, delivery_id=delivery_id
-                )
-                return IntegrationDeliveryProcessingResult(
-                    delivery_id,
-                    compatibility_claim.status,
-                    compatibility_claim.reason,
-                    compatibility_claim.scheduled_for.isoformat()
-                    if compatibility_claim.scheduled_for is not None
-                    else None,
-                )
             db.commit()
-            current = db.get(IntegrationDelivery, delivery_id)
             return IntegrationDeliveryProcessingResult(
                 delivery_id,
-                current.state if current is not None else "missing",
-                exc.code,
-                current.not_before.isoformat()
-                if current is not None and current.not_before is not None
+                deferral.status,
+                deferral.reason,
+                deferral.scheduled_for.isoformat()
+                if deferral.scheduled_for is not None
                 else None,
             )
         except SMTPDeliverySourceContextError:

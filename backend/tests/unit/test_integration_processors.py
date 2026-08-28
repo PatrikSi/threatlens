@@ -17,6 +17,7 @@ from app.models.integration import (
 )
 from app.models.item import Item
 from app.services.integration_connectors.smtp import SMTPIntegrationConnector
+from app.services.integration_delivery import claim_integration_delivery
 from app.services.integration_processors import (
     SMTP_OWNER_NOT_ELIGIBLE,
     process_smtp_integration_delivery,
@@ -26,7 +27,12 @@ from app.services.integration_storage import (
     get_smtp_credential_source,
 )
 from app.services.smtp_integration import SMTPNotificationResult
-from app.services.smtp_delivery_eligibility import SMTP_SOURCE_OWNER_IDS_KEY
+from app.services.smtp_delivery_eligibility import (
+    SMTP_SOURCE_OWNER_IDS_KEY,
+    SMTPDeliverySourceCompatibilityError,
+    ensure_smtp_delivery_schema_compatible,
+    lock_smtp_delivery_external_io_eligibility,
+)
 
 
 def test_smtp_delivery_uses_generic_claim_attempt_and_audit_history(
@@ -430,7 +436,20 @@ def test_smtp_capability_failure_is_terminal_and_circuit_neutral(
     assert instance.circuit_failure_count == 2
 
 
-def test_transient_smtp_response_schedules_delivery_retry(db_session, monkeypatch):
+@pytest.mark.parametrize(
+    ("error_code", "expected_state", "expected_retryable"),
+    [
+        ("transient_smtp_error", "retry_wait", True),
+        ("connect_rejected", "dead_letter", False),
+    ],
+)
+def test_smtp_response_class_controls_delivery_retry_policy(
+    db_session,
+    monkeypatch,
+    error_code,
+    expected_state,
+    expected_retryable,
+):
     _feed, _item, delivery = _persist_smtp_delivery(db_session)
     monkeypatch.setattr(
         "app.services.smtp_integration.send_smtp_notification",
@@ -439,9 +458,13 @@ def test_transient_smtp_response_schedules_delivery_retry(db_session, monkeypatc
             duration_ms=5,
             recipient_count=2,
             accepted_count=0,
-            error_code="transient_smtp_error",
-            error="SMTP server temporarily rejected the request.",
-            server_message="451 temporary failure",
+            error_code=error_code,
+            error="SMTP server rejected the connection request.",
+            server_message=(
+                "421 temporary failure"
+                if expected_retryable
+                else "554 permanent rejection"
+            ),
             attempted_at=datetime.now(timezone.utc),
             delivery_id=kwargs["delivery_id"],
             delivery_outcome="not_attempted",
@@ -451,11 +474,11 @@ def test_transient_smtp_response_schedules_delivery_retry(db_session, monkeypatc
     result = process_smtp_integration_delivery(db_session, delivery_id=delivery.id)
 
     db_session.refresh(delivery)
-    assert result.status == "retry_wait"
-    assert result.reason == "transient_smtp_error"
-    assert result.retry_at is not None
-    assert delivery.last_error_code == "transient_smtp_error"
-    assert delivery.last_error_retryable is True
+    assert result.status == expected_state
+    assert result.reason == error_code
+    assert (result.retry_at is not None) is expected_retryable
+    assert delivery.last_error_code == error_code
+    assert delivery.last_error_retryable is expected_retryable
 
 
 def test_smtp_credential_lookup_database_failure_retries_before_external_io(
@@ -651,6 +674,87 @@ def test_future_non_alert_smtp_schema_waits_without_consuming_an_attempt(
     assert send_calls == []
 
 
+def test_future_smtp_configuration_waits_without_consuming_an_attempt(
+    db_session,
+    monkeypatch,
+):
+    _feed, _item, delivery = _persist_smtp_delivery(db_session)
+    instance = db_session.get(IntegrationInstance, delivery.integration_id)
+    assert instance is not None
+    instance.schema_version = 4
+    db_session.add(instance)
+    db_session.commit()
+    send_calls: list[bool] = []
+    monkeypatch.setattr(
+        "app.services.smtp_integration.send_smtp_notification",
+        lambda *_args, **_kwargs: send_calls.append(True),
+    )
+
+    result = process_smtp_integration_delivery(db_session, delivery_id=delivery.id)
+
+    db_session.refresh(delivery)
+    attempts = db_session.scalars(
+        select(IntegrationAttempt).where(IntegrationAttempt.delivery_id == delivery.id)
+    ).all()
+    assert result.status == "retry_wait"
+    assert result.reason == "smtp_config_schema_unsupported"
+    assert delivery.attempt_count == 0
+    assert delivery.last_error_retryable is True
+    assert attempts == []
+    assert send_calls == []
+
+
+@pytest.mark.parametrize("upgrade_credential_source", [False, True])
+def test_external_io_fence_revalidates_current_smtp_configuration_schema(
+    db_session,
+    upgrade_credential_source,
+):
+    _feed, _item, delivery = _persist_smtp_delivery(db_session)
+    instance = db_session.get(IntegrationInstance, delivery.integration_id)
+    assert instance is not None
+    instance.schema_version = 3
+    credential_source = None
+    if upgrade_credential_source:
+        credential_source = IntegrationInstance(
+            id=uuid.uuid4(),
+            name="SMTP credential source",
+            integration_type="smtp",
+            direction="destination",
+            enabled=True,
+            schema_version=3,
+            config_json=dict(instance.config_json),
+        )
+        db_session.add(credential_source)
+        db_session.flush()
+        instance.credential_source_integration_id = credential_source.id
+    db_session.add(instance)
+    db_session.commit()
+
+    ensure_smtp_delivery_schema_compatible(db_session, delivery=delivery)
+    claim = claim_integration_delivery(db_session, delivery_id=delivery.id)
+    assert claim.attempt_number == 1
+    expected_settings = build_active_smtp_settings(
+        instance,
+        credential_source=credential_source,
+    )
+    upgraded = credential_source if upgrade_credential_source else instance
+    assert upgraded is not None
+    upgraded.schema_version = 4
+    db_session.add(upgraded)
+    db_session.commit()
+
+    with pytest.raises(SMTPDeliverySourceCompatibilityError) as error:
+        lock_smtp_delivery_external_io_eligibility(
+            db_session,
+            delivery_id=delivery.id,
+            expected_attempt_number=claim.attempt_number,
+            expected_settings=expected_settings,
+        )
+
+    assert error.value.code == "smtp_config_schema_unsupported"
+    db_session.rollback()
+
+
 @pytest.mark.parametrize("schema_version", [True, "9" * 5_000])
 def test_invalid_non_alert_smtp_schema_is_terminal_before_external_io(
     db_session,
@@ -690,12 +794,15 @@ def test_invalid_non_alert_smtp_schema_is_terminal_before_external_io(
 
 
 @pytest.mark.parametrize("include_delivery_schema", [False, True])
-def test_linked_non_alert_smtp_schema_mismatch_is_terminal(
+def test_linked_non_alert_smtp_schema_mismatch_is_terminal_even_with_future_config(
     db_session,
     monkeypatch,
     include_delivery_schema,
 ):
     _feed, _item, delivery = _persist_smtp_delivery(db_session)
+    instance = db_session.get(IntegrationInstance, delivery.integration_id)
+    assert instance is not None
+    instance.schema_version = 4
     event = IntegrationEvent(
         event_type="rss_item_new",
         schema_version=2,
@@ -704,7 +811,7 @@ def test_linked_non_alert_smtp_schema_mismatch_is_terminal(
         idempotency_key=f"smtp-schema-binding:{uuid.uuid4()}",
         payload_json={"schema_version": 2},
     )
-    db_session.add(event)
+    db_session.add_all([instance, event])
     db_session.flush()
     delivery.event_id = event.id
     if include_delivery_schema:
@@ -756,6 +863,50 @@ def test_linked_smtp_event_payload_schema_mismatch_is_terminal(
     db_session.refresh(delivery)
     assert result.status == "dead_letter"
     assert result.reason == "smtp_event_schema_mismatch"
+    assert delivery.last_error_code == "smtp_event_schema_mismatch"
+    assert send_calls == []
+
+
+@pytest.mark.parametrize(
+    ("event_schema_version", "delivery_schema_version"),
+    [(2, 4), (4, 2)],
+)
+def test_future_linked_smtp_schema_mismatch_is_terminal_before_compatibility_wait(
+    db_session,
+    monkeypatch,
+    event_schema_version,
+    delivery_schema_version,
+):
+    _feed, _item, delivery = _persist_smtp_delivery(db_session)
+    event = IntegrationEvent(
+        event_type="rss_item_new",
+        schema_version=event_schema_version,
+        source_type="item",
+        source_id=str(uuid.uuid4()),
+        idempotency_key=f"smtp-future-schema-mismatch:{uuid.uuid4()}",
+        payload_json={"schema_version": event_schema_version},
+    )
+    db_session.add(event)
+    db_session.flush()
+    delivery.event_id = event.id
+    delivery.payload_json = {
+        **delivery.payload_json,
+        "schema_version": delivery_schema_version,
+    }
+    db_session.add(delivery)
+    db_session.commit()
+    send_calls: list[bool] = []
+    monkeypatch.setattr(
+        "app.services.smtp_integration.send_smtp_notification",
+        lambda *_args, **_kwargs: send_calls.append(True),
+    )
+
+    result = process_smtp_integration_delivery(db_session, delivery_id=delivery.id)
+
+    db_session.refresh(delivery)
+    assert result.status == "dead_letter"
+    assert result.reason == "smtp_event_schema_mismatch"
+    assert delivery.attempt_count == 1
     assert delivery.last_error_code == "smtp_event_schema_mismatch"
     assert send_calls == []
 
@@ -882,6 +1033,34 @@ def test_stale_pre_data_future_smtp_schema_waits_without_a_reclaim_loop(
     assert attempts[0].status == "interrupted"
     assert attempts[0].response_json["delivery_outcome"] == "not_attempted"
     assert attempts[0].response_json["external_side_effect_possible"] is False
+
+
+def test_fresh_future_schema_claim_is_not_stolen_after_integration_disable(
+    db_session,
+):
+    _feed, _item, delivery = _persist_smtp_delivery(db_session)
+    delivery.payload_json = {**delivery.payload_json, "schema_version": 3}
+    db_session.add(delivery)
+    db_session.commit()
+    claimed = claim_integration_delivery(db_session, delivery_id=delivery.id)
+    instance = db_session.get(IntegrationInstance, delivery.integration_id)
+    assert claimed.attempt_number == 1
+    assert instance is not None
+    instance.enabled = False
+    db_session.add(instance)
+    db_session.commit()
+
+    result = process_smtp_integration_delivery(db_session, delivery_id=delivery.id)
+
+    db_session.refresh(delivery)
+    attempt = db_session.scalar(
+        select(IntegrationAttempt).where(IntegrationAttempt.delivery_id == delivery.id)
+    )
+    assert result.status == "deferred"
+    assert result.reason == "already_claimed"
+    assert delivery.state == "sending"
+    assert delivery.attempt_count == 1
+    assert attempt is not None and attempt.status == "running"
 
 
 def test_ownerless_legacy_v1_alert_delivery_backfills_source_owner_context(

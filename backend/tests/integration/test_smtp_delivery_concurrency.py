@@ -18,10 +18,13 @@ from app.models.integration import (
 )
 from app.models.user import User
 from app.schemas.integration import SMTPSettingsUpdate
+from app.services.integration_connectors.base import IntegrationEventCompatibilityError
+from app.services.integration_connectors.smtp import SMTPIntegrationConnector
 from app.services.integration_delivery import CLAIMED, claim_integration_delivery
 from app.services.integration_processors import process_smtp_integration_delivery
 from app.services.integration_storage import (
     SMTP_SYSTEM_KEY,
+    acquire_smtp_configuration_read_lock,
     acquire_smtp_configuration_write_lock,
     apply_smtp_settings_update,
     build_active_smtp_settings,
@@ -32,6 +35,132 @@ from app.services.smtp_delivery_eligibility import (
     SMTPDeliveryIneligibleError,
     lock_smtp_delivery_external_io_eligibility,
 )
+
+
+def test_smtp_routing_waits_for_config_writer_and_refreshes_schema(
+    database_engine,
+    monkeypatch,
+):
+    instance_id = uuid.uuid4()
+    subscription_id = uuid.uuid4()
+    with Session(database_engine) as setup_db:
+        setup_db.add(
+            IntegrationInstance(
+                id=instance_id,
+                name="SMTP routing compatibility",
+                integration_type="smtp",
+                direction="destination",
+                enabled=True,
+                schema_version=3,
+                config_json={
+                    "host": "smtp.example.com",
+                    "port": 587,
+                    "security": "starttls",
+                    "username": None,
+                    "from_email": "threatlens@example.com",
+                    "from_name": "ThreatLens",
+                    "to_emails": ["soc@example.com"],
+                    "timeout_seconds": 10,
+                    "event_types": ["rss_item_new"],
+                    "feed_scope": "all",
+                    "feed_ids": [],
+                    "subject_template": "ThreatLens event",
+                    "html_template": "<p>ThreatLens event</p>",
+                },
+            )
+        )
+        setup_db.add(
+            IntegrationSubscription(
+                id=subscription_id,
+                integration_id=instance_id,
+                subscription_key="event:rss_item_new",
+                event_type="rss_item_new",
+                enabled=False,
+            )
+        )
+        setup_db.commit()
+
+    cached = Event()
+    begin_routing = Event()
+    read_lock_started = Event()
+
+    def _observed_read_lock(db: Session) -> None:
+        read_lock_started.set()
+        acquire_smtp_configuration_read_lock(db)
+
+    monkeypatch.setattr(
+        "app.services.integration_connectors.smtp.acquire_smtp_configuration_read_lock",
+        _observed_read_lock,
+    )
+
+    def _route_with_cached_instance() -> str:
+        with Session(database_engine) as worker_db:
+            instance = worker_db.get(IntegrationInstance, instance_id)
+            assert instance is not None and instance.schema_version == 3
+            cached.set()
+            assert begin_routing.wait(timeout=5)
+            try:
+                SMTPIntegrationConnector().prepare_routing(
+                    worker_db,
+                    event=IntegrationEvent(
+                        event_type="rss_item_new",
+                        source_type="test",
+                        source_id=str(uuid.uuid4()),
+                        idempotency_key=f"smtp-routing-race:{uuid.uuid4()}",
+                        payload_json={"schema_version": 1},
+                    ),
+                )
+            except IntegrationEventCompatibilityError as exc:
+                worker_db.rollback()
+                return str(exc)
+            raise AssertionError("Older SMTP worker routed a future configuration")
+
+    try:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(_route_with_cached_instance)
+            assert cached.wait(timeout=5)
+            with Session(database_engine) as writer_db:
+                acquire_smtp_configuration_write_lock(writer_db)
+                instance = writer_db.scalar(
+                    select(IntegrationInstance)
+                    .where(IntegrationInstance.id == instance_id)
+                    .with_for_update()
+                )
+                assert instance is not None
+                instance.schema_version = 4
+                instance.config_json = {
+                    **instance.config_json,
+                    "event_types": ["report_ready"],
+                }
+                writer_db.add(instance)
+                writer_db.flush()
+                begin_routing.set()
+                assert read_lock_started.wait(timeout=5)
+                time.sleep(0.1)
+                assert not future.done()
+                writer_db.commit()
+            error_message = future.result(timeout=5)
+
+        assert "newer configuration schema version 4" in error_message
+        with Session(database_engine) as verify_db:
+            instance = verify_db.get(IntegrationInstance, instance_id)
+            subscription = verify_db.get(IntegrationSubscription, subscription_id)
+            subscriptions = verify_db.scalars(
+                select(IntegrationSubscription).where(
+                    IntegrationSubscription.integration_id == instance_id
+                )
+            ).all()
+            assert instance is not None and instance.schema_version == 4
+            assert instance.config_json["event_types"] == ["report_ready"]
+            assert subscription is not None and subscription.enabled is False
+            assert [row.id for row in subscriptions] == [subscription_id]
+    finally:
+        begin_routing.set()
+        with Session(database_engine) as cleanup_db:
+            cleanup_db.execute(
+                delete(IntegrationInstance).where(IntegrationInstance.id == instance_id)
+            )
+            cleanup_db.commit()
 
 
 def test_smtp_configuration_write_waits_for_external_io_fence(database_engine):
