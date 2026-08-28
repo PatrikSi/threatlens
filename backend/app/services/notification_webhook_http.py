@@ -224,7 +224,7 @@ def send_rendered_notification_request(
             raise
         return _failed_request_result(rendered, started_at=started_at, error=exc)
     except httpx.RemoteProtocolError as exc:
-        if status_code is not None and _delivery_redirect_chain_started.get() is not True:
+        if _observed_response_is_final(status_code):
             return _completed_request_result(
                 rendered,
                 started_at=started_at,
@@ -243,7 +243,7 @@ def send_rendered_notification_request(
             ) from exc
         return _failed_request_result(rendered, started_at=started_at, error=exc)
     except (SafeFetchError, httpx.HTTPError, ValueError) as exc:
-        if status_code is not None and _delivery_redirect_chain_started.get() is not True:
+        if _observed_response_is_final(status_code):
             return _completed_request_result(
                 rendered,
                 started_at=started_at,
@@ -314,6 +314,12 @@ def _preview_or_unavailable(
     if response_body_preview is not None:
         return response_body_preview
     return f"Response preview unavailable ({type(error).__name__})."
+
+
+def _observed_response_is_final(status_code: int | None) -> bool:
+    if status_code is None:
+        return False
+    return 200 <= status_code < 400 or _delivery_redirect_chain_started.get() is not True
 
 
 def _failed_request_result(

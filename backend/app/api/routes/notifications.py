@@ -41,6 +41,7 @@ from app.services.notification_webhooks import (
     test_notification_webhook,
     validate_notification_webhook_payload_for_actor,
 )
+from app.services.webhook_delivery_locking import WebhookDeliveryBusyError
 from app.tasks.feed_tasks import enqueue_notification_webhook_delivery_processing
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
@@ -153,7 +154,13 @@ def delete_notification_webhook(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Webhook not found")
 
     webhook_name = webhook.name
-    delete_webhook_integration(db, webhook)
+    try:
+        delete_webhook_integration(db, webhook)
+    except WebhookDeliveryBusyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
     record_audit(
         db,
         actor_user_id=user.id,
