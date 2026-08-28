@@ -346,12 +346,16 @@ def test_iam_downgrade_fences_active_and_restores_audited_token_ancestry(
                 ),
             },
         )
+        connection.execute(
+            text("UPDATE api_tokens SET revoked_at = CURRENT_TIMESTAMP WHERE id = :id"),
+            {"id": parent_token_id},
+        )
 
     command.upgrade(config, "0060_iam_hardening")
     with schema_engine.connect() as connection:
         restored_parent_ids = connection.execute(
             text(
-                "SELECT id, parent_token_id FROM api_tokens "
+                "SELECT id, parent_token_id, revoked_at FROM api_tokens "
                 "WHERE id IN (:first_child_id, :rollback_child_id)"
             ),
             {
@@ -363,6 +367,7 @@ def test_iam_downgrade_fences_active_and_restores_audited_token_ancestry(
         child_token_id: parent_token_id,
         rollback_child_token_id: parent_token_id,
     }
+    assert all(row.revoked_at is not None for row in restored_parent_ids)
 
 
 def test_iam_downgrade_fences_every_configured_oidc_provider(

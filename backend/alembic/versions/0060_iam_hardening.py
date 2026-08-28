@@ -62,6 +62,27 @@ def upgrade() -> None:
             """
         )
     )
+    op.execute(
+        sa.text(
+            """
+            WITH RECURSIVE revoked_token_tree AS (
+                SELECT id
+                FROM api_tokens
+                WHERE revoked_at IS NOT NULL
+                UNION
+                SELECT child.id
+                FROM api_tokens AS child
+                JOIN revoked_token_tree AS parent
+                  ON child.parent_token_id = parent.id
+            )
+            UPDATE api_tokens AS token
+            SET revoked_at = CURRENT_TIMESTAMP
+            FROM revoked_token_tree
+            WHERE token.id = revoked_token_tree.id
+              AND token.revoked_at IS NULL
+            """
+        )
+    )
 
     op.create_table(
         "auth_sessions",
