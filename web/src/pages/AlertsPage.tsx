@@ -11,7 +11,8 @@ type AlertsView = 'rules' | 'occurrences' | 'operations'
 export function AlertsPage() {
   const controller = useAlertsPageController()
   const currentUserQuery = useCurrentUser()
-  const isAdmin = currentUserQuery.data?.role === 'admin'
+  const isAdmin =
+    !currentUserQuery.isError && currentUserQuery.data?.role === 'admin'
   const [activeView, setActiveView] = useState<AlertsView>('rules')
   const [occurrencesVisited, setOccurrencesVisited] = useState(false)
   const [operationsVisited, setOperationsVisited] = useState(false)

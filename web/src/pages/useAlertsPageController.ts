@@ -1,4 +1,4 @@
-import { FormEvent, useMemo, useState } from 'react'
+import { FormEvent, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { apiFetch } from '../api/client'
@@ -49,6 +49,8 @@ export function useAlertsPageController() {
   const [updateAlertError, setUpdateAlertError] = useState<string | null>(null)
   const [showDisabled, setShowDisabled] = useState(false)
   const [pendingDeleteAlert, setPendingDeleteAlert] = useState<AlertInterest | null>(null)
+  const pendingDeleteAlertRef = useRef<AlertInterest | null>(null)
+  const deleteReloadGenerationRef = useRef(0)
   const [deleteAlertError, setDeleteAlertError] = useState<string | null>(null)
   const [deleteConflictNeedsRefresh, setDeleteConflictNeedsRefresh] = useState(false)
 
@@ -95,6 +97,16 @@ export function useAlertsPageController() {
     setSuppressionUntil('')
     setSuppressionReason('')
     setRevisionConflict(null)
+  }
+  const replacePendingDeleteAlert = (alert: AlertInterest | null) => {
+    pendingDeleteAlertRef.current = alert
+    setPendingDeleteAlert(alert)
+  }
+  const cancelPendingDeleteAlert = () => {
+    deleteReloadGenerationRef.current += 1
+    replacePendingDeleteAlert(null)
+    setDeleteAlertError(null)
+    setDeleteConflictNeedsRefresh(false)
   }
   const saveAlert = useMutation({
     mutationKey: ['alerts', 'save'],
@@ -149,7 +161,9 @@ export function useAlertsPageController() {
       if (editingAlertId === deletedId) {
         resetDraft()
       }
-      setPendingDeleteAlert((current) => (current?.id === deletedId ? null : current))
+      if (pendingDeleteAlertRef.current?.id === deletedId) {
+        replacePendingDeleteAlert(null)
+      }
       setDeleteAlertError(null)
       void queryClient.invalidateQueries({ queryKey: ['alerts'] })
     },
@@ -167,10 +181,18 @@ export function useAlertsPageController() {
   })
 
   const reloadPendingDeleteAfterConflict = async () => {
-    const targetId = pendingDeleteAlert?.id
-    if (!targetId) return
+    const target = pendingDeleteAlertRef.current
+    if (!target) return
+    const reloadGeneration = deleteReloadGenerationRef.current + 1
+    deleteReloadGenerationRef.current = reloadGeneration
     setDeleteConflictNeedsRefresh(true)
     const result = await deleteConflictAlertsQuery.refetch()
+    if (
+      deleteReloadGenerationRef.current !== reloadGeneration ||
+      pendingDeleteAlertRef.current?.id !== target.id
+    ) {
+      return
+    }
     if (result.error) {
       setDeleteAlertError(
         resolveApiErrorMessage(
@@ -180,14 +202,14 @@ export function useAlertsPageController() {
       )
       return
     }
-    const latest = result.data?.find((alert) => alert.id === targetId)
+    const latest = result.data?.find((alert) => alert.id === target.id)
     if (!latest) {
       setDeleteAlertError(
         'This alert rule no longer exists. Close this dialog and refresh the rule list.',
       )
       return
     }
-    setPendingDeleteAlert(latest)
+    replacePendingDeleteAlert(latest)
     setDeleteConflictNeedsRefresh(false)
     setDeleteAlertError(
       'The rule details below were refreshed. Review them, then confirm deletion again if you still want to remove this rule.',
@@ -297,13 +319,18 @@ export function useAlertsPageController() {
   }
   const onRequestDeleteAlert = (alert: AlertInterest) => {
     confirmDiscardUnsavedAlertChanges(() => {
+      deleteReloadGenerationRef.current += 1
       setDeleteAlertError(null)
       setDeleteConflictNeedsRefresh(false)
-      setPendingDeleteAlert(alert)
+      replacePendingDeleteAlert(alert)
     })
   }
   const confirmDeleteAlert = () => {
-    if (pendingDeleteAlert) {
+    if (
+      pendingDeleteAlert &&
+      !deleteConflictNeedsRefresh &&
+      !deleteConflictAlertsQuery.isFetching
+    ) {
       setDeleteAlertError(null)
       deleteAlert.mutate(pendingDeleteAlert)
     }
@@ -312,10 +339,12 @@ export function useAlertsPageController() {
   return {
     alertsQuery,
     category,
+    cancelPendingDeleteAlert,
     confirmDeleteAlert,
     confirmDiscardUnsavedAlertChanges,
     deleteAlert,
     deleteConflictNeedsRefresh,
+    deleteConflictReloadPending: deleteConflictAlertsQuery.isFetching,
     deleteAlertError,
     editingAlertId,
     editingAlertRevision,
@@ -337,10 +366,8 @@ export function useAlertsPageController() {
     saveAlert,
     saveDisabledReason,
     setCategory,
-    setDeleteAlertError,
     setKeywordsText,
     setName,
-    setPendingDeleteAlert,
     setSeverity,
     setShowDisabled,
     setSuppressionEnabled,

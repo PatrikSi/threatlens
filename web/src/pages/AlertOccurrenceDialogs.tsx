@@ -32,6 +32,9 @@ function CloseOccurrenceDialog({ controller }: { controller: AlertOccurrencesCon
         : count === 1 ? 'Close occurrence' : `Close ${count} occurrences`}
       confirmTone="danger"
       isConfirming={controller.lifecycleMutation.isPending || controller.bulkLifecycleMutation.isPending}
+      confirmingLabel={dispositionOnly
+        ? 'Updating disposition...'
+        : count === 1 ? 'Closing occurrence...' : `Closing ${count} occurrences...`}
       confirmDisabled={controller.closeConfirmationDisabled}
       onCancel={() => {
         controller.setCloseTarget(null)
@@ -47,6 +50,7 @@ function CloseOccurrenceDialog({ controller }: { controller: AlertOccurrencesCon
           id="alert-close-disposition"
           className="mt-1 min-h-11 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
           value={controller.closeDisposition}
+          disabled={controller.lifecycleMutation.isPending || controller.bulkLifecycleMutation.isPending}
           onChange={(event) => controller.setCloseDisposition(event.target.value as typeof controller.closeDisposition)}
         >
           {ALERT_CLOSURE_DISPOSITIONS.map((disposition) => (
@@ -68,6 +72,7 @@ function SnoozeOccurrenceDialog({ controller }: { controller: AlertOccurrencesCo
       confirmLabel="Snooze occurrence"
       confirmTone="primary"
       isConfirming={controller.snoozeMutation.isPending}
+      confirmingLabel="Snoozing occurrence..."
       confirmDisabled={!controller.snoozeTarget || Boolean(controller.snoozeValidationError)}
       onCancel={() => {
         controller.setSnoozeTarget(null)
@@ -84,6 +89,7 @@ function SnoozeOccurrenceDialog({ controller }: { controller: AlertOccurrencesCo
           type="datetime-local"
           className="mt-1 min-h-11 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
           value={controller.snoozeUntil}
+          disabled={controller.snoozeMutation.isPending}
           onChange={(event) => controller.setSnoozeUntil(event.target.value)}
         />
       </div>
@@ -97,6 +103,7 @@ function SnoozeOccurrenceDialog({ controller }: { controller: AlertOccurrencesCo
           maxLength={500}
           className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
           value={controller.snoozeReason}
+          disabled={controller.snoozeMutation.isPending}
           onChange={(event) => controller.setSnoozeReason(event.target.value)}
         />
         <p className="mt-1 text-xs text-slate dark:text-slate-400">{controller.snoozeReason.length}/500</p>
@@ -124,7 +131,7 @@ function BackfillOccurrencesDialog({ controller }: { controller: AlertOccurrence
         <>
           <button
             type="button"
-            className="min-h-10 rounded border border-slate/25 px-3 py-1.5 text-sm font-semibold disabled:opacity-50 dark:border-white/15"
+            className="min-h-11 rounded border border-slate/25 px-3 py-1.5 text-sm font-semibold disabled:opacity-50 sm:min-h-10 dark:border-white/15"
             disabled={busy}
             onClick={backfill.closeDialog}
           >
@@ -132,7 +139,7 @@ function BackfillOccurrencesDialog({ controller }: { controller: AlertOccurrence
           </button>
           <button
             type="button"
-            className="min-h-10 rounded border border-slate/30 px-3 py-1.5 text-sm font-semibold disabled:opacity-50 dark:border-white/15"
+            className="min-h-11 rounded border border-slate/30 px-3 py-1.5 text-sm font-semibold disabled:opacity-50 sm:min-h-10 dark:border-white/15"
             disabled={busy || Boolean(backfill.validationError)}
             onClick={backfill.previewBackfill}
           >
@@ -140,7 +147,7 @@ function BackfillOccurrencesDialog({ controller }: { controller: AlertOccurrence
           </button>
           <button
             type="button"
-            className="min-h-10 rounded bg-ink px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]"
+            className="min-h-11 rounded bg-ink px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50 sm:min-h-10 dark:bg-cyan dark:text-[#053c2e]"
             disabled={!backfill.canApply}
             onClick={backfill.applyBackfill}
           >
@@ -149,7 +156,7 @@ function BackfillOccurrencesDialog({ controller }: { controller: AlertOccurrence
           {backfill.canContinue && (
             <button
               type="button"
-              className="min-h-10 rounded bg-ink px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]"
+              className="min-h-11 rounded bg-ink px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50 sm:min-h-10 dark:bg-cyan dark:text-[#053c2e]"
               disabled={busy}
               onClick={backfill.continueBackfill}
             >

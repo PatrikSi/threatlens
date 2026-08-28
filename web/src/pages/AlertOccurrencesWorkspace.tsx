@@ -34,7 +34,9 @@ export function AlertOccurrencesWorkspace({ active = true }: { active?: boolean 
   const activeFilterCount =
     alertOccurrenceActiveFilterCount(controller.filters) +
     Number(Boolean(controller.loadedPageSearch.trim()))
-  const canBackfill = controller.currentUserQuery.data?.role === 'admin'
+  const canBackfill =
+    !controller.currentUserQuery.isError &&
+    controller.currentUserQuery.data?.role === 'admin'
 
   return (
     <section
@@ -56,7 +58,7 @@ export function AlertOccurrencesWorkspace({ active = true }: { active?: boolean 
             <button
               id="alert-occurrences-refresh"
               type="button"
-              className="min-h-10 rounded border border-slate/30 px-3 py-1.5 text-sm font-semibold disabled:opacity-60 dark:border-white/15"
+              className="min-h-11 rounded border border-slate/30 px-3 py-1.5 text-sm font-semibold disabled:opacity-60 sm:min-h-10 dark:border-white/15"
               disabled={occurrencesQuery.isFetching}
               aria-label="Refresh alert occurrences"
               onClick={() => void controller.refreshCollection()}
@@ -66,7 +68,7 @@ export function AlertOccurrencesWorkspace({ active = true }: { active?: boolean 
             {canBackfill && (
               <button
                 type="button"
-                className="min-h-10 rounded bg-ink px-3 py-1.5 text-sm font-semibold text-white dark:bg-cyan dark:text-[#053c2e]"
+                className="min-h-11 rounded bg-ink px-3 py-1.5 text-sm font-semibold text-white sm:min-h-10 dark:bg-cyan dark:text-[#053c2e]"
                 onClick={controller.backfill.openDialog}
               >
                 Backfill history
@@ -146,7 +148,7 @@ export function AlertOccurrencesWorkspace({ active = true }: { active?: boolean 
                 </p>
                 <button
                   type="button"
-                  className="mt-4 min-h-10 rounded border border-slate/30 px-3 py-1.5 text-sm font-semibold dark:border-white/15"
+                  className="mt-4 min-h-11 rounded border border-slate/30 px-3 py-1.5 text-sm font-semibold sm:min-h-10 dark:border-white/15"
                   onClick={() => controller.setLoadedPageSearch('')}
                 >
                   Clear page search
@@ -224,7 +226,7 @@ function OccurrenceFilters({
             id="alert-occurrence-search"
             type="search"
             maxLength={255}
-            className="mt-1 min-h-10 w-full rounded border border-slate/30 bg-white px-3 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
+            className="mt-1 min-h-11 w-full rounded border border-slate/30 bg-white px-3 py-1.5 text-sm sm:min-h-10 dark:border-cyan-900/40 dark:bg-[#072019]"
             value={controller.loadedPageSearch}
             onChange={(event) => controller.setLoadedPageSearch(event.target.value)}
             placeholder="Rule, source, keyword, or ID"
@@ -239,7 +241,7 @@ function OccurrenceFilters({
           </label>
           <select
             id="alert-occurrence-rule"
-            className="mt-1 min-h-10 w-full rounded border border-slate/30 bg-white px-3 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
+            className="mt-1 min-h-11 w-full rounded border border-slate/30 bg-white px-3 py-1.5 text-sm sm:min-h-10 dark:border-cyan-900/40 dark:bg-[#072019]"
             value={filters.ruleId}
             onChange={(event) => controller.updateFilters({ ruleId: event.target.value })}
           >
@@ -283,7 +285,7 @@ function OccurrenceFilters({
       </div>
 
       <details className="mt-2 border-t border-slate/15 pt-2 dark:border-white/10">
-        <summary className="cursor-pointer text-sm font-semibold text-ink dark:text-slate-200">
+        <summary className="flex min-h-11 cursor-pointer items-center text-sm font-semibold text-ink md:min-h-0 dark:text-slate-200">
           More filters
         </summary>
         <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
@@ -310,7 +312,7 @@ function OccurrenceFilters({
               id="alert-occurrence-since"
               type="datetime-local"
               max={filters.until || undefined}
-              className="mt-1 min-h-10 w-full rounded border border-slate/30 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
+              className="mt-1 min-h-11 w-full rounded border border-slate/30 bg-white px-2 py-1.5 text-sm sm:min-h-10 dark:border-cyan-900/40 dark:bg-[#072019]"
               value={filters.since}
               onChange={(event) => controller.updateFilters({ since: event.target.value })}
             />
@@ -326,7 +328,7 @@ function OccurrenceFilters({
               id="alert-occurrence-until"
               type="datetime-local"
               min={filters.since || undefined}
-              className="mt-1 min-h-10 w-full rounded border border-slate/30 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
+              className="mt-1 min-h-11 w-full rounded border border-slate/30 bg-white px-2 py-1.5 text-sm sm:min-h-10 dark:border-cyan-900/40 dark:bg-[#072019]"
               value={filters.until}
               onChange={(event) => controller.updateFilters({ until: event.target.value })}
             />
@@ -341,7 +343,7 @@ function OccurrenceFilters({
           </span>
           <button
             type="button"
-            className="min-h-9 rounded border border-slate/25 px-2.5 py-1 text-xs font-semibold dark:border-white/15"
+            className="min-h-11 rounded border border-slate/25 px-2.5 py-1 text-xs font-semibold sm:min-h-9 dark:border-white/15"
             onClick={controller.clearFilters}
           >
             Clear filters
@@ -370,7 +372,7 @@ function FilterCheckboxGroup({
         {options.map((option) => (
           <label
             key={option.value}
-            className={`flex min-h-9 cursor-pointer items-center gap-1.5 rounded border px-2 py-1 text-xs font-semibold md:min-h-0 ${
+            className={`flex min-h-11 cursor-pointer items-center gap-1.5 rounded border px-2 py-1 text-xs font-semibold md:min-h-0 ${
               selected.includes(option.value)
                 ? 'border-blue-400 bg-blue-50 text-blue-800 dark:border-cyan-700 dark:bg-cyan-950/30 dark:text-cyan-100'
                 : 'border-slate/25 text-slate-700 dark:border-white/15 dark:text-slate-200'
@@ -408,7 +410,7 @@ function BooleanFilterSelect({
       </label>
       <select
         id={id}
-        className="mt-1 min-h-10 w-full rounded border border-slate/30 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
+        className="mt-1 min-h-11 w-full rounded border border-slate/30 bg-white px-2 py-1.5 text-sm sm:min-h-10 dark:border-cyan-900/40 dark:bg-[#072019]"
         value={value}
         onChange={(event) => onChange(event.target.value as AlertBooleanFilter)}
       >
@@ -423,6 +425,11 @@ function BooleanFilterSelect({
 function OccurrenceActionFeedback({ controller }: { controller: AlertOccurrencesController }) {
   return (
     <>
+      {controller.mutationPendingMessage && (
+        <p role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+          {controller.mutationPendingMessage}
+        </p>
+      )}
       {controller.conflictNotice && (
         <div
           role="alert"
@@ -453,12 +460,15 @@ function OccurrenceActionFeedback({ controller }: { controller: AlertOccurrences
 
 function OccurrenceBulkToolbar({ controller }: { controller: AlertOccurrencesController }) {
   if (controller.selectedOccurrences.length === 0) return null
+  const pendingBulkAction = controller.bulkLifecycleMutation.isPending
+    ? controller.bulkLifecycleMutation.variables?.action
+    : null
   return (
     <div className="flex flex-wrap items-center gap-2 border-b border-slate/15 bg-slate-50 px-3 py-2 text-sm dark:border-white/10 dark:bg-white/[0.025] sm:px-4">
       <span className="font-semibold">{controller.selectedOccurrences.length} selected</span>
       <button
         type="button"
-        className="min-h-9 rounded border border-slate/30 px-2.5 py-1 text-xs font-semibold disabled:opacity-50 dark:border-white/15"
+        className="min-h-11 rounded border border-slate/30 px-2.5 py-1 text-xs font-semibold disabled:opacity-50 sm:min-h-9 dark:border-white/15"
         disabled={
           !controller.canBulkAcknowledge ||
           controller.mutationPending ||
@@ -476,11 +486,13 @@ function OccurrenceBulkToolbar({ controller }: { controller: AlertOccurrencesCon
         }
         onClick={controller.acknowledgeSelected}
       >
-        Acknowledge selected
+        {pendingBulkAction === 'acknowledge'
+          ? 'Acknowledging selected...'
+          : 'Acknowledge selected'}
       </button>
       <button
         type="button"
-        className="min-h-9 rounded bg-ink px-2.5 py-1 text-xs font-semibold text-white disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]"
+        className="min-h-11 rounded bg-ink px-2.5 py-1 text-xs font-semibold text-white disabled:opacity-50 sm:min-h-9 dark:bg-cyan dark:text-[#053c2e]"
         disabled={
           !controller.canBulkClose ||
           controller.mutationPending ||
@@ -494,11 +506,12 @@ function OccurrenceBulkToolbar({ controller }: { controller: AlertOccurrencesCon
         }
         onClick={controller.requestCloseSelected}
       >
-        Close selected
+        {pendingBulkAction === 'close' ? 'Closing selected...' : 'Close selected'}
       </button>
       <button
         type="button"
-        className="ml-auto min-h-9 rounded border border-slate/25 px-2.5 py-1 text-xs font-semibold dark:border-white/15"
+        className="ml-auto min-h-11 rounded border border-slate/25 px-2.5 py-1 text-xs font-semibold disabled:opacity-50 sm:min-h-9 dark:border-white/15"
+        disabled={controller.mutationPending}
         onClick={controller.clearSelection}
       >
         Clear selection
@@ -693,7 +706,7 @@ function OccurrenceMobileList({ controller }: { controller: AlertOccurrencesCont
               </p>
               <button
                 type="button"
-                className="min-h-10 rounded border border-slate/30 px-3 py-1.5 text-xs font-semibold dark:border-white/15"
+                className="min-h-11 rounded border border-slate/30 px-3 py-1.5 text-xs font-semibold dark:border-white/15"
                 aria-label={`Inspect occurrence from ${occurrence.alert_name_snapshot}`}
                 disabled={controller.occurrencesQuery.isPlaceholderData}
                 onClick={(event) => controller.selectOccurrence(occurrence.id, event.currentTarget)}
@@ -719,7 +732,7 @@ function OccurrencePagination({ controller }: { controller: AlertOccurrencesCont
       <label className="flex items-center gap-2 text-xs text-slate dark:text-slate-300">
         Rows per page
         <select
-          className="min-h-10 rounded border border-slate/30 bg-white px-2 py-1 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
+          className="min-h-11 rounded border border-slate/30 bg-white px-2 py-1 text-sm sm:min-h-10 dark:border-cyan-900/40 dark:bg-[#072019]"
           value={controller.pageSize}
           disabled={controller.occurrencesQuery.isFetching}
           onChange={(event: ChangeEvent<HTMLSelectElement>) =>
@@ -736,7 +749,7 @@ function OccurrencePagination({ controller }: { controller: AlertOccurrencesCont
       <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
         <button
           type="button"
-          className="min-h-10 rounded border border-slate/30 px-3 py-1.5 text-xs font-semibold disabled:opacity-50 dark:border-white/15"
+          className="min-h-11 rounded border border-slate/30 px-3 py-1.5 text-xs font-semibold disabled:opacity-50 sm:min-h-10 dark:border-white/15"
           disabled={controller.page <= 1 || controller.occurrencesQuery.isFetching}
           aria-label="Previous alert occurrence page"
           onClick={() => controller.setPage(controller.page - 1)}
@@ -748,7 +761,7 @@ function OccurrencePagination({ controller }: { controller: AlertOccurrencesCont
         </span>
         <button
           type="button"
-          className="min-h-10 rounded border border-slate/30 px-3 py-1.5 text-xs font-semibold disabled:opacity-50 dark:border-white/15"
+          className="min-h-11 rounded border border-slate/30 px-3 py-1.5 text-xs font-semibold disabled:opacity-50 sm:min-h-10 dark:border-white/15"
           disabled={
             controller.page >= controller.pageCount || controller.occurrencesQuery.isFetching
           }
@@ -780,7 +793,7 @@ function OccurrenceEmptyState({
       {controller.page > 1 && (
         <button
           type="button"
-          className="mt-4 min-h-10 rounded border border-slate/30 px-3 py-1.5 text-sm font-semibold dark:border-white/15"
+          className="mt-4 min-h-11 rounded border border-slate/30 px-3 py-1.5 text-sm font-semibold sm:min-h-10 dark:border-white/15"
           onClick={() => controller.setPage(1)}
         >
           Return to first page
@@ -789,7 +802,7 @@ function OccurrenceEmptyState({
       {activeFilterCount > 0 && controller.page === 1 && (
         <button
           type="button"
-          className="mt-4 min-h-10 rounded border border-slate/30 px-3 py-1.5 text-sm font-semibold dark:border-white/15"
+          className="mt-4 min-h-11 rounded border border-slate/30 px-3 py-1.5 text-sm font-semibold sm:min-h-10 dark:border-white/15"
           onClick={controller.clearFilters}
         >
           Clear filters

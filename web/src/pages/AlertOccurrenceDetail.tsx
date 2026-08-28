@@ -81,7 +81,7 @@ export function AlertOccurrenceDetail({ controller }: { controller: AlertOccurre
         />
         <button
           type="button"
-          className="m-3 min-h-10 rounded border border-slate/30 px-3 py-1.5 text-xs font-semibold dark:border-white/15"
+          className="m-3 min-h-11 rounded border border-slate/30 px-3 py-1.5 text-xs font-semibold sm:min-h-10 dark:border-white/15"
           onClick={controller.closeOccurrenceDetail}
         >
           Close details
@@ -94,6 +94,8 @@ export function AlertOccurrenceDetail({ controller }: { controller: AlertOccurre
   const occurrence = detailQuery.data
   const source = getAlertOccurrenceSource(occurrence)
   const actions = getAlertOccurrenceLifecycleActions(occurrence.lifecycle_state)
+  const pendingLifecycleState = pendingLifecycleStateFor(controller, occurrence)
+  const snoozePending = snoozePendingFor(controller, occurrence)
 
   return (
     <aside
@@ -124,7 +126,7 @@ export function AlertOccurrenceDetail({ controller }: { controller: AlertOccurre
           </div>
           <button
             type="button"
-            className="shrink-0 rounded border border-slate/25 px-2 py-1 text-xs font-semibold dark:border-white/15"
+            className="min-h-11 min-w-11 shrink-0 rounded border border-slate/25 px-2 py-1 text-xs font-semibold sm:min-h-0 sm:min-w-0 dark:border-white/15"
             aria-label="Close occurrence details"
             onClick={controller.closeOccurrenceDetail}
           >
@@ -172,14 +174,14 @@ export function AlertOccurrenceDetail({ controller }: { controller: AlertOccurre
         <div className="mt-2 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
           {actions.includes('acknowledge') && (
             <ActionButton
-              label="Acknowledge"
+              label={acknowledgeActionLabel(pendingLifecycleState)}
               disabled={controller.mutationPending || controller.writeDenied}
               onClick={() => controller.runLifecycleAction(occurrence, 'acknowledge')}
             />
           )}
           {actions.includes('investigate') && (
             <ActionButton
-              label="Start investigating"
+              label={investigateActionLabel(pendingLifecycleState)}
               disabled={controller.mutationPending || controller.writeDenied}
               onClick={() => controller.runLifecycleAction(occurrence, 'investigate')}
             />
@@ -208,7 +210,7 @@ export function AlertOccurrenceDetail({ controller }: { controller: AlertOccurre
           )}
           {occurrence.lifecycle_state !== 'closed' && occurrence.snoozed_until && (
             <ActionButton
-              label={occurrence.is_snoozed ? 'Clear snooze' : 'Clear expired snooze'}
+              label={clearSnoozeActionLabel(snoozePending, occurrence.is_snoozed)}
               disabled={controller.mutationPending || controller.writeDenied}
               onClick={() => controller.clearSnooze(occurrence)}
             />
@@ -244,7 +246,7 @@ export function AlertOccurrenceDetail({ controller }: { controller: AlertOccurre
         )}
         {source.url && (
           <a
-            className="mt-3 inline-flex min-h-10 items-center rounded border border-slate/30 px-3 py-1.5 text-sm font-semibold text-blue-700 dark:border-white/15 dark:text-cyan"
+            className="mt-3 inline-flex min-h-11 items-center rounded border border-slate/30 px-3 py-1.5 text-sm font-semibold text-blue-700 sm:min-h-10 dark:border-white/15 dark:text-cyan"
             href={source.url}
             target="_blank"
             rel="noreferrer"
@@ -352,7 +354,7 @@ function OccurrenceActivity({ controller }: { controller: AlertOccurrencesContro
         </h4>
         <button
           type="button"
-          className="rounded border border-slate/25 px-2 py-1 text-xs font-semibold disabled:opacity-60 dark:border-white/15"
+          className="min-h-11 min-w-11 rounded border border-slate/25 px-2 py-1 text-xs font-semibold disabled:opacity-60 sm:min-h-0 sm:min-w-0 dark:border-white/15"
           disabled={activityQuery.isFetching}
           aria-label="Refresh occurrence activity"
           onClick={() => void activityQuery.refetch()}
@@ -399,7 +401,7 @@ function OccurrenceActivity({ controller }: { controller: AlertOccurrencesContro
         <div className="mt-3 flex items-center justify-between gap-2 text-xs">
           <button
             type="button"
-            className="min-h-9 rounded border border-slate/25 px-2.5 py-1 font-semibold disabled:opacity-50 dark:border-white/15"
+            className="min-h-11 rounded border border-slate/25 px-2.5 py-1 font-semibold disabled:opacity-50 sm:min-h-9 dark:border-white/15"
             disabled={controller.activityPage <= 1 || activityQuery.isFetching}
             aria-label="Previous occurrence activity page"
             onClick={() => controller.setActivityPage(controller.activityPage - 1)}
@@ -411,7 +413,7 @@ function OccurrenceActivity({ controller }: { controller: AlertOccurrencesContro
           </span>
           <button
             type="button"
-            className="min-h-9 rounded border border-slate/25 px-2.5 py-1 font-semibold disabled:opacity-50 dark:border-white/15"
+            className="min-h-11 rounded border border-slate/25 px-2.5 py-1 font-semibold disabled:opacity-50 sm:min-h-9 dark:border-white/15"
             disabled={controller.activityPage >= pageCount || activityQuery.isFetching}
             aria-label="Next occurrence activity page"
             onClick={() => controller.setActivityPage(controller.activityPage + 1)}
@@ -490,8 +492,8 @@ function ActionButton({
       type="button"
       className={
         primary
-          ? 'min-h-10 rounded bg-ink px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]'
-          : 'min-h-10 rounded border border-slate/30 px-3 py-1.5 text-sm font-semibold disabled:opacity-50 dark:border-white/15'
+          ? 'min-h-11 rounded bg-ink px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50 sm:min-h-10 dark:bg-cyan dark:text-[#053c2e]'
+          : 'min-h-11 rounded border border-slate/30 px-3 py-1.5 text-sm font-semibold disabled:opacity-50 sm:min-h-10 dark:border-white/15'
       }
       disabled={disabled}
       onClick={onClick}
@@ -499,4 +501,38 @@ function ActionButton({
       {label}
     </button>
   )
+}
+
+function pendingLifecycleStateFor(
+  controller: AlertOccurrencesController,
+  occurrence: AlertOccurrence,
+) {
+  const input = controller.lifecycleMutation.variables
+  if (!controller.lifecycleMutation.isPending || input?.occurrence.id !== occurrence.id) {
+    return null
+  }
+  return input.state
+}
+
+function snoozePendingFor(
+  controller: AlertOccurrencesController,
+  occurrence: AlertOccurrence,
+) {
+  return (
+    controller.snoozeMutation.isPending &&
+    controller.snoozeMutation.variables?.occurrence.id === occurrence.id
+  )
+}
+
+function acknowledgeActionLabel(pendingState: string | null) {
+  return pendingState === 'acknowledged' ? 'Acknowledging...' : 'Acknowledge'
+}
+
+function investigateActionLabel(pendingState: string | null) {
+  return pendingState === 'investigating' ? 'Starting investigation...' : 'Start investigating'
+}
+
+function clearSnoozeActionLabel(pending: boolean, snoozed: boolean) {
+  if (pending) return 'Clearing snooze...'
+  return snoozed ? 'Clear snooze' : 'Clear expired snooze'
 }
