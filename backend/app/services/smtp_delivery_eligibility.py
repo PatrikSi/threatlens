@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -29,6 +30,19 @@ class SMTPDeliveryIneligibleError(RuntimeError):
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
         self.code = code
+
+
+def persisted_smtp_settings_heartbeat(
+    heartbeat: Callable[[int, ActiveSMTPSettings], None],
+    *,
+    persisted_settings: ActiveSMTPSettings,
+) -> Callable[[int, ActiveSMTPSettings], None]:
+    def _heartbeat(
+        lease_seconds: int, _effective_settings: ActiveSMTPSettings
+    ) -> None:
+        heartbeat(lease_seconds, persisted_settings)
+
+    return _heartbeat
 
 
 def lock_smtp_delivery_external_io_eligibility(
