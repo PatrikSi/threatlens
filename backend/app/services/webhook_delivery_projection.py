@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.integration import IntegrationDelivery
@@ -63,3 +63,49 @@ def sync_terminal_webhook_projection(
         generic.completed_at or generic.dead_lettered_at or current_time
     )
     return True
+
+
+def terminal_webhook_projection_mismatch():
+    terminal_timestamp = func.coalesce(
+        IntegrationDelivery.completed_at,
+        IntegrationDelivery.dead_lettered_at,
+    )
+    return and_(
+        IntegrationDelivery.state.in_(_GENERIC_TERMINAL_STATES),
+        or_(
+            and_(
+                IntegrationDelivery.state == "succeeded",
+                or_(
+                    NotificationWebhookDelivery.delivery_state != "succeeded",
+                    NotificationWebhookDelivery.success.is_(False),
+                    NotificationWebhookDelivery.error.is_not(None),
+                ),
+            ),
+            and_(
+                IntegrationDelivery.state.in_(["failed", "dead_letter"]),
+                or_(
+                    NotificationWebhookDelivery.delivery_state != "failed",
+                    NotificationWebhookDelivery.success.is_(True),
+                    NotificationWebhookDelivery.error.is_distinct_from(
+                        IntegrationDelivery.last_error_message
+                    ),
+                ),
+            ),
+            NotificationWebhookDelivery.status_code.is_distinct_from(
+                IntegrationDelivery.last_status_code
+            ),
+            NotificationWebhookDelivery.duration_ms.is_distinct_from(
+                IntegrationDelivery.last_duration_ms
+            ),
+            NotificationWebhookDelivery.attempt_count
+            < IntegrationDelivery.attempt_count,
+            NotificationWebhookDelivery.claimed_at.is_not(None),
+            NotificationWebhookDelivery.not_before.is_not(None),
+            and_(
+                terminal_timestamp.is_not(None),
+                NotificationWebhookDelivery.attempted_at.is_distinct_from(
+                    terminal_timestamp
+                ),
+            ),
+        ),
+    )
