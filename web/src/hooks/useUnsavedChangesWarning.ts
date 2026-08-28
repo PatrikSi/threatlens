@@ -19,6 +19,7 @@ type UnsavedChangesWarningOptions = {
 export type ConfirmDiscardChanges = {
   (onDiscard?: () => void): boolean
   discardDialog: ReactNode
+  discardDialogOpen: boolean
 }
 
 function defaultConfirmUnsavedChanges(message: string) {
@@ -130,7 +131,11 @@ export function useUnsavedChangesWarning(
   })
 
   return useMemo(
-    () => Object.assign(requestDiscard, { discardDialog }),
-    [discardDialog, requestDiscard],
+    () =>
+      Object.assign(requestDiscard, {
+        discardDialog,
+        discardDialogOpen: pendingAction !== null,
+      }),
+    [discardDialog, pendingAction, requestDiscard],
   )
 }

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 
 import { apiFetch } from '../api/client'
@@ -43,7 +43,7 @@ export interface InvestigationEvidenceDraft {
   note: string
 }
 
-export type InvestigationMutationOperation =
+export type InvestigationMutationOperation = (
   | { kind: 'update'; changes: Omit<InvestigationUpdateRequest, 'expected_version'> }
   | { kind: 'add-member'; userId: string; role: InvestigationMemberRole }
   | { kind: 'update-member'; userId: string; role: InvestigationMemberRole }
@@ -53,6 +53,7 @@ export type InvestigationMutationOperation =
   | { kind: 'add-note'; body: string }
   | { kind: 'update-note'; noteId: string; noteVersion: number; body: string }
   | { kind: 'remove-note'; noteId: string; noteVersion: number }
+) & { expectedVersion: number }
 
 const EMPTY_OVERVIEW_DRAFT: InvestigationOverviewDraft = {
   title: '',
@@ -76,11 +77,18 @@ export function useInvestigationDetail(investigationId: string) {
   const detailKey = useMemo(() => ['investigations', 'detail', investigationId] as const, [investigationId])
   const [overviewDraft, setOverviewDraft] = useState<InvestigationOverviewDraft>(EMPTY_OVERVIEW_DRAFT)
   const [overviewBaseline, setOverviewBaseline] = useState<InvestigationOverviewDraft>(EMPTY_OVERVIEW_DRAFT)
+  const [overviewBaselineVersion, setOverviewBaselineVersion] = useState<number | null>(null)
   const [noteDraft, setNoteDraft] = useState('')
+  const [noteDraftVersion, setNoteDraftVersion] = useState<number | null>(null)
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null)
   const [editingNoteBody, setEditingNoteBody] = useState('')
   const [editingNoteBaseline, setEditingNoteBaseline] = useState('')
+  const [editingNoteVersion, setEditingNoteVersion] = useState<number | null>(null)
+  const [editingNoteInvestigationVersion, setEditingNoteInvestigationVersion] =
+    useState<number | null>(null)
   const [evidenceDraft, setEvidenceDraft] = useState<InvestigationEvidenceDraft>(EMPTY_EVIDENCE_DRAFT)
+  const evidenceDraftRef = useRef<InvestigationEvidenceDraft>(EMPTY_EVIDENCE_DRAFT)
+  const [evidenceDraftVersion, setEvidenceDraftVersion] = useState<number | null>(null)
   const [alertOccurrenceUnavailable, setAlertOccurrenceUnavailable] = useState(false)
   const [memberSearch, setMemberSearch] = useState('')
   const [debouncedMemberSearch, setDebouncedMemberSearch] = useState('')
@@ -94,11 +102,17 @@ export function useInvestigationDetail(investigationId: string) {
   useEffect(() => {
     setOverviewDraft(EMPTY_OVERVIEW_DRAFT)
     setOverviewBaseline(EMPTY_OVERVIEW_DRAFT)
+    setOverviewBaselineVersion(null)
     setNoteDraft('')
+    setNoteDraftVersion(null)
     setEditingNoteId(null)
     setEditingNoteBody('')
     setEditingNoteBaseline('')
+    setEditingNoteVersion(null)
+    setEditingNoteInvestigationVersion(null)
+    evidenceDraftRef.current = EMPTY_EVIDENCE_DRAFT
     setEvidenceDraft(EMPTY_EVIDENCE_DRAFT)
+    setEvidenceDraftVersion(null)
     setEvidencePage(1)
     setNotePage(1)
   }, [investigationId])
@@ -113,7 +127,10 @@ export function useInvestigationDetail(investigationId: string) {
   })
   const detail = detailQuery.data
   const access = detail
-    ? resolveInvestigationAccess(detail, currentUserQuery.data?.role)
+    ? resolveInvestigationAccess(
+        detail,
+        currentUserQuery.isError ? undefined : currentUserQuery.data?.role,
+      )
     : null
   const overviewDirty = !sameOverviewDraft(overviewDraft, overviewBaseline)
   const hasUnsavedChanges =
@@ -132,6 +149,7 @@ export function useInvestigationDetail(investigationId: string) {
     const next = overviewDraftFromDetail(detail)
     setOverviewDraft(next)
     setOverviewBaseline(next)
+    setOverviewBaselineVersion(detail.version)
   }, [detail, overviewDirty])
 
   useEffect(() => {
@@ -163,6 +181,11 @@ export function useInvestigationDetail(investigationId: string) {
     const memberIds = new Set(detail?.members.map((member) => member.user_id) ?? [])
     return (memberCandidatesQuery.data?.users ?? []).filter((candidate) => !memberIds.has(candidate.id))
   }, [detail?.members, memberCandidatesQuery.data?.users])
+  const memberCandidateSelectionUnavailable =
+    memberSearch.trim() !== debouncedMemberSearch ||
+    memberCandidatesQuery.isFetching ||
+    memberCandidatesQuery.isPlaceholderData ||
+    memberCandidatesQuery.isError
 
   const evidenceQuery = useQuery({
     queryKey: ['investigations', 'evidence', investigationId, evidencePage],
@@ -212,7 +235,7 @@ export function useInvestigationDetail(investigationId: string) {
   const mutation = useMutation({
     mutationKey: ['investigations', 'mutate', investigationId],
     mutationFn: (operation: InvestigationMutationOperation) =>
-      executeInvestigationMutation(queryClient, detailKey, investigationId, operation),
+      executeInvestigationMutation(investigationId, operation),
     onMutate: () => {
       setConflictNotice(null)
       setSuccessNotice(null)
@@ -248,6 +271,7 @@ export function useInvestigationDetail(investigationId: string) {
         const nextOverview = overviewDraftFromDetail(updated)
         setOverviewDraft(nextOverview)
         setOverviewBaseline(nextOverview)
+        setOverviewBaselineVersion(updated.version)
       }
       resetSuccessfulDraft(operation)
       setSuccessNotice(successMessage(operation))
@@ -274,13 +298,22 @@ export function useInvestigationDetail(investigationId: string) {
   })
 
   const resetSuccessfulDraft = (operation: InvestigationMutationOperation) => {
-    if (operation.kind === 'add-note') setNoteDraft('')
+    if (operation.kind === 'add-note') {
+      setNoteDraft('')
+      setNoteDraftVersion(null)
+    }
     if (operation.kind === 'update-note') {
       setEditingNoteId(null)
       setEditingNoteBody('')
       setEditingNoteBaseline('')
+      setEditingNoteVersion(null)
+      setEditingNoteInvestigationVersion(null)
     }
-    if (operation.kind === 'add-evidence') setEvidenceDraft(EMPTY_EVIDENCE_DRAFT)
+    if (operation.kind === 'add-evidence') {
+      evidenceDraftRef.current = EMPTY_EVIDENCE_DRAFT
+      setEvidenceDraft(EMPTY_EVIDENCE_DRAFT)
+      setEvidenceDraftVersion(null)
+    }
   }
 
   const setActiveTab = (tab: typeof activeTab) => {
@@ -295,16 +328,38 @@ export function useInvestigationDetail(investigationId: string) {
     if (!result.error) setConflictNotice(null)
   }
 
-  const beginNoteEdit = (noteId: string, body: string) => {
+  const beginNoteEdit = (noteId: string, noteVersion: number, body: string) => {
     setEditingNoteId(noteId)
     setEditingNoteBody(body)
     setEditingNoteBaseline(body)
+    setEditingNoteVersion(noteVersion)
+    setEditingNoteInvestigationVersion(detail?.version ?? null)
   }
 
   const cancelNoteEdit = () => {
     setEditingNoteId(null)
     setEditingNoteBody('')
     setEditingNoteBaseline('')
+    setEditingNoteVersion(null)
+    setEditingNoteInvestigationVersion(null)
+  }
+
+  const updateNoteDraft = (value: string) => {
+    setNoteDraft(value)
+    setNoteDraftVersion((current) =>
+      value.length > 0 ? (current ?? detail?.version ?? null) : null,
+    )
+  }
+
+  const updateEvidenceDraft = (changes: Partial<InvestigationEvidenceDraft>) => {
+    const next = { ...evidenceDraftRef.current, ...changes }
+    evidenceDraftRef.current = next
+    setEvidenceDraft(next)
+    setEvidenceDraftVersion((current) =>
+      sameEvidenceDraft(next, EMPTY_EVIDENCE_DRAFT)
+        ? null
+        : (current ?? detail?.version ?? null),
+    )
   }
 
   return {
@@ -323,43 +378,50 @@ export function useInvestigationDetail(investigationId: string) {
     editingNoteBody,
     editingNoteId,
     evidenceDraft,
+    evidenceDraftVersion,
     evidencePage,
     evidenceQuery,
     hasUnsavedChanges,
     memberCandidatesQuery,
+    memberCandidateSelectionUnavailable,
     memberPage,
     memberSearch,
     mutation,
     noteDraft,
+    noteDraftVersion,
     notePage,
     notesQuery,
     overviewBaseline,
+    overviewBaselineVersion,
     overviewDraft,
     overviewDirty,
     refreshLatest,
     setActiveTab,
     setActivityPage,
     setEditingNoteBody,
-    setEvidenceDraft,
+    editingNoteInvestigationVersion,
+    editingNoteVersion,
     setEvidencePage,
     setMemberPage,
     setMemberSearch,
-    setNoteDraft,
     setNotePage,
     setOverviewDraft,
     successNotice,
+    updateEvidenceDraft,
+    updateNoteDraft,
   }
 }
 
 export async function executeInvestigationMutation(
-  queryClient: QueryClient,
-  detailKey: readonly ['investigations', 'detail', string],
   investigationId: string,
   operation: InvestigationMutationOperation,
 ): Promise<InvestigationDetail> {
-  const latest = queryClient.getQueryData<InvestigationDetail>(detailKey)
-  if (!latest) throw new Error('The latest investigation version is unavailable. Refresh the page before retrying.')
-  const expectedVersion = latest.version
+  if (!Number.isInteger(operation.expectedVersion) || operation.expectedVersion < 1) {
+    throw new Error(
+      'The draft investigation version is unavailable. Refresh the investigation before retrying.',
+    )
+  }
+  const expectedVersion = operation.expectedVersion
   const basePath = `/investigations/${investigationId}`
 
   if (operation.kind === 'update') {

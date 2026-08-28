@@ -23,11 +23,18 @@ export function InvestigationMembersPanel({
 }) {
   const detail = controller.detailQuery.data
   const [selectedUserId, setSelectedUserId] = useState('')
+  const [selectedUserBaselineVersion, setSelectedUserBaselineVersion] = useState<number | null>(
+    null,
+  )
   const [newMemberRole, setNewMemberRole] = useState<InvestigationMemberRole>('viewer')
-  const [pendingRemoval, setPendingRemoval] = useState<InvestigationMember | null>(null)
+  const [pendingRemoval, setPendingRemoval] = useState<{
+    member: InvestigationMember
+    expectedVersion: number
+  } | null>(null)
   const [pendingRoleChange, setPendingRoleChange] = useState<{
     member: InvestigationMember
     role: InvestigationMemberRole
+    expectedVersion: number
   } | null>(null)
   if (!detail || !controller.access) return null
 
@@ -40,7 +47,7 @@ export function InvestigationMembersPanel({
     pendingRemoval &&
     controller.mutation.isError &&
     controller.mutation.variables?.kind === 'remove-member' &&
-    controller.mutation.variables.userId === pendingRemoval.user_id
+    controller.mutation.variables.userId === pendingRemoval.member.user_id
       ? resolveApiErrorMessage(controller.mutation.error, 'Member could not be removed', {
           retryGuidance: 'Review the member list and try again.',
         })
@@ -57,11 +64,31 @@ export function InvestigationMembersPanel({
 
   const addMember = (event: FormEvent) => {
     event.preventDefault()
-    if (!selectedUserId) return
-    controller.mutation.mutate(
-      { kind: 'add-member', userId: selectedUserId, role: newMemberRole },
-      { onSuccess: () => setSelectedUserId('') },
+    if (
+      !selectedUserId ||
+      selectedUserBaselineVersion === null ||
+      controller.memberCandidateSelectionUnavailable
     )
+      return
+    controller.mutation.mutate(
+      {
+        kind: 'add-member',
+        userId: selectedUserId,
+        role: newMemberRole,
+        expectedVersion: selectedUserBaselineVersion,
+      },
+      {
+        onSuccess: () => {
+          setSelectedUserId('')
+          setSelectedUserBaselineVersion(null)
+        },
+      },
+    )
+  }
+
+  const selectCandidate = (userId: string) => {
+    setSelectedUserId(userId)
+    setSelectedUserBaselineVersion(userId ? detail.version : null)
   }
 
   return (
@@ -93,7 +120,11 @@ export function InvestigationMembersPanel({
                 maxLength={255}
                 className="mt-1 min-h-11 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
                 value={controller.memberSearch}
-                onChange={(event) => controller.setMemberSearch(event.target.value)}
+                disabled={controller.mutation.isPending}
+                onChange={(event) => {
+                  selectCandidate('')
+                  controller.setMemberSearch(event.target.value)
+                }}
                 placeholder="Search by email"
               />
             </div>
@@ -105,6 +136,7 @@ export function InvestigationMembersPanel({
                 id="investigation-new-member-role"
                 className="mt-1 min-h-11 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
                 value={newMemberRole}
+                disabled={controller.mutation.isPending}
                 onChange={(event) =>
                   setNewMemberRole(event.target.value as InvestigationMemberRole)
                 }
@@ -119,7 +151,12 @@ export function InvestigationMembersPanel({
             <button
               type="submit"
               className="min-h-11 rounded bg-ink px-3 py-2 text-sm font-semibold text-white disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]"
-              disabled={!selectedUserId || controller.mutation.isPending}
+              disabled={
+                !selectedUserId ||
+                selectedUserBaselineVersion === null ||
+                controller.mutation.isPending ||
+                controller.memberCandidateSelectionUnavailable
+              }
             >
               Add member
             </button>
@@ -128,7 +165,7 @@ export function InvestigationMembersPanel({
           <CandidateResults
             controller={controller}
             selectedUserId={selectedUserId}
-            onSelect={setSelectedUserId}
+            onSelect={selectCandidate}
           />
 
           {candidatePages > 1 && (
@@ -173,16 +210,23 @@ export function InvestigationMembersPanel({
         pending={controller.mutation.isPending}
         onRoleChange={(member, role) => {
           if (isAccessReducingRoleChange(member.role, role)) {
-            setPendingRoleChange({ member, role })
+            setPendingRoleChange({
+              member,
+              role,
+              expectedVersion: detail.version,
+            })
             return
           }
           controller.mutation.mutate({
             kind: 'update-member',
             userId: member.user_id,
             role,
+            expectedVersion: detail.version,
           })
         }}
-        onRemove={setPendingRemoval}
+        onRemove={(member) =>
+          setPendingRemoval({ member, expectedVersion: detail.version })
+        }
       />
 
       <InvestigationConfirmDialog
@@ -204,6 +248,7 @@ export function InvestigationMembersPanel({
               kind: 'update-member',
               userId: pendingRoleChange.member.user_id,
               role: pendingRoleChange.role,
+              expectedVersion: pendingRoleChange.expectedVersion,
             },
             { onSuccess: () => setPendingRoleChange(null) },
           )
@@ -215,7 +260,7 @@ export function InvestigationMembersPanel({
         title="Remove investigation member?"
         description={
           pendingRemoval
-            ? `Remove ${pendingRemoval.email} from this investigation? Their account and other access will not be changed.`
+            ? `Remove ${pendingRemoval.member.email} from this investigation? Their account and other access will not be changed.`
             : undefined
         }
         confirmLabel="Remove member"
@@ -225,7 +270,11 @@ export function InvestigationMembersPanel({
         onConfirm={() => {
           if (!pendingRemoval) return
           controller.mutation.mutate(
-            { kind: 'remove-member', userId: pendingRemoval.user_id },
+            {
+              kind: 'remove-member',
+              userId: pendingRemoval.member.user_id,
+              expectedVersion: pendingRemoval.expectedVersion,
+            },
             { onSuccess: () => setPendingRemoval(null) },
           )
         }}
@@ -247,9 +296,18 @@ function CandidateResults({
   const candidates = controller.availableMemberCandidates
 
   useEffect(() => {
-    if (selectedUserId && !candidates.some((candidate) => candidate.id === selectedUserId))
+    if (
+      controller.memberCandidateSelectionUnavailable ||
+      (selectedUserId &&
+        !candidates.some((candidate) => candidate.id === selectedUserId))
+    )
       onSelect('')
-  }, [candidates, onSelect, selectedUserId])
+  }, [
+    candidates,
+    controller.memberCandidateSelectionUnavailable,
+    onSelect,
+    selectedUserId,
+  ])
 
   if (query.isLoading)
     return (
@@ -267,17 +325,23 @@ function CandidateResults({
     <div className="mt-3">
       {query.isFetching && query.data && (
         <p role="status" className="mb-2 text-xs text-slate dark:text-slate-400">
-          Updating account candidates...
+          Updating account candidates. Previous results cannot be selected.
         </p>
       )}
       {query.isError && query.data && (
         <p role="alert" className="mb-2 text-sm text-amber-800 dark:text-amber-200">
           {resolveApiErrorMessage(query.error, 'Member candidates could not be refreshed')} Last
-          loaded candidates remain visible.
+          loaded candidates remain visible but cannot be selected.
         </p>
       )}
       {candidates.length > 0 ? (
-        <fieldset className="grid gap-1 sm:grid-cols-2 lg:grid-cols-3">
+        <fieldset
+          className="grid gap-1 disabled:opacity-60 sm:grid-cols-2 lg:grid-cols-3"
+          disabled={
+            controller.memberCandidateSelectionUnavailable ||
+            controller.mutation.isPending
+          }
+        >
           <legend className="sr-only">Select an account to add</legend>
           {candidates.map((candidate) => (
             <label

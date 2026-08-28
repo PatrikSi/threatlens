@@ -473,7 +473,10 @@ function CreateInvestigationDialog({ controller }: { controller: InvestigationsP
   const onSubmit = (event: FormEvent) => controller.submitCreate(event)
   return (
     <DialogSurface
-      open={controller.createOpen}
+      open={
+        controller.createOpen &&
+        !controller.confirmDiscardCreateDraft.discardDialogOpen
+      }
       title="Create investigation"
       description="Start a focused workspace for evidence, analyst decisions, and handoff."
       dismissDisabled={controller.createInvestigation.isPending}
@@ -493,6 +496,7 @@ function CreateInvestigationDialog({ controller }: { controller: InvestigationsP
             autoFocus
             className="mt-1 min-h-11 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
             value={draft.title}
+            disabled={controller.createInvestigation.isPending}
             onChange={(event) =>
               controller.setCreateDraft((current) => ({
                 ...current,
@@ -511,6 +515,7 @@ function CreateInvestigationDialog({ controller }: { controller: InvestigationsP
             rows={4}
             className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
             value={draft.description}
+            disabled={controller.createInvestigation.isPending}
             onChange={(event) =>
               controller.setCreateDraft((current) => ({
                 ...current,
@@ -528,6 +533,7 @@ function CreateInvestigationDialog({ controller }: { controller: InvestigationsP
               id="investigation-create-severity"
               className="mt-1 min-h-11 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
               value={draft.severity}
+              disabled={controller.createInvestigation.isPending}
               onChange={(event) =>
                 controller.setCreateDraft((current) => ({
                   ...current,
@@ -550,6 +556,7 @@ function CreateInvestigationDialog({ controller }: { controller: InvestigationsP
               id="investigation-create-visibility"
               className="mt-1 min-h-11 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
               value={draft.visibility}
+              disabled={controller.createInvestigation.isPending}
               onChange={(event) =>
                 controller.setCreateDraft((current) => ({
                   ...current,
@@ -567,6 +574,7 @@ function CreateInvestigationDialog({ controller }: { controller: InvestigationsP
             type="checkbox"
             className="accent-cyan"
             checked={draft.assignToMe}
+            disabled={controller.createInvestigation.isPending}
             onChange={(event) =>
               controller.setCreateDraft((current) => ({
                 ...current,

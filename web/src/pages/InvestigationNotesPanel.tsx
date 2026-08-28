@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from 'react'
+import { FormEvent, useState } from 'react'
 
 import { resolveApiErrorMessage } from '../api/errors'
 import type { InvestigationNote } from '../types/investigations'
@@ -20,21 +20,14 @@ export function InvestigationNotesPanel({
   controller: InvestigationDetailController
 }) {
   const detail = controller.detailQuery.data
-  const [pendingRemoval, setPendingRemoval] = useState<InvestigationNote | null>(null)
+  const [pendingRemoval, setPendingRemoval] = useState<{
+    note: InvestigationNote
+    expectedVersion: number
+  } | null>(null)
   const terminalCollectionError =
     controller.notesQuery.isError &&
     isTerminalInvestigationAccessError(controller.notesQuery.error)
   const notesPage = terminalCollectionError ? undefined : controller.notesQuery.data
-
-  useEffect(() => {
-    if (!pendingRemoval || !notesPage || !controller.mutation.isError) return
-    const latest = notesPage.notes.find((note) => note.id === pendingRemoval.id)
-    if (!latest) {
-      setPendingRemoval(null)
-      return
-    }
-    if (latest.version !== pendingRemoval.version) setPendingRemoval(latest)
-  }, [controller.mutation.isError, notesPage, pendingRemoval])
 
   if (!detail || !controller.access) return null
   const hasNotesPage = Boolean(notesPage)
@@ -43,7 +36,7 @@ export function InvestigationNotesPanel({
     pendingRemoval &&
     controller.mutation.isError &&
     controller.mutation.variables?.kind === 'remove-note' &&
-    controller.mutation.variables.noteId === pendingRemoval.id
+    controller.mutation.variables.noteId === pendingRemoval.note.id
       ? resolveApiErrorMessage(controller.mutation.error, 'Note could not be removed', {
           retryGuidance: 'Review the latest note version and try again.',
         })
@@ -52,7 +45,13 @@ export function InvestigationNotesPanel({
   const addNote = (event: FormEvent) => {
     event.preventDefault()
     const body = controller.noteDraft.trim()
-    if (body) controller.mutation.mutate({ kind: 'add-note', body })
+    if (body && controller.noteDraftVersion !== null) {
+      controller.mutation.mutate({
+        kind: 'add-note',
+        body,
+        expectedVersion: controller.noteDraftVersion,
+      })
+    }
   }
 
   return (
@@ -85,13 +84,18 @@ export function InvestigationNotesPanel({
             maxLength={10_000}
             className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
             value={controller.noteDraft}
-            onChange={(event) => controller.setNoteDraft(event.target.value)}
+            disabled={controller.mutation.isPending}
+            onChange={(event) => controller.updateNoteDraft(event.target.value)}
             placeholder="Record analyst context or a decision"
           />
           <button
             type="submit"
             className="mt-2 min-h-11 w-full rounded bg-ink px-3 py-2 text-sm font-semibold text-white disabled:opacity-50 sm:w-auto dark:bg-cyan dark:text-[#053c2e]"
-            disabled={controller.mutation.isPending || !controller.noteDraft.trim()}
+            disabled={
+              controller.mutation.isPending ||
+              controller.noteDraftVersion === null ||
+              !controller.noteDraft.trim()
+            }
           >
             {controller.mutation.isPending ? 'Saving...' : 'Add note'}
           </button>
@@ -173,7 +177,9 @@ export function InvestigationNotesPanel({
                             : undefined
                         }
                         aria-label={`Edit note by ${note.author_email ?? 'unknown author'}`}
-                        onClick={() => controller.beginNoteEdit(note.id, note.body)}
+                        onClick={() =>
+                          controller.beginNoteEdit(note.id, note.version, note.body)
+                        }
                       >
                         Edit
                       </button>
@@ -194,7 +200,12 @@ export function InvestigationNotesPanel({
                             : undefined
                         }
                         aria-label={`Remove note by ${note.author_email ?? 'unknown author'}`}
-                        onClick={() => setPendingRemoval(note)}
+                        onClick={() =>
+                          setPendingRemoval({
+                            note,
+                            expectedVersion: detail.version,
+                          })
+                        }
                       >
                         Remove
                       </button>
@@ -207,12 +218,18 @@ export function InvestigationNotesPanel({
                     onSubmit={(event) => {
                       event.preventDefault()
                       const body = controller.editingNoteBody.trim()
-                      if (body)
+                      if (
+                        body &&
+                        controller.editingNoteVersion !== null &&
+                        controller.editingNoteInvestigationVersion !== null
+                      )
                         controller.mutation.mutate({
                           kind: 'update-note',
                           noteId: note.id,
-                          noteVersion: note.version,
+                          noteVersion: controller.editingNoteVersion,
                           body,
+                          expectedVersion:
+                            controller.editingNoteInvestigationVersion,
                         })
                     }}
                   >
@@ -225,6 +242,7 @@ export function InvestigationNotesPanel({
                       maxLength={10_000}
                       className="w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
                       value={controller.editingNoteBody}
+                      disabled={controller.mutation.isPending}
                       onChange={(event) => controller.setEditingNoteBody(event.target.value)}
                     />
                     <div className="mt-2 grid grid-cols-2 gap-2 sm:flex">
@@ -232,7 +250,10 @@ export function InvestigationNotesPanel({
                         type="submit"
                         className="min-h-11 rounded bg-ink px-3 py-2 text-sm font-semibold text-white disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]"
                         disabled={
-                          controller.mutation.isPending || !controller.editingNoteBody.trim()
+                          controller.mutation.isPending ||
+                          controller.editingNoteVersion === null ||
+                          controller.editingNoteInvestigationVersion === null ||
+                          !controller.editingNoteBody.trim()
                         }
                       >
                         {controller.mutation.isPending ? 'Saving...' : 'Save note'}
@@ -289,8 +310,9 @@ export function InvestigationNotesPanel({
           controller.mutation.mutate(
             {
               kind: 'remove-note',
-              noteId: pendingRemoval.id,
-              noteVersion: pendingRemoval.version,
+              noteId: pendingRemoval.note.id,
+              noteVersion: pendingRemoval.note.version,
+              expectedVersion: pendingRemoval.expectedVersion,
             },
             { onSuccess: () => setPendingRemoval(null) },
           )

@@ -29,7 +29,16 @@ export function InvestigationOverviewPanel({
       changes.visibility = draft.visibility
     if (draft.assigneeUserId !== controller.overviewBaseline.assigneeUserId)
       changes.assignee_user_id = draft.assigneeUserId || null
-    if (Object.keys(changes).length > 0) controller.mutation.mutate({ kind: 'update', changes })
+    if (
+      Object.keys(changes).length > 0 &&
+      controller.overviewBaselineVersion !== null
+    ) {
+      controller.mutation.mutate({
+        kind: 'update',
+        changes,
+        expectedVersion: controller.overviewBaselineVersion,
+      })
+    }
   }
 
   return (
@@ -57,6 +66,7 @@ export function InvestigationOverviewPanel({
               maxLength={255}
               className="mt-1 min-h-11 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
               value={draft.title}
+              disabled={controller.mutation.isPending}
               onChange={(event) =>
                 controller.setOverviewDraft((current) => ({
                   ...current,
@@ -80,6 +90,7 @@ export function InvestigationOverviewPanel({
               rows={5}
               className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
               value={draft.description}
+              disabled={controller.mutation.isPending}
               onChange={(event) =>
                 controller.setOverviewDraft((current) => ({
                   ...current,
@@ -96,6 +107,7 @@ export function InvestigationOverviewPanel({
               id="investigation-severity"
               className="mt-1 min-h-11 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
               value={draft.severity}
+              disabled={controller.mutation.isPending}
               onChange={(event) =>
                 controller.setOverviewDraft((current) => ({
                   ...current,
@@ -118,6 +130,7 @@ export function InvestigationOverviewPanel({
               id="investigation-visibility"
               className="mt-1 min-h-11 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
               value={draft.visibility}
+              disabled={controller.mutation.isPending}
               onChange={(event) =>
                 controller.setOverviewDraft((current) => ({
                   ...current,
@@ -137,6 +150,7 @@ export function InvestigationOverviewPanel({
               id="investigation-assignee"
               className="mt-1 min-h-11 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
               value={draft.assigneeUserId}
+              disabled={controller.mutation.isPending}
               onChange={(event) =>
                 controller.setOverviewDraft((current) => ({
                   ...current,
@@ -160,7 +174,10 @@ export function InvestigationOverviewPanel({
               type="submit"
               className="min-h-11 rounded bg-ink px-3 py-2 text-sm font-semibold text-white disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]"
               disabled={
-                controller.mutation.isPending || !controller.overviewDirty || !draft.title.trim()
+                controller.mutation.isPending ||
+                controller.overviewBaselineVersion === null ||
+                !controller.overviewDirty ||
+                !draft.title.trim()
               }
             >
               {controller.mutation.isPending ? 'Saving...' : 'Save changes'}
