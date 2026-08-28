@@ -1166,4 +1166,3 @@ def _claim_result(
         reason=reason,
         scheduled_for=scheduled_for,
     )
-
