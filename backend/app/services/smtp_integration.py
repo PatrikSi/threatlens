@@ -391,6 +391,7 @@ def attempt_smtp_integration_delivery(
             server_message=None,
         )
     else:
+        persisted_settings = active
         if not active.enabled:
             return SMTPDispatchResult(
                 status="skipped", reason="smtp_integration_disabled"
@@ -418,6 +419,14 @@ def attempt_smtp_integration_delivery(
                         status="skipped", reason="smtp_replay_no_matching_recipients"
                     )
                 active = replace(active, to_emails=recipients)
+            delivery_heartbeat = (
+                _persisted_smtp_settings_heartbeat(
+                    lease_heartbeat,
+                    persisted_settings=persisted_settings,
+                )
+                if lease_heartbeat is not None
+                else None
+            )
             result = send_smtp_notification(
                 active,
                 event_type=event_type,
@@ -427,7 +436,7 @@ def attempt_smtp_integration_delivery(
                 failed_webhook_context=failed_webhook_context,
                 digest_context=digest_context,
                 delivery_id=delivery_id,
-                lease_heartbeat=lease_heartbeat,
+                lease_heartbeat=delivery_heartbeat,
             )
 
     _record_smtp_delivery_audit(
@@ -449,6 +458,19 @@ def attempt_smtp_integration_delivery(
         reason=None if result.success else result.error_code,
         delivery=result,
     )
+
+
+def _persisted_smtp_settings_heartbeat(
+    heartbeat: Callable[[int, ActiveSMTPSettings], None],
+    *,
+    persisted_settings: ActiveSMTPSettings,
+) -> Callable[[int, ActiveSMTPSettings], None]:
+    def _heartbeat(
+        lease_seconds: int, _effective_settings: ActiveSMTPSettings
+    ) -> None:
+        heartbeat(lease_seconds, persisted_settings)
+
+    return _heartbeat
 
 
 def smtp_notification_event_enabled(

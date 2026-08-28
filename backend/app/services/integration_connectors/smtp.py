@@ -163,17 +163,18 @@ class SMTPIntegrationConnector:
         delivery_ids: list[uuid.UUID] = []
         for subscription, instance in db.execute(query).unique().all():
             delivery_owner_id = instance.owner_user_id
+            payload_owner_id = delivery_owner_id
             if (
                 event.event_type == "alert_match"
-                and delivery_owner_id is None
+                and payload_owner_id is None
                 and eligible_owner_ids
                 and len(eligible_owner_ids) == 1
             ):
-                delivery_owner_id = next(iter(eligible_owner_ids))
+                payload_owner_id = next(iter(eligible_owner_ids))
             delivery_payload = _smtp_delivery_payload_for_owner(
                 db,
                 event=event,
-                owner_user_id=delivery_owner_id,
+                owner_user_id=payload_owner_id,
                 eligible_owner_ids=eligible_owner_ids,
             )
             if delivery_payload is None:
