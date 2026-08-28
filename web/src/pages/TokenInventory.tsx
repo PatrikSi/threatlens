@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { apiFetch, apiFetchWithResponse } from '../api/client'
+import { apiFetchWithResponse } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import type { ApiToken, ApiTokenListResponse } from '../types/api'
@@ -10,6 +10,10 @@ import {
   formatTokenRevocationImpact,
   parseTokenRevocationImpact,
 } from './tokenRevocationModel'
+import {
+  loadTokenInventory,
+  normalizeTokenInventory,
+} from './tokenInventoryApi'
 
 const TOKEN_PAGE_SIZE = 25
 
@@ -41,8 +45,11 @@ export function TokenInventory({
       })
       if (isAdmin && adminUserFilter.trim())
         params.set('user_id', adminUserFilter.trim())
-      return apiFetch<ApiTokenListResponse>(
-        `/tokens/inventory?${params.toString()}`,
+      return loadTokenInventory(
+        params,
+        page,
+        TOKEN_PAGE_SIZE,
+        isAdmin ? adminUserFilter.trim() : '',
       )
     },
   })
@@ -88,11 +95,17 @@ export function TokenInventory({
       })
     },
   })
-  const legacyUnscopedTokens =
-    tokensQuery.data?.tokens.filter((token) => token.scopes.length === 0) ?? []
+  const inventory =
+    tokensQuery.data === undefined
+      ? undefined
+      : normalizeTokenInventory(tokensQuery.data, page, TOKEN_PAGE_SIZE)
+  const tokens = inventory?.tokens ?? []
+  const legacyUnscopedTokens = tokens.filter(
+    (token) => token.scopes.length === 0,
+  )
   const pageCount = Math.max(
     1,
-    Math.ceil((tokensQuery.data?.total ?? 0) / TOKEN_PAGE_SIZE),
+    Math.ceil((inventory?.total ?? 0) / TOKEN_PAGE_SIZE),
   )
 
   useEffect(() => {
@@ -184,9 +197,9 @@ export function TokenInventory({
               {revocationNotice.message}
             </p>
           )}
-          {tokensQuery.data && tokensQuery.data.tokens.length > 0 && (
+          {inventory && tokens.length > 0 && (
             <ul className="space-y-2" aria-label="API tokens">
-              {tokensQuery.data.tokens.map((token) => (
+              {tokens.map((token) => (
                 <TokenInventoryRow
                   key={token.id}
                   token={token}
@@ -201,12 +214,12 @@ export function TokenInventory({
               ))}
             </ul>
           )}
-          {tokensQuery.data && tokensQuery.data.tokens.length > 0 && (
+          {inventory && tokens.length > 0 && (
             <TokenInventoryPagination
               page={page}
               pageCount={pageCount}
-              total={tokensQuery.data.total}
-              itemCount={tokensQuery.data.tokens.length}
+              total={inventory.total}
+              itemCount={tokens.length}
               disabled={tokensQuery.isFetching || revokeToken.isPending}
               onPageChange={setPage}
             />
@@ -241,7 +254,7 @@ export function TokenInventory({
           )}
           {!tokensQuery.isLoading &&
             !tokensQuery.isError &&
-            tokensQuery.data?.tokens.length === 0 && (
+            inventory?.tokens.length === 0 && (
               <div className="rounded-lg border border-dashed border-slate/25 px-3 py-4 text-center text-sm text-slate dark:border-cyan-900/40 dark:text-slate-300">
                 {adminUserFilter
                   ? `No API tokens were found for user ${adminUserFilter}.`
