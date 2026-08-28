@@ -41,7 +41,6 @@ export function OperationsPage() {
       if (operationStatus) params.set('status', operationStatus)
       return apiFetch<SystemOperationRunListResponse>(`/operations/runs?${params.toString()}`)
     },
-    placeholderData: (previous) => previous,
   })
   const diagnostics = useMutation({
     mutationFn: () => apiFetch<OperationsDiagnosticsResponse>('/operations/diagnostics'),

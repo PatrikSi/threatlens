@@ -12,6 +12,7 @@ const operationsDomMocks = vi.hoisted(() => ({
   overviewRefetch: vi.fn(),
   runsError: null as Error | null,
   runsFetching: false,
+  runsLoadingForFilteredQuery: false,
   runsRefetch: vi.fn(),
   diagnosticsError: null as Error | null,
   diagnosticsRequested: vi.fn(),
@@ -108,10 +109,12 @@ vi.mock('@tanstack/react-query', () => ({
         refetch: operationsDomMocks.overviewRefetch,
       }
     }
+    const filteredQuery = Boolean(options.queryKey[3] || options.queryKey[4])
+    const loadingFilteredQuery = operationsDomMocks.runsLoadingForFilteredQuery && filteredQuery
     return {
-      data: { runs: [run], total: 1, page: 1, page_size: 20 },
-      isLoading: false,
-      isFetching: operationsDomMocks.runsFetching,
+      data: loadingFilteredQuery ? undefined : { runs: [run], total: 1, page: 1, page_size: 20 },
+      isLoading: loadingFilteredQuery,
+      isFetching: loadingFilteredQuery || operationsDomMocks.runsFetching,
       isError: Boolean(operationsDomMocks.runsError),
       error: operationsDomMocks.runsError,
       refetch: operationsDomMocks.runsRefetch,
@@ -162,6 +165,7 @@ afterEach(() => {
   operationsDomMocks.overviewRefetch.mockReset()
   operationsDomMocks.runsError = null
   operationsDomMocks.runsFetching = false
+  operationsDomMocks.runsLoadingForFilteredQuery = false
   operationsDomMocks.runsRefetch.mockReset()
   operationsDomMocks.diagnosticsError = null
   operationsDomMocks.diagnosticsRequested.mockReset()
@@ -239,6 +243,22 @@ describe('OperationsPage DOM workflows', () => {
       view.querySelectorAll<HTMLButtonElement>('button'),
     ).find((button) => button.textContent === 'Retrying...')
     expect(retry?.disabled).toBe(true)
+  })
+
+  it('hides rows from the previous selection while changed filters load', () => {
+    operationsDomMocks.runsLoadingForFilteredQuery = true
+    const view = renderPage()
+    expect(view.textContent).toContain('host_cli')
+
+    const typeFilter = view.querySelector<HTMLSelectElement>('select')
+    act(() => {
+      if (!typeFilter) return
+      typeFilter.value = 'backup'
+      typeFilter.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+
+    expect(view.textContent).toContain('Loading operation history...')
+    expect(view.textContent).not.toContain('host_cli')
   })
 
   it('offers retry while retaining the last loaded history after failure', () => {
