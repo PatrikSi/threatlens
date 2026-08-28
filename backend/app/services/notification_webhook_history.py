@@ -20,6 +20,7 @@ from app.schemas.notification import (
     NotificationQueueSnapshot,
     NotificationWebhookTestResponse,
 )
+from app.services.integration_compat import lock_notification_webhook
 from app.services.integration_delivery import (
     claim_webhook_delivery as claim_generic_webhook_delivery,
     ensure_webhook_delivery,
@@ -605,21 +606,46 @@ def claim_notification_webhook_delivery(
     delivery_id: uuid.UUID,
     now: datetime | None = None,
 ) -> NotificationWebhookDelivery | None:
+    webhook, delivery = _lock_notification_webhook_delivery(
+        db,
+        delivery_id=delivery_id,
+    )
+    if webhook is None or delivery is None:
+        return None
+    upgrade_notification_webhook_delivery_secret_storage(delivery)
+    return claim_generic_webhook_delivery(
+        db, webhook=webhook, legacy_delivery=delivery, now=now
+    )
+
+
+def _lock_notification_webhook_delivery(
+    db: Session,
+    *,
+    delivery_id: uuid.UUID,
+) -> tuple[NotificationWebhook | None, NotificationWebhookDelivery | None]:
+    webhook_id = db.scalar(
+        select(NotificationWebhookDelivery.webhook_id)
+        .where(NotificationWebhookDelivery.id == delivery_id)
+        .execution_options(autoflush=False)
+    )
+    if webhook_id is None:
+        return None, None
+    webhook = lock_notification_webhook(
+        db,
+        webhook_id,
+        refresh_existing=True,
+    )
+    if webhook is None:
+        return None, None
     delivery = db.scalar(
         select(NotificationWebhookDelivery)
         .where(NotificationWebhookDelivery.id == delivery_id)
         .with_for_update()
         .execution_options(populate_existing=True)
     )
-    if delivery is None:
-        return None
-    webhook = db.get(NotificationWebhook, delivery.webhook_id)
-    if webhook is None:
-        return None
-    upgrade_notification_webhook_delivery_secret_storage(delivery)
-    return claim_generic_webhook_delivery(
-        db, webhook=webhook, legacy_delivery=delivery, now=now
-    )
+    if delivery is None or delivery.webhook_id != webhook.id:
+        return webhook, None
+    return webhook, delivery
 
 
 def finalize_notification_webhook_delivery(
@@ -630,11 +656,9 @@ def finalize_notification_webhook_delivery(
     result: NotificationWebhookTestResponse,
     commit_outcome: bool,
 ) -> tuple[NotificationWebhookDelivery, bool]:
-    delivery = db.scalar(
-        select(NotificationWebhookDelivery)
-        .where(NotificationWebhookDelivery.id == delivery_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
+    _webhook, delivery = _lock_notification_webhook_delivery(
+        db,
+        delivery_id=delivery_id,
     )
     if delivery is None:
         raise ValueError("Webhook delivery not found")
