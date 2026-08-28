@@ -26,6 +26,7 @@ from app.services.integration_events import (
     reserve_recoverable_integration_events,
     route_integration_event,
 )
+from app.services.integration_processors import process_smtp_integration_delivery
 from app.services.integration_storage import (
     apply_smtp_settings_update,
     get_or_create_smtp_integration,
@@ -33,6 +34,7 @@ from app.services.integration_storage import (
 from app.services.integration_smtp_hooks import create_smtp_hook
 from app.services.integration_registry import get_integration_connector
 from app.services.notification_webhook_storage import decrypt_notification_text
+from app.services.smtp_integration import SMTPNotificationResult
 
 
 def test_emit_integration_event_is_idempotent(db_session):
@@ -289,7 +291,10 @@ def test_route_event_fans_out_to_smtp_generic_delivery(db_session):
     assert deliveries[0].state == "pending"
 
 
-def test_alert_event_routes_to_ownerless_default_and_created_smtp_hooks(db_session):
+def test_alert_event_routes_to_ownerless_default_and_created_smtp_hooks(
+    db_session,
+    monkeypatch,
+):
     user = _persist_user(db_session)
     feed = _persist_feed(db_session, "SMTP alert routing feed")
     item = _persist_item(db_session, feed)
@@ -375,12 +380,39 @@ def test_alert_event_routes_to_ownerless_default_and_created_smtp_hooks(db_sessi
     }
     assert default_smtp.owner_user_id is None
     assert created_smtp.owner_user_id is None
-    assert {delivery.owner_user_id for delivery in deliveries} == {user.id}
+    assert {delivery.owner_user_id for delivery in deliveries} == {None}
     assert all(
         delivery.payload_json["owner_user_id"] == str(user.id)
         for delivery in deliveries
     )
     assert all("alert_matches" not in delivery.payload_json for delivery in deliveries)
+
+    def _send(active, **kwargs):
+        kwargs["lease_heartbeat"](10, active)
+        return SMTPNotificationResult(
+            success=True,
+            duration_ms=10,
+            recipient_count=len(active.to_emails),
+            accepted_count=len(active.to_emails),
+            error_code=None,
+            error=None,
+            server_message="250 accepted",
+            attempted_at=datetime.now(timezone.utc),
+            delivery_id=kwargs["delivery_id"],
+            delivery_outcome="accepted",
+            accepted_recipients=tuple(active.to_emails),
+        )
+
+    monkeypatch.setattr("app.services.smtp_integration.send_smtp_notification", _send)
+    db_session.commit()
+    processing_results = [
+        process_smtp_integration_delivery(db_session, delivery_id=delivery.id)
+        for delivery in deliveries
+    ]
+    assert [result.status for result in processing_results] == [
+        "succeeded",
+        "succeeded",
+    ]
 
 
 def test_route_event_keeps_valid_delivery_recoverable_when_connector_is_unknown(

@@ -385,6 +385,7 @@ def test_smtp_replay_recipient_override_sends_only_still_refused_recipients(
     captured_recipients: list[list[str]] = []
 
     def _send(active, **kwargs):
+        kwargs["lease_heartbeat"](10, active)
         captured_recipients.append(list(active.to_emails))
         return SMTPNotificationResult(
             success=True,
