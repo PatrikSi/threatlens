@@ -145,8 +145,7 @@ def post_investigation(
                 "visibility": investigation.visibility,
             },
         )
-        db.commit()
-        return get_investigation_detail(
+        return _commit_investigation_detail(
             db, investigation_id=investigation.id, user=user
         )
     except Exception as exc:
@@ -215,8 +214,7 @@ def patch_investigation(
                     "version": investigation.version,
                 },
             )
-        db.commit()
-        return get_investigation_detail(
+        return _commit_investigation_detail(
             db, investigation_id=investigation.id, user=user
         )
     except Exception as exc:
@@ -248,8 +246,7 @@ def post_investigation_member(
             resource_id=str(investigation_id),
             metadata={"member_user_id": str(payload.user_id), "role": payload.role},
         )
-        db.commit()
-        return get_investigation_detail(
+        return _commit_investigation_detail(
             db, investigation_id=investigation_id, user=user
         )
     except Exception as exc:
@@ -286,8 +283,7 @@ def patch_investigation_member(
                 resource_id=str(investigation_id),
                 metadata={"member_user_id": str(member.user_id), "role": payload.role},
             )
-        db.commit()
-        return get_investigation_detail(
+        return _commit_investigation_detail(
             db, investigation_id=investigation_id, user=user
         )
     except Exception as exc:
@@ -322,8 +318,7 @@ def delete_investigation_member(
             resource_id=str(investigation_id),
             metadata={"member_user_id": str(member_user_id)},
         )
-        db.commit()
-        return get_investigation_detail(
+        return _commit_investigation_detail(
             db, investigation_id=investigation_id, user=user
         )
     except Exception as exc:
@@ -385,8 +380,7 @@ def post_investigation_evidence(
                 "source_id": str(evidence.source_id),
             },
         )
-        db.commit()
-        return get_investigation_detail(
+        return _commit_investigation_detail(
             db, investigation_id=investigation_id, user=user
         )
     except Exception as exc:
@@ -421,8 +415,7 @@ def delete_investigation_evidence(
             resource_id=str(investigation_id),
             metadata={"evidence_id": str(evidence_id)},
         )
-        db.commit()
-        return get_investigation_detail(
+        return _commit_investigation_detail(
             db, investigation_id=investigation_id, user=user
         )
     except Exception as exc:
@@ -476,8 +469,7 @@ def post_investigation_note(
             resource_id=str(investigation_id),
             metadata={"note_id": str(note.id)},
         )
-        db.commit()
-        return get_investigation_detail(
+        return _commit_investigation_detail(
             db, investigation_id=investigation_id, user=user
         )
     except Exception as exc:
@@ -514,8 +506,7 @@ def patch_investigation_note(
                 resource_id=str(investigation_id),
                 metadata={"note_id": str(note.id), "note_version": note.version},
             )
-        db.commit()
-        return get_investigation_detail(
+        return _commit_investigation_detail(
             db, investigation_id=investigation_id, user=user
         )
     except Exception as exc:
@@ -551,8 +542,7 @@ def delete_investigation_note(
             resource_id=str(investigation_id),
             metadata={"note_id": str(note_id)},
         )
-        db.commit()
-        return get_investigation_detail(
+        return _commit_investigation_detail(
             db, investigation_id=investigation_id, user=user
         )
     except Exception as exc:
@@ -587,6 +577,19 @@ def _require_investigation_author(user: User) -> None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Investigation changes require the analyst or administrator role.",
         )
+
+
+def _commit_investigation_detail(
+    db: Session,
+    *,
+    investigation_id: uuid.UUID,
+    user: User,
+) -> InvestigationDetailResponse:
+    response = get_investigation_detail(
+        db, investigation_id=investigation_id, user=user
+    )
+    db.commit()
+    return response
 
 
 def _require_evidence_source_read_scope(request: Request, source_type: str) -> None:
