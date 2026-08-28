@@ -37,6 +37,10 @@ _delivery_external_io_started: ContextVar[bool | None] = ContextVar(
     "notification_delivery_external_io_started",
     default=None,
 )
+_delivery_redirect_chain_started: ContextVar[bool | None] = ContextVar(
+    "notification_delivery_redirect_chain_started",
+    default=None,
+)
 BLOCKED_REQUEST_HEADERS = frozenset(
     {
         "connection",
@@ -87,9 +91,13 @@ def notification_delivery_external_io_marker(
     started_token = _delivery_external_io_started.set(
         False if callback is not None else None
     )
+    redirect_token = _delivery_redirect_chain_started.set(
+        False if callback is not None else None
+    )
     try:
         yield
     finally:
+        _delivery_redirect_chain_started.reset(redirect_token)
         _delivery_external_io_started.reset(started_token)
         _delivery_external_io_marker.reset(marker_token)
 
@@ -197,6 +205,10 @@ def send_rendered_notification_request(
             raise
         return _failed_request_result(rendered, started_at=started_at, error=exc)
     except (SafeFetchError, httpx.HTTPError, ValueError) as exc:
+        if _delivery_redirect_chain_started.get() is True:
+            raise RedirectError(
+                f"Redirect chain failed after the initial request: {exc}"
+            ) from exc
         return _failed_request_result(rendered, started_at=started_at, error=exc)
 
     duration_ms = int((time.perf_counter() - started_at) * 1000)
@@ -284,6 +296,7 @@ def send_request_with_redirects(
         if response.status_code not in REDIRECT_STATUS_CODES:
             return response
 
+        _mark_notification_redirect_chain_started()
         location = response.headers.get("location")
         if not location:
             response.close()
@@ -322,6 +335,11 @@ def _mark_notification_external_io_started() -> None:
         callback()
         _delivery_external_io_marker.set(None)
         _delivery_external_io_started.set(True)
+
+
+def _mark_notification_redirect_chain_started() -> None:
+    if _delivery_redirect_chain_started.get() is not None:
+        _delivery_redirect_chain_started.set(True)
 
 
 def _merge_request_url(url: str, params: list[tuple[str, str]]) -> str:
