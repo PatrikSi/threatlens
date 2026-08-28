@@ -17,6 +17,11 @@ import {
 
 const TOKEN_PAGE_SIZE = 25
 
+type RevocationNotice = {
+  tone: 'success' | 'error'
+  message: string
+}
+
 export function TokenInventory({
   isAdmin,
   secretNotice,
@@ -32,10 +37,7 @@ export function TokenInventory({
   const [pendingRevocation, setPendingRevocation] = useState<ApiToken | null>(
     null,
   )
-  const [revocationNotice, setRevocationNotice] = useState<{
-    tone: 'success' | 'error'
-    message: string
-  } | null>(null)
+  const [revocationNotice, setRevocationNotice] = useState<RevocationNotice | null>(null)
   const [lineageRefreshRequired, setLineageRefreshRequired] = useState(false)
   const tokensQuery = useQuery({
     queryKey: ['tokens', 'inventory', adminUserFilter, page],
@@ -121,10 +123,19 @@ export function TokenInventory({
     1,
     Math.ceil((inventory?.total ?? 0) / TOKEN_PAGE_SIZE),
   )
+  const inventoryActionsUnavailable =
+    tokensQuery.isFetching ||
+    tokensQuery.isPlaceholderData ||
+    tokensQuery.isError ||
+    lineageRefreshRequired
 
   useEffect(() => {
     if (tokensQuery.data && page > pageCount) setPage(pageCount)
   }, [page, pageCount, tokensQuery.data])
+
+  useEffect(() => {
+    setPendingRevocation(null)
+  }, [adminUserFilter, page])
 
   const retryInventory = () => {
     const refresh = tokensQuery.refetch()
@@ -220,6 +231,17 @@ export function TokenInventory({
               disabled until the inventory is current.
             </p>
           )}
+          {(tokensQuery.isFetching || tokensQuery.isPlaceholderData) &&
+            !tokensQuery.isLoading && (
+              <p
+                role="status"
+                aria-live="polite"
+                className="text-sm text-slate dark:text-slate-300"
+              >
+                Refreshing token inventory. Previous results are read-only until
+                the requested inventory is current.
+              </p>
+            )}
           {inventory && tokens.length > 0 && (
             <ul className="space-y-2" aria-label="API tokens">
               {tokens.map((token) => (
@@ -231,7 +253,7 @@ export function TokenInventory({
                     Boolean(token.revoked_at) ||
                     revokeToken.isPending ||
                     Boolean(pendingRevocation) ||
-                    lineageRefreshRequired
+                    inventoryActionsUnavailable
                   }
                   onRevoke={() => setPendingRevocation(token)}
                 />
@@ -288,54 +310,83 @@ export function TokenInventory({
         </div>
       </section>
 
-      <ConfirmDialog
-        open={Boolean(pendingRevocation)}
-        title="Revoke API token?"
-        description="Revoking a token immediately disables any client using it and recursively revokes every delegated child token in its lineage."
-        confirmLabel="Revoke token"
-        onCancel={() => setPendingRevocation(null)}
-        onConfirm={() =>
-          pendingRevocation && revokeToken.mutate(pendingRevocation.id)
-        }
-        confirmDisabled={revokeToken.isPending}
+      <TokenRevocationDialog
+        token={pendingRevocation}
+        isAdmin={isAdmin}
+        actionsUnavailable={inventoryActionsUnavailable}
         isConfirming={revokeToken.isPending}
-      >
-        {pendingRevocation && (
-          <div className="space-y-3">
-            <p className="break-words font-semibold text-ink [overflow-wrap:anywhere] dark:text-white">
-              {pendingRevocation.name}
-            </p>
-            <p className="break-all text-xs text-slate dark:text-white/70">
-              Prefix: {pendingRevocation.token_prefix}
-            </p>
-            {isAdmin && (
-              <p className="break-all text-xs text-slate dark:text-white/70">
-                User ID: {pendingRevocation.user_id}
-              </p>
-            )}
-            <p className="break-words text-xs text-slate dark:text-white/70">
-              Scopes: {pendingRevocation.scopes.join(', ') || 'none'}
-            </p>
-            <p className="text-xs text-slate dark:text-white/70">
-              Expires:{' '}
-              {pendingRevocation.expires_at
-                ? formatDateTime(pendingRevocation.expires_at)
-                : 'Never'}
-            </p>
-            {revocationNotice?.tone === 'error' && (
-              <p
-                role="alert"
-                aria-live="assertive"
-                aria-atomic="true"
-                className="text-sm text-red-600"
-              >
-                {revocationNotice.message}
-              </p>
-            )}
-          </div>
-        )}
-      </ConfirmDialog>
+        notice={revocationNotice}
+        onCancel={() => setPendingRevocation(null)}
+        onConfirm={(tokenId) => revokeToken.mutate(tokenId)}
+      />
     </>
+  )
+}
+
+function TokenRevocationDialog({
+  token,
+  isAdmin,
+  actionsUnavailable,
+  isConfirming,
+  notice,
+  onCancel,
+  onConfirm,
+}: {
+  token: ApiToken | null
+  isAdmin: boolean
+  actionsUnavailable: boolean
+  isConfirming: boolean
+  notice: RevocationNotice | null
+  onCancel: () => void
+  onConfirm: (tokenId: string) => void
+}) {
+  const confirmRevocation = () => {
+    if (!token || actionsUnavailable) return
+    onConfirm(token.id)
+  }
+  return (
+    <ConfirmDialog
+      open={Boolean(token)}
+      title="Revoke API token?"
+      description="Revoking a token immediately disables any client using it and recursively revokes every delegated child token in its lineage."
+      confirmLabel="Revoke token"
+      onCancel={onCancel}
+      onConfirm={confirmRevocation}
+      confirmDisabled={isConfirming || actionsUnavailable}
+      isConfirming={isConfirming}
+    >
+      {token && (
+        <div className="space-y-3">
+          <p className="break-words font-semibold text-ink [overflow-wrap:anywhere] dark:text-white">
+            {token.name}
+          </p>
+          <p className="break-all text-xs text-slate dark:text-white/70">
+            Prefix: {token.token_prefix}
+          </p>
+          {isAdmin && (
+            <p className="break-all text-xs text-slate dark:text-white/70">
+              User ID: {token.user_id}
+            </p>
+          )}
+          <p className="break-words text-xs text-slate dark:text-white/70">
+            Scopes: {token.scopes.join(', ') || 'none'}
+          </p>
+          <p className="text-xs text-slate dark:text-white/70">
+            Expires: {token.expires_at ? formatDateTime(token.expires_at) : 'Never'}
+          </p>
+          {notice?.tone === 'error' && (
+            <p
+              role="alert"
+              aria-live="assertive"
+              aria-atomic="true"
+              className="text-sm text-red-600"
+            >
+              {notice.message}
+            </p>
+          )}
+        </div>
+      )}
+    </ConfirmDialog>
   )
 }
 

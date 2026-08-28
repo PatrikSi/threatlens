@@ -86,11 +86,11 @@ export function DialogSurface({
       .join(' ') || undefined
 
   const dialog = (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 px-3 py-3 sm:px-4 sm:py-6">
+    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/60 px-3 py-3 sm:px-4 sm:py-6">
       <div
         ref={dialogRef}
         data-dialog-root="true"
-        className={`max-h-[calc(100dvh-1.5rem)] w-full overflow-y-auto rounded-lg border border-slate/20 bg-white p-4 shadow-2xl sm:max-h-none sm:overflow-visible sm:rounded-2xl sm:p-5 dark:border-cyan-900/40 dark:bg-[#041612] ${panelClassName}`}
+        className={`max-h-[calc(100dvh-1.5rem)] w-full overflow-y-auto rounded-lg border border-slate/20 bg-white p-4 shadow-2xl sm:max-h-[calc(100dvh-3rem)] sm:rounded-2xl sm:p-5 dark:border-cyan-900/40 dark:bg-[#041612] ${panelClassName}`}
         role={role}
         aria-modal="true"
         aria-labelledby={titleId}

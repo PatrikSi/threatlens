@@ -81,6 +81,11 @@ type DirectoryNotice = {
   message: string
 }
 
+type HiddenUserDraftTarget = {
+  userId: string
+  email: string | null
+}
+
 function forgetCredentialMutation(
   queryClient: QueryClient,
   mutationKey: readonly unknown[],
@@ -151,6 +156,8 @@ export function UsersPage() {
   )
   const [pendingCreateConfirmation, setPendingCreateConfirmation] =
     useState<CreateUserConfirmationState | null>(null)
+  const [pendingHiddenDraftDiscard, setPendingHiddenDraftDiscard] =
+    useState<HiddenUserDraftTarget | null>(null)
   const [createUserOpen, setCreateUserOpen] = useState(false)
   const [mfaResetTarget, setMfaResetTarget] = useState<AdminUser | null>(null)
   const [mfaResetDraft, setMfaResetDraft] = useState(EMPTY_MFA_RESET_DRAFT)
@@ -576,6 +583,7 @@ export function UsersPage() {
         updateUser.reset,
       )
     }
+    setPendingHiddenDraftDiscard(null)
   }
 
   const directoryIsUnfiltered =
@@ -650,7 +658,7 @@ export function UsersPage() {
               <button
                 type="button"
                 className="min-h-11 rounded border border-current px-3 py-2 font-semibold sm:min-h-0 sm:py-1.5"
-                onClick={() => discardHiddenUserDraft(firstHiddenUserDraft.userId)}
+                onClick={() => setPendingHiddenDraftDiscard(firstHiddenUserDraft)}
                 disabled={userUpdatePending.isPending(
                   'update',
                   firstHiddenUserDraft.userId,
@@ -917,6 +925,13 @@ export function UsersPage() {
         </div>
       </section>
 
+      <HiddenDraftDiscardDialog
+        target={pendingHiddenDraftDiscard}
+        isPending={(userId) => userUpdatePending.isPending('update', userId)}
+        onCancel={() => setPendingHiddenDraftDiscard(null)}
+        onConfirm={discardHiddenUserDraft}
+      />
+
       <ConfirmDialog
         open={Boolean(pendingCreateConfirmation)}
         title={pendingCreateConfirmation?.title ?? 'Create user account?'}
@@ -997,5 +1012,38 @@ export function UsersPage() {
       />
       {confirmDiscardUnsavedUserSettingsChanges.discardDialog}
     </>
+  )
+}
+
+function HiddenDraftDiscardDialog({
+  target,
+  isPending,
+  onCancel,
+  onConfirm,
+}: {
+  target: HiddenUserDraftTarget | null
+  isPending: (userId: string) => boolean
+  onCancel: () => void
+  onConfirm: (userId: string) => void
+}) {
+  const discardPending = target ? isPending(target.userId) : false
+  return (
+    <ConfirmDialog
+      open={Boolean(target)}
+      title="Discard hidden account draft?"
+      description="This removes the unsaved role, account-status, and password-reset changes for this account. Saved account data is not changed."
+      confirmLabel="Discard hidden draft"
+      onCancel={onCancel}
+      onConfirm={() => {
+        if (target && !discardPending) onConfirm(target.userId)
+      }}
+      confirmDisabled={!target || discardPending}
+    >
+      {target && (
+        <p className="break-words font-semibold text-ink [overflow-wrap:anywhere] dark:text-white">
+          {target.email ?? target.userId}
+        </p>
+      )}
+    </ConfirmDialog>
   )
 }

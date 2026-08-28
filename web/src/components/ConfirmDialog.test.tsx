@@ -59,6 +59,10 @@ describe('ConfirmDialog', () => {
     expect(markup).toContain('aria-modal="true"')
     expect(markup).toContain('Manage Saved Views')
     expect(markup).toContain('Saved view content')
+    expect(markup).toContain('max-h-[calc(100dvh-1.5rem)]')
+    expect(markup).toContain('sm:max-h-[calc(100dvh-3rem)]')
+    expect(markup).not.toContain('sm:max-h-none')
+    expect(markup).not.toContain('sm:overflow-visible')
   })
 
   it('renders alertdialog semantics when open', () => {

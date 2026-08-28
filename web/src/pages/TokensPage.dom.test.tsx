@@ -62,6 +62,8 @@ const tokensPageDomMocks = vi.hoisted(() => ({
   mfaError: null as unknown,
   mfaRefetch: vi.fn(),
   tokensError: null as unknown,
+  tokensFetching: false,
+  tokensPlaceholder: false,
   tokensRefetch: vi.fn(),
   tokenQueryKeys: [] as unknown[][],
   revokedDescendantCount: 0,
@@ -170,7 +172,8 @@ vi.mock('@tanstack/react-query', () => ({
             page_size: 25,
           },
       isLoading: false,
-      isFetching: false,
+      isFetching: tokensPageDomMocks.tokensFetching,
+      isPlaceholderData: tokensPageDomMocks.tokensPlaceholder,
       isError: Boolean(tokensPageDomMocks.tokensError),
       error: tokensPageDomMocks.tokensError,
       refetch: tokensPageDomMocks.tokensRefetch,
@@ -292,10 +295,13 @@ afterEach(() => {
   tokensPageDomMocks.mfaError = null
   tokensPageDomMocks.mfaRefetch.mockReset()
   tokensPageDomMocks.tokensError = null
+  tokensPageDomMocks.tokensFetching = false
+  tokensPageDomMocks.tokensPlaceholder = false
   tokensPageDomMocks.tokensRefetch.mockReset()
   tokensPageDomMocks.tokenQueryKeys.splice(0)
   tokensPageDomMocks.revokedDescendantCount = 0
   tokensPageDomMocks.nextCreateError = null
+  tokensPageDomMocks.currentUser.isError = false
   Object.assign(tokensPageDomMocks.currentUser.data, {
     password_login_enabled: true,
     provisioning_source: 'local',
@@ -312,6 +318,16 @@ afterEach(() => {
 })
 
 describe('TokensPage DOM workflows', () => {
+  it('fails closed when cached administrator identity cannot be refreshed', () => {
+    tokensPageDomMocks.currentUser.isError = true
+    const view = renderPage()
+
+    expect(pageText()).toContain('Browser token creation is unavailable for this account')
+    expect(view.querySelector('#token-name')).toBeNull()
+    expect(view.querySelector('#token-admin-user-filter')).toBeNull()
+    expect(pageText()).not.toContain('User ID:')
+  })
+
   it('shows token ownership for admins and confirms revocation through the dialog', () => {
     const view = renderPage()
 
@@ -755,6 +771,34 @@ describe('TokensPage DOM workflows', () => {
       'f65e5641-2fb1-4e1f-bbba-a70aef700c73',
       1,
     ])
+  })
+
+  it('makes placeholder inventory read-only and closes a stale revocation target when filtering', () => {
+    const view = renderPage()
+    const revoke = Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find(
+      (button) => button.textContent?.includes('Revoke') && !button.disabled,
+    )
+    act(() => revoke?.click())
+    expect(document.querySelector('[role="alertdialog"]')).not.toBeNull()
+
+    const input = view.querySelector<HTMLInputElement>('#token-admin-user-filter')!
+    tokensPageDomMocks.tokensFetching = true
+    tokensPageDomMocks.tokensPlaceholder = true
+    act(() => {
+      setInputValue(input, 'f65e5641-2fb1-4e1f-bbba-a70aef700c73')
+      input
+        .closest('form')
+        ?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    })
+
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull()
+    expect(view.textContent).toContain('Previous results are read-only')
+    expect(
+      Array.from(view.querySelectorAll<HTMLButtonElement>('button')).filter(
+        (button) => button.textContent?.includes('Revoke'),
+      ).every((button) => button.disabled),
+    ).toBe(true)
+    expect(tokensPageDomMocks.revokeMutate).not.toHaveBeenCalled()
   })
 })
 

@@ -65,8 +65,9 @@ export function TokensPage() {
   const expiryInputRef = useRef<HTMLInputElement | null>(null)
   const passwordInputRef = useRef<HTMLInputElement | null>(null)
   const codeInputRef = useRef<HTMLInputElement | null>(null)
-  const isAdmin = meQuery.data?.role === 'admin'
-  const creationAvailable = browserTokenCreationAvailable(meQuery.data)
+  const isAdmin = !meQuery.isError && meQuery.data?.role === 'admin'
+  const creationAvailable =
+    !meQuery.isError && browserTokenCreationAvailable(meQuery.data)
   const confirmDiscardTokenDraft = useUnsavedChangesWarning(
     tokenDraftIsDirty(tokenFormState),
     tokenFormState.createdToken
