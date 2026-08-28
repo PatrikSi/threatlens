@@ -1819,7 +1819,6 @@ def test_webhook_delete_returns_conflict_for_legacy_replay_lock_order(
         ):
             delete_generic_lock_started.set()
             allow_legacy_child_lock.set()
-            assert legacy_child_locked.wait(timeout=5)
 
     def _run_legacy_replay_lock_order() -> None:
         legacy_thread_id.append(threading.get_ident())
@@ -1874,6 +1873,7 @@ def test_webhook_delete_returns_conflict_for_legacy_replay_lock_order(
             delete_worker = executor.submit(_delete_through_api)
             assert delete_generic_lock_started.wait(timeout=5)
             error = delete_worker.result(timeout=10)
+            assert legacy_child_locked.wait(timeout=5)
             allow_legacy_commit.set()
             legacy_worker.result(timeout=10)
 
@@ -1899,6 +1899,142 @@ def test_webhook_delete_returns_conflict_for_legacy_replay_lock_order(
             database_engine,
             "before_cursor_execute",
             _pause_delete_before_generic_lock,
+        )
+        with Session(database_engine) as cleanup_db:
+            owner = cleanup_db.get(User, owner_id)
+            if owner is not None:
+                cleanup_db.delete(owner)
+            cleanup_db.commit()
+
+
+def test_webhook_delete_yields_to_legacy_claim_lock_order_and_can_retry(
+    database_engine,
+):
+    owner_id, delivery_id, generic_delivery_id = _persist_webhook_delivery(
+        database_engine,
+        email_prefix="webhook-mixed-order-claim-delete",
+        dead_letter=False,
+    )
+    with Session(database_engine) as lookup_db:
+        legacy = lookup_db.get(NotificationWebhookDelivery, delivery_id)
+        assert legacy is not None
+        webhook_id = legacy.webhook_id
+
+    legacy_thread_id: list[int] = []
+    delete_thread_id: list[int] = []
+    legacy_locked = Event()
+    allow_legacy_parent_lock = Event()
+    legacy_parent_lock_started = Event()
+    delete_legacy_lock_started = Event()
+
+    def _observe_legacy_parent_lock(
+        _connection, _cursor, statement, _parameters, _context, _executemany
+    ) -> None:
+        if (
+            legacy_thread_id
+            and threading.get_ident() == legacy_thread_id[0]
+            and "notification_webhooks" in statement.lower()
+            and "for update" in statement.lower()
+        ):
+            legacy_parent_lock_started.set()
+
+    def _pause_delete_before_legacy_lock(
+        _connection, _cursor, statement, _parameters, _context, _executemany
+    ) -> None:
+        if (
+            delete_thread_id
+            and threading.get_ident() == delete_thread_id[0]
+            and "notification_webhook_deliveries" in statement.lower()
+            and "for update" in statement.lower()
+            and not delete_legacy_lock_started.is_set()
+        ):
+            delete_legacy_lock_started.set()
+            allow_legacy_parent_lock.set()
+            assert legacy_parent_lock_started.wait(timeout=5)
+
+    def _run_legacy_claim_lock_order() -> None:
+        legacy_thread_id.append(threading.get_ident())
+        with Session(database_engine) as legacy_db:
+            legacy = legacy_db.scalar(
+                select(NotificationWebhookDelivery)
+                .where(NotificationWebhookDelivery.id == delivery_id)
+                .with_for_update()
+            )
+            assert legacy is not None
+            legacy_locked.set()
+            assert allow_legacy_parent_lock.wait(timeout=10)
+            webhook = legacy_db.scalar(
+                select(NotificationWebhook)
+                .where(NotificationWebhook.id == webhook_id)
+                .with_for_update()
+            )
+            assert webhook is not None
+            legacy_db.commit()
+
+    def _delete_through_api() -> HTTPException:
+        delete_thread_id.append(threading.get_ident())
+        with Session(database_engine) as delete_db:
+            owner = delete_db.get(User, owner_id)
+            assert owner is not None
+            try:
+                delete_notification_webhook(
+                    webhook_id=webhook_id,
+                    db=delete_db,
+                    user=owner,
+                    _scope_user=owner,
+                )
+            except HTTPException as exc:
+                return exc
+            raise AssertionError("mixed-version webhook deletion unexpectedly succeeded")
+
+    event.listen(
+        database_engine,
+        "before_cursor_execute",
+        _observe_legacy_parent_lock,
+    )
+    event.listen(
+        database_engine,
+        "before_cursor_execute",
+        _pause_delete_before_legacy_lock,
+    )
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            legacy_worker = executor.submit(_run_legacy_claim_lock_order)
+            assert legacy_locked.wait(timeout=5)
+            delete_worker = executor.submit(_delete_through_api)
+            assert delete_legacy_lock_started.wait(timeout=5)
+            error = delete_worker.result(timeout=10)
+            legacy_worker.result(timeout=10)
+
+        assert error.status_code == 409
+        assert error.detail == (
+            "Webhook delivery processing is busy; retry deletion shortly."
+        )
+        with Session(database_engine) as retry_db:
+            owner = retry_db.get(User, owner_id)
+            assert owner is not None
+            delete_notification_webhook(
+                webhook_id=webhook_id,
+                db=retry_db,
+                user=owner,
+                _scope_user=owner,
+            )
+
+        with Session(database_engine) as verify_db:
+            assert verify_db.get(NotificationWebhook, webhook_id) is None
+            assert verify_db.get(NotificationWebhookDelivery, delivery_id) is None
+            assert verify_db.get(IntegrationDelivery, generic_delivery_id) is None
+    finally:
+        allow_legacy_parent_lock.set()
+        event.remove(
+            database_engine,
+            "before_cursor_execute",
+            _observe_legacy_parent_lock,
+        )
+        event.remove(
+            database_engine,
+            "before_cursor_execute",
+            _pause_delete_before_legacy_lock,
         )
         with Session(database_engine) as cleanup_db:
             owner = cleanup_db.get(User, owner_id)

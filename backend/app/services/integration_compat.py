@@ -14,6 +14,7 @@ from app.models.integration import (
     IntegrationSubscriptionFeed,
 )
 from app.models.notification_webhook import NotificationWebhook
+from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.services.webhook_delivery_locking import (
     WebhookDeliveryBusyError,
     is_webhook_delivery_lock_contention,
@@ -131,8 +132,15 @@ def delete_webhook_integration(db: Session, webhook: NotificationWebhook) -> Non
         return
     webhook = locked_webhook
     integration_id = webhook.integration_id
-    if integration_id is not None:
-        try:
+    try:
+        list(
+            db.scalars(
+                select(NotificationWebhookDelivery.id)
+                .where(NotificationWebhookDelivery.webhook_id == webhook.id)
+                .with_for_update(nowait=True)
+            )
+        )
+        if integration_id is not None:
             list(
                 db.scalars(
                     select(IntegrationDelivery.id)
@@ -140,13 +148,13 @@ def delete_webhook_integration(db: Session, webhook: NotificationWebhook) -> Non
                     .with_for_update(nowait=True)
                 )
             )
-        except OperationalError as exc:
-            if not is_webhook_delivery_lock_contention(exc):
-                raise
-            db.rollback()
-            raise WebhookDeliveryBusyError(
-                "Webhook delivery processing is busy; retry deletion shortly."
-            ) from exc
+    except OperationalError as exc:
+        if not is_webhook_delivery_lock_contention(exc):
+            raise
+        db.rollback()
+        raise WebhookDeliveryBusyError(
+            "Webhook delivery processing is busy; retry deletion shortly."
+        ) from exc
     db.delete(webhook)
     db.flush()
     if integration_id is None:
