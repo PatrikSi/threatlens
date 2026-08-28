@@ -568,6 +568,29 @@ describe('UsersPage DOM workflows', () => {
     expect(manageToggle?.getAttribute('aria-expanded')).toBe('true')
   })
 
+  it('labels and restores a create-user draft after the form is closed', () => {
+    const view = renderPage()
+    const createToggle = Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find(
+      (button) => button.textContent?.trim() === 'New local user',
+    )!
+
+    act(() => createToggle.click())
+    act(() =>
+      setInputValue(
+        view.querySelector<HTMLInputElement>('#create-user-email')!,
+        'draft-user@example.com',
+      ),
+    )
+    act(() => createToggle.click())
+
+    expect(createToggle.textContent?.trim()).toBe('Resume local user draft')
+    expect(createToggle.getAttribute('aria-expanded')).toBe('false')
+    act(() => createToggle.click())
+    expect(view.querySelector<HTMLInputElement>('#create-user-email')?.value).toBe(
+      'draft-user@example.com',
+    )
+  })
+
   it('shows SSO ownership and omits locally managed credential and role controls', () => {
     usersPageDomMocks.usersData = [
       {
@@ -1474,6 +1497,34 @@ describe('UsersPage DOM workflows', () => {
     expect(
       view.querySelector<HTMLSelectElement>('#user-role-user-1')?.value,
     ).toBe('admin')
+  })
+
+  it('exposes and restores an account draft hidden by server-side filtering', () => {
+    const hiddenUser = usersPageDomMocks.usersData[0]
+    const view = renderPage()
+    const roleSelect = view.querySelector<HTMLSelectElement>('#user-role-user-1')!
+    const searchInput = view.querySelector<HTMLInputElement>('#user-directory-search')!
+
+    act(() => setSelectValue(roleSelect, 'admin'))
+    usersPageDomMocks.usersData = []
+    act(() => setInputValue(searchInput, 'missing-user'))
+
+    expect(pageText()).toContain(
+      '1 unsaved account draft is hidden by the current filters or directory page.',
+    )
+    const showDraft = Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find(
+      (button) => button.textContent === 'Show draft for analyst@example.com',
+    )
+    expect(showDraft).not.toBeNull()
+
+    usersPageDomMocks.usersData = [hiddenUser]
+    act(() => showDraft?.click())
+
+    expect(view.querySelector<HTMLInputElement>('#user-directory-search')?.value).toBe(
+      'analyst@example.com',
+    )
+    expect(view.querySelector<HTMLSelectElement>('#user-role-user-1')?.value).toBe('admin')
+    expect(pageText()).not.toContain('unsaved account draft is hidden')
   })
 
   it('warns before blocked navigation when user settings drafts are still dirty', () => {

@@ -185,6 +185,11 @@ describe('AccountSecuritySection', () => {
     await act(async () => {
       await settle()
     })
+    const revokeSession = Array.from(
+      view.querySelectorAll<HTMLButtonElement>('button[aria-label^="Revoke "]'),
+    ).find((button) => !button.getAttribute('aria-label')?.includes('current session'))
+    act(() => revokeSession?.click())
+    expect(document.body.querySelector('[role="alertdialog"]')).not.toBeNull()
     refreshFails = true
 
     const refresh = Array.from(
@@ -219,6 +224,14 @@ describe('AccountSecuritySection', () => {
         ),
       ).every((button) => button.disabled),
     ).toBe(true)
+    const dialog = document.body.querySelector('[role="alertdialog"]')
+    expect(dialog?.textContent).toContain(
+      'Session revocation is disabled because the latest session list could not be loaded.',
+    )
+    const confirm = Array.from(
+      dialog?.querySelectorAll<HTMLButtonElement>('button') ?? [],
+    ).find((button) => button.textContent === 'Revoke browser access')
+    expect(confirm?.disabled).toBe(true)
   })
 
   it('explains identity-provider ownership without exposing local MFA controls', async () => {
