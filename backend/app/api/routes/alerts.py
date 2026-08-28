@@ -5,6 +5,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_token_scopes
@@ -42,6 +43,7 @@ from app.services.alert_evaluation import (
     AlertBackfillPreviewError,
     create_alert_backfill_preview,
     persist_alert_backfill_preview_intents,
+    record_alert_backfill_preview_dispatch,
 )
 from app.services.alert_match_queries import (
     AlertMatchDefinition,
@@ -436,12 +438,29 @@ def apply_alert_occurrence_backfill(
             },
         )
     db.commit()
-    enqueue_ok = enqueue_alert_evaluation_requests(list(result.request_ids))
+    enqueue_failed = result.enqueue_failed
+    if result.dispatch_required:
+        enqueue_failed = not enqueue_alert_evaluation_requests(list(result.request_ids))
+        try:
+            record_alert_backfill_preview_dispatch(
+                db,
+                preview_id=payload.preview_token,
+                actor_user_id=user.id,
+                enqueue_failed=enqueue_failed,
+            )
+            db.commit()
+        except (AlertBackfillPreviewError, SQLAlchemyError) as exc:
+            db.rollback()
+            logger.exception(
+                "alert_backfill_dispatch_receipt_failed preview_id=%s error_type=%s",
+                payload.preview_token,
+                type(exc).__name__,
+            )
     return {
         "accepted": len(result.request_ids),
         "existing": result.existing_count,
         "skipped": result.skipped_count,
-        "enqueue_failed": bool(result.request_ids) and not enqueue_ok,
+        "enqueue_failed": enqueue_failed,
         "has_more": result.next_cursor_item_id is not None,
         "next_cursor_first_seen_at": result.next_cursor_first_seen_at,
         "next_cursor_item_id": result.next_cursor_item_id,

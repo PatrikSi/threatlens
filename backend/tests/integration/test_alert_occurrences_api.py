@@ -414,7 +414,7 @@ def test_admin_backfill_is_bounded_durable_and_never_notifying(
     )
     assert duplicate_apply.status_code == 202
     assert duplicate_apply.json() == applied.json()
-    assert queued == [request.id, request.id]
+    assert queued == [request.id]
     assert (
         db_session.scalar(
             select(func.count(AuditLog.id)).where(
@@ -423,6 +423,53 @@ def test_admin_backfill_is_bounded_durable_and_never_notifying(
         )
         == 1
     )
+
+
+def test_admin_backfill_replay_preserves_deferred_dispatch_without_republishing(
+    client: TestClient,
+    auth_headers,
+    db_session,
+    seed_users,
+    monkeypatch,
+):
+    _rule, item = _seed_rule_and_item(
+        db_session, seed_users["viewer"], suffix="backfill-deferred"
+    )
+    queue_attempts: list[list[uuid.UUID]] = []
+    monkeypatch.setattr(
+        alerts_routes,
+        "enqueue_alert_evaluation_requests",
+        lambda request_ids: queue_attempts.append(request_ids) or False,
+    )
+    preview = client.post(
+        "/alerts/occurrences/reconciliation/preview",
+        json={
+            "since": (item.first_seen_at - timedelta(minutes=1)).isoformat(),
+            "until": (item.first_seen_at + timedelta(minutes=1)).isoformat(),
+            "limit": 10,
+        },
+        headers=auth_headers["admin"],
+    )
+    assert preview.status_code == 200
+
+    payload = {"preview_token": preview.json()["preview_token"]}
+    applied = client.post(
+        "/alerts/occurrences/reconciliation/apply",
+        json=payload,
+        headers=auth_headers["admin"],
+    )
+    replayed = client.post(
+        "/alerts/occurrences/reconciliation/apply",
+        json=payload,
+        headers=auth_headers["admin"],
+    )
+
+    assert applied.status_code == 202
+    assert replayed.status_code == 202
+    assert applied.json() == replayed.json()
+    assert applied.json()["enqueue_failed"] is True
+    assert len(queue_attempts) == 1
+    assert len(queue_attempts[0]) == 1
 
 
 def test_deleting_a_rule_preserves_owned_occurrence_history(

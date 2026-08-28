@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import uuid
 from contextlib import contextmanager
@@ -652,6 +653,122 @@ def test_backfill_preview_is_owner_bound_expiring_single_use_and_content_stable(
             now=now + timedelta(hours=1),
         )
     assert expired_error.value.code == "alert_backfill_preview_expired"
+
+
+def test_backfill_preview_rejects_non_list_candidate_storage(
+    db_session,
+    seed_users,
+):
+    _feed, item, _rule, _classification = _seed_target(
+        db_session,
+        seed_users["viewer"],
+        suffix="malformed-preview-container",
+    )
+    now = datetime.now(timezone.utc)
+    snapshot = create_alert_backfill_preview(
+        db_session,
+        actor_user_id=seed_users["admin"].id,
+        since=item.first_seen_at - timedelta(seconds=1),
+        until=item.first_seen_at + timedelta(seconds=1),
+        limit=10,
+        now=now,
+    )
+    snapshot.preview.candidates_json = {"candidate": "not-a-list"}
+    db_session.add(snapshot.preview)
+    db_session.commit()
+
+    with pytest.raises(AlertBackfillPreviewError) as error:
+        persist_alert_backfill_preview_intents(
+            db_session,
+            preview_id=snapshot.preview.id,
+            actor_user_id=seed_users["admin"].id,
+            now=now,
+        )
+
+    assert error.value.code == "alert_backfill_preview_invalid"
+    assert "candidate list" in str(error.value)
+
+
+def test_backfill_replay_validates_request_binding_and_legacy_receipts(
+    db_session,
+    seed_users,
+):
+    _feed, item, _rule, _classification = _seed_target(
+        db_session,
+        seed_users["viewer"],
+        suffix="bound-apply-receipt",
+    )
+    now = datetime.now(timezone.utc)
+    snapshot = create_alert_backfill_preview(
+        db_session,
+        actor_user_id=seed_users["admin"].id,
+        since=item.first_seen_at - timedelta(seconds=1),
+        until=item.first_seen_at + timedelta(seconds=1),
+        limit=10,
+        now=now,
+    )
+    applied = persist_alert_backfill_preview_intents(
+        db_session,
+        preview_id=snapshot.preview.id,
+        actor_user_id=seed_users["admin"].id,
+        now=now,
+    )
+    db_session.commit()
+    assert len(applied.request_ids) == 1
+    valid_entries = copy.deepcopy(snapshot.preview.candidates_json)
+
+    unrelated_id = uuid.uuid4()
+    corrupted_entries = copy.deepcopy(valid_entries)
+    corrupted_envelope = corrupted_entries[-1]["_threatlens_apply_result"]
+    corrupted_envelope["request_ids"] = [str(unrelated_id)]
+    corrupted_envelope["requests"][0]["request_id"] = str(unrelated_id)
+    snapshot.preview.candidates_json = corrupted_entries
+    db_session.add(snapshot.preview)
+    db_session.commit()
+    with pytest.raises(AlertBackfillPreviewError) as invalid_error:
+        persist_alert_backfill_preview_intents(
+            db_session,
+            preview_id=snapshot.preview.id,
+            actor_user_id=seed_users["admin"].id,
+            now=now,
+        )
+    assert invalid_error.value.code == "alert_backfill_apply_result_invalid"
+    db_session.rollback()
+
+    unsupported_entries = copy.deepcopy(valid_entries)
+    unsupported_entries[-1]["_threatlens_apply_result"]["version"] = 99
+    snapshot.preview.candidates_json = unsupported_entries
+    db_session.add(snapshot.preview)
+    db_session.commit()
+    with pytest.raises(AlertBackfillPreviewError) as unsupported_error:
+        persist_alert_backfill_preview_intents(
+            db_session,
+            preview_id=snapshot.preview.id,
+            actor_user_id=seed_users["admin"].id,
+            now=now,
+        )
+    assert unsupported_error.value.code == "alert_backfill_apply_result_unsupported"
+    db_session.rollback()
+
+    legacy_entries = copy.deepcopy(valid_entries)
+    legacy_envelope = legacy_entries[-1]["_threatlens_apply_result"]
+    legacy_envelope["version"] = 1
+    legacy_envelope.pop("candidate_fingerprint")
+    legacy_envelope.pop("requests")
+    legacy_envelope.pop("dispatch_state")
+    snapshot.preview.candidates_json = legacy_entries
+    db_session.add(snapshot.preview)
+    db_session.commit()
+
+    replayed = persist_alert_backfill_preview_intents(
+        db_session,
+        preview_id=snapshot.preview.id,
+        actor_user_id=seed_users["admin"].id,
+        now=now,
+    )
+    assert replayed.replayed is True
+    assert replayed.request_ids == applied.request_ids
+    assert replayed.enqueue_failed is True
 
 
 def test_backfill_reset_preserves_live_provenance_and_never_notifies(
