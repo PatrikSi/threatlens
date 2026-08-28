@@ -23,6 +23,10 @@ const alertsPageDomMocks = vi.hoisted(() => ({
   alertsError: null as Error | null,
   alertsFetching: false,
   alertsRefetch: vi.fn(),
+  savePending: false,
+  updatePending: false,
+  deletePending: false,
+  updateVariables: null as { id: string; body: Record<string, unknown> } | null,
   previewItems: [] as unknown[],
   role: 'admin' as 'admin' | 'viewer',
   alerts: [
@@ -53,13 +57,18 @@ const routerMocks = vi.hoisted(() => ({
   })),
 }))
 
-function alertMutationResult(mutate: ReturnType<typeof vi.fn>) {
+function alertMutationResult(
+  mutate: ReturnType<typeof vi.fn>,
+  pending = false,
+  variables: unknown = undefined,
+) {
   return {
     mutate,
     reset: vi.fn(),
-    isPending: false,
+    isPending: pending,
     isError: false,
     error: null,
+    variables,
   }
 }
 
@@ -158,6 +167,7 @@ vi.mock('@tanstack/react-query', () => ({
           }
           options.onSuccess?.(undefined, alert)
         }),
+        alertsPageDomMocks.deletePending,
       )
     }
     if (mutationKey === 'alerts:update') {
@@ -182,6 +192,8 @@ vi.mock('@tanstack/react-query', () => ({
             options.onSuccess?.({}, variables)
           }
         }),
+        alertsPageDomMocks.updatePending,
+        alertsPageDomMocks.updateVariables,
       )
     }
     return alertMutationResult(
@@ -198,6 +210,7 @@ vi.mock('@tanstack/react-query', () => ({
           )
         }
       }),
+      alertsPageDomMocks.savePending,
     )
   },
 }))
@@ -253,6 +266,12 @@ function renderPage() {
   return container
 }
 
+function rerenderPage() {
+  act(() => {
+    root?.render(<AlertsPage />)
+  })
+}
+
 function pageText() {
   return document.body.textContent ?? ''
 }
@@ -295,6 +314,10 @@ afterEach(() => {
   alertsPageDomMocks.alertsError = null
   alertsPageDomMocks.alertsFetching = false
   alertsPageDomMocks.alertsRefetch.mockReset()
+  alertsPageDomMocks.savePending = false
+  alertsPageDomMocks.updatePending = false
+  alertsPageDomMocks.deletePending = false
+  alertsPageDomMocks.updateVariables = null
   alertsPageDomMocks.previewItems = []
   alertsPageDomMocks.role = 'admin'
   alertsPageDomMocks.alerts = [
@@ -364,6 +387,73 @@ describe('AlertsPage DOM workflows', () => {
     )
     expect(document.activeElement).toBe(rulesTab)
     expect(rulesTab.getAttribute('aria-selected')).toBe('true')
+  })
+
+  it('keeps primary alert controls at mobile touch size without changing desktop sizing', () => {
+    const view = renderPage()
+    const rulesTab = view.querySelector<HTMLButtonElement>('#alert-rules-tab')!
+    const nameInput = view.querySelector<HTMLInputElement>('#alert-interest-name')!
+    const addButton = Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find(
+      (button) => button.textContent === 'Add Interest',
+    )!
+
+    expect(rulesTab.className).toContain('min-h-11')
+    expect(rulesTab.className).toContain('sm:min-h-10')
+    expect(nameInput.className).toContain('min-h-11')
+    expect(nameInput.className).toContain('sm:min-h-0')
+    expect(addButton.className).toContain('min-h-11')
+    expect(addButton.className).toContain('sm:min-h-0')
+  })
+
+  it('labels and announces pending alert save and state changes', () => {
+    const view = renderPage()
+    act(() => {
+      setInputValue(view.querySelector<HTMLInputElement>('#alert-interest-name')!, 'New rule')
+      setTextAreaValue(
+        view.querySelector<HTMLTextAreaElement>('#alert-interest-keywords')!,
+        'ransomware',
+      )
+    })
+
+    alertsPageDomMocks.savePending = true
+    rerenderPage()
+    const saving = Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find(
+      (button) => button.textContent === 'Adding alert interest...',
+    )
+    expect(saving?.disabled).toBe(true)
+    expect(
+      Array.from(view.querySelectorAll('[role="status"]')).some(
+        (status) => status.textContent === 'Adding alert interest...',
+      ),
+    ).toBe(true)
+
+    alertsPageDomMocks.savePending = false
+    alertsPageDomMocks.updatePending = true
+    alertsPageDomMocks.updateVariables = { id: 'alert-1', body: { enabled: false } }
+    rerenderPage()
+    const disabling = Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find(
+      (button) => button.textContent === 'Disabling...',
+    )
+    expect(disabling?.disabled).toBe(true)
+    expect(pageText()).toContain('Disabling alert rule VPN advisories...')
+  })
+
+  it('uses a specific live pending label while deleting an alert rule', () => {
+    const view = renderPage()
+    act(() =>
+      view
+        .querySelector<HTMLButtonElement>('button[aria-label="Delete alert rule VPN advisories"]')
+        ?.click(),
+    )
+
+    alertsPageDomMocks.deletePending = true
+    rerenderPage()
+
+    const dialog = document.body.querySelector('[role="alertdialog"]')
+    expect(dialog?.textContent).toContain('Deleting alert...')
+    expect(dialog?.querySelector('[role="status"]')?.textContent).toContain(
+      'Deleting alert rule VPN advisories...',
+    )
   })
 
   it('does not expose alert operations to non-administrators', () => {
