@@ -33,6 +33,10 @@ _delivery_external_io_marker: ContextVar[Callable[[], None] | None] = ContextVar
     "notification_delivery_external_io_marker",
     default=None,
 )
+_delivery_external_io_started: ContextVar[bool | None] = ContextVar(
+    "notification_delivery_external_io_started",
+    default=None,
+)
 BLOCKED_REQUEST_HEADERS = frozenset(
     {
         "connection",
@@ -79,11 +83,15 @@ def notification_delivery_lease_heartbeat(
 def notification_delivery_external_io_marker(
     callback: Callable[[], None] | None,
 ) -> Iterator[None]:
-    token = _delivery_external_io_marker.set(callback)
+    marker_token = _delivery_external_io_marker.set(callback)
+    started_token = _delivery_external_io_started.set(
+        False if callback is not None else None
+    )
     try:
         yield
     finally:
-        _delivery_external_io_marker.reset(token)
+        _delivery_external_io_started.reset(started_token)
+        _delivery_external_io_marker.reset(marker_token)
 
 
 def canonical_header_name(header_name: str) -> str:
@@ -184,20 +192,12 @@ def send_rendered_notification_request(
                 request_method = response.request.method
             finally:
                 response.close()
+    except RedirectError as exc:
+        if _delivery_external_io_started.get() is True:
+            raise
+        return _failed_request_result(rendered, started_at=started_at, error=exc)
     except (SafeFetchError, httpx.HTTPError, ValueError) as exc:
-        duration_ms = int((time.perf_counter() - started_at) * 1000)
-        return NotificationWebhookTestResponse(
-            success=False,
-            status_code=None,
-            duration_ms=duration_ms,
-            rendered_url=rendered.url,
-            rendered_method=rendered.method,
-            rendered_headers=rendered.headers,
-            rendered_query_params=rendered.query_params,
-            rendered_body=rendered.body,
-            response_body_preview=None,
-            error=str(exc),
-        )
+        return _failed_request_result(rendered, started_at=started_at, error=exc)
 
     duration_ms = int((time.perf_counter() - started_at) * 1000)
     return NotificationWebhookTestResponse(
@@ -211,6 +211,27 @@ def send_rendered_notification_request(
         rendered_body=rendered.body,
         response_body_preview=response_body_preview,
         error=None if 200 <= status_code < 400 else f"HTTP {status_code}",
+    )
+
+
+def _failed_request_result(
+    rendered: RenderedNotificationRequestLike,
+    *,
+    started_at: float,
+    error: Exception,
+) -> NotificationWebhookTestResponse:
+    duration_ms = int((time.perf_counter() - started_at) * 1000)
+    return NotificationWebhookTestResponse(
+        success=False,
+        status_code=None,
+        duration_ms=duration_ms,
+        rendered_url=rendered.url,
+        rendered_method=rendered.method,
+        rendered_headers=rendered.headers,
+        rendered_query_params=rendered.query_params,
+        rendered_body=rendered.body,
+        response_body_preview=None,
+        error=str(error),
     )
 
 
@@ -292,6 +313,7 @@ def _mark_notification_external_io_started() -> None:
     if callback is not None:
         callback()
         _delivery_external_io_marker.set(None)
+        _delivery_external_io_started.set(True)
 
 
 def _merge_request_url(url: str, params: list[tuple[str, str]]) -> str:

@@ -191,7 +191,7 @@ def finalize_claimed_notification_webhook_for_policy_error(
     *,
     delivery: NotificationWebhookDelivery,
     expected_attempt_number: int,
-    error: WebhookDeliveryIneligibleError,
+    error: Exception,
     commit_outcome: bool,
 ) -> NotificationWebhookDeliveryAttempt:
     if delivery.integration_delivery_id is None:
@@ -205,6 +205,7 @@ def finalize_claimed_notification_webhook_for_policy_error(
         delivery_id=delivery.integration_delivery_id,
         expected_attempt_number=expected_attempt_number,
     )
+    error_code = getattr(error, "code", "redirect_policy_error")
     external_side_effect_possible = marker is not False
     outcome = finalize_integration_delivery(
         db,
@@ -212,7 +213,7 @@ def finalize_claimed_notification_webhook_for_policy_error(
         expected_attempt_number=expected_attempt_number,
         success=False,
         duration_ms=0,
-        error_code=error.code,
+        error_code=error_code,
         error_message=error_message,
         retryable=False,
         schedule_retry=False,
