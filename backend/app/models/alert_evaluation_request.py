@@ -38,6 +38,12 @@ class AlertEvaluationRequest(Base):
             "dispatch_claimed_at",
         ),
         Index(
+            "ix_alert_evaluation_requests_dispatch_publication",
+            "state",
+            "dispatch_published_at",
+            "available_at",
+        ),
+        Index(
             "ix_alert_evaluation_requests_dispatch_failure",
             "state",
             "last_dispatch_failed_at",
@@ -152,6 +158,9 @@ class AlertEvaluationRequest(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     dispatch_claimed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    dispatch_published_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
     last_dispatch_failed_at: Mapped[datetime | None] = mapped_column(

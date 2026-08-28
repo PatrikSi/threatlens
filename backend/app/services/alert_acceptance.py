@@ -25,6 +25,7 @@ ALERT_ACCEPTANCE_RULE_PAGE_SIZE = 1_000
 class AlertEvaluationIntent:
     request_id: uuid.UUID
     created: bool
+    activity_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -94,6 +95,7 @@ def persist_alert_evaluation_intent(
     source: str = "live",
     notify: bool = True,
     respect_rule_cutover: bool = True,
+    actor_user_id: uuid.UUID | None = None,
     now: datetime | None = None,
 ) -> AlertEvaluationIntent:
     locked_item = lock_alert_evaluation_item(db, item_id=item.id)
@@ -168,14 +170,18 @@ def persist_alert_evaluation_intent(
         classification=classification,
         accepted_at=accepted_at,
     )
-    record_alert_evaluation_activity(
+    activity = record_alert_evaluation_activity(
         db,
         request_id=request.id,
+        actor_user_id=actor_user_id,
         action="accepted",
         details={
             "source": source,
             "notify": notify,
             "respect_rule_cutover": respect_rule_cutover,
+            "request_version": max(1, int(request.version or 1)),
+            "backfill_count": max(0, int(request.backfill_count or 0)),
+            "accepted_at": accepted_at.isoformat(),
             "cutover_at": _as_utc(item.first_seen_at).isoformat(),
             "accepted_rule_count": summary.accepted_rule_count,
             "accepted_match_count": summary.accepted_match_count,
@@ -183,7 +189,7 @@ def persist_alert_evaluation_intent(
         },
     )
     db.flush()
-    return AlertEvaluationIntent(request.id, True)
+    return AlertEvaluationIntent(request.id, True, activity.id)
 
 
 def promote_backfill_evaluation_to_live(
@@ -215,6 +221,7 @@ def promote_backfill_evaluation_to_live(
     request.accepted_at = accepted_at
     request.available_at = accepted_at
     request.dispatch_claimed_at = accepted_at
+    request.dispatch_published_at = None
     request.claimed_at = None
     request.lease_token = None
     request.lease_expires_at = None
@@ -231,7 +238,7 @@ def promote_backfill_evaluation_to_live(
         classification=classification,
         accepted_at=accepted_at,
     )
-    record_alert_evaluation_activity(
+    activity = record_alert_evaluation_activity(
         db,
         request_id=request.id,
         action="promoted_to_live",
@@ -246,7 +253,7 @@ def promote_backfill_evaluation_to_live(
         },
     )
     db.flush()
-    return AlertEvaluationIntent(request.id, True)
+    return AlertEvaluationIntent(request.id, True, activity.id)
 
 
 def reset_alert_evaluation_for_backfill(
@@ -277,6 +284,7 @@ def reset_alert_evaluation_for_backfill(
     request.accepted_at = accepted_at
     request.available_at = accepted_at
     request.dispatch_claimed_at = accepted_at
+    request.dispatch_published_at = None
     request.claimed_at = None
     request.lease_token = None
     request.lease_expires_at = None
@@ -295,7 +303,7 @@ def reset_alert_evaluation_for_backfill(
         classification=None,
         accepted_at=accepted_at,
     )
-    record_alert_evaluation_activity(
+    activity = record_alert_evaluation_activity(
         db,
         request_id=request.id,
         actor_user_id=actor_user_id,
@@ -308,11 +316,13 @@ def reset_alert_evaluation_for_backfill(
             "degraded_owner_count": summary.degraded_owner_count,
             "notify": False,
             "respect_rule_cutover": False,
+            "request_version": request.version,
+            "accepted_at": accepted_at.isoformat(),
             "cutover_at": _as_utc(item.first_seen_at).isoformat(),
         },
     )
     db.flush()
-    return AlertEvaluationIntent(request.id, True)
+    return AlertEvaluationIntent(request.id, True, activity.id)
 
 
 def snapshot_accepted_alert_matches(

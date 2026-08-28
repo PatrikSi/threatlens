@@ -224,6 +224,7 @@ def replay_dead_letter_evaluation(
     request.attempt_count = 0
     request.available_at = current_time
     request.dispatch_claimed_at = current_time
+    request.dispatch_published_at = None
     request.dispatch_attempt_count = (
         max(0, int(request.dispatch_attempt_count or 0)) + 1
     )

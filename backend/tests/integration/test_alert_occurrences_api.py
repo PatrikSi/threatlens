@@ -7,8 +7,8 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
-from app.api.routes import alerts as alerts_routes
 from app.api.routes.alerts import MAX_ALERT_PAGE
+from app.models.alert_backfill_preview import AlertBackfillPreview
 from app.models.alert_evaluation_request import AlertEvaluationRequest
 from app.models.alert_interest import AlertInterest
 from app.models.alert_occurrence import AlertOccurrence
@@ -350,16 +350,9 @@ def test_admin_backfill_is_bounded_durable_and_never_notifying(
     auth_headers,
     db_session,
     seed_users,
-    monkeypatch,
 ):
     _rule, item = _seed_rule_and_item(
         db_session, seed_users["viewer"], suffix="backfill"
-    )
-    queued: list[uuid.UUID] = []
-    monkeypatch.setattr(
-        alerts_routes,
-        "enqueue_alert_evaluation_requests",
-        lambda request_ids: queued.extend(request_ids) or True,
     )
     window = {
         "since": (item.first_seen_at - timedelta(minutes=1)).isoformat(),
@@ -406,7 +399,8 @@ def test_admin_backfill_is_bounded_durable_and_never_notifying(
     assert request.source == "backfill"
     assert request.notify is False
     assert request.respect_rule_cutover is False
-    assert queued == [request.id]
+    assert request.dispatch_claimed_at is None
+    assert request.dispatch_attempt_count == 0
     duplicate_apply = client.post(
         "/alerts/occurrences/reconciliation/apply",
         json={"preview_token": preview.json()["preview_token"]},
@@ -414,7 +408,6 @@ def test_admin_backfill_is_bounded_durable_and_never_notifying(
     )
     assert duplicate_apply.status_code == 202
     assert duplicate_apply.json() == applied.json()
-    assert queued == [request.id]
     assert (
         db_session.scalar(
             select(func.count(AuditLog.id)).where(
@@ -425,21 +418,14 @@ def test_admin_backfill_is_bounded_durable_and_never_notifying(
     )
 
 
-def test_admin_backfill_replay_preserves_deferred_dispatch_without_republishing(
+def test_admin_backfill_retains_an_immutable_durable_handoff_receipt(
     client: TestClient,
     auth_headers,
     db_session,
     seed_users,
-    monkeypatch,
 ):
     _rule, item = _seed_rule_and_item(
         db_session, seed_users["viewer"], suffix="backfill-deferred"
-    )
-    queue_attempts: list[list[uuid.UUID]] = []
-    monkeypatch.setattr(
-        alerts_routes,
-        "enqueue_alert_evaluation_requests",
-        lambda request_ids: queue_attempts.append(request_ids) or False,
     )
     preview = client.post(
         "/alerts/occurrences/reconciliation/preview",
@@ -467,9 +453,19 @@ def test_admin_backfill_replay_preserves_deferred_dispatch_without_republishing(
     assert applied.status_code == 202
     assert replayed.status_code == 202
     assert applied.json() == replayed.json()
-    assert applied.json()["enqueue_failed"] is True
-    assert len(queue_attempts) == 1
-    assert len(queue_attempts[0]) == 1
+    assert applied.json()["enqueue_failed"] is False
+    request = db_session.scalar(
+        select(AlertEvaluationRequest).where(AlertEvaluationRequest.item_id == item.id)
+    )
+    receipt = db_session.get(
+        AlertBackfillPreview, uuid.UUID(preview.json()["preview_token"])
+    )
+    assert request is not None
+    assert request.dispatch_claimed_at is None
+    assert request.dispatch_attempt_count == 0
+    assert receipt is not None
+    assert receipt.consumed_at is not None
+    assert receipt.expires_at - receipt.consumed_at >= timedelta(hours=24)
 
 
 def test_deleting_a_rule_preserves_owned_occurrence_history(

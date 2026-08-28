@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import json
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+from threading import Barrier
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
+from sqlalchemy.orm import Session
 
 import app.models  # noqa: F401 - importing the package must register every model
 from app.db.base import Base
@@ -31,6 +35,7 @@ from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.user import User
 from app.services.alert_evaluation import (
     ALERT_EVALUATION_DISPATCH_STALE_SECONDS,
+    ALERT_EVALUATION_REPUBLISH_BASE_SECONDS,
     AlertBackfillPreviewError,
     claim_alert_evaluation_request,
     create_alert_backfill_preview,
@@ -39,6 +44,8 @@ from app.services.alert_evaluation import (
     persist_alert_backfill_intents,
     persist_alert_backfill_preview_intents,
     persist_alert_evaluation_intent,
+    record_direct_alert_evaluation_publications,
+    record_alert_evaluation_publications,
     release_failed_direct_alert_publications,
     reserve_recoverable_alert_evaluations,
 )
@@ -52,7 +59,10 @@ from app.services.integration_events import (
     delivery_payload_for_owner,
 )
 from app.services.notification_webhook_templates import AlertMatchContext
-from app.tasks.alert_tasks import enqueue_alert_evaluation_requests
+from app.tasks.alert_tasks import (
+    dispatch_pending_alert_evaluations,
+    enqueue_alert_evaluation_requests,
+)
 
 
 def _seed_target(db, user: User, *, suffix: str):
@@ -473,6 +483,201 @@ def test_direct_publish_failure_keeps_intent_and_releases_its_claim(
     assert request is not None
     assert request.state == "pending"
     assert request.dispatch_claimed_at is None
+    assert request.dispatch_published_at is None
+
+
+def test_successful_direct_publication_is_not_republished_while_pending(
+    db_session,
+    seed_users,
+    monkeypatch,
+):
+    _feed, item, _rule, classification = _seed_target(
+        db_session,
+        seed_users["viewer"],
+        suffix="direct-publication-recorded",
+    )
+    accepted_at = datetime.now(timezone.utc)
+    intent = persist_alert_evaluation_intent(
+        db_session,
+        item=item,
+        classification=classification,
+        now=accepted_at,
+    )
+    db_session.commit()
+
+    @contextmanager
+    def same_session():
+        yield db_session
+
+    monkeypatch.setattr("app.tasks.alert_tasks.db_session", same_session)
+    monkeypatch.setattr(
+        "app.tasks.alert_tasks.process_alert_evaluation.delay",
+        lambda _request_id: None,
+    )
+
+    assert enqueue_alert_evaluation_requests([intent.request_id]) is True
+    request = db_session.get(AlertEvaluationRequest, intent.request_id)
+    assert request.dispatch_published_at is not None
+    assert not reserve_recoverable_alert_evaluations(
+        db_session,
+        now=accepted_at
+        + timedelta(seconds=ALERT_EVALUATION_REPUBLISH_BASE_SECONDS - 1),
+    ).request_ids
+
+    lost_message_recovery = reserve_recoverable_alert_evaluations(
+        db_session,
+        now=request.dispatch_published_at
+        + timedelta(seconds=ALERT_EVALUATION_REPUBLISH_BASE_SECONDS + 1),
+    )
+    assert lost_message_recovery.request_ids == (intent.request_id,)
+
+
+def test_stale_processing_is_recoverable_after_a_recorded_publication(
+    db_session,
+    seed_users,
+):
+    _feed, item, _rule, classification = _seed_target(
+        db_session,
+        seed_users["viewer"],
+        suffix="published-stale-processing",
+    )
+    accepted_at = datetime.now(timezone.utc)
+    intent = persist_alert_evaluation_intent(
+        db_session,
+        item=item,
+        classification=classification,
+        now=accepted_at,
+    )
+    db_session.commit()
+    published_at = accepted_at + timedelta(seconds=1)
+    record_alert_evaluation_publications(
+        db_session,
+        request_ids=[intent.request_id],
+        reserved_at=accepted_at,
+        published_at=published_at,
+    )
+    request = db_session.get(AlertEvaluationRequest, intent.request_id)
+    request.state = "processing"
+    request.dispatch_claimed_at = None
+    request.claimed_at = published_at
+    request.lease_expires_at = published_at - timedelta(seconds=1)
+    db_session.add(request)
+    db_session.commit()
+
+    recovered_at = published_at + timedelta(
+        seconds=ALERT_EVALUATION_REPUBLISH_BASE_SECONDS + 1
+    )
+    reservation = reserve_recoverable_alert_evaluations(
+        db_session,
+        now=recovered_at,
+    )
+
+    assert reservation.request_ids == (intent.request_id,)
+    request = db_session.get(AlertEvaluationRequest, intent.request_id)
+    assert request.dispatch_claimed_at == recovered_at
+    assert request.dispatch_published_at is None
+
+    republished_at = recovered_at + timedelta(seconds=1)
+    record_alert_evaluation_publications(
+        db_session,
+        request_ids=[intent.request_id],
+        reserved_at=recovered_at,
+        published_at=republished_at,
+    )
+    db_session.commit()
+    request = db_session.get(AlertEvaluationRequest, intent.request_id)
+    assert request.dispatch_published_at == republished_at
+    assert not reserve_recoverable_alert_evaluations(
+        db_session,
+        now=republished_at + timedelta(seconds=1),
+    ).request_ids
+
+
+def test_worker_claim_wins_race_with_publication_marker_recording(
+    db_session,
+    seed_users,
+):
+    _feed, item, _rule, classification = _seed_target(
+        db_session,
+        seed_users["viewer"],
+        suffix="publication-worker-race",
+    )
+    accepted_at = datetime.now(timezone.utc)
+    intent = persist_alert_evaluation_intent(
+        db_session,
+        item=item,
+        classification=classification,
+        now=accepted_at,
+    )
+    db_session.commit()
+
+    claim = claim_alert_evaluation_request(
+        db_session,
+        request_id=intent.request_id,
+        now=accepted_at + timedelta(seconds=1),
+    )
+    assert claim is not None
+    record_direct_alert_evaluation_publications(
+        db_session,
+        request_ids=[intent.request_id],
+        published_at=accepted_at + timedelta(seconds=2),
+    )
+
+    request = db_session.get(AlertEvaluationRequest, intent.request_id)
+    assert request.state == "processing"
+    assert request.dispatch_claimed_at is None
+    assert request.dispatch_published_at is None
+
+
+def test_reconciliation_records_successful_queue_publication(
+    db_session,
+    seed_users,
+    monkeypatch,
+):
+    _feed, item, _rule, classification = _seed_target(
+        db_session,
+        seed_users["viewer"],
+        suffix="reconciliation-publication-recorded",
+    )
+    accepted_at = datetime.now(timezone.utc)
+    intent = persist_alert_evaluation_intent(
+        db_session,
+        item=item,
+        classification=classification,
+        now=accepted_at,
+    )
+    request = db_session.get(AlertEvaluationRequest, intent.request_id)
+    request.dispatch_claimed_at = accepted_at - timedelta(
+        seconds=ALERT_EVALUATION_DISPATCH_STALE_SECONDS + 1
+    )
+    db_session.add(request)
+    db_session.commit()
+
+    @contextmanager
+    def same_session():
+        yield db_session
+
+    monkeypatch.setattr("app.tasks.alert_tasks.db_session", same_session)
+    monkeypatch.setattr(
+        "app.tasks.alert_tasks.process_alert_evaluation.delay",
+        lambda _request_id: None,
+    )
+
+    result = dispatch_pending_alert_evaluations.run()
+
+    assert result == {
+        "status": "ok",
+        "scanned": 1,
+        "queued": 1,
+        "enqueue_failed": False,
+    }
+    request = db_session.get(AlertEvaluationRequest, intent.request_id)
+    assert request.dispatch_published_at is not None
+    assert not reserve_recoverable_alert_evaluations(
+        db_session,
+        now=request.dispatch_published_at
+        + timedelta(seconds=ALERT_EVALUATION_DISPATCH_STALE_SECONDS + 1),
+    ).request_ids
 
 
 def test_backfill_cursor_progresses_across_equal_timestamps(db_session, seed_users):
@@ -560,6 +765,40 @@ def test_backfill_cursor_progresses_across_equal_timestamps(db_session, seed_use
     requests = list(db_session.scalars(select(AlertEvaluationRequest)).all())
     assert len(requests) == 3
     assert all(row.source == "backfill" and not row.notify for row in requests)
+
+
+def test_backfill_candidate_count_and_page_share_one_database_snapshot(
+    db_session,
+    seed_users,
+    monkeypatch,
+):
+    _feed, item, _rule, _classification = _seed_target(
+        db_session,
+        seed_users["viewer"],
+        suffix="single-snapshot-preview",
+    )
+    since = item.first_seen_at - timedelta(seconds=1)
+    until = item.first_seen_at + timedelta(seconds=1)
+    original_execute = db_session.execute
+    statements: list[str] = []
+
+    def _execute(statement, *args, **kwargs):
+        statements.append(str(statement))
+        return original_execute(statement, *args, **kwargs)
+
+    monkeypatch.setattr(db_session, "execute", _execute)
+
+    page = list_alert_backfill_candidates(
+        db_session,
+        since=since,
+        until=until,
+        limit=10,
+    )
+
+    assert page.matched_count == len(page.candidates) == 1
+    assert len(statements) == 1
+    assert "count(" in statements[0].lower()
+    assert "over" in statements[0].lower()
 
 
 def test_backfill_preview_is_owner_bound_expiring_single_use_and_content_stable(
@@ -655,9 +894,14 @@ def test_backfill_preview_is_owner_bound_expiring_single_use_and_content_stable(
     assert expired_error.value.code == "alert_backfill_preview_expired"
 
 
+@pytest.mark.parametrize(
+    "stored_value",
+    [None, 42, {"candidate": "not-a-list"}],
+)
 def test_backfill_preview_rejects_non_list_candidate_storage(
     db_session,
     seed_users,
+    stored_value,
 ):
     _feed, item, _rule, _classification = _seed_target(
         db_session,
@@ -673,7 +917,7 @@ def test_backfill_preview_rejects_non_list_candidate_storage(
         limit=10,
         now=now,
     )
-    snapshot.preview.candidates_json = {"candidate": "not-a-list"}
+    snapshot.preview.candidates_json = stored_value
     db_session.add(snapshot.preview)
     db_session.commit()
 
@@ -687,6 +931,66 @@ def test_backfill_preview_rejects_non_list_candidate_storage(
 
     assert error.value.code == "alert_backfill_preview_invalid"
     assert "candidate list" in str(error.value)
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    ["reordered", "nonhex", "incomplete", "inverted_window", "cursor_outside"],
+)
+def test_backfill_preview_rejects_inconsistent_candidate_pages(
+    db_session,
+    seed_users,
+    corruption,
+):
+    _feed_one, item_one, _rule_one, _classification_one = _seed_target(
+        db_session,
+        seed_users["viewer"],
+        suffix=f"preview-page-{corruption}-one",
+    )
+    _feed_two, item_two, _rule_two, _classification_two = _seed_target(
+        db_session,
+        seed_users["viewer"],
+        suffix=f"preview-page-{corruption}-two",
+    )
+    now = datetime.now(timezone.utc)
+    snapshot = create_alert_backfill_preview(
+        db_session,
+        actor_user_id=seed_users["admin"].id,
+        since=min(item_one.first_seen_at, item_two.first_seen_at)
+        - timedelta(seconds=1),
+        until=max(item_one.first_seen_at, item_two.first_seen_at)
+        + timedelta(seconds=1),
+        limit=10,
+        now=now,
+    )
+    assert len(snapshot.preview.candidates_json) == 2
+    entries = copy.deepcopy(snapshot.preview.candidates_json)
+    if corruption == "reordered":
+        entries.reverse()
+    elif corruption == "nonhex":
+        entries[0]["content_hash"] = "Z" * 64
+    elif corruption == "incomplete":
+        snapshot.preview.matched_count += 1
+    elif corruption == "inverted_window":
+        snapshot.preview.since = snapshot.preview.until + timedelta(seconds=1)
+    else:
+        snapshot.preview.cursor_first_seen_at = snapshot.preview.until + timedelta(
+            seconds=1
+        )
+        snapshot.preview.cursor_item_id = uuid.uuid4()
+    snapshot.preview.candidates_json = entries
+    db_session.add(snapshot.preview)
+    db_session.commit()
+
+    with pytest.raises(AlertBackfillPreviewError) as error:
+        persist_alert_backfill_preview_intents(
+            db_session,
+            preview_id=snapshot.preview.id,
+            actor_user_id=seed_users["admin"].id,
+            now=now,
+        )
+
+    assert error.value.code == "alert_backfill_preview_invalid"
 
 
 def test_backfill_replay_validates_request_binding_and_legacy_receipts(
@@ -720,8 +1024,7 @@ def test_backfill_replay_validates_request_binding_and_legacy_receipts(
     unrelated_id = uuid.uuid4()
     corrupted_entries = copy.deepcopy(valid_entries)
     corrupted_envelope = corrupted_entries[-1]["_threatlens_apply_result"]
-    corrupted_envelope["request_ids"] = [str(unrelated_id)]
-    corrupted_envelope["requests"][0]["request_id"] = str(unrelated_id)
+    corrupted_envelope["outcomes"][0]["request_id"] = str(unrelated_id)
     snapshot.preview.candidates_json = corrupted_entries
     db_session.add(snapshot.preview)
     db_session.commit()
@@ -750,25 +1053,322 @@ def test_backfill_replay_validates_request_binding_and_legacy_receipts(
     assert unsupported_error.value.code == "alert_backfill_apply_result_unsupported"
     db_session.rollback()
 
-    legacy_entries = copy.deepcopy(valid_entries)
-    legacy_envelope = legacy_entries[-1]["_threatlens_apply_result"]
-    legacy_envelope["version"] = 1
-    legacy_envelope.pop("candidate_fingerprint")
-    legacy_envelope.pop("requests")
-    legacy_envelope.pop("dispatch_state")
+    candidate = valid_entries[0]
+    legacy_fingerprint = hashlib.sha256(
+        json.dumps(
+            [
+                {
+                    "item_id": candidate["item_id"],
+                    "content_hash": candidate["content_hash"],
+                }
+            ],
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
+    legacy_entries = [
+        candidate,
+        {
+            "_threatlens_apply_result": {
+                "version": 2,
+                "candidate_fingerprint": legacy_fingerprint,
+                "request_ids": [str(applied.request_ids[0])],
+                "requests": [
+                    {
+                        "request_id": str(applied.request_ids[0]),
+                        "item_id": candidate["item_id"],
+                        "content_hash": candidate["content_hash"],
+                        "notify": False,
+                    }
+                ],
+                "existing_count": 0,
+                "skipped_count": 0,
+                "dispatch_state": "published",
+            }
+        },
+    ]
     snapshot.preview.candidates_json = legacy_entries
     db_session.add(snapshot.preview)
     db_session.commit()
 
-    replayed = persist_alert_backfill_preview_intents(
+    for dispatch_state, enqueue_failed in (
+        ("published", False),
+        ("pending", True),
+        ("deferred", True),
+    ):
+        state_entries = copy.deepcopy(legacy_entries)
+        state_entries[-1]["_threatlens_apply_result"]["dispatch_state"] = dispatch_state
+        snapshot.preview.candidates_json = state_entries
+        db_session.add(snapshot.preview)
+        db_session.commit()
+        replayed = persist_alert_backfill_preview_intents(
+            db_session,
+            preview_id=snapshot.preview.id,
+            actor_user_id=seed_users["admin"].id,
+            now=now,
+        )
+        assert replayed.replayed is True
+        assert replayed.request_ids == applied.request_ids
+        assert replayed.enqueue_failed is enqueue_failed
+
+    legacy_entries = copy.deepcopy(legacy_entries)
+    legacy_entries[-1]["_threatlens_apply_result"] = {
+        "version": 1,
+        "request_ids": [str(applied.request_ids[0])],
+        "existing_count": 0,
+        "skipped_count": 0,
+    }
+    snapshot.preview.candidates_json = legacy_entries
+    db_session.add(snapshot.preview)
+    db_session.commit()
+    replayed_v1 = persist_alert_backfill_preview_intents(
         db_session,
         preview_id=snapshot.preview.id,
         actor_user_id=seed_users["admin"].id,
         now=now,
     )
-    assert replayed.replayed is True
-    assert replayed.request_ids == applied.request_ids
-    assert replayed.enqueue_failed is True
+    assert replayed_v1.request_ids == applied.request_ids
+    assert replayed_v1.enqueue_failed is False
+
+
+def test_v2_backfill_receipt_rejects_swapped_request_candidate_bindings(
+    db_session,
+    seed_users,
+):
+    _feed_one, item_one, _rule_one, _classification_one = _seed_target(
+        db_session,
+        seed_users["viewer"],
+        suffix="v2-binding-one",
+    )
+    _feed_two, item_two, _rule_two, _classification_two = _seed_target(
+        db_session,
+        seed_users["viewer"],
+        suffix="v2-binding-two",
+    )
+    now = datetime.now(timezone.utc)
+    snapshot = create_alert_backfill_preview(
+        db_session,
+        actor_user_id=seed_users["admin"].id,
+        since=min(item_one.first_seen_at, item_two.first_seen_at)
+        - timedelta(seconds=1),
+        until=max(item_one.first_seen_at, item_two.first_seen_at)
+        + timedelta(seconds=1),
+        limit=10,
+        now=now,
+    )
+    applied = persist_alert_backfill_preview_intents(
+        db_session,
+        preview_id=snapshot.preview.id,
+        actor_user_id=seed_users["admin"].id,
+        now=now,
+    )
+    db_session.commit()
+    candidates = copy.deepcopy(snapshot.preview.candidates_json[:-1])
+    requests = {
+        row.id: row
+        for row in db_session.scalars(
+            select(AlertEvaluationRequest).where(
+                AlertEvaluationRequest.id.in_(applied.request_ids)
+            )
+        ).all()
+    }
+    assert len(candidates) == len(requests) == 2
+    candidate_by_item = {
+        uuid.UUID(candidate["item_id"]): candidate for candidate in candidates
+    }
+    request_rows = list(requests.values())
+    swapped_candidates = [
+        candidate_by_item[request_rows[1].item_id],
+        candidate_by_item[request_rows[0].item_id],
+    ]
+    fingerprint = hashlib.sha256(
+        json.dumps(
+            [
+                {
+                    "item_id": candidate["item_id"],
+                    "content_hash": candidate["content_hash"],
+                }
+                for candidate in candidates
+            ],
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
+    snapshot.preview.candidates_json = [
+        *candidates,
+        {
+            "_threatlens_apply_result": {
+                "version": 2,
+                "candidate_fingerprint": fingerprint,
+                "request_ids": [str(row.id) for row in request_rows],
+                "requests": [
+                    {
+                        "request_id": str(row.id),
+                        "item_id": candidate["item_id"],
+                        "content_hash": candidate["content_hash"],
+                        "notify": False,
+                    }
+                    for row, candidate in zip(
+                        request_rows, swapped_candidates, strict=True
+                    )
+                ],
+                "existing_count": 0,
+                "skipped_count": 0,
+                "dispatch_state": "published",
+            }
+        },
+    ]
+    db_session.add(snapshot.preview)
+    db_session.commit()
+
+    with pytest.raises(AlertBackfillPreviewError) as error:
+        persist_alert_backfill_preview_intents(
+            db_session,
+            preview_id=snapshot.preview.id,
+            actor_user_id=seed_users["admin"].id,
+            now=now,
+        )
+    assert error.value.code == "alert_backfill_apply_result_invalid"
+
+
+def test_v3_backfill_receipt_is_bound_to_its_exact_acceptance_activity(
+    db_session,
+    seed_users,
+):
+    _feed, item, _rule, _classification = _seed_target(
+        db_session,
+        seed_users["viewer"],
+        suffix="v3-activity-binding",
+    )
+    now = datetime.now(timezone.utc)
+    snapshot = create_alert_backfill_preview(
+        db_session,
+        actor_user_id=seed_users["admin"].id,
+        since=item.first_seen_at - timedelta(seconds=1),
+        until=item.first_seen_at + timedelta(seconds=1),
+        limit=10,
+        now=now,
+    )
+    applied = persist_alert_backfill_preview_intents(
+        db_session,
+        preview_id=snapshot.preview.id,
+        actor_user_id=seed_users["admin"].id,
+        now=now,
+    )
+    db_session.commit()
+    entries = copy.deepcopy(snapshot.preview.candidates_json)
+    outcome = entries[-1]["_threatlens_apply_result"]["outcomes"][0]
+    original = db_session.get(
+        AlertEvaluationRequestActivity, uuid.UUID(outcome["activity_id"])
+    )
+    assert original is not None
+    forged = AlertEvaluationRequestActivity(
+        request_id=applied.request_ids[0],
+        actor_user_id=seed_users["admin"].id,
+        action=original.action,
+        details_json={
+            **original.details_json,
+            "backfill_preview_id": str(uuid.uuid4()),
+        },
+    )
+    db_session.add(forged)
+    db_session.flush()
+    outcome["activity_id"] = str(forged.id)
+    snapshot.preview.candidates_json = entries
+    db_session.add(snapshot.preview)
+    db_session.commit()
+
+    with pytest.raises(AlertBackfillPreviewError) as error:
+        persist_alert_backfill_preview_intents(
+            db_session,
+            preview_id=snapshot.preview.id,
+            actor_user_id=seed_users["admin"].id,
+            now=now,
+        )
+    assert error.value.code == "alert_backfill_apply_result_invalid"
+
+
+def test_simultaneous_backfill_applies_share_one_durable_result(database_engine):
+    actor_id = uuid.uuid4()
+    suffix = f"concurrent-apply-{uuid.uuid4().hex}"
+    with Session(database_engine) as setup_db:
+        actor = User(
+            id=actor_id,
+            email=f"{suffix}@example.com",
+            password_hash="test-hash",
+            role="admin",
+            is_active=True,
+            is_approved=True,
+        )
+        setup_db.add(actor)
+        setup_db.commit()
+        feed, item, _rule, _classification = _seed_target(
+            setup_db,
+            actor,
+            suffix=suffix,
+        )
+        now = datetime.now(timezone.utc)
+        snapshot = create_alert_backfill_preview(
+            setup_db,
+            actor_user_id=actor_id,
+            since=item.first_seen_at - timedelta(seconds=1),
+            until=item.first_seen_at + timedelta(seconds=1),
+            limit=10,
+            now=now,
+        )
+        setup_db.commit()
+        preview_id = snapshot.preview.id
+        item_id = item.id
+        feed_id = feed.id
+
+    start = Barrier(2)
+
+    def _apply() -> tuple[bool, tuple[uuid.UUID, ...]]:
+        with Session(database_engine) as worker_db:
+            start.wait(timeout=5)
+            result = persist_alert_backfill_preview_intents(
+                worker_db,
+                preview_id=preview_id,
+                actor_user_id=actor_id,
+                now=now,
+            )
+            worker_db.commit()
+            return result.replayed, result.request_ids
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = [
+                future.result(timeout=10)
+                for future in [
+                    executor.submit(_apply),
+                    executor.submit(_apply),
+                ]
+            ]
+
+        assert sorted(replayed for replayed, _request_ids in results) == [False, True]
+        assert results[0][1] == results[1][1]
+        assert len(results[0][1]) == 1
+        with Session(database_engine) as verify_db:
+            requests = list(
+                verify_db.scalars(
+                    select(AlertEvaluationRequest).where(
+                        AlertEvaluationRequest.item_id == item_id
+                    )
+                ).all()
+            )
+            assert len(requests) == 1
+            assert requests[0].dispatch_claimed_at is None
+            assert requests[0].dispatch_attempt_count == 0
+    finally:
+        with Session(database_engine) as cleanup_db:
+            cleanup_db.execute(
+                delete(AlertEvaluationRequest).where(
+                    AlertEvaluationRequest.item_id == item_id
+                )
+            )
+            cleanup_db.execute(delete(Feed).where(Feed.id == feed_id))
+            cleanup_db.execute(delete(User).where(User.id == actor_id))
+            cleanup_db.commit()
 
 
 def test_backfill_reset_preserves_live_provenance_and_never_notifies(
