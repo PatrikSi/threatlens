@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
@@ -62,12 +63,19 @@ router = APIRouter(prefix="/investigations", tags=["investigations"])
 
 VALID_STATUSES = frozenset({"open", "monitoring", "closed", "archived"})
 VALID_SEVERITIES = frozenset({"low", "medium", "high", "critical"})
+MAX_INVESTIGATION_PAGE = 1_000_000
 EVIDENCE_SOURCE_READ_SCOPES = {
     "item": (SCOPE_READ_ITEMS,),
     "ioc": (SCOPE_READ_ITEMS,),
     "report": (SCOPE_READ_REPORTS,),
     "alert_occurrence": (SCOPE_READ_ALERTS, SCOPE_READ_ITEMS),
 }
+
+
+InvestigationPage = Annotated[
+    int,
+    Query(ge=1, le=MAX_INVESTIGATION_PAGE),
+]
 
 
 @router.get("", response_model=InvestigationListResponse)
@@ -77,7 +85,7 @@ def get_investigations(
     severities: list[str] = Query(default=[]),
     assigned_to_me: bool = False,
     include_archived: bool = False,
-    page: int = Query(default=1, ge=1),
+    page: InvestigationPage = 1,
     page_size: int = Query(default=25, ge=1, le=100),
     db: Session = Depends(get_db),
     user: User = Depends(require_token_scopes(SCOPE_READ_INVESTIGATIONS)),
@@ -150,7 +158,7 @@ def post_investigation(
 )
 def get_investigation_member_candidates(
     q: str | None = Query(default=None, max_length=255),
-    page: int = Query(default=1, ge=1),
+    page: InvestigationPage = 1,
     page_size: int = Query(default=20, ge=1, le=50),
     db: Session = Depends(get_db),
     user: User = Depends(require_token_scopes(SCOPE_WRITE_INVESTIGATIONS)),
@@ -556,7 +564,7 @@ def delete_investigation_note(
 )
 def get_investigation_activity(
     investigation_id: uuid.UUID,
-    page: int = Query(default=1, ge=1),
+    page: InvestigationPage = 1,
     page_size: int = Query(default=50, ge=1, le=100),
     db: Session = Depends(get_db),
     user: User = Depends(require_token_scopes(SCOPE_READ_INVESTIGATIONS)),

@@ -38,6 +38,9 @@ from app.services.investigation_collections import (
     list_recent_evidence,
     list_recent_notes,
 )
+from app.services.investigation_read_access import (
+    load_composed_investigation_read_access,
+)
 
 WRITE_MEMBER_ROLES = frozenset({"owner", "editor"})
 OWNER_MEMBER_ROLE = "owner"
@@ -59,6 +62,10 @@ class InvestigationPermissionError(PermissionError):
 
 class InvestigationActorNotEligibleError(InvestigationPermissionError):
     code = "investigation_actor_not_eligible"
+
+
+class InvestigationReadAuthorizationChangedError(InvestigationPermissionError):
+    code = "investigation_read_authorization_changed"
 
 
 class InvestigationConflictError(RuntimeError):
@@ -254,7 +261,7 @@ def list_member_candidates(
 def get_investigation_detail(
     db: Session, *, investigation_id: uuid.UUID, user: User
 ) -> InvestigationDetailResponse:
-    investigation, current_role = _get_visible_investigation(
+    investigation, current_role = _get_visible_investigation_for_composed_read(
         db, investigation_id=investigation_id, user=user
     )
     members = _list_members(db, investigation_id)
@@ -288,7 +295,9 @@ def list_evidence(
     page: int,
     page_size: int,
 ) -> InvestigationEvidenceListResponse:
-    _get_visible_investigation(db, investigation_id=investigation_id, user=user)
+    _get_visible_investigation_for_composed_read(
+        db, investigation_id=investigation_id, user=user
+    )
     return list_evidence_page(
         db,
         investigation_id=investigation_id,
@@ -305,7 +314,9 @@ def list_notes(
     page: int,
     page_size: int,
 ) -> InvestigationNoteListResponse:
-    _get_visible_investigation(db, investigation_id=investigation_id, user=user)
+    _get_visible_investigation_for_composed_read(
+        db, investigation_id=investigation_id, user=user
+    )
     return list_note_page(
         db,
         investigation_id=investigation_id,
@@ -862,7 +873,9 @@ def list_activity(
     page: int,
     page_size: int,
 ) -> InvestigationActivityListResponse:
-    _get_visible_investigation(db, investigation_id=investigation_id, user=user)
+    _get_visible_investigation_for_composed_read(
+        db, investigation_id=investigation_id, user=user
+    )
     actor = aliased(User)
     query = (
         select(InvestigationActivity, actor.email.label("actor_email"))
@@ -913,27 +926,22 @@ def member_response(
     )
 
 
-def _get_visible_investigation(
+def _get_visible_investigation_for_composed_read(
     db: Session, *, investigation_id: uuid.UUID, user: User
 ) -> tuple[Investigation, str | None]:
-    row = db.execute(
-        select(Investigation, InvestigationMember.role.label("member_role"))
-        .outerjoin(
-            InvestigationMember,
-            (InvestigationMember.investigation_id == Investigation.id)
-            & (InvestigationMember.user_id == user.id),
+    access = load_composed_investigation_read_access(
+        db,
+        investigation_id=investigation_id,
+        user=user,
+    )
+    if access.authorization_changed:
+        raise InvestigationReadAuthorizationChangedError(
+            "Your account access changed while private investigation data was "
+            "loading. Sign in again and retry."
         )
-        .where(
-            Investigation.id == investigation_id,
-            or_(
-                Investigation.visibility == "team",
-                InvestigationMember.user_id.is_not(None),
-            ),
-        )
-    ).first()
-    if row is None:
+    if access.investigation is None:
         raise InvestigationNotFoundError
-    return row.Investigation, row.member_role
+    return access.investigation, access.member_role
 
 
 def _lock_for_write(
