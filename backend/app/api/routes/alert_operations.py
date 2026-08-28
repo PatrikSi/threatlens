@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta, timezone
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
@@ -41,6 +42,8 @@ from app.tasks.alert_tasks import enqueue_alert_evaluation_requests
 
 
 router = APIRouter(prefix="/occurrences")
+MAX_ALERT_PAGE = 1_000_000
+AlertPage = Annotated[int, Query(ge=1, le=MAX_ALERT_PAGE)]
 
 
 @router.get("/metrics", response_model=AlertOccurrenceMetricListResponse)
@@ -100,7 +103,7 @@ def get_alert_evaluations(
     sources: list[str] = Query(default=[]),
     item_id: uuid.UUID | None = None,
     needs_attention: bool = False,
-    page: int = Query(default=1, ge=1),
+    page: AlertPage = 1,
     page_size: int = Query(default=25, ge=1, le=100),
     db: Session = Depends(get_db),
     user: User = Depends(require_token_scopes(SCOPE_READ_ALERTS)),
@@ -151,7 +154,7 @@ def get_alert_evaluation_detail(
 )
 def get_alert_evaluation_activity(
     request_id: uuid.UUID,
-    page: int = Query(default=1, ge=1),
+    page: AlertPage = 1,
     page_size: int = Query(default=50, ge=1, le=100),
     db: Session = Depends(get_db),
     user: User = Depends(require_token_scopes(SCOPE_READ_ALERTS)),

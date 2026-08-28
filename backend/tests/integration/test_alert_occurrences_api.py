@@ -3,13 +3,16 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, timezone
 
+import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.api.routes import alerts as alerts_routes
+from app.api.routes.alerts import MAX_ALERT_PAGE
 from app.models.alert_evaluation_request import AlertEvaluationRequest
 from app.models.alert_interest import AlertInterest
 from app.models.alert_occurrence import AlertOccurrence
+from app.models.audit_log import AuditLog
 from app.models.feed import Feed
 from app.models.item import Item
 
@@ -73,6 +76,32 @@ def _seed_occurrence(db_session, user, *, suffix: str, state: str = "new"):
     db_session.add(occurrence)
     db_session.commit()
     return rule, item, occurrence
+
+
+@pytest.mark.parametrize(
+    ("path", "principal"),
+    [
+        ("/alerts/matches", "viewer"),
+        ("/alerts/occurrences", "viewer"),
+        (f"/alerts/occurrences/{uuid.uuid4()}/activity", "viewer"),
+        ("/alerts/occurrences/evaluations", "admin"),
+        (f"/alerts/occurrences/evaluations/{uuid.uuid4()}/activity", "admin"),
+    ],
+)
+def test_alert_pages_reject_database_overflow_values(
+    client: TestClient,
+    auth_headers,
+    path: str,
+    principal: str,
+):
+    response = client.get(
+        path,
+        params={"page": MAX_ALERT_PAGE + 1},
+        headers=auth_headers[principal],
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["type"] == "less_than_equal"
 
 
 def test_v1_alert_payloads_remain_valid_and_rule_changes_are_versioned(
@@ -383,8 +412,17 @@ def test_admin_backfill_is_bounded_durable_and_never_notifying(
         json={"preview_token": preview.json()["preview_token"]},
         headers=auth_headers["admin"],
     )
-    assert duplicate_apply.status_code == 409
-    assert duplicate_apply.json()["error"]["code"] == "alert_backfill_preview_consumed"
+    assert duplicate_apply.status_code == 202
+    assert duplicate_apply.json() == applied.json()
+    assert queued == [request.id, request.id]
+    assert (
+        db_session.scalar(
+            select(func.count(AuditLog.id)).where(
+                AuditLog.action == "alerts.occurrences.backfill"
+            )
+        )
+        == 1
+    )
 
 
 def test_deleting_a_rule_preserves_owned_occurrence_history(

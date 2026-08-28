@@ -1,16 +1,30 @@
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
 from app.schemas.item import ItemListEntry
+
+
+ALERT_KEYWORD_MAX_LENGTH = 128
+AlertKeyword = Annotated[
+    str,
+    StringConstraints(max_length=ALERT_KEYWORD_MAX_LENGTH),
+]
 
 
 class AlertInterestCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     category: str = Field(min_length=1, max_length=64)
-    keywords: list[str] = Field(min_length=1, max_length=64)
+    keywords: list[AlertKeyword] = Field(min_length=1, max_length=64)
     enabled: bool = True
     severity: Literal["low", "medium", "high", "critical"] = "medium"
     suppression_until: datetime | None = None
@@ -33,7 +47,9 @@ class AlertInterestUpdate(BaseModel):
     expected_row_version: int | None = Field(default=None, ge=1)
     name: str | None = Field(default=None, min_length=1, max_length=255)
     category: str | None = Field(default=None, min_length=1, max_length=64)
-    keywords: list[str] | None = Field(default=None, min_length=1, max_length=64)
+    keywords: list[AlertKeyword] | None = Field(
+        default=None, min_length=1, max_length=64
+    )
     enabled: bool | None = None
     severity: Literal["low", "medium", "high", "critical"] | None = None
     suppression_until: datetime | None = None
@@ -60,7 +76,7 @@ class AlertInterestUpdate(BaseModel):
 class AlertInterestPreviewRequest(BaseModel):
     name: str | None = Field(default=None, max_length=255)
     category: str = Field(min_length=1, max_length=64)
-    keywords: list[str] = Field(min_length=1, max_length=64)
+    keywords: list[AlertKeyword] = Field(min_length=1, max_length=64)
     limit: int = Field(default=5, ge=1, le=25)
 
 
