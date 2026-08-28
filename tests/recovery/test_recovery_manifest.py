@@ -14,6 +14,7 @@ from unittest import mock
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 HELPER = REPOSITORY_ROOT / "scripts" / "recovery" / "recovery_manifest.py"
+APPLICATION_VERSION = (REPOSITORY_ROOT / "VERSION").read_text(encoding="utf-8").strip()
 
 
 def _load_manifest_helper():
@@ -60,7 +61,7 @@ class RecoveryManifestTests(unittest.TestCase):
             "--output",
             str(backup / "manifest.json"),
             "--app-version",
-            "1.7.0",
+            APPLICATION_VERSION,
             "--alembic-revision",
             "0056_report_task_lineage",
             "--postgresql-version",
@@ -114,7 +115,11 @@ class RecoveryManifestTests(unittest.TestCase):
         backup = self._create_backup()
 
         result = self._run(
-            "inspect", "--backup", str(backup), "--expected-app-version", "1.7.0"
+            "inspect",
+            "--backup",
+            str(backup),
+            "--expected-app-version",
+            APPLICATION_VERSION,
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -122,7 +127,7 @@ class RecoveryManifestTests(unittest.TestCase):
         self.assertEqual(len(fields), 8)
         self.assertEqual(Path(fields[0]), (backup / "manifest.json").absolute())
         self.assertEqual(Path(fields[1]), (backup / "database.dump").absolute())
-        self.assertEqual(fields[2], "1.7.0")
+        self.assertEqual(fields[2], APPLICATION_VERSION)
         self.assertEqual(fields[3], "0056_report_task_lineage")
         self.assertRegex(fields[4], r"^[0-9a-f]{64}$")
         self.assertEqual(int(fields[5]), (backup / "database.dump").stat().st_size)
