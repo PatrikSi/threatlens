@@ -255,24 +255,32 @@ def send_request_with_redirects(
     current_params = list(params)
 
     while True:
-        client_timeout = getattr(client, "timeout", None)
-        timeout = getattr(client_timeout, "read", None)
-        _renew_notification_operation_lease(timeout)
-        ensure_runtime_fetchable_url(
-            current_url, allow_private_network=settings.allow_private_network_webhooks
-        )
-        request_url = _merge_request_url(current_url, current_params)
-        request = client.build_request(
-            current_method,
-            request_url,
-            headers=headers,
-            json=current_json_body,
-            data=current_form_body
-            if current_form_body is not None
-            else current_raw_body,
-        )
-        _mark_notification_external_io_started()
-        response = client.send(request, stream=True, follow_redirects=False)
+        try:
+            client_timeout = getattr(client, "timeout", None)
+            timeout = getattr(client_timeout, "read", None)
+            _renew_notification_operation_lease(timeout)
+            ensure_runtime_fetchable_url(
+                current_url,
+                allow_private_network=settings.allow_private_network_webhooks,
+            )
+            request_url = _merge_request_url(current_url, current_params)
+            request = client.build_request(
+                current_method,
+                request_url,
+                headers=headers,
+                json=current_json_body,
+                data=current_form_body
+                if current_form_body is not None
+                else current_raw_body,
+            )
+            _mark_notification_external_io_started()
+            response = client.send(request, stream=True, follow_redirects=False)
+        except (SafeFetchError, httpx.HTTPError, ValueError) as exc:
+            if redirects > 0:
+                raise RedirectError(
+                    f"Redirect follow-up failed after the initial request: {exc}"
+                ) from exc
+            raise
         if response.status_code not in REDIRECT_STATUS_CODES:
             return response
 
