@@ -5,7 +5,9 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy import event
 
+from app.core.config import get_settings
 from app.core.token_scopes import (
     ALLOWED_API_TOKEN_SCOPES,
     DEFAULT_API_TOKEN_SCOPES,
@@ -15,6 +17,7 @@ from app.core.token_scopes import (
 )
 from app.core.rbac import ROLE_ANALYST, ROLE_VIEWER
 from app.models.integration import IntegrationDelivery, IntegrationInstance
+from app.models.feed import Feed
 from app.models.report import Report
 from app.models.system_operation_run import SystemOperationRun
 from app.schemas.health import (
@@ -23,7 +26,12 @@ from app.schemas.health import (
     EncryptedDataInventorySummary,
     EncryptedDataStartupScan,
 )
-from app.services import operations, operations_probes, operations_projections
+from app.services import (
+    encrypted_data_inventory,
+    operations,
+    operations_probes,
+    operations_projections,
+)
 from app.services.beat_heartbeat import BeatHealthSnapshot, BeatHeartbeatSnapshot
 
 
@@ -42,6 +50,16 @@ def _healthy_inventory(now: datetime) -> EncryptedDataInventoryResponse:
         notification_webhooks=empty,
         notification_delivery_snapshots=empty,
         summary=EncryptedDataInventorySummary(),
+    )
+
+
+def _healthy_operations_inventory(
+    now: datetime,
+) -> encrypted_data_inventory.OperationsEncryptedDataInventory:
+    return encrypted_data_inventory.OperationsEncryptedDataInventory(
+        inventory=_healthy_inventory(now),
+        row_limit_per_category=encrypted_data_inventory.OPERATIONS_INVENTORY_ROW_LIMIT,
+        truncated_categories=(),
     )
 
 
@@ -81,14 +99,61 @@ def _install_healthy_probes(monkeypatch: pytest.MonkeyPatch, now: datetime) -> N
     )
     monkeypatch.setattr(
         operations_probes,
-        "scan_encrypted_data_inventory",
-        lambda _db, settings: _healthy_inventory(now),
+        "get_operations_encrypted_data_inventory",
+        lambda _db, settings: _healthy_operations_inventory(now),
     )
     monkeypatch.setattr(
         operations_probes.shutil,
         "disk_usage",
         lambda _path: SimpleNamespace(total=1_000_000, used=500_000, free=500_000),
     )
+
+
+def test_operations_encrypted_inventory_is_bounded_and_cached(
+    db_session,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        encrypted_data_inventory,
+        "OPERATIONS_INVENTORY_ROW_LIMIT",
+        2,
+    )
+    encrypted_data_inventory._clear_operations_encrypted_data_inventory_cache()
+    for index in range(3):
+        feed = Feed(name=f"Inventory feed {index}")
+        feed.url = f"https://inventory-{index}.example.test/rss.xml"
+        db_session.add(feed)
+    db_session.commit()
+
+    try:
+        first = encrypted_data_inventory.get_operations_encrypted_data_inventory(
+            db_session,
+            settings=get_settings(),
+        )
+        second = encrypted_data_inventory.get_operations_encrypted_data_inventory(
+            db_session,
+            settings=get_settings(),
+        )
+    finally:
+        encrypted_data_inventory._clear_operations_encrypted_data_inventory_cache()
+
+    assert first.cache_hit is False
+    assert second.cache_hit is True
+    assert first.row_limit_per_category == 2
+    assert first.inventory.feeds.total_records == 2
+    assert "feeds" in first.truncated_categories
+
+    issues = []
+    component = operations_probes._encrypted_data_component(
+        db_session,
+        get_settings(),
+        datetime.now(timezone.utc),
+        issues,
+        database_ok=True,
+    )
+    assert component.status == "degraded"
+    assert component.metrics["scan_complete"] is False
+    assert "encrypted_data_inventory_truncated" in {entry.code for entry in issues}
 
 
 def test_operations_scopes_are_explicit_and_not_delegated_to_non_admin_roles():
@@ -357,7 +422,7 @@ def test_overview_degrades_without_leaking_probe_errors(db_session, monkeypatch)
     )
     monkeypatch.setattr(
         operations_probes,
-        "scan_encrypted_data_inventory",
+        "get_operations_encrypted_data_inventory",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             RuntimeError("OIDC client_secret=do-not-leak")
         ),
@@ -440,7 +505,7 @@ def test_overview_skips_database_dependent_probes_when_database_is_unavailable(
 
     monkeypatch.setattr(
         operations_probes,
-        "scan_encrypted_data_inventory",
+        "get_operations_encrypted_data_inventory",
         unexpected_inventory,
     )
 
@@ -545,6 +610,44 @@ def test_recovery_readiness_correlates_evidence_to_the_latest_archive(db_session
     assert recovery.latest_backup.metadata["archive_sha256"] == latest_checksum
     assert "latest_backup_verify_mismatch" not in issue_codes
     assert "latest_backup_drill_mismatch" in issue_codes
+
+
+def test_recovery_evidence_is_loaded_from_one_statement_snapshot(db_session):
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    checksum = "8" * 64
+    db_session.add_all(
+        [
+            _operation_run(
+                "backup", "succeeded", now - timedelta(hours=2), archive_sha256=checksum
+            ),
+            _operation_run(
+                "verify", "succeeded", now - timedelta(hours=1), archive_sha256=checksum
+            ),
+        ]
+    )
+    db_session.commit()
+    statements: list[str] = []
+    bind = db_session.get_bind()
+
+    def capture_recovery_select(
+        _conn, _cursor, statement, _parameters, _context, _many
+    ):
+        if (
+            statement.lstrip().upper().startswith("SELECT")
+            and "system_operation_runs" in statement
+        ):
+            statements.append(statement)
+
+    event.listen(bind, "before_cursor_execute", capture_recovery_select)
+    try:
+        recovery, correlation = operations_projections._load_recovery_state(db_session)
+    finally:
+        event.remove(bind, "before_cursor_execute", capture_recovery_select)
+
+    assert len(statements) == 1
+    assert recovery.latest_backup is not None
+    assert correlation.verify is not None
+    assert correlation.verify.metadata["archive_sha256"] == checksum
 
 
 def test_recovery_readiness_reports_stale_success_and_incomplete_attempt(db_session):

@@ -56,8 +56,9 @@ Before the first destructive database statement, restore creates a private,
 mode-0700 host journal root containing a mode-0600 phase record. Initial state is
 written and fsynced in a private publication directory before that complete
 directory is atomically renamed to `active`; an empty active journal is never a
-publication marker. Each later phase is atomically replaced and fsynced. The
-journal records the operation and archive identities, rendered deployment
+publication marker. Every newly created journal-root path component is published
+by fsyncing its parent directory. Each later phase is atomically replaced and
+fsynced. The journal records the operation and archive identities, rendered deployment
 identity, original and replacement PostgreSQL OIDs, access state, and final
 outcome, but no credentials. It is archived only after matching database
 operation evidence has been written. A live active journal blocks another
@@ -81,6 +82,15 @@ against an older archive remains visible in run history but does not mark the
 current archive untrusted. The view warns when the latest backup is older than 26
 hours, its correlated drill is older than 31 days, a correlated run remains
 incomplete, or successful evidence covers a different checksum.
+Recovery cards and their checksum correlation are read in one PostgreSQL statement,
+so a concurrently inserted run cannot produce a mixed evidence snapshot.
+
+The Operations encrypted-data component caches its probe for 60 seconds per API
+process and inspects at most 500 recent rows in each encrypted-data category. Its
+metrics expose `scan_complete`, `scan_limit_per_category`, `truncated_categories`,
+`cache_hit`, and `inventory_scanned_at`; when truncated, record totals and
+readability describe the bounded sample rather than the complete database. Use the
+dedicated encrypted-data health endpoint when an exact full inventory is required.
 
 Database storage figures in the Operations view come from PostgreSQL logical
 size and retained-history growth. The API container cannot reliably inspect free
@@ -174,7 +184,9 @@ the API. The utility writes into a restrictive
 atomically renames the completed directory. A directory containing manifest.json
 is the publication marker. Interrupted partial directories are ignored by later
 backups and rejected by verification; inspect and remove them only after
-confirming no recovery process is active.
+confirming no recovery process is active. When the configured backup root or any
+missing ancestor is created, each new directory entry is made durable by fsyncing
+its parent before backup work begins.
 
 The completed directory and both files are restricted to the invoking account:
 
@@ -213,7 +225,9 @@ An atomically created mode-0700 **.threatlens-recovery.lock** directory prevents
 overlap without following a pre-existing symlink. An interrupted host process can
 leave a stale lock directory; verify that no recovery process is active before
 removing it. Alert on every nonzero exit and on the absence of a recent completed
-directory. Retention jobs must ignore partial directories and the lock directory.
+directory. Controlled failures of the mandatory restore safety backup clean its
+partial directory and lock in the parent recovery process. Retention jobs must
+ignore partial directories and the lock directory.
 
 ## Store backups safely
 
@@ -437,7 +451,9 @@ The restore sequence is:
 6. restore transactionally, preserving the original database locale, tablespace,
    and connection limit, then run packaged migrations and API/schema smoke checks
    on an internal-only network while the application role remains fenced;
-7. run hook preflight, apply, and verify; clear Redis database 0;
+7. run hook preflight, apply, and verify; require Redis AOF persistence, temporarily
+   set `appendfsync` to `always`, clear Redis database 0, and restore its previous
+   append-fsync policy before durably journaling the clear;
 8. reassign restored objects, copy the original database ACL and database/role
    settings, restore the application login/connectivity state, remove the
    temporary role, and prove a fresh application-role connection plus final
@@ -506,7 +522,10 @@ leaving all application accessors stopped:
 original and replacement database OIDs, access state, and the archive-bound
 quarantine audit marker. It then either restores the proven original identity,
 finishes a proven forward commit, or refuses with services stopped when the state
-is unknown. A terminal journal whose evidence write was interrupted is ingested
+is unknown. A running journal whose durable phase is already `completed` can be
+classified as a forward commit only when the replacement OID, final database state,
+and archive-bound quarantine marker all prove that outcome. A terminal journal
+whose evidence write was interrupted is ingested
 idempotently by operation UUID and archived afterward. If interruption occurs
 during journal publication, the next restore discards only the private unpublished
 directory; if it occurs during terminal archival, `reconcile` or an archive retry
