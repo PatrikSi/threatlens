@@ -206,13 +206,20 @@ def finalize_claimed_notification_webhook_for_policy_error(
         expected_attempt_number=expected_attempt_number,
     )
     error_code = getattr(error, "code", "redirect_policy_error")
+    status_code = getattr(error, "status_code", None)
+    if not isinstance(status_code, int):
+        status_code = None
+    duration_ms = getattr(error, "duration_ms", 0)
+    if not isinstance(duration_ms, int) or duration_ms < 0:
+        duration_ms = 0
     external_side_effect_possible = marker is not False
     outcome = finalize_integration_delivery(
         db,
         delivery_id=delivery.integration_delivery_id,
         expected_attempt_number=expected_attempt_number,
         success=False,
-        duration_ms=0,
+        status_code=status_code,
+        duration_ms=duration_ms,
         error_code=error_code,
         error_message=error_message,
         retryable=False,
@@ -228,6 +235,7 @@ def finalize_claimed_notification_webhook_for_policy_error(
                 "unknown" if external_side_effect_possible else "not_attempted"
             ),
             "external_side_effect_possible": external_side_effect_possible,
+            "final_response_status_code": status_code,
         },
     )
     return _apply_deferred_outcome(
@@ -236,6 +244,8 @@ def finalize_claimed_notification_webhook_for_policy_error(
         outcome=outcome,
         error_message=error_message,
         commit_outcome=commit_outcome,
+        status_code=status_code,
+        duration_ms=duration_ms,
     )
 
 
@@ -246,6 +256,8 @@ def _apply_deferred_outcome(
     outcome: IntegrationDeliveryOutcome,
     error_message: str,
     commit_outcome: bool,
+    status_code: int | None = None,
+    duration_ms: int = 0,
 ) -> NotificationWebhookDeliveryAttempt:
     if not outcome.recorded:
         db.rollback()
@@ -265,8 +277,8 @@ def _apply_deferred_outcome(
         else NOTIFICATION_DELIVERY_FAILED
     )
     delivery.success = False
-    delivery.status_code = None
-    delivery.duration_ms = 0
+    delivery.status_code = status_code
+    delivery.duration_ms = duration_ms
     delivery.response_body_preview = None
     delivery.error = error_message
     delivery.claimed_at = None

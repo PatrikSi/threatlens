@@ -48,7 +48,10 @@ from app.services.notification_delivery_processing import (
 from app.services.notification_webhook_history import (
     claim_notification_webhook_delivery,
 )
-from app.services.notification_webhooks import process_notification_webhook_delivery
+from app.services.notification_webhooks import (
+    process_notification_webhook_delivery,
+    reserve_retryable_notification_webhook_delivery,
+)
 
 
 @pytest.mark.parametrize(
@@ -395,8 +398,10 @@ def test_first_webhook_heartbeat_schema_race_preserves_retry_budget(
         ("redirect", "failed", 1),
         ("redirect_validation", "failed", 1),
         ("redirect_malformed", "failed", 1),
+        ("redirect_malformed_httpx", "failed", 1),
         ("redirect_close", "failed", 1),
         ("redirect_read", "failed", 2),
+        ("redirect_503", "failed", 2),
     ],
 )
 def test_webhook_configuration_race_after_first_request_records_unknown_outcome(
@@ -510,6 +515,8 @@ def test_webhook_configuration_race_after_first_request_records_unknown_outcome(
                     request=request,
                     stream=_FailingReadStream(),
                 )
+            if configuration_change == "redirect_503" and request.url.path == "/next":
+                return webhook_http.httpx.Response(503, request=request)
             location = "/next"
             if configuration_change == "redirect":
                 location = "https://other.example.com/next"
@@ -528,6 +535,20 @@ def test_webhook_configuration_race_after_first_request_records_unknown_outcome(
 
     @contextmanager
     def _fake_client(*_args, **_kwargs):
+        if configuration_change == "redirect_malformed_httpx":
+            def _malformed_redirect(request):
+                send_calls.append(str(request.url))
+                return webhook_http.httpx.Response(
+                    302,
+                    headers={"location": "https://[::1"},
+                    request=request,
+                )
+
+            with webhook_http.httpx.Client(
+                transport=webhook_http.httpx.MockTransport(_malformed_redirect)
+            ) as client:
+                yield client
+            return
         yield _RedirectClient()
 
     monkeypatch.setattr(
@@ -559,7 +580,9 @@ def test_webhook_configuration_race_after_first_request_records_unknown_outcome(
                         commit_outcome=False,
                     )
                 ),
-                reserve_retryable_delivery=lambda *_args, **_kwargs: None,
+                reserve_retryable_delivery=(
+                    reserve_retryable_notification_webhook_delivery
+                ),
                 reserve_failed_delivery_notifications=None,
                 logger=logging.getLogger(__name__),
             )
@@ -567,12 +590,17 @@ def test_webhook_configuration_race_after_first_request_records_unknown_outcome(
     try:
         with ThreadPoolExecutor(max_workers=1) as executor:
             worker = executor.submit(_run_worker)
-            if configuration_change in {"redirect_validation", "redirect_read"}:
+            if configuration_change in {
+                "redirect_validation",
+                "redirect_read",
+                "redirect_503",
+            }:
                 assert post_send_heartbeat_committed.wait(timeout=5)
                 schema_updated.set()
             elif configuration_change not in {
                 "redirect",
                 "redirect_malformed",
+                "redirect_malformed_httpx",
                 "redirect_close",
             }:
                 assert post_send_heartbeat_committed.wait(timeout=5)
@@ -590,12 +618,13 @@ def test_webhook_configuration_race_after_first_request_records_unknown_outcome(
                     update_db.add(instance)
                     update_db.commit()
                 schema_updated.set()
-            worker.result(timeout=5)
+            worker_result = worker.result(timeout=5)
 
         expected_send_urls = ["https://hooks.example.com/events"]
         if expected_send_count == 2:
             expected_send_urls.append("https://hooks.example.com/next")
         assert send_calls == expected_send_urls
+        assert worker_result.followup_deliveries == ()
         with Session(database_engine) as verify_db:
             legacy = verify_db.get(NotificationWebhookDelivery, delivery_id)
             assert legacy is not None
@@ -620,7 +649,11 @@ def test_webhook_configuration_race_after_first_request_records_unknown_outcome(
                 assert (legacy.error or "").startswith("policy_error:")
                 assert attempt.retryable is False
             if configuration_change.startswith("redirect"):
-                assert attempt.error_code == "redirect_policy_error"
+                expected_error_code = {
+                    "redirect_malformed_httpx": "ambiguous_webhook_response",
+                    "redirect_503": "ambiguous_webhook_response",
+                }.get(configuration_change, "redirect_policy_error")
+                assert attempt.error_code == expected_error_code
                 assert generic.not_before is None
                 deliveries = verify_db.scalars(
                     select(IntegrationDelivery).where(
@@ -628,6 +661,12 @@ def test_webhook_configuration_race_after_first_request_records_unknown_outcome(
                     )
                 ).all()
                 assert [row.id for row in deliveries] == [generic.id]
+            _assert_post_send_response_metadata(
+                configuration_change=configuration_change,
+                legacy=legacy,
+                generic=generic,
+                attempt=attempt,
+            )
     finally:
         schema_updated.set()
         with Session(database_engine) as cleanup_db:
@@ -635,6 +674,21 @@ def test_webhook_configuration_race_after_first_request_records_unknown_outcome(
             if owner is not None:
                 cleanup_db.delete(owner)
             cleanup_db.commit()
+
+
+def _assert_post_send_response_metadata(
+    *,
+    configuration_change: str,
+    legacy: NotificationWebhookDelivery,
+    generic: IntegrationDelivery,
+    attempt: IntegrationAttempt,
+) -> None:
+    if configuration_change != "redirect_503":
+        return
+    assert legacy.status_code == 503
+    assert generic.last_status_code == 503
+    assert attempt.status_code == 503
+    assert attempt.response_json["final_response_status_code"] == 503
 
 
 def test_webhook_created_between_prepare_and_route_waits_for_compatible_worker(
