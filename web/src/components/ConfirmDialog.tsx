@@ -31,6 +31,7 @@ type ConfirmDialogProps = {
   cancelLabel?: string
   closeLabel?: string
   isConfirming?: boolean
+  confirmingLabel?: string
   confirmDisabled?: boolean
   cancelDisabled?: boolean
   confirmTone?: 'danger' | 'primary'
@@ -122,7 +123,7 @@ export function DialogSurface({
           <button
             ref={closeButtonRef}
             type="button"
-            className="shrink-0 rounded border border-slate/20 px-2 py-1 text-xs dark:border-cyan-900/40"
+            className="min-h-11 min-w-11 shrink-0 rounded border border-slate/20 px-2 py-1 text-xs sm:min-h-0 sm:min-w-0 dark:border-cyan-900/40"
             onClick={onClose}
             disabled={dismissDisabled}
             aria-label={closeLabel}
@@ -158,6 +159,7 @@ export function ConfirmDialog({
   cancelLabel = 'Cancel',
   closeLabel = 'Close dialog',
   isConfirming = false,
+  confirmingLabel = 'Working...',
   confirmDisabled = false,
   cancelDisabled = false,
   confirmTone = 'danger',
@@ -174,8 +176,8 @@ export function ConfirmDialog({
   const showHeaderDescription = Boolean(description) && !children
   const confirmButtonClassName =
     confirmTone === 'primary'
-      ? 'rounded bg-ink px-3 py-2 text-sm font-semibold text-white hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-cyan dark:text-[#053c2e] dark:hover:bg-cyan/90'
-      : 'tl-button-danger rounded px-3 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60'
+      ? 'min-h-11 rounded bg-ink px-3 py-2 text-sm font-semibold text-white hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-0 dark:bg-cyan dark:text-[#053c2e] dark:hover:bg-cyan/90'
+      : 'tl-button-danger min-h-11 rounded px-3 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-0'
 
   return (
     <DialogSurface
@@ -193,7 +195,7 @@ export function ConfirmDialog({
           <button
             ref={cancelButtonRef}
             type="button"
-            className="rounded border border-slate/20 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate/5 dark:border-cyan-900/40 dark:text-slate-100 dark:hover:bg-white/[0.04]"
+            className="min-h-11 rounded border border-slate/20 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate/5 sm:min-h-0 dark:border-cyan-900/40 dark:text-slate-100 dark:hover:bg-white/[0.04]"
             onClick={onCancel}
             disabled={dismissDisabled}
           >
@@ -205,7 +207,7 @@ export function ConfirmDialog({
             onClick={onConfirm}
             disabled={confirmDisabled || isConfirming}
           >
-            {isConfirming ? 'Working...' : confirmLabel}
+            {isConfirming ? confirmingLabel : confirmLabel}
           </button>
         </>
       }

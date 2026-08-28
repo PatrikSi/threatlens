@@ -147,7 +147,7 @@ function AlertViewTab({
       aria-selected={active}
       aria-controls={controls}
       tabIndex={active ? 0 : -1}
-      className={`min-h-10 shrink-0 rounded px-3 py-1.5 text-sm font-semibold ${
+      className={`min-h-11 shrink-0 rounded px-3 py-1.5 text-sm font-semibold sm:min-h-10 ${
         active
           ? 'bg-ink text-white dark:bg-cyan dark:text-[#053c2e]'
           : 'border border-slate/20 text-slate-700 dark:border-white/10 dark:text-slate-200'
