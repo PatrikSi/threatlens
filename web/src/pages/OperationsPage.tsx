@@ -68,8 +68,22 @@ export function OperationsPage() {
   const totalRunPages = Math.max(1, Math.ceil((runsQuery.data?.total ?? 0) / RUN_PAGE_SIZE))
   const lastUpdated = overviewQuery.dataUpdatedAt ? new Date(overviewQuery.dataUpdatedAt) : null
   const overviewError = overviewQuery.isError
-    ? resolveApiErrorMessage(overviewQuery.error, 'Operations status could not be refreshed')
+    ? resolveApiErrorMessage(
+        overviewQuery.error,
+        overview
+          ? 'Operations status could not be refreshed'
+          : 'Operations status could not be loaded',
+      )
     : ''
+  const overviewActionLabel = overviewQuery.isFetching
+    ? overview
+      ? 'Refreshing...'
+      : 'Retrying...'
+    : overview
+      ? 'Refresh'
+      : overviewQuery.isError
+        ? 'Retry operations status'
+        : 'Refresh'
 
   return (
     <section className="tl-surface min-w-0 overflow-hidden rounded-xl">
@@ -83,7 +97,9 @@ export function OperationsPage() {
             <p className="mt-1 text-sm text-slate dark:text-slate-300">
               {overview
                 ? `ThreatLens ${overview.application.version} · schema ${overview.application.schema_revision ?? 'unavailable'}`
-                : 'Loading deployment health...'}
+                : overviewQuery.isError
+                  ? 'Deployment health is unavailable.'
+                  : 'Loading deployment health...'}
             </p>
           </div>
           <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
@@ -93,7 +109,7 @@ export function OperationsPage() {
               disabled={overviewQuery.isFetching}
               onClick={() => void overviewQuery.refetch()}
             >
-              {overviewQuery.isFetching ? 'Refreshing...' : 'Refresh'}
+              {overviewActionLabel}
             </button>
             <button
               type="button"
@@ -139,7 +155,7 @@ export function OperationsPage() {
         runs={runsQuery.data?.runs ?? []}
         loading={runsQuery.isLoading}
         updating={runsQuery.isFetching && Boolean(runsQuery.data)}
-        error={runsQuery.isError ? resolveApiErrorMessage(runsQuery.error, 'Recovery history could not be loaded') : ''}
+        error={runsQuery.isError ? resolveApiErrorMessage(runsQuery.error, 'Operation history could not be loaded') : ''}
         page={runPage}
         totalPages={totalRunPages}
         operationType={operationType}
