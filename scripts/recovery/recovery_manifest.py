@@ -94,6 +94,29 @@ def _reject_symlink_components(path: Path, *, include_leaf: bool) -> None:
             _fail(f"Symbolic links are not allowed in recovery paths: {current}")
 
 
+def _fsync_directory_path(path: Path) -> None:
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _make_directories_without_links(path: Path) -> None:
+    absolute = path.absolute()
+    current = Path(absolute.parts[0])
+    for part in absolute.parts[1:]:
+        current /= part
+        try:
+            metadata = current.lstat()
+        except FileNotFoundError:
+            current.mkdir(mode=0o700)
+            _fsync_directory_path(current.parent)
+            metadata = current.lstat()
+        if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+            _fail(f"Recovery path component is not a real directory: {current}")
+
+
 def _ensure_regular_file(path: Path, *, label: str) -> os.stat_result:
     _reject_symlink_components(path, include_leaf=True)
     try:
@@ -504,11 +527,11 @@ def _command_fsync_directory(args: argparse.Namespace) -> None:
         _fail(f"Directory does not exist: {path}")
     if stat.S_ISLNK(mode) or not stat.S_ISDIR(mode):
         _fail(f"Path must be a real directory: {path}")
-    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
-    try:
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
+    _fsync_directory_path(path)
+
+
+def _command_prepare_directory(args: argparse.Namespace) -> None:
+    _make_directories_without_links(Path(args.path))
 
 
 def _command_compose_image(args: argparse.Namespace) -> None:
@@ -637,6 +660,13 @@ def _parser() -> argparse.ArgumentParser:
     fsync_directory = subparsers.add_parser("fsync-directory", help="fsync a directory")
     fsync_directory.add_argument("--path", required=True)
     fsync_directory.set_defaults(handler=_command_fsync_directory)
+
+    prepare_directory = subparsers.add_parser(
+        "prepare-directory",
+        help="create a directory tree and durably publish every new component",
+    )
+    prepare_directory.add_argument("--path", required=True)
+    prepare_directory.set_defaults(handler=_command_prepare_directory)
 
     compose_image = subparsers.add_parser(
         "compose-image",

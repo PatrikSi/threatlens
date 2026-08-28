@@ -1,16 +1,29 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 JOURNAL = REPOSITORY_ROOT / "scripts" / "recovery" / "recovery_journal.py"
 FAILPOINT_ENV = "THREATLENS_RECOVERY_JOURNAL_TEST_FAILPOINT"
+
+
+def _load_journal_helper():
+    spec = importlib.util.spec_from_file_location(
+        "test_recovery_journal_helper", JOURNAL
+    )
+    if spec is None or spec.loader is None:  # pragma: no cover - import machinery guard
+        raise RuntimeError("Unable to load recovery journal helper")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 class RecoveryJournalTests(unittest.TestCase):
@@ -163,6 +176,21 @@ class RecoveryJournalTests(unittest.TestCase):
             self.assertFalse(lock_path.is_symlink())
             self.assertEqual(lock_path.stat().st_mode & 0o777, 0o600)
             self.assertEqual(root.stat().st_mode & 0o777, 0o700)
+
+    def test_nested_journal_root_fsyncs_each_new_parent_entry(self) -> None:
+        helper = _load_journal_helper()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            journal_root = root / "new-parent" / "journal"
+
+            with mock.patch.object(helper, "_fsync_directory") as fsync_directory:
+                helper._make_directories_without_links(journal_root)
+
+            self.assertEqual(
+                fsync_directory.call_args_list,
+                [mock.call(root), mock.call(root / "new-parent")],
+            )
+            self.assertTrue(journal_root.is_dir())
 
     def test_init_recovers_death_before_atomic_active_publication(self) -> None:
         for failpoint in (

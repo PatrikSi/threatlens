@@ -43,6 +43,7 @@ RECOVERY_NETWORK=""
 RECOVERY_DATABASE_CONTAINER_ATTACHED=""
 BACKUP_LOCK_DIRECTORY=""
 COMPLETED_BACKUP_DIRECTORY=""
+BACKUP_ERROR_CONTEXT=""
 RESTORE_STAGE_DIRECTORY=""
 RUNTIME_VALIDATION_DIRECTORY=""
 STAGED_QUARANTINE_HOOK=""
@@ -112,6 +113,13 @@ die() {
   local exit_code="$1"
   local error_code="$2"
   shift 2
+  if [[ "${BACKUP_ERROR_CONTEXT:-}" == "restore_safety" ]]; then
+    local cause_code="${error_code}"
+    local cause_message="$*"
+    exit_code="${EXIT_RESTORE}"
+    error_code="E804"
+    set -- "Fresh safety backup failed; destructive restore was not started. Cause [${cause_code}]: ${cause_message}"
+  fi
   CONTROLLED_EXIT=true
   printf '%s ERROR [%s] %s\n' "$(timestamp)" "${error_code}" "$*" >&2
   if [[ "${RESTORE_REPLACEMENT_ACTIVE:-false}" == true ]]; then
@@ -1028,7 +1036,7 @@ perform_backup() {
   local output_directory="$1"
   [[ ! -L "${output_directory}" ]] \
     || die "${EXIT_VALIDATION}" "E403" "Backup output directory must not be a symlink"
-  mkdir -p -- "${output_directory}" \
+  python3 "${MANIFEST_HELPER}" prepare-directory --path "${output_directory}" \
     || die "${EXIT_DATABASE}" "E517" "Unable to create the backup output directory"
   chmod 0700 "${output_directory}" \
     || die "${EXIT_DATABASE}" "E518" "Unable to restrict backup output-directory permissions"
