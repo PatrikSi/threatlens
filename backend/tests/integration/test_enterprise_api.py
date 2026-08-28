@@ -4606,8 +4606,12 @@ def test_stats_widgets_share_the_same_day_aligned_window(
     assert feed_response.status_code == 201
     feed_id = uuid.UUID(feed_response.json()["id"])
 
-    now = datetime.now(timezone.utc)
-    outside_day_aligned_window = now - timedelta(days=30) + timedelta(hours=1)
+    today_start = datetime.combine(
+        datetime.now(timezone.utc).date(),
+        datetime.min.time(),
+        tzinfo=timezone.utc,
+    )
+    outside_day_aligned_window = today_start - timedelta(days=29, microseconds=1)
     item = Item(
         id=uuid.uuid4(),
         feed_id=feed_id,
