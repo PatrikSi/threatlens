@@ -3,7 +3,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 ;(
   globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true
@@ -130,7 +130,12 @@ function mutationResponseData(): string {
   )
 }
 
+beforeEach(() => {
+  vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-08-27T12:00:00Z'))
+})
+
 afterEach(async () => {
+  vi.restoreAllMocks()
   await act(async () => root?.unmount())
   queryClient?.clear()
   container?.remove()
