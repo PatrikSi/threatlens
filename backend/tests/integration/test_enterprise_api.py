@@ -3795,6 +3795,8 @@ def test_token_defaults_scopes_when_not_provided(client: TestClient, auth_header
 def test_token_inventory_paginates_without_changing_legacy_list_contract(
     client: TestClient,
     auth_headers,
+    db_session,
+    seed_users,
 ):
     initial = client.get("/tokens", headers=auth_headers["admin"])
     assert initial.status_code == 200
@@ -3806,6 +3808,16 @@ def test_token_inventory_paginates_without_changing_legacy_list_contract(
             headers=auth_headers["admin"],
         )
         assert created.status_code == 201, created.text
+    db_session.add(
+        ApiToken(
+            user_id=seed_users["admin"].id,
+            name="legacy-unscoped-inventory-token",
+            token_prefix=f"tl_legacy_{uuid.uuid4().hex[:12]}",
+            token_hash=uuid.uuid4().hex + uuid.uuid4().hex,
+            scopes=[],
+        )
+    )
+    db_session.commit()
 
     first = client.get(
         "/tokens/inventory?page=1&page_size=2",
@@ -3819,8 +3831,10 @@ def test_token_inventory_paginates_without_changing_legacy_list_contract(
 
     assert first.status_code == 200, first.text
     assert second.status_code == 200, second.text
-    expected_total = initial_count + 3
+    expected_total = initial_count + 4
     assert first.json()["total"] == expected_total
+    assert first.json()["unscoped_total"] == 1
+    assert second.json()["unscoped_total"] == 1
     assert first.json()["page"] == 1
     assert first.json()["page_size"] == 2
     assert len(first.json()["tokens"]) == 2

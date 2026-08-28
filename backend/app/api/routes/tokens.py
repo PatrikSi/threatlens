@@ -117,6 +117,15 @@ def list_token_inventory(
     total = int(
         db.scalar(select(func.count(ApiToken.id)).where(*criteria)) or 0
     )
+    unscoped_total = int(
+        db.scalar(
+            select(func.count(ApiToken.id)).where(
+                *criteria,
+                ApiToken.scopes == [],
+            )
+        )
+        or 0
+    )
     tokens = list(
         db.scalars(
             select(ApiToken)
@@ -129,6 +138,7 @@ def list_token_inventory(
     return ApiTokenListResponse(
         tokens=tokens,
         total=total,
+        unscoped_total=unscoped_total,
         page=page,
         page_size=page_size,
     )

@@ -67,5 +67,6 @@ class ApiTokenResponse(BaseModel):
 class ApiTokenListResponse(BaseModel):
     tokens: list[ApiTokenResponse]
     total: int
+    unscoped_total: int
     page: int
     page_size: int

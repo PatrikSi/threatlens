@@ -64,6 +64,7 @@ const tokensPageDomMocks = vi.hoisted(() => ({
   tokensError: null as unknown,
   tokensRefetch: vi.fn(),
   tokenQueryKeys: [] as unknown[][],
+  revokedDescendantCount: 0,
   nextCreateError: null as unknown,
   useBlocker: vi.fn(() => ({
     state: 'unblocked' as const,
@@ -192,7 +193,8 @@ vi.mock('@tanstack/react-query', () => ({
         options.onSuccess?.(
           {
             revokedTokenCount: 1,
-            revokedDescendantCount: 0,
+            revokedDescendantCount:
+              tokensPageDomMocks.revokedDescendantCount,
             rootTokenRevoked: true,
           } as never,
           tokenId as never,
@@ -292,6 +294,7 @@ afterEach(() => {
   tokensPageDomMocks.tokensError = null
   tokensPageDomMocks.tokensRefetch.mockReset()
   tokensPageDomMocks.tokenQueryKeys.splice(0)
+  tokensPageDomMocks.revokedDescendantCount = 0
   tokensPageDomMocks.nextCreateError = null
   Object.assign(tokensPageDomMocks.currentUser.data, {
     password_login_enabled: true,
@@ -366,6 +369,39 @@ describe('TokensPage DOM workflows', () => {
       page_size: 25,
     })
     expect(updated.tokens[1].revoked_at).not.toBeNull()
+  })
+
+  it('fails closed when recursive revocation cannot refresh descendant state', async () => {
+    tokensPageDomMocks.revokedDescendantCount = 2
+    tokensPageDomMocks.queryClient.invalidateQueries.mockRejectedValueOnce(
+      new Error('refresh unavailable'),
+    )
+    const view = renderPage()
+    const revokeButton = Array.from(view.querySelectorAll('button')).find(
+      (button) =>
+        button.textContent?.includes('Revoke') &&
+        button.closest('div')?.textContent?.includes('Partner sync'),
+    )
+
+    act(() => revokeButton?.click())
+    const confirm = Array.from(document.querySelectorAll('button'))
+      .filter((button) => button.textContent?.includes('Revoke token'))
+      .at(-1)
+    await act(async () => {
+      confirm?.click()
+      await flushPromises()
+    })
+
+    expect(pageText()).toContain(
+      'Revocation actions remain disabled until the inventory is current',
+    )
+    expect(
+      Array.from(
+        view.querySelectorAll<HTMLButtonElement>(
+          'ul[aria-label="API tokens"] button',
+        ),
+      ).every((button) => button.disabled),
+    ).toBe(true)
   })
 
   it('validates token creation before sending the request', () => {

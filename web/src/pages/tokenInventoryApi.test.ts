@@ -37,6 +37,7 @@ describe('token inventory compatibility', () => {
     expect(normalizeTokenInventory(TOKENS, 2, 1)).toEqual({
       tokens: [TOKENS[1]],
       total: 2,
+      unscoped_total: 1,
       page: 2,
       page_size: 1,
     })
@@ -80,7 +81,13 @@ describe('token inventory compatibility', () => {
   it('rejects malformed paginated responses with a useful protocol error', () => {
     expect(() =>
       normalizeTokenInventory(
-        { tokens: TOKENS, total: -1, page: 1, page_size: 25 },
+        {
+          tokens: TOKENS,
+          total: -1,
+          unscoped_total: 1,
+          page: 1,
+          page_size: 25,
+        },
         1,
         25,
       ),
