@@ -31,6 +31,7 @@ from app.services.integration_compat import (
 from app.services.integration_delivery import (
     ensure_webhook_delivery,
     lock_webhook_delivery_external_io_eligibility,
+    replay_dead_letter_delivery,
 )
 from app.services.integration_delivery_compatibility import (
     defer_integration_delivery_for_compatibility,
@@ -1262,6 +1263,169 @@ def test_webhook_delete_and_delivery_fence_use_parent_first_lock_order(
             database_engine,
             "before_cursor_execute",
             _observe_delete_lock,
+        )
+        with Session(database_engine) as cleanup_db:
+            owner = cleanup_db.get(User, owner_id)
+            if owner is not None:
+                cleanup_db.delete(owner)
+            cleanup_db.commit()
+
+
+def test_webhook_replay_and_recovery_use_parent_first_lock_order(database_engine):
+    owner_id = uuid.uuid4()
+    webhook_id = uuid.uuid4()
+    delivery_id = uuid.uuid4()
+    with Session(database_engine) as setup_db:
+        owner = User(
+            id=owner_id,
+            email=f"webhook-replay-order-{uuid.uuid4().hex}@example.com",
+            password_hash="x",
+            role="analyst",
+            is_active=True,
+            is_approved=True,
+        )
+        webhook = NotificationWebhook(
+            id=webhook_id,
+            user_id=owner_id,
+            name="Replay lock ordering webhook",
+            enabled=True,
+            event_type="rss_item_new",
+            url_template="https://hooks.example.com/events",
+            method="POST",
+            feed_scope="all",
+            feed_ids_json=[],
+            query_params_json=[],
+            headers_json=[],
+            body_mode="none",
+            body_fields_json=[],
+            timeout_seconds=10,
+        )
+        legacy = NotificationWebhookDelivery(
+            id=delivery_id,
+            webhook_id=webhook_id,
+            user_id=owner_id,
+            event_type_snapshot="rss_item_new",
+            delivery_kind="live",
+            delivery_state="pending",
+            attempt_count=0,
+            success=False,
+            timeout_seconds=10,
+            rendered_url="https://hooks.example.com/events",
+            rendered_method="POST",
+            rendered_headers_json=[],
+            rendered_query_params_json=[],
+            rendered_body=None,
+            attempted_at=datetime.now(timezone.utc),
+        )
+        setup_db.add(owner)
+        setup_db.flush()
+        setup_db.add(webhook)
+        setup_db.flush()
+        setup_db.add(legacy)
+        setup_db.flush()
+        generic = ensure_webhook_delivery(
+            setup_db,
+            webhook=webhook,
+            legacy_delivery=legacy,
+        )
+        generic.state = "dead_letter"
+        generic.attempt_count = 1
+        generic.dead_lettered_at = datetime.now(timezone.utc)
+        generic.last_error_message = "Connection refused"
+        setup_db.add(generic)
+        setup_db.commit()
+
+    recovery_thread_id: list[int] = []
+    replay_thread_id: list[int] = []
+    recovery_locked_parent = Event()
+    allow_recovery_to_continue = Event()
+    replay_parent_lock_started = Event()
+
+    def _pause_recovery_after_parent_lock(
+        _connection, _cursor, statement, _parameters, _context, _executemany
+    ) -> None:
+        if (
+            recovery_thread_id
+            and threading.get_ident() == recovery_thread_id[0]
+            and "notification_webhooks" in statement.lower()
+            and "for update" in statement.lower()
+            and not recovery_locked_parent.is_set()
+        ):
+            recovery_locked_parent.set()
+            assert allow_recovery_to_continue.wait(timeout=10)
+
+    def _observe_replay_parent_lock(
+        _connection, _cursor, statement, _parameters, _context, _executemany
+    ) -> None:
+        if (
+            replay_thread_id
+            and threading.get_ident() == replay_thread_id[0]
+            and "notification_webhooks" in statement.lower()
+            and "for update" in statement.lower()
+        ):
+            replay_parent_lock_started.set()
+
+    def _recover_delivery():
+        recovery_thread_id.append(threading.get_ident())
+        with Session(database_engine) as recovery_db:
+            return claim_notification_webhook_delivery(
+                recovery_db,
+                delivery_id=delivery_id,
+            )
+
+    def _replay_delivery() -> uuid.UUID:
+        replay_thread_id.append(threading.get_ident())
+        with Session(database_engine) as replay_db:
+            replay = replay_dead_letter_delivery(
+                replay_db,
+                delivery_id=delivery_id,
+            )
+            replay_id = replay.id
+            replay_db.commit()
+            return replay_id
+
+    event.listen(
+        database_engine,
+        "after_cursor_execute",
+        _pause_recovery_after_parent_lock,
+    )
+    event.listen(
+        database_engine,
+        "before_cursor_execute",
+        _observe_replay_parent_lock,
+    )
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            recovery = executor.submit(_recover_delivery)
+            assert recovery_locked_parent.wait(timeout=5)
+            replay = executor.submit(_replay_delivery)
+            assert replay_parent_lock_started.wait(timeout=5)
+            assert not replay.done()
+            allow_recovery_to_continue.set()
+            assert recovery.result(timeout=10) is None
+            replay_id = replay.result(timeout=10)
+
+        with Session(database_engine) as verify_db:
+            source = verify_db.get(NotificationWebhookDelivery, delivery_id)
+            replay_projection = verify_db.get(NotificationWebhookDelivery, replay_id)
+            replay_delivery = verify_db.get(IntegrationDelivery, replay_id)
+            assert source is not None
+            assert source.delivery_state == "failed"
+            assert replay_projection is not None
+            assert replay_projection.source_delivery_id == source.id
+            assert replay_delivery is not None
+            assert replay_delivery.source_delivery_id == source.integration_delivery_id
+    finally:
+        allow_recovery_to_continue.set()
+        event.remove(
+            database_engine,
+            "after_cursor_execute",
+            _pause_recovery_after_parent_lock,
+        )
+        event.remove(
+            database_engine,
+            "before_cursor_execute",
+            _observe_replay_parent_lock,
         )
         with Session(database_engine) as cleanup_db:
             owner = cleanup_db.get(User, owner_id)
