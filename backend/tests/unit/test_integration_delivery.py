@@ -1,3 +1,4 @@
+import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -13,6 +14,7 @@ from app.models.integration import (
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.user import User
+from app.services.integration_compat import WebhookConfigurationCompatibilityError
 from app.services.integration_delivery import (
     claim_integration_delivery,
     claim_webhook_delivery,
@@ -25,6 +27,9 @@ from app.services.integration_delivery import (
     replay_dead_letter_delivery,
     renew_integration_delivery_lease,
     reserve_recoverable_integration_deliveries,
+)
+from app.services.notification_delivery_processing import (
+    process_reserved_notification_deliveries,
 )
 from app.services.notification_webhook_compatibility import (
     WebhookExternalIOFenceError,
@@ -203,6 +208,27 @@ def test_terminal_generic_webhook_projection_is_recoverable_after_commit_gap(
     instance.schema_version = 2
     db_session.add(instance)
     db_session.commit()
+
+    def _old_worker(*_args, **_kwargs):
+        raise WebhookConfigurationCompatibilityError(
+            "Older worker cannot read connector schema version 2"
+        )
+
+    old_worker_result = process_reserved_notification_deliveries(
+        db_session,
+        [legacy.id],
+        process_delivery=_old_worker,
+        reserve_retryable_delivery=lambda *_args, **_kwargs: None,
+        reserve_failed_delivery_notifications=None,
+        logger=logging.getLogger(__name__),
+    )
+    db_session.refresh(legacy)
+    assert old_worker_result.failed == 1
+    assert legacy.delivery_state == "failed"
+    assert legacy.attempt_count == 0
+    assert "Older worker cannot read connector schema version 2" in (
+        legacy.error or ""
+    )
 
     claimed = claim_webhook_delivery(
         db_session,
