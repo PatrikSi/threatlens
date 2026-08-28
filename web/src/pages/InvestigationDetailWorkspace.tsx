@@ -54,11 +54,14 @@ export function InvestigationDetailWorkspace({
   }
   if (terminalAccessError || (!detail && controller.detailQuery.isError)) {
     return (
-      <InvestigationPageError
-        error={controller.detailQuery.error}
-        fallback="Investigation could not be loaded"
-        onRetry={() => void controller.detailQuery.refetch()}
-      />
+      <>
+        <InvestigationPageError
+          error={controller.detailQuery.error}
+          fallback="Investigation could not be loaded"
+          onRetry={() => void controller.detailQuery.refetch()}
+        />
+        {controller.confirmDiscardChanges.discardDialog}
+      </>
     )
   }
   if (!detail || !controller.access) return null

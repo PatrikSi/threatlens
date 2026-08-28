@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 
 import { apiFetch } from '../api/client'
 import { useCurrentUser } from '../hooks/useCurrentUser'
+import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import type {
   InvestigationCreateRequest,
   InvestigationDetail,
@@ -44,6 +45,7 @@ export function useInvestigationsPage() {
   const [searchDraft, setSearchDraft] = useState(filters.query)
   const [createOpen, setCreateOpen] = useState(false)
   const [createDraft, setCreateDraft] = useState<InvestigationCreateDraft>(EMPTY_CREATE_DRAFT)
+  const [createdInvestigationId, setCreatedInvestigationId] = useState<string | null>(null)
 
   useEffect(() => setSearchDraft(filters.query), [filters.query])
 
@@ -67,11 +69,31 @@ export function useInvestigationsPage() {
       void queryClient.invalidateQueries({ queryKey: ['investigations', 'list'] })
       setCreateDraft(EMPTY_CREATE_DRAFT)
       setCreateOpen(false)
-      navigate(`/investigations/${investigation.id}`)
+      setCreatedInvestigationId(investigation.id)
     },
   })
 
+  useEffect(() => {
+    if (!createdInvestigationId) return
+    const navigationTimer = window.setTimeout(() => {
+      setCreatedInvestigationId(null)
+      navigate(`/investigations/${createdInvestigationId}`)
+    }, 0)
+    return () => window.clearTimeout(navigationTimer)
+  }, [createdInvestigationId, navigate])
+
   const canCreate = currentUserQuery.data?.role === 'admin' || currentUserQuery.data?.role === 'analyst'
+  const createDraftDirty =
+    createDraft.title !== EMPTY_CREATE_DRAFT.title ||
+    createDraft.description !== EMPTY_CREATE_DRAFT.description ||
+    createDraft.severity !== EMPTY_CREATE_DRAFT.severity ||
+    createDraft.visibility !== EMPTY_CREATE_DRAFT.visibility ||
+    createDraft.assignToMe !== EMPTY_CREATE_DRAFT.assignToMe
+  const confirmDiscardCreateDraft = useUnsavedChangesWarning(
+    createDraftDirty,
+    'You have an unfinished investigation draft. Leave without creating it?',
+    { ignoreSearchChanges: true },
+  )
 
   const updateFilters = (changes: Partial<InvestigationListFilters>) => {
     const next = { ...filters, ...changes }
@@ -119,6 +141,7 @@ export function useInvestigationsPage() {
   return {
     canCreate,
     clearFilters,
+    confirmDiscardCreateDraft,
     createDraft,
     createInvestigation,
     createOpen,
