@@ -240,6 +240,11 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     bind = op.get_bind()
+    bind.execute(
+        sa.text(
+            "LOCK TABLE user_totp_credentials, api_tokens, oidc_providers IN SHARE MODE"
+        )
+    )
     active_mfa_count = bind.scalar(
         sa.text("SELECT count(*) FROM user_totp_credentials WHERE status = 'active'")
     )
@@ -247,6 +252,33 @@ def downgrade() -> None:
         raise RuntimeError(
             "Cannot downgrade IAM hardening while local MFA is active. Disable local MFA for every account "
             "and complete a verified backup before retrying the downgrade."
+        )
+    active_delegated_token_count = bind.scalar(
+        sa.text(
+            """
+            SELECT count(*)
+            FROM api_tokens
+            WHERE parent_token_id IS NOT NULL
+              AND revoked_at IS NULL
+              AND (expires_at IS NULL OR expires_at >= CURRENT_TIMESTAMP)
+            """
+        )
+    )
+    if int(active_delegated_token_count or 0) > 0:
+        raise RuntimeError(
+            "Cannot downgrade IAM hardening while delegated API tokens are active. "
+            "Revoke or allow every delegated token to expire and complete a verified "
+            "backup before retrying the downgrade."
+        )
+    advanced_oidc_revision_count = bind.scalar(
+        sa.text("SELECT count(*) FROM oidc_providers WHERE config_revision > 1")
+    )
+    if int(advanced_oidc_revision_count or 0) > 0:
+        raise RuntimeError(
+            "Cannot downgrade IAM hardening after the OIDC provider configuration "
+            "revision has advanced. Removing the revision would permit stale provider "
+            "writes after a future re-upgrade; use a verified database backup and restore "
+            "procedure instead."
         )
     for name in (
         "ix_mfa_login_challenges_user_created",
