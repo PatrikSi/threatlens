@@ -38,6 +38,7 @@ from app.services.notification_webhook_storage import (
     notification_fields_to_storage,
     upgrade_notification_webhook_delivery_secret_storage,
 )
+from app.services.webhook_delivery_locking import WebhookDeliveryBusyError
 
 settings = get_settings()
 
@@ -613,9 +614,13 @@ def claim_notification_webhook_delivery(
     if webhook is None or delivery is None:
         return None
     upgrade_notification_webhook_delivery_secret_storage(delivery)
-    return claim_generic_webhook_delivery(
-        db, webhook=webhook, legacy_delivery=delivery, now=now
-    )
+    try:
+        return claim_generic_webhook_delivery(
+            db, webhook=webhook, legacy_delivery=delivery, now=now
+        )
+    except WebhookDeliveryBusyError:
+        db.rollback()
+        return None
 
 
 def _lock_notification_webhook_delivery(

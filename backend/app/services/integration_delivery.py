@@ -35,6 +35,7 @@ from app.services.integration_delivery_state import (
 from app.services.webhook_delivery_eligibility import (
     WebhookDeliveryIneligibleError as WebhookDeliveryIneligibleError,
 )
+from app.services.webhook_delivery_locking import WebhookDeliveryBusyError
 from app.services.webhook_delivery_eligibility import (
     lock_webhook_delivery_external_io_eligibility as lock_webhook_delivery_external_io_eligibility,
 )
@@ -721,10 +722,14 @@ def replay_dead_letter_delivery(
         raise ValueError("Integration delivery not found")
     legacy_source: NotificationWebhookDelivery | None = None
     if source_snapshot.connector_type == "webhook":
-        source, legacy_source = lock_webhook_replay_context(
-            db,
-            source_snapshot=source_snapshot,
-        )
+        try:
+            source, legacy_source = lock_webhook_replay_context(
+                db,
+                source_snapshot=source_snapshot,
+            )
+        except WebhookDeliveryBusyError:
+            db.rollback()
+            raise
     else:
         source = db.scalar(
             select(IntegrationDelivery)

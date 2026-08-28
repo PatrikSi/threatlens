@@ -5,11 +5,16 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.models.integration import IntegrationDelivery
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.services.integration_compat import lock_notification_webhook
+from app.services.webhook_delivery_locking import (
+    WebhookDeliveryBusyError,
+    is_webhook_delivery_lock_contention,
+)
 
 
 def lock_webhook_replay_context(
@@ -34,12 +39,19 @@ def lock_webhook_replay_context(
     if legacy is None or legacy.webhook_id != webhook.id:
         raise _missing_history_error()
 
-    source = db.scalar(
-        select(IntegrationDelivery)
-        .where(IntegrationDelivery.id == source_snapshot.id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
+    try:
+        source = db.scalar(
+            select(IntegrationDelivery)
+            .where(IntegrationDelivery.id == source_snapshot.id)
+            .with_for_update(nowait=True)
+            .execution_options(populate_existing=True)
+        )
+    except OperationalError as exc:
+        if is_webhook_delivery_lock_contention(exc):
+            raise WebhookDeliveryBusyError(
+                "Webhook delivery replay is busy; retry the request shortly."
+            ) from exc
+        raise
     if source is None:
         raise ValueError("Integration delivery not found")
     if source.connector_type != "webhook":
