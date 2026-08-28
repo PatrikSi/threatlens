@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
+from app.api.routes import investigations as investigation_routes
 from app.api.routes.investigations import MAX_INVESTIGATION_PAGE
 from app.core.config import get_settings
 from app.core.security import generate_api_token
@@ -44,6 +45,7 @@ from app.services.investigations import (
     list_evidence,
     list_notes,
     remove_member,
+    update_investigation,
 )
 from app.services.user_access import (
     lock_users_for_security_change,
@@ -212,6 +214,149 @@ def test_inflight_write_revalidates_actor_after_access_reduction(database_engine
     finally:
         access_db.rollback()
         access_db.close()
+        with Session(database_engine) as cleanup_db:
+            cleanup_db.execute(
+                delete(Investigation).where(Investigation.id == investigation_id)
+            )
+            cleanup_db.execute(delete(User).where(User.id.in_([owner_id, editor_id])))
+            cleanup_db.commit()
+
+
+def test_mutation_response_is_materialized_before_membership_revocation(
+    database_engine,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    owner_id = uuid.uuid4()
+    editor_id = uuid.uuid4()
+    investigation_id = uuid.uuid4()
+    with Session(database_engine) as setup_db:
+        setup_db.add_all(
+            [
+                User(
+                    id=owner_id,
+                    email=f"response-owner-{uuid.uuid4().hex}@example.com",
+                    password_hash="x",
+                    role="admin",
+                    is_active=True,
+                    is_approved=True,
+                ),
+                User(
+                    id=editor_id,
+                    email=f"response-editor-{uuid.uuid4().hex}@example.com",
+                    password_hash="x",
+                    role="analyst",
+                    is_active=True,
+                    is_approved=True,
+                ),
+            ]
+        )
+        setup_db.flush()
+        setup_db.add(
+            Investigation(
+                id=investigation_id,
+                title="Original response title",
+                description="Materialize the response before releasing write locks.",
+                severity="high",
+                visibility="private",
+                created_by_user_id=owner_id,
+            )
+        )
+        setup_db.flush()
+        setup_db.add_all(
+            [
+                InvestigationMember(
+                    investigation_id=investigation_id,
+                    user_id=owner_id,
+                    role="owner",
+                    added_by_user_id=owner_id,
+                ),
+                InvestigationMember(
+                    investigation_id=investigation_id,
+                    user_id=editor_id,
+                    role="editor",
+                    added_by_user_id=owner_id,
+                ),
+            ]
+        )
+        setup_db.commit()
+
+    response_materialized = Event()
+    allow_writer_commit = Event()
+    revoker_started = Event()
+    real_get_detail = get_investigation_detail
+
+    def _blocking_get_detail(*args, **kwargs):
+        response = real_get_detail(*args, **kwargs)
+        response_materialized.set()
+        assert allow_writer_commit.wait(timeout=5)
+        return response
+
+    monkeypatch.setattr(
+        investigation_routes,
+        "get_investigation_detail",
+        _blocking_get_detail,
+    )
+
+    def _write_and_respond():
+        with Session(database_engine) as writer_db:
+            editor = writer_db.get(User, editor_id)
+            assert editor is not None
+            investigation, _changed = update_investigation(
+                writer_db,
+                investigation_id=investigation_id,
+                user=editor,
+                expected_version=1,
+                changes={"title": "Committed response title"},
+            )
+            return investigation_routes._commit_investigation_detail(
+                writer_db,
+                investigation_id=investigation.id,
+                user=editor,
+            )
+
+    def _revoke_editor() -> str:
+        assert response_materialized.wait(timeout=5)
+        revoker_started.set()
+        with Session(database_engine) as revoke_db:
+            owner = revoke_db.get(User, owner_id)
+            assert owner is not None
+            remove_member(
+                revoke_db,
+                investigation_id=investigation_id,
+                user=owner,
+                member_user_id=editor_id,
+                expected_version=2,
+            )
+            revoke_db.commit()
+        return "revoked"
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            writer = executor.submit(_write_and_respond)
+            assert response_materialized.wait(timeout=5)
+            revoker = executor.submit(_revoke_editor)
+            assert revoker_started.wait(timeout=5)
+            time.sleep(0.1)
+            assert not revoker.done()
+            allow_writer_commit.set()
+
+            response = writer.result(timeout=5)
+            assert response.title == "Committed response title"
+            assert response.current_user_role == "editor"
+            assert revoker.result(timeout=5) == "revoked"
+
+        with Session(database_engine) as verify_db:
+            investigation = verify_db.get(Investigation, investigation_id)
+            editor_membership = verify_db.get(
+                InvestigationMember,
+                {"investigation_id": investigation_id, "user_id": editor_id},
+            )
+            assert investigation is not None
+            assert investigation.title == "Committed response title"
+            assert investigation.version == 3
+            assert editor_membership is None
+    finally:
+        allow_writer_commit.set()
         with Session(database_engine) as cleanup_db:
             cleanup_db.execute(
                 delete(Investigation).where(Investigation.id == investigation_id)
