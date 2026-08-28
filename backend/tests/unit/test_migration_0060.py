@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 import uuid
 from pathlib import Path
 
@@ -61,6 +62,101 @@ def iam_migration_schema(test_database_url, monkeypatch):
         with admin_engine.connect() as connection:
             connection.execute(text(f'DROP SCHEMA IF EXISTS "{schema_name}" CASCADE'))
         admin_engine.dispose()
+
+
+def test_iam_downgrade_lock_timeout_is_bounded_and_transactional(
+    iam_migration_schema,
+):
+    schema_name, schema_engine, config = iam_migration_schema
+    retained_user_id = uuid.uuid4()
+    retained_email = f"lock-timeout-{retained_user_id}@example.com"
+    with schema_engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO users (id, email, password_hash, is_approved) "
+                "VALUES (:id, :email, :password_hash, true)"
+            ),
+            {
+                "id": retained_user_id,
+                "email": retained_email,
+                "password_hash": "migration-test-hash",
+            },
+        )
+
+    with schema_engine.connect() as blocker:
+        blocker_transaction = blocker.begin()
+        try:
+            blocker.execute(
+                text("SELECT id FROM users WHERE id = :id"),
+                {"id": retained_user_id},
+            ).one()
+
+            started_at = time.monotonic()
+            with pytest.raises(RuntimeError) as error:
+                command.downgrade(config, "0059_alerting_v2")
+            elapsed_seconds = time.monotonic() - started_at
+
+            assert str(error.value) == (
+                "Cannot acquire exclusive IAM downgrade locks within 10 seconds. "
+                "Stop all ThreatLens API and worker processes, close database "
+                "transactions, and retry the downgrade."
+            )
+            assert 9 <= elapsed_seconds < 15
+
+            inspector = inspect(schema_engine)
+            assert _TABLES <= set(
+                inspector.get_table_names(schema=schema_name)
+            )
+            assert "config_revision" in {
+                column["name"]
+                for column in inspector.get_columns(
+                    "oidc_providers", schema=schema_name
+                )
+            }
+            assert "parent_token_id" in {
+                column["name"]
+                for column in inspector.get_columns(
+                    "api_tokens", schema=schema_name
+                )
+            }
+            with schema_engine.connect() as verification:
+                assert verification.scalar(
+                    text("SELECT version_num FROM alembic_version")
+                ) == "0060_iam_hardening"
+                assert verification.scalar(
+                    text("SELECT email FROM users WHERE id = :id"),
+                    {"id": retained_user_id},
+                ) == retained_email
+        finally:
+            blocker_transaction.rollback()
+
+    command.downgrade(config, "0059_alerting_v2")
+
+    downgraded_inspector = inspect(schema_engine)
+    assert not (
+        _TABLES
+        & set(downgraded_inspector.get_table_names(schema=schema_name))
+    )
+    assert "config_revision" not in {
+        column["name"]
+        for column in downgraded_inspector.get_columns(
+            "oidc_providers", schema=schema_name
+        )
+    }
+    assert "parent_token_id" not in {
+        column["name"]
+        for column in downgraded_inspector.get_columns(
+            "api_tokens", schema=schema_name
+        )
+    }
+    with schema_engine.connect() as verification:
+        assert verification.scalar(
+            text("SELECT version_num FROM alembic_version")
+        ) == "0059_alerting_v2"
+        assert verification.scalar(
+            text("SELECT email FROM users WHERE id = :id"),
+            {"id": retained_user_id},
+        ) == retained_email
 
 
 def test_iam_schema_migrates_down_and_back_up(test_database_url, monkeypatch):
