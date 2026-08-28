@@ -10,6 +10,7 @@ import type { AlertOccurrence } from '../types/alerts'
 const domMocks = vi.hoisted(() => ({
   apiFetch: vi.fn(),
   currentRole: 'admin' as 'admin' | 'analyst' | 'viewer',
+  currentUserError: false,
   listMode: 'data' as 'data' | 'loading' | 'error' | 'stale',
   listError: null as unknown,
   listPlaceholder: false,
@@ -21,6 +22,8 @@ const domMocks = vi.hoisted(() => ({
   mutationCalls: [] as Array<{ key: string; variables: unknown }>,
   mutationData: {} as Record<string, unknown>,
   mutationErrors: {} as Record<string, unknown>,
+  mutationPendingKeys: [] as string[],
+  mutationVariables: {} as Record<string, unknown>,
   queryClient: {
     invalidateQueries: vi.fn(() => Promise.resolve()),
     setQueriesData: vi.fn(),
@@ -39,7 +42,7 @@ vi.mock('../hooks/useCurrentUser', () => ({
       features: {},
     },
     isLoading: false,
-    isError: false,
+    isError: domMocks.currentUserError,
   }),
 }))
 
@@ -139,7 +142,8 @@ vi.mock('@tanstack/react-query', () => ({
             options.onError?.(error, variables)
           })
       }),
-      isPending: false,
+      isPending: domMocks.mutationPendingKeys.includes(key),
+      variables: domMocks.mutationVariables[key],
       isError: key in domMocks.mutationErrors,
       error: domMocks.mutationErrors[key] ?? null,
       data: domMocks.mutationData[key],
@@ -248,6 +252,7 @@ function setSelectValue(select: HTMLSelectElement, value: string) {
 beforeEach(() => {
   const first = occurrence()
   domMocks.currentRole = 'admin'
+  domMocks.currentUserError = false
   domMocks.listMode = 'data'
   domMocks.listError = null
   domMocks.listPlaceholder = false
@@ -268,6 +273,8 @@ beforeEach(() => {
   domMocks.mutationCalls = []
   domMocks.mutationData = {}
   domMocks.mutationErrors = {}
+  domMocks.mutationPendingKeys = []
+  domMocks.mutationVariables = {}
   domMocks.apiFetch.mockReset()
   domMocks.queryClient.invalidateQueries.mockClear()
   domMocks.queryClient.setQueriesData.mockClear()
@@ -317,6 +324,16 @@ describe('AlertOccurrencesWorkspace operator workflows', () => {
     expect(
       view.querySelectorAll('[aria-label="Select occurrence from Exchange watch"]'),
     ).toHaveLength(2)
+    const inspectControls = view.querySelectorAll<HTMLButtonElement>(
+      '[aria-label="Inspect occurrence from Exchange watch"]',
+    )
+    const selectControls = view.querySelectorAll<HTMLInputElement>(
+      '[aria-label="Select occurrence from Exchange watch"]',
+    )
+    expect(inspectControls[0]?.className).toContain('min-h-9')
+    expect(inspectControls[1]?.className).toContain('min-h-11')
+    expect(selectControls[1]?.parentElement?.className).toContain('h-11')
+    expect(selectControls[1]?.parentElement?.className).toContain('w-11')
 
     await click(
       view.querySelector<HTMLButtonElement>(
@@ -337,6 +354,30 @@ describe('AlertOccurrencesWorkspace operator workflows', () => {
       state: 'acknowledged',
     })
     expect(document.body.textContent).toContain('Occurrence moved to acknowledged.')
+  })
+
+  it('uses operation-specific pending labels and a polite live announcement', async () => {
+    const view = renderWorkspace()
+    await click(
+      view.querySelector<HTMLButtonElement>(
+        'button[aria-label="Inspect occurrence from Exchange watch"]',
+      ),
+    )
+    domMocks.mutationPendingKeys = ['alerts:occurrences:lifecycle']
+    domMocks.mutationVariables['alerts:occurrences:lifecycle'] = {
+      occurrence: domMocks.detail,
+      state: 'acknowledged',
+    }
+    rerenderWorkspace()
+
+    const pendingButton = findButton('Acknowledging...')
+    expect(pendingButton?.hasAttribute('disabled')).toBe(true)
+    expect(
+      Array.from(view.querySelectorAll('[role="status"]')).some(
+        (status) => status.textContent === 'Acknowledging alert occurrence...',
+      ),
+    ).toBe(true)
+    expect(findButton('Close occurrence')?.hasAttribute('disabled')).toBe(true)
   })
 
   it('restores focus to the Inspect control that opened occurrence details', async () => {
@@ -484,6 +525,42 @@ describe('AlertOccurrencesWorkspace operator workflows', () => {
     expect(document.body.textContent).toContain('Closure disposition updated.')
   })
 
+  it('locks closure inputs while their update is in flight', async () => {
+    const closed = occurrence({
+      lifecycle_state: 'closed',
+      closure_disposition: 'false_positive',
+      version: 7,
+    })
+    domMocks.occurrences = [closed]
+    domMocks.detail = closed
+    const view = renderWorkspace()
+    await click(
+      view.querySelector<HTMLButtonElement>(
+        'button[aria-label="Inspect occurrence from Exchange watch"]',
+      ),
+    )
+    await click(findButton('Change closure disposition'))
+    act(() => {
+      setSelectValue(
+        document.querySelector<HTMLSelectElement>('#alert-close-disposition')!,
+        'benign',
+      )
+    })
+    domMocks.mutationPendingKeys = ['alerts:occurrences:lifecycle']
+    domMocks.mutationVariables['alerts:occurrences:lifecycle'] = {
+      occurrence: closed,
+      state: 'closed',
+      disposition: 'benign',
+    }
+    rerenderWorkspace()
+
+    expect(
+      document.querySelector<HTMLSelectElement>('#alert-close-disposition')?.disabled,
+    ).toBe(true)
+    expect(findButton('Updating disposition...')?.hasAttribute('disabled')).toBe(true)
+    expect(findButton('Cancel')?.hasAttribute('disabled')).toBe(true)
+  })
+
   it('fails into an explicit read-only state after a permission denial', async () => {
     domMocks.mutationError = new ApiError(
       'The API denied this operation.',
@@ -527,6 +604,12 @@ describe('AlertOccurrencesWorkspace operator workflows', () => {
     domMocks.occurrences = []
     const emptyView = renderWorkspace()
     expect(emptyView.textContent).toContain('No matching alert occurrences')
+  })
+
+  it('fails closed when the current administrator role cannot be refreshed', () => {
+    domMocks.currentUserError = true
+    const view = renderWorkspace()
+    expect(view.textContent).not.toContain('Backfill history')
   })
 
   it('applies an immutable preview token and continues with the returned cursor', async () => {

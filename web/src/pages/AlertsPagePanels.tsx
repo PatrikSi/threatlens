@@ -58,6 +58,7 @@ export function AlertEditorPanel({ controller }: AlertsPanelProps) {
           <button
             type="button"
             className="min-h-11 rounded border border-slate/30 px-3 py-1.5 text-sm font-semibold sm:min-h-0 dark:border-cyan-900/40"
+            disabled={saveAlert.isPending}
             onClick={() => resetForm()}
           >
             Cancel edit
@@ -74,6 +75,7 @@ export function AlertEditorPanel({ controller }: AlertsPanelProps) {
             id="alert-interest-name"
             className="mt-1 min-h-11 w-full rounded border border-slate/30 bg-white px-3 py-2 sm:min-h-0 dark:border-cyan-900/40 dark:bg-[#072019]"
             value={name}
+            disabled={saveAlert.isPending}
             onChange={(event) => setName(event.target.value)}
             placeholder="Microsoft Security Updates"
             required
@@ -88,6 +90,7 @@ export function AlertEditorPanel({ controller }: AlertsPanelProps) {
             id="alert-interest-category"
             className="mt-1 min-h-11 w-full rounded border border-slate/30 bg-white px-3 py-2 sm:min-h-0 dark:border-cyan-900/40 dark:bg-[#072019]"
             value={category}
+            disabled={saveAlert.isPending}
             onChange={(event) => setCategory(event.target.value)}
           >
             {ALERT_CATEGORIES.map((entry) => (
@@ -106,6 +109,7 @@ export function AlertEditorPanel({ controller }: AlertsPanelProps) {
             id="alert-interest-severity"
             className="mt-1 min-h-11 w-full rounded border border-slate/30 bg-white px-3 py-2 sm:min-h-10 dark:border-cyan-900/40 dark:bg-[#072019]"
             value={severity}
+            disabled={saveAlert.isPending}
             onChange={(event) => setSeverity(event.target.value as typeof severity)}
           >
             {ALERT_SEVERITIES.map((entry) => (
@@ -124,13 +128,17 @@ export function AlertEditorPanel({ controller }: AlertsPanelProps) {
             id="alert-interest-keywords"
             className="mt-1 h-24 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
             value={keywordsText}
+            disabled={saveAlert.isPending}
             onChange={(event) => setKeywordsText(event.target.value)}
             placeholder="microsoft, exchange, entra id"
             required
           />
         </div>
 
-        <fieldset className="rounded border border-slate/20 p-3 dark:border-cyan-900/40">
+        <fieldset
+          className="rounded border border-slate/20 p-3 disabled:opacity-60 dark:border-cyan-900/40"
+          disabled={saveAlert.isPending}
+        >
           <legend className="px-1 text-sm font-semibold">Notification suppression</legend>
           <label className="flex min-h-11 items-center gap-2 text-sm sm:min-h-10">
             <input
@@ -219,6 +227,7 @@ export function AlertEditorPanel({ controller }: AlertsPanelProps) {
             <button
               className="min-h-11 w-full rounded border border-slate/30 px-3 py-2 text-sm font-semibold sm:min-h-0 sm:w-auto dark:border-cyan-900/40"
               type="button"
+              disabled={saveAlert.isPending}
               onClick={() => resetForm()}
             >
               Reset
@@ -348,6 +357,7 @@ export function ConfiguredAlertsPanel({ controller }: AlertsPanelProps) {
     onEdit,
     onRequestDeleteAlert,
     pendingDeleteAlert,
+    saveAlert,
     setShowDisabled,
     showDisabled,
     toggleAlertState,
@@ -454,6 +464,7 @@ export function ConfiguredAlertsPanel({ controller }: AlertsPanelProps) {
                           type="button"
                           className="min-h-11 rounded border border-slate/30 px-2 py-1 text-xs sm:min-h-0 dark:border-cyan-900/40"
                           aria-label={`Edit alert rule ${alert.name}`}
+                          disabled={saveAlert.isPending}
                           onClick={() => onEdit(alert)}
                         >
                           Edit
@@ -533,15 +544,15 @@ export function ConfiguredAlertsPanel({ controller }: AlertsPanelProps) {
 export function AlertDeleteDialog({ controller }: AlertsPanelProps) {
   const {
     confirmDeleteAlert,
+    cancelPendingDeleteAlert,
     deleteAlert,
     deleteConflictNeedsRefresh,
+    deleteConflictReloadPending,
     deleteAlertError,
     editingAlertId,
     hasUnsavedAlertDraftChanges,
     pendingDeleteAlert,
     reloadPendingDeleteAfterConflict,
-    setDeleteAlertError,
-    setPendingDeleteAlert,
   } = controller
 
   return (
@@ -550,12 +561,13 @@ export function AlertDeleteDialog({ controller }: AlertsPanelProps) {
       title="Delete alert interest?"
       description="This permanently removes the alert interest and stops future item matching for these keywords."
       confirmLabel="Delete alert"
-      onCancel={() => {
-        setPendingDeleteAlert(null)
-        setDeleteAlertError(null)
-      }}
+      onCancel={cancelPendingDeleteAlert}
       onConfirm={confirmDeleteAlert}
-      confirmDisabled={!pendingDeleteAlert || deleteConflictNeedsRefresh}
+      confirmDisabled={
+        !pendingDeleteAlert ||
+        deleteConflictNeedsRefresh ||
+        deleteConflictReloadPending
+      }
       isConfirming={deleteAlert.isPending}
       confirmingLabel="Deleting alert..."
     >
@@ -590,9 +602,11 @@ export function AlertDeleteDialog({ controller }: AlertsPanelProps) {
                   type="button"
                   className="mt-2 min-h-11 rounded border border-current px-3 py-2 font-semibold sm:min-h-10"
                   onClick={() => void reloadPendingDeleteAfterConflict()}
-                  disabled={controller.alertsQuery.isFetching}
+                  disabled={deleteConflictReloadPending}
                 >
-                  {controller.alertsQuery.isFetching ? 'Reloading...' : 'Reload latest rule'}
+                  {deleteConflictReloadPending
+                    ? 'Reloading latest rule...'
+                    : 'Reload latest rule'}
                 </button>
               )}
             </div>

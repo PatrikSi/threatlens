@@ -255,6 +255,11 @@ export function useAlertOccurrencesController(active = true) {
   const stats = alertOccurrencePageStats(visibleOccurrences, data?.total ?? 0)
   const mutationPending =
     lifecycleMutation.isPending || bulkLifecycleMutation.isPending || snoozeMutation.isPending
+  const mutationPendingMessage = resolveMutationPendingMessage(
+    lifecycleMutation.isPending ? lifecycleMutation.variables : undefined,
+    bulkLifecycleMutation.isPending ? bulkLifecycleMutation.variables : undefined,
+    snoozeMutation.isPending ? snoozeMutation.variables : undefined,
+  )
 
   useEffect(() => {
     if (!data || occurrencesQuery.isPlaceholderData) return
@@ -453,6 +458,7 @@ export function useAlertOccurrencesController(active = true) {
     lifecycleMutation,
     loadedPageSearch,
     mutationPending,
+    mutationPendingMessage,
     occurrencesQuery,
     page,
     pageCount,
@@ -491,6 +497,32 @@ export function useAlertOccurrencesController(active = true) {
     visibleOccurrences,
     writeDenied,
   }
+}
+
+function resolveMutationPendingMessage(
+  lifecycle: LifecycleMutationInput | undefined,
+  bulk: BulkLifecycleMutationInput | undefined,
+  snooze: SnoozeMutationInput | undefined,
+): string | null {
+  if (lifecycle) {
+    if (lifecycle.state === 'acknowledged') return 'Acknowledging alert occurrence...'
+    if (lifecycle.state === 'investigating') return 'Starting alert occurrence investigation...'
+    return lifecycle.occurrence.lifecycle_state === 'closed'
+      ? 'Updating alert occurrence closure disposition...'
+      : 'Closing alert occurrence...'
+  }
+  if (bulk) {
+    const count = bulk.occurrences.length
+    return bulk.action === 'acknowledge'
+      ? `Acknowledging ${count} selected alert occurrence${count === 1 ? '' : 's'}...`
+      : `Closing ${count} selected alert occurrence${count === 1 ? '' : 's'}...`
+  }
+  if (snooze) {
+    return snooze.snoozedUntil
+      ? 'Snoozing alert occurrence...'
+      : 'Clearing alert occurrence snooze...'
+  }
+  return null
 }
 
 function useAlertBackfillController(queryClient: ReturnType<typeof useQueryClient>) {

@@ -23,12 +23,18 @@ const alertsPageDomMocks = vi.hoisted(() => ({
   alertsError: null as Error | null,
   alertsFetching: false,
   alertsRefetch: vi.fn(),
+  deleteConflictFetching: false,
+  deleteConflictRefetch: null as Promise<{
+    data: AlertInterest[]
+    error: Error | null
+  }> | null,
   savePending: false,
   updatePending: false,
   deletePending: false,
   updateVariables: null as { id: string; body: Record<string, unknown> } | null,
   previewItems: [] as unknown[],
   role: 'admin' as 'admin' | 'viewer',
+  currentUserError: false,
   alerts: [
     {
       id: 'alert-1',
@@ -92,9 +98,15 @@ vi.mock('@tanstack/react-query', () => ({
         data,
         isError: key === 'delete-conflict-all' ? false : Boolean(alertsPageDomMocks.alertsError),
         error: key === 'delete-conflict-all' ? null : alertsPageDomMocks.alertsError,
-        isFetching: key === 'delete-conflict-all' ? false : alertsPageDomMocks.alertsFetching,
+        isFetching:
+          key === 'delete-conflict-all'
+            ? alertsPageDomMocks.deleteConflictFetching
+            : alertsPageDomMocks.alertsFetching,
         refetch: () => {
           if (key !== 'delete-conflict-all') alertsPageDomMocks.alertsRefetch()
+          if (key === 'delete-conflict-all' && alertsPageDomMocks.deleteConflictRefetch) {
+            return alertsPageDomMocks.deleteConflictRefetch
+          }
           const refreshed =
             key === 'delete-conflict-all'
               ? alertsPageDomMocks.alerts
@@ -247,7 +259,7 @@ vi.mock('../hooks/useCurrentUser', () => ({
   useCurrentUser: () => ({
     data: { id: 'user-1', role: alertsPageDomMocks.role },
     isLoading: false,
-    isError: false,
+    isError: alertsPageDomMocks.currentUserError,
   }),
 }))
 
@@ -314,12 +326,15 @@ afterEach(() => {
   alertsPageDomMocks.alertsError = null
   alertsPageDomMocks.alertsFetching = false
   alertsPageDomMocks.alertsRefetch.mockReset()
+  alertsPageDomMocks.deleteConflictFetching = false
+  alertsPageDomMocks.deleteConflictRefetch = null
   alertsPageDomMocks.savePending = false
   alertsPageDomMocks.updatePending = false
   alertsPageDomMocks.deletePending = false
   alertsPageDomMocks.updateVariables = null
   alertsPageDomMocks.previewItems = []
   alertsPageDomMocks.role = 'admin'
+  alertsPageDomMocks.currentUserError = false
   alertsPageDomMocks.alerts = [
     {
       id: 'alert-1',
@@ -438,6 +453,36 @@ describe('AlertsPage DOM workflows', () => {
     expect(pageText()).toContain('Disabling alert rule VPN advisories...')
   })
 
+  it('locks an in-flight alert edit so its draft cannot be replaced or cleared', () => {
+    const view = renderPage()
+    const editButton = view.querySelector<HTMLButtonElement>(
+      'button[aria-label="Edit alert rule VPN advisories"]',
+    )!
+    act(() => editButton.click())
+    act(() =>
+      setInputValue(view.querySelector<HTMLInputElement>('#alert-interest-name')!, 'My draft'),
+    )
+
+    alertsPageDomMocks.savePending = true
+    rerenderPage()
+
+    expect(view.querySelector<HTMLInputElement>('#alert-interest-name')?.disabled).toBe(true)
+    expect(view.querySelector<HTMLSelectElement>('#alert-interest-category')?.disabled).toBe(true)
+    expect(view.querySelector<HTMLTextAreaElement>('#alert-interest-keywords')?.disabled).toBe(true)
+    expect(editButton.disabled).toBe(true)
+    expect(
+      Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find(
+        (button) => button.textContent?.trim() === 'Cancel edit',
+      )?.disabled,
+    ).toBe(true)
+    expect(
+      Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find(
+        (button) => button.textContent?.trim() === 'Reset',
+      )?.disabled,
+    ).toBe(true)
+    expect(view.querySelector<HTMLInputElement>('#alert-interest-name')?.value).toBe('My draft')
+  })
+
   it('uses a specific live pending label while deleting an alert rule', () => {
     const view = renderPage()
     act(() =>
@@ -458,6 +503,13 @@ describe('AlertsPage DOM workflows', () => {
 
   it('does not expose alert operations to non-administrators', () => {
     alertsPageDomMocks.role = 'viewer'
+    const view = renderPage()
+    expect(view.querySelector('#alert-operations-tab')).toBeNull()
+    expect(view.querySelector('#alert-operations-panel')).toBeNull()
+  })
+
+  it('fails closed when the current administrator role cannot be refreshed', () => {
+    alertsPageDomMocks.currentUserError = true
     const view = renderPage()
     expect(view.querySelector('#alert-operations-tab')).toBeNull()
     expect(view.querySelector('#alert-operations-panel')).toBeNull()
@@ -539,6 +591,50 @@ describe('AlertsPage DOM workflows', () => {
     expect(pageText()).toContain('Review them, then confirm deletion again')
     expect(pageText()).not.toContain('This alert rule no longer exists')
     expect(confirmDeleteButton.disabled).toBe(false)
+  })
+
+  it('does not resurrect a canceled delete target after conflict reload completes', async () => {
+    let resolveRefresh!: (result: { data: AlertInterest[]; error: Error | null }) => void
+    alertsPageDomMocks.deleteConflictRefetch = new Promise((resolve) => {
+      resolveRefresh = resolve
+    })
+    alertsPageDomMocks.deleteShouldConflict = true
+    const view = renderPage()
+    act(() =>
+      view
+        .querySelector<HTMLButtonElement>('button[aria-label="Delete alert rule VPN advisories"]')
+        ?.click(),
+    )
+    const confirmDeleteButton = Array.from(
+      document.querySelectorAll<HTMLButtonElement>('button'),
+    ).find((button) => button.textContent?.trim() === 'Delete alert')!
+
+    await act(async () => {
+      confirmDeleteButton.click()
+      await Promise.resolve()
+    })
+    alertsPageDomMocks.deleteConflictFetching = true
+    rerenderPage()
+
+    const reloadButton = Array.from(
+      document.querySelectorAll<HTMLButtonElement>('button'),
+    ).find((button) => button.textContent?.trim() === 'Reloading latest rule...')
+    expect(reloadButton?.disabled).toBe(true)
+    const cancelButton = Array.from(
+      document.querySelectorAll<HTMLButtonElement>('button'),
+    ).find((button) => button.textContent?.trim() === 'Cancel')!
+    act(() => cancelButton.click())
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull()
+
+    alertsPageDomMocks.deleteConflictFetching = false
+    await act(async () => {
+      resolveRefresh({ data: alertsPageDomMocks.alerts, error: null })
+      await alertsPageDomMocks.deleteConflictRefetch
+      await Promise.resolve()
+    })
+
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull()
+    expect(pageText()).not.toContain('Review them, then confirm deletion again')
   })
 
   it('renders a retryable load error without also rendering the empty state', () => {
