@@ -23,7 +23,7 @@ libapk	3.0.6-r0	GPL-2.0-only	apk-tools	https://gitlab.alpinelinux.org/alpine/apk
 libavif	1.4.1-r0	BSD-2-Clause	libavif	https://aomediacodec.github.io/av1-avif/
 libbsd	0.12.2-r0	BSD-3-Clause	libbsd	https://libbsd.freedesktop.org/
 libbz2	1.0.8-r6	bzip2-1.0.6	bzip2	https://sourceware.org/bzip2/
-libcrypto3	3.5.7-r0	Apache-2.0	openssl	https://www.openssl.org/
+libcrypto3	3.5.8-r0	Apache-2.0	openssl	https://www.openssl.org/
 libcurl	8.21.0-r0	curl	curl	https://curl.se/
 libdav1d	1.5.3-r0	BSD-2-Clause	dav1d	https://code.videolan.org/videolan/dav1d
 libedit	20260508.3.1-r1	BSD-3-Clause	libedit	https://www.thrysoee.dk/editline
@@ -40,7 +40,7 @@ libpng	1.6.58-r1	Libpng	libpng	http://www.libpng.org
 libpsl	0.21.5-r3	MIT	libpsl	https://rockdaboot.github.io/libpsl
 libsharpyuv	1.6.0-r0	BSD-3-Clause	libwebp	https://developers.google.com/speed/webp
 libsm	1.2.6-r0	MIT	libsm	https://xorg.freedesktop.org/
-libssl3	3.5.7-r0	Apache-2.0	openssl	https://www.openssl.org/
+libssl3	3.5.8-r0	Apache-2.0	openssl	https://www.openssl.org/
 libstdc++	15.2.0-r5	GPL-2.0-or-later AND LGPL-2.1-or-later	gcc	https://gcc.gnu.org
 libunistring	1.4.2-r0	GPL-2.0-or-later OR LGPL-3.0-or-later	libunistring	https://www.gnu.org/software/libunistring/
 libuuid	2.42.1-r0	BSD-3-Clause	util-linux	https://git.kernel.org/cgit/utils/util-linux/util-linux.git
