@@ -15,16 +15,39 @@ WEBHOOK_SUBSCRIPTION_KEY = "legacy-webhook"
 INTEGRATION_DIRECTION_DESTINATION = "destination"
 
 
+def lock_notification_webhook(
+    db: Session,
+    webhook_id: uuid.UUID,
+    *,
+    refresh_existing: bool = False,
+) -> NotificationWebhook | None:
+    """Lock the webhook parent before any dependent compatibility rows."""
+
+    query = (
+        select(NotificationWebhook)
+        .where(NotificationWebhook.id == webhook_id)
+        .with_for_update()
+        .execution_options(autoflush=False)
+    )
+    if refresh_existing:
+        query = query.execution_options(populate_existing=True)
+    return db.scalar(query)
+
+
 def ensure_webhook_integration(
     db: Session,
     webhook: NotificationWebhook,
 ) -> tuple[IntegrationInstance, IntegrationSubscription]:
     """Create or repair the generic control-plane records for a legacy webhook."""
-    locked_webhook = db.scalar(
-        select(NotificationWebhook).where(NotificationWebhook.id == webhook.id).with_for_update()
+    # Clean repair candidates may be stale after waiting; dirty API updates must survive.
+    locked_webhook = lock_notification_webhook(
+        db,
+        webhook.id,
+        refresh_existing=not db.is_modified(webhook, include_collections=True),
     )
-    if locked_webhook is not None:
-        webhook = locked_webhook
+    if locked_webhook is None:
+        raise ValueError("Webhook configuration no longer exists")
+    webhook = locked_webhook
 
     instance = _load_webhook_instance(db, webhook)
     if instance is None:
@@ -73,6 +96,14 @@ def ensure_webhook_integration(
 
 
 def delete_webhook_integration(db: Session, webhook: NotificationWebhook) -> None:
+    locked_webhook = lock_notification_webhook(
+        db,
+        webhook.id,
+        refresh_existing=True,
+    )
+    if locked_webhook is None:
+        return
+    webhook = locked_webhook
     integration_id = webhook.integration_id
     db.delete(webhook)
     db.flush()

@@ -433,7 +433,7 @@ def test_webhook_delete_and_delivery_fence_use_parent_first_lock_order(
     deleter_thread_id: list[int] = []
     worker_locked_delivery = Event()
     allow_worker_to_commit = Event()
-    delete_statement_started = Event()
+    delete_lock_started = Event()
 
     def _pause_worker_after_delivery_lock(
         _connection, _cursor, statement, _parameters, _context, _executemany
@@ -448,15 +448,18 @@ def test_webhook_delete_and_delivery_fence_use_parent_first_lock_order(
             worker_locked_delivery.set()
             assert allow_worker_to_commit.wait(timeout=10)
 
-    def _observe_delete_statement(
+    def _observe_delete_lock(
         _connection, _cursor, statement, _parameters, _context, _executemany
     ) -> None:
+        if not deleter_thread_id or threading.get_ident() != deleter_thread_id[0]:
+            return
+        normalized = statement.lower()
         if (
-            deleter_thread_id
-            and threading.get_ident() == deleter_thread_id[0]
-            and statement.lstrip().lower().startswith("delete from notification_webhooks")
+            "notification_webhooks" in normalized and "for update" in normalized
+        ) or statement.lstrip().lower().startswith(
+            "delete from notification_webhooks"
         ):
-            delete_statement_started.set()
+            delete_lock_started.set()
 
     def _fence_delivery() -> None:
         worker_thread_id.append(threading.get_ident())
@@ -479,13 +482,13 @@ def test_webhook_delete_and_delivery_fence_use_parent_first_lock_order(
             delete_db.commit()
 
     event.listen(database_engine, "after_cursor_execute", _pause_worker_after_delivery_lock)
-    event.listen(database_engine, "before_cursor_execute", _observe_delete_statement)
+    event.listen(database_engine, "before_cursor_execute", _observe_delete_lock)
     try:
         with ThreadPoolExecutor(max_workers=2) as executor:
             worker = executor.submit(_fence_delivery)
             assert worker_locked_delivery.wait(timeout=5)
             deleter = executor.submit(_delete_webhook)
-            assert delete_statement_started.wait(timeout=5)
+            assert delete_lock_started.wait(timeout=5)
             time.sleep(0.1)
             assert not deleter.done()
             allow_worker_to_commit.set()
@@ -506,7 +509,186 @@ def test_webhook_delete_and_delivery_fence_use_parent_first_lock_order(
         event.remove(
             database_engine,
             "before_cursor_execute",
-            _observe_delete_statement,
+            _observe_delete_lock,
+        )
+        with Session(database_engine) as cleanup_db:
+            owner = cleanup_db.get(User, owner_id)
+            if owner is not None:
+                cleanup_db.delete(owner)
+            cleanup_db.commit()
+
+
+def test_webhook_claim_and_delete_use_parent_first_lock_order(database_engine):
+    owner_id = uuid.uuid4()
+    webhook_id = uuid.uuid4()
+    delivery_id = uuid.uuid4()
+    with Session(database_engine) as setup_db:
+        owner = User(
+            id=owner_id,
+            email=f"webhook-claim-delete-race-{uuid.uuid4().hex}@example.com",
+            password_hash="x",
+            role="analyst",
+            is_active=True,
+            is_approved=True,
+        )
+        webhook = NotificationWebhook(
+            id=webhook_id,
+            user_id=owner_id,
+            name="Concurrent claim and deletion webhook",
+            enabled=True,
+            event_type="rss_item_new",
+            url_template="https://hooks.example.com/events",
+            method="POST",
+            feed_scope="all",
+            feed_ids_json=[],
+            query_params_json=[],
+            headers_json=[],
+            body_mode="none",
+            body_fields_json=[],
+            timeout_seconds=10,
+        )
+        setup_db.add(owner)
+        setup_db.flush()
+        setup_db.add(webhook)
+        setup_db.flush()
+        ensure_webhook_integration(setup_db, webhook)
+        setup_db.add(
+            NotificationWebhookDelivery(
+                id=delivery_id,
+                webhook_id=webhook_id,
+                user_id=owner_id,
+                event_type_snapshot="rss_item_new",
+                delivery_kind="live",
+                delivery_state="pending",
+                attempt_count=0,
+                success=False,
+                timeout_seconds=10,
+                rendered_url="https://hooks.example.com/events",
+                rendered_method="POST",
+                rendered_headers_json=[],
+                rendered_query_params_json=[],
+                rendered_body=None,
+                attempted_at=datetime.now(timezone.utc),
+            )
+        )
+        setup_db.commit()
+
+    worker_thread_id: list[int] = []
+    deleter_thread_id: list[int] = []
+    first_worker_lock: list[str] = []
+    worker_lock_acquired = Event()
+    allow_worker_to_continue = Event()
+    delete_lock_started = Event()
+    claim_finished = Event()
+
+    def _is_parent_lock(statement: str) -> bool:
+        normalized = statement.lower()
+        return "notification_webhooks" in normalized and "for update" in normalized
+
+    def _is_delivery_lock(statement: str) -> bool:
+        normalized = statement.lower()
+        return (
+            "notification_webhook_deliveries" in normalized
+            and "for update" in normalized
+        )
+
+    def _pause_worker_after_first_lock(
+        _connection, _cursor, statement, _parameters, _context, _executemany
+    ) -> None:
+        if (
+            worker_thread_id
+            and threading.get_ident() == worker_thread_id[0]
+            and not worker_lock_acquired.is_set()
+        ):
+            lock_name = (
+                "parent"
+                if _is_parent_lock(statement)
+                else "delivery"
+                if _is_delivery_lock(statement)
+                else None
+            )
+            if lock_name is not None:
+                first_worker_lock.append(lock_name)
+                worker_lock_acquired.set()
+                assert allow_worker_to_continue.wait(timeout=10)
+
+    def _observe_delete_lock_start(
+        _connection, _cursor, statement, _parameters, _context, _executemany
+    ) -> None:
+        if not deleter_thread_id or threading.get_ident() != deleter_thread_id[0]:
+            return
+        if _is_parent_lock(statement) or statement.lstrip().lower().startswith(
+            "delete from notification_webhooks"
+        ):
+            delete_lock_started.set()
+
+    def _hold_deleter_after_parent_lock(
+        _connection, _cursor, statement, _parameters, _context, _executemany
+    ) -> None:
+        if (
+            deleter_thread_id
+            and threading.get_ident() == deleter_thread_id[0]
+            and _is_parent_lock(statement)
+        ):
+            assert claim_finished.wait(timeout=10)
+
+    def _claim_delivery() -> int:
+        worker_thread_id.append(threading.get_ident())
+        try:
+            with Session(database_engine) as worker_db:
+                claimed = claim_notification_webhook_delivery(
+                    worker_db,
+                    delivery_id=delivery_id,
+                )
+                assert claimed is not None
+                return claimed.attempt_count
+        finally:
+            claim_finished.set()
+
+    def _delete_webhook() -> None:
+        deleter_thread_id.append(threading.get_ident())
+        with Session(database_engine) as delete_db:
+            webhook = delete_db.get(NotificationWebhook, webhook_id)
+            assert webhook is not None
+            delete_webhook_integration(delete_db, webhook)
+            delete_db.commit()
+
+    event.listen(database_engine, "after_cursor_execute", _pause_worker_after_first_lock)
+    event.listen(database_engine, "before_cursor_execute", _observe_delete_lock_start)
+    event.listen(database_engine, "after_cursor_execute", _hold_deleter_after_parent_lock)
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            worker = executor.submit(_claim_delivery)
+            assert worker_lock_acquired.wait(timeout=5)
+            deleter = executor.submit(_delete_webhook)
+            assert delete_lock_started.wait(timeout=5)
+            time.sleep(0.1)
+            assert not deleter.done()
+            allow_worker_to_continue.set()
+            assert worker.result(timeout=10) == 1
+            deleter.result(timeout=10)
+
+        assert first_worker_lock == ["parent"]
+        with Session(database_engine) as verify_db:
+            assert verify_db.get(NotificationWebhook, webhook_id) is None
+            assert verify_db.get(NotificationWebhookDelivery, delivery_id) is None
+    finally:
+        allow_worker_to_continue.set()
+        claim_finished.set()
+        event.remove(
+            database_engine,
+            "after_cursor_execute",
+            _pause_worker_after_first_lock,
+        )
+        event.remove(
+            database_engine,
+            "before_cursor_execute",
+            _observe_delete_lock_start,
+        )
+        event.remove(
+            database_engine,
+            "after_cursor_execute",
+            _hold_deleter_after_parent_lock,
         )
         with Session(database_engine) as cleanup_db:
             owner = cleanup_db.get(User, owner_id)

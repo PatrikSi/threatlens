@@ -11,9 +11,9 @@ from app.models.integration import (
     IntegrationInstance,
     IntegrationSubscription,
 )
-from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.user import User
+from app.services.integration_compat import lock_notification_webhook
 
 _DELIVERY_SENDING = "sending"
 
@@ -40,11 +40,10 @@ def lock_webhook_delivery_external_io_eligibility(
     between this check and the outbound request. Lease renewal may commit, but it
     must invoke this function again before the next request or redirect.
     """
-    webhook = db.scalar(
-        select(NotificationWebhook)
-        .where(NotificationWebhook.id == webhook_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
+    webhook = lock_notification_webhook(
+        db,
+        webhook_id,
+        refresh_existing=True,
     )
     if webhook is None:
         raise WebhookDeliveryIneligibleError(
