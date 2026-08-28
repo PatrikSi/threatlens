@@ -205,7 +205,10 @@ def test_smtp_integration(
             started_at=started_at,
             tested_at=tested_at,
             recipient_email=recipient_email,
-            error_code="connect_error",
+            error_code=_smtp_response_error_code(
+                exc.smtp_code,
+                permanent_error_code="connect_rejected",
+            ),
             error="SMTP server refused the connection.",
             server_message=_smtp_response_message(exc),
         )
@@ -803,7 +806,10 @@ def send_smtp_notification(
             attempted_at=attempted_at,
             delivery_id=resolved_delivery_id,
             active=active,
-            error_code="connect_error",
+            error_code=_smtp_response_error_code(
+                exc.smtp_code,
+                permanent_error_code="connect_rejected",
+            ),
             error="SMTP server refused the connection.",
             server_message=_smtp_response_message(exc),
         )

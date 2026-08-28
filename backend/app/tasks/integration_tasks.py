@@ -4,7 +4,7 @@ import logging
 import uuid
 
 from app.core.config import get_settings
-from app.models.integration import IntegrationDelivery
+from app.models.integration import IntegrationDelivery, IntegrationInstance
 from app.services.integration_delivery import (
     IntegrationDeliveryClaimTracker,
     defer_unclaimed_integration_delivery,
@@ -12,6 +12,9 @@ from app.services.integration_delivery import (
     record_integration_delivery_unknown_outcome,
     release_integration_delivery_publications,
     reserve_recoverable_integration_deliveries,
+)
+from app.services.integration_delivery_compatibility import (
+    defer_integration_delivery_for_compatibility,
 )
 from app.services.integration_events import (
     IntegrationEventContextError,
@@ -83,7 +86,7 @@ def process_integration_deliveries(delivery_ids: list[str]):
                     continue
                 connector = get_integration_connector(delivery.connector_type)
                 if connector is None:
-                    defer_unclaimed_integration_delivery(
+                    compatibility = defer_integration_delivery_for_compatibility(
                         db,
                         delivery_id=delivery.id,
                         error_code="unsupported_connector",
@@ -93,8 +96,50 @@ def process_integration_deliveries(delivery_ids: list[str]):
                         ),
                     )
                     db.commit()
-                    deferred += 1
+                    if compatibility.status in {"terminal", "missing"}:
+                        skipped += 1
+                    else:
+                        deferred += 1
                     continue
+                if not connector.definition.handles_delivery_compatibility:
+                    if not connector.supports_event_type(delivery.event_type):
+                        compatibility = defer_integration_delivery_for_compatibility(
+                            db,
+                            delivery_id=delivery.id,
+                            error_code="unsupported_event_type",
+                            error_message=(
+                                f"Connector {delivery.connector_type!r} on this worker does not "
+                                f"support event type {delivery.event_type!r}; delivery will be "
+                                "retried after the worker is upgraded."
+                            ),
+                        )
+                        db.commit()
+                        if compatibility.status in {"terminal", "missing"}:
+                            skipped += 1
+                        else:
+                            deferred += 1
+                        continue
+                    instance = db.get(IntegrationInstance, delivery.integration_id)
+                    if instance is not None and int(instance.schema_version or 1) > int(
+                        connector.definition.config_schema_version
+                    ):
+                        compatibility = defer_integration_delivery_for_compatibility(
+                            db,
+                            delivery_id=delivery.id,
+                            error_code="unsupported_connector_config_schema",
+                            error_message=(
+                                f"Connector {delivery.connector_type!r} configuration uses schema "
+                                f"version {instance.schema_version}; this worker supports through "
+                                f"version {connector.definition.config_schema_version}. Delivery "
+                                "will be retried after the worker is upgraded."
+                            ),
+                        )
+                        db.commit()
+                        if compatibility.status in {"terminal", "missing"}:
+                            skipped += 1
+                        else:
+                            deferred += 1
+                        continue
                 with integration_delivery_claim_observer(claim_tracker.observe):
                     result = connector.process_delivery(db, delivery=delivery)
                 for followup in result.followup_deliveries:

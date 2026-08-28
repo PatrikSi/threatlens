@@ -1,24 +1,16 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db import session as db_session_module
-from app.core.config import get_settings
 from app.models.integration import IntegrationAttempt, IntegrationDelivery
-from app.services.integration_delivery_state import (
-    coerce_utc,
-    safe_error_message,
-)
 
 ATTEMPT_RUNNING = "running"
 ATTEMPT_INTERRUPTED = "interrupted"
-
-settings = get_settings()
-
 
 def persist_external_side_effect_marker(
     *,
@@ -98,49 +90,3 @@ def interrupt_running_attempt(
     attempt.response_json = response
     db.add(attempt)
     return side_effect_possible
-
-
-def defer_stale_pre_side_effect_attempt(
-    db: Session,
-    *,
-    delivery_id: uuid.UUID,
-    error_code: str,
-    error_message: str,
-    delay_seconds: int,
-    now: datetime | None = None,
-) -> bool:
-    """Defer a stale SMTP attempt only when durable state proves DATA never began."""
-
-    current_time = now or datetime.now(timezone.utc)
-    delivery = db.scalar(
-        select(IntegrationDelivery)
-        .where(IntegrationDelivery.id == delivery_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    if delivery is None or delivery.connector_type != "smtp":
-        return False
-    scheduled_for = coerce_utc(delivery.not_before)
-    if delivery.state != "sending" or (
-        scheduled_for is not None and scheduled_for > current_time
-    ):
-        return False
-    stale_cutoff = current_time - timedelta(
-        seconds=settings.notification_delivery_sending_stale_after_seconds
-    )
-    claimed_at = coerce_utc(delivery.claimed_at)
-    if claimed_at is not None and claimed_at >= stale_cutoff:
-        return False
-    if interrupt_running_attempt(db, delivery=delivery, now=current_time) is not False:
-        return False
-
-    delivery.state = "retry_wait"
-    delivery.claimed_at = None
-    delivery.not_before = current_time + timedelta(
-        seconds=max(1, int(delay_seconds))
-    )
-    delivery.last_error_code = error_code
-    delivery.last_error_message = safe_error_message(error_message)
-    delivery.last_error_retryable = True
-    db.add(delivery)
-    return True

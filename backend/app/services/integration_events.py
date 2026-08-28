@@ -254,11 +254,21 @@ def route_integration_event(
     errors: list[ConnectorRoutingError] = []
     preparation_failures: set[str] = set()
     for connector in iter_integration_connectors_for_event(event.event_type):
+        connector_type = connector.definition.integration_type
         try:
             with db.begin_nested():
                 connector.prepare_routing(db, event=event)
+        except IntegrationEventCompatibilityError as exc:
+            preparation_failures.add(connector_type)
+            errors.append(
+                ConnectorRoutingError(
+                    connector_type=connector_type,
+                    message=f"subscription preparation deferred: {exc}"[:1000],
+                    retryable=True,
+                    compatibility_wait=True,
+                )
+            )
         except Exception as exc:
-            connector_type = connector.definition.integration_type
             preparation_failures.add(connector_type)
             errors.append(
                 ConnectorRoutingError(

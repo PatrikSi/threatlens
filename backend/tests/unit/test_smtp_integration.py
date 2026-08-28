@@ -435,6 +435,34 @@ def test_temporary_pre_data_smtp_refusals_are_retryable(monkeypatch, smtp_error)
     assert test_result.error_code == "transient_smtp_error"
 
 
+@pytest.mark.parametrize(
+    ("response_code", "expected_error_code"),
+    [(421, "transient_smtp_error"), (554, "connect_rejected")],
+)
+def test_smtp_connection_banner_uses_reply_classification(
+    monkeypatch,
+    response_code,
+    expected_error_code,
+):
+    def _raise_connect_error(_active):
+        raise smtplib.SMTPConnectError(response_code, b"connection rejected")
+
+    active = build_active_smtp_settings(_configured_smtp_instance())
+    monkeypatch.setattr(
+        "app.services.smtp_integration._open_smtp",
+        _raise_connect_error,
+    )
+
+    delivery_result = send_smtp_notification(active, event_type="rss_item_new")
+    test_result = run_smtp_integration_test(active, recipient_email=None)
+
+    assert delivery_result.success is False
+    assert delivery_result.error_code == expected_error_code
+    assert delivery_result.delivery_outcome == "not_attempted"
+    assert test_result.success is False
+    assert test_result.error_code == expected_error_code
+
+
 def test_smtp_tls_failure_after_send_starts_records_unknown_outcome(monkeypatch):
     class _TLSFailureSMTP(FakeSMTP):
         def send_message(self, message):

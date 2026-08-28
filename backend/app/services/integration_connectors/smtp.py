@@ -21,16 +21,23 @@ from app.services.integration_connectors.base import (
     IntegrationEventCompatibilityError,
     IntegrationEventContextError,
 )
+from app.services.integration_delivery_compatibility import (
+    defer_integration_delivery_for_compatibility,
+)
 from app.services.integration_processors import process_smtp_integration_delivery
 from app.services.integration_registry_constants import SMTP_CONFIG_SCHEMA_VERSION
 from app.services.smtp_delivery_eligibility import (
     SMTP_SOURCE_OWNER_IDS_KEY,
     SMTPDeliverySourceCompatibilityError,
     SMTPDeliverySourceContextError,
+    ensure_smtp_delivery_schema_compatible,
     smtp_alert_event_source_owner_ids,
     smtp_legacy_alert_event_snapshot,
 )
-from app.services.integration_storage import sync_smtp_subscriptions
+from app.services.integration_storage import (
+    acquire_smtp_configuration_read_lock,
+    sync_smtp_subscriptions,
+)
 
 settings = get_settings()
 
@@ -51,6 +58,7 @@ class SMTPIntegrationConnector:
         description="Send event notifications and AI Daily Briefs through an SMTP server.",
         config_schema_version=SMTP_CONFIG_SCHEMA_VERSION,
         supports_test=True,
+        handles_delivery_compatibility=True,
         supported_event_types=SUPPORTED_EVENT_TYPES,
         capabilities=("destination", "email", "test_connection", "test_delivery"),
     )
@@ -59,13 +67,30 @@ class SMTPIntegrationConnector:
         return event_type in self.definition.supported_event_types
 
     def prepare_routing(self, db: Session, *, event: IntegrationEvent) -> None:
+        acquire_smtp_configuration_read_lock(db)
         instances = db.scalars(
             select(IntegrationInstance).where(
                 IntegrationInstance.integration_type
                 == self.definition.integration_type,
                 IntegrationInstance.enabled.is_(True),
-            )
+            ).execution_options(populate_existing=True)
         ).all()
+        future_schema_instance = next(
+            (
+                instance
+                for instance in instances
+                if int(instance.schema_version or 1)
+                > self.definition.config_schema_version
+            ),
+            None,
+        )
+        if future_schema_instance is not None:
+            raise IntegrationEventCompatibilityError(
+                f"SMTP integration {future_schema_instance.id} uses newer configuration "
+                f"schema version {future_schema_instance.schema_version}; this worker "
+                f"supports through version {self.definition.config_schema_version}. "
+                "Routing will retry after the worker is upgraded."
+            )
         for instance in instances:
             sync_smtp_subscriptions(db, instance)
 
@@ -206,12 +231,51 @@ class SMTPIntegrationConnector:
         *,
         delivery: IntegrationDelivery,
     ) -> ConnectorDeliveryResult:
+        try:
+            ensure_smtp_delivery_schema_compatible(db, delivery=delivery)
+        except SMTPDeliverySourceContextError:
+            # The processor records malformed and future-schema outcomes using
+            # SMTP's ordered compatibility and attempt-history semantics.
+            pass
+        else:
+            if not self.supports_event_type(delivery.event_type):
+                return self._defer_unsupported_event(db, delivery=delivery)
         result = process_smtp_integration_delivery(db, delivery_id=delivery.id)
         return ConnectorDeliveryResult(
             delivery_id=result.delivery_id,
             status=result.status,
             reason=result.reason,
             retry_at=result.retry_at,
+        )
+
+    def _defer_unsupported_event(
+        self,
+        db: Session,
+        *,
+        delivery: IntegrationDelivery,
+    ) -> ConnectorDeliveryResult:
+        error_code = "unsupported_event_type"
+        error_message = (
+            f"SMTP connector on this worker does not support event type "
+            f"{delivery.event_type!r}; delivery will be retried after the worker is "
+            "upgraded."
+        )
+        deferral = defer_integration_delivery_for_compatibility(
+            db,
+            delivery_id=delivery.id,
+            error_code=error_code,
+            error_message=error_message,
+        )
+        db.commit()
+        return ConnectorDeliveryResult(
+            delivery_id=delivery.id,
+            status=deferral.status,
+            reason=deferral.reason,
+            retry_at=(
+                deferral.scheduled_for.isoformat()
+                if deferral.scheduled_for is not None
+                else None
+            ),
         )
 
 
