@@ -271,7 +271,7 @@ function BacklogsSection({ backlogs }: { backlogs: OperationsBacklogSnapshot[] }
       {backlogs.length === 0 ? (
         <p className="mt-2 text-sm text-slate dark:text-slate-300">No durable backlogs were reported.</p>
       ) : (
-        <div className="mt-3 grid gap-px overflow-hidden border border-slate/15 bg-slate/15 sm:grid-cols-2 xl:grid-cols-3 dark:border-white/10 dark:bg-white/10">
+        <div className="mt-3 grid gap-px overflow-hidden border border-slate/15 bg-slate/15 sm:grid-cols-[repeat(auto-fit,minmax(18rem,1fr))] dark:border-white/10 dark:bg-white/10">
           {backlogs.map((backlog) => (
             <article key={backlog.key} className="min-w-0 bg-white px-3 py-3 dark:bg-[#041612]">
               <div className="flex items-start justify-between gap-3">

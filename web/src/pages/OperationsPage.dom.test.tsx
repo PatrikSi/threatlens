@@ -189,6 +189,12 @@ describe('OperationsPage DOM workflows', () => {
     const alert = view.querySelector('[role="alert"]')
     expect(alert?.textContent).toContain('Displaying the last successful snapshot')
     expect(view.textContent).toContain('PostgreSQL')
+    const workQueuesHeading = Array.from(view.querySelectorAll('h2')).find(
+      (heading) => heading.textContent?.trim() === 'Work queues',
+    )
+    expect(workQueuesHeading?.parentElement?.querySelector('.grid')?.className).toContain(
+      'sm:grid-cols-[repeat(auto-fit,minmax(18rem,1fr))]',
+    )
   })
 
   it('offers an explicit retry when no operations snapshot could be loaded', () => {
