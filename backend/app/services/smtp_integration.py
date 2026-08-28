@@ -8,25 +8,22 @@ import uuid
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
-from html import unescape
 from email.message import EmailMessage
 from email.utils import formataddr
+from html import unescape
 from re import compile as compile_regex
 from types import SimpleNamespace
 
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.models.audit_log import AuditLog
 from app.models.feed import Feed
 from app.models.integration import IntegrationInstance
 from app.models.item import Item
 from app.schemas.integration import SMTPTestResponse
 from app.schemas.notification import NotificationEventType
-from app.services.audit import record_audit
 from app.services.integration_storage import (
-    INTEGRATION_HEALTH_ERROR,
-    INTEGRATION_HEALTH_HEALTHY,
     SMTP_SYSTEM_KEY,
     ActiveSMTPSettings,
     SMTPSecretError,
@@ -41,19 +38,54 @@ from app.services.notification_webhooks import (
     FailedWebhookContext,
     TemplateRenderError,
     render_notification_template_text,
-    try_acquire_notification_delivery_lock,
+)
+from app.services.smtp_deadlines import (
+    SMTP_MIN_OPERATION_SECONDS,
+    enforce_smtp_operation_deadline as _enforce_smtp_operation_deadline,
+    fenced_smtp_io_timeout_seconds as _fenced_smtp_io_timeout_seconds,
+    install_smtp_deadline_hooks as _install_smtp_deadline_hooks,
+    remaining_smtp_operation_seconds as _remaining_smtp_operation_seconds,
+    set_smtp_operation_timeout as _set_smtp_operation_timeout,
+)
+from app.services.smtp_delivery_history import (
+    SMTP_DELIVERY_AUDIT_ACTION as SMTP_DELIVERY_AUDIT_ACTION,
+    apply_smtp_delivery_result as _apply_smtp_delivery_result,
+    record_smtp_delivery_audit as _record_smtp_delivery_audit,
+    smtp_delivery_attempt_skip_reason as _smtp_delivery_attempt_skip_reason,
+    smtp_delivery_dedupe_key as _smtp_delivery_dedupe_key,
+)
+from app.services.smtp_delivery_errors import (
+    SMTPDeliveryDatabasePreflightError,
+    format_smtp_reply as _format_smtp_reply,
+    recipients_refused_error_code as _recipients_refused_error_code,
+    recipients_refused_mapping_message as _recipients_refused_mapping_message,
+    recipients_refused_message as _recipients_refused_message,
+    smtp_response_error_code as _smtp_response_error_code,
+    smtp_response_message as _smtp_response_message,
 )
 from app.services.smtp_delivery_results import (
     SMTPDispatchResult,
     SMTPNotificationResult,
     notification_failure_result as _notification_failure_result,
     notification_smtp_exception_result as _notification_smtp_exception_result,
+    notification_timeout_result as _notification_timeout_result,
+)
+from app.services.smtp_transport import (
+    SMTPStartTLSNotSupportedError,
+    interrupt_smtp_transport_at_deadline as _interrupt_smtp_transport_at_deadline,
+    open_smtp_connection as _open_smtp_connection,
+    prepare_smtp_session as _prepare_smtp_session,
+    renew_smtp_operation_lease as _renew_smtp_operation_lease,
+    smtp_operation_deadline_expired as _smtp_operation_deadline_expired,
+)
+from app.services.smtp_test_results import (
+    smtp_test_failure_response as _failure_response,
+    smtp_test_response as _test_response,
+    smtp_test_timeout_response as _test_timeout_response,
 )
 from app.services.smtp_delivery_eligibility import persisted_smtp_settings_heartbeat
 
 HTML_TAG_PATTERN = compile_regex(r"<[^>]+>")
-SMTP_DELIVERY_AUDIT_ACTION = "integrations.smtp.delivery"
-SMTP_DELIVERY_RESOURCE_TYPE = "integration_instance"
 
 
 def test_smtp_integration(
@@ -61,6 +93,9 @@ def test_smtp_integration(
 ) -> SMTPTestResponse:
     action = "send" if recipient_email else "connection"
     started_at = time.perf_counter()
+    operation_deadline = started_at + max(
+        SMTP_MIN_OPERATION_SECONDS, float(active.timeout_seconds)
+    )
     tested_at = datetime.now(timezone.utc)
 
     validation_error = _validate_test_settings(active, recipient_email=recipient_email)
@@ -78,27 +113,66 @@ def test_smtp_integration(
 
     assert active.host is not None
     try:
-        with _open_smtp(active) as server:
-            server_message = _login_and_test(
-                server, active, recipient_email=recipient_email
+        with _enforce_smtp_operation_deadline(operation_deadline):
+            connection_settings = replace(
+                active,
+                timeout_seconds=_remaining_smtp_operation_seconds(operation_deadline),
             )
-            return _test_response(
-                success=True,
-                action=action,
-                started_at=started_at,
-                tested_at=tested_at,
-                recipient_email=recipient_email,
-                error_code=None,
-                error=None,
-                server_message=server_message,
-            )
+            server = _open_smtp(connection_settings)
+            _install_smtp_deadline_hooks(server, operation_deadline)
+            try:
+                with _interrupt_smtp_transport_at_deadline(
+                    server,
+                    operation_deadline,
+                ):
+                    server_message = _login_and_test(
+                        server,
+                        active,
+                        recipient_email=recipient_email,
+                        operation_deadline=operation_deadline,
+                    )
+                    return _test_response(
+                        success=True,
+                        action=action,
+                        started_at=started_at,
+                        tested_at=tested_at,
+                        recipient_email=recipient_email,
+                        error_code=None,
+                        error=None,
+                        server_message=server_message,
+                    )
+            finally:
+                _close_smtp_transport(server)
+    except SMTPStartTLSNotSupportedError as exc:
+        return _failure_response(
+            action=action,
+            started_at=started_at,
+            tested_at=tested_at,
+            recipient_email=recipient_email,
+            error_code="starttls_not_supported",
+            error="SMTP server does not support the required STARTTLS capability.",
+            server_message=str(exc) or None,
+        )
+    except smtplib.SMTPNotSupportedError as exc:
+        return _failure_response(
+            action=action,
+            started_at=started_at,
+            tested_at=tested_at,
+            recipient_email=recipient_email,
+            error_code="smtp_capability_unsupported",
+            error="SMTP server does not support a required capability.",
+            server_message=str(exc) or None,
+        )
     except smtplib.SMTPAuthenticationError as exc:
         return _failure_response(
             action=action,
             started_at=started_at,
             tested_at=tested_at,
             recipient_email=recipient_email,
-            error_code="auth_error",
+            error_code=_smtp_response_error_code(
+                exc.smtp_code,
+                permanent_error_code="auth_error",
+            ),
             error="SMTP authentication failed.",
             server_message=_smtp_response_message(exc),
         )
@@ -108,7 +182,7 @@ def test_smtp_integration(
             started_at=started_at,
             tested_at=tested_at,
             recipient_email=recipient_email,
-            error_code="recipient_rejected",
+            error_code=_recipients_refused_error_code(exc),
             error="SMTP server rejected the test recipient.",
             server_message=_recipients_refused_message(exc),
         )
@@ -118,10 +192,12 @@ def test_smtp_integration(
             started_at=started_at,
             tested_at=tested_at,
             recipient_email=recipient_email,
-            error_code="sender_rejected",
+            error_code=_smtp_response_error_code(
+                exc.smtp_code,
+                permanent_error_code="sender_rejected",
+            ),
             error="SMTP server rejected the configured sender.",
             server_message=_smtp_response_message(exc),
-            delivery_outcome="rejected",
         )
     except smtplib.SMTPConnectError as exc:
         return _failure_response(
@@ -134,6 +210,14 @@ def test_smtp_integration(
             server_message=_smtp_response_message(exc),
         )
     except smtplib.SMTPServerDisconnected as exc:
+        if _smtp_operation_deadline_expired(operation_deadline):
+            return _test_timeout_response(
+                action=action,
+                started_at=started_at,
+                tested_at=tested_at,
+                recipient_email=recipient_email,
+                active=active,
+            )
         return _failure_response(
             action=action,
             started_at=started_at,
@@ -152,19 +236,24 @@ def test_smtp_integration(
             error_code=_smtp_response_error_code(exc.smtp_code),
             error="SMTP server returned an error.",
             server_message=_smtp_response_message(exc),
-            delivery_outcome="rejected",
         )
     except (TimeoutError, socket.timeout):
-        return _failure_response(
+        return _test_timeout_response(
             action=action,
             started_at=started_at,
             tested_at=tested_at,
             recipient_email=recipient_email,
-            error_code="timeout",
-            error=f"SMTP test timed out after {active.timeout_seconds}s.",
-            server_message=None,
+            active=active,
         )
     except ssl.SSLError as exc:
+        if _smtp_operation_deadline_expired(operation_deadline):
+            return _test_timeout_response(
+                action=action,
+                started_at=started_at,
+                tested_at=tested_at,
+                recipient_email=recipient_email,
+                active=active,
+            )
         return _failure_response(
             action=action,
             started_at=started_at,
@@ -175,6 +264,14 @@ def test_smtp_integration(
             server_message=str(exc),
         )
     except OSError as exc:
+        if _smtp_operation_deadline_expired(operation_deadline):
+            return _test_timeout_response(
+                action=action,
+                started_at=started_at,
+                tested_at=tested_at,
+                recipient_email=recipient_email,
+                active=active,
+            )
         return _failure_response(
             action=action,
             started_at=started_at,
@@ -187,21 +284,22 @@ def test_smtp_integration(
 
 
 def _open_smtp(active: ActiveSMTPSettings):
-    timeout = max(1, int(active.timeout_seconds))
-    if active.security == "ssl_tls":
-        return smtplib.SMTP_SSL(
-            active.host,
-            active.port,
-            timeout=timeout,
-            context=ssl.create_default_context(),
-        )
-    return smtplib.SMTP(active.host, active.port, timeout=timeout)
+    return _open_smtp_connection(active)
 
 
 def _login_and_test(
-    server: smtplib.SMTP, active: ActiveSMTPSettings, *, recipient_email: str | None
+    server: smtplib.SMTP,
+    active: ActiveSMTPSettings,
+    *,
+    recipient_email: str | None,
+    operation_deadline: float | None = None,
 ) -> str | None:
-    _prepare_smtp_session(server, active)
+    _prepare_smtp_session(
+        server,
+        active,
+        operation_deadline=operation_deadline,
+    )
+    _set_smtp_operation_timeout(server, operation_deadline)
     if recipient_email:
         refused = server.send_message(_build_test_message(active, recipient_email))
         if refused:
@@ -324,6 +422,10 @@ def dispatch_smtp_notification(
     if skip_reason is not None:
         return SMTPDispatchResult(status="skipped", reason=skip_reason)
 
+    active = replace(
+        active,
+        timeout_seconds=_fenced_smtp_io_timeout_seconds(active.timeout_seconds),
+    )
     result = send_smtp_notification(
         active,
         event_type=event_type,
@@ -371,6 +473,7 @@ def attempt_smtp_integration_delivery(
     scope_key: str | None = None,
     recipient_override: list[str] | None = None,
     lease_heartbeat: Callable[[int, ActiveSMTPSettings], None] | None = None,
+    on_external_side_effect_possible: Callable[[], None] | None = None,
 ) -> SMTPDispatchResult:
     """Attempt one already-claimed generic delivery and preserve SMTP audit history."""
     started_at = time.perf_counter()
@@ -380,6 +483,10 @@ def attempt_smtp_integration_delivery(
         active = build_active_smtp_settings(
             instance, credential_source=credential_source
         )
+    except SQLAlchemyError as exc:
+        raise SMTPDeliveryDatabasePreflightError(
+            "SMTP credentials could not be loaded because the database preflight failed. The delivery will retry before sending any message."
+        ) from exc
     except SMTPSecretError as exc:
         result = _notification_failure_result(
             started_at=started_at,
@@ -420,6 +527,13 @@ def attempt_smtp_integration_delivery(
                         status="skipped", reason="smtp_replay_no_matching_recipients"
                     )
                 active = replace(active, to_emails=recipients)
+            if lease_heartbeat is not None:
+                active = replace(
+                    active,
+                    timeout_seconds=_fenced_smtp_io_timeout_seconds(
+                        active.timeout_seconds
+                    ),
+                )
             delivery_heartbeat = (
                 persisted_smtp_settings_heartbeat(
                     lease_heartbeat,
@@ -438,6 +552,7 @@ def attempt_smtp_integration_delivery(
                 digest_context=digest_context,
                 delivery_id=delivery_id,
                 lease_heartbeat=delivery_heartbeat,
+                on_external_side_effect_possible=on_external_side_effect_possible,
             )
 
     _record_smtp_delivery_audit(
@@ -459,6 +574,8 @@ def attempt_smtp_integration_delivery(
         reason=None if result.success else result.error_code,
         delivery=result,
     )
+
+
 def smtp_notification_event_enabled(
     db: Session,
     *,
@@ -503,8 +620,12 @@ def send_smtp_notification(
     digest_context: DailyDigestContext | None = None,
     delivery_id: uuid.UUID | None = None,
     lease_heartbeat: Callable[[int, ActiveSMTPSettings], None] | None = None,
+    on_external_side_effect_possible: Callable[[], None] | None = None,
 ) -> SMTPNotificationResult:
     started_at = time.perf_counter()
+    operation_deadline = started_at + max(
+        SMTP_MIN_OPERATION_SECONDS, float(active.timeout_seconds)
+    )
     attempted_at = datetime.now(timezone.utc)
     resolved_delivery_id = delivery_id or uuid.uuid4()
     _renew_smtp_operation_lease(lease_heartbeat, active)
@@ -547,57 +668,105 @@ def send_smtp_notification(
 
     send_started = False
     try:
-        _renew_smtp_operation_lease(lease_heartbeat, active)
-        with _open_smtp(active) as server:
-            _prepare_smtp_session(server, active, lease_heartbeat=lease_heartbeat)
+        with _enforce_smtp_operation_deadline(operation_deadline):
             _renew_smtp_operation_lease(lease_heartbeat, active)
-            send_started = True
-            refused = server.send_message(message)
-            if refused:
-                refused_recipients = _matching_configured_recipients(
-                    active.to_emails, list(refused)
-                )
-                refused_normalized = {
-                    recipient.casefold() for recipient in refused_recipients
-                }
-                accepted_recipients = tuple(
-                    recipient
-                    for recipient in active.to_emails
-                    if recipient.casefold() not in refused_normalized
-                )
-                return _notification_failure_result(
-                    started_at=started_at,
-                    attempted_at=attempted_at,
-                    delivery_id=resolved_delivery_id,
-                    recipient_count=len(active.to_emails),
-                    accepted_count=len(accepted_recipients),
-                    error_code="recipient_rejected",
-                    error=f"SMTP server rejected {len(refused_recipients)} recipient(s).",
-                    server_message=_recipients_refused_mapping_message(refused),
-                    delivery_outcome="partial" if accepted_recipients else "rejected",
-                    accepted_recipients=accepted_recipients,
-                    refused_recipients=tuple(refused_recipients),
-                )
-            return SMTPNotificationResult(
-                success=True,
-                duration_ms=max(0, int((time.perf_counter() - started_at) * 1000)),
-                recipient_count=len(active.to_emails),
-                accepted_count=len(active.to_emails),
-                error_code=None,
-                error=None,
-                server_message="Notification email accepted by SMTP server.",
-                attempted_at=attempted_at,
-                delivery_id=resolved_delivery_id,
-                delivery_outcome="accepted",
-                accepted_recipients=tuple(active.to_emails),
+            connection_settings = replace(
+                active,
+                timeout_seconds=_remaining_smtp_operation_seconds(operation_deadline),
             )
+            server = _open_smtp(connection_settings)
+            _install_smtp_deadline_hooks(server, operation_deadline)
+            try:
+                with _interrupt_smtp_transport_at_deadline(
+                    server,
+                    operation_deadline,
+                ):
+                    _prepare_smtp_session(
+                        server,
+                        active,
+                        lease_heartbeat=lease_heartbeat,
+                        operation_deadline=operation_deadline,
+                    )
+                    _renew_smtp_operation_lease(lease_heartbeat, active)
+                    _set_smtp_operation_timeout(server, operation_deadline)
+                    if on_external_side_effect_possible is not None:
+                        on_external_side_effect_possible()
+                    send_started = True
+                    refused = server.send_message(message)
+                    if refused:
+                        refused_recipients = _matching_configured_recipients(
+                            active.to_emails, list(refused)
+                        )
+                        refused_normalized = {
+                            recipient.casefold() for recipient in refused_recipients
+                        }
+                        accepted_recipients = tuple(
+                            recipient
+                            for recipient in active.to_emails
+                            if recipient.casefold() not in refused_normalized
+                        )
+                        return _notification_failure_result(
+                            started_at=started_at,
+                            attempted_at=attempted_at,
+                            delivery_id=resolved_delivery_id,
+                            recipient_count=len(active.to_emails),
+                            accepted_count=len(accepted_recipients),
+                            error_code="recipient_rejected",
+                            error=f"SMTP server rejected {len(refused_recipients)} recipient(s).",
+                            server_message=_recipients_refused_mapping_message(refused),
+                            delivery_outcome="partial"
+                            if accepted_recipients
+                            else "rejected",
+                            accepted_recipients=accepted_recipients,
+                            refused_recipients=tuple(refused_recipients),
+                        )
+                    return SMTPNotificationResult(
+                        success=True,
+                        duration_ms=max(
+                            0, int((time.perf_counter() - started_at) * 1000)
+                        ),
+                        recipient_count=len(active.to_emails),
+                        accepted_count=len(active.to_emails),
+                        error_code=None,
+                        error=None,
+                        server_message="Notification email accepted by SMTP server.",
+                        attempted_at=attempted_at,
+                        delivery_id=resolved_delivery_id,
+                        delivery_outcome="accepted",
+                        accepted_recipients=tuple(active.to_emails),
+                    )
+            finally:
+                _close_smtp_transport(server)
+    except SMTPStartTLSNotSupportedError as exc:
+        return _notification_smtp_exception_result(
+            started_at=started_at,
+            attempted_at=attempted_at,
+            delivery_id=resolved_delivery_id,
+            active=active,
+            error_code="starttls_not_supported",
+            error="SMTP server does not support the required STARTTLS capability.",
+            server_message=str(exc) or None,
+        )
+    except smtplib.SMTPNotSupportedError as exc:
+        return _notification_smtp_exception_result(
+            started_at=started_at,
+            attempted_at=attempted_at,
+            delivery_id=resolved_delivery_id,
+            active=active,
+            error_code="smtp_capability_unsupported",
+            error="SMTP server does not support a required capability.",
+            server_message=str(exc) or None,
+        )
     except smtplib.SMTPAuthenticationError as exc:
         return _notification_smtp_exception_result(
             started_at=started_at,
             attempted_at=attempted_at,
             delivery_id=resolved_delivery_id,
             active=active,
-            error_code="auth_error",
+            error_code=_smtp_response_error_code(
+                exc.smtp_code,
+                permanent_error_code="auth_error",
+            ),
             error="SMTP authentication failed.",
             server_message=_smtp_response_message(exc),
         )
@@ -607,7 +776,7 @@ def send_smtp_notification(
             attempted_at=attempted_at,
             delivery_id=resolved_delivery_id,
             active=active,
-            error_code="recipient_rejected",
+            error_code=_recipients_refused_error_code(exc),
             error="SMTP server rejected all recipients.",
             server_message=_recipients_refused_message(exc),
             delivery_outcome="rejected",
@@ -621,7 +790,10 @@ def send_smtp_notification(
             attempted_at=attempted_at,
             delivery_id=resolved_delivery_id,
             active=active,
-            error_code="sender_rejected",
+            error_code=_smtp_response_error_code(
+                exc.smtp_code,
+                permanent_error_code="sender_rejected",
+            ),
             error="SMTP server rejected the configured sender.",
             server_message=_smtp_response_message(exc),
         )
@@ -636,6 +808,14 @@ def send_smtp_notification(
             server_message=_smtp_response_message(exc),
         )
     except smtplib.SMTPServerDisconnected as exc:
+        if _smtp_operation_deadline_expired(operation_deadline):
+            return _notification_timeout_result(
+                started_at=started_at,
+                attempted_at=attempted_at,
+                delivery_id=resolved_delivery_id,
+                active=active,
+                send_started=send_started,
+            )
         return _notification_smtp_exception_result(
             started_at=started_at,
             attempted_at=attempted_at,
@@ -646,6 +826,18 @@ def send_smtp_notification(
             server_message=str(exc) or None,
             delivery_outcome="unknown" if send_started else "not_attempted",
             unknown_recipients=tuple(active.to_emails) if send_started else (),
+        )
+    except smtplib.SMTPDataError as exc:
+        return _notification_smtp_exception_result(
+            started_at=started_at,
+            attempted_at=attempted_at,
+            delivery_id=resolved_delivery_id,
+            active=active,
+            error_code=_smtp_response_error_code(exc.smtp_code),
+            error="SMTP server rejected the message body.",
+            server_message=_smtp_response_message(exc),
+            delivery_outcome="rejected",
+            refused_recipients=tuple(active.to_emails),
         )
     except smtplib.SMTPResponseException as exc:
         return _notification_smtp_exception_result(
@@ -658,18 +850,22 @@ def send_smtp_notification(
             server_message=_smtp_response_message(exc),
         )
     except (TimeoutError, socket.timeout):
-        return _notification_smtp_exception_result(
+        return _notification_timeout_result(
             started_at=started_at,
             attempted_at=attempted_at,
             delivery_id=resolved_delivery_id,
             active=active,
-            error_code="timeout",
-            error=f"SMTP delivery timed out after {active.timeout_seconds}s.",
-            server_message=None,
-            delivery_outcome="unknown" if send_started else "not_attempted",
-            unknown_recipients=tuple(active.to_emails) if send_started else (),
+            send_started=send_started,
         )
     except ssl.SSLError as exc:
+        if _smtp_operation_deadline_expired(operation_deadline):
+            return _notification_timeout_result(
+                started_at=started_at,
+                attempted_at=attempted_at,
+                delivery_id=resolved_delivery_id,
+                active=active,
+                send_started=send_started,
+            )
         return _notification_smtp_exception_result(
             started_at=started_at,
             attempted_at=attempted_at,
@@ -678,8 +874,18 @@ def send_smtp_notification(
             error_code="tls_error",
             error="SMTP TLS negotiation failed.",
             server_message=str(exc),
+            delivery_outcome="unknown" if send_started else "not_attempted",
+            unknown_recipients=tuple(active.to_emails) if send_started else (),
         )
     except OSError as exc:
+        if _smtp_operation_deadline_expired(operation_deadline):
+            return _notification_timeout_result(
+                started_at=started_at,
+                attempted_at=attempted_at,
+                delivery_id=resolved_delivery_id,
+                active=active,
+                send_started=send_started,
+            )
         return _notification_smtp_exception_result(
             started_at=started_at,
             attempted_at=attempted_at,
@@ -693,22 +899,11 @@ def send_smtp_notification(
         )
 
 
-def _prepare_smtp_session(
-    server: smtplib.SMTP,
-    active: ActiveSMTPSettings,
-    *,
-    lease_heartbeat: Callable[[int, ActiveSMTPSettings], None] | None = None,
-) -> None:
-    _renew_smtp_operation_lease(lease_heartbeat, active)
-    server.ehlo()
-    if active.security == "starttls":
-        _renew_smtp_operation_lease(lease_heartbeat, active)
-        server.starttls(context=ssl.create_default_context())
-        _renew_smtp_operation_lease(lease_heartbeat, active)
-        server.ehlo()
-    if active.username:
-        _renew_smtp_operation_lease(lease_heartbeat, active)
-        server.login(active.username, active.password or "")
+def _close_smtp_transport(server: smtplib.SMTP) -> None:
+    try:
+        server.close()
+    except (AttributeError, OSError):
+        return
 
 
 def _build_notification_message(
@@ -956,95 +1151,6 @@ def _html_to_plain_text(html_body: str) -> str:
     return " ".join(text.split()) or "ThreatLens SMTP test email."
 
 
-def _failure_response(
-    *,
-    action: str,
-    started_at: float,
-    tested_at: datetime,
-    recipient_email: str | None,
-    error_code: str,
-    error: str,
-    server_message: str | None,
-) -> SMTPTestResponse:
-    return _test_response(
-        success=False,
-        action=action,
-        started_at=started_at,
-        tested_at=tested_at,
-        recipient_email=recipient_email,
-        error_code=error_code,
-        error=error,
-        server_message=server_message,
-    )
-
-
-def _test_response(
-    *,
-    success: bool,
-    action: str,
-    started_at: float,
-    tested_at: datetime,
-    recipient_email: str | None,
-    error_code: str | None,
-    error: str | None,
-    server_message: str | None,
-) -> SMTPTestResponse:
-    return SMTPTestResponse(
-        success=success,
-        action=action,
-        duration_ms=max(0, int((time.perf_counter() - started_at) * 1000)),
-        recipient_email=recipient_email,
-        error_code=error_code,
-        error=error,
-        server_message=server_message,
-        tested_at=tested_at,
-        used_unsaved_settings=False,
-    )
-
-
-def _record_smtp_delivery_audit(
-    db: Session,
-    *,
-    instance: IntegrationInstance,
-    result: SMTPNotificationResult,
-    event_type: NotificationEventType,
-    delivery_kind: str,
-    dedupe_key: str,
-    feed: Feed | SimpleNamespace | None,
-    item: Item | SimpleNamespace | None,
-    source_delivery_id: uuid.UUID | None,
-    scope_key: str | None,
-) -> None:
-    metadata = {
-        "event_type": event_type,
-        "delivery_kind": delivery_kind,
-        "delivery_id": str(result.delivery_id),
-        "dedupe_key": dedupe_key,
-        "recipient_count": result.recipient_count,
-        "accepted_count": result.accepted_count,
-        "delivery_outcome": result.delivery_outcome,
-        "refused_count": len(result.refused_recipients),
-        "unknown_count": len(result.unknown_recipients),
-        "duration_ms": result.duration_ms,
-        "error_code": result.error_code,
-        "error": result.error,
-        "has_server_message": bool(result.server_message),
-        "feed_id": str(getattr(feed, "id", "")) or None,
-        "item_id": str(getattr(item, "id", "")) or None,
-        "source_delivery_id": str(source_delivery_id) if source_delivery_id else None,
-        "scope_key": scope_key,
-    }
-    record_audit(
-        db,
-        actor_user_id=None,
-        action=SMTP_DELIVERY_AUDIT_ACTION,
-        resource_type=SMTP_DELIVERY_RESOURCE_TYPE,
-        resource_id=str(instance.id),
-        success=result.success,
-        metadata=metadata,
-    )
-
-
 def _matching_configured_recipients(
     configured: list[str], requested: list[str]
 ) -> list[str]:
@@ -1058,142 +1164,3 @@ def _matching_configured_recipients(
         for recipient in configured
         if recipient.casefold() in requested_normalized
     ]
-
-
-def _renew_smtp_operation_lease(
-    lease_heartbeat: Callable[[int, ActiveSMTPSettings], None] | None,
-    active: ActiveSMTPSettings,
-) -> None:
-    if lease_heartbeat is None:
-        return
-    lease_heartbeat(
-        max(30, (max(1, int(active.timeout_seconds)) * 2) + 15),
-        active,
-    )
-
-
-def _apply_smtp_delivery_result(
-    instance: IntegrationInstance, result: SMTPNotificationResult
-) -> None:
-    if result.success:
-        instance.health_status = INTEGRATION_HEALTH_HEALTHY
-        instance.last_success_at = result.attempted_at
-        instance.last_error = None
-    else:
-        instance.health_status = INTEGRATION_HEALTH_ERROR
-        instance.last_error_at = result.attempted_at
-        instance.last_error = result.error
-
-
-def _smtp_delivery_attempt_skip_reason(
-    db: Session,
-    *,
-    instance_id: uuid.UUID,
-    dedupe_key: str,
-    event_type: NotificationEventType,
-    delivery_kind: str,
-    feed: Feed | SimpleNamespace | None,
-    item: Item | SimpleNamespace | None,
-    source_delivery_id: uuid.UUID | None,
-    scope_key: str | None,
-) -> str | None:
-    if _has_smtp_delivery_attempt(db, instance_id=instance_id, dedupe_key=dedupe_key):
-        return "duplicate_delivery"
-    if not try_acquire_notification_delivery_lock(
-        db,
-        webhook_id=instance_id,
-        event_type=event_type,
-        delivery_kind=delivery_kind,
-        item_id=getattr(item, "id", None),
-        feed_id=getattr(feed, "id", None),
-        source_delivery_id=source_delivery_id,
-        scope_key=scope_key,
-    ):
-        return "delivery_lock_unavailable"
-    if _has_smtp_delivery_attempt(db, instance_id=instance_id, dedupe_key=dedupe_key):
-        return "duplicate_delivery"
-    return None
-
-
-def _has_smtp_delivery_attempt(
-    db: Session, *, instance_id: uuid.UUID, dedupe_key: str
-) -> bool:
-    return (
-        db.scalar(
-            select(AuditLog.id)
-            .where(
-                AuditLog.action == SMTP_DELIVERY_AUDIT_ACTION,
-                AuditLog.resource_type == SMTP_DELIVERY_RESOURCE_TYPE,
-                AuditLog.resource_id == str(instance_id),
-                AuditLog.metadata_json["dedupe_key"].as_string() == dedupe_key,
-            )
-            .limit(1)
-        )
-        is not None
-    )
-
-
-def _smtp_delivery_dedupe_key(
-    *,
-    instance_id: uuid.UUID,
-    event_type: NotificationEventType,
-    delivery_kind: str,
-    item_id: uuid.UUID | None,
-    feed_id: uuid.UUID | None,
-    source_delivery_id: uuid.UUID | None,
-    scope_key: str | None,
-) -> str:
-    return "|".join(
-        [
-            "smtp",
-            str(instance_id),
-            event_type,
-            delivery_kind,
-            f"item:{item_id or ''}",
-            f"feed:{feed_id or ''}",
-            f"source:{source_delivery_id or ''}",
-            f"scope:{scope_key or ''}",
-        ]
-    )
-
-
-def _smtp_response_message(exc: smtplib.SMTPResponseException) -> str:
-    return _format_smtp_reply(exc.smtp_code, exc.smtp_error)
-
-
-def _recipients_refused_message(exc: smtplib.SMTPRecipientsRefused) -> str | None:
-    if not exc.recipients:
-        return None
-    first = next(iter(exc.recipients.values()))
-    if not isinstance(first, tuple) or len(first) != 2:
-        return str(exc.recipients)
-    code, message = first
-    return _format_smtp_reply(code, message)
-
-
-def _recipients_refused_mapping_message(
-    recipients: dict[str, tuple[int, bytes | str]],
-) -> str | None:
-    if not recipients:
-        return None
-    first = next(iter(recipients.values()))
-    if not isinstance(first, tuple) or len(first) != 2:
-        return str(recipients)
-    code, message = first
-    return _format_smtp_reply(code, message)
-
-
-def _format_smtp_reply(code: int, message) -> str:
-    if isinstance(message, bytes):
-        message_text = message.decode("utf-8", errors="replace")
-    else:
-        message_text = str(message or "")
-    return f"{code} {message_text}".strip()
-
-
-def _smtp_response_error_code(code: int) -> str:
-    if 400 <= int(code) < 500:
-        return "transient_smtp_error"
-    if int(code) >= 500:
-        return "smtp_rejected"
-    return "smtp_error"

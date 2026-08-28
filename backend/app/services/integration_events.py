@@ -19,7 +19,13 @@ from app.models.alert_interest import AlertInterest
 from app.models.feed import Feed
 from app.models.item import Item
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
-from app.services.integration_connectors import IntegrationEventContextError
+from app.services.integration_connectors import (
+    IntegrationEventCompatibilityError,
+    IntegrationEventContextError,
+)
+from app.services.integration_event_schemas import (
+    max_supported_integration_event_schema,
+)
 from app.services.integration_registry import (
     get_integration_connector,
     iter_integration_connectors_for_event,
@@ -47,6 +53,7 @@ class ConnectorRoutingError:
     connector_type: str
     message: str
     retryable: bool
+    compatibility_wait: bool = False
 
 
 @dataclass(frozen=True)
@@ -211,6 +218,31 @@ def route_integration_event(
     if event.routing_state == EVENT_DEAD_LETTER:
         return _event_delivery_result(db, event, status=EVENT_DEAD_LETTER)
 
+    compatibility_message = _event_schema_compatibility_message(event)
+    if compatibility_message is not None:
+        current_time = datetime.now(timezone.utc)
+        error = ConnectorRoutingError(
+            connector_type="event_envelope",
+            message=compatibility_message,
+            retryable=True,
+            compatibility_wait=True,
+        )
+        event.routing_state = EVENT_FAILED
+        event.claimed_at = None
+        event.routed_at = None
+        event.last_error = _format_routing_errors([error])
+        event.available_at = current_time + timedelta(
+            seconds=_routing_backoff_seconds(0)
+        )
+        db.add(event)
+        db.flush()
+        return _event_delivery_result(
+            db,
+            event,
+            status=EVENT_FAILED,
+            errors=[error],
+        )
+
     event.routing_state = EVENT_ROUTING
     event.claimed_at = datetime.now(timezone.utc)
     event.routing_attempt_count = max(0, int(event.routing_attempt_count or 0)) + 1
@@ -251,6 +283,7 @@ def route_integration_event(
                         "routing will retry after the worker is upgraded"
                     ),
                     retryable=True,
+                    compatibility_wait=True,
                 )
             )
             continue
@@ -265,12 +298,22 @@ def route_integration_event(
                         f"{event.event_type!r}; update the subscription or connector"
                     ),
                     retryable=True,
+                    compatibility_wait=True,
                 )
             )
             continue
         try:
             with db.begin_nested():
                 connector.route_event(db, event=event)
+        except IntegrationEventCompatibilityError as exc:
+            errors.append(
+                ConnectorRoutingError(
+                    connector_type,
+                    str(exc)[:1000],
+                    True,
+                    compatibility_wait=True,
+                )
+            )
         except IntegrationEventContextError as exc:
             errors.append(ConnectorRoutingError(connector_type, str(exc)[:1000], False))
         except Exception as exc:
@@ -285,10 +328,16 @@ def route_integration_event(
     current_time = datetime.now(timezone.utc)
     if errors:
         retryable = any(error.retryable for error in errors)
+        compatibility_wait = all(error.compatibility_wait for error in errors)
+        if compatibility_wait:
+            event.routing_attempt_count = max(
+                0, int(event.routing_attempt_count or 0) - 1
+            )
         max_attempts = max(1, int(settings.integration_event_routing_max_attempts))
         event.routing_state = (
             EVENT_FAILED
-            if retryable and event.routing_attempt_count < max_attempts
+            if compatibility_wait
+            or (retryable and event.routing_attempt_count < max_attempts)
             else EVENT_DEAD_LETTER
         )
         event.last_error = _format_routing_errors(errors)
@@ -304,6 +353,18 @@ def route_integration_event(
     db.add(event)
     db.flush()
     return _event_delivery_result(db, event, status=event.routing_state, errors=errors)
+
+
+def _event_schema_compatibility_message(event: IntegrationEvent) -> str | None:
+    schema_version = max(1, int(event.schema_version or 1))
+    supported_version = max_supported_integration_event_schema(event.event_type)
+    if schema_version <= supported_version:
+        return None
+    return (
+        f"{event.event_type} event uses newer schema version {schema_version}; "
+        f"this worker supports through version {supported_version}. Upgrade the "
+        "integration workers before routing resumes."
+    )
 
 
 def record_integration_event_failure(
@@ -644,7 +705,7 @@ def _prepare_event_envelope(
     copied = deepcopy(payload)
     if requested_schema_version is not None:
         version = max(1, int(requested_schema_version))
-        copied.setdefault("schema_version", version)
+        copied["schema_version"] = version
         return version, copied
     if event_type not in RESOURCE_SNAPSHOT_EVENT_TYPES:
         return 1, copied

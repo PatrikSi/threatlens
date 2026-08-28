@@ -15,7 +15,7 @@ from app.models.user import User
 from app.services.integration_delivery import (
     claim_integration_delivery,
     claim_webhook_delivery,
-    defer_integration_delivery,
+    defer_unclaimed_integration_delivery,
     ensure_webhook_delivery,
     finalize_integration_delivery,
     finalize_webhook_delivery,
@@ -282,6 +282,17 @@ def test_active_operation_lease_prevents_stale_reclaim(db_session, monkeypatch):
     assert active.status == "deferred"
     assert active.reason == "active_lease"
 
+    attempt = db_session.scalar(
+        select(IntegrationAttempt).where(IntegrationAttempt.delivery_id == delivery.id)
+    )
+    assert attempt is not None
+    attempt.response_json = {
+        "delivery_outcome": "unknown",
+        "external_side_effect_possible": True,
+    }
+    db_session.add(attempt)
+    db_session.commit()
+
     recovered = claim_integration_delivery(
         db_session,
         delivery_id=delivery.id,
@@ -292,12 +303,60 @@ def test_active_operation_lease_prevents_stale_reclaim(db_session, monkeypatch):
     db_session.refresh(delivery)
     assert delivery.state == "dead_letter"
     assert delivery.last_error_retryable is False
-    attempt = db_session.scalar(
-        select(IntegrationAttempt).where(IntegrationAttempt.delivery_id == delivery.id)
-    )
-    assert attempt is not None
+    db_session.refresh(attempt)
     assert attempt.status == "interrupted"
     assert attempt.response_json["delivery_outcome"] == "unknown"
+
+
+def test_stale_smtp_attempt_before_external_side_effect_is_reclaimed(
+    db_session, monkeypatch
+):
+    delivery = _persist_generic_delivery(db_session)
+    monkeypatch.setattr(
+        "app.services.integration_delivery.settings.notification_delivery_sending_stale_after_seconds",
+        30,
+    )
+    started_at = datetime(2026, 7, 14, 12, 0, tzinfo=timezone.utc)
+
+    first = claim_integration_delivery(
+        db_session,
+        delivery_id=delivery.id,
+        now=started_at,
+    )
+    first_attempt = db_session.scalar(
+        select(IntegrationAttempt).where(
+            IntegrationAttempt.delivery_id == delivery.id,
+            IntegrationAttempt.attempt_number == 1,
+        )
+    )
+
+    assert first.status == "claimed"
+    assert first_attempt is not None
+    assert first_attempt.response_json == {
+        "delivery_outcome": "not_attempted",
+        "external_side_effect_possible": False,
+    }
+
+    recovered = claim_integration_delivery(
+        db_session,
+        delivery_id=delivery.id,
+        now=started_at + timedelta(seconds=31),
+    )
+
+    assert recovered.status == "claimed"
+    assert recovered.attempt_number == 2
+    attempts = db_session.scalars(
+        select(IntegrationAttempt)
+        .where(IntegrationAttempt.delivery_id == delivery.id)
+        .order_by(IntegrationAttempt.attempt_number)
+    ).all()
+    assert [(attempt.attempt_number, attempt.status) for attempt in attempts] == [
+        (1, "interrupted"),
+        (2, "running"),
+    ]
+    assert attempts[0].retryable is True
+    assert attempts[0].response_json["delivery_outcome"] == "not_attempted"
+    assert attempts[0].response_json["external_side_effect_possible"] is False
 
 
 def test_recovery_publication_reservation_suppresses_duplicate_sweeps_without_blocking_claim(
@@ -526,7 +585,7 @@ def test_unknown_connector_delivery_is_deferred_for_rolling_upgrade(db_session):
     delivery.connector_type = "future-connector"
     started_at = datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc)
 
-    deferred = defer_integration_delivery(
+    deferred = defer_unclaimed_integration_delivery(
         db_session,
         delivery_id=delivery.id,
         error_code="unsupported_connector",

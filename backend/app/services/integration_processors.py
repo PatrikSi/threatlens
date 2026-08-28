@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import logging
 import uuid
 from dataclasses import dataclass
 
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.models.feed import Feed
@@ -18,8 +20,13 @@ from app.models.user import User
 from app.services.integration_delivery import (
     CLAIMED,
     claim_integration_delivery,
+    defer_unclaimed_integration_delivery,
     finalize_integration_delivery,
     renew_integration_delivery_lease,
+)
+from app.services.integration_delivery_attempts import (
+    defer_stale_pre_side_effect_attempt,
+    persist_external_side_effect_marker,
 )
 from app.services.daily_brief_notifications import (
     DailyBriefNotificationContextError,
@@ -27,12 +34,19 @@ from app.services.daily_brief_notifications import (
 )
 from app.services.notification_webhooks import (
     FailedWebhookContext,
-    build_alert_match_context_for_item,
 )
-from app.services.smtp_integration import attempt_smtp_integration_delivery
+from app.services.smtp_delivery_errors import SMTPDeliveryDatabasePreflightError
+from app.services.smtp_integration import (
+    attempt_smtp_integration_delivery,
+)
 from app.services.smtp_delivery_eligibility import (
     SMTPDeliveryIneligibleError,
+    SMTPDeliverySourceCompatibilityError,
+    SMTPDeliverySourceContextError,
+    ensure_smtp_delivery_schema_compatible,
     lock_smtp_delivery_external_io_eligibility,
+    persist_smtp_delivery_source_owner_context,
+    smtp_legacy_alert_delivery_snapshot,
 )
 from app.services.integration_storage import ActiveSMTPSettings
 
@@ -47,11 +61,28 @@ RETRYABLE_SMTP_ERROR_CODES = frozenset(
         "transient_smtp_error",
     }
 )
+SMTP_LOCAL_FAILURE_ERROR_CODES = frozenset(
+    {
+        "not_configured",
+        "render_error",
+        "secret_error",
+        "smtp_capability_unsupported",
+        "starttls_not_supported",
+        "validation_error",
+    }
+)
 SMTP_OWNER_NOT_ELIGIBLE = "smtp_owner_not_eligible"
+SMTP_COMPATIBILITY_RETRY_SECONDS = 300
+
+logger = logging.getLogger(__name__)
 
 
 class IntegrationDeliveryContextError(ValueError):
     pass
+
+
+class SMTPDeliveryPreflightError(RuntimeError):
+    code = "smtp_preflight_database_unavailable"
 
 
 @dataclass(frozen=True)
@@ -67,6 +98,13 @@ def process_smtp_integration_delivery(
     *,
     delivery_id: uuid.UUID,
 ) -> IntegrationDeliveryProcessingResult:
+    compatibility_result = _defer_incompatible_smtp_delivery(
+        db,
+        delivery_id=delivery_id,
+    )
+    if compatibility_result is not None:
+        return compatibility_result
+
     claim = claim_integration_delivery(db, delivery_id=delivery_id)
     if claim.status != CLAIMED or claim.attempt_number is None:
         return IntegrationDeliveryProcessingResult(
@@ -76,6 +114,7 @@ def process_smtp_integration_delivery(
             retry_at=claim.scheduled_for.isoformat() if claim.scheduled_for else None,
         )
 
+    external_side_effect_possible = False
     try:
         delivery = db.get(IntegrationDelivery, delivery_id)
         if delivery is None:
@@ -89,6 +128,8 @@ def process_smtp_integration_delivery(
         instance = db.get(IntegrationInstance, delivery.integration_id)
         if instance is None:
             raise IntegrationDeliveryContextError("SMTP integration no longer exists")
+        ensure_smtp_delivery_schema_compatible(db, delivery=delivery)
+        persist_smtp_delivery_source_owner_context(db, delivery=delivery)
         context = _load_smtp_delivery_context(db, delivery=delivery)
         if context["skip_reason"] is not None:
             outcome = finalize_integration_delivery(
@@ -100,6 +141,7 @@ def process_smtp_integration_delivery(
                 error_code=None,
                 error_message=None,
                 retryable=False,
+                affect_circuit=False,
                 response_json={"skipped": True, "reason": context["skip_reason"]},
             )
             db.commit()
@@ -117,6 +159,7 @@ def process_smtp_integration_delivery(
                 error_code=None,
                 error_message=None,
                 retryable=False,
+                affect_circuit=False,
                 response_json={
                     "skipped": True,
                     "reason": SMTP_OWNER_NOT_ELIGIBLE,
@@ -132,26 +175,52 @@ def process_smtp_integration_delivery(
         def _renew_lease(
             lease_seconds: int, expected_settings: ActiveSMTPSettings
         ) -> None:
-            renewed = renew_integration_delivery_lease(
-                db,
-                delivery_id=delivery.id,
-                expected_attempt_number=claim.attempt_number,
-                lease_seconds=lease_seconds,
-            )
-            if not renewed:
-                db.rollback()
-                raise IntegrationDeliveryContextError(
-                    "SMTP delivery lease is no longer owned by this worker"
+            try:
+                renewed = renew_integration_delivery_lease(
+                    db,
+                    delivery_id=delivery.id,
+                    expected_attempt_number=claim.attempt_number,
+                    lease_seconds=lease_seconds,
                 )
-            db.commit()
-            lock_smtp_delivery_external_io_eligibility(
-                db,
-                delivery_id=delivery.id,
-                expected_attempt_number=claim.attempt_number,
-                expected_settings=expected_settings,
-            )
+                if not renewed:
+                    db.rollback()
+                    raise IntegrationDeliveryContextError(
+                        "SMTP delivery lease is no longer owned by this worker"
+                    )
+                db.commit()
+                lock_smtp_delivery_external_io_eligibility(
+                    db,
+                    delivery_id=delivery.id,
+                    expected_attempt_number=claim.attempt_number,
+                    expected_settings=expected_settings,
+                )
+            except (IntegrationDeliveryContextError, SMTPDeliveryIneligibleError):
+                raise
+            except (SQLAlchemyError, TimeoutError) as exc:
+                db.rollback()
+                raise SMTPDeliveryPreflightError(
+                    "SMTP delivery eligibility could not acquire its database fence; it will retry before sending any message."
+                ) from exc
 
         try:
+
+            def _mark_external_side_effect_possible() -> None:
+                nonlocal external_side_effect_possible
+                try:
+                    marked = persist_external_side_effect_marker(
+                        delivery_id=delivery.id,
+                        expected_attempt_number=claim.attempt_number,
+                    )
+                except (SQLAlchemyError, TimeoutError) as exc:
+                    raise SMTPDeliveryPreflightError(
+                        "SMTP delivery could not persist its external-I/O fence; it will retry before sending any message."
+                    ) from exc
+                if not marked:
+                    raise IntegrationDeliveryContextError(
+                        "SMTP delivery attempt is no longer active"
+                    )
+                external_side_effect_possible = True
+
             dispatch = attempt_smtp_integration_delivery(
                 db,
                 instance=instance,
@@ -168,8 +237,45 @@ def process_smtp_integration_delivery(
                 scope_key=context["scope_key"],
                 recipient_override=context["recipient_override"],
                 lease_heartbeat=_renew_lease,
+                on_external_side_effect_possible=_mark_external_side_effect_possible,
+            )
+        except (
+            SMTPDeliveryPreflightError,
+            SMTPDeliveryDatabasePreflightError,
+        ) as exc:
+            external_side_effect_possible = False
+            db.rollback()
+            outcome = finalize_integration_delivery(
+                db,
+                delivery_id=delivery.id,
+                expected_attempt_number=claim.attempt_number,
+                success=False,
+                duration_ms=0,
+                error_code=exc.code,
+                error_message=str(exc),
+                retryable=True,
+                affect_circuit=False,
+                response_json={
+                    "failure_class": "smtp_preflight_database",
+                    "delivery_outcome": "not_attempted",
+                    "external_side_effect_possible": False,
+                },
+            )
+            db.commit()
+            logger.warning(
+                "smtp_delivery_preflight_deferred delivery_id=%s attempt_number=%s",
+                delivery_id,
+                claim.attempt_number,
+                exc_info=True,
+            )
+            return IntegrationDeliveryProcessingResult(
+                delivery_id,
+                outcome.state or "retry_wait",
+                exc.code,
+                outcome.retry_at.isoformat() if outcome.retry_at else None,
             )
         except SMTPDeliveryIneligibleError as exc:
+            external_side_effect_possible = False
             db.rollback()
             outcome = finalize_integration_delivery(
                 db,
@@ -180,6 +286,7 @@ def process_smtp_integration_delivery(
                 error_code=None,
                 error_message=None,
                 retryable=False,
+                affect_circuit=False,
                 response_json={
                     "skipped": True,
                     "reason": exc.code,
@@ -203,6 +310,7 @@ def process_smtp_integration_delivery(
                 error_code=None,
                 error_message=None,
                 retryable=False,
+                affect_circuit=False,
                 response_json={"skipped": True, "reason": dispatch.reason},
             )
         else:
@@ -220,6 +328,8 @@ def process_smtp_integration_delivery(
                 error_code=result.error_code,
                 error_message=result.error,
                 retryable=retryable,
+                affect_circuit=result.error_code
+                not in SMTP_LOCAL_FAILURE_ERROR_CODES,
                 response_json={
                     "recipient_count": result.recipient_count,
                     "accepted_count": result.accepted_count,
@@ -239,6 +349,62 @@ def process_smtp_integration_delivery(
             reason=dispatch.reason,
             retry_at=outcome.retry_at.isoformat() if outcome.retry_at else None,
         )
+    except SMTPDeliverySourceCompatibilityError as exc:
+        db.rollback()
+        outcome = finalize_integration_delivery(
+            db,
+            delivery_id=delivery_id,
+            expected_attempt_number=claim.attempt_number,
+            success=False,
+            duration_ms=0,
+            error_code=exc.code,
+            error_message=str(exc),
+            retryable=True,
+            affect_circuit=False,
+            response_json={
+                "failure_class": "smtp_schema_compatibility",
+                "delivery_outcome": "not_attempted",
+                "external_side_effect_possible": False,
+            },
+        )
+        db.commit()
+        return IntegrationDeliveryProcessingResult(
+            delivery_id,
+            outcome.state or "retry_wait",
+            exc.code,
+            outcome.retry_at.isoformat() if outcome.retry_at else None,
+        )
+    except SMTPDeliverySourceContextError as exc:
+        db.rollback()
+        failure_class = (
+            "smtp_event_schema"
+            if exc.code.startswith("smtp_event_schema_")
+            else "smtp_event_context"
+            if exc.code.startswith("smtp_event_")
+            else "smtp_source_owner_context"
+        )
+        outcome = finalize_integration_delivery(
+            db,
+            delivery_id=delivery_id,
+            expected_attempt_number=claim.attempt_number,
+            success=False,
+            duration_ms=0,
+            error_code=exc.code,
+            error_message=str(exc),
+            retryable=False,
+            affect_circuit=False,
+            response_json={
+                "failure_class": failure_class,
+                "delivery_outcome": "not_attempted",
+                "external_side_effect_possible": False,
+            },
+        )
+        db.commit()
+        return IntegrationDeliveryProcessingResult(
+            delivery_id,
+            outcome.state or "dead_letter",
+            exc.code,
+        )
     except IntegrationDeliveryContextError as exc:
         db.rollback()
         outcome = finalize_integration_delivery(
@@ -250,6 +416,12 @@ def process_smtp_integration_delivery(
             error_code="context_error",
             error_message=str(exc),
             retryable=False,
+            affect_circuit=False,
+            response_json={
+                "failure_class": "smtp_delivery_context",
+                "delivery_outcome": "not_attempted",
+                "external_side_effect_possible": False,
+            },
         )
         db.commit()
         return IntegrationDeliveryProcessingResult(
@@ -257,27 +429,104 @@ def process_smtp_integration_delivery(
         )
     except Exception as exc:
         db.rollback()
+        retryable = not external_side_effect_possible
+        error_code = (
+            "worker_error"
+            if external_side_effect_possible
+            else "worker_preflight_error"
+        )
+        public_message = (
+            "SMTP delivery failed unexpectedly after external I/O may have started."
+            if external_side_effect_possible
+            else "SMTP delivery could not complete its preflight checks and will retry automatically."
+        )
         outcome = finalize_integration_delivery(
             db,
             delivery_id=delivery_id,
             expected_attempt_number=claim.attempt_number,
             success=False,
             duration_ms=None,
-            error_code="worker_error",
-            error_message=f"{type(exc).__name__}: {exc}"[:4000],
-            retryable=False,
+            error_code=error_code,
+            error_message=public_message,
+            retryable=retryable,
+            affect_circuit=False,
             response_json={
-                "delivery_outcome": "unknown",
-                "external_side_effect_possible": True,
+                "delivery_outcome": "unknown"
+                if external_side_effect_possible
+                else "not_attempted",
+                "external_side_effect_possible": external_side_effect_possible,
             },
         )
         db.commit()
+        logger.exception(
+            "smtp_delivery_worker_failed delivery_id=%s stage=%s error_type=%s",
+            delivery_id,
+            "external_io" if external_side_effect_possible else "preflight",
+            type(exc).__name__,
+        )
         return IntegrationDeliveryProcessingResult(
             delivery_id,
             outcome.state or "failed",
-            "worker_error",
+            error_code,
             outcome.retry_at.isoformat() if outcome.retry_at else None,
         )
+
+
+def _defer_incompatible_smtp_delivery(
+    db: Session,
+    *,
+    delivery_id: uuid.UUID,
+) -> IntegrationDeliveryProcessingResult | None:
+    pending_delivery = db.get(IntegrationDelivery, delivery_id)
+    if pending_delivery is not None:
+        try:
+            ensure_smtp_delivery_schema_compatible(db, delivery=pending_delivery)
+        except SMTPDeliverySourceCompatibilityError as exc:
+            db.rollback()
+            deferred = defer_unclaimed_integration_delivery(
+                db,
+                delivery_id=delivery_id,
+                error_code=exc.code,
+                error_message=str(exc),
+                delay_seconds=SMTP_COMPATIBILITY_RETRY_SECONDS,
+            )
+            if not deferred:
+                db.rollback()
+                deferred = defer_stale_pre_side_effect_attempt(
+                    db,
+                    delivery_id=delivery_id,
+                    error_code=exc.code,
+                    error_message=str(exc),
+                    delay_seconds=SMTP_COMPATIBILITY_RETRY_SECONDS,
+                )
+            if not deferred:
+                db.rollback()
+                compatibility_claim = claim_integration_delivery(
+                    db, delivery_id=delivery_id
+                )
+                return IntegrationDeliveryProcessingResult(
+                    delivery_id,
+                    compatibility_claim.status,
+                    compatibility_claim.reason,
+                    compatibility_claim.scheduled_for.isoformat()
+                    if compatibility_claim.scheduled_for is not None
+                    else None,
+                )
+            db.commit()
+            current = db.get(IntegrationDelivery, delivery_id)
+            return IntegrationDeliveryProcessingResult(
+                delivery_id,
+                current.state if current is not None else "missing",
+                exc.code,
+                current.not_before.isoformat()
+                if current is not None and current.not_before is not None
+                else None,
+            )
+        except SMTPDeliverySourceContextError:
+            # Malformed supported schemas are terminal, but they still need a
+            # claimed attempt so the normal finalization path records history.
+            pass
+    return None
 
 
 def _smtp_integration_owner_is_eligible(
@@ -302,7 +551,12 @@ def _load_smtp_delivery_context(db: Session, *, delivery: IntegrationDelivery) -
         schema_version = int(payload.get("schema_version") or 1)
     except (TypeError, ValueError):
         schema_version = 0
-    if schema_version >= 2 and delivery.event_type in {
+    if delivery.event_type == "alert_match" and schema_version == 1:
+        legacy_snapshot = smtp_legacy_alert_delivery_snapshot(db, delivery=delivery)
+        item = legacy_snapshot.item
+        feed = legacy_snapshot.feed
+        snapshot_alert_context = legacy_snapshot.alert_context
+    elif schema_version >= 2 and delivery.event_type in {
         "rss_item_new",
         "alert_match",
         "feed_failing",
@@ -350,10 +604,7 @@ def _load_smtp_delivery_context(db: Session, *, delivery: IntegrationDelivery) -
                 f"{delivery.event_type} delivery is missing its feed"
             )
         if delivery.event_type == "alert_match":
-            alert_context = (
-                snapshot_alert_context
-                or build_alert_match_context_for_item(db, item=item)
-            )
+            alert_context = snapshot_alert_context
             if alert_context is None:
                 skip_reason = "no_alert_match"
     elif delivery.event_type == "feed_failing":
