@@ -191,7 +191,7 @@ describe('InvestigationsPage DOM workflows', () => {
       setTextAreaValue(description!, '  Correlate observed indicators and vendor reporting.  ')
     })
     act(() => findButton('Create')?.click())
-    await flushRequests()
+    await flushRequests(2)
 
     const createCall = domMocks.apiFetch.mock.calls.find((call) => call[0] === '/investigations' && call[1]?.method === 'POST')
     expect(JSON.parse(createCall?.[1].body as string)).toEqual({
@@ -218,6 +218,33 @@ describe('InvestigationsPage DOM workflows', () => {
 
     expect(document.querySelector<HTMLInputElement>('#investigation-create-title')?.value).toBe('Preserved draft')
     expect(document.querySelector('[role="alert"]')?.textContent).toContain('Your draft has been preserved')
+  })
+
+  it('guards navigation from a dismissed creation draft and restores it for editing', async () => {
+    domMocks.apiFetch.mockResolvedValue(listResponse)
+    await renderAt('/investigations')
+
+    act(() => findButton('Create investigation')?.click())
+    const title = document.querySelector<HTMLInputElement>('#investigation-create-title')!
+    act(() => setInputValue(title, 'Unfinished investigation'))
+    act(() => findButton('Cancel')?.click())
+
+    const investigationLink = document.querySelector<HTMLAnchorElement>(
+      `a[href="/investigations/${baseDetail.id}"]`,
+    )
+    act(() => investigationLink?.click())
+    await flushRequests()
+
+    expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain(
+      'You have an unfinished investigation draft. Leave without creating it?',
+    )
+    expect(pageText()).not.toContain('Version 7')
+
+    act(() => findButton('Cancel')?.click())
+    act(() => findButton('Create investigation')?.click())
+    expect(document.querySelector<HTMLInputElement>('#investigation-create-title')?.value).toBe(
+      'Unfinished investigation',
+    )
   })
 
   it('keeps team-visible nonmembers and global viewers read-only and renders notes as text', async () => {
@@ -368,6 +395,35 @@ describe('InvestigationsPage DOM workflows', () => {
     expect(pageText()).toContain('Investigation not found.')
     expect(pageText()).not.toContain('Exchange exploitation review')
     expect(findButton('Retry')).not.toBeNull()
+  })
+
+  it('keeps the discard dialog available after a terminal refresh hides a dirty workspace', async () => {
+    const { router } = await renderDetail(baseDetail)
+    const description = document.querySelector<HTMLTextAreaElement>('#investigation-description')!
+    act(() => setTextAreaValue(description, 'Unsaved scope after access loss'))
+    domMocks.apiFetch.mockRejectedValue(
+      new ApiError(
+        'Investigation access is no longer available.',
+        403,
+        `/investigations/${baseDetail.id}`,
+      ),
+    )
+
+    act(() => findButton('Refresh')?.click())
+    await flushRequests(2)
+    expect(pageText()).toContain('Investigation access is no longer available.')
+    expect(pageText()).not.toContain('Unsaved scope after access loss')
+
+    act(() => {
+      void router.navigate('/investigations')
+    })
+    await flushRequests()
+
+    expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain(
+      'Discard unsaved investigation changes?',
+    )
+    act(() => findButton('Cancel')?.click())
+    expect(pageText()).toContain('Investigation access is no longer available.')
   })
 
   it('does not discard an unsaved overview draft after an unrelated lifecycle mutation', async () => {
@@ -848,7 +904,7 @@ async function renderAt(path: string, settle = true, client = createQueryClient(
     )
   })
   if (settle) await flushRequests()
-  return container
+  return { container, router }
 }
 
 function createQueryClient() {

@@ -168,6 +168,7 @@ export function InvestigationListWorkspace({
       )}
 
       <CreateInvestigationDialog controller={controller} />
+      {controller.confirmDiscardCreateDraft.discardDialog}
     </section>
   )
 }
