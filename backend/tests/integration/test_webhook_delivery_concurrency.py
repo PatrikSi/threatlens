@@ -387,12 +387,15 @@ def test_first_webhook_heartbeat_schema_race_preserves_retry_budget(
 
 
 @pytest.mark.parametrize(
-    ("configuration_change", "expected_generic_state"),
+    ("configuration_change", "expected_generic_state", "expected_send_count"),
     [
-        ("schema", "dead_letter"),
-        ("disabled", "failed"),
-        ("redirect", "failed"),
-        ("redirect_validation", "failed"),
+        ("schema", "dead_letter", 1),
+        ("disabled", "failed", 1),
+        ("redirect", "failed", 1),
+        ("redirect_validation", "failed", 1),
+        ("redirect_malformed", "failed", 1),
+        ("redirect_close", "failed", 1),
+        ("redirect_read", "failed", 2),
     ],
 )
 def test_webhook_configuration_race_after_first_request_records_unknown_outcome(
@@ -400,6 +403,7 @@ def test_webhook_configuration_race_after_first_request_records_unknown_outcome(
     monkeypatch,
     configuration_change: str,
     expected_generic_state: str,
+    expected_send_count: int,
 ):
     owner_id = uuid.uuid4()
     webhook_id = uuid.uuid4()
@@ -458,11 +462,7 @@ def test_webhook_configuration_race_after_first_request_records_unknown_outcome(
             webhook=webhook,
             legacy_delivery=legacy,
         )
-        generic.max_attempts = (
-            2
-            if configuration_change in {"redirect", "redirect_validation"}
-            else 1
-        )
+        generic.max_attempts = 2 if configuration_change.startswith("redirect") else 1
         setup_db.add(generic)
         integration_id = instance.id
         setup_db.commit()
@@ -484,6 +484,17 @@ def test_webhook_configuration_race_after_first_request_records_unknown_outcome(
             assert schema_updated.wait(timeout=5)
         return original_lock(*args, **kwargs)
 
+    class _FailingReadStream(webhook_http.httpx.SyncByteStream):
+        def __iter__(self):
+            raise webhook_http.httpx.ReadError("Redirect response body read failed")
+
+    class _FailingCloseStream(webhook_http.httpx.SyncByteStream):
+        def __iter__(self):
+            yield b""
+
+        def close(self):
+            raise webhook_http.httpx.ReadError("Redirect response close failed")
+
     class _RedirectClient:
         timeout = type("Timeout", (), {"read": 10})()
 
@@ -492,16 +503,26 @@ def test_webhook_configuration_race_after_first_request_records_unknown_outcome(
 
         def send(self, request, **_kwargs):
             send_calls.append(str(request.url))
+            if configuration_change == "redirect_read" and request.url.path == "/next":
+                return webhook_http.httpx.Response(
+                    200,
+                    request=request,
+                    stream=_FailingReadStream(),
+                )
+            location = "/next"
+            if configuration_change == "redirect":
+                location = "https://other.example.com/next"
+            elif configuration_change == "redirect_malformed":
+                location = "https://[::1"
             return webhook_http.httpx.Response(
                 302,
-                headers={
-                    "location": (
-                        "https://other.example.com/next"
-                        if configuration_change == "redirect"
-                        else "/next"
-                    )
-                },
+                headers={"location": location},
                 request=request,
+                stream=(
+                    _FailingCloseStream()
+                    if configuration_change == "redirect_close"
+                    else None
+                ),
             )
 
     @contextmanager
@@ -545,10 +566,14 @@ def test_webhook_configuration_race_after_first_request_records_unknown_outcome(
     try:
         with ThreadPoolExecutor(max_workers=1) as executor:
             worker = executor.submit(_run_worker)
-            if configuration_change == "redirect_validation":
+            if configuration_change in {"redirect_validation", "redirect_read"}:
                 assert post_send_heartbeat_committed.wait(timeout=5)
                 schema_updated.set()
-            elif configuration_change != "redirect":
+            elif configuration_change not in {
+                "redirect",
+                "redirect_malformed",
+                "redirect_close",
+            }:
                 assert post_send_heartbeat_committed.wait(timeout=5)
                 with Session(database_engine) as update_db:
                     instance = update_db.scalar(
@@ -566,7 +591,10 @@ def test_webhook_configuration_race_after_first_request_records_unknown_outcome(
                 schema_updated.set()
             worker.result(timeout=5)
 
-        assert send_calls == ["https://hooks.example.com/events"]
+        expected_send_urls = ["https://hooks.example.com/events"]
+        if expected_send_count == 2:
+            expected_send_urls.append("https://hooks.example.com/next")
+        assert send_calls == expected_send_urls
         with Session(database_engine) as verify_db:
             legacy = verify_db.get(NotificationWebhookDelivery, delivery_id)
             assert legacy is not None
@@ -585,14 +613,12 @@ def test_webhook_configuration_race_after_first_request_records_unknown_outcome(
             assert attempt.response_json["delivery_outcome"] == "unknown"
             assert attempt.response_json["external_side_effect_possible"] is True
             assert "retry_budget_consumed" not in attempt.response_json
-            if configuration_change in {
-                "disabled",
-                "redirect",
-                "redirect_validation",
-            }:
+            if configuration_change == "disabled" or configuration_change.startswith(
+                "redirect"
+            ):
                 assert (legacy.error or "").startswith("policy_error:")
                 assert attempt.retryable is False
-            if configuration_change in {"redirect", "redirect_validation"}:
+            if configuration_change.startswith("redirect"):
                 assert attempt.error_code == "redirect_policy_error"
                 assert generic.not_before is None
                 deliveries = verify_db.scalars(
