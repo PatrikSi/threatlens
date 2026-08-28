@@ -13,6 +13,7 @@ from pathlib import Path
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 RECOVERY = REPOSITORY_ROOT / "scripts" / "recovery" / "threatlens-recovery.sh"
 RESTORE_LIBRARY = REPOSITORY_ROOT / "scripts" / "recovery" / "recovery_restore_lib.sh"
+APPLICATION_VERSION = (REPOSITORY_ROOT / "VERSION").read_text(encoding="utf-8").strip()
 
 
 FAKE_DOCKER = r"""#!/usr/bin/env bash
@@ -319,7 +320,7 @@ class RecoveryShellTests(unittest.TestCase):
         manifest = {
             "format": "threatlens-postgresql-backup",
             "schema_version": 1,
-            "app_version": "1.7.0",
+            "app_version": APPLICATION_VERSION,
             "alembic_revision": "0056_report_task_lineage",
             "postgresql_version": "16.10",
             "snapshot_time_utc": "2026-08-27T12:00:00Z",
