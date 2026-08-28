@@ -392,6 +392,7 @@ def test_first_webhook_heartbeat_schema_race_preserves_retry_budget(
         ("schema", "dead_letter"),
         ("disabled", "failed"),
         ("redirect", "failed"),
+        ("redirect_validation", "failed"),
     ],
 )
 def test_webhook_configuration_race_after_first_request_records_unknown_outcome(
@@ -457,7 +458,11 @@ def test_webhook_configuration_race_after_first_request_records_unknown_outcome(
             webhook=webhook,
             legacy_delivery=legacy,
         )
-        generic.max_attempts = 2 if configuration_change == "redirect" else 1
+        generic.max_attempts = (
+            2
+            if configuration_change in {"redirect", "redirect_validation"}
+            else 1
+        )
         setup_db.add(generic)
         integration_id = instance.id
         setup_db.commit()
@@ -509,10 +514,15 @@ def test_webhook_configuration_race_after_first_request_records_unknown_outcome(
         _pause_before_post_send_heartbeat_fence,
     )
     monkeypatch.setattr(webhook_http, "build_safe_http_client", _fake_client)
+
+    def _validate_request_target(url, **_kwargs):
+        if configuration_change == "redirect_validation" and url.endswith("/next"):
+            raise ValueError("Redirect target DNS resolution failed")
+
     monkeypatch.setattr(
         webhook_http,
         "ensure_runtime_fetchable_url",
-        lambda *_args, **_kwargs: None,
+        _validate_request_target,
     )
 
     def _run_worker():
@@ -535,7 +545,10 @@ def test_webhook_configuration_race_after_first_request_records_unknown_outcome(
     try:
         with ThreadPoolExecutor(max_workers=1) as executor:
             worker = executor.submit(_run_worker)
-            if configuration_change != "redirect":
+            if configuration_change == "redirect_validation":
+                assert post_send_heartbeat_committed.wait(timeout=5)
+                schema_updated.set()
+            elif configuration_change != "redirect":
                 assert post_send_heartbeat_committed.wait(timeout=5)
                 with Session(database_engine) as update_db:
                     instance = update_db.scalar(
@@ -572,10 +585,14 @@ def test_webhook_configuration_race_after_first_request_records_unknown_outcome(
             assert attempt.response_json["delivery_outcome"] == "unknown"
             assert attempt.response_json["external_side_effect_possible"] is True
             assert "retry_budget_consumed" not in attempt.response_json
-            if configuration_change in {"disabled", "redirect"}:
+            if configuration_change in {
+                "disabled",
+                "redirect",
+                "redirect_validation",
+            }:
                 assert (legacy.error or "").startswith("policy_error:")
                 assert attempt.retryable is False
-            if configuration_change == "redirect":
+            if configuration_change in {"redirect", "redirect_validation"}:
                 assert attempt.error_code == "redirect_policy_error"
                 assert generic.not_before is None
                 deliveries = verify_db.scalars(
