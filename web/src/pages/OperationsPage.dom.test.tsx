@@ -7,7 +7,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const operationsDomMocks = vi.hoisted(() => ({
+  overviewAvailable: true,
   overviewError: null as Error | null,
+  overviewRefetch: vi.fn(),
   runsError: null as Error | null,
   runsFetching: false,
   runsRefetch: vi.fn(),
@@ -95,13 +97,15 @@ vi.mock('@tanstack/react-query', () => ({
   useQuery: (options: { queryKey: unknown[] }) => {
     if (options.queryKey[1] === 'overview') {
       return {
-        data: overview,
-        isLoading: false,
+        data: operationsDomMocks.overviewAvailable ? overview : undefined,
+        isLoading: !operationsDomMocks.overviewAvailable && !operationsDomMocks.overviewError,
         isError: Boolean(operationsDomMocks.overviewError),
         error: operationsDomMocks.overviewError,
         isFetching: false,
-        dataUpdatedAt: Date.parse('2026-08-27T12:00:01Z'),
-        refetch: vi.fn(),
+        dataUpdatedAt: operationsDomMocks.overviewAvailable
+          ? Date.parse('2026-08-27T12:00:01Z')
+          : 0,
+        refetch: operationsDomMocks.overviewRefetch,
       }
     }
     return {
@@ -153,7 +157,9 @@ afterEach(() => {
   container?.remove()
   container = null
   document.body.innerHTML = ''
+  operationsDomMocks.overviewAvailable = true
   operationsDomMocks.overviewError = null
+  operationsDomMocks.overviewRefetch.mockReset()
   operationsDomMocks.runsError = null
   operationsDomMocks.runsFetching = false
   operationsDomMocks.runsRefetch.mockReset()
@@ -183,6 +189,20 @@ describe('OperationsPage DOM workflows', () => {
     const alert = view.querySelector('[role="alert"]')
     expect(alert?.textContent).toContain('Displaying the last successful snapshot')
     expect(view.textContent).toContain('PostgreSQL')
+  })
+
+  it('offers an explicit retry when no operations snapshot could be loaded', () => {
+    operationsDomMocks.overviewAvailable = false
+    operationsDomMocks.overviewError = new Error('probe timed out')
+    const view = renderPage()
+
+    expect(view.textContent).toContain('Deployment health is unavailable.')
+    const retry = Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find(
+      (button) => button.textContent === 'Retry operations status',
+    )
+    expect(retry).not.toBeNull()
+    act(() => retry?.click())
+    expect(operationsDomMocks.overviewRefetch).toHaveBeenCalledOnce()
   })
 
   it('labels retained operation rows while updating selected history', () => {
@@ -217,6 +237,8 @@ describe('OperationsPage DOM workflows', () => {
     act(() => retry?.click())
     expect(operationsDomMocks.runsRefetch).toHaveBeenCalled()
     expect(view.textContent).toContain('Restore drill')
+    expect(view.textContent).toContain('Operation history could not be loaded')
+    expect(view.textContent).not.toContain('Recovery history could not be loaded')
   })
 
   it('downloads the bounded diagnostics snapshot and announces completion', () => {
