@@ -46,16 +46,14 @@ Defined in `backend/app/core/security.py`:
   - `ver` (user auth-token version)
 - Expiry: `JWT_EXPIRES_MINUTES` (default 1440)
 - Password changes increment the user's auth-token version, which invalidates previously issued JWTs and cookie-backed sessions.
-- Admin updates that change `password`, `is_active`, or `is_approved` also rotate `auth_token_version` and invalidate existing JWTs/sessions.
-- Role changes rotate browser sessions and revoke active API tokens so old privileges cannot survive a promotion or demotion.
-- Email-only changes do not rotate credentials.
-- Role, active-state, and approval updates should send the loaded `expected_security_version`. A stale supplied value returns `user_security_version_conflict` with HTTP 409 and the current version in `X-Current-Security-Version`. Legacy requests may omit the precondition for backward compatibility; the mutation is serialized under the same database locks and invariants, and unversioned security or password changes are recorded in logs and audit history.
+- Admin updates that change `email`, `password`, `role`, `is_active`, or `is_approved` rotate `auth_token_version`, revoke active browser sessions and API tokens, and cancel pending MFA enrollment so an older identity or privilege state cannot remain authenticated.
+- Email, role, active-state, and approval updates should send the loaded `expected_security_version`. A stale supplied value returns `user_security_version_conflict` with HTTP 409 and the current version in `X-Current-Security-Version`. Legacy requests may omit the precondition for backward compatibility; the mutation is serialized under the same database locks and invariants, and unversioned security or password changes are recorded in logs and audit history.
 - A change that would remove the final active, approved administrator returns the stable `last_active_admin` conflict and is written to the audit log as a rejected operation.
 
 Legacy browser JWTs remain accepted during the compatibility window, but newly
 created browser sessions use random opaque credentials stored only as hashes in
 PostgreSQL. A per-user authentication generation invalidates both formats after
-password, role, approval, account-state, MFA, or administrator reset changes.
+email, password, role, approval, account-state, MFA, or administrator reset changes.
 Session activity updates are deliberately best effort: a transient bookkeeping
 write failure does not reject an otherwise valid request.
 
@@ -74,8 +72,12 @@ Migration `0060_iam_hardening` is an application compatibility boundary. Stop
 API and worker processes, apply the migration, and deploy the matching release
 before accepting traffic; older processes cannot create or validate the opaque
 session and MFA records. Downgrade is blocked while any active local TOTP
-credential exists so operators cannot silently remove an enabled factor. Disable
-or inventory those credentials deliberately before attempting rollback.
+credential or delegated API token exists so operators cannot silently remove an
+enabled factor or a descendant-token revocation relationship. It is also blocked
+after the OIDC provider revision advances beyond its initial value because dropping
+that revision would make stale provider writes possible after re-upgrade. Disable or
+inventory MFA credentials, revoke delegated tokens, and use a verified database
+backup/restore procedure when an advanced OIDC revision prevents direct rollback.
 
 ## OpenID Connect
 
@@ -96,13 +98,7 @@ HTTPS is the secure default for both the IdP and callback origin. Local developm
 
 Administrator MFA recovery is fail closed and follows the current session's actual authentication method, including for hybrid local-plus-SSO accounts. A locally authenticated administrator must verify the current password and their own local MFA. An OIDC-authenticated administrator must first use the CSRF-protected `POST /api/v1/auth/oidc/reauth` flow, which requests `prompt=login` and `max_age=0`, remains bound to the initiating opaque session and account generation, and rotates that session after validating signed `auth_time`, `acr`, and `amr` claims. Plain OIDC login is not treated as MFA. `AUTH_OIDC_ADMIN_MFA_AMR_VALUES` defaults to `mfa`; an empty AMR allow-list disables OIDC authorization for these sensitive actions. `AUTH_OIDC_ADMIN_MFA_ACR_VALUES` can additionally constrain accepted assurance classes, for example `urn:company:loa:2`.
 
-OIDC provider create, update, enable, and disable operations are browser-only control-plane actions. API tokens cannot authorize `PUT /api/v1/auth/oidc/provider`, even with `write:users` or wildcard scopes. The current opaque admin session must be recent. Local sessions can refresh that proof through `POST /api/v1/auth/security/reauthenticate`; OIDC sessions use `POST /api/v1/auth/oidc/reauth`. Local MFA-enabled admins must prove a current TOTP. OIDC reauthentication always forces `prompt=login` and `max_age=0`, and the resulting signed claims must match the configured ACR/AMR MFA policy or the operation returns `oidc_mfa_assurance_required`.
-
-The browser-only provider mutation is an intentional IAM security boundary. Any
-automation that previously changed OIDC configuration with a personal API token
-must move to an authenticated administrator browser session; read-only provider
-inspection remains available to authorized API clients. The generated OpenAPI
-contract advertises only `SessionCookieAuth` for this mutation.
+OIDC provider create, update, enable, and disable operations accept either an active, approved administrator API token with `write:users` (including a matching wildcard scope) or a recent opaque administrator browser session. API-token requests remain subject to administrator-role, token-scope, optimistic-revision, break-glass invariant, and audit enforcement; browser reauthentication does not apply to API-token clients. Browser sessions can refresh recent local proof through `POST /api/v1/auth/security/reauthenticate`; OIDC sessions use `POST /api/v1/auth/oidc/reauth`. Local MFA-enabled administrators must prove a current TOTP. OIDC reauthentication always forces `prompt=login` and `max_age=0`, and the resulting signed claims must match the configured ACR/AMR MFA policy or the operation returns `oidc_mfa_assurance_required`.
 
 Disabling the enabled provider is rejected with `oidc_break_glass_admin_required` unless at least one active, approved administrator has local password sign-in available. Test that account before an IdP maintenance window. If role synchronization would demote the final active administrator, ThreatLens keeps the administrator role, permits sign-in, and records a failed `oidc.role.sync` audit entry with reason `last_active_admin` so the mapping can be repaired without locking out the deployment.
 

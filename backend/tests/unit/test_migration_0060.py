@@ -33,6 +33,36 @@ def _database_url_for_schema(database_url: str, schema_name: str) -> str:
     return url.render_as_string(hide_password=False)
 
 
+@pytest.fixture
+def iam_migration_schema(test_database_url, monkeypatch):
+    schema_name = f"migration_0060_fence_{uuid.uuid4().hex}"
+    schema_database_url = _database_url_for_schema(test_database_url, schema_name)
+    admin_engine = create_engine(test_database_url, isolation_level="AUTOCOMMIT")
+    schema_engine = create_engine(schema_database_url)
+    with admin_engine.connect() as connection:
+        connection.execute(text(f'CREATE SCHEMA "{schema_name}"'))
+        connection.execute(
+            text(
+                f'CREATE TABLE "{schema_name}".alembic_version (version_num VARCHAR(64) NOT NULL PRIMARY KEY)'
+            )
+        )
+
+    try:
+        with monkeypatch.context() as migration_env:
+            migration_env.setenv("DATABASE_URL", schema_database_url.replace("%", "%%"))
+            get_settings.cache_clear()
+            config = _alembic_config()
+            command.upgrade(config, "0059_alerting_v2")
+            command.upgrade(config, "0060_iam_hardening")
+            yield schema_name, schema_engine, config
+    finally:
+        schema_engine.dispose()
+        get_settings.cache_clear()
+        with admin_engine.connect() as connection:
+            connection.execute(text(f'DROP SCHEMA IF EXISTS "{schema_name}" CASCADE'))
+        admin_engine.dispose()
+
+
 def test_iam_schema_migrates_down_and_back_up(test_database_url, monkeypatch):
     schema_name = f"migration_0060_{uuid.uuid4().hex}"
     schema_database_url = _database_url_for_schema(test_database_url, schema_name)
@@ -189,3 +219,128 @@ def test_iam_schema_migrates_down_and_back_up(test_database_url, monkeypatch):
         with admin_engine.connect() as connection:
             connection.execute(text(f'DROP SCHEMA IF EXISTS "{schema_name}" CASCADE'))
         admin_engine.dispose()
+
+
+def test_iam_downgrade_fences_active_delegated_token_ancestry(
+    iam_migration_schema,
+):
+    schema_name, schema_engine, config = iam_migration_schema
+    user_id = uuid.uuid4()
+    parent_token_id = uuid.uuid4()
+    child_token_id = uuid.uuid4()
+    with schema_engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO users (id, email, password_hash, is_approved) "
+                "VALUES (:id, :email, :password_hash, true)"
+            ),
+            {
+                "id": user_id,
+                "email": f"delegated-token-{user_id}@example.com",
+                "password_hash": "migration-test-hash",
+            },
+        )
+        connection.execute(
+            text(
+                "INSERT INTO api_tokens "
+                "(id, user_id, name, token_prefix, token_hash, scopes, expires_at) "
+                "VALUES (:id, :user_id, 'parent', :prefix, :hash, '[]'::jsonb, "
+                "CURRENT_TIMESTAMP + INTERVAL '1 hour')"
+            ),
+            {
+                "id": parent_token_id,
+                "user_id": user_id,
+                "prefix": f"parent-{parent_token_id.hex[:12]}",
+                "hash": parent_token_id.hex.ljust(64, "0"),
+            },
+        )
+        connection.execute(
+            text(
+                "INSERT INTO api_tokens "
+                "(id, user_id, parent_token_id, name, token_prefix, token_hash, scopes, expires_at) "
+                "VALUES (:id, :user_id, :parent_id, 'child', :prefix, :hash, '[]'::jsonb, "
+                "CURRENT_TIMESTAMP + INTERVAL '1 hour')"
+            ),
+            {
+                "id": child_token_id,
+                "user_id": user_id,
+                "parent_id": parent_token_id,
+                "prefix": f"child-{child_token_id.hex[:12]}",
+                "hash": child_token_id.hex.ljust(64, "0"),
+            },
+        )
+
+    with pytest.raises(RuntimeError, match="delegated API tokens are active"):
+        command.downgrade(config, "0059_alerting_v2")
+
+    assert _TABLES <= set(inspect(schema_engine).get_table_names(schema=schema_name))
+    with schema_engine.connect() as connection:
+        assert (
+            connection.scalar(
+                text("SELECT parent_token_id FROM api_tokens WHERE id = :id"),
+                {"id": child_token_id},
+            )
+            == parent_token_id
+        )
+
+    with schema_engine.begin() as connection:
+        connection.execute(
+            text("UPDATE api_tokens SET revoked_at = CURRENT_TIMESTAMP WHERE id = :id"),
+            {"id": child_token_id},
+        )
+    command.downgrade(config, "0059_alerting_v2")
+    assert "parent_token_id" not in {
+        column["name"]
+        for column in inspect(schema_engine).get_columns(
+            "api_tokens", schema=schema_name
+        )
+    }
+
+
+def test_iam_downgrade_preserves_baseline_oidc_revision_and_fences_advanced_revision(
+    iam_migration_schema,
+):
+    schema_name, schema_engine, config = iam_migration_schema
+    provider_id = uuid.uuid4()
+    with schema_engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO oidc_providers "
+                "(id, system_key, name, issuer_url, client_id, client_auth_method, "
+                "public_base_url, scopes, role_mappings_json, config_revision) "
+                "VALUES (:id, 'primary', 'Migration OIDC', 'https://idp.example.com', "
+                "'threatlens', 'none', 'https://threatlens.example.com', "
+                "'[\"openid\"]'::json, '[]'::json, 1)"
+            ),
+            {"id": provider_id},
+        )
+
+    command.downgrade(config, "0059_alerting_v2")
+    command.upgrade(config, "0060_iam_hardening")
+    with schema_engine.connect() as connection:
+        assert (
+            connection.scalar(
+                text("SELECT config_revision FROM oidc_providers WHERE id = :id"),
+                {"id": provider_id},
+            )
+            == 1
+        )
+
+    with schema_engine.begin() as connection:
+        connection.execute(
+            text("UPDATE oidc_providers SET config_revision = 2 WHERE id = :id"),
+            {"id": provider_id},
+        )
+
+    with pytest.raises(RuntimeError, match="configuration revision has advanced"):
+        command.downgrade(config, "0059_alerting_v2")
+
+    assert _TABLES <= set(inspect(schema_engine).get_table_names(schema=schema_name))
+    with schema_engine.connect() as connection:
+        assert (
+            connection.scalar(
+                text("SELECT config_revision FROM oidc_providers WHERE id = :id"),
+                {"id": provider_id},
+            )
+            == 2
+        )

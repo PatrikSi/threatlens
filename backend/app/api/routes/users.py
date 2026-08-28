@@ -338,11 +338,13 @@ def update_user(
     management = load_user_management_context(db, user.id)
     _ensure_locally_managed_changes(user, payload, management)
 
+    normalized_email = payload.email.lower() if payload.email is not None else None
+    email_changed = normalized_email is not None and normalized_email != user.email
     current_security_version = int(user.auth_token_version or 0)
-    legacy_unversioned_access_update = (
-        access_state_update and payload.expected_security_version is None
-    )
-    if legacy_unversioned_access_update:
+    legacy_unversioned_security_update = (
+        access_state_update or email_changed
+    ) and payload.expected_security_version is None
+    if legacy_unversioned_security_update:
         logger.warning(
             "Accepted compatibility user security update without a version precondition "
             "actor_user_id=%s target_user_id=%s",
@@ -425,7 +427,7 @@ def update_user(
             error_code="investigation_owner_reassignment_required",
             error_context={"affected_investigation_count": affected_count},
         ) from exc
-    should_rotate_auth_tokens = payload.password is not None
+    should_rotate_auth_tokens = payload.password is not None or email_changed
     revoked_api_tokens = 0
     revoked_auth_sessions = 0
 
@@ -434,15 +436,15 @@ def update_user(
             should_rotate_auth_tokens = True
         user.role = payload.role
 
-    if payload.email is not None:
+    if normalized_email is not None:
         existing = db.scalar(
-            select(User).where(User.email == payload.email.lower(), User.id != user_id)
+            select(User).where(User.email == normalized_email, User.id != user_id)
         )
         if existing is not None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, detail="Email already in use"
             )
-        user.email = payload.email.lower()
+        user.email = normalized_email
 
     if payload.is_active is not None:
         if payload.is_active != user.is_active:
@@ -477,7 +479,7 @@ def update_user(
             resource_id=str(user.id),
             metadata={"security_version_before_update": current_security_version},
         )
-    if legacy_unversioned_access_update:
+    if legacy_unversioned_security_update:
         record_audit(
             db,
             actor_user_id=admin.id,
@@ -496,6 +498,7 @@ def update_user(
             "role": user.role,
             "is_active": user.is_active,
             "is_approved": user.is_approved,
+            "email_updated": email_changed,
             "password_updated": payload.password is not None,
             "password_login_enabled": user.password_login_enabled,
             "auth_token_version": user.auth_token_version,

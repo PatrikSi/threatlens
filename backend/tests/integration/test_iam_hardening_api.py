@@ -425,6 +425,107 @@ def test_user_password_reset_preserves_legacy_request_and_fences_supplied_versio
     assert verify_password("SecondViewerPass123!", viewer.password_hash)
 
 
+def test_user_email_update_rotates_credentials_and_fences_stale_version(
+    client: TestClient,
+    auth_headers,
+    db_session,
+    seed_users,
+):
+    viewer = seed_users["viewer"]
+    original_version = int(viewer.auth_token_version or 0)
+    browser_session = create_auth_session(
+        db_session,
+        user_id=viewer.id,
+        auth_token_version=original_version,
+        auth_method="local",
+        mfa_method=None,
+        client_ip="203.0.113.50",
+        user_agent="Email rotation test",
+    )
+    viewer_token = db_session.scalar(
+        select(ApiToken).where(
+            ApiToken.user_id == viewer.id,
+            ApiToken.revoked_at.is_(None),
+        )
+    )
+    assert viewer_token is not None
+    db_session.commit()
+
+    legacy = client.patch(
+        f"/users/{viewer.id}",
+        headers=auth_headers["admin"],
+        json={"email": "renamed-viewer@example.com"},
+    )
+
+    assert legacy.status_code == 200, legacy.text
+    assert legacy.json()["email"] == "renamed-viewer@example.com"
+    assert legacy.json()["security_version"] == original_version + 1
+    assert legacy.json()["credentials_rotated"] is True
+    assert legacy.json()["revoked_api_tokens"] >= 1
+    assert legacy.json()["revoked_auth_sessions"] >= 1
+    db_session.refresh(viewer_token)
+    db_session.refresh(browser_session.session)
+    assert viewer_token.revoked_at is not None
+    assert browser_session.session.revoked_at is not None
+    assert client.get("/auth/me", headers=auth_headers["viewer"]).status_code == 401
+
+    compatibility_audit = db_session.scalar(
+        select(AuditLog)
+        .where(
+            AuditLog.action == "users.compatibility.unversioned_security_update",
+            AuditLog.resource_id == str(viewer.id),
+        )
+        .order_by(AuditLog.created_at.desc())
+    )
+    assert compatibility_audit is not None
+    update_audit = db_session.scalar(
+        select(AuditLog)
+        .where(
+            AuditLog.action == "users.update",
+            AuditLog.resource_id == str(viewer.id),
+        )
+        .order_by(AuditLog.created_at.desc())
+    )
+    assert update_audit is not None
+    assert update_audit.metadata_json["email_updated"] is True
+
+    stale = client.patch(
+        f"/users/{viewer.id}",
+        headers=auth_headers["admin"],
+        json={
+            "email": "stale-viewer@example.com",
+            "expected_security_version": original_version,
+        },
+    )
+    assert stale.status_code == 409
+    assert stale.json()["error"]["code"] == "user_security_version_conflict"
+    assert stale.headers["x-current-security-version"] == str(original_version + 1)
+
+    current = client.patch(
+        f"/users/{viewer.id}",
+        headers=auth_headers["admin"],
+        json={
+            "email": "current-viewer@example.com",
+            "expected_security_version": original_version + 1,
+        },
+    )
+    assert current.status_code == 200, current.text
+    assert current.json()["email"] == "current-viewer@example.com"
+    assert current.json()["security_version"] == original_version + 2
+
+    no_op = client.patch(
+        f"/users/{viewer.id}",
+        headers=auth_headers["admin"],
+        json={
+            "email": "current-viewer@example.com",
+            "expected_security_version": original_version + 2,
+        },
+    )
+    assert no_op.status_code == 200, no_op.text
+    assert no_op.json()["security_version"] == original_version + 2
+    assert no_op.json()["credentials_rotated"] is False
+
+
 @pytest.mark.parametrize(
     "payload",
     [
