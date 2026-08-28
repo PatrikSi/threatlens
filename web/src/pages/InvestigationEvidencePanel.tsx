@@ -25,7 +25,10 @@ export function InvestigationEvidencePanel({
   controller: InvestigationDetailController
 }) {
   const detail = controller.detailQuery.data
-  const [pendingRemoval, setPendingRemoval] = useState<InvestigationEvidence | null>(null)
+  const [pendingRemoval, setPendingRemoval] = useState<{
+    evidence: InvestigationEvidence
+    expectedVersion: number
+  } | null>(null)
   if (!detail || !controller.access) return null
   const draft = controller.evidenceDraft
   const terminalCollectionError =
@@ -43,7 +46,7 @@ export function InvestigationEvidencePanel({
     pendingRemoval &&
     controller.mutation.isError &&
     controller.mutation.variables?.kind === 'remove-evidence' &&
-    controller.mutation.variables.evidenceId === pendingRemoval.id
+    controller.mutation.variables.evidenceId === pendingRemoval.evidence.id
       ? resolveApiErrorMessage(controller.mutation.error, 'Evidence could not be removed', {
           retryGuidance: 'Review the latest evidence list and try again.',
         })
@@ -51,12 +54,18 @@ export function InvestigationEvidencePanel({
 
   const submit = (event: FormEvent) => {
     event.preventDefault()
-    if (!draft.sourceId.trim() || selectedAlertUnavailable) return
+    if (
+      !draft.sourceId.trim() ||
+      selectedAlertUnavailable ||
+      controller.evidenceDraftVersion === null
+    )
+      return
     controller.mutation.mutate({
       kind: 'add-evidence',
       sourceType: draft.sourceType,
       sourceId: draft.sourceId.trim(),
       note: draft.note,
+      expectedVersion: controller.evidenceDraftVersion,
     })
   }
 
@@ -83,12 +92,12 @@ export function InvestigationEvidencePanel({
                 id="investigation-evidence-type"
                 className="mt-1 min-h-11 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
                 value={draft.sourceType}
+                disabled={controller.mutation.isPending}
                 onChange={(event) =>
-                  controller.setEvidenceDraft((current) => ({
-                    ...current,
+                  controller.updateEvidenceDraft({
                     sourceType: event.target.value as InvestigationEvidenceType,
                     sourceId: '',
-                  }))
+                  })
                 }
               >
                 {INVESTIGATION_EVIDENCE_TYPES.map((type) => (
@@ -112,11 +121,11 @@ export function InvestigationEvidencePanel({
                 title="Enter a valid UUID."
                 className="mt-1 min-h-11 w-full rounded border border-slate/30 bg-white px-3 py-2 font-mono text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
                 value={draft.sourceId}
+                disabled={controller.mutation.isPending}
                 onChange={(event) =>
-                  controller.setEvidenceDraft((current) => ({
-                    ...current,
+                  controller.updateEvidenceDraft({
                     sourceId: event.target.value,
-                  }))
+                  })
                 }
                 placeholder="00000000-0000-0000-0000-000000000000"
               />
@@ -136,11 +145,11 @@ export function InvestigationEvidencePanel({
                 rows={3}
                 className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
                 value={draft.note}
+                disabled={controller.mutation.isPending}
                 onChange={(event) =>
-                  controller.setEvidenceDraft((current) => ({
-                    ...current,
+                  controller.updateEvidenceDraft({
                     note: event.target.value,
-                  }))
+                  })
                 }
                 placeholder="Why this evidence matters to the investigation"
               />
@@ -163,7 +172,10 @@ export function InvestigationEvidencePanel({
             type="submit"
             className="mt-3 min-h-11 w-full rounded bg-ink px-3 py-2 text-sm font-semibold text-white disabled:opacity-50 sm:w-auto dark:bg-cyan dark:text-[#053c2e]"
             disabled={
-              controller.mutation.isPending || !draft.sourceId.trim() || selectedAlertUnavailable
+              controller.mutation.isPending ||
+              controller.evidenceDraftVersion === null ||
+              !draft.sourceId.trim() ||
+              selectedAlertUnavailable
             }
           >
             {controller.mutation.isPending ? 'Adding...' : 'Add evidence'}
@@ -198,7 +210,9 @@ export function InvestigationEvidencePanel({
               evidence={evidence}
               canRemove={controller.access?.canWrite ?? false}
               pending={controller.mutation.isPending}
-              onRemove={setPendingRemoval}
+              onRemove={(evidence) =>
+                setPendingRemoval({ evidence, expectedVersion: detail.version })
+              }
             />
           ))}
         </div>
@@ -223,7 +237,7 @@ export function InvestigationEvidencePanel({
         title="Remove evidence?"
         description={
           pendingRemoval
-            ? `Remove the saved snapshot “${pendingRemoval.title_snapshot}” from this investigation? The source record will not be deleted.`
+            ? `Remove the saved snapshot “${pendingRemoval.evidence.title_snapshot}” from this investigation? The source record will not be deleted.`
             : undefined
         }
         confirmLabel="Remove evidence"
@@ -233,7 +247,11 @@ export function InvestigationEvidencePanel({
         onConfirm={() => {
           if (!pendingRemoval) return
           controller.mutation.mutate(
-            { kind: 'remove-evidence', evidenceId: pendingRemoval.id },
+            {
+              kind: 'remove-evidence',
+              evidenceId: pendingRemoval.evidence.id,
+              expectedVersion: pendingRemoval.expectedVersion,
+            },
             { onSuccess: () => setPendingRemoval(null) },
           )
         }}

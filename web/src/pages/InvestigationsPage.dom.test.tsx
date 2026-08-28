@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const domMocks = vi.hoisted(() => ({
   apiFetch: vi.fn(),
+  currentUserError: false,
   currentUser: {
     id: 'user-1',
     email: 'analyst@example.com',
@@ -37,7 +38,7 @@ vi.mock('../hooks/useCurrentUser', () => ({
   useCurrentUser: () => ({
     data: domMocks.currentUser,
     isLoading: false,
-    isError: false,
+    isError: domMocks.currentUserError,
     error: null,
   }),
 }))
@@ -102,6 +103,7 @@ const listResponse: InvestigationListResponse = {
 
 beforeEach(() => {
   domMocks.apiFetch.mockReset()
+  domMocks.currentUserError = false
   domMocks.currentUser.role = 'analyst'
 })
 
@@ -130,6 +132,14 @@ describe('InvestigationsPage DOM workflows', () => {
 
   it('hides investigation creation for global viewers', async () => {
     domMocks.currentUser.role = 'viewer'
+    domMocks.apiFetch.mockResolvedValue(listResponse)
+    await renderAt('/investigations')
+
+    expect(findButton('Create investigation')).toBeNull()
+  })
+
+  it('fails closed when the current analyst role cannot be refreshed', async () => {
+    domMocks.currentUserError = true
     domMocks.apiFetch.mockResolvedValue(listResponse)
     await renderAt('/investigations')
 
@@ -247,6 +257,35 @@ describe('InvestigationsPage DOM workflows', () => {
     )
   })
 
+  it('shows only the discard confirmation when navigation starts behind an open creation draft', async () => {
+    domMocks.apiFetch.mockResolvedValue(listResponse)
+    await renderAt('/investigations')
+
+    act(() => findButton('Create investigation')?.click())
+    act(() =>
+      setInputValue(
+        document.querySelector<HTMLInputElement>('#investigation-create-title')!,
+        'Open creation draft',
+      ),
+    )
+    const investigationLink = document.querySelector<HTMLAnchorElement>(
+      `a[href="/investigations/${baseDetail.id}"]`,
+    )
+    act(() => investigationLink?.click())
+    await flushRequests()
+
+    expect(document.querySelectorAll('[aria-modal="true"]')).toHaveLength(1)
+    expect(document.querySelector('#investigation-create-title')).toBeNull()
+    expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain(
+      'unfinished investigation draft',
+    )
+
+    act(() => findButton('Cancel')?.click())
+    expect(
+      document.querySelector<HTMLInputElement>('#investigation-create-title')?.value,
+    ).toBe('Open creation draft')
+  })
+
   it('keeps team-visible nonmembers and global viewers read-only and renders notes as text', async () => {
     const readOnlyDetail = {
       ...baseDetail,
@@ -268,14 +307,15 @@ describe('InvestigationsPage DOM workflows', () => {
     expect(document.querySelector('#investigation-new-note')).toBeNull()
   })
 
-  it('recovers from a stale note write without losing input, then retries with the refreshed version', async () => {
+  it('keeps a stale note draft on its baseline until the user explicitly rebases it', async () => {
     const refreshed = { ...baseDetail, version: 8, updated_at: '2026-08-27T12:00:00Z' }
     const saved = { ...refreshed, version: 9, note_count: 2, notes: [{ ...baseDetail.notes[0] }, { ...baseDetail.notes[0], id: 'note-2', body: 'Unsent conflict note' }] }
     let noteWrites = 0
     domMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
       if (path.endsWith('/notes') && options?.method === 'POST') {
         noteWrites += 1
-        return noteWrites === 1
+        const expectedVersion = JSON.parse(options.body as string).expected_version
+        return expectedVersion === 7
           ? Promise.reject(new ApiError('The investigation changed after you loaded it.', 409, path))
           : Promise.resolve(saved)
       }
@@ -301,6 +341,8 @@ describe('InvestigationsPage DOM workflows', () => {
     expect(pageText()).toContain('Refresh and review the latest version before retrying')
     expect(pageText()).toContain('Version 8')
 
+    act(() => setTextAreaValue(note, ''))
+    act(() => setTextAreaValue(note, 'Unsent conflict note'))
     act(() => findButton('Add note')?.click())
     await flushRequests(2)
     const writes = domMocks.apiFetch.mock.calls.filter((call) => call[0].endsWith('/notes') && call[1]?.method === 'POST')
@@ -426,8 +468,17 @@ describe('InvestigationsPage DOM workflows', () => {
     expect(pageText()).toContain('Investigation access is no longer available.')
   })
 
-  it('does not discard an unsaved overview draft after an unrelated lifecycle mutation', async () => {
-    domMocks.apiFetch.mockResolvedValue({ ...baseDetail, status: 'monitoring', version: 8 })
+  it('does not discard or silently rebase an overview draft after an unrelated mutation', async () => {
+    let writes = 0
+    domMocks.apiFetch.mockImplementation((_path: string, options?: RequestInit) => {
+      if (options?.method !== 'PATCH') return Promise.resolve(baseDetail)
+      writes += 1
+      if (writes === 1)
+        return Promise.resolve({ ...baseDetail, status: 'monitoring', version: 8 })
+      return Promise.reject(
+        new ApiError('The investigation changed after you loaded it.', 409, _path),
+      )
+    })
     await renderDetail(baseDetail)
     const description = document.querySelector<HTMLTextAreaElement>('#investigation-description')!
     act(() => setTextAreaValue(description, 'Unsaved analyst scope refinement'))
@@ -437,6 +488,14 @@ describe('InvestigationsPage DOM workflows', () => {
     expect(description.value).toBe('Unsaved analyst scope refinement')
     expect(pageText()).toContain('Monitoring')
     expect(pageText()).toContain('Version 8')
+
+    act(() => findButton('Save changes')?.click())
+    await flushRequests(2)
+    const overviewWrite = domMocks.apiFetch.mock.calls.filter(
+      ([, options]) => options?.method === 'PATCH',
+    )[1]
+    expect(JSON.parse(overviewWrite[1].body as string).expected_version).toBe(7)
+    expect(description.value).toBe('Unsaved analyst scope refinement')
   })
 
   it('preserves drafts across tabs and confirms before leaving the workspace', async () => {
@@ -505,12 +564,86 @@ describe('InvestigationsPage DOM workflows', () => {
     )
     const candidate = document.querySelector<HTMLInputElement>('input[value="user-2"]')
     act(() => candidate?.click())
+    act(() => {
+      queryClient?.setQueryData(
+        ['investigations', 'detail', baseDetail.id],
+        { ...baseDetail, version: 8 },
+      )
+    })
+    await flushRequests()
+    expect(pageText()).toContain('Version 8')
     act(() => findButton('Add member')?.click())
     await flushRequests()
 
     const addCall = domMocks.apiFetch.mock.calls.find((call) => call[0].endsWith('/members') && call[1]?.method === 'POST')
     expect(JSON.parse(addCall?.[1].body as string)).toEqual({ user_id: 'user-2', role: 'viewer', expected_version: 7 })
     expect(pageText()).toContain('Member added.')
+  })
+
+  it('clears and pauses member selection as soon as the candidate search changes', async () => {
+    domMocks.apiFetch.mockImplementation((path: string) => {
+      if (path.startsWith('/investigations/member-candidates')) {
+        return Promise.resolve({
+          users: [
+            { id: 'user-2', email: 'responder@example.com', account_role: 'analyst' },
+          ],
+          total: 1,
+          page: 1,
+          page_size: 20,
+        })
+      }
+      return Promise.reject(new Error(`Unexpected request: ${path}`))
+    })
+    await renderDetail(baseDetail, '?tab=members')
+    await flushRequests(2)
+
+    const candidate = document.querySelector<HTMLInputElement>(
+      'input[name="investigation-member-candidate"][value="user-2"]',
+    )!
+    act(() => candidate.click())
+    expect(findButton('Add member')?.disabled).toBe(false)
+
+    act(() =>
+      setInputValue(
+        document.querySelector<HTMLInputElement>('#investigation-member-search')!,
+        'different account',
+      ),
+    )
+    expect(candidate.checked).toBe(false)
+    expect(candidate.matches(':disabled')).toBe(true)
+    expect(findButton('Add member')?.disabled).toBe(true)
+    act(() => findButton('Add member')?.click())
+    expect(
+      domMocks.apiFetch.mock.calls.some(
+        ([path, options]) => path.endsWith('/members') && options?.method === 'POST',
+      ),
+    ).toBe(false)
+  })
+
+  it('locks overview inputs while their captured draft is being saved', async () => {
+    let resolveSave: ((detail: InvestigationDetail) => void) | null = null
+    domMocks.apiFetch.mockImplementation((_path: string, options?: RequestInit) => {
+      if (options?.method === 'PATCH') {
+        return new Promise<InvestigationDetail>((resolve) => {
+          resolveSave = resolve
+        })
+      }
+      return Promise.resolve(baseDetail)
+    })
+    await renderDetail(baseDetail)
+    const description = document.querySelector<HTMLTextAreaElement>(
+      '#investigation-description',
+    )!
+    act(() => setTextAreaValue(description, 'Pending overview save'))
+    act(() => findButton('Save changes')?.click())
+    await flushRequests()
+
+    expect(description.disabled).toBe(true)
+    expect(document.querySelector<HTMLInputElement>('#investigation-title')?.disabled).toBe(
+      true,
+    )
+    act(() => resolveSave?.({ ...baseDetail, description: 'Pending overview save', version: 8 }))
+    await flushRequests()
   })
 
   it('requires explicit confirmation before reducing an investigation member role', async () => {

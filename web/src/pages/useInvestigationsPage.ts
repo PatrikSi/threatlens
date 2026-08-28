@@ -82,7 +82,10 @@ export function useInvestigationsPage() {
     return () => window.clearTimeout(navigationTimer)
   }, [createdInvestigationId, navigate])
 
-  const canCreate = currentUserQuery.data?.role === 'admin' || currentUserQuery.data?.role === 'analyst'
+  const canCreate =
+    !currentUserQuery.isError &&
+    (currentUserQuery.data?.role === 'admin' ||
+      currentUserQuery.data?.role === 'analyst')
   const createDraftDirty =
     createDraft.title !== EMPTY_CREATE_DRAFT.title ||
     createDraft.description !== EMPTY_CREATE_DRAFT.description ||

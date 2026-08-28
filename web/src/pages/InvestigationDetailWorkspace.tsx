@@ -28,7 +28,11 @@ import type {
   InvestigationMutationOperation,
 } from './useInvestigationDetail'
 
-type LifecycleConfirmation = 'close' | 'reopen' | 'archive' | null
+type LifecycleConfirmationKind = 'close' | 'reopen' | 'archive'
+type LifecycleConfirmation = {
+  kind: LifecycleConfirmationKind
+  expectedVersion: number
+} | null
 
 export function InvestigationDetailWorkspace({
   controller,
@@ -117,9 +121,18 @@ export function InvestigationDetailWorkspace({
             canReopen={controller.access.canReopen}
             pending={controller.mutation.isPending}
             onUpdateStatus={(status) =>
-              runLifecycleMutation({ kind: 'update', changes: { status } })
+              runLifecycleMutation({
+                kind: 'update',
+                changes: { status },
+                expectedVersion: detail.version,
+              })
             }
-            onConfirm={setLifecycleConfirmation}
+            onConfirm={(kind) =>
+              setLifecycleConfirmation({
+                kind,
+                expectedVersion: detail.version,
+              })
+            }
           />
           <button
             type="button"
@@ -201,12 +214,12 @@ export function InvestigationDetailWorkspace({
       </main>
 
       <LifecycleDialog
-        kind={lifecycleConfirmation}
+        kind={lifecycleConfirmation?.kind ?? null}
         title={detail.title}
         disposition={closeDisposition}
         pending={controller.mutation.isPending}
         error={
-          lifecycleConfirmation &&
+          Boolean(lifecycleConfirmation) &&
           controller.mutation.isError &&
           controller.mutation.variables?.kind === 'update'
             ? resolveApiErrorMessage(
@@ -221,23 +234,27 @@ export function InvestigationDetailWorkspace({
         onDispositionChange={setCloseDisposition}
         onCancel={() => setLifecycleConfirmation(null)}
         onConfirm={() => {
-          if (lifecycleConfirmation === 'close') {
+          if (!lifecycleConfirmation) return
+          if (lifecycleConfirmation.kind === 'close') {
             runLifecycleMutation({
               kind: 'update',
               changes: {
                 status: 'closed',
                 disposition: closeDisposition.trim() || null,
               },
+              expectedVersion: lifecycleConfirmation.expectedVersion,
             })
-          } else if (lifecycleConfirmation === 'reopen') {
+          } else if (lifecycleConfirmation.kind === 'reopen') {
             runLifecycleMutation({
               kind: 'update',
               changes: { status: 'open', disposition: null },
+              expectedVersion: lifecycleConfirmation.expectedVersion,
             })
-          } else if (lifecycleConfirmation === 'archive') {
+          } else if (lifecycleConfirmation.kind === 'archive') {
             runLifecycleMutation({
               kind: 'update',
               changes: { status: 'archived' },
+              expectedVersion: lifecycleConfirmation.expectedVersion,
             })
           }
         }}
@@ -304,7 +321,7 @@ function LifecycleActions({
   canReopen: boolean
   pending: boolean
   onUpdateStatus: (status: InvestigationStatus) => void
-  onConfirm: (kind: Exclude<LifecycleConfirmation, null>) => void
+  onConfirm: (kind: LifecycleConfirmationKind) => void
 }) {
   if (status === 'archived') {
     return canReopen ? (
@@ -385,7 +402,7 @@ function LifecycleDialog({
   onCancel,
   onConfirm,
 }: {
-  kind: LifecycleConfirmation
+  kind: LifecycleConfirmationKind | null
   title: string
   disposition: string
   pending: boolean
@@ -438,6 +455,7 @@ function LifecycleDialog({
             maxLength={64}
             className="mt-1 min-h-11 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
             value={disposition}
+            disabled={pending}
             onChange={(event) => onDispositionChange(event.target.value)}
             placeholder="Resolved, benign, duplicate..."
           />
