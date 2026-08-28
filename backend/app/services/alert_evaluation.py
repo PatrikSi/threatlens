@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import hashlib
-import json
 import secrets
 import uuid
 from dataclasses import dataclass
@@ -23,6 +21,17 @@ from app.services.alert_acceptance import (
     persist_alert_evaluation_intent,
     reset_alert_evaluation_for_backfill,
 )
+from app.services.alert_backfill_receipts import (
+    ALERT_BACKFILL_APPLY_RESULT_KEY as _ALERT_BACKFILL_APPLY_RESULT_KEY,
+    ALERT_BACKFILL_APPLY_RESULT_VERSION as _ALERT_BACKFILL_APPLY_RESULT_VERSION,
+    AlertBackfillCandidate,
+    AlertBackfillPersistenceResult,
+    AlertBackfillPreviewError,
+    alert_backfill_preview_fingerprint as _alert_backfill_preview_fingerprint,
+    alert_backfill_response_payload as _alert_backfill_response_payload,
+    load_alert_backfill_apply_result as _load_alert_backfill_apply_result,
+    parse_alert_backfill_candidates as _parse_alert_backfill_candidates,
+)
 from app.services.alert_evaluation_execution import (
     AlertEvaluationExecutionError as AlertEvaluationError,
     AlertEvaluationExecutionLeaseLost as AlertEvaluationLeaseLost,
@@ -35,14 +44,14 @@ from app.services.alert_evaluation_history import record_alert_evaluation_activi
 ALERT_EVALUATION_MAX_ATTEMPTS = 5
 ALERT_EVALUATION_LEASE_SECONDS = 120
 ALERT_EVALUATION_DISPATCH_STALE_SECONDS = 300
+ALERT_EVALUATION_REPUBLISH_BASE_SECONDS = 300
+ALERT_EVALUATION_REPUBLISH_MAX_SECONDS = 6 * 60 * 60
 ALERT_EVALUATION_RETRY_BASE_SECONDS = 30
 ALERT_EVALUATION_RETRY_MAX_SECONDS = 3_600
 ALERT_EVALUATION_RETRY_JITTER_RATIO = 0.20
 ALERT_EVALUATION_RECONCILE_BATCH_SIZE = 100
 ALERT_BACKFILL_PREVIEW_TTL_SECONDS = 15 * 60
-_ALERT_BACKFILL_APPLY_RESULT_KEY = "_threatlens_apply_result"
-_ALERT_BACKFILL_APPLY_RESULT_VERSION = 2
-_ALERT_BACKFILL_DISPATCH_STATES = frozenset({"pending", "published", "deferred"})
+_ALERT_BACKFILL_RECEIPT_TTL_SECONDS = 24 * 60 * 60
 
 __all__ = [
     "AlertBackfillPreviewError",
@@ -57,8 +66,9 @@ __all__ = [
     "persist_alert_backfill_intents",
     "persist_alert_backfill_preview_intents",
     "persist_alert_evaluation_intent",
-    "record_alert_backfill_preview_dispatch",
     "record_alert_evaluation_failure",
+    "record_alert_evaluation_publications",
+    "record_direct_alert_evaluation_publications",
     "alert_evaluation_retry_delay",
     "release_alert_evaluation_publications",
     "release_failed_direct_alert_publications",
@@ -89,38 +99,12 @@ class AlertEvaluationReservation:
 
 
 @dataclass(frozen=True)
-class AlertBackfillCandidate:
-    item_id: uuid.UUID
-    content_hash: str
-    title: str
-    first_seen_at: datetime
-
-
-@dataclass(frozen=True)
 class AlertBackfillCandidatePage:
     candidates: tuple[AlertBackfillCandidate, ...]
     matched_count: int
     truncated: bool
     next_cursor_first_seen_at: datetime | None
     next_cursor_item_id: uuid.UUID | None
-
-
-@dataclass(frozen=True)
-class AlertBackfillPersistenceResult:
-    request_ids: tuple[uuid.UUID, ...]
-    existing_count: int
-    skipped_count: int
-    next_cursor_first_seen_at: datetime | None
-    next_cursor_item_id: uuid.UUID | None
-    replayed: bool = False
-    dispatch_required: bool = False
-    enqueue_failed: bool = False
-
-
-class AlertBackfillPreviewError(RuntimeError):
-    def __init__(self, message: str, *, code: str) -> None:
-        super().__init__(message)
-        self.code = code
 
 
 @dataclass(frozen=True)
@@ -182,6 +166,7 @@ def claim_alert_evaluation_request(
         seconds=ALERT_EVALUATION_LEASE_SECONDS
     )
     request.dispatch_claimed_at = None
+    request.dispatch_published_at = None
     request.last_error_code = None
     request.last_error_message = None
     request.version = max(1, int(request.version or 1)) + 1
@@ -233,6 +218,7 @@ def record_alert_evaluation_failure(
     request.lease_token = None
     request.lease_expires_at = None
     request.dispatch_claimed_at = None
+    request.dispatch_published_at = None
     request.last_error_code = code
     request.last_error_message = message
     request.version = max(1, int(request.version or 1)) + 1
@@ -286,6 +272,14 @@ def alert_evaluation_retry_delay(
     return lower + ((upper - lower) * fraction)
 
 
+def alert_evaluation_republish_delay(dispatch_attempt_count: int) -> int:
+    attempt = max(1, int(dispatch_attempt_count or 1))
+    return min(
+        ALERT_EVALUATION_REPUBLISH_MAX_SECONDS,
+        ALERT_EVALUATION_REPUBLISH_BASE_SECONDS * (2 ** min(attempt - 1, 16)),
+    )
+
+
 def reserve_recoverable_alert_evaluations(
     db: Session,
     *,
@@ -300,9 +294,11 @@ def reserve_recoverable_alert_evaluations(
         AlertEvaluationRequest.dispatch_claimed_at.is_(None),
         AlertEvaluationRequest.dispatch_claimed_at < stale_dispatch,
     )
-    due_unclaimed = and_(
+    publication_due = _alert_evaluation_publication_due(current_time)
+    due_dispatch = and_(
         AlertEvaluationRequest.state.in_(["pending", "retry_wait"]),
         AlertEvaluationRequest.available_at <= current_time,
+        publication_due,
     )
     stale_processing = and_(
         AlertEvaluationRequest.state == "processing",
@@ -310,11 +306,12 @@ def reserve_recoverable_alert_evaluations(
             AlertEvaluationRequest.lease_expires_at.is_(None),
             AlertEvaluationRequest.lease_expires_at <= current_time,
         ),
+        publication_due,
     )
     rows = list(
         db.scalars(
             select(AlertEvaluationRequest)
-            .where(dispatch_available, or_(due_unclaimed, stale_processing))
+            .where(dispatch_available, or_(due_dispatch, stale_processing))
             .order_by(
                 AlertEvaluationRequest.available_at.asc(),
                 AlertEvaluationRequest.created_at.asc(),
@@ -325,6 +322,7 @@ def reserve_recoverable_alert_evaluations(
     )
     for request in rows:
         request.dispatch_claimed_at = current_time
+        request.dispatch_published_at = None
         request.dispatch_attempt_count = (
             max(0, int(request.dispatch_attempt_count or 0)) + 1
         )
@@ -333,6 +331,91 @@ def reserve_recoverable_alert_evaluations(
     return AlertEvaluationReservation(
         tuple(request.id for request in rows), current_time
     )
+
+
+def record_alert_evaluation_publications(
+    db: Session,
+    *,
+    request_ids: list[uuid.UUID],
+    reserved_at: datetime,
+    published_at: datetime | None = None,
+) -> None:
+    _record_alert_evaluation_publications(
+        db,
+        request_ids=request_ids,
+        expected_claim=lambda _request: reserved_at,
+        published_at=published_at,
+    )
+
+
+def record_direct_alert_evaluation_publications(
+    db: Session,
+    *,
+    request_ids: list[uuid.UUID],
+    published_at: datetime | None = None,
+) -> None:
+    _record_alert_evaluation_publications(
+        db,
+        request_ids=request_ids,
+        expected_claim=_direct_dispatch_claim_at,
+        published_at=published_at,
+    )
+
+
+def _record_alert_evaluation_publications(
+    db: Session,
+    *,
+    request_ids: list[uuid.UUID],
+    expected_claim,
+    published_at: datetime | None,
+) -> None:
+    if not request_ids:
+        return
+    current_time = _as_utc(published_at or datetime.now(timezone.utc))
+    rows = db.scalars(
+        select(AlertEvaluationRequest)
+        .where(
+            AlertEvaluationRequest.id.in_(request_ids),
+            AlertEvaluationRequest.state.in_(["pending", "retry_wait", "processing"]),
+        )
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).all()
+    for request in rows:
+        if _same_instant(request.dispatch_claimed_at, expected_claim(request)):
+            request.dispatch_published_at = current_time
+            db.add(request)
+
+
+def _alert_evaluation_publication_due(current_time: datetime):
+    clauses = [AlertEvaluationRequest.dispatch_published_at.is_(None)]
+    attempt = 1
+    while (
+        alert_evaluation_republish_delay(attempt)
+        < ALERT_EVALUATION_REPUBLISH_MAX_SECONDS
+    ):
+        attempt_predicate = (
+            AlertEvaluationRequest.dispatch_attempt_count <= 1
+            if attempt == 1
+            else AlertEvaluationRequest.dispatch_attempt_count == attempt
+        )
+        clauses.append(
+            and_(
+                attempt_predicate,
+                AlertEvaluationRequest.dispatch_published_at
+                <= current_time
+                - timedelta(seconds=alert_evaluation_republish_delay(attempt)),
+            )
+        )
+        attempt += 1
+    clauses.append(
+        and_(
+            AlertEvaluationRequest.dispatch_attempt_count >= attempt,
+            AlertEvaluationRequest.dispatch_published_at
+            <= current_time - timedelta(seconds=ALERT_EVALUATION_REPUBLISH_MAX_SECONDS),
+        )
+    )
+    return or_(*clauses)
 
 
 def release_alert_evaluation_publications(
@@ -372,11 +455,7 @@ def release_failed_direct_alert_publications(
         .execution_options(populate_existing=True)
     ).all()
     for request in rows:
-        direct_claim_at = (
-            request.last_replayed_at
-            if request.active_source == "replay"
-            else request.accepted_at
-        )
+        direct_claim_at = _direct_dispatch_claim_at(request)
         if _same_instant(request.dispatch_claimed_at, direct_claim_at):
             _record_dispatch_failure(request, now=datetime.now(timezone.utc))
             _record_dispatch_failure_activity(db, request)
@@ -388,6 +467,7 @@ def _record_dispatch_failure(
     now: datetime,
 ) -> None:
     request.dispatch_claimed_at = None
+    request.dispatch_published_at = None
     request.dispatch_failure_count = (
         max(0, int(request.dispatch_failure_count or 0)) + 1
     )
@@ -439,19 +519,19 @@ def list_alert_backfill_candidates(
                 ),
             )
         )
-    matched_count = db.scalar(select(func.count(Item.id)).where(*predicates)) or 0
-    rows = db.scalars(
-        select(Item)
+    rows = db.execute(
+        select(Item, func.count(Item.id).over().label("matched_count"))
         .where(*predicates)
         .order_by(Item.first_seen_at.asc(), Item.id.asc())
         .limit(bounded_limit + 1)
     ).all()
+    matched_count = int(rows[0].matched_count) if rows else 0
     truncated = len(rows) > bounded_limit
     candidates = tuple(
         AlertBackfillCandidate(
             item.id, item.content_hash, item.title[:512], item.first_seen_at
         )
-        for item in rows[:bounded_limit]
+        for item, _matched_count in rows[:bounded_limit]
     )
     next_candidate = candidates[-1] if truncated and candidates else None
     return AlertBackfillCandidatePage(
@@ -593,16 +673,23 @@ def persist_alert_backfill_preview_intents(
         )
 
     candidates = _parse_alert_backfill_candidates(preview)
+    candidate_entries = list(preview.candidates_json)
+    outcomes: list[dict[str, object]] = []
     request_ids: list[uuid.UUID] = []
-    request_bindings: list[dict[str, object]] = []
     existing_count = 0
     skipped_count = 0
     for candidate in candidates:
+        outcome: dict[str, object] = {
+            "item_id": str(candidate.item_id),
+            "content_hash": candidate.content_hash,
+        }
         item = db.scalar(
             select(Item).where(Item.id == candidate.item_id).with_for_update()
         )
         if item is None or item.content_hash != candidate.content_hash:
+            outcome["status"] = "skipped"
             skipped_count += 1
+            outcomes.append(outcome)
             continue
         intent = _persist_explicit_backfill_intent(
             db,
@@ -611,19 +698,49 @@ def persist_alert_backfill_preview_intents(
             now=current_time,
         )
         if intent is None:
+            outcome["status"] = "skipped"
             skipped_count += 1
-        elif intent.created:
-            request_ids.append(intent.request_id)
-            request_bindings.append(
+        elif not intent.created:
+            outcome["status"] = "existing"
+            existing_count += 1
+        else:
+            request = db.get(AlertEvaluationRequest, intent.request_id)
+            if request is None or intent.activity_id is None:
+                raise RuntimeError(
+                    "Persisted alert backfill generation could not be loaded."
+                )
+            activity = db.get(AlertEvaluationRequestActivity, intent.activity_id)
+            if (
+                activity is None
+                or activity.request_id != request.id
+                or activity.actor_user_id != actor_user_id
+                or activity.action not in {"accepted", "backfill_requested"}
+            ):
+                raise RuntimeError(
+                    "Persisted alert backfill activity could not be verified."
+                )
+            activity.details_json = {
+                **(
+                    activity.details_json
+                    if isinstance(activity.details_json, dict)
+                    else {}
+                ),
+                "backfill_preview_id": str(preview.id),
+            }
+            db.add(activity)
+            _prepare_backfill_request_for_durable_dispatch(request)
+            request_ids.append(request.id)
+            outcome.update(
                 {
-                    "request_id": str(intent.request_id),
-                    "item_id": str(candidate.item_id),
-                    "content_hash": candidate.content_hash,
-                    "notify": False,
+                    "status": "accepted",
+                    "request_id": str(request.id),
+                    "request_version": request.version,
+                    "backfill_count": request.backfill_count,
+                    "accepted_at": _as_utc(request.accepted_at).isoformat(),
+                    "activity_id": str(activity.id),
                 }
             )
-        else:
-            existing_count += 1
+        outcomes.append(outcome)
 
     result = AlertBackfillPersistenceResult(
         tuple(request_ids),
@@ -631,314 +748,44 @@ def persist_alert_backfill_preview_intents(
         skipped_count,
         preview.next_cursor_first_seen_at,
         preview.next_cursor_item_id,
-        dispatch_required=bool(request_ids),
     )
-    dispatch_state = "pending" if result.dispatch_required else "published"
     preview.candidates_json = [
-        *list(preview.candidates_json),
+        *candidate_entries,
         {
             _ALERT_BACKFILL_APPLY_RESULT_KEY: {
                 "version": _ALERT_BACKFILL_APPLY_RESULT_VERSION,
-                "candidate_fingerprint": _alert_backfill_candidate_fingerprint(
-                    candidates
+                "preview_fingerprint": _alert_backfill_preview_fingerprint(
+                    preview, candidates
                 ),
-                "request_ids": [str(request_id) for request_id in result.request_ids],
-                "requests": request_bindings,
-                "existing_count": result.existing_count,
-                "skipped_count": result.skipped_count,
-                "dispatch_state": dispatch_state,
+                "outcomes": outcomes,
+                "response": _alert_backfill_response_payload(preview, result),
             }
         },
     ]
     preview.consumed_at = current_time
+    preview.expires_at = max(
+        _as_utc(preview.expires_at),
+        current_time + timedelta(seconds=_ALERT_BACKFILL_RECEIPT_TTL_SECONDS),
+    )
     db.add(preview)
     db.flush()
     return result
 
 
-def _load_alert_backfill_apply_result(
-    db: Session,
-    preview: AlertBackfillPreview,
-) -> AlertBackfillPersistenceResult | None:
-    entries = preview.candidates_json
-    if not isinstance(entries, list):
-        raise _invalid_alert_backfill_result()
-    envelope_indexes = [
-        index
-        for index, entry in enumerate(entries)
-        if isinstance(entry, dict) and _ALERT_BACKFILL_APPLY_RESULT_KEY in entry
-    ]
-    if not envelope_indexes:
-        return None
-    if envelope_indexes != [len(entries) - 1]:
-        raise _invalid_alert_backfill_result()
-    envelope = entries[-1].get(_ALERT_BACKFILL_APPLY_RESULT_KEY)
-    if not isinstance(envelope, dict):
-        raise _invalid_alert_backfill_result()
-    candidates = _parse_alert_backfill_candidates(preview, entries=entries[:-1])
-
-    try:
-        version = int(envelope.get("version"))
-    except (TypeError, ValueError) as exc:
-        raise _invalid_alert_backfill_result() from exc
-    if version not in {1, _ALERT_BACKFILL_APPLY_RESULT_VERSION}:
-        raise AlertBackfillPreviewError(
-            "This alert backfill result was written by an unsupported ThreatLens version. Upgrade ThreatLens before retrying it.",
-            code="alert_backfill_apply_result_unsupported",
-        )
-
-    try:
-        raw_request_ids = envelope["request_ids"]
-        if not isinstance(raw_request_ids, list):
-            raise TypeError("request_ids must be a list")
-        request_ids = tuple(uuid.UUID(str(value)) for value in raw_request_ids)
-        existing_count = int(envelope["existing_count"])
-        skipped_count = int(envelope["skipped_count"])
-    except (KeyError, TypeError, ValueError) as exc:
-        raise _invalid_alert_backfill_result() from exc
-
-    candidate_count = len(candidates)
-    if (
-        len(request_ids) > candidate_count
-        or len(set(request_ids)) != len(request_ids)
-        or existing_count < 0
-        or skipped_count < 0
-        or len(request_ids) + existing_count + skipped_count != candidate_count
-    ):
-        raise _invalid_alert_backfill_result()
-
-    request_bindings = None
-    dispatch_state = "pending"
-    if version == _ALERT_BACKFILL_APPLY_RESULT_VERSION:
-        request_bindings = envelope.get("requests")
-        dispatch_state = envelope.get("dispatch_state")
-        if (
-            not isinstance(request_bindings, list)
-            or dispatch_state not in _ALERT_BACKFILL_DISPATCH_STATES
-            or envelope.get("candidate_fingerprint")
-            != _alert_backfill_candidate_fingerprint(candidates)
-        ):
-            raise _invalid_alert_backfill_result()
-    _validate_alert_backfill_request_bindings(
-        db,
-        preview=preview,
-        candidates=candidates,
-        request_ids=request_ids,
-        request_bindings=request_bindings,
-    )
-    return AlertBackfillPersistenceResult(
-        request_ids,
-        existing_count,
-        skipped_count,
-        preview.next_cursor_first_seen_at,
-        preview.next_cursor_item_id,
-        replayed=True,
-        enqueue_failed=dispatch_state != "published",
-    )
-
-
-def record_alert_backfill_preview_dispatch(
-    db: Session,
-    *,
-    preview_id: uuid.UUID,
-    actor_user_id: uuid.UUID,
-    enqueue_failed: bool,
+def _prepare_backfill_request_for_durable_dispatch(
+    request: AlertEvaluationRequest,
 ) -> None:
-    preview = db.scalar(
-        select(AlertBackfillPreview)
-        .where(
-            AlertBackfillPreview.id == preview_id,
-            AlertBackfillPreview.actor_user_id == actor_user_id,
-        )
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    if preview is None or preview.consumed_at is None:
-        raise AlertBackfillPreviewError(
-            "The applied alert backfill receipt could not be found.",
-            code="alert_backfill_apply_result_not_found",
-        )
-    result = _load_alert_backfill_apply_result(db, preview)
-    if result is None:
-        raise _invalid_alert_backfill_result()
-
-    entries = list(preview.candidates_json)
-    envelope = dict(entries[-1][_ALERT_BACKFILL_APPLY_RESULT_KEY])
-    if int(envelope["version"]) != _ALERT_BACKFILL_APPLY_RESULT_VERSION:
-        return
-    if envelope["dispatch_state"] != "pending":
-        return
-    envelope["dispatch_state"] = "deferred" if enqueue_failed else "published"
-    entries[-1] = {_ALERT_BACKFILL_APPLY_RESULT_KEY: envelope}
-    preview.candidates_json = entries
-    db.add(preview)
-    db.flush()
-
-
-def _parse_alert_backfill_candidates(
-    preview: AlertBackfillPreview,
-    *,
-    entries: object | None = None,
-) -> tuple[AlertBackfillCandidate, ...]:
-    raw_entries = preview.candidates_json if entries is None else entries
-    if not isinstance(raw_entries, list) or len(raw_entries) > min(
-        max(1, int(preview.item_limit)), 500
-    ):
-        raise AlertBackfillPreviewError(
-            "The persisted alert backfill preview has an invalid candidate list. Recalculate it before applying.",
-            code="alert_backfill_preview_invalid",
-        )
-    candidates: list[AlertBackfillCandidate] = []
-    seen_item_ids: set[uuid.UUID] = set()
-    try:
-        for entry in raw_entries:
-            if not isinstance(entry, dict) or _ALERT_BACKFILL_APPLY_RESULT_KEY in entry:
-                raise TypeError("candidate must be an object")
-            item_id = uuid.UUID(str(entry["item_id"]))
-            content_hash = entry["content_hash"]
-            title = entry["title"]
-            first_seen_at = datetime.fromisoformat(entry["first_seen_at"])
-            if (
-                item_id in seen_item_ids
-                or not isinstance(content_hash, str)
-                or len(content_hash) != 64
-                or not isinstance(title, str)
-                or len(title) > 512
-                or first_seen_at.tzinfo is None
-            ):
-                raise ValueError("candidate fields are invalid")
-            seen_item_ids.add(item_id)
-            candidates.append(
-                AlertBackfillCandidate(
-                    item_id,
-                    content_hash,
-                    title,
-                    _as_utc(first_seen_at),
-                )
-            )
-    except (KeyError, TypeError, ValueError) as exc:
-        raise AlertBackfillPreviewError(
-            "The persisted alert backfill preview has malformed candidates. Recalculate it before applying.",
-            code="alert_backfill_preview_invalid",
-        ) from exc
-
-    cursor_present = (
-        preview.next_cursor_first_seen_at is not None
-        and preview.next_cursor_item_id is not None
-    )
     if (
-        len(candidates) > int(preview.matched_count)
-        or bool(preview.has_more) != cursor_present
-        or (
-            preview.has_more
-            and (
-                not candidates
-                or candidates[-1].item_id != preview.next_cursor_item_id
-                or _as_utc(candidates[-1].first_seen_at)
-                != _as_utc(preview.next_cursor_first_seen_at)
-            )
-        )
+        request.active_source != "backfill"
+        or request.notify is not False
+        or request.notify_existing_occurrences is not False
+        or request.respect_rule_cutover is not False
+        or request.state != "pending"
     ):
-        raise AlertBackfillPreviewError(
-            "The persisted alert backfill preview metadata is inconsistent. Recalculate it before applying.",
-            code="alert_backfill_preview_invalid",
-        )
-    return tuple(candidates)
-
-
-def _alert_backfill_candidate_fingerprint(
-    candidates: tuple[AlertBackfillCandidate, ...],
-) -> str:
-    payload = [
-        {"item_id": str(candidate.item_id), "content_hash": candidate.content_hash}
-        for candidate in candidates
-    ]
-    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-
-
-def _validate_alert_backfill_request_bindings(
-    db: Session,
-    *,
-    preview: AlertBackfillPreview,
-    candidates: tuple[AlertBackfillCandidate, ...],
-    request_ids: tuple[uuid.UUID, ...],
-    request_bindings: object | None,
-) -> None:
-    if not request_ids:
-        if request_bindings not in (None, []):
-            raise _invalid_alert_backfill_result()
-        return
-    candidate_pairs = {
-        (candidate.item_id, candidate.content_hash) for candidate in candidates
-    }
-    rows = list(
-        db.scalars(
-            select(AlertEvaluationRequest).where(
-                AlertEvaluationRequest.id.in_(request_ids)
-            )
-        ).all()
-    )
-    if len(rows) != len(request_ids) or any(
-        (row.item_id, row.item_content_hash) not in candidate_pairs for row in rows
-    ):
-        raise _invalid_alert_backfill_result()
-
-    if request_bindings is not None:
-        try:
-            normalized_bindings = {
-                (
-                    uuid.UUID(str(binding["request_id"])),
-                    uuid.UUID(str(binding["item_id"])),
-                    binding["content_hash"],
-                    binding["notify"],
-                )
-                for binding in request_bindings
-                if isinstance(binding, dict)
-            }
-        except (KeyError, TypeError, ValueError) as exc:
-            raise _invalid_alert_backfill_result() from exc
-        expected_bindings = {
-            (row.id, row.item_id, row.item_content_hash, False) for row in rows
-        }
-        if (
-            len(request_bindings) != len(request_ids)
-            or normalized_bindings != expected_bindings
-        ):
-            raise _invalid_alert_backfill_result()
-
-    activities = db.scalars(
-        select(AlertEvaluationRequestActivity).where(
-            AlertEvaluationRequestActivity.request_id.in_(request_ids),
-            AlertEvaluationRequestActivity.action.in_(
-                ["accepted", "backfill_requested"]
-            ),
-        )
-    ).all()
-    proven_request_ids: set[uuid.UUID] = set()
-    for activity in activities:
-        details = (
-            activity.details_json if isinstance(activity.details_json, dict) else {}
-        )
-        non_notifying = (
-            details.get("notify") is False
-            and details.get("respect_rule_cutover") is False
-        )
-        if activity.action == "accepted":
-            proven = details.get("source") == "backfill" and non_notifying
-        else:
-            proven = activity.actor_user_id == preview.actor_user_id and non_notifying
-        if proven:
-            proven_request_ids.add(activity.request_id)
-    if proven_request_ids != set(request_ids):
-        raise _invalid_alert_backfill_result()
-
-
-def _invalid_alert_backfill_result() -> AlertBackfillPreviewError:
-    return AlertBackfillPreviewError(
-        "The stored alert backfill result is invalid and cannot be replayed safely. Create a new preview before retrying.",
-        code="alert_backfill_apply_result_invalid",
-    )
+        raise RuntimeError("Alert backfill request was persisted with unsafe flags.")
+    request.dispatch_claimed_at = None
+    request.dispatch_published_at = None
+    request.dispatch_attempt_count = 0
 
 
 def _persist_explicit_backfill_intent(
@@ -968,6 +815,7 @@ def _persist_explicit_backfill_intent(
             source="backfill",
             notify=False,
             respect_rule_cutover=False,
+            actor_user_id=actor_user_id,
             now=now,
         )
     return reset_alert_evaluation_for_backfill(
@@ -985,6 +833,14 @@ def _is_after(value: datetime | None, reference: datetime) -> bool:
 
 def _same_instant(left: datetime | None, right: datetime) -> bool:
     return left is not None and _as_utc(left) == _as_utc(right)
+
+
+def _direct_dispatch_claim_at(request: AlertEvaluationRequest) -> datetime:
+    return (
+        request.last_replayed_at
+        if request.active_source == "replay" and request.last_replayed_at is not None
+        else request.accepted_at
+    )
 
 
 def _as_utc(value: datetime) -> datetime:

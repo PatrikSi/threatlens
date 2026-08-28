@@ -354,6 +354,7 @@ class AlertEvaluationRequestResponse(BaseModel):
     accepted_at: datetime
     available_at: datetime
     dispatch_claimed_at: datetime | None
+    dispatch_published_at: datetime | None
     last_dispatch_failed_at: datetime | None
     claimed_at: datetime | None
     lease_expires_at: datetime | None

@@ -8,6 +8,8 @@ from app.services.alert_evaluation import (
     claim_alert_evaluation_request,
     evaluate_alert_request,
     record_alert_evaluation_failure,
+    record_alert_evaluation_publications,
+    record_direct_alert_evaluation_publications,
     release_failed_direct_alert_publications,
     release_alert_evaluation_publications,
     reserve_recoverable_alert_evaluations,
@@ -35,9 +37,16 @@ def enqueue_alert_evaluation_requests(request_ids: list[uuid.UUID]) -> bool:
                 request_id,
                 type(exc).__name__,
             )
-    if failed_request_ids:
+    published_request_ids = [
+        request_id for request_id in request_ids if request_id not in failed_request_ids
+    ]
+    if published_request_ids or failed_request_ids:
         try:
             with db_session() as db:
+                record_direct_alert_evaluation_publications(
+                    db,
+                    request_ids=published_request_ids,
+                )
                 release_failed_direct_alert_publications(
                     db,
                     request_ids=failed_request_ids,
@@ -45,7 +54,8 @@ def enqueue_alert_evaluation_requests(request_ids: list[uuid.UUID]) -> bool:
                 db.commit()
         except Exception as exc:
             logger.exception(
-                "alert_evaluation_enqueue_release_failed request_count=%s error_type=%s",
+                "alert_evaluation_enqueue_state_update_failed published_count=%s failed_count=%s error_type=%s",
+                len(published_request_ids),
                 len(failed_request_ids),
                 type(exc).__name__,
             )
@@ -151,8 +161,13 @@ def dispatch_pending_alert_evaluations():
             )
         else:
             queued.append(request_id)
-    if failed:
+    if queued or failed:
         with db_session() as db:
+            record_alert_evaluation_publications(
+                db,
+                request_ids=queued,
+                reserved_at=reservation.reserved_at,
+            )
             release_alert_evaluation_publications(
                 db,
                 request_ids=failed,

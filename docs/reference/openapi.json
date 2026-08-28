@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "1.7.0",
-    "x-threatlens-contract-sha256": "bd53016309af25bd296fd8f0993b636cd91f92d4246f5308f2b1ec26682cb07e"
+    "x-threatlens-contract-sha256": "f3fd37f455f2a23db9d85ae6c7a4aa31fcf034cc0a069785d7f885ea7657673e"
   },
   "servers": [
     {
@@ -4585,6 +4585,7 @@
             "required": false,
             "schema": {
               "type": "integer",
+              "maximum": 1000000,
               "minimum": 1,
               "default": 1,
               "title": "Page"
@@ -4772,6 +4773,7 @@
             "required": false,
             "schema": {
               "type": "integer",
+              "maximum": 1000000,
               "minimum": 1,
               "default": 1,
               "title": "Page"
@@ -5237,6 +5239,7 @@
             "required": false,
             "schema": {
               "type": "integer",
+              "maximum": 1000000,
               "minimum": 1,
               "default": 1,
               "title": "Page"
@@ -5368,6 +5371,7 @@
             "required": false,
             "schema": {
               "type": "integer",
+              "maximum": 1000000,
               "minimum": 1,
               "default": 1,
               "title": "Page"
@@ -5564,6 +5568,7 @@
             "required": false,
             "schema": {
               "type": "integer",
+              "maximum": 1000000,
               "minimum": 1,
               "default": 1,
               "title": "Page"
@@ -14519,6 +14524,18 @@
             ],
             "title": "Dispatch Claimed At"
           },
+          "dispatch_published_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dispatch Published At"
+          },
           "last_dispatch_failed_at": {
             "anyOf": [
               {
@@ -14649,6 +14666,7 @@
           "accepted_at",
           "available_at",
           "dispatch_claimed_at",
+          "dispatch_published_at",
           "last_dispatch_failed_at",
           "claimed_at",
           "lease_expires_at",
@@ -14678,7 +14696,8 @@
           },
           "keywords": {
             "items": {
-              "type": "string"
+              "type": "string",
+              "maxLength": 128
             },
             "type": "array",
             "maxItems": 64,
@@ -14756,7 +14775,8 @@
           },
           "keywords": {
             "items": {
-              "type": "string"
+              "type": "string",
+              "maxLength": 128
             },
             "type": "array",
             "maxItems": 64,
@@ -14948,7 +14968,8 @@
             "anyOf": [
               {
                 "items": {
-                  "type": "string"
+                  "type": "string",
+                  "maxLength": 128
                 },
                 "type": "array",
                 "maxItems": 64,
