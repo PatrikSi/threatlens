@@ -1,6 +1,7 @@
 import logging
 import uuid
 from datetime import datetime, timezone
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
@@ -61,10 +62,17 @@ from app.services.alert_occurrences import (
     update_alert_occurrence_snooze,
 )
 from app.services.audit import record_audit
+from app.services.alert_rules import (
+    AlertRuleOwnerUnavailableError,
+    AlertRuleQuotaExceededError,
+    lock_alert_rule_creation_slot,
+)
 from app.tasks.alert_tasks import enqueue_alert_evaluation_requests
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
 logger = logging.getLogger(__name__)
+MAX_ALERT_PAGE = 1_000_000
+AlertPage = Annotated[int, Query(ge=1, le=MAX_ALERT_PAGE)]
 
 
 def _normalize_name(value: str) -> str:
@@ -158,6 +166,16 @@ def create_alert_interest(
     db: Session = Depends(get_db),
     user: User = Depends(require_token_scopes(SCOPE_WRITE_ALERTS)),
 ):
+    try:
+        lock_alert_rule_creation_slot(db, owner_user_id=user.id)
+    except (AlertRuleQuotaExceededError, AlertRuleOwnerUnavailableError) as exc:
+        db.rollback()
+        raise ApiHTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+            error_code=exc.code,
+            headers={"X-Error-Code": exc.code},
+        ) from exc
     now = datetime.now(timezone.utc)
     alert = AlertInterest(
         user_id=user.id,
@@ -228,7 +246,7 @@ def list_alert_matches(
     is_read: bool | None = None,
     since: datetime | None = None,
     until: datetime | None = None,
-    page: int = Query(default=1, ge=1),
+    page: AlertPage = 1,
     page_size: int = Query(default=25, ge=1, le=100),
     sort: str = Query(default="published_at_desc"),
     db: Session = Depends(get_db),
@@ -280,7 +298,7 @@ def get_alert_occurrences(
     snoozed: bool | None = None,
     since: datetime | None = None,
     until: datetime | None = None,
-    page: int = Query(default=1, ge=1),
+    page: AlertPage = 1,
     page_size: int = Query(default=25, ge=1, le=100),
     db: Session = Depends(get_db),
     user: User = Depends(require_token_scopes(SCOPE_READ_ALERTS, SCOPE_READ_ITEMS)),
@@ -402,20 +420,21 @@ def apply_alert_occurrence_backfill(
             error_code=exc.code,
             headers={"X-Error-Code": exc.code},
         ) from exc
-    record_audit(
-        db,
-        actor_user_id=user.id,
-        action="alerts.occurrences.backfill",
-        resource_type="alert_evaluation_request",
-        metadata={
-            "accepted": len(result.request_ids),
-            "existing": result.existing_count,
-            "skipped": result.skipped_count,
-            "preview_token": str(payload.preview_token),
-            "has_more": result.next_cursor_item_id is not None,
-            "notifications_enabled": False,
-        },
-    )
+    if not result.replayed:
+        record_audit(
+            db,
+            actor_user_id=user.id,
+            action="alerts.occurrences.backfill",
+            resource_type="alert_evaluation_request",
+            metadata={
+                "accepted": len(result.request_ids),
+                "existing": result.existing_count,
+                "skipped": result.skipped_count,
+                "preview_token": str(payload.preview_token),
+                "has_more": result.next_cursor_item_id is not None,
+                "notifications_enabled": False,
+            },
+        )
     db.commit()
     enqueue_ok = enqueue_alert_evaluation_requests(list(result.request_ids))
     return {
@@ -502,7 +521,7 @@ def get_alert_occurrence_detail(
 )
 def get_alert_occurrence_activity(
     occurrence_id: uuid.UUID,
-    page: int = Query(default=1, ge=1),
+    page: AlertPage = 1,
     page_size: int = Query(default=50, ge=1, le=100),
     db: Session = Depends(get_db),
     user: User = Depends(require_token_scopes(SCOPE_READ_ALERTS)),

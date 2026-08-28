@@ -35,6 +35,8 @@ ALERT_EVALUATION_RETRY_MAX_SECONDS = 3_600
 ALERT_EVALUATION_RETRY_JITTER_RATIO = 0.20
 ALERT_EVALUATION_RECONCILE_BATCH_SIZE = 100
 ALERT_BACKFILL_PREVIEW_TTL_SECONDS = 15 * 60
+_ALERT_BACKFILL_APPLY_RESULT_KEY = "_threatlens_apply_result"
+_ALERT_BACKFILL_APPLY_RESULT_VERSION = 1
 
 __all__ = [
     "AlertBackfillPreviewError",
@@ -103,6 +105,7 @@ class AlertBackfillPersistenceResult:
     skipped_count: int
     next_cursor_first_seen_at: datetime | None
     next_cursor_item_id: uuid.UUID | None
+    replayed: bool = False
 
 
 class AlertBackfillPreviewError(RuntimeError):
@@ -567,8 +570,11 @@ def persist_alert_backfill_preview_intents(
             code="alert_backfill_preview_not_found",
         )
     if preview.consumed_at is not None:
+        replayed_result = _load_alert_backfill_apply_result(preview)
+        if replayed_result is not None:
+            return replayed_result
         raise AlertBackfillPreviewError(
-            "This alert backfill preview was already applied. Preview the next page or start a new backfill.",
+            "This alert backfill preview was already applied by an earlier ThreatLens version and its exact result cannot be replayed. Preview the next page or start a new backfill.",
             code="alert_backfill_preview_consumed",
         )
     if _as_utc(preview.expires_at) <= current_time:
@@ -606,15 +612,76 @@ def persist_alert_backfill_preview_intents(
         else:
             existing_count += 1
 
-    preview.consumed_at = current_time
-    db.add(preview)
-    db.flush()
-    return AlertBackfillPersistenceResult(
+    result = AlertBackfillPersistenceResult(
         tuple(request_ids),
         existing_count,
         skipped_count,
         preview.next_cursor_first_seen_at,
         preview.next_cursor_item_id,
+    )
+    preview.candidates_json = [
+        *(preview.candidates_json or []),
+        {
+            _ALERT_BACKFILL_APPLY_RESULT_KEY: {
+                "version": _ALERT_BACKFILL_APPLY_RESULT_VERSION,
+                "request_ids": [str(request_id) for request_id in result.request_ids],
+                "existing_count": result.existing_count,
+                "skipped_count": result.skipped_count,
+            }
+        },
+    ]
+    preview.consumed_at = current_time
+    db.add(preview)
+    db.flush()
+    return result
+
+
+def _load_alert_backfill_apply_result(
+    preview: AlertBackfillPreview,
+) -> AlertBackfillPersistenceResult | None:
+    entries = preview.candidates_json or []
+    envelope = next(
+        (
+            entry.get(_ALERT_BACKFILL_APPLY_RESULT_KEY)
+            for entry in reversed(entries)
+            if isinstance(entry, dict) and _ALERT_BACKFILL_APPLY_RESULT_KEY in entry
+        ),
+        None,
+    )
+    if not isinstance(envelope, dict):
+        return None
+    try:
+        if int(envelope.get("version")) != _ALERT_BACKFILL_APPLY_RESULT_VERSION:
+            return None
+        raw_request_ids = envelope["request_ids"]
+        if not isinstance(raw_request_ids, list):
+            return None
+        request_ids = tuple(uuid.UUID(str(value)) for value in raw_request_ids)
+        existing_count = int(envelope["existing_count"])
+        skipped_count = int(envelope["skipped_count"])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+    candidate_count = sum(
+        1
+        for entry in entries
+        if isinstance(entry, dict) and _ALERT_BACKFILL_APPLY_RESULT_KEY not in entry
+    )
+    if (
+        len(request_ids) > 500
+        or len(set(request_ids)) != len(request_ids)
+        or existing_count < 0
+        or skipped_count < 0
+        or len(request_ids) + existing_count + skipped_count != candidate_count
+    ):
+        return None
+    return AlertBackfillPersistenceResult(
+        request_ids,
+        existing_count,
+        skipped_count,
+        preview.next_cursor_first_seen_at,
+        preview.next_cursor_item_id,
+        replayed=True,
     )
 
 

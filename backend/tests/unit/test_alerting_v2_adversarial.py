@@ -602,11 +602,34 @@ def test_backfill_preview_is_owner_bound_expiring_single_use_and_content_stable(
     db_session.commit()
     assert applied.request_ids == ()
     assert applied.skipped_count == 1
+    assert applied.replayed is False
 
+    replayed = persist_alert_backfill_preview_intents(
+        db_session,
+        preview_id=snapshot.preview.id,
+        actor_user_id=seed_users["admin"].id,
+        now=now,
+    )
+    assert replayed.request_ids == applied.request_ids
+    assert replayed.existing_count == applied.existing_count
+    assert replayed.skipped_count == applied.skipped_count
+    assert replayed.replayed is True
+
+    legacy_consumed = create_alert_backfill_preview(
+        db_session,
+        actor_user_id=seed_users["admin"].id,
+        since=item.first_seen_at - timedelta(seconds=1),
+        until=item.first_seen_at + timedelta(seconds=1),
+        limit=10,
+        now=now,
+    )
+    legacy_consumed.preview.consumed_at = now
+    db_session.add(legacy_consumed.preview)
+    db_session.commit()
     with pytest.raises(AlertBackfillPreviewError) as consumed_error:
         persist_alert_backfill_preview_intents(
             db_session,
-            preview_id=snapshot.preview.id,
+            preview_id=legacy_consumed.preview.id,
             actor_user_id=seed_users["admin"].id,
             now=now,
         )
