@@ -982,7 +982,10 @@ def process_notification_webhook_delivery(
             error=exc,
             commit_outcome=commit_outcome,
         )
-    except WebhookDeliveryIneligibleError as exc:
+    except (
+        notification_webhook_http.RedirectError,
+        WebhookDeliveryIneligibleError,
+    ) as exc:
         return finalize_claimed_notification_webhook_for_policy_error(
             db,
             delivery=delivery,

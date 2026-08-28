@@ -388,7 +388,11 @@ def test_first_webhook_heartbeat_schema_race_preserves_retry_budget(
 
 @pytest.mark.parametrize(
     ("configuration_change", "expected_generic_state"),
-    [("schema", "dead_letter"), ("disabled", "failed")],
+    [
+        ("schema", "dead_letter"),
+        ("disabled", "failed"),
+        ("redirect", "failed"),
+    ],
 )
 def test_webhook_configuration_race_after_first_request_records_unknown_outcome(
     database_engine,
@@ -453,7 +457,7 @@ def test_webhook_configuration_race_after_first_request_records_unknown_outcome(
             webhook=webhook,
             legacy_delivery=legacy,
         )
-        generic.max_attempts = 1
+        generic.max_attempts = 2 if configuration_change == "redirect" else 1
         setup_db.add(generic)
         integration_id = instance.id
         setup_db.commit()
@@ -485,7 +489,13 @@ def test_webhook_configuration_race_after_first_request_records_unknown_outcome(
             send_calls.append(str(request.url))
             return webhook_http.httpx.Response(
                 302,
-                headers={"location": "/next"},
+                headers={
+                    "location": (
+                        "https://other.example.com/next"
+                        if configuration_change == "redirect"
+                        else "/next"
+                    )
+                },
                 request=request,
             )
 
@@ -525,21 +535,22 @@ def test_webhook_configuration_race_after_first_request_records_unknown_outcome(
     try:
         with ThreadPoolExecutor(max_workers=1) as executor:
             worker = executor.submit(_run_worker)
-            assert post_send_heartbeat_committed.wait(timeout=5)
-            with Session(database_engine) as update_db:
-                instance = update_db.scalar(
-                    select(IntegrationInstance)
-                    .where(IntegrationInstance.id == integration_id)
-                    .with_for_update()
-                )
-                assert instance is not None
-                if configuration_change == "schema":
-                    instance.schema_version = 2
-                else:
-                    instance.enabled = False
-                update_db.add(instance)
-                update_db.commit()
-            schema_updated.set()
+            if configuration_change != "redirect":
+                assert post_send_heartbeat_committed.wait(timeout=5)
+                with Session(database_engine) as update_db:
+                    instance = update_db.scalar(
+                        select(IntegrationInstance)
+                        .where(IntegrationInstance.id == integration_id)
+                        .with_for_update()
+                    )
+                    assert instance is not None
+                    if configuration_change == "schema":
+                        instance.schema_version = 2
+                    else:
+                        instance.enabled = False
+                    update_db.add(instance)
+                    update_db.commit()
+                schema_updated.set()
             worker.result(timeout=5)
 
         assert send_calls == ["https://hooks.example.com/events"]
@@ -561,8 +572,18 @@ def test_webhook_configuration_race_after_first_request_records_unknown_outcome(
             assert attempt.response_json["delivery_outcome"] == "unknown"
             assert attempt.response_json["external_side_effect_possible"] is True
             assert "retry_budget_consumed" not in attempt.response_json
-            if configuration_change == "disabled":
+            if configuration_change in {"disabled", "redirect"}:
                 assert (legacy.error or "").startswith("policy_error:")
+                assert attempt.retryable is False
+            if configuration_change == "redirect":
+                assert attempt.error_code == "redirect_policy_error"
+                assert generic.not_before is None
+                deliveries = verify_db.scalars(
+                    select(IntegrationDelivery).where(
+                        IntegrationDelivery.owner_user_id == owner_id
+                    )
+                ).all()
+                assert [row.id for row in deliveries] == [generic.id]
     finally:
         schema_updated.set()
         with Session(database_engine) as cleanup_db:
