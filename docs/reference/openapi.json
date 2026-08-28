@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "1.7.0",
-    "x-threatlens-contract-sha256": "2ebae071cae2c5291bc0caf02696c75153e8fea978f008b7043103c4dda6f353"
+    "x-threatlens-contract-sha256": "bd53016309af25bd296fd8f0993b636cd91f92d4246f5308f2b1ec26682cb07e"
   },
   "servers": [
     {
@@ -7604,6 +7604,7 @@
             "required": false,
             "schema": {
               "type": "integer",
+              "maximum": 1000000,
               "minimum": 1,
               "default": 1,
               "title": "Page"
@@ -7738,6 +7739,7 @@
             "required": false,
             "schema": {
               "type": "integer",
+              "maximum": 1000000,
               "minimum": 1,
               "default": 1,
               "title": "Page"
@@ -8651,6 +8653,7 @@
             "required": false,
             "schema": {
               "type": "integer",
+              "maximum": 1000000,
               "minimum": 1,
               "default": 1,
               "title": "Page"

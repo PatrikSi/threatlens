@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
+from app.api.routes.investigations import MAX_INVESTIGATION_PAGE
 from app.core.config import get_settings
 from app.core.security import generate_api_token
 from app.core.token_scopes import (
@@ -34,8 +35,19 @@ from app.models.user import User
 from app.services.investigation_collections import INVESTIGATION_DETAIL_COLLECTION_LIMIT
 from app.services.investigations import (
     InvestigationActorNotEligibleError,
+    InvestigationNotFoundError,
+    InvestigationReadAuthorizationChangedError,
     add_note,
     eligible_investigation_owner_ids_query,
+    get_investigation_detail,
+    list_activity,
+    list_evidence,
+    list_notes,
+    remove_member,
+)
+from app.services.user_access import (
+    lock_users_for_security_change,
+    revoke_user_credentials_with_counts,
 )
 
 
@@ -205,6 +217,320 @@ def test_inflight_write_revalidates_actor_after_access_reduction(database_engine
                 delete(Investigation).where(Investigation.id == investigation_id)
             )
             cleanup_db.execute(delete(User).where(User.id.in_([owner_id, editor_id])))
+            cleanup_db.commit()
+
+
+def _run_private_composed_read(
+    db: Session,
+    *,
+    investigation_id: uuid.UUID,
+    user: User,
+    read_kind: str,
+) -> None:
+    if read_kind == "detail":
+        get_investigation_detail(db, investigation_id=investigation_id, user=user)
+        return
+    if read_kind == "evidence":
+        list_evidence(
+            db,
+            investigation_id=investigation_id,
+            user=user,
+            page=1,
+            page_size=50,
+        )
+        return
+    if read_kind == "notes":
+        list_notes(
+            db,
+            investigation_id=investigation_id,
+            user=user,
+            page=1,
+            page_size=50,
+        )
+        return
+    if read_kind == "activity":
+        list_activity(
+            db,
+            investigation_id=investigation_id,
+            user=user,
+            page=1,
+            page_size=50,
+        )
+        return
+    raise AssertionError(f"Unsupported composed read kind: {read_kind}")
+
+
+@pytest.mark.parametrize(
+    ("read_kind", "revocation_kind", "expected_error_code"),
+    [
+        pytest.param(
+            "detail",
+            "membership",
+            "investigation_not_found",
+            id="detail-membership",
+        ),
+        pytest.param(
+            "evidence",
+            "membership",
+            "investigation_not_found",
+            id="evidence-membership",
+        ),
+        pytest.param(
+            "notes",
+            "membership",
+            "investigation_not_found",
+            id="notes-membership",
+        ),
+        pytest.param(
+            "activity",
+            "membership",
+            "investigation_not_found",
+            id="activity-membership",
+        ),
+        pytest.param(
+            "evidence",
+            "role",
+            "investigation_read_authorization_changed",
+            id="evidence-role",
+        ),
+        pytest.param(
+            "evidence",
+            "active",
+            "investigation_read_authorization_changed",
+            id="evidence-active",
+        ),
+    ],
+)
+def test_private_composed_reads_fence_concurrent_access_revocation(
+    database_engine,
+    read_kind,
+    revocation_kind,
+    expected_error_code,
+):
+    owner_id = uuid.uuid4()
+    reader_id = uuid.uuid4()
+    investigation_id = uuid.uuid4()
+    with Session(database_engine) as setup_db:
+        owner = User(
+            id=owner_id,
+            email=f"private-read-owner-{uuid.uuid4()}@example.com",
+            password_hash="x",
+            role="admin",
+            is_active=True,
+            is_approved=True,
+        )
+        reader = User(
+            id=reader_id,
+            email=f"private-read-reader-{uuid.uuid4()}@example.com",
+            password_hash="x",
+            role="analyst",
+            is_active=True,
+            is_approved=True,
+        )
+        setup_db.add_all([owner, reader])
+        setup_db.flush()
+        setup_db.add(
+            Investigation(
+                id=investigation_id,
+                title="Private composed read fence",
+                description="Access changes must win before private data is returned.",
+                severity="high",
+                visibility="private",
+                created_by_user_id=owner_id,
+            )
+        )
+        setup_db.flush()
+        setup_db.add_all(
+            [
+                InvestigationMember(
+                    investigation_id=investigation_id,
+                    user_id=owner_id,
+                    role="owner",
+                    added_by_user_id=owner_id,
+                ),
+                InvestigationMember(
+                    investigation_id=investigation_id,
+                    user_id=reader_id,
+                    role="viewer",
+                    added_by_user_id=owner_id,
+                ),
+                InvestigationEvidence(
+                    investigation_id=investigation_id,
+                    source_type="item",
+                    source_id=uuid.uuid4(),
+                    title_snapshot="Private evidence",
+                    metadata_snapshot_json={},
+                    added_by_user_id=owner_id,
+                ),
+                InvestigationNote(
+                    investigation_id=investigation_id,
+                    author_user_id=owner_id,
+                    body="Private note",
+                ),
+                InvestigationActivity(
+                    investigation_id=investigation_id,
+                    actor_user_id=owner_id,
+                    action="investigation.private_test",
+                    details_json={},
+                ),
+            ]
+        )
+        setup_db.commit()
+
+    reader_loaded = Event()
+    revocation_ready = Event()
+    read_attempted = Event()
+    allow_revocation_commit = Event()
+
+    def _read_with_stale_authorization() -> str:
+        with Session(database_engine) as read_db:
+            stale_reader = read_db.get(User, reader_id)
+            assert stale_reader is not None
+            reader_loaded.set()
+            assert revocation_ready.wait(timeout=5)
+            read_attempted.set()
+            try:
+                _run_private_composed_read(
+                    read_db,
+                    investigation_id=investigation_id,
+                    user=stale_reader,
+                    read_kind=read_kind,
+                )
+            except (
+                InvestigationNotFoundError,
+                InvestigationReadAuthorizationChangedError,
+            ) as exc:
+                read_db.rollback()
+                return exc.code
+            read_db.rollback()
+            return "private_data_returned"
+
+    def _revoke_access() -> str:
+        assert reader_loaded.wait(timeout=5)
+        with Session(database_engine) as revoke_db:
+            if revocation_kind == "membership":
+                owner = revoke_db.get(User, owner_id)
+                assert owner is not None
+                remove_member(
+                    revoke_db,
+                    investigation_id=investigation_id,
+                    user=owner,
+                    member_user_id=reader_id,
+                    expected_version=1,
+                )
+            else:
+                locked_users = lock_users_for_security_change(
+                    revoke_db,
+                    [owner_id, reader_id],
+                )
+                target = locked_users.get(reader_id)
+                assert target is not None
+                if revocation_kind == "role":
+                    target.role = "viewer"
+                elif revocation_kind == "active":
+                    target.is_active = False
+                else:
+                    raise AssertionError(
+                        f"Unsupported revocation kind: {revocation_kind}"
+                    )
+                revoke_user_credentials_with_counts(revoke_db, target)
+                revoke_db.flush()
+            revocation_ready.set()
+            assert allow_revocation_commit.wait(timeout=5)
+            revoke_db.commit()
+        return "committed"
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            reader = executor.submit(_read_with_stale_authorization)
+            revoker = executor.submit(_revoke_access)
+            assert revocation_ready.wait(timeout=5)
+            assert read_attempted.wait(timeout=5)
+            time.sleep(0.1)
+            assert not reader.done()
+            allow_revocation_commit.set()
+            assert revoker.result(timeout=5) == "committed"
+            assert reader.result(timeout=5) == expected_error_code
+    finally:
+        allow_revocation_commit.set()
+        with Session(database_engine) as cleanup_db:
+            cleanup_db.execute(
+                delete(Investigation).where(Investigation.id == investigation_id)
+            )
+            cleanup_db.execute(delete(User).where(User.id.in_([owner_id, reader_id])))
+            cleanup_db.commit()
+
+
+def test_team_composed_reads_remain_lock_free(database_engine):
+    reader_id = uuid.uuid4()
+    investigation_id = uuid.uuid4()
+    with Session(database_engine) as setup_db:
+        setup_db.add(
+            User(
+                id=reader_id,
+                email=f"team-read-reader-{uuid.uuid4()}@example.com",
+                password_hash="x",
+                role="viewer",
+                is_active=True,
+                is_approved=True,
+            )
+        )
+        setup_db.flush()
+        setup_db.add(
+            Investigation(
+                id=investigation_id,
+                title="Lock-free team read",
+                visibility="team",
+                created_by_user_id=reader_id,
+            )
+        )
+        setup_db.flush()
+        setup_db.add(
+            InvestigationEvidence(
+                investigation_id=investigation_id,
+                source_type="item",
+                source_id=uuid.uuid4(),
+                title_snapshot="Team evidence",
+                metadata_snapshot_json={},
+                added_by_user_id=reader_id,
+            )
+        )
+        setup_db.commit()
+
+    blocker_db = Session(database_engine)
+    executor = ThreadPoolExecutor(max_workers=1)
+
+    def _read_team_evidence() -> int:
+        with Session(database_engine) as read_db:
+            reader = read_db.get(User, reader_id)
+            assert reader is not None
+            response = list_evidence(
+                read_db,
+                investigation_id=investigation_id,
+                user=reader,
+                page=1,
+                page_size=50,
+            )
+            return len(response.evidence)
+
+    try:
+        blocker_db.scalar(select(User).where(User.id == reader_id).with_for_update())
+        blocker_db.scalar(
+            select(Investigation)
+            .where(Investigation.id == investigation_id)
+            .with_for_update()
+        )
+        future = executor.submit(_read_team_evidence)
+        assert future.result(timeout=2) == 1
+    finally:
+        blocker_db.rollback()
+        blocker_db.close()
+        executor.shutdown(wait=True)
+        with Session(database_engine) as cleanup_db:
+            cleanup_db.execute(
+                delete(Investigation).where(Investigation.id == investigation_id)
+            )
+            cleanup_db.execute(delete(User).where(User.id == reader_id))
             cleanup_db.commit()
 
 
@@ -559,6 +885,37 @@ def test_detail_collections_are_bounded_and_complete_pages_remain_authorized(
             headers=auth_headers["analyst"],
         )
         assert excessive_page.status_code == 422
+
+
+def test_investigation_page_limits_return_validation_errors_and_accept_boundary(
+    client: TestClient,
+    auth_headers,
+):
+    investigation = _create_investigation(client, auth_headers["analyst"])
+    excessive_page = MAX_INVESTIGATION_PAGE + 1
+    paths = (
+        "/investigations",
+        "/investigations/member-candidates",
+        f"/investigations/{investigation['id']}/activity",
+    )
+
+    for path in paths:
+        rejected = client.get(
+            path,
+            params={"page": excessive_page, "page_size": 1},
+            headers=auth_headers["analyst"],
+        )
+        assert rejected.status_code == 422, rejected.text
+        assert rejected.json()["error"]["code"] == "validation_error"
+        assert "less than or equal" in rejected.json()["error"]["message"]
+
+        accepted = client.get(
+            path,
+            params={"page": MAX_INVESTIGATION_PAGE, "page_size": 1},
+            headers=auth_headers["analyst"],
+        )
+        assert accepted.status_code == 200, accepted.text
+        assert accepted.json()["page"] == MAX_INVESTIGATION_PAGE
 
 
 def test_alert_occurrence_evidence_is_owner_authorized_and_immutable(
