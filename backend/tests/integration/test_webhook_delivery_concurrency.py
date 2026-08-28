@@ -1327,10 +1327,11 @@ def test_webhook_delete_and_delivery_fence_use_parent_first_lock_order(
             cleanup_db.commit()
 
 
-def _persist_dead_letter_webhook_delivery(
+def _persist_webhook_delivery(
     database_engine,
     *,
     email_prefix: str,
+    dead_letter: bool,
 ) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
     owner_id = uuid.uuid4()
     webhook_id = uuid.uuid4()
@@ -1388,13 +1389,135 @@ def _persist_dead_letter_webhook_delivery(
             webhook=webhook,
             legacy_delivery=legacy,
         )
-        generic.state = "dead_letter"
-        generic.attempt_count = 1
-        generic.dead_lettered_at = datetime.now(timezone.utc)
-        generic.last_error_message = "Connection refused"
+        if dead_letter:
+            generic.state = "dead_letter"
+            generic.attempt_count = 1
+            generic.dead_lettered_at = datetime.now(timezone.utc)
+            generic.last_error_message = "Connection refused"
         setup_db.add(generic)
         setup_db.commit()
         return owner_id, delivery_id, generic.id
+
+
+def _persist_dead_letter_webhook_delivery(
+    database_engine,
+    *,
+    email_prefix: str,
+) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
+    return _persist_webhook_delivery(
+        database_engine,
+        email_prefix=email_prefix,
+        dead_letter=True,
+    )
+
+
+@pytest.mark.parametrize("failure_stage", ["read", "close"])
+def test_successful_webhook_response_preview_failure_does_not_retry(
+    database_engine,
+    monkeypatch,
+    failure_stage: str,
+):
+    owner_id, delivery_id, generic_delivery_id = _persist_webhook_delivery(
+        database_engine,
+        email_prefix=f"webhook-response-{failure_stage}",
+        dead_letter=False,
+    )
+    send_calls: list[str] = []
+    import app.services.notification_webhook_http as webhook_http
+
+    class _FailingReadStream(webhook_http.httpx.SyncByteStream):
+        def __iter__(self):
+            raise webhook_http.httpx.ReadError("Response body read failed")
+
+    class _FailingCloseStream(webhook_http.httpx.SyncByteStream):
+        def __iter__(self):
+            yield b"accepted"
+
+        def close(self):
+            raise webhook_http.httpx.ReadError("Response close failed")
+
+    class _ResponseClient:
+        timeout = type("Timeout", (), {"read": 10})()
+
+        def build_request(self, method, url, **kwargs):
+            return webhook_http.httpx.Request(method, url, **kwargs)
+
+        def send(self, request, **_kwargs):
+            send_calls.append(str(request.url))
+            stream = (
+                _FailingReadStream()
+                if failure_stage == "read"
+                else _FailingCloseStream()
+            )
+            return webhook_http.httpx.Response(
+                200,
+                request=request,
+                stream=stream,
+            )
+
+    @contextmanager
+    def _fake_client(*_args, **_kwargs):
+        yield _ResponseClient()
+
+    monkeypatch.setattr(webhook_http, "build_safe_http_client", _fake_client)
+    monkeypatch.setattr(
+        webhook_http,
+        "ensure_runtime_fetchable_url",
+        lambda *_args, **_kwargs: None,
+    )
+
+    try:
+        with Session(database_engine) as worker_db:
+            result = process_reserved_notification_deliveries(
+                worker_db,
+                [delivery_id],
+                process_delivery=lambda session, *, delivery_id: (
+                    process_notification_webhook_delivery(
+                        session,
+                        delivery_id=delivery_id,
+                    )
+                ),
+                reserve_retryable_delivery=(
+                    reserve_retryable_notification_webhook_delivery
+                ),
+                reserve_failed_delivery_notifications=None,
+                logger=logging.getLogger(__name__),
+            )
+
+        assert result.delivered == 1
+        assert result.failed == 0
+        assert result.followup_deliveries == ()
+        assert send_calls == ["https://hooks.example.com/events"]
+        with Session(database_engine) as verify_db:
+            legacy = verify_db.get(NotificationWebhookDelivery, delivery_id)
+            generic = verify_db.get(IntegrationDelivery, generic_delivery_id)
+            attempt = verify_db.scalar(
+                select(IntegrationAttempt).where(
+                    IntegrationAttempt.delivery_id == generic_delivery_id,
+                    IntegrationAttempt.attempt_number == 1,
+                )
+            )
+            assert legacy is not None
+            assert legacy.delivery_state == "succeeded"
+            assert legacy.status_code == 200
+            assert generic is not None
+            assert generic.state == "succeeded"
+            assert generic.last_status_code == 200
+            assert attempt is not None
+            assert attempt.status == "succeeded"
+            assert attempt.status_code == 200
+            deliveries = verify_db.scalars(
+                select(IntegrationDelivery).where(
+                    IntegrationDelivery.owner_user_id == owner_id
+                )
+            ).all()
+            assert [delivery.id for delivery in deliveries] == [generic_delivery_id]
+    finally:
+        with Session(database_engine) as cleanup_db:
+            owner = cleanup_db.get(User, owner_id)
+            if owner is not None:
+                cleanup_db.delete(owner)
+            cleanup_db.commit()
 
 
 def test_webhook_replay_and_recovery_use_parent_first_lock_order(database_engine):

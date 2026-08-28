@@ -186,6 +186,10 @@ def send_rendered_notification_request(
         pool=rendered.timeout_seconds,
     )
     started_at = time.perf_counter()
+    status_code: int | None = None
+    request_url = rendered.url
+    request_method = rendered.method
+    response_body_preview: str | None = None
 
     try:
         _renew_notification_operation_lease(rendered.timeout_seconds)
@@ -205,14 +209,14 @@ def send_rendered_notification_request(
                 raw_body=rendered.raw_body,
             )
             try:
+                status_code = response.status_code
+                request_url = str(response.request.url)
+                request_method = response.request.method
                 response_body_preview = read_response_preview(
                     response,
                     max_bytes=MAX_RESPONSE_PREVIEW_CHARS,
                     lease_timeout_seconds=rendered.timeout_seconds,
                 )
-                status_code = response.status_code
-                request_url = str(response.request.url)
-                request_method = response.request.method
             finally:
                 response.close()
     except RedirectError as exc:
@@ -220,6 +224,18 @@ def send_rendered_notification_request(
             raise
         return _failed_request_result(rendered, started_at=started_at, error=exc)
     except httpx.RemoteProtocolError as exc:
+        if status_code is not None and _delivery_redirect_chain_started.get() is not True:
+            return _completed_request_result(
+                rendered,
+                started_at=started_at,
+                status_code=status_code,
+                request_url=request_url,
+                request_method=request_method,
+                response_body_preview=_preview_or_unavailable(
+                    response_body_preview,
+                    error=exc,
+                ),
+            )
         if _delivery_external_io_started.get() is True:
             raise WebhookAmbiguousResponseError(
                 f"Webhook response was invalid after the request began: {exc}",
@@ -227,12 +243,26 @@ def send_rendered_notification_request(
             ) from exc
         return _failed_request_result(rendered, started_at=started_at, error=exc)
     except (SafeFetchError, httpx.HTTPError, ValueError) as exc:
+        if status_code is not None and _delivery_redirect_chain_started.get() is not True:
+            return _completed_request_result(
+                rendered,
+                started_at=started_at,
+                status_code=status_code,
+                request_url=request_url,
+                request_method=request_method,
+                response_body_preview=_preview_or_unavailable(
+                    response_body_preview,
+                    error=exc,
+                ),
+            )
         if _delivery_redirect_chain_started.get() is True:
             raise RedirectError(
                 f"Redirect chain failed after the initial request: {exc}"
             ) from exc
         return _failed_request_result(rendered, started_at=started_at, error=exc)
 
+    if status_code is None:
+        raise RuntimeError("Webhook response status is unavailable")
     duration_ms = int((time.perf_counter() - started_at) * 1000)
     if not 200 <= status_code < 400 and _delivery_redirect_chain_started.get() is True:
         raise WebhookAmbiguousResponseError(
@@ -241,8 +271,29 @@ def send_rendered_notification_request(
             status_code=status_code,
             duration_ms=duration_ms,
         )
+    return _completed_request_result(
+        rendered,
+        started_at=started_at,
+        status_code=status_code,
+        request_url=request_url,
+        request_method=request_method,
+        response_body_preview=response_body_preview,
+    )
+
+
+def _completed_request_result(
+    rendered: RenderedNotificationRequestLike,
+    *,
+    started_at: float,
+    status_code: int,
+    request_url: str,
+    request_method: str,
+    response_body_preview: str | None,
+) -> NotificationWebhookTestResponse:
+    duration_ms = int((time.perf_counter() - started_at) * 1000)
+    success = 200 <= status_code < 400
     return NotificationWebhookTestResponse(
-        success=200 <= status_code < 400,
+        success=success,
         status_code=status_code,
         duration_ms=duration_ms,
         rendered_url=request_url,
@@ -251,8 +302,18 @@ def send_rendered_notification_request(
         rendered_query_params=rendered.query_params,
         rendered_body=rendered.body,
         response_body_preview=response_body_preview,
-        error=None if 200 <= status_code < 400 else f"HTTP {status_code}",
+        error=None if success else f"HTTP {status_code}",
     )
+
+
+def _preview_or_unavailable(
+    response_body_preview: str | None,
+    *,
+    error: Exception,
+) -> str:
+    if response_body_preview is not None:
+        return response_body_preview
+    return f"Response preview unavailable ({type(error).__name__})."
 
 
 def _failed_request_result(
