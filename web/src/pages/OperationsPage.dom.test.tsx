@@ -205,6 +205,15 @@ describe('OperationsPage DOM workflows', () => {
     expect(operationsDomMocks.overviewRefetch).toHaveBeenCalledOnce()
   })
 
+  it('does not describe the initial operations load as a retry', () => {
+    operationsDomMocks.overviewAvailable = false
+    const view = renderPage()
+
+    expect(view.textContent).toContain('Loading deployment health...')
+    expect(view.textContent).toContain('Loading...')
+    expect(view.textContent).not.toContain('Retrying...')
+  })
+
   it('labels retained operation rows while updating selected history', () => {
     operationsDomMocks.runsFetching = true
     operationsDomMocks.runsError = new Error('history query timed out')

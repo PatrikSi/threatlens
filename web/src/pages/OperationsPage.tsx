@@ -75,15 +75,17 @@ export function OperationsPage() {
           : 'Operations status could not be loaded',
       )
     : ''
-  const overviewActionLabel = overviewQuery.isFetching
-    ? overview
-      ? 'Refreshing...'
-      : 'Retrying...'
-    : overview
-      ? 'Refresh'
-      : overviewQuery.isError
-        ? 'Retry operations status'
-        : 'Refresh'
+  const overviewActionLabel = overviewQuery.isLoading
+    ? 'Loading...'
+    : overviewQuery.isFetching
+      ? overview
+        ? 'Refreshing...'
+        : 'Retrying...'
+      : overview
+        ? 'Refresh'
+        : overviewQuery.isError
+          ? 'Retry operations status'
+          : 'Refresh'
 
   return (
     <section className="tl-surface min-w-0 overflow-hidden rounded-xl">
@@ -106,7 +108,7 @@ export function OperationsPage() {
             <button
               type="button"
               className="min-h-11 rounded border border-slate/30 px-3 py-2 text-sm font-semibold disabled:opacity-60 dark:border-cyan-900/40"
-              disabled={overviewQuery.isFetching}
+              disabled={overviewQuery.isLoading || overviewQuery.isFetching}
               onClick={() => void overviewQuery.refetch()}
             >
               {overviewActionLabel}
