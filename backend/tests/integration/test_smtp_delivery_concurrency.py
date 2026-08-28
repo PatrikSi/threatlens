@@ -14,6 +14,7 @@ from app.models.integration import (
     IntegrationInstance,
     IntegrationSubscription,
 )
+from app.models.user import User
 from app.schemas.integration import SMTPSettingsUpdate
 from app.services.integration_delivery import CLAIMED, claim_integration_delivery
 from app.services.integration_storage import (
@@ -24,6 +25,7 @@ from app.services.integration_storage import (
 )
 from app.services.smtp_integration import dispatch_smtp_notification
 from app.services.smtp_delivery_eligibility import (
+    SMTP_SOURCE_OWNER_IDS_KEY,
     SMTPDeliveryIneligibleError,
     lock_smtp_delivery_external_io_eligibility,
 )
@@ -141,6 +143,133 @@ def test_smtp_configuration_write_waits_for_external_io_fence(database_engine):
             cleanup_db.execute(
                 delete(IntegrationInstance).where(IntegrationInstance.id == instance_id)
             )
+            cleanup_db.commit()
+
+
+def test_global_alert_source_owner_change_waits_for_external_io_fence(
+    database_engine,
+):
+    source_owner_id = uuid.uuid4()
+    instance_id = uuid.uuid4()
+    delivery_id = uuid.uuid4()
+    with Session(database_engine) as setup_db:
+        setup_db.add(
+            User(
+                id=source_owner_id,
+                email=f"smtp-source-owner-{uuid.uuid4().hex}@example.com",
+                password_hash="x",
+                role="viewer",
+                is_active=True,
+                is_approved=True,
+            )
+        )
+        instance = IntegrationInstance(
+            id=instance_id,
+            name="Global alert SMTP",
+            integration_type="smtp",
+            direction="destination",
+            enabled=True,
+            config_json={
+                "host": "smtp.example.com",
+                "port": 587,
+                "security": "starttls",
+                "username": None,
+                "from_email": "threatlens@example.com",
+                "from_name": "ThreatLens",
+                "to_emails": ["soc@example.com"],
+                "timeout_seconds": 10,
+                "event_types": ["alert_match"],
+                "feed_scope": "all",
+                "feed_ids": [],
+                "subject_template": "ThreatLens alert",
+                "html_template": "<p>ThreatLens alert</p>",
+            },
+        )
+        setup_db.add(instance)
+        setup_db.flush()
+        subscription = IntegrationSubscription(
+            integration_id=instance.id,
+            subscription_key="event:alert_match",
+            event_type="alert_match",
+            enabled=True,
+        )
+        setup_db.add(subscription)
+        setup_db.flush()
+        setup_db.add(
+            IntegrationDelivery(
+                id=delivery_id,
+                integration_id=instance.id,
+                subscription_id=subscription.id,
+                owner_user_id=None,
+                connector_type="smtp",
+                event_type="alert_match",
+                state="pending",
+                idempotency_key=f"smtp-source-owner:{delivery_id}",
+                payload_json={
+                    SMTP_SOURCE_OWNER_IDS_KEY: [str(source_owner_id)],
+                },
+                max_attempts=3,
+            )
+        )
+        setup_db.commit()
+
+    writer_started = Event()
+    worker_db = Session(database_engine)
+
+    def _deactivate_source_owner() -> None:
+        with Session(database_engine) as writer_db:
+            writer_started.set()
+            owner = writer_db.scalar(
+                select(User).where(User.id == source_owner_id).with_for_update()
+            )
+            assert owner is not None
+            owner.is_active = False
+            writer_db.add(owner)
+            writer_db.commit()
+
+    try:
+        claim = claim_integration_delivery(worker_db, delivery_id=delivery_id)
+        assert claim.status == CLAIMED
+        assert claim.attempt_number == 1
+        instance = worker_db.get(IntegrationInstance, instance_id)
+        assert instance is not None
+        expected_settings = build_active_smtp_settings(instance)
+        lock_smtp_delivery_external_io_eligibility(
+            worker_db,
+            delivery_id=delivery_id,
+            expected_attempt_number=claim.attempt_number,
+            expected_settings=expected_settings,
+        )
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            writer = executor.submit(_deactivate_source_owner)
+            assert writer_started.wait(timeout=2)
+            time.sleep(0.1)
+            assert not writer.done()
+            worker_db.commit()
+            writer.result(timeout=5)
+
+        with Session(database_engine) as verify_db:
+            try:
+                lock_smtp_delivery_external_io_eligibility(
+                    verify_db,
+                    delivery_id=delivery_id,
+                    expected_attempt_number=1,
+                    expected_settings=expected_settings,
+                )
+            except SMTPDeliveryIneligibleError as exc:
+                assert exc.code == "smtp_source_owner_not_eligible"
+            else:
+                raise AssertionError("Inactive alert source owner remained eligible")
+            verify_db.rollback()
+    finally:
+        worker_db.rollback()
+        worker_db.close()
+        with Session(database_engine) as cleanup_db:
+            cleanup_db.execute(
+                delete(IntegrationInstance).where(IntegrationInstance.id == instance_id)
+            )
+            cleanup_db.execute(delete(User).where(User.id == source_owner_id))
             cleanup_db.commit()
 
 

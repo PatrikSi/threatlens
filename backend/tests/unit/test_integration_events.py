@@ -34,6 +34,7 @@ from app.services.integration_storage import (
 from app.services.integration_smtp_hooks import create_smtp_hook
 from app.services.integration_registry import get_integration_connector
 from app.services.notification_webhook_storage import decrypt_notification_text
+from app.services.smtp_delivery_eligibility import SMTP_SOURCE_OWNER_IDS_KEY
 from app.services.smtp_integration import SMTPNotificationResult
 
 
@@ -383,6 +384,10 @@ def test_alert_event_routes_to_ownerless_default_and_created_smtp_hooks(
     assert {delivery.owner_user_id for delivery in deliveries} == {None}
     assert all(
         delivery.payload_json["owner_user_id"] == str(user.id)
+        for delivery in deliveries
+    )
+    assert all(
+        delivery.payload_json[SMTP_SOURCE_OWNER_IDS_KEY] == [str(user.id)]
         for delivery in deliveries
     )
     assert all("alert_matches" not in delivery.payload_json for delivery in deliveries)

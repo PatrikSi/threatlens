@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.models.integration import (
     IntegrationDelivery,
+    IntegrationEvent,
     IntegrationInstance,
     IntegrationSubscription,
 )
@@ -22,6 +23,7 @@ from app.services.integration_storage import (
 )
 
 _DELIVERY_SENDING = "sending"
+SMTP_SOURCE_OWNER_IDS_KEY = "_threatlens_source_owner_user_ids"
 
 
 class SMTPDeliveryIneligibleError(RuntimeError):
@@ -37,9 +39,7 @@ def persisted_smtp_settings_heartbeat(
     *,
     persisted_settings: ActiveSMTPSettings,
 ) -> Callable[[int, ActiveSMTPSettings], None]:
-    def _heartbeat(
-        lease_seconds: int, _effective_settings: ActiveSMTPSettings
-    ) -> None:
+    def _heartbeat(lease_seconds: int, _effective_settings: ActiveSMTPSettings) -> None:
         heartbeat(lease_seconds, persisted_settings)
 
     return _heartbeat
@@ -130,19 +130,100 @@ def lock_smtp_delivery_external_io_eligibility(
             "smtp_owner_mismatch",
             "SMTP delivery owner no longer matches its integration owner.",
         )
-    if instance.owner_user_id is None:
+    source_owner_ids = _smtp_delivery_source_owner_ids(db, delivery=delivery)
+    owner_ids = set(source_owner_ids)
+    if instance.owner_user_id is not None:
+        owner_ids.add(instance.owner_user_id)
+    if not owner_ids:
         return
-    owner = db.scalar(
-        select(User)
-        .where(User.id == instance.owner_user_id)
-        .with_for_update(read=True)
-        .execution_options(populate_existing=True)
+    owners = {
+        owner.id: owner
+        for owner in db.scalars(
+            select(User)
+            .where(User.id.in_(owner_ids))
+            .order_by(User.id.asc())
+            .with_for_update(read=True)
+            .execution_options(populate_existing=True)
+        ).all()
+    }
+    integration_owner = (
+        owners.get(instance.owner_user_id)
+        if instance.owner_user_id is not None
+        else None
     )
-    if owner is None or not owner.is_active or not owner.is_approved:
+    if instance.owner_user_id is not None and (
+        integration_owner is None
+        or not integration_owner.is_active
+        or not integration_owner.is_approved
+    ):
         raise SMTPDeliveryIneligibleError(
             "smtp_owner_not_eligible",
             "SMTP owner is no longer active and approved for outbound delivery.",
         )
+    if any(
+        owner_id not in owners
+        or not owners[owner_id].is_active
+        or not owners[owner_id].is_approved
+        for owner_id in source_owner_ids
+    ):
+        raise SMTPDeliveryIneligibleError(
+            "smtp_source_owner_not_eligible",
+            "An alert source owner is no longer active and approved for outbound delivery.",
+        )
+
+
+def _smtp_delivery_source_owner_ids(
+    db: Session,
+    *,
+    delivery: IntegrationDelivery,
+) -> frozenset[uuid.UUID]:
+    if delivery.event_type != "alert_match":
+        return frozenset()
+
+    payload = delivery.payload_json if isinstance(delivery.payload_json, dict) else {}
+    if SMTP_SOURCE_OWNER_IDS_KEY in payload:
+        raw_owner_ids = payload.get(SMTP_SOURCE_OWNER_IDS_KEY)
+        if not isinstance(raw_owner_ids, list) or not raw_owner_ids:
+            raise SMTPDeliveryIneligibleError(
+                "smtp_source_owner_context_invalid",
+                "SMTP alert delivery has invalid source-owner context.",
+            )
+        try:
+            return frozenset(uuid.UUID(str(value)) for value in raw_owner_ids)
+        except (TypeError, ValueError) as exc:
+            raise SMTPDeliveryIneligibleError(
+                "smtp_source_owner_context_invalid",
+                "SMTP alert delivery has invalid source-owner context.",
+            ) from exc
+
+    if delivery.event_id is not None:
+        event = db.scalar(
+            select(IntegrationEvent).where(IntegrationEvent.id == delivery.event_id)
+        )
+        if event is not None:
+            from app.services.integration_events import alert_match_event_owner_ids
+
+            try:
+                event_owner_ids = alert_match_event_owner_ids(event)
+            except ValueError as exc:
+                raise SMTPDeliveryIneligibleError(
+                    "smtp_source_owner_context_invalid",
+                    "SMTP alert delivery has invalid source-owner context.",
+                ) from exc
+            if event_owner_ids is not None:
+                return event_owner_ids
+            payload = event.payload_json if isinstance(event.payload_json, dict) else {}
+
+    raw_owner_id = payload.get("owner_user_id")
+    if raw_owner_id is None or raw_owner_id == "":
+        return frozenset()
+    try:
+        return frozenset({uuid.UUID(str(raw_owner_id))})
+    except (TypeError, ValueError) as exc:
+        raise SMTPDeliveryIneligibleError(
+            "smtp_source_owner_context_invalid",
+            "SMTP alert delivery has invalid source-owner context.",
+        ) from exc
 
 
 def _lock_credential_source(
