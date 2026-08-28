@@ -10,9 +10,11 @@ from datetime import datetime, timedelta, timezone
 from threading import Event
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import event, select
 from sqlalchemy.orm import Session
 
+from app.api.routes.notifications import delete_notification_webhook
 from app.models.feed import Feed
 from app.models.integration import (
     IntegrationAttempt,
@@ -402,7 +404,6 @@ def test_first_webhook_heartbeat_schema_race_preserves_retry_budget(
         ("redirect_malformed", "failed", 1),
         ("redirect_malformed_httpx", "failed", 1),
         ("redirect_close", "failed", 1),
-        ("redirect_read", "failed", 2),
         ("redirect_503", "failed", 2),
     ],
 )
@@ -492,10 +493,6 @@ def test_webhook_configuration_race_after_first_request_records_unknown_outcome(
             assert schema_updated.wait(timeout=5)
         return original_lock(*args, **kwargs)
 
-    class _FailingReadStream(webhook_http.httpx.SyncByteStream):
-        def __iter__(self):
-            raise webhook_http.httpx.ReadError("Redirect response body read failed")
-
     class _FailingCloseStream(webhook_http.httpx.SyncByteStream):
         def __iter__(self):
             yield b""
@@ -511,12 +508,6 @@ def test_webhook_configuration_race_after_first_request_records_unknown_outcome(
 
         def send(self, request, **_kwargs):
             send_calls.append(str(request.url))
-            if configuration_change == "redirect_read" and request.url.path == "/next":
-                return webhook_http.httpx.Response(
-                    200,
-                    request=request,
-                    stream=_FailingReadStream(),
-                )
             if configuration_change == "redirect_503" and request.url.path == "/next":
                 return webhook_http.httpx.Response(503, request=request)
             location = "/next"
@@ -594,7 +585,6 @@ def test_webhook_configuration_race_after_first_request_records_unknown_outcome(
             worker = executor.submit(_run_worker)
             if configuration_change in {
                 "redirect_validation",
-                "redirect_read",
                 "redirect_503",
             }:
                 assert post_send_heartbeat_committed.wait(timeout=5)
@@ -1411,15 +1401,24 @@ def _persist_dead_letter_webhook_delivery(
     )
 
 
-@pytest.mark.parametrize("failure_stage", ["read", "close"])
+@pytest.mark.parametrize(
+    ("failure_stage", "redirected"),
+    [
+        ("read", False),
+        ("close", False),
+        ("read", True),
+        ("close", True),
+    ],
+)
 def test_successful_webhook_response_preview_failure_does_not_retry(
     database_engine,
     monkeypatch,
     failure_stage: str,
+    redirected: bool,
 ):
     owner_id, delivery_id, generic_delivery_id = _persist_webhook_delivery(
         database_engine,
-        email_prefix=f"webhook-response-{failure_stage}",
+        email_prefix=f"webhook-response-{failure_stage}-{redirected}",
         dead_letter=False,
     )
     send_calls: list[str] = []
@@ -1444,6 +1443,12 @@ def test_successful_webhook_response_preview_failure_does_not_retry(
 
         def send(self, request, **_kwargs):
             send_calls.append(str(request.url))
+            if redirected and request.url.path == "/events":
+                return webhook_http.httpx.Response(
+                    302,
+                    headers={"location": "/accepted"},
+                    request=request,
+                )
             stream = (
                 _FailingReadStream()
                 if failure_stage == "read"
@@ -1487,7 +1492,10 @@ def test_successful_webhook_response_preview_failure_does_not_retry(
         assert result.delivered == 1
         assert result.failed == 0
         assert result.followup_deliveries == ()
-        assert send_calls == ["https://hooks.example.com/events"]
+        expected_send_calls = ["https://hooks.example.com/events"]
+        if redirected:
+            expected_send_calls.append("https://hooks.example.com/accepted")
+        assert send_calls == expected_send_calls
         with Session(database_engine) as verify_db:
             legacy = verify_db.get(NotificationWebhookDelivery, delivery_id)
             generic = verify_db.get(IntegrationDelivery, generic_delivery_id)
@@ -1758,6 +1766,139 @@ def test_current_webhook_workers_yield_to_legacy_replay_lock_order(
             database_engine,
             "after_cursor_execute",
             _pause_current_after_child_lock,
+        )
+        with Session(database_engine) as cleanup_db:
+            owner = cleanup_db.get(User, owner_id)
+            if owner is not None:
+                cleanup_db.delete(owner)
+            cleanup_db.commit()
+
+
+def test_webhook_delete_returns_conflict_for_legacy_replay_lock_order(
+    database_engine,
+):
+    owner_id, delivery_id, generic_delivery_id = (
+        _persist_dead_letter_webhook_delivery(
+            database_engine,
+            email_prefix="webhook-mixed-order-delete",
+        )
+    )
+    with Session(database_engine) as lookup_db:
+        legacy = lookup_db.get(NotificationWebhookDelivery, delivery_id)
+        assert legacy is not None
+        webhook_id = legacy.webhook_id
+
+    legacy_thread_id: list[int] = []
+    delete_thread_id: list[int] = []
+    legacy_generic_locked = Event()
+    allow_legacy_child_lock = Event()
+    legacy_child_locked = Event()
+    allow_legacy_commit = Event()
+    delete_generic_lock_started = Event()
+
+    def _observe_legacy_child_lock(
+        _connection, _cursor, statement, _parameters, _context, _executemany
+    ) -> None:
+        if (
+            legacy_thread_id
+            and threading.get_ident() == legacy_thread_id[0]
+            and "notification_webhook_deliveries" in statement.lower()
+            and "for update" in statement.lower()
+        ):
+            legacy_child_locked.set()
+
+    def _pause_delete_before_generic_lock(
+        _connection, _cursor, statement, _parameters, _context, _executemany
+    ) -> None:
+        if (
+            delete_thread_id
+            and threading.get_ident() == delete_thread_id[0]
+            and "integration_deliveries" in statement.lower()
+            and "for update" in statement.lower()
+            and not delete_generic_lock_started.is_set()
+        ):
+            delete_generic_lock_started.set()
+            allow_legacy_child_lock.set()
+            assert legacy_child_locked.wait(timeout=5)
+
+    def _run_legacy_replay_lock_order() -> None:
+        legacy_thread_id.append(threading.get_ident())
+        with Session(database_engine) as legacy_db:
+            generic = legacy_db.scalar(
+                select(IntegrationDelivery)
+                .where(IntegrationDelivery.id == generic_delivery_id)
+                .with_for_update()
+            )
+            assert generic is not None
+            legacy_generic_locked.set()
+            assert allow_legacy_child_lock.wait(timeout=10)
+            legacy = legacy_db.scalar(
+                select(NotificationWebhookDelivery)
+                .where(NotificationWebhookDelivery.id == delivery_id)
+                .with_for_update()
+            )
+            assert legacy is not None
+            assert allow_legacy_commit.wait(timeout=10)
+            legacy_db.commit()
+
+    def _delete_through_api() -> HTTPException:
+        delete_thread_id.append(threading.get_ident())
+        with Session(database_engine) as delete_db:
+            owner = delete_db.get(User, owner_id)
+            assert owner is not None
+            try:
+                delete_notification_webhook(
+                    webhook_id=webhook_id,
+                    db=delete_db,
+                    user=owner,
+                    _scope_user=owner,
+                )
+            except HTTPException as exc:
+                return exc
+            raise AssertionError("mixed-version webhook deletion unexpectedly succeeded")
+
+    event.listen(
+        database_engine,
+        "after_cursor_execute",
+        _observe_legacy_child_lock,
+    )
+    event.listen(
+        database_engine,
+        "before_cursor_execute",
+        _pause_delete_before_generic_lock,
+    )
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            legacy_worker = executor.submit(_run_legacy_replay_lock_order)
+            assert legacy_generic_locked.wait(timeout=5)
+            delete_worker = executor.submit(_delete_through_api)
+            assert delete_generic_lock_started.wait(timeout=5)
+            error = delete_worker.result(timeout=10)
+            allow_legacy_commit.set()
+            legacy_worker.result(timeout=10)
+
+        assert error.status_code == 409
+        assert error.detail == (
+            "Webhook delivery processing is busy; retry deletion shortly."
+        )
+        with Session(database_engine) as verify_db:
+            assert verify_db.get(NotificationWebhook, webhook_id) is not None
+            assert (
+                verify_db.get(NotificationWebhookDelivery, delivery_id) is not None
+            )
+            assert verify_db.get(IntegrationDelivery, generic_delivery_id) is not None
+    finally:
+        allow_legacy_child_lock.set()
+        allow_legacy_commit.set()
+        event.remove(
+            database_engine,
+            "after_cursor_execute",
+            _observe_legacy_child_lock,
+        )
+        event.remove(
+            database_engine,
+            "before_cursor_execute",
+            _pause_delete_before_generic_lock,
         )
         with Session(database_engine) as cleanup_db:
             owner = cleanup_db.get(User, owner_id)
