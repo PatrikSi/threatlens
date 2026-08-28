@@ -5,6 +5,7 @@ import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from threading import Event
 
@@ -12,11 +13,14 @@ import pytest
 from sqlalchemy import event, select
 from sqlalchemy.orm import Session
 
+from app.models.feed import Feed
 from app.models.integration import (
     IntegrationAttempt,
     IntegrationDelivery,
+    IntegrationEvent,
     IntegrationInstance,
 )
+from app.models.item import Item
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.user import User
@@ -25,8 +29,18 @@ from app.services.integration_compat import (
     ensure_webhook_integration,
 )
 from app.services.integration_delivery import (
+    ensure_webhook_delivery,
     lock_webhook_delivery_external_io_eligibility,
 )
+from app.services.integration_delivery_compatibility import (
+    defer_integration_delivery_for_compatibility,
+)
+from app.services.integration_events import (
+    emit_integration_event,
+    list_recoverable_integration_event_ids,
+    route_integration_event,
+)
+from app.services.integration_connectors.webhook import WebhookIntegrationConnector
 from app.services.notification_delivery_processing import (
     process_reserved_notification_deliveries,
 )
@@ -44,6 +58,11 @@ from app.services.notification_webhooks import process_notification_webhook_deli
             "Webhook owner is no longer active and approved for outbound delivery.",
         ),
         ("integration", "Webhook integration is disabled."),
+        (
+            "schema",
+            "Webhook integration configuration uses schema version 2; this worker "
+            "supports through version 1. Delivery will retry after the worker is upgraded.",
+        ),
     ],
 )
 def test_webhook_delivery_rechecks_eligibility_after_concurrent_revocation(
@@ -130,8 +149,7 @@ def test_webhook_delivery_rechecks_eligibility_after_concurrent_revocation(
         _pause_after_initial_precheck,
     )
     monkeypatch.setattr(
-        webhook_service,
-        "_send_rendered_notification_request",
+        "app.services.notification_webhook_http.send_rendered_notification_request",
         _unexpected_send,
     )
 
@@ -161,20 +179,691 @@ def test_webhook_delivery_rechecks_eligibility_after_concurrent_revocation(
                         .with_for_update()
                     )
                     assert instance is not None
-                    instance.enabled = False
+                    if revocation == "integration":
+                        instance.enabled = False
+                    else:
+                        instance.schema_version = 2
                     revocation_db.add(instance)
                 revocation_db.commit()
             revocation_committed.set()
             attempt = worker.result(timeout=5)
 
         assert send_calls == []
-        assert attempt.claimed is True
         assert attempt.result.success is False
         assert attempt.result.error == expected_error
-        assert attempt.delivery.delivery_state == "failed"
-        assert attempt.delivery.error == f"policy_error:{expected_error}"
+        if revocation == "schema":
+            assert attempt.claimed is False
+            assert attempt.delivery.delivery_state == "pending"
+            assert attempt.delivery.error == expected_error
+            with Session(database_engine) as verify_db:
+                generic = verify_db.scalar(
+                    select(IntegrationDelivery).where(
+                        IntegrationDelivery.id
+                        == attempt.delivery.integration_delivery_id
+                    )
+                )
+                assert generic is not None and generic.state == "retry_wait"
+                generic_attempt = verify_db.scalar(
+                    select(IntegrationAttempt).where(
+                        IntegrationAttempt.delivery_id == generic.id
+                    )
+                )
+                assert generic.last_error_code == "unsupported_connector_config_schema"
+                assert generic_attempt is not None
+                assert generic_attempt.response_json["retry_budget_consumed"] is False
+        else:
+            assert attempt.claimed is True
+            assert attempt.delivery.delivery_state == "failed"
+            assert attempt.delivery.error == f"policy_error:{expected_error}"
     finally:
         revocation_committed.set()
+        with Session(database_engine) as cleanup_db:
+            owner = cleanup_db.get(User, owner_id)
+            if owner is not None:
+                cleanup_db.delete(owner)
+            cleanup_db.commit()
+
+
+def test_first_webhook_heartbeat_schema_race_preserves_retry_budget(
+    database_engine,
+    monkeypatch,
+):
+    owner_id = uuid.uuid4()
+    webhook_id = uuid.uuid4()
+    delivery_id = uuid.uuid4()
+    with Session(database_engine) as setup_db:
+        owner = User(
+            id=owner_id,
+            email=f"webhook-first-heartbeat-{uuid.uuid4().hex}@example.com",
+            password_hash="x",
+            role="analyst",
+            is_active=True,
+            is_approved=True,
+        )
+        webhook = NotificationWebhook(
+            id=webhook_id,
+            user_id=owner_id,
+            name="First heartbeat schema race",
+            enabled=True,
+            event_type="rss_item_new",
+            url_template="https://hooks.example.com/events",
+            method="POST",
+            feed_scope="all",
+            feed_ids_json=[],
+            query_params_json=[],
+            headers_json=[],
+            body_mode="none",
+            body_fields_json=[],
+            timeout_seconds=10,
+        )
+        setup_db.add(owner)
+        setup_db.flush()
+        setup_db.add(webhook)
+        setup_db.flush()
+        instance, _subscription = ensure_webhook_integration(setup_db, webhook)
+        legacy = NotificationWebhookDelivery(
+            id=delivery_id,
+            webhook_id=webhook_id,
+            user_id=owner_id,
+            event_type_snapshot="rss_item_new",
+            delivery_kind="live",
+            delivery_state="pending",
+            attempt_count=0,
+            success=False,
+            timeout_seconds=10,
+            rendered_url="https://hooks.example.com/events",
+            rendered_method="POST",
+            rendered_headers_json=[],
+            rendered_query_params_json=[],
+            rendered_body=None,
+            attempted_at=datetime.now(timezone.utc),
+        )
+        setup_db.add(legacy)
+        setup_db.flush()
+        generic = ensure_webhook_delivery(
+            setup_db,
+            webhook=webhook,
+            legacy_delivery=legacy,
+        )
+        generic.max_attempts = 1
+        setup_db.add(generic)
+        integration_id = instance.id
+        setup_db.commit()
+
+    lease_committed = Event()
+    schema_updated = Event()
+    import app.services.notification_delivery_processing as processing_service
+    import app.services.notification_webhook_http as webhook_http
+
+    original_lock = processing_service.lock_webhook_delivery_external_io_eligibility
+
+    def _pause_before_first_heartbeat_fence(*args, **kwargs):
+        lease_committed.set()
+        assert schema_updated.wait(timeout=5)
+        return original_lock(*args, **kwargs)
+
+    def _unexpected_client(*_args, **_kwargs):
+        raise AssertionError("HTTP client opened after an incompatible schema committed")
+
+    monkeypatch.setattr(
+        processing_service,
+        "lock_webhook_delivery_external_io_eligibility",
+        _pause_before_first_heartbeat_fence,
+    )
+    monkeypatch.setattr(webhook_http, "build_safe_http_client", _unexpected_client)
+
+    def _run_worker():
+        with Session(database_engine) as worker_db:
+            return process_reserved_notification_deliveries(
+                worker_db,
+                [delivery_id],
+                process_delivery=lambda session, *, delivery_id: (
+                    process_notification_webhook_delivery(
+                        session,
+                        delivery_id=delivery_id,
+                        commit_outcome=False,
+                    )
+                ),
+                reserve_retryable_delivery=lambda *_args, **_kwargs: None,
+                reserve_failed_delivery_notifications=None,
+                logger=logging.getLogger(__name__),
+            )
+
+    try:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            worker = executor.submit(_run_worker)
+            assert lease_committed.wait(timeout=5)
+            with Session(database_engine) as update_db:
+                instance = update_db.scalar(
+                    select(IntegrationInstance)
+                    .where(IntegrationInstance.id == integration_id)
+                    .with_for_update()
+                )
+                assert instance is not None
+                instance.schema_version = 2
+                update_db.add(instance)
+                update_db.commit()
+            schema_updated.set()
+            worker.result(timeout=5)
+
+        with Session(database_engine) as verify_db:
+            legacy = verify_db.get(NotificationWebhookDelivery, delivery_id)
+            assert legacy is not None
+            generic = verify_db.get(IntegrationDelivery, legacy.integration_delivery_id)
+            assert generic is not None
+            attempt = verify_db.scalar(
+                select(IntegrationAttempt).where(
+                    IntegrationAttempt.delivery_id == generic.id,
+                    IntegrationAttempt.attempt_number == 1,
+                )
+            )
+            assert legacy.delivery_state == "pending"
+            assert generic.state == "retry_wait"
+            assert generic.attempt_count == 1
+            assert attempt is not None
+            assert attempt.response_json["external_side_effect_possible"] is False
+            assert attempt.response_json["retry_budget_consumed"] is False
+
+            instance = verify_db.get(IntegrationInstance, integration_id)
+            assert instance is not None
+            instance.schema_version = 1
+            generic.not_before = datetime.now(timezone.utc) - timedelta(seconds=1)
+            legacy.not_before = generic.not_before
+            verify_db.add_all([instance, generic, legacy])
+            verify_db.commit()
+            replacement = claim_notification_webhook_delivery(
+                verify_db,
+                delivery_id=delivery_id,
+            )
+            assert replacement is not None
+            assert replacement.attempt_count == 2
+    finally:
+        schema_updated.set()
+        with Session(database_engine) as cleanup_db:
+            owner = cleanup_db.get(User, owner_id)
+            if owner is not None:
+                cleanup_db.delete(owner)
+            cleanup_db.commit()
+
+
+@pytest.mark.parametrize(
+    ("configuration_change", "expected_generic_state"),
+    [("schema", "dead_letter"), ("disabled", "failed")],
+)
+def test_webhook_configuration_race_after_first_request_records_unknown_outcome(
+    database_engine,
+    monkeypatch,
+    configuration_change: str,
+    expected_generic_state: str,
+):
+    owner_id = uuid.uuid4()
+    webhook_id = uuid.uuid4()
+    delivery_id = uuid.uuid4()
+    with Session(database_engine) as setup_db:
+        owner = User(
+            id=owner_id,
+            email=f"webhook-post-send-{uuid.uuid4().hex}@example.com",
+            password_hash="x",
+            role="analyst",
+            is_active=True,
+            is_approved=True,
+        )
+        webhook = NotificationWebhook(
+            id=webhook_id,
+            user_id=owner_id,
+            name="Post-send schema race",
+            enabled=True,
+            event_type="rss_item_new",
+            url_template="https://hooks.example.com/events",
+            method="POST",
+            feed_scope="all",
+            feed_ids_json=[],
+            query_params_json=[],
+            headers_json=[],
+            body_mode="none",
+            body_fields_json=[],
+            timeout_seconds=10,
+        )
+        setup_db.add(owner)
+        setup_db.flush()
+        setup_db.add(webhook)
+        setup_db.flush()
+        instance, _subscription = ensure_webhook_integration(setup_db, webhook)
+        legacy = NotificationWebhookDelivery(
+            id=delivery_id,
+            webhook_id=webhook_id,
+            user_id=owner_id,
+            event_type_snapshot="rss_item_new",
+            delivery_kind="live",
+            delivery_state="pending",
+            attempt_count=0,
+            success=False,
+            timeout_seconds=10,
+            rendered_url="https://hooks.example.com/events",
+            rendered_method="POST",
+            rendered_headers_json=[],
+            rendered_query_params_json=[],
+            rendered_body=None,
+            attempted_at=datetime.now(timezone.utc),
+        )
+        setup_db.add(legacy)
+        setup_db.flush()
+        generic = ensure_webhook_delivery(
+            setup_db,
+            webhook=webhook,
+            legacy_delivery=legacy,
+        )
+        generic.max_attempts = 1
+        setup_db.add(generic)
+        integration_id = instance.id
+        setup_db.commit()
+
+    post_send_heartbeat_committed = Event()
+    schema_updated = Event()
+    send_calls: list[str] = []
+    import app.services.notification_delivery_processing as processing_service
+    import app.services.notification_webhook_http as webhook_http
+
+    original_lock = processing_service.lock_webhook_delivery_external_io_eligibility
+    heartbeat_fences = 0
+
+    def _pause_before_post_send_heartbeat_fence(*args, **kwargs):
+        nonlocal heartbeat_fences
+        heartbeat_fences += 1
+        if heartbeat_fences == 3:
+            post_send_heartbeat_committed.set()
+            assert schema_updated.wait(timeout=5)
+        return original_lock(*args, **kwargs)
+
+    class _RedirectClient:
+        timeout = type("Timeout", (), {"read": 10})()
+
+        def build_request(self, method, url, **kwargs):
+            return webhook_http.httpx.Request(method, url, **kwargs)
+
+        def send(self, request, **_kwargs):
+            send_calls.append(str(request.url))
+            return webhook_http.httpx.Response(
+                302,
+                headers={"location": "/next"},
+                request=request,
+            )
+
+    @contextmanager
+    def _fake_client(*_args, **_kwargs):
+        yield _RedirectClient()
+
+    monkeypatch.setattr(
+        processing_service,
+        "lock_webhook_delivery_external_io_eligibility",
+        _pause_before_post_send_heartbeat_fence,
+    )
+    monkeypatch.setattr(webhook_http, "build_safe_http_client", _fake_client)
+    monkeypatch.setattr(
+        webhook_http,
+        "ensure_runtime_fetchable_url",
+        lambda *_args, **_kwargs: None,
+    )
+
+    def _run_worker():
+        with Session(database_engine) as worker_db:
+            return process_reserved_notification_deliveries(
+                worker_db,
+                [delivery_id],
+                process_delivery=lambda session, *, delivery_id: (
+                    process_notification_webhook_delivery(
+                        session,
+                        delivery_id=delivery_id,
+                        commit_outcome=False,
+                    )
+                ),
+                reserve_retryable_delivery=lambda *_args, **_kwargs: None,
+                reserve_failed_delivery_notifications=None,
+                logger=logging.getLogger(__name__),
+            )
+
+    try:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            worker = executor.submit(_run_worker)
+            assert post_send_heartbeat_committed.wait(timeout=5)
+            with Session(database_engine) as update_db:
+                instance = update_db.scalar(
+                    select(IntegrationInstance)
+                    .where(IntegrationInstance.id == integration_id)
+                    .with_for_update()
+                )
+                assert instance is not None
+                if configuration_change == "schema":
+                    instance.schema_version = 2
+                else:
+                    instance.enabled = False
+                update_db.add(instance)
+                update_db.commit()
+            schema_updated.set()
+            worker.result(timeout=5)
+
+        assert send_calls == ["https://hooks.example.com/events"]
+        with Session(database_engine) as verify_db:
+            legacy = verify_db.get(NotificationWebhookDelivery, delivery_id)
+            assert legacy is not None
+            generic = verify_db.get(IntegrationDelivery, legacy.integration_delivery_id)
+            assert generic is not None
+            attempt = verify_db.scalar(
+                select(IntegrationAttempt).where(
+                    IntegrationAttempt.delivery_id == generic.id,
+                    IntegrationAttempt.attempt_number == 1,
+                )
+            )
+            assert legacy.delivery_state == "failed"
+            assert legacy.not_before is None
+            assert generic.state == expected_generic_state
+            assert attempt is not None
+            assert attempt.response_json["delivery_outcome"] == "unknown"
+            assert attempt.response_json["external_side_effect_possible"] is True
+            assert "retry_budget_consumed" not in attempt.response_json
+            if configuration_change == "disabled":
+                assert (legacy.error or "").startswith("policy_error:")
+    finally:
+        schema_updated.set()
+        with Session(database_engine) as cleanup_db:
+            owner = cleanup_db.get(User, owner_id)
+            if owner is not None:
+                cleanup_db.delete(owner)
+            cleanup_db.commit()
+
+
+def test_webhook_created_between_prepare_and_route_waits_for_compatible_worker(
+    database_engine,
+    monkeypatch,
+):
+    owner_id = uuid.uuid4()
+    feed_id = uuid.uuid4()
+    item_id = uuid.uuid4()
+    with Session(database_engine) as setup_db:
+        owner = User(
+            id=owner_id,
+            email=f"webhook-route-race-{uuid.uuid4().hex}@example.com",
+            password_hash="x",
+            role="analyst",
+            is_active=True,
+            is_approved=True,
+        )
+        feed = Feed(
+            id=feed_id,
+            name="Webhook route race feed",
+            url=f"https://example.com/{feed_id}.xml",
+            enabled=True,
+            fetch_interval_seconds=1800,
+        )
+        item = Item(
+            id=item_id,
+            feed_id=feed_id,
+            source_guid=str(item_id),
+            url=f"https://example.com/articles/{item_id}",
+            canonical_url=f"https://example.com/articles/{item_id}",
+            title="Webhook route race article",
+            dedupe_key=f"route-race:{item_id}",
+            content_hash=uuid.uuid4().hex,
+            status="content_fetched",
+        )
+        setup_db.add_all([owner, feed])
+        setup_db.flush()
+        setup_db.add(item)
+        setup_db.flush()
+        event = emit_integration_event(
+            setup_db,
+            event_type="rss_item_new",
+            source_type="item",
+            source_id=item.id,
+            idempotency_key=f"webhook-route-race:{item.id}",
+            payload={"item_id": str(item.id), "feed_id": str(feed.id)},
+        )
+        event_id = event.id
+        setup_db.commit()
+
+    preparation_completed = Event()
+    future_webhook_committed = Event()
+    original_prepare = WebhookIntegrationConnector.prepare_routing
+
+    def _pause_after_prepare(self, db, *, event):
+        original_prepare(self, db, event=event)
+        if event.id == event_id:
+            preparation_completed.set()
+            assert future_webhook_committed.wait(timeout=5)
+
+    monkeypatch.setattr(
+        WebhookIntegrationConnector,
+        "prepare_routing",
+        _pause_after_prepare,
+    )
+    monkeypatch.setattr(
+        "app.services.integration_events.settings.integration_event_routing_max_attempts",
+        1,
+    )
+
+    def _route_event():
+        with Session(database_engine) as worker_db:
+            result = route_integration_event(worker_db, event_id=event_id)
+            worker_db.commit()
+            return result
+
+    try:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            worker = executor.submit(_route_event)
+            assert preparation_completed.wait(timeout=5)
+            with Session(database_engine) as writer_db:
+                webhook = NotificationWebhook(
+                    id=uuid.uuid4(),
+                    user_id=owner_id,
+                    name="Future webhook inserted during routing",
+                    enabled=True,
+                    event_type="rss_item_new",
+                    url_template="https://hooks.example.com/events",
+                    method="POST",
+                    feed_scope="all",
+                    feed_ids_json=[],
+                    query_params_json=[],
+                    headers_json=[],
+                    body_mode="none",
+                    body_fields_json=[],
+                    timeout_seconds=10,
+                )
+                writer_db.add(webhook)
+                writer_db.flush()
+                instance, _subscription = ensure_webhook_integration(
+                    writer_db, webhook
+                )
+                instance.schema_version = 2
+                instance.config_json = {
+                    **instance.config_json,
+                    "future_option": True,
+                }
+                writer_db.add(instance)
+                writer_db.commit()
+            future_webhook_committed.set()
+            first = worker.result(timeout=5)
+
+        with Session(database_engine) as verify_db:
+            event = verify_db.get(IntegrationEvent, event_id)
+            assert event is not None
+            assert first.status == "failed"
+            assert event.routing_attempt_count == 0
+            assert all(error.compatibility_wait for error in first.routing_errors)
+            assert "schema version 2" in (event.last_error or "")
+            assert event.id in list_recoverable_integration_event_ids(
+                verify_db,
+                now=event.available_at + timedelta(seconds=1),
+            )
+    finally:
+        future_webhook_committed.set()
+        with Session(database_engine) as cleanup_db:
+            event = cleanup_db.get(IntegrationEvent, event_id)
+            if event is not None:
+                cleanup_db.delete(event)
+            item = cleanup_db.get(Item, item_id)
+            if item is not None:
+                cleanup_db.delete(item)
+            feed = cleanup_db.get(Feed, feed_id)
+            if feed is not None:
+                cleanup_db.delete(feed)
+            owner = cleanup_db.get(User, owner_id)
+            if owner is not None:
+                cleanup_db.delete(owner)
+            cleanup_db.commit()
+
+
+def test_direct_webhook_worker_exit_after_send_prevents_automatic_duplicate(
+    database_engine,
+    monkeypatch,
+):
+    owner_id = uuid.uuid4()
+    webhook_id = uuid.uuid4()
+    delivery_id = uuid.uuid4()
+    with Session(database_engine) as setup_db:
+        owner = User(
+            id=owner_id,
+            email=f"webhook-direct-crash-{uuid.uuid4().hex}@example.com",
+            password_hash="x",
+            role="analyst",
+            is_active=True,
+            is_approved=True,
+        )
+        webhook = NotificationWebhook(
+            id=webhook_id,
+            user_id=owner_id,
+            name="Direct webhook crash boundary",
+            enabled=True,
+            event_type="rss_item_new",
+            url_template="https://hooks.example.com/events",
+            method="POST",
+            feed_scope="all",
+            feed_ids_json=[],
+            query_params_json=[],
+            headers_json=[],
+            body_mode="none",
+            body_fields_json=[],
+            timeout_seconds=10,
+        )
+        setup_db.add(owner)
+        setup_db.flush()
+        setup_db.add(webhook)
+        setup_db.flush()
+        ensure_webhook_integration(setup_db, webhook)
+        legacy = NotificationWebhookDelivery(
+            id=delivery_id,
+            webhook_id=webhook_id,
+            user_id=owner_id,
+            event_type_snapshot="rss_item_new",
+            delivery_kind="retry",
+            delivery_state="pending",
+            attempt_count=0,
+            success=False,
+            timeout_seconds=10,
+            rendered_url="https://hooks.example.com/events",
+            rendered_method="POST",
+            rendered_headers_json=[],
+            rendered_query_params_json=[],
+            rendered_body=None,
+            attempted_at=datetime.now(timezone.utc),
+        )
+        setup_db.add(legacy)
+        setup_db.flush()
+        generic = ensure_webhook_delivery(
+            setup_db,
+            webhook=webhook,
+            legacy_delivery=legacy,
+        )
+        generic.max_attempts = 1
+        setup_db.add(generic)
+        setup_db.commit()
+
+    send_calls: list[str] = []
+    import app.services.notification_webhook_http as webhook_http
+
+    class _SimulatedWorkerExit(BaseException):
+        pass
+
+    class _CrashAfterAcceptanceClient:
+        timeout = type("Timeout", (), {"read": 10})()
+
+        def build_request(self, method, url, **kwargs):
+            return webhook_http.httpx.Request(method, url, **kwargs)
+
+        def send(self, request, **_kwargs):
+            send_calls.append(str(request.url))
+            raise _SimulatedWorkerExit()
+
+    @contextmanager
+    def _fake_client(*_args, **_kwargs):
+        yield _CrashAfterAcceptanceClient()
+
+    monkeypatch.setattr(webhook_http, "build_safe_http_client", _fake_client)
+    monkeypatch.setattr(
+        webhook_http,
+        "ensure_runtime_fetchable_url",
+        lambda *_args, **_kwargs: None,
+    )
+
+    try:
+        with Session(database_engine) as worker_db:
+            with pytest.raises(_SimulatedWorkerExit):
+                process_notification_webhook_delivery(
+                    worker_db,
+                    delivery_id=delivery_id,
+                )
+            worker_db.rollback()
+
+        assert send_calls == ["https://hooks.example.com/events"]
+        stale_at = datetime.now(timezone.utc) - timedelta(days=1)
+        with Session(database_engine) as recovery_db:
+            legacy = recovery_db.get(NotificationWebhookDelivery, delivery_id)
+            assert legacy is not None
+            generic = recovery_db.get(
+                IntegrationDelivery, legacy.integration_delivery_id
+            )
+            assert generic is not None
+            attempt = recovery_db.scalar(
+                select(IntegrationAttempt).where(
+                    IntegrationAttempt.delivery_id == generic.id,
+                    IntegrationAttempt.attempt_number == 1,
+                )
+            )
+            assert attempt is not None
+            assert attempt.response_json["external_side_effect_possible"] is True
+            legacy.claimed_at = stale_at
+            legacy.not_before = None
+            generic.claimed_at = stale_at
+            generic.not_before = None
+            recovery_db.add_all([legacy, generic])
+            recovery_db.commit()
+
+            deferred = defer_integration_delivery_for_compatibility(
+                recovery_db,
+                delivery_id=generic.id,
+                error_code="unsupported_connector_config_schema",
+                error_message="Future webhook schema",
+                now=datetime.now(timezone.utc),
+            )
+            recovery_db.commit()
+            assert deferred.status == "retry_wait"
+            recovery_db.refresh(attempt)
+            assert attempt.response_json["delivery_outcome"] == "unknown"
+            assert "retry_budget_consumed" not in attempt.response_json
+
+            generic.not_before = datetime.now(timezone.utc) - timedelta(seconds=1)
+            legacy.not_before = generic.not_before
+            recovery_db.add_all([generic, legacy])
+            recovery_db.commit()
+            replacement = claim_notification_webhook_delivery(
+                recovery_db,
+                delivery_id=delivery_id,
+            )
+            assert replacement is None
+            recovery_db.refresh(generic)
+            recovery_db.refresh(legacy)
+            assert generic.state == "dead_letter"
+            assert legacy.delivery_state == "failed"
+    finally:
         with Session(database_engine) as cleanup_db:
             owner = cleanup_db.get(User, owner_id)
             if owner is not None:
@@ -264,8 +953,7 @@ def test_stale_webhook_worker_cannot_mutate_replacement_attempt(
         _pause_after_first_claim,
     )
     monkeypatch.setattr(
-        webhook_service,
-        "_send_rendered_notification_request",
+        "app.services.notification_webhook_http.send_rendered_notification_request",
         _unexpected_send,
     )
 

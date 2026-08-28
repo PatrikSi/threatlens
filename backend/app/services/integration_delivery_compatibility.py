@@ -91,7 +91,11 @@ def defer_integration_delivery_for_compatibility(
                 scheduled_for=claimed_at,
             )
         side_effect_possible = interrupt_running_attempt(
-            db, delivery=delivery, now=current_time
+            db,
+            delivery=delivery,
+            now=current_time,
+            compatibility_error_code=error_code,
+            compatibility_error_message=safe_error_message(error_message),
         )
         if delivery.connector_type == "smtp" and side_effect_possible is not False:
             dead_letter_without_attempt(

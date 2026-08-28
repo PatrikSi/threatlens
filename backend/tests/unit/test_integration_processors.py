@@ -999,6 +999,7 @@ def test_stale_pre_data_future_smtp_schema_waits_without_a_reclaim_loop(
         },
     )
     started_at = datetime.now(timezone.utc) - timedelta(hours=1)
+    delivery.max_attempts = 1
     delivery.state = "sending"
     delivery.attempt_count = 1
     delivery.claimed_at = started_at
@@ -1031,8 +1032,70 @@ def test_stale_pre_data_future_smtp_schema_waits_without_a_reclaim_loop(
     assert delivery.attempt_count == 1
     assert len(attempts) == 1
     assert attempts[0].status == "interrupted"
+    assert attempts[0].error_code == "smtp_source_owner_context_unsupported"
     assert attempts[0].response_json["delivery_outcome"] == "not_attempted"
     assert attempts[0].response_json["external_side_effect_possible"] is False
+    assert attempts[0].response_json["retry_budget_consumed"] is False
+
+    delivery.not_before = datetime.now(timezone.utc) - timedelta(seconds=1)
+    db_session.add(delivery)
+    db_session.commit()
+    upgraded_worker_claim = claim_integration_delivery(
+        db_session,
+        delivery_id=delivery.id,
+    )
+    assert upgraded_worker_claim.status == "claimed"
+    assert upgraded_worker_claim.attempt_number == 2
+
+
+def test_fenced_smtp_compatibility_wait_preserves_last_retry_slot(
+    db_session,
+    monkeypatch,
+):
+    _feed, _item, delivery = _persist_smtp_delivery(db_session)
+    instance = db_session.get(IntegrationInstance, delivery.integration_id)
+    assert instance is not None
+    instance.schema_version = 3
+    delivery.max_attempts = 1
+    db_session.add_all([instance, delivery])
+    db_session.commit()
+
+    def _upgrade_before_send(active, **kwargs):
+        instance.schema_version = 4
+        db_session.add(instance)
+        db_session.commit()
+        heartbeat = kwargs.get("lease_heartbeat")
+        assert heartbeat is not None
+        heartbeat(active.timeout_seconds, active)
+        raise AssertionError("future SMTP configuration reached external I/O")
+
+    monkeypatch.setattr(
+        "app.services.smtp_integration.send_smtp_notification",
+        _upgrade_before_send,
+    )
+
+    result = process_smtp_integration_delivery(db_session, delivery_id=delivery.id)
+
+    db_session.refresh(delivery)
+    attempt = db_session.scalar(
+        select(IntegrationAttempt).where(IntegrationAttempt.delivery_id == delivery.id)
+    )
+    assert result.status == "retry_wait"
+    assert result.reason == "smtp_config_schema_unsupported"
+    assert delivery.max_attempts == 1
+    assert delivery.attempt_count == 1
+    assert attempt is not None
+    assert attempt.response_json["retry_budget_consumed"] is False
+
+    delivery.not_before = datetime.now(timezone.utc) - timedelta(seconds=1)
+    db_session.add(delivery)
+    db_session.commit()
+    upgraded_worker_claim = claim_integration_delivery(
+        db_session,
+        delivery_id=delivery.id,
+    )
+    assert upgraded_worker_claim.status == "claimed"
+    assert upgraded_worker_claim.attempt_number == 2
 
 
 def test_fresh_future_schema_claim_is_not_stolen_after_integration_disable(

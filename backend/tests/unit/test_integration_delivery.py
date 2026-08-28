@@ -21,9 +21,14 @@ from app.services.integration_delivery import (
     finalize_integration_delivery,
     finalize_webhook_delivery,
     list_recoverable_integration_delivery_ids,
+    list_recoverable_webhook_delivery_ids,
     replay_dead_letter_delivery,
     renew_integration_delivery_lease,
     reserve_recoverable_integration_deliveries,
+)
+from app.services.notification_webhook_compatibility import (
+    WebhookExternalIOFenceError,
+    defer_claimed_notification_webhook_for_preflight_error,
 )
 
 
@@ -158,6 +163,91 @@ def test_webhook_claim_reconciles_terminal_delivery_from_legacy_worker(db_sessio
         )
         is None
     )
+
+
+def test_terminal_generic_webhook_projection_is_recoverable_after_commit_gap(
+    db_session,
+):
+    webhook, legacy = _persist_legacy_delivery(db_session)
+    generic = ensure_webhook_delivery(
+        db_session, webhook=webhook, legacy_delivery=legacy
+    )
+    now = datetime(2026, 7, 14, 12, 0, tzinfo=timezone.utc)
+    generic.state = "retry_wait"
+    generic.attempt_count = 1
+    generic.max_attempts = 1
+    generic.not_before = now - timedelta(seconds=1)
+    db_session.add(generic)
+    db_session.commit()
+
+    terminal = claim_integration_delivery(
+        db_session,
+        delivery_id=generic.id,
+        now=now,
+    )
+
+    db_session.refresh(legacy)
+    assert terminal.status == "terminal"
+    assert generic.state == "dead_letter"
+    assert legacy.delivery_state == "pending"
+    assert legacy.attempt_count == 0
+    assert legacy.id in list_recoverable_webhook_delivery_ids(
+        db_session,
+        now=now,
+    )
+
+    claimed = claim_webhook_delivery(
+        db_session,
+        webhook=webhook,
+        legacy_delivery=legacy,
+        now=now + timedelta(seconds=1),
+    )
+
+    assert claimed is None
+    assert legacy.delivery_state == "failed"
+    assert legacy.attempt_count == 1
+    assert legacy.error == "Delivery exhausted its configured attempts."
+
+
+def test_webhook_preflight_failure_preserves_prior_external_io_marker(db_session):
+    webhook, legacy = _persist_legacy_delivery(db_session)
+    claimed = claim_webhook_delivery(
+        db_session,
+        webhook=webhook,
+        legacy_delivery=legacy,
+    )
+    assert claimed is not None
+    generic = db_session.get(IntegrationDelivery, claimed.integration_delivery_id)
+    assert generic is not None
+    attempt = db_session.scalar(
+        select(IntegrationAttempt).where(
+            IntegrationAttempt.delivery_id == generic.id,
+            IntegrationAttempt.attempt_number == 1,
+        )
+    )
+    assert attempt is not None
+    attempt.response_json = {
+        "delivery_outcome": "unknown",
+        "external_side_effect_possible": True,
+    }
+    db_session.add(attempt)
+    db_session.commit()
+
+    deferred = defer_claimed_notification_webhook_for_preflight_error(
+        db_session,
+        delivery=claimed,
+        expected_attempt_number=1,
+        error=WebhookExternalIOFenceError("Database marker unavailable"),
+        commit_outcome=True,
+    )
+
+    db_session.refresh(generic)
+    db_session.refresh(attempt)
+    assert deferred.claimed is False
+    assert generic.state == "retry_wait"
+    assert attempt.response_json["delivery_outcome"] == "unknown"
+    assert attempt.response_json["external_side_effect_possible"] is True
+    assert "retry_budget_consumed" not in attempt.response_json
 
 
 def test_webhook_claim_reconciles_inflight_delivery_from_legacy_worker(db_session):

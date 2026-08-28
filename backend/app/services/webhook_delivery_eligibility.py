@@ -13,7 +13,10 @@ from app.models.integration import (
 )
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.user import User
-from app.services.integration_compat import lock_notification_webhook
+from app.services.integration_compat import (
+    ensure_webhook_config_schema_compatible,
+    lock_notification_webhook,
+)
 
 _DELIVERY_SENDING = "sending"
 
@@ -114,6 +117,7 @@ def lock_webhook_delivery_external_io_eligibility(
         raise WebhookDeliveryIneligibleError(
             "integration_disabled", "Webhook integration is disabled."
         )
+    ensure_webhook_config_schema_compatible(instance)
 
     subscription = db.scalar(
         select(IntegrationSubscription)

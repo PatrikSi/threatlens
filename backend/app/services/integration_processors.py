@@ -366,6 +366,7 @@ def process_smtp_integration_delivery(
                 "failure_class": "smtp_schema_compatibility",
                 "delivery_outcome": "not_attempted",
                 "external_side_effect_possible": False,
+                "retry_budget_consumed": False,
             },
         )
         db.commit()
