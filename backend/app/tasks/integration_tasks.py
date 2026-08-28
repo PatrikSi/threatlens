@@ -7,7 +7,6 @@ from app.core.config import get_settings
 from app.models.integration import IntegrationDelivery
 from app.services.integration_delivery import (
     IntegrationDeliveryClaimTracker,
-    defer_integration_delivery,
     defer_unclaimed_integration_delivery,
     integration_delivery_claim_observer,
     record_integration_delivery_unknown_outcome,
@@ -84,7 +83,7 @@ def process_integration_deliveries(delivery_ids: list[str]):
                     continue
                 connector = get_integration_connector(delivery.connector_type)
                 if connector is None:
-                    defer_integration_delivery(
+                    defer_unclaimed_integration_delivery(
                         db,
                         delivery_id=delivery.id,
                         error_code="unsupported_connector",

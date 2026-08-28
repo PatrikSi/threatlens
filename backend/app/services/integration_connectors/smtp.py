@@ -18,11 +18,18 @@ from app.services.integration_connectors.base import (
     ConnectorDeliveryResult,
     ConnectorRoutingResult,
     IntegrationConnectorDefinition,
+    IntegrationEventCompatibilityError,
     IntegrationEventContextError,
 )
 from app.services.integration_processors import process_smtp_integration_delivery
 from app.services.integration_registry_constants import SMTP_CONFIG_SCHEMA_VERSION
-from app.services.smtp_delivery_eligibility import SMTP_SOURCE_OWNER_IDS_KEY
+from app.services.smtp_delivery_eligibility import (
+    SMTP_SOURCE_OWNER_IDS_KEY,
+    SMTPDeliverySourceCompatibilityError,
+    SMTPDeliverySourceContextError,
+    smtp_alert_event_source_owner_ids,
+    smtp_legacy_alert_event_snapshot,
+)
 from app.services.integration_storage import sync_smtp_subscriptions
 
 settings = get_settings()
@@ -65,10 +72,27 @@ class SMTPIntegrationConnector:
     def route_event(
         self, db: Session, *, event: IntegrationEvent
     ) -> ConnectorRoutingResult:
-        from app.services.integration_events import alert_match_event_owner_ids
+        eligible_owner_ids: frozenset[uuid.UUID] | None = None
+        if event.event_type == "alert_match":
+            try:
+                owner_ids = smtp_alert_event_source_owner_ids(db, event=event)
+            except SMTPDeliverySourceCompatibilityError as exc:
+                raise IntegrationEventCompatibilityError(f"{exc.code}: {exc}") from exc
+            except SMTPDeliverySourceContextError as exc:
+                raise IntegrationEventContextError(f"{exc.code}: {exc}") from exc
+            eligible_owner_ids = frozenset(
+                db.scalars(
+                    select(User.id).where(
+                        User.id.in_(owner_ids),
+                        User.is_active.is_(True),
+                        User.is_approved.is_(True),
+                    )
+                ).all()
+            )
+            if not eligible_owner_ids:
+                return ConnectorRoutingResult()
 
         feed_id = _payload_uuid(event, "feed_id", required=False)
-        eligible_owner_ids: frozenset[uuid.UUID] | None = None
         query = (
             select(IntegrationSubscription, IntegrationInstance)
             .join(
@@ -84,66 +108,19 @@ class SMTPIntegrationConnector:
             )
         )
         if event.event_type == "alert_match":
-            owner_ids = alert_match_event_owner_ids(event)
-            if owner_ids is not None:
-                if not owner_ids:
-                    return ConnectorRoutingResult()
-                eligible_owner_ids = frozenset(
-                    db.scalars(
-                        select(User.id).where(
-                            User.id.in_(owner_ids),
-                            User.is_active.is_(True),
-                            User.is_approved.is_(True),
-                        )
-                    ).all()
+            assert eligible_owner_ids is not None
+            query = query.outerjoin(
+                User, User.id == IntegrationInstance.owner_user_id
+            ).where(
+                or_(
+                    IntegrationInstance.owner_user_id.is_(None),
+                    and_(
+                        IntegrationInstance.owner_user_id.in_(eligible_owner_ids),
+                        User.is_active.is_(True),
+                        User.is_approved.is_(True),
+                    ),
                 )
-                if not eligible_owner_ids:
-                    return ConnectorRoutingResult()
-                query = query.outerjoin(
-                    User, User.id == IntegrationInstance.owner_user_id
-                ).where(
-                    or_(
-                        IntegrationInstance.owner_user_id.is_(None),
-                        and_(
-                            IntegrationInstance.owner_user_id.in_(eligible_owner_ids),
-                            User.is_active.is_(True),
-                            User.is_approved.is_(True),
-                        ),
-                    )
-                )
-            else:
-                legacy_owner_id = _payload_uuid(event, "owner_user_id", required=False)
-                query = query.outerjoin(
-                    User, User.id == IntegrationInstance.owner_user_id
-                )
-                if legacy_owner_id is None:
-                    query = query.where(
-                        or_(
-                            IntegrationInstance.owner_user_id.is_(None),
-                            and_(
-                                User.is_active.is_(True),
-                                User.is_approved.is_(True),
-                            ),
-                        )
-                    )
-                else:
-                    eligible_owner_ids = frozenset(
-                        db.scalars(
-                            select(User.id).where(
-                                User.id == legacy_owner_id,
-                                User.is_active.is_(True),
-                                User.is_approved.is_(True),
-                            )
-                        ).all()
-                    )
-                    if not eligible_owner_ids:
-                        return ConnectorRoutingResult()
-                    query = query.where(
-                        or_(
-                            IntegrationInstance.owner_user_id.is_(None),
-                            IntegrationInstance.owner_user_id == legacy_owner_id,
-                        )
-                    )
+            )
         if feed_id is None and event.event_type not in {"daily_digest", "report_ready"}:
             query = query.where(IntegrationSubscription.feed_scope == "all")
         elif feed_id is not None:
@@ -180,7 +157,10 @@ class SMTPIntegrationConnector:
             )
             if delivery_payload is None:
                 continue
-            if event.event_type == "alert_match":
+            if (
+                event.event_type == "alert_match"
+                and SMTP_SOURCE_OWNER_IDS_KEY not in delivery_payload
+            ):
                 source_owner_ids = (
                     frozenset({payload_owner_id})
                     if payload_owner_id is not None
@@ -266,7 +246,6 @@ def _smtp_delivery_payload_for_owner(
         build_alert_match_snapshot_payload,
         delivery_payload_for_global_alert,
         delivery_payload_for_owner,
-        hydrate_integration_event_resources,
     )
 
     if event.event_type != "alert_match":
@@ -277,28 +256,37 @@ def _smtp_delivery_payload_for_owner(
                 event, owner_user_ids=eligible_owner_ids
             )
         return delivery_payload_for_owner(event, owner_user_id=owner_user_id)
-    if owner_user_id is None:
-        return delivery_payload_for_global_alert(event)
-
-    from app.services.notification_webhooks import build_alert_match_context_for_item
-
-    resources = hydrate_integration_event_resources(db, event=event)
-    if resources.item is None or resources.feed is None:
-        raise IntegrationEventContextError(
-            "Legacy alert-match event is missing item or feed context"
-        )
-    context = build_alert_match_context_for_item(
-        db,
-        user_id=owner_user_id,
-        item=resources.item,
+    owner_ids = (
+        frozenset({owner_user_id})
+        if owner_user_id is not None
+        else eligible_owner_ids or frozenset()
     )
-    if context is None:
-        return None
-    return build_alert_match_snapshot_payload(
-        item=resources.item,
-        feed=resources.feed,
-        contexts_by_owner={owner_user_id: context},
+    legacy_snapshot = smtp_legacy_alert_event_snapshot(
+        db,
+        event=event,
+        owner_ids=owner_ids,
+    )
+    contexts_by_owner = legacy_snapshot.contexts_by_owner
+    selected_contexts = (
+        {owner_user_id: contexts_by_owner[owner_user_id]}
+        if owner_user_id is not None
+        else contexts_by_owner
+    )
+    occurrence_count = sum(context.count for context in selected_contexts.values())
+    payload = build_alert_match_snapshot_payload(
+        item=legacy_snapshot.item,
+        feed=legacy_snapshot.feed,
+        contexts_by_owner=selected_contexts,
         occurrence_ids=[],
+        occurrence_count=occurrence_count,
+        occurrence_ids_truncated=occurrence_count > 0,
         evaluation_request_id=None,
         owner_user_id=owner_user_id,
     )
+    if owner_user_id is None:
+        payload.pop("alert_matches", None)
+        payload.pop("occurrence_ids_by_owner", None)
+    payload[SMTP_SOURCE_OWNER_IDS_KEY] = [
+        str(source_owner_id) for source_owner_id in sorted(selected_contexts, key=str)
+    ]
+    return payload

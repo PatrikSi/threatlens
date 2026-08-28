@@ -19,6 +19,7 @@ from app.models.integration import (
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.services.integration_compat import ensure_webhook_integration
+from app.services.integration_delivery_attempts import interrupt_running_attempt
 from app.services.integration_delivery_replay import smtp_replay_recipient_override
 from app.services.integration_delivery_state import (
     coerce_utc as _coerce_utc,
@@ -48,7 +49,6 @@ DELIVERY_TERMINAL_STATES = (DELIVERY_SUCCEEDED, DELIVERY_FAILED, DELIVERY_DEAD_L
 ATTEMPT_RUNNING = "running"
 ATTEMPT_SUCCEEDED = "succeeded"
 ATTEMPT_FAILED = "failed"
-ATTEMPT_INTERRUPTED = "interrupted"
 
 CLAIMED = "claimed"
 DEFERRED = "deferred"
@@ -178,8 +178,10 @@ def claim_integration_delivery(
             scheduled_for=claimed_at,
         )
     if delivery.state == DELIVERY_SENDING:
-        _interrupt_running_attempt(db, generic=delivery, now=current_time)
-        if delivery.connector_type == "smtp":
+        side_effect_possible = interrupt_running_attempt(
+            db, delivery=delivery, now=current_time
+        )
+        if delivery.connector_type == "smtp" and side_effect_possible is not False:
             _dead_letter_without_attempt(
                 delivery,
                 code="unknown_delivery_outcome",
@@ -296,7 +298,14 @@ def claim_integration_delivery(
             attempt_number=attempt_number,
             status=ATTEMPT_RUNNING,
             started_at=current_time,
-            response_json={},
+            response_json=(
+                {
+                    "delivery_outcome": "not_attempted",
+                    "external_side_effect_possible": False,
+                }
+                if delivery.connector_type == "smtp"
+                else {}
+            ),
         )
     )
     db.add(delivery)
@@ -350,6 +359,7 @@ def finalize_integration_delivery(
     response_json: dict | None = None,
     finished_at: datetime | None = None,
     schedule_retry: bool = True,
+    affect_circuit: bool = True,
 ) -> IntegrationDeliveryOutcome:
     completed_at = finished_at or datetime.now(timezone.utc)
     safe_error_message = _safe_error_message(error_message)
@@ -425,7 +435,7 @@ def finalize_integration_delivery(
         delivery.not_before = None
         delivery.dead_lettered_at = completed_at
 
-    if instance is not None:
+    if instance is not None and affect_circuit:
         _update_circuit(
             instance, success=success, retryable=retryable, now=completed_at
         )
@@ -445,7 +455,7 @@ def record_integration_delivery_unknown_outcome(
     error_message: str,
     now: datetime | None = None,
 ) -> IntegrationDeliveryOutcome:
-    """Record a worker exit after claim when the external side effect may have happened."""
+    """Record a claimed worker exit using its durable side-effect boundary."""
     current_time = now or datetime.now(timezone.utc)
     delivery = db.scalar(
         select(IntegrationDelivery)
@@ -459,18 +469,35 @@ def record_integration_delivery_unknown_outcome(
         expected_attempt_number
     ):
         return IntegrationDeliveryOutcome(recorded=False, state=delivery.state)
+    attempt = db.scalar(
+        select(IntegrationAttempt).where(
+            IntegrationAttempt.delivery_id == delivery.id,
+            IntegrationAttempt.attempt_number == expected_attempt_number,
+        )
+    )
+    attempt_response = (
+        attempt.response_json
+        if attempt is not None and isinstance(attempt.response_json, dict)
+        else {}
+    )
+    marker = attempt_response.get("external_side_effect_possible")
+    known_pre_side_effect = delivery.connector_type == "smtp" and marker is False
+    external_side_effect_possible = not known_pre_side_effect
     return finalize_integration_delivery(
         db,
         delivery_id=delivery.id,
         expected_attempt_number=expected_attempt_number,
         success=False,
         duration_ms=None,
-        error_code=error_code,
+        error_code=("worker_preflight_error" if known_pre_side_effect else error_code),
         error_message=error_message,
-        retryable=delivery.connector_type != "smtp",
+        retryable=delivery.connector_type != "smtp" or known_pre_side_effect,
+        affect_circuit=False,
         response_json={
-            "delivery_outcome": "unknown",
-            "external_side_effect_possible": True,
+            "delivery_outcome": (
+                "not_attempted" if known_pre_side_effect else "unknown"
+            ),
+            "external_side_effect_possible": external_side_effect_possible,
         },
         finished_at=current_time,
     )
@@ -665,33 +692,6 @@ def mark_integration_delivery_dead_letter(
     delivery.last_error_message = (
         _safe_error_message(error_message) or delivery.last_error_message
     )
-    db.add(delivery)
-    return True
-
-
-def defer_integration_delivery(
-    db: Session,
-    *,
-    delivery_id: uuid.UUID,
-    error_code: str,
-    error_message: str,
-    delay_seconds: int = 60,
-    now: datetime | None = None,
-) -> bool:
-    delivery = db.scalar(
-        select(IntegrationDelivery)
-        .where(IntegrationDelivery.id == delivery_id)
-        .with_for_update()
-    )
-    if delivery is None or delivery.state in DELIVERY_TERMINAL_STATES:
-        return False
-    current_time = now or datetime.now(timezone.utc)
-    delivery.state = DELIVERY_RETRY_WAIT
-    delivery.claimed_at = None
-    delivery.not_before = current_time + timedelta(seconds=max(1, int(delay_seconds)))
-    delivery.last_error_code = error_code
-    delivery.last_error_message = _safe_error_message(error_message)
-    delivery.last_error_retryable = True
     db.add(delivery)
     return True
 
@@ -1076,31 +1076,6 @@ def _generic_source_delivery_id(
     if source is None:
         return None
     return source.integration_delivery_id
-
-
-def _interrupt_running_attempt(
-    db: Session, *, generic: IntegrationDelivery, now: datetime
-) -> None:
-    attempt = db.scalar(
-        select(IntegrationAttempt).where(
-            IntegrationAttempt.delivery_id == generic.id,
-            IntegrationAttempt.attempt_number
-            == max(1, int(generic.attempt_count or 0)),
-            IntegrationAttempt.status == ATTEMPT_RUNNING,
-        )
-    )
-    if attempt is None:
-        return
-    attempt.status = ATTEMPT_INTERRUPTED
-    attempt.finished_at = now
-    attempt.error_code = "worker_interrupted"
-    attempt.error_message = "Delivery worker stopped before recording an outcome."
-    attempt.retryable = generic.connector_type != "smtp"
-    attempt.response_json = {
-        "delivery_outcome": "unknown",
-        "external_side_effect_possible": True,
-    }
-    db.add(attempt)
 
 
 def _reconcile_legacy_claim_state(
