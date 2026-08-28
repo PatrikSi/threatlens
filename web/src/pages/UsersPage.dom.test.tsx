@@ -1527,6 +1527,46 @@ describe('UsersPage DOM workflows', () => {
     expect(pageText()).not.toContain('unsaved account draft is hidden')
   })
 
+  it('confirms before discarding a hidden account draft', () => {
+    const view = renderPage()
+    const roleSelect = view.querySelector<HTMLSelectElement>('#user-role-user-1')!
+    const searchInput = view.querySelector<HTMLInputElement>('#user-directory-search')!
+
+    act(() => setSelectValue(roleSelect, 'admin'))
+    usersPageDomMocks.usersData = []
+    act(() => setInputValue(searchInput, 'missing-user'))
+
+    const discardTrigger = Array.from(
+      view.querySelectorAll<HTMLButtonElement>('button'),
+    ).find((button) => button.textContent === 'Discard hidden draft')
+    act(() => discardTrigger?.click())
+    const dialog = document.querySelector<HTMLElement>('[role="alertdialog"]')
+    expect(dialog?.textContent).toContain('Discard hidden account draft?')
+    expect(pageText()).toContain('1 unsaved account draft is hidden')
+
+    const cancel = Array.from(
+      dialog?.querySelectorAll<HTMLButtonElement>('button') ?? [],
+    ).find((button) => button.textContent === 'Cancel')
+    act(() => cancel?.click())
+    expect(pageText()).toContain('1 unsaved account draft is hidden')
+
+    act(() => discardTrigger?.click())
+    const confirm = Array.from(
+      document.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button'),
+    ).find((button) => button.textContent === 'Discard hidden draft')
+    act(() => confirm?.click())
+    expect(pageText()).not.toContain('unsaved account draft is hidden')
+  })
+
+  it('describes Viewer alert triage rights without claiming all state is read-only', () => {
+    renderPage()
+
+    expect(pageText()).toContain(
+      'Manage personal alert rules, occurrence triage, notifications, and API tokens',
+    )
+    expect(pageText()).not.toContain('Cannot change feeds, tags, or triage state')
+  })
+
   it('warns before blocked navigation when user settings drafts are still dirty', () => {
     const view = renderPage()
 

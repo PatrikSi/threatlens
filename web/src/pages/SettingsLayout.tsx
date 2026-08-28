@@ -2,14 +2,14 @@ import { useEffect, useState } from 'react'
 import { Link, Outlet, useLocation } from 'react-router-dom'
 
 import { useCurrentUser } from '../hooks/useCurrentUser'
+import type { CurrentUser } from '../types/api'
 
 export function SettingsLayout() {
   const meQuery = useCurrentUser()
   const location = useLocation()
   const [integrationsExpanded, setIntegrationsExpanded] = useState(false)
   const [mobileSettingsOpen, setMobileSettingsOpen] = useState(false)
-  const role = meQuery.data?.role
-  const aiEnabled = meQuery.data?.features.ai_enabled ?? false
+  const { role, roleLabel, aiEnabled } = settingsAccess(meQuery.data, meQuery.isError)
   const integrationsActive = isSettingsLinkActive(location.pathname, '/settings/integrations')
   const showIntegrationsChildren = integrationsActive || integrationsExpanded
   const webhooksActive = isSettingsLinkActive(location.pathname, '/settings/integrations/webhooks')
@@ -118,7 +118,7 @@ export function SettingsLayout() {
               </div>
             </nav>
             <p className="mt-3 px-1 text-xs text-slate dark:text-slate-400">
-              Current role: <span className="font-semibold text-ink dark:text-slate-200">{role || 'loading...'}</span>
+              Current role: <span className="font-semibold text-ink dark:text-slate-200">{roleLabel}</span>
             </p>
           </div>
         )}
@@ -194,7 +194,7 @@ export function SettingsLayout() {
 
         <div className="tl-surface-muted mt-5 rounded p-3 text-xs">
           <p className="font-semibold">Current role</p>
-          <p className="mt-1 text-cyan-800 dark:text-cyan-200">{role || 'loading...'}</p>
+          <p className="mt-1 text-cyan-800 dark:text-cyan-200">{roleLabel}</p>
         </div>
       </aside>
 
@@ -207,4 +207,13 @@ export function SettingsLayout() {
 
 function isSettingsLinkActive(pathname: string, targetPath: string) {
   return pathname === targetPath || pathname.startsWith(`${targetPath}/`)
+}
+
+function settingsAccess(user: CurrentUser | undefined, unavailable: boolean) {
+  if (unavailable) return { role: undefined, roleLabel: 'unavailable', aiEnabled: false }
+  return {
+    role: user?.role,
+    roleLabel: user?.role ?? 'loading...',
+    aiEnabled: user?.features.ai_enabled ?? false,
+  }
 }

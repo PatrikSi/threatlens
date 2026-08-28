@@ -33,11 +33,11 @@ const ROLE_DEFINITIONS: Array<{
   {
     role: 'viewer',
     summary:
-      'Read-oriented access for monitoring without operational or administrative mutation rights.',
+      'Personal monitoring and alert-triage access without feed-management or administrative control.',
     capabilities: [
-      'View dashboard, feeds, and other read-only surfaces',
-      'Access personal account settings, API tokens, and notifications',
-      'Cannot change feeds, tags, or triage state',
+      'View dashboard, feeds, available investigations, and other read surfaces',
+      'Manage personal alert rules, occurrence triage, notifications, and API tokens',
+      'Cannot manage feeds, tags, users, audit logs, or global AI and identity settings',
     ],
   },
 ]
