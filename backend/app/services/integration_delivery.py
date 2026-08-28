@@ -38,6 +38,10 @@ from app.services.webhook_delivery_eligibility import (
 from app.services.webhook_delivery_eligibility import (
     lock_webhook_delivery_external_io_eligibility as lock_webhook_delivery_external_io_eligibility,
 )
+from app.services.webhook_delivery_projection import (
+    reconcile_linked_terminal_webhook_projection,
+    sync_terminal_webhook_projection,
+)
 
 settings = get_settings()
 
@@ -894,6 +898,16 @@ def claim_webhook_delivery(
     now: datetime | None = None,
 ) -> NotificationWebhookDelivery | None:
     current_time = now or datetime.now(timezone.utc)
+    if reconcile_linked_terminal_webhook_projection(
+        db,
+        legacy_delivery=legacy_delivery,
+        current_time=current_time,
+    ):
+        db.add(legacy_delivery)
+        db.commit()
+        db.refresh(legacy_delivery)
+        return None
+
     generic = ensure_webhook_delivery(
         db, webhook=webhook, legacy_delivery=legacy_delivery
     )
@@ -904,25 +918,11 @@ def claim_webhook_delivery(
             return None
     claim = claim_integration_delivery(db, delivery_id=generic.id, now=current_time)
     if claim.status != CLAIMED or claim.attempt_number is None:
-        if (
-            generic.state in DELIVERY_TERMINAL_STATES
-            and legacy_delivery.delivery_state not in {DELIVERY_SUCCEEDED, DELIVERY_FAILED}
+        if sync_terminal_webhook_projection(
+            generic=generic,
+            legacy_delivery=legacy_delivery,
+            current_time=current_time,
         ):
-            succeeded = generic.state == DELIVERY_SUCCEEDED
-            legacy_delivery.delivery_state = (
-                DELIVERY_SUCCEEDED if succeeded else DELIVERY_FAILED
-            )
-            legacy_delivery.success = succeeded
-            legacy_delivery.status_code = generic.last_status_code
-            legacy_delivery.duration_ms = generic.last_duration_ms
-            legacy_delivery.error = None if succeeded else generic.last_error_message
-            legacy_delivery.attempt_count = max(
-                int(legacy_delivery.attempt_count or 0),
-                int(generic.attempt_count or 0),
-            )
-            legacy_delivery.claimed_at = None
-            legacy_delivery.not_before = None
-            legacy_delivery.attempted_at = generic.completed_at or current_time
             db.add(legacy_delivery)
             db.commit()
             db.refresh(legacy_delivery)
