@@ -73,11 +73,14 @@ API and worker processes, apply the migration, and deploy the matching release
 before accepting traffic; older processes cannot create or validate the opaque
 session and MFA records. Downgrade is blocked while any active local TOTP
 credential or delegated API token exists so operators cannot silently remove an
-enabled factor or a descendant-token revocation relationship. It is also blocked
-after the OIDC provider revision advances beyond its initial value because dropping
-that revision would make stale provider writes possible after re-upgrade. Disable or
-inventory MFA credentials, revoke delegated tokens, and use a verified database
-backup/restore procedure when an advanced OIDC revision prevents direct rollback.
+enabled factor or temporarily disable descendant-token revocation. Delegation edges
+recorded by supported older releases are restored from their transactional audit
+records during upgrade. Direct downgrade is blocked whenever an OIDC provider is
+configured because dropping its monotonic revision would make stale provider writes
+possible after re-upgrade. Disable or inventory MFA credentials, revoke delegated
+tokens, and use a verified database backup/restore procedure for an OIDC-configured
+deployment. Downgrade takes bounded exclusive IAM locks and fails with recovery
+guidance when application processes or database transactions are still active.
 
 ## OpenID Connect
 

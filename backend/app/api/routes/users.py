@@ -338,19 +338,13 @@ def update_user(
     management = load_user_management_context(db, user.id)
     _ensure_locally_managed_changes(user, payload, management)
 
+    email_before_update = user.email
     normalized_email = payload.email.lower() if payload.email is not None else None
     email_changed = normalized_email is not None and normalized_email != user.email
     current_security_version = int(user.auth_token_version or 0)
     legacy_unversioned_security_update = (
         access_state_update or email_changed
     ) and payload.expected_security_version is None
-    if legacy_unversioned_security_update:
-        logger.warning(
-            "Accepted compatibility user security update without a version precondition "
-            "actor_user_id=%s target_user_id=%s",
-            admin.id,
-            user.id,
-        )
     if (
         payload.expected_security_version is not None
         and payload.expected_security_version != current_security_version
@@ -499,6 +493,8 @@ def update_user(
             "is_active": user.is_active,
             "is_approved": user.is_approved,
             "email_updated": email_changed,
+            "email_before_update": email_before_update if email_changed else None,
+            "email_after_update": user.email if email_changed else None,
             "password_updated": payload.password is not None,
             "password_login_enabled": user.password_login_enabled,
             "auth_token_version": user.auth_token_version,
@@ -518,6 +514,13 @@ def update_user(
     if legacy_unversioned_password_update:
         logger.warning(
             "legacy_unversioned_password_update actor_user_id=%s target_user_id=%s",
+            admin.id,
+            user.id,
+        )
+    if legacy_unversioned_security_update:
+        logger.warning(
+            "legacy_unversioned_security_update_accepted actor_user_id=%s "
+            "target_user_id=%s",
             admin.id,
             user.id,
         )

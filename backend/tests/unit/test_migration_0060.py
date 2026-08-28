@@ -221,13 +221,14 @@ def test_iam_schema_migrates_down_and_back_up(test_database_url, monkeypatch):
         admin_engine.dispose()
 
 
-def test_iam_downgrade_fences_active_delegated_token_ancestry(
+def test_iam_downgrade_fences_active_and_restores_audited_token_ancestry(
     iam_migration_schema,
 ):
     schema_name, schema_engine, config = iam_migration_schema
     user_id = uuid.uuid4()
     parent_token_id = uuid.uuid4()
     child_token_id = uuid.uuid4()
+    rollback_child_token_id = uuid.uuid4()
     with schema_engine.begin() as connection:
         connection.execute(
             text(
@@ -238,6 +239,23 @@ def test_iam_downgrade_fences_active_delegated_token_ancestry(
                 "id": user_id,
                 "email": f"delegated-token-{user_id}@example.com",
                 "password_hash": "migration-test-hash",
+            },
+        )
+        connection.execute(
+            text(
+                "INSERT INTO audit_logs "
+                "(id, action, resource_type, resource_id, success, metadata_json) "
+                "VALUES (:id, 'tokens.create', 'api_token', :resource_id, true, "
+                "CAST(:metadata AS JSONB))"
+            ),
+            {
+                "id": uuid.uuid4(),
+                "resource_id": str(child_token_id),
+                "metadata": (
+                    '{"delegated_via_api_token":true,"parent_token_id":"'
+                    f"{parent_token_id}"
+                    '"}'
+                ),
             },
         )
         connection.execute(
@@ -296,8 +314,58 @@ def test_iam_downgrade_fences_active_delegated_token_ancestry(
         )
     }
 
+    with schema_engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO api_tokens "
+                "(id, user_id, name, token_prefix, token_hash, scopes, expires_at) "
+                "VALUES (:id, :user_id, 'rollback child', :prefix, :hash, "
+                "'[]'::jsonb, CURRENT_TIMESTAMP + INTERVAL '1 hour')"
+            ),
+            {
+                "id": rollback_child_token_id,
+                "user_id": user_id,
+                "prefix": f"rollback-{rollback_child_token_id.hex[:12]}",
+                "hash": rollback_child_token_id.hex.ljust(64, "0"),
+            },
+        )
+        connection.execute(
+            text(
+                "INSERT INTO audit_logs "
+                "(id, action, resource_type, resource_id, success, metadata_json) "
+                "VALUES (:id, 'tokens.create', 'api_token', :resource_id, true, "
+                "CAST(:metadata AS JSONB))"
+            ),
+            {
+                "id": uuid.uuid4(),
+                "resource_id": str(rollback_child_token_id),
+                "metadata": (
+                    '{"delegated_via_api_token":true,"parent_token_id":"'
+                    f"{parent_token_id}"
+                    '"}'
+                ),
+            },
+        )
 
-def test_iam_downgrade_preserves_baseline_oidc_revision_and_fences_advanced_revision(
+    command.upgrade(config, "0060_iam_hardening")
+    with schema_engine.connect() as connection:
+        restored_parent_ids = connection.execute(
+            text(
+                "SELECT id, parent_token_id FROM api_tokens "
+                "WHERE id IN (:first_child_id, :rollback_child_id)"
+            ),
+            {
+                "first_child_id": child_token_id,
+                "rollback_child_id": rollback_child_token_id,
+            },
+        ).all()
+    assert {row.id: row.parent_token_id for row in restored_parent_ids} == {
+        child_token_id: parent_token_id,
+        rollback_child_token_id: parent_token_id,
+    }
+
+
+def test_iam_downgrade_fences_every_configured_oidc_provider(
     iam_migration_schema,
 ):
     schema_name, schema_engine, config = iam_migration_schema
@@ -315,8 +383,10 @@ def test_iam_downgrade_preserves_baseline_oidc_revision_and_fences_advanced_revi
             {"id": provider_id},
         )
 
-    command.downgrade(config, "0059_alerting_v2")
-    command.upgrade(config, "0060_iam_hardening")
+    with pytest.raises(RuntimeError, match="OIDC provider is configured"):
+        command.downgrade(config, "0059_alerting_v2")
+
+    assert _TABLES <= set(inspect(schema_engine).get_table_names(schema=schema_name))
     with schema_engine.connect() as connection:
         assert (
             connection.scalar(
@@ -328,19 +398,6 @@ def test_iam_downgrade_preserves_baseline_oidc_revision_and_fences_advanced_revi
 
     with schema_engine.begin() as connection:
         connection.execute(
-            text("UPDATE oidc_providers SET config_revision = 2 WHERE id = :id"),
-            {"id": provider_id},
+            text("DELETE FROM oidc_providers WHERE id = :id"), {"id": provider_id}
         )
-
-    with pytest.raises(RuntimeError, match="configuration revision has advanced"):
-        command.downgrade(config, "0059_alerting_v2")
-
-    assert _TABLES <= set(inspect(schema_engine).get_table_names(schema=schema_name))
-    with schema_engine.connect() as connection:
-        assert (
-            connection.scalar(
-                text("SELECT config_revision FROM oidc_providers WHERE id = :id"),
-                {"id": provider_id},
-            )
-            == 2
-        )
+    command.downgrade(config, "0059_alerting_v2")
