@@ -49,6 +49,7 @@ from app.services.smtp_delivery_results import (
     notification_failure_result as _notification_failure_result,
     notification_smtp_exception_result as _notification_smtp_exception_result,
 )
+from app.services.smtp_delivery_eligibility import persisted_smtp_settings_heartbeat
 
 HTML_TAG_PATTERN = compile_regex(r"<[^>]+>")
 SMTP_DELIVERY_AUDIT_ACTION = "integrations.smtp.delivery"
@@ -420,7 +421,7 @@ def attempt_smtp_integration_delivery(
                     )
                 active = replace(active, to_emails=recipients)
             delivery_heartbeat = (
-                _persisted_smtp_settings_heartbeat(
+                persisted_smtp_settings_heartbeat(
                     lease_heartbeat,
                     persisted_settings=persisted_settings,
                 )
@@ -458,21 +459,6 @@ def attempt_smtp_integration_delivery(
         reason=None if result.success else result.error_code,
         delivery=result,
     )
-
-
-def _persisted_smtp_settings_heartbeat(
-    heartbeat: Callable[[int, ActiveSMTPSettings], None],
-    *,
-    persisted_settings: ActiveSMTPSettings,
-) -> Callable[[int, ActiveSMTPSettings], None]:
-    def _heartbeat(
-        lease_seconds: int, _effective_settings: ActiveSMTPSettings
-    ) -> None:
-        heartbeat(lease_seconds, persisted_settings)
-
-    return _heartbeat
-
-
 def smtp_notification_event_enabled(
     db: Session,
     *,
