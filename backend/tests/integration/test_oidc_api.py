@@ -18,9 +18,9 @@ from app.api.routes import oidc as oidc_routes
 from app.api.routes import oidc_provider as oidc_provider_routes
 from app.core.api_errors import ApiHTTPException
 from app.core.config import get_settings
+from app.core.security import generate_api_token, get_password_hash
 from app.db.session import get_db
 from app.main import app
-from app.core.security import get_password_hash
 from app.models.api_token import ApiToken
 from app.models.audit_log import AuditLog
 from app.models.auth_session import AuthSession
@@ -58,6 +58,27 @@ def _provider_payload(**overrides):
     }
     payload.update(overrides)
     return payload
+
+
+def _api_token_headers(
+    db_session: Session,
+    user: User,
+    *,
+    scopes: list[str],
+) -> dict[str, str]:
+    token, token_prefix, token_hash = generate_api_token()
+    db_session.add(
+        ApiToken(
+            user_id=user.id,
+            name=f"oidc-provider-test-{uuid.uuid4()}",
+            token_prefix=token_prefix,
+            token_hash=token_hash,
+            scopes=scopes,
+            expires_at=datetime.now(timezone.utc) + timedelta(days=1),
+        )
+    )
+    db_session.commit()
+    return {"Authorization": f"Bearer {token}"}
 
 
 def _configured_provider(db_session, **overrides) -> OIDCProvider:
@@ -496,23 +517,97 @@ def test_oidc_provider_identity_key_cannot_change_after_link(
     assert "cannot change" in response.json()["detail"]
 
 
-def test_oidc_provider_update_rejects_api_token_auth_with_stable_contract(
+def test_oidc_provider_update_accepts_properly_scoped_admin_api_token(
     client,
-    auth_headers,
+    db_session,
+    seed_users,
 ):
+    admin = seed_users["admin"]
+    headers = _api_token_headers(
+        db_session,
+        admin,
+        scopes=["write:users"],
+    )
     response = client.put(
         "/auth/oidc/provider",
         json=_provider_payload(),
-        headers=auth_headers["admin"],
+        headers=headers,
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["config_revision"] == 1
+    provider = db_session.scalar(
+        select(OIDCProvider).where(OIDCProvider.system_key == "primary")
+    )
+    assert provider is not None
+    assert provider.updated_by_user_id == admin.id
+    audit = db_session.scalar(
+        select(AuditLog).where(
+            AuditLog.action == "oidc.provider.update",
+            AuditLog.resource_id == str(provider.id),
+        )
+    )
+    assert audit is not None
+    assert audit.actor_user_id == admin.id
+    assert audit.metadata_json["config_revision"] == 1
+
+    stale = client.put(
+        "/auth/oidc/provider",
+        json=_provider_payload(
+            name="Stale API client update",
+            expected_config_revision=0,
+        ),
+        headers=headers,
+    )
+
+    assert stale.status_code == 409
+    assert stale.json()["error"]["code"] == "oidc_provider_revision_conflict"
+    assert stale.json()["detail"] == {
+        "message": (
+            "OIDC provider settings changed after they were loaded. "
+            "Reload the settings and apply your changes again."
+        ),
+        "expected_config_revision": 0,
+        "current_config_revision": 1,
+    }
+    assert stale.headers["x-current-version"] == "1"
+
+
+@pytest.mark.parametrize(
+    ("user_key", "scopes", "expected_detail"),
+    [
+        ("admin", ["read:users"], "Insufficient token scope"),
+        ("analyst", ["write:users"], "Insufficient permissions"),
+    ],
+)
+def test_oidc_provider_update_rejects_under_scoped_or_non_admin_api_token(
+    client,
+    db_session,
+    seed_users,
+    user_key,
+    scopes,
+    expected_detail,
+):
+    headers = _api_token_headers(
+        db_session,
+        seed_users[user_key],
+        scopes=scopes,
+    )
+
+    response = client.put(
+        "/auth/oidc/provider",
+        json=_provider_payload(expected_config_revision=0),
+        headers=headers,
     )
 
     assert response.status_code == 403
-    assert response.json()["error"]["code"] == "browser_session_required"
-    assert response.json()["error"]["context"] == {
-        "action": "oidc_provider_update",
-        "reauthentication_method": None,
-        "reauthentication_endpoint": None,
-    }
+    assert response.json()["detail"] == expected_detail
+    assert (
+        db_session.scalar(
+            select(OIDCProvider).where(OIDCProvider.system_key == "primary")
+        )
+        is None
+    )
 
 
 def test_local_admin_can_step_up_then_mutate_oidc_provider(

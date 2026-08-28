@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import (
     get_admin_user,
     get_current_auth_session_id,
+    is_api_token_auth,
     is_cookie_session_auth,
     require_token_scopes,
 )
@@ -78,14 +79,13 @@ def get_oidc_provider(
 @router.put(
     "/provider",
     response_model=OIDCProviderResponse,
-    openapi_extra={"x-threatlens-browser-session-only": True},
     responses={
         status.HTTP_403_FORBIDDEN: {
             "description": (
-                "Requires a recent opaque admin browser session. Stable codes include "
-                "`browser_session_required`, `local_reauthentication_required`, and "
-                "`oidc_reauthentication_required`; OIDC sessions also require "
-                "`oidc_mfa_assurance_required`."
+                "Requires an administrator API token with `write:users`, or a recent "
+                "opaque administrator browser session. Browser-session codes include "
+                "`local_reauthentication_required` and `oidc_reauthentication_required`; "
+                "OIDC sessions also require `oidc_mfa_assurance_required`."
             )
         },
         status.HTTP_409_CONFLICT: {
@@ -121,7 +121,7 @@ def update_oidc_provider(
         .where(OIDCProvider.system_key == OIDC_PROVIDER_SYSTEM_KEY)
         .with_for_update()
     )
-    admin = _require_recent_provider_admin(request, db=db, admin=admin)
+    admin = _authorize_provider_admin(request, db=db, admin=admin)
     identity_count = 0
     if provider is not None:
         if (
@@ -247,19 +247,21 @@ def update_oidc_provider(
     return provider_response(provider)
 
 
-def _require_recent_provider_admin(
+def _authorize_provider_admin(
     request: Request,
     *,
     db: Session,
     admin: User,
 ) -> User:
     action = "oidc_provider_update"
-    if not is_cookie_session_auth(request):
+    api_token_auth = is_api_token_auth(request)
+    if not api_token_auth and not is_cookie_session_auth(request):
         raise ApiHTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=(
-                "OIDC provider changes require a recently authenticated administrator "
-                "browser session. API tokens cannot perform this operation."
+                "OIDC provider changes require an administrator API token or a recently "
+                "authenticated administrator browser session. The supplied credential "
+                "type cannot perform this operation."
             ),
             error_code="browser_session_required",
             error_context=recent_authentication_error_context(None, action=action),
@@ -277,6 +279,9 @@ def _require_recent_provider_admin(
             detail="Administrator access changed. Sign in again.",
             error_code="account_security_changed",
         )
+
+    if api_token_auth:
+        return locked_admin
 
     session_id = get_current_auth_session_id(request)
     session_token = request.cookies.get(get_settings().auth_cookie_name)
