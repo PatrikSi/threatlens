@@ -30,6 +30,7 @@ from app.services.integration_compat import (
 )
 from app.services.integration_delivery import (
     ensure_webhook_delivery,
+    list_recoverable_webhook_delivery_ids,
     lock_webhook_delivery_external_io_eligibility,
     replay_dead_letter_delivery,
 )
@@ -48,6 +49,7 @@ from app.services.notification_delivery_processing import (
 from app.services.notification_webhook_history import (
     claim_notification_webhook_delivery,
 )
+from app.services.webhook_delivery_locking import WebhookDeliveryBusyError
 from app.services.notification_webhooks import (
     process_notification_webhook_delivery,
     reserve_retryable_notification_webhook_delivery,
@@ -1325,14 +1327,18 @@ def test_webhook_delete_and_delivery_fence_use_parent_first_lock_order(
             cleanup_db.commit()
 
 
-def test_webhook_replay_and_recovery_use_parent_first_lock_order(database_engine):
+def _persist_dead_letter_webhook_delivery(
+    database_engine,
+    *,
+    email_prefix: str,
+) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
     owner_id = uuid.uuid4()
     webhook_id = uuid.uuid4()
     delivery_id = uuid.uuid4()
     with Session(database_engine) as setup_db:
         owner = User(
             id=owner_id,
-            email=f"webhook-replay-order-{uuid.uuid4().hex}@example.com",
+            email=f"{email_prefix}-{uuid.uuid4().hex}@example.com",
             password_hash="x",
             role="analyst",
             is_active=True,
@@ -1388,6 +1394,16 @@ def test_webhook_replay_and_recovery_use_parent_first_lock_order(database_engine
         generic.last_error_message = "Connection refused"
         setup_db.add(generic)
         setup_db.commit()
+        return owner_id, delivery_id, generic.id
+
+
+def test_webhook_replay_and_recovery_use_parent_first_lock_order(database_engine):
+    owner_id, delivery_id, generic_delivery_id = (
+        _persist_dead_letter_webhook_delivery(
+            database_engine,
+            email_prefix="webhook-replay-order",
+        )
+    )
 
     recovery_thread_id: list[int] = []
     replay_thread_id: list[int] = []
@@ -1432,7 +1448,7 @@ def test_webhook_replay_and_recovery_use_parent_first_lock_order(database_engine
         with Session(database_engine) as replay_db:
             replay = replay_dead_letter_delivery(
                 replay_db,
-                delivery_id=delivery_id,
+                delivery_id=generic_delivery_id,
             )
             replay_id = replay.id
             replay_db.commit()
@@ -1468,7 +1484,7 @@ def test_webhook_replay_and_recovery_use_parent_first_lock_order(database_engine
             assert replay_projection is not None
             assert replay_projection.source_delivery_id == source.id
             assert replay_delivery is not None
-            assert replay_delivery.source_delivery_id == source.integration_delivery_id
+            assert replay_delivery.source_delivery_id == generic_delivery_id
     finally:
         allow_recovery_to_continue.set()
         event.remove(
@@ -1480,6 +1496,145 @@ def test_webhook_replay_and_recovery_use_parent_first_lock_order(database_engine
             database_engine,
             "before_cursor_execute",
             _observe_replay_parent_lock,
+        )
+        with Session(database_engine) as cleanup_db:
+            owner = cleanup_db.get(User, owner_id)
+            if owner is not None:
+                cleanup_db.delete(owner)
+            cleanup_db.commit()
+
+
+@pytest.mark.parametrize("current_operation", ["replay", "recovery"])
+def test_current_webhook_workers_yield_to_legacy_replay_lock_order(
+    database_engine,
+    current_operation: str,
+):
+    owner_id, delivery_id, generic_delivery_id = (
+        _persist_dead_letter_webhook_delivery(
+            database_engine,
+            email_prefix=f"webhook-mixed-order-{current_operation}",
+        )
+    )
+    legacy_thread_id: list[int] = []
+    current_thread_id: list[int] = []
+    legacy_generic_locked = Event()
+    allow_legacy_child_lock = Event()
+    legacy_child_lock_started = Event()
+    current_child_locked = Event()
+
+    def _observe_legacy_child_lock(
+        _connection, _cursor, statement, _parameters, _context, _executemany
+    ) -> None:
+        if (
+            legacy_thread_id
+            and threading.get_ident() == legacy_thread_id[0]
+            and "notification_webhook_deliveries" in statement.lower()
+            and "for update" in statement.lower()
+        ):
+            legacy_child_lock_started.set()
+
+    def _pause_current_after_child_lock(
+        _connection, _cursor, statement, _parameters, _context, _executemany
+    ) -> None:
+        if (
+            current_thread_id
+            and threading.get_ident() == current_thread_id[0]
+            and "notification_webhook_deliveries" in statement.lower()
+            and "for update" in statement.lower()
+            and not current_child_locked.is_set()
+        ):
+            current_child_locked.set()
+            allow_legacy_child_lock.set()
+            assert legacy_child_lock_started.wait(timeout=5)
+
+    def _run_legacy_replay_lock_order() -> None:
+        legacy_thread_id.append(threading.get_ident())
+        with Session(database_engine) as legacy_db:
+            generic = legacy_db.scalar(
+                select(IntegrationDelivery)
+                .where(IntegrationDelivery.id == generic_delivery_id)
+                .with_for_update()
+            )
+            assert generic is not None
+            legacy_generic_locked.set()
+            assert allow_legacy_child_lock.wait(timeout=10)
+            legacy = legacy_db.scalar(
+                select(NotificationWebhookDelivery)
+                .where(NotificationWebhookDelivery.id == delivery_id)
+                .with_for_update()
+            )
+            assert legacy is not None
+            legacy_db.commit()
+
+    def _run_current_operation():
+        current_thread_id.append(threading.get_ident())
+        with Session(database_engine) as current_db:
+            if current_operation == "recovery":
+                return claim_notification_webhook_delivery(
+                    current_db,
+                    delivery_id=delivery_id,
+                )
+            try:
+                replay_dead_letter_delivery(
+                    current_db,
+                    delivery_id=generic_delivery_id,
+                )
+            except Exception as exc:  # asserted in the parent thread
+                return exc
+            raise AssertionError("mixed-version replay unexpectedly acquired all locks")
+
+    event.listen(
+        database_engine,
+        "before_cursor_execute",
+        _observe_legacy_child_lock,
+    )
+    event.listen(
+        database_engine,
+        "after_cursor_execute",
+        _pause_current_after_child_lock,
+    )
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            legacy_worker = executor.submit(_run_legacy_replay_lock_order)
+            assert legacy_generic_locked.wait(timeout=5)
+            current_worker = executor.submit(_run_current_operation)
+            assert current_child_locked.wait(timeout=5)
+            outcome = current_worker.result(timeout=10)
+            legacy_worker.result(timeout=10)
+
+        if current_operation == "replay":
+            assert isinstance(outcome, WebhookDeliveryBusyError)
+            assert str(outcome) == (
+                "Webhook delivery replay is busy; retry the request shortly."
+            )
+        else:
+            assert outcome is None
+
+        with Session(database_engine) as verify_db:
+            source = verify_db.get(NotificationWebhookDelivery, delivery_id)
+            assert source is not None
+            assert source.delivery_state == "pending"
+            assert delivery_id in list_recoverable_webhook_delivery_ids(verify_db)
+            assert (
+                verify_db.scalar(
+                    select(IntegrationDelivery).where(
+                        IntegrationDelivery.source_delivery_id
+                        == generic_delivery_id
+                    )
+                )
+                is None
+            )
+    finally:
+        allow_legacy_child_lock.set()
+        event.remove(
+            database_engine,
+            "before_cursor_execute",
+            _observe_legacy_child_lock,
+        )
+        event.remove(
+            database_engine,
+            "after_cursor_execute",
+            _pause_current_after_child_lock,
         )
         with Session(database_engine) as cleanup_db:
             owner = cleanup_db.get(User, owner_id)

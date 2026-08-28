@@ -3,10 +3,15 @@ from __future__ import annotations
 from datetime import datetime
 
 from sqlalchemy import and_, func, or_, select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.models.integration import IntegrationDelivery
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
+from app.services.webhook_delivery_locking import (
+    WebhookDeliveryBusyError,
+    is_webhook_delivery_lock_contention,
+)
 
 _GENERIC_TERMINAL_STATES = frozenset({"succeeded", "failed", "dead_letter"})
 
@@ -20,15 +25,22 @@ def reconcile_linked_terminal_webhook_projection(
     if legacy_delivery.integration_delivery_id is None:
         return False
 
-    generic = db.scalar(
-        select(IntegrationDelivery)
-        .where(
-            IntegrationDelivery.id == legacy_delivery.integration_delivery_id,
-            IntegrationDelivery.connector_type == "webhook",
+    try:
+        generic = db.scalar(
+            select(IntegrationDelivery)
+            .where(
+                IntegrationDelivery.id == legacy_delivery.integration_delivery_id,
+                IntegrationDelivery.connector_type == "webhook",
+            )
+            .with_for_update(nowait=True)
+            .execution_options(populate_existing=True)
         )
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
+    except OperationalError as exc:
+        if is_webhook_delivery_lock_contention(exc):
+            raise WebhookDeliveryBusyError(
+                "Webhook delivery history is busy; recovery will retry shortly."
+            ) from exc
+        raise
     if generic is None:
         return False
     return sync_terminal_webhook_projection(
