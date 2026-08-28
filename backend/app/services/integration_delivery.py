@@ -41,6 +41,7 @@ from app.services.webhook_delivery_eligibility import (
 from app.services.webhook_delivery_projection import (
     reconcile_linked_terminal_webhook_projection,
     sync_terminal_webhook_projection,
+    terminal_webhook_projection_mismatch,
 )
 from app.services.webhook_delivery_replay import (
     clone_webhook_replay,
@@ -982,12 +983,7 @@ def list_recoverable_webhook_delivery_ids(
             ),
         ),
     )
-    terminal_projection_mismatch = and_(
-        IntegrationDelivery.state.in_(DELIVERY_TERMINAL_STATES),
-        NotificationWebhookDelivery.delivery_state.notin_(
-            [DELIVERY_SUCCEEDED, DELIVERY_FAILED]
-        ),
-    )
+    terminal_projection_mismatch = terminal_webhook_projection_mismatch()
     linked_ids = list(
         db.scalars(
             select(NotificationWebhookDelivery.id)

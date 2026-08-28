@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import uuid
 from datetime import datetime, timezone
 
@@ -79,8 +80,10 @@ def clone_webhook_replay(
         timeout_seconds=source.timeout_seconds,
         rendered_url=source.rendered_url,
         rendered_method=source.rendered_method,
-        rendered_headers_json=list(source.rendered_headers_json or []),
-        rendered_query_params_json=list(source.rendered_query_params_json or []),
+        rendered_headers_json=copy.deepcopy(source.rendered_headers_json or []),
+        rendered_query_params_json=copy.deepcopy(
+            source.rendered_query_params_json or []
+        ),
         rendered_body=source.rendered_body,
         response_body_preview=None,
         error=None,

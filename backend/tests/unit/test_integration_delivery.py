@@ -14,6 +14,7 @@ from app.models.integration import (
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.user import User
+from app.schemas.notification import NotificationWebhookField
 from app.services.integration_compat import WebhookConfigurationCompatibilityError
 from app.services.integration_delivery import (
     claim_integration_delivery,
@@ -30,6 +31,14 @@ from app.services.integration_delivery import (
 )
 from app.services.notification_delivery_processing import (
     process_reserved_notification_deliveries,
+)
+from app.services.notification_webhook_history import (
+    claim_notification_webhook_delivery,
+    create_pending_notification_webhook_delivery,
+)
+from app.services.notification_webhook_requests import (
+    RenderedNotificationRequest,
+    rendered_request_from_delivery,
 )
 from app.services.notification_webhook_compatibility import (
     WebhookExternalIOFenceError,
@@ -229,11 +238,14 @@ def test_terminal_generic_webhook_projection_is_recoverable_after_commit_gap(
     assert "Older worker cannot read connector schema version 2" in (
         legacy.error or ""
     )
-
-    claimed = claim_webhook_delivery(
+    assert legacy.id in list_recoverable_webhook_delivery_ids(
         db_session,
-        webhook=webhook,
-        legacy_delivery=legacy,
+        now=now + timedelta(seconds=1),
+    )
+
+    claimed = claim_notification_webhook_delivery(
+        db_session,
+        delivery_id=legacy.id,
         now=now + timedelta(seconds=1),
     )
 
@@ -780,6 +792,75 @@ def test_webhook_dead_letter_replay_creates_legacy_history_projection(db_session
     assert projection.delivery_state == "pending"
     assert projection.source_delivery_id == legacy.id
     assert projection.rendered_url == legacy.rendered_url
+
+
+def test_webhook_replay_preserves_encrypted_request_snapshot_for_processing(
+    db_session,
+):
+    webhook, _legacy = _persist_legacy_delivery(db_session)
+    source_id = uuid.uuid4()
+    rendered_source = RenderedNotificationRequest(
+        method="POST",
+        url="https://example.com/hook",
+        headers=[
+            NotificationWebhookField(
+                key="Authorization",
+                value="Bearer replay-secret",
+            )
+        ],
+        query_params=[
+            NotificationWebhookField(key="token", value="query-secret")
+        ],
+        body='{"message":"encrypted replay"}',
+        headers_dict={"Authorization": "Bearer replay-secret"},
+        query_param_pairs=[("token", "query-secret")],
+        json_body={"message": "encrypted replay"},
+        form_body=None,
+        raw_body=None,
+        timeout_seconds=10,
+    )
+    source = create_pending_notification_webhook_delivery(
+        db_session,
+        delivery_id=source_id,
+        webhook=webhook,
+        event_type="rss_item_new",
+        rendered=rendered_source,
+        delivery_kind="live",
+        item_id=None,
+        feed_id=None,
+        item_title=None,
+        feed_name=None,
+        source_delivery_id=None,
+        scope_key=None,
+        attempted_at=datetime.now(timezone.utc),
+        not_before=None,
+    )
+    generic = db_session.get(IntegrationDelivery, source.integration_delivery_id)
+    assert generic is not None
+    generic.state = "dead_letter"
+    generic.dead_lettered_at = datetime.now(timezone.utc)
+    source.delivery_state = "failed"
+    source.error = "Connection refused"
+    db_session.add_all([generic, source])
+    db_session.commit()
+
+    assert isinstance(source.rendered_headers_json, dict)
+    assert isinstance(source.rendered_query_params_json, dict)
+    replay = replay_dead_letter_delivery(db_session, delivery_id=generic.id)
+    db_session.flush()
+    projection = db_session.scalar(
+        select(NotificationWebhookDelivery).where(
+            NotificationWebhookDelivery.integration_delivery_id == replay.id
+        )
+    )
+
+    assert projection is not None
+    assert projection.rendered_headers_json == source.rendered_headers_json
+    assert projection.rendered_query_params_json == source.rendered_query_params_json
+    rendered_replay = rendered_request_from_delivery(projection)
+    assert rendered_replay.headers_dict["Authorization"] == "Bearer replay-secret"
+    assert rendered_replay.query_param_pairs == [("token", "query-secret")]
+    assert rendered_replay.body == '{"message":"encrypted replay"}'
 
 
 def test_webhook_dead_letter_replay_rejects_missing_history_projection(db_session):
