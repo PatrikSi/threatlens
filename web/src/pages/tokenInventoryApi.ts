@@ -38,6 +38,7 @@ export function normalizeTokenInventory(
     return {
       tokens: value.slice(start, start + pageSize),
       total: value.length,
+      unscoped_total: value.filter((token) => token.scopes.length === 0).length,
       page,
       page_size: pageSize,
     }
@@ -46,6 +47,9 @@ export function normalizeTokenInventory(
     !Array.isArray(value.tokens) ||
     !Number.isSafeInteger(value.total) ||
     value.total < 0 ||
+    (value.unscoped_total !== undefined &&
+      (!Number.isSafeInteger(value.unscoped_total) ||
+        value.unscoped_total < 0)) ||
     !Number.isSafeInteger(value.page) ||
     value.page < 1 ||
     !Number.isSafeInteger(value.page_size) ||

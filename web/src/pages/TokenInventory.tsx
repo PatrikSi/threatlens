@@ -36,6 +36,7 @@ export function TokenInventory({
     tone: 'success' | 'error'
     message: string
   } | null>(null)
+  const [lineageRefreshRequired, setLineageRefreshRequired] = useState(false)
   const tokensQuery = useQuery({
     queryKey: ['tokens', 'inventory', adminUserFilter, page],
     queryFn: () => {
@@ -52,6 +53,7 @@ export function TokenInventory({
         isAdmin ? adminUserFilter.trim() : '',
       )
     },
+    placeholderData: (previousData) => previousData,
   })
   const revokeToken = useMutation({
     mutationKey: ['tokens', 'revoke'],
@@ -79,11 +81,21 @@ export function TokenInventory({
             : current,
       )
       setPendingRevocation(null)
+      const refreshRequired = (impact.revokedDescendantCount ?? 0) > 0
+      if (refreshRequired) setLineageRefreshRequired(true)
       setRevocationNotice({
         tone: 'success',
         message: formatTokenRevocationImpact(impact),
       })
-      void queryClient.invalidateQueries({ queryKey: ['tokens'] })
+      const refresh = queryClient.invalidateQueries(
+        { queryKey: ['tokens'] },
+        { throwOnError: refreshRequired },
+      )
+      if (refreshRequired) {
+        void Promise.resolve(refresh)
+          .then(() => setLineageRefreshRequired(false))
+          .catch(() => undefined)
+      }
     },
     onError: (error) => {
       setRevocationNotice({
@@ -103,6 +115,8 @@ export function TokenInventory({
   const legacyUnscopedTokens = tokens.filter(
     (token) => token.scopes.length === 0,
   )
+  const unscopedTotal =
+    inventory?.unscoped_total ?? legacyUnscopedTokens.length
   const pageCount = Math.max(
     1,
     Math.ceil((inventory?.total ?? 0) / TOKEN_PAGE_SIZE),
@@ -111,6 +125,13 @@ export function TokenInventory({
   useEffect(() => {
     if (tokensQuery.data && page > pageCount) setPage(pageCount)
   }, [page, pageCount, tokensQuery.data])
+
+  const retryInventory = () => {
+    const refresh = tokensQuery.refetch()
+    void Promise.resolve(refresh).then((result) => {
+      if (!result?.error) setLineageRefreshRequired(false)
+    })
+  }
 
   const applyAdminUserFilter = (event: FormEvent) => {
     event.preventDefault()
@@ -161,15 +182,7 @@ export function TokenInventory({
           )}
         </div>
 
-        {legacyUnscopedTokens.length > 0 && (
-          <div className="mt-3 rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
-            {legacyUnscopedTokens.length === 1
-              ? '1 token has'
-              : `${legacyUnscopedTokens.length} tokens have`}{' '}
-            no scopes. Scoped API routes now reject unscoped tokens, so rotate
-            these credentials before they break automation.
-          </div>
-        )}
+        <TokenScopeMigrationWarning unscopedTotal={unscopedTotal} />
 
         <div className="mt-3 space-y-2">
           {secretNotice && (
@@ -197,6 +210,16 @@ export function TokenInventory({
               {revocationNotice.message}
             </p>
           )}
+          {lineageRefreshRequired && (
+            <p
+              role="status"
+              aria-live="polite"
+              className="text-sm text-amber-800 dark:text-amber-200"
+            >
+              Delegated token status is refreshing. Revocation actions remain
+              disabled until the inventory is current.
+            </p>
+          )}
           {inventory && tokens.length > 0 && (
             <ul className="space-y-2" aria-label="API tokens">
               {tokens.map((token) => (
@@ -207,7 +230,8 @@ export function TokenInventory({
                   disabled={
                     Boolean(token.revoked_at) ||
                     revokeToken.isPending ||
-                    Boolean(pendingRevocation)
+                    Boolean(pendingRevocation) ||
+                    lineageRefreshRequired
                   }
                   onRevoke={() => setPendingRevocation(token)}
                 />
@@ -243,7 +267,7 @@ export function TokenInventory({
               <button
                 type="button"
                 className="mt-2 min-h-11 rounded border border-current px-3 py-2 font-semibold"
-                onClick={() => void tokensQuery.refetch()}
+                onClick={retryInventory}
                 disabled={tokensQuery.isFetching}
               >
                 {tokensQuery.isFetching
@@ -315,6 +339,21 @@ export function TokenInventory({
   )
 }
 
+function TokenScopeMigrationWarning({
+  unscopedTotal,
+}: {
+  unscopedTotal: number
+}) {
+  if (unscopedTotal < 1) return null
+  return (
+    <div className="mt-3 rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+      {unscopedTotal === 1 ? '1 token has' : `${unscopedTotal} tokens have`} no
+      scopes. Scoped API routes now reject unscoped tokens, so rotate these
+      credentials before they break automation.
+    </div>
+  )
+}
+
 function TokenInventoryPagination({
   page,
   pageCount,
@@ -333,7 +372,10 @@ function TokenInventoryPagination({
   const first = total === 0 ? 0 : (page - 1) * TOKEN_PAGE_SIZE + 1
   const last = first === 0 ? 0 : first + itemCount - 1
   return (
-    <div className="grid grid-cols-[auto_1fr_auto] items-center gap-2 pt-2 text-sm sm:flex sm:justify-between">
+    <nav
+      aria-label="Token inventory pages"
+      className="grid grid-cols-[auto_1fr_auto] items-center gap-2 pt-2 text-sm sm:flex sm:justify-between"
+    >
       <button
         type="button"
         className="min-h-11 rounded border border-slate/30 px-3 py-2 disabled:opacity-50 dark:border-cyan-900/40"
@@ -353,7 +395,7 @@ function TokenInventoryPagination({
       >
         Next
       </button>
-    </div>
+    </nav>
   )
 }
 
@@ -461,7 +503,7 @@ function TokenInventoryRow({
         </div>
         <button
           type="button"
-          className="shrink-0 rounded border border-slate/30 px-2 py-1 text-xs text-red-600 dark:border-cyan-900/40"
+          className="shrink-0 rounded border border-slate/30 px-2 py-1 text-xs text-red-600 max-sm:min-h-11 max-sm:min-w-11 dark:border-cyan-900/40"
           onClick={onRevoke}
           disabled={disabled}
         >

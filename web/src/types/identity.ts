@@ -308,6 +308,7 @@ export interface ApiToken {
 export interface ApiTokenListResponse {
   tokens: ApiToken[]
   total: number
+  unscoped_total?: number
   page: number
   page_size: number
 }
