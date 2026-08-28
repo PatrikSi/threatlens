@@ -334,6 +334,41 @@ afterEach(async () => {
 })
 
 describe('ReportingPage detail actions', () => {
+  it('describes queued work without claiming that generation has started', async () => {
+    reportingPageMocks.apiFetch.mockImplementation((path: string) => {
+      if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
+      if (path === '/reports/templates') return Promise.resolve([])
+      if (path === '/reports?limit=100') return Promise.resolve([])
+      if (path === '/reports/report-1') return Promise.resolve(reportDetail('queued'))
+      return Promise.reject(new Error(`Unexpected API path: ${path}`))
+    })
+    const view = renderPage()
+
+    await waitForReport(view)
+
+    expect(view.textContent).toContain('Waiting for report generation')
+    expect(view.textContent).not.toContain('processing bounded evidence batches')
+  })
+
+  it('shows an actionable state when the report queue has no consumer', async () => {
+    const waitingReport = reportDetail('queued')
+    waitingReport.generation_stage = 'waiting_for_worker'
+    reportingPageMocks.apiFetch.mockImplementation((path: string) => {
+      if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
+      if (path === '/reports/templates') return Promise.resolve([])
+      if (path === '/reports?limit=100') return Promise.resolve([])
+      if (path === '/reports/report-1') return Promise.resolve(waitingReport)
+      return Promise.reject(new Error(`Unexpected API path: ${path}`))
+    })
+    const view = renderPage()
+
+    await waitForReport(view)
+
+    expect(view.textContent).toContain('Waiting for an AI report worker')
+    expect(view.textContent).toContain('recreate the worker-ai service')
+    expect(view.textContent).toContain('resume automatically')
+  })
+
   it('shows download failures and suppresses concurrent detail actions', async () => {
     let rejectDownload: ((error: Error) => void) | undefined
     reportingPageMocks.apiDownload.mockImplementation(

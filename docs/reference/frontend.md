@@ -24,6 +24,8 @@ Route tree:
 - `/` -> `ProtectedRoute` + `AppShell`
   - index -> `DashboardPage`
   - `/alerts` -> `AlertsPage`
+  - `/investigations` -> `InvestigationsPage` list workspace
+  - `/investigations/:investigationId` -> `InvestigationsPage` detail workspace
   - `/feeds` -> `FeedsPage`
   - `/stats` -> `StatsPage`
   - `/export` -> `ExportPage`
@@ -40,6 +42,7 @@ Route tree:
     - `/settings/ai` -> admin-only `AiSettingsPage` (shown only when `features.ai_enabled`)
     - `/settings/tagging` -> admin-only `TaggingSettingsPage`
     - `/settings/tokens` -> `TokensPage`
+    - `/settings/operations` -> admin-only `OperationsPage`
     - `/settings/users` -> admin-only `UsersPage`
     - `/settings/audit-logs` -> admin-only `AuditLogsPage`
 
@@ -95,6 +98,7 @@ Top navigation links:
 
 - `Dashboard`
 - `Alerts`
+- `Investigations`
 - `Feeds`
 - `Stats`
 - `Export`
@@ -265,11 +269,14 @@ Alert category values:
 
 UI elements:
 
-- Create/edit form: name, category, comma-separated keywords
-- Current match preview while typing
-- Include-disabled toggle
-- Grouped cards by category
-- Edit, enable/disable, and delete actions
+- Keyboard-accessible Rules, Occurrences, and administrator-only Operations tabs
+- Rule create/edit form with name, category, keywords, severity, and suppression
+- Current computed-match preview, include-disabled toggle, and grouped rule cards
+- Durable occurrence metrics, filters, desktop table, mobile list, detail, activity,
+  lifecycle, snooze, and bulk actions
+- Administrator backfill preview/apply flow with keyset continuation
+- Administrator evaluation queue, attention filters, retained metrics, detail,
+  activity, and dead-letter replay
 
 API calls:
 
@@ -278,6 +285,36 @@ API calls:
 - `POST /alerts`
 - `PATCH /alerts/{id}`
 - `DELETE /alerts/{id}`
+- occurrence list, detail, activity, lifecycle, snooze, and bulk endpoints
+- `POST /alerts/occurrences/reconciliation/preview`
+- `POST /alerts/occurrences/reconciliation/apply`
+- `GET /alerts/occurrences/metrics`
+- administrator evaluation list, detail, activity, and replay endpoints
+
+### `InvestigationsPage`
+
+UI elements:
+
+- Search, status, severity, assignment, archive, and pagination controls
+- Separate desktop table and compact mobile collection cards
+- Create dialog with severity, visibility, description, and optional assignee
+- Versioned detail workspace with Overview, Members, Evidence, Notes, and Activity
+  tabs
+- Owner/editor/viewer object-role controls, final-owner protection, and explicit
+  confirmations for destructive changes
+- Item, IOC, report, and alert-occurrence evidence with immutable source snapshots
+- Refresh guidance for optimistic conflicts and indistinguishable not-found/private
+  access failures
+
+API calls:
+
+- `GET`, `POST /investigations`
+- `GET /investigations/member-candidates`
+- `GET`, `PATCH /investigations/{id}`
+- member add, update, and remove endpoints
+- paginated evidence reads plus evidence add and remove endpoints
+- paginated note reads plus note add, update, and soft-delete endpoints
+- `GET /investigations/{id}/activity`
 
 ### `FeedsPage`
 
@@ -505,23 +542,32 @@ API calls:
 UI elements:
 
 - Account summary fields: email, role, status, created timestamp
-- Change password form
+- Local-account password management; SSO-managed accounts show the external authority instead of impossible password controls
+- Local TOTP enrollment, confirmation, recovery-code regeneration, and disable controls
+- Browser-session inventory with client, authentication method, activity, and expiry details
+- Exact-session and revoke-other-sessions confirmations with local or SSO recent-auth continuation; restored actions always require confirmation again
+- OIDC identity link/unlink controls where the account ownership model permits them
 
 API calls:
 
 - `GET /auth/me`
 - `POST /auth/change-password`
+- `GET /auth/security/mfa`
+- MFA enrollment, confirmation, recovery-code, disable, and local reauthentication endpoints
+- `GET /auth/security/sessions`
+- exact and bulk session revocation endpoints
+- OIDC link, unlink, and reauthentication endpoints
 
 ### `TokensPage`
 
 UI elements:
 
-- Create token form: name, expiry days, scopes CSV, current password
+- Create token form: name, expiry days, scopes CSV, and an authentication-method-aware step-up
 - Leave scopes blank to get the default read-only scopes; an explicit empty list is rejected by the API
-- Browser-cookie sessions must provide the current password as a step-up check before the API will mint a durable token
-- One-time token reveal panel
+- Local browser sessions provide the current password and enabled local MFA. OIDC browser sessions require recent provider authentication with the configured external MFA assurance; the draft is restored after redirect and is never auto-submitted.
+- One-time token reveal panel that receives keyboard focus, announces creation without reading the secret aloud, and clears the bearer value after copy or acknowledgement
 - Token inventory
-- Admin-only `user_id` filter input
+- Admin-only `user_id` filter with explicit Apply/Clear actions, UUID validation, and a visible draft-versus-applied state
 - Revoke button per token
 
 API calls:
@@ -535,17 +581,43 @@ API calls:
 UI elements:
 
 - Create user form: email, password, role, active
-- Search users input
+- Search, authentication-source, role, status, approval, and password-state filters with paginated results
+- Local and SSO source badges plus the managing OIDC provider and last SSO sign-in
 - Per-user row editor:
   - role
   - active flag
-  - optional password reset
+  - approval state
+  - optional password reset only for locally managed passwords
+  - administrator MFA reset with reason and recent-auth verification
+- SSO-managed fields are read-only with an explanation of where they must be changed
+- MFA-reset continuation reloads its exact target by ID after SSO verification, so it remains reliable when the target is outside the current directory page
 
 API calls:
 
-- `GET /users`
+- `GET /users/directory`
+- `GET /users/{id}`
 - `POST /users`
 - `PATCH /users/{id}`
+- `POST /users/{id}/mfa/reset`
+
+### `OperationsPage`
+
+Administrator workspace for deployment health and recovery readiness.
+
+UI elements:
+
+- Overall readiness and prioritized issue summary
+- API, PostgreSQL, Redis, Celery Beat, worker-queue, migration, and encryption checks
+- Queue/backlog age and depth projections with explicit unavailable states
+- Storage growth and retained-history estimates
+- Recovery archive, verification, drill, quarantine, and last-operation status
+- On-demand bounded diagnostics with a correlation ID and safe failure details
+
+API calls:
+
+- `GET /operations/overview`
+- `GET /operations/runs`
+- `GET /operations/diagnostics`
 
 ### `AuditLogsPage`
 
@@ -597,9 +669,13 @@ API calls:
 |---|---|---|
 | `hooks/useCurrentUser.ts` | `GET` | `/auth/me` |
 | `pages/LoginPage.tsx` | `POST` | `/auth/login` |
-| `pages/UsersPage.tsx` | `GET` | `/users` |
+| `pages/UsersPage.tsx` | `GET` | `/users/directory` and `/users/{id}` |
 | `pages/UsersPage.tsx` | `POST` | `/users` |
 | `pages/UsersPage.tsx` | `PATCH` | `/users/{id}` |
+| `pages/UsersPage.tsx` | `POST` | `/users/{id}/mfa/reset` |
+| `pages/OperationsPage.tsx` | `GET` | `/operations/overview` |
+| `pages/OperationsPage.tsx` | `GET` | `/operations/runs` |
+| `pages/OperationsPage.tsx` | `GET` | `/operations/diagnostics` |
 | `pages/AccountPage.tsx` | `POST` | `/auth/change-password` |
 | `pages/ExportPage.tsx` | `GET` | `/exports/capabilities` |
 | `pages/ExportPage.tsx` | `POST` | `/exports/preview` |
@@ -663,6 +739,17 @@ API calls:
 | `pages/AlertsPage.tsx` | `POST` | `/alerts` |
 | `pages/AlertsPage.tsx` | `PATCH` | `/alerts/{id}` |
 | `pages/AlertsPage.tsx` | `DELETE` | `/alerts/{id}` |
+| `pages/useAlertOccurrencesController.ts` | `GET` | `/alerts/occurrences` |
+| `pages/useAlertOccurrencesController.ts` | `GET` | `/alerts/occurrences/{id}` and activity |
+| `pages/useAlertOccurrencesController.ts` | `POST` | occurrence lifecycle, snooze, and bulk actions |
+| `pages/useAlertOccurrencesController.ts` | `POST` | `/alerts/occurrences/reconciliation/preview` and `/apply` |
+| `pages/useAlertOperationsController.ts` | `GET` | `/alerts/occurrences/metrics` |
+| `pages/useAlertOperationsController.ts` | `GET` | evaluation list, detail, and activity |
+| `pages/useAlertOperationsController.ts` | `POST` | evaluation replay |
+| `pages/useInvestigationsPage.ts` | `GET`, `POST` | `/investigations` |
+| `pages/useInvestigationDetail.ts` | `GET`, `PATCH` | `/investigations/{id}` |
+| `pages/useInvestigationDetail.ts` | `GET` | member candidates, paginated evidence and notes, and investigation activity |
+| `pages/useInvestigationDetail.ts` | `POST`, `PATCH`, `DELETE` | members, evidence, and notes |
 | `pages/DashboardPage.tsx` | `GET` | `/feeds` |
 | `pages/DashboardPage.tsx` | `GET` | `/views` |
 | `pages/DashboardPage.tsx` | `GET` | `/tags` |

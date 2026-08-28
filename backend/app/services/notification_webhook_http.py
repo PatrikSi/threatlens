@@ -29,6 +29,18 @@ _delivery_lease_heartbeat: ContextVar[Callable[[int], None] | None] = ContextVar
     "notification_delivery_lease_heartbeat",
     default=None,
 )
+_delivery_external_io_marker: ContextVar[Callable[[], None] | None] = ContextVar(
+    "notification_delivery_external_io_marker",
+    default=None,
+)
+_delivery_external_io_started: ContextVar[bool | None] = ContextVar(
+    "notification_delivery_external_io_started",
+    default=None,
+)
+_delivery_redirect_chain_started: ContextVar[bool | None] = ContextVar(
+    "notification_delivery_redirect_chain_started",
+    default=None,
+)
 BLOCKED_REQUEST_HEADERS = frozenset(
     {
         "connection",
@@ -60,6 +72,21 @@ class RenderedNotificationRequestLike(Protocol):
     raw_body: bytes | None
 
 
+class WebhookAmbiguousResponseError(RuntimeError):
+    code = "ambiguous_webhook_response"
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        duration_ms: int = 0,
+    ) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.duration_ms = duration_ms
+
+
 @contextmanager
 def notification_delivery_lease_heartbeat(
     callback: Callable[[int], None] | None,
@@ -69,6 +96,25 @@ def notification_delivery_lease_heartbeat(
         yield
     finally:
         _delivery_lease_heartbeat.reset(token)
+
+
+@contextmanager
+def notification_delivery_external_io_marker(
+    callback: Callable[[], None] | None,
+) -> Iterator[None]:
+    marker_token = _delivery_external_io_marker.set(callback)
+    started_token = _delivery_external_io_started.set(
+        False if callback is not None else None
+    )
+    redirect_token = _delivery_redirect_chain_started.set(
+        False if callback is not None else None
+    )
+    try:
+        yield
+    finally:
+        _delivery_redirect_chain_started.reset(redirect_token)
+        _delivery_external_io_started.reset(started_token)
+        _delivery_external_io_marker.reset(marker_token)
 
 
 def canonical_header_name(header_name: str) -> str:
@@ -140,6 +186,10 @@ def send_rendered_notification_request(
         pool=rendered.timeout_seconds,
     )
     started_at = time.perf_counter()
+    status_code: int | None = None
+    request_url = rendered.url
+    request_method = rendered.method
+    response_body_preview: str | None = None
 
     try:
         _renew_notification_operation_lease(rendered.timeout_seconds)
@@ -159,34 +209,91 @@ def send_rendered_notification_request(
                 raw_body=rendered.raw_body,
             )
             try:
+                status_code = response.status_code
+                request_url = str(response.request.url)
+                request_method = response.request.method
                 response_body_preview = read_response_preview(
                     response,
                     max_bytes=MAX_RESPONSE_PREVIEW_CHARS,
                     lease_timeout_seconds=rendered.timeout_seconds,
                 )
-                status_code = response.status_code
-                request_url = str(response.request.url)
-                request_method = response.request.method
             finally:
                 response.close()
+    except RedirectError as exc:
+        if _delivery_external_io_started.get() is True:
+            raise
+        return _failed_request_result(rendered, started_at=started_at, error=exc)
+    except httpx.RemoteProtocolError as exc:
+        if _observed_response_is_final(status_code):
+            return _completed_request_result(
+                rendered,
+                started_at=started_at,
+                status_code=status_code,
+                request_url=request_url,
+                request_method=request_method,
+                response_body_preview=_preview_or_unavailable(
+                    response_body_preview,
+                    error=exc,
+                ),
+            )
+        if _delivery_external_io_started.get() is True:
+            raise WebhookAmbiguousResponseError(
+                f"Webhook response was invalid after the request began: {exc}",
+                duration_ms=int((time.perf_counter() - started_at) * 1000),
+            ) from exc
+        return _failed_request_result(rendered, started_at=started_at, error=exc)
     except (SafeFetchError, httpx.HTTPError, ValueError) as exc:
-        duration_ms = int((time.perf_counter() - started_at) * 1000)
-        return NotificationWebhookTestResponse(
-            success=False,
-            status_code=None,
-            duration_ms=duration_ms,
-            rendered_url=rendered.url,
-            rendered_method=rendered.method,
-            rendered_headers=rendered.headers,
-            rendered_query_params=rendered.query_params,
-            rendered_body=rendered.body,
-            response_body_preview=None,
-            error=str(exc),
-        )
+        if _observed_response_is_final(status_code):
+            return _completed_request_result(
+                rendered,
+                started_at=started_at,
+                status_code=status_code,
+                request_url=request_url,
+                request_method=request_method,
+                response_body_preview=_preview_or_unavailable(
+                    response_body_preview,
+                    error=exc,
+                ),
+            )
+        if _delivery_redirect_chain_started.get() is True:
+            raise RedirectError(
+                f"Redirect chain failed after the initial request: {exc}"
+            ) from exc
+        return _failed_request_result(rendered, started_at=started_at, error=exc)
 
+    if status_code is None:
+        raise RuntimeError("Webhook response status is unavailable")
     duration_ms = int((time.perf_counter() - started_at) * 1000)
+    if not 200 <= status_code < 400 and _delivery_redirect_chain_started.get() is True:
+        raise WebhookAmbiguousResponseError(
+            f"Redirect chain ended with HTTP {status_code}; the original request "
+            "will not be retried automatically.",
+            status_code=status_code,
+            duration_ms=duration_ms,
+        )
+    return _completed_request_result(
+        rendered,
+        started_at=started_at,
+        status_code=status_code,
+        request_url=request_url,
+        request_method=request_method,
+        response_body_preview=response_body_preview,
+    )
+
+
+def _completed_request_result(
+    rendered: RenderedNotificationRequestLike,
+    *,
+    started_at: float,
+    status_code: int,
+    request_url: str,
+    request_method: str,
+    response_body_preview: str | None,
+) -> NotificationWebhookTestResponse:
+    duration_ms = int((time.perf_counter() - started_at) * 1000)
+    success = 200 <= status_code < 400
     return NotificationWebhookTestResponse(
-        success=200 <= status_code < 400,
+        success=success,
         status_code=status_code,
         duration_ms=duration_ms,
         rendered_url=request_url,
@@ -195,7 +302,44 @@ def send_rendered_notification_request(
         rendered_query_params=rendered.query_params,
         rendered_body=rendered.body,
         response_body_preview=response_body_preview,
-        error=None if 200 <= status_code < 400 else f"HTTP {status_code}",
+        error=None if success else f"HTTP {status_code}",
+    )
+
+
+def _preview_or_unavailable(
+    response_body_preview: str | None,
+    *,
+    error: Exception,
+) -> str:
+    if response_body_preview is not None:
+        return response_body_preview
+    return f"Response preview unavailable ({type(error).__name__})."
+
+
+def _observed_response_is_final(status_code: int | None) -> bool:
+    if status_code is None:
+        return False
+    return 200 <= status_code < 400 or _delivery_redirect_chain_started.get() is not True
+
+
+def _failed_request_result(
+    rendered: RenderedNotificationRequestLike,
+    *,
+    started_at: float,
+    error: Exception,
+) -> NotificationWebhookTestResponse:
+    duration_ms = int((time.perf_counter() - started_at) * 1000)
+    return NotificationWebhookTestResponse(
+        success=False,
+        status_code=None,
+        duration_ms=duration_ms,
+        rendered_url=rendered.url,
+        rendered_method=rendered.method,
+        rendered_headers=rendered.headers,
+        rendered_query_params=rendered.query_params,
+        rendered_body=rendered.body,
+        response_body_preview=None,
+        error=str(error),
     )
 
 
@@ -219,26 +363,36 @@ def send_request_with_redirects(
     current_params = list(params)
 
     while True:
-        client_timeout = getattr(client, "timeout", None)
-        timeout = getattr(client_timeout, "read", None)
-        _renew_notification_operation_lease(timeout)
-        ensure_runtime_fetchable_url(
-            current_url, allow_private_network=settings.allow_private_network_webhooks
-        )
-        request_url = _merge_request_url(current_url, current_params)
-        request = client.build_request(
-            current_method,
-            request_url,
-            headers=headers,
-            json=current_json_body,
-            data=current_form_body
-            if current_form_body is not None
-            else current_raw_body,
-        )
-        response = client.send(request, stream=True, follow_redirects=False)
+        try:
+            client_timeout = getattr(client, "timeout", None)
+            timeout = getattr(client_timeout, "read", None)
+            _renew_notification_operation_lease(timeout)
+            ensure_runtime_fetchable_url(
+                current_url,
+                allow_private_network=settings.allow_private_network_webhooks,
+            )
+            request_url = _merge_request_url(current_url, current_params)
+            request = client.build_request(
+                current_method,
+                request_url,
+                headers=headers,
+                json=current_json_body,
+                data=current_form_body
+                if current_form_body is not None
+                else current_raw_body,
+            )
+            _mark_notification_external_io_started()
+            response = client.send(request, stream=True, follow_redirects=False)
+        except (SafeFetchError, httpx.HTTPError, ValueError) as exc:
+            if redirects > 0:
+                raise RedirectError(
+                    f"Redirect follow-up failed after the initial request: {exc}"
+                ) from exc
+            raise
         if response.status_code not in REDIRECT_STATUS_CODES:
             return response
 
+        _mark_notification_redirect_chain_started()
         location = response.headers.get("location")
         if not location:
             response.close()
@@ -269,6 +423,19 @@ def _renew_notification_operation_lease(timeout_seconds: float | int | None) -> 
         return
     timeout = max(1, int(timeout_seconds or 1))
     callback(max(30, (timeout * 2) + 15))
+
+
+def _mark_notification_external_io_started() -> None:
+    callback = _delivery_external_io_marker.get()
+    if callback is not None:
+        callback()
+        _delivery_external_io_marker.set(None)
+        _delivery_external_io_started.set(True)
+
+
+def _mark_notification_redirect_chain_started() -> None:
+    if _delivery_redirect_chain_started.get() is not None:
+        _delivery_redirect_chain_started.set(True)
 
 
 def _merge_request_url(url: str, params: list[tuple[str, str]]) -> str:

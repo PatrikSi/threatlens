@@ -54,6 +54,29 @@ def test_openapi_operations_preserve_required_token_scope_extensions():
     assert schema["paths"]["/v1/feeds"]["post"]["x-threatlens-required-token-scopes"] == ["write:feeds"]
 
 
+def test_openapi_marks_oidc_provider_mutation_auth_contract_accurately():
+    operation = app.openapi()["paths"]["/v1/auth/oidc/provider"]["put"]
+
+    assert operation["security"] == [
+        {"ApiTokenBearer": []},
+        {"SessionCookieAuth": []},
+    ]
+    assert operation["x-threatlens-required-token-scopes"] == ["write:users"]
+    assert "x-threatlens-browser-session-only" not in operation
+
+
+def test_user_update_security_version_description_matches_compatibility_contract():
+    field = app.openapi()["components"]["schemas"]["UserUpdateRequest"]["properties"][
+        "expected_security_version"
+    ]
+
+    assert field["description"] == (
+        "Optional optimistic-concurrency precondition. Legacy requests may omit it; "
+        "when supplied, it must match security_version from the latest user-directory "
+        "response and is enforced for every update."
+    )
+
+
 def test_openapi_preserves_saved_view_query_component_names():
     schemas = app.openapi()["components"]["schemas"]
 

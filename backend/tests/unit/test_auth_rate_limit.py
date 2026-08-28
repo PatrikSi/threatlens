@@ -5,6 +5,12 @@ from app.services import auth_rate_limit
 
 
 class _UnavailableRedis:
+    def get(self, _key: str):
+        raise redis.RedisError("redis unavailable")
+
+    def eval(self, _script: str, _numkeys: int, *_args):
+        raise redis.RedisError("redis unavailable")
+
     def ttl(self, _key: str):
         raise redis.RedisError("redis unavailable")
 
@@ -34,6 +40,42 @@ class _MemoryRedis:
 
     def ttl(self, key: str):
         return self.ttls.get(key, -2)
+
+    def get(self, key: str):
+        return self.values.get(key)
+
+    def eval(self, script: str, numkeys: int, *args):
+        keys = list(args[:numkeys])
+        argv = list(args[numkeys:])
+        if "threatlens-auth-record-v1" in script:
+            email_ip_count = self.incr(keys[0])
+            ip_count = self.incr(keys[1])
+            account_count = self.incr(keys[2])
+            for key, count in zip(keys[:3], (email_ip_count, ip_count, account_count), strict=True):
+                if count == 1:
+                    self.expire(key, int(argv[1]))
+            members = self.values.setdefault(keys[3], set())
+            assert isinstance(members, set)
+            members.add(str(argv[0]))
+            self.expire(keys[3], int(argv[1]))
+            distinct_ips = len(members)
+            self.values[keys[7]] = str(argv[7])
+            self.expire(keys[7], int(argv[1]))
+            if email_ip_count >= int(argv[2]):
+                self.set(keys[4], "1", ex=int(argv[5]), nx=True)
+            if ip_count >= int(argv[3]):
+                self.set(keys[5], "1", ex=int(argv[5]), nx=True)
+            if account_count >= int(argv[4]) and distinct_ips >= int(argv[6]):
+                self.set(keys[6], "1", ex=int(argv[5]), nx=True)
+            return [email_ip_count, ip_count, account_count, distinct_ips]
+        if "threatlens-auth-clear-v1" in script:
+            expected = str(argv[0])
+            current = str(self.values.get(keys[5], ""))
+            if expected and current != expected:
+                return 0
+            self.delete(*keys[:5])
+            return 1
+        raise AssertionError("unexpected Lua script")
 
     def incr(self, key: str):
         current = int(self.values.get(key, 0)) + 1
@@ -79,12 +121,12 @@ class _MemoryRedis:
 class _DeleteFlakyRedis(_MemoryRedis):
     def __init__(self):
         super().__init__()
-        self.fail_delete = True
+        self.fail_clear = True
 
-    def delete(self, *keys: str):
-        if self.fail_delete:
+    def eval(self, script: str, numkeys: int, *args):
+        if self.fail_clear and "threatlens-auth-clear-v1" in script:
             raise redis.RedisError("redis unavailable")
-        return super().delete(*keys)
+        return super().eval(script, numkeys, *args)
 
 
 class _MemoryRedisWithoutSets(_MemoryRedis):
@@ -104,9 +146,12 @@ def _reset_emergency_state():
     ]:
         auth_rate_limit._emergency_clear_login_failures(email, ip)
         auth_rate_limit._emergency_clear_password_verification_failures(email, ip)
+        auth_rate_limit._emergency_clear_mfa_action_failures(email, ip)
         auth_rate_limit._emergency_clear_self_registration_attempts(email, ip)
-    auth_rate_limit._pending_redis_clears.clear()
+    auth_rate_limit._emergency_failures.clear()
+    auth_rate_limit._emergency_locks.clear()
     auth_rate_limit._emergency_account_ip_sets.clear()
+    auth_rate_limit._emergency_versions.clear()
     yield
     for email, ip in [
         ("admin@example.com", "203.0.113.10"),
@@ -118,12 +163,17 @@ def _reset_emergency_state():
     ]:
         auth_rate_limit._emergency_clear_login_failures(email, ip)
         auth_rate_limit._emergency_clear_password_verification_failures(email, ip)
+        auth_rate_limit._emergency_clear_mfa_action_failures(email, ip)
         auth_rate_limit._emergency_clear_self_registration_attempts(email, ip)
-    auth_rate_limit._pending_redis_clears.clear()
+    auth_rate_limit._emergency_failures.clear()
+    auth_rate_limit._emergency_locks.clear()
     auth_rate_limit._emergency_account_ip_sets.clear()
+    auth_rate_limit._emergency_versions.clear()
 
 
-def test_check_login_throttle_uses_local_emergency_state_when_backend_unavailable(monkeypatch):
+def test_check_login_throttle_uses_local_emergency_state_when_backend_unavailable(
+    monkeypatch,
+):
     monkeypatch.setattr(auth_rate_limit, "redis_client", _UnavailableRedis())
     monkeypatch.setattr(auth_rate_limit.settings, "auth_login_max_attempts", 2)
     monkeypatch.setattr(auth_rate_limit.settings, "auth_login_window_seconds", 60)
@@ -136,7 +186,9 @@ def test_check_login_throttle_uses_local_emergency_state_when_backend_unavailabl
     assert state.backend_available is False
 
 
-def test_record_login_failure_triggers_local_lockout_when_backend_unavailable(monkeypatch):
+def test_record_login_failure_triggers_local_lockout_when_backend_unavailable(
+    monkeypatch,
+):
     monkeypatch.setattr(auth_rate_limit, "redis_client", _UnavailableRedis())
     monkeypatch.setattr(auth_rate_limit.settings, "auth_login_max_attempts", 1)
     monkeypatch.setattr(auth_rate_limit.settings, "auth_login_window_seconds", 60)
@@ -187,10 +239,20 @@ def test_ip_wide_lock_uses_distinct_higher_threshold(monkeypatch):
 
     auth_rate_limit.record_login_failure("first@example.com", "203.0.113.10")
     auth_rate_limit.record_login_failure("second@example.com", "203.0.113.10")
-    assert auth_rate_limit.check_login_throttle("fresh@example.com", "203.0.113.10").blocked is False
+    assert (
+        auth_rate_limit.check_login_throttle(
+            "fresh@example.com", "203.0.113.10"
+        ).blocked
+        is False
+    )
 
     auth_rate_limit.record_login_failure("third@example.com", "203.0.113.10")
-    assert auth_rate_limit.check_login_throttle("fresh@example.com", "203.0.113.10").blocked is True
+    assert (
+        auth_rate_limit.check_login_throttle(
+            "fresh@example.com", "203.0.113.10"
+        ).blocked
+        is True
+    )
 
 
 def test_password_verification_throttle_uses_a_separate_namespace(monkeypatch):
@@ -200,13 +262,43 @@ def test_password_verification_throttle_uses_a_separate_namespace(monkeypatch):
     monkeypatch.setattr(auth_rate_limit.settings, "auth_login_window_seconds", 60)
     monkeypatch.setattr(auth_rate_limit.settings, "auth_login_lockout_seconds", 120)
 
-    auth_rate_limit.record_password_verification_failure("admin@example.com", "203.0.113.10")
+    auth_rate_limit.record_password_verification_failure(
+        "admin@example.com", "203.0.113.10"
+    )
 
-    verification_state = auth_rate_limit.check_password_verification_throttle("admin@example.com", "203.0.113.10")
-    login_state = auth_rate_limit.check_login_throttle("admin@example.com", "203.0.113.10")
+    verification_state = auth_rate_limit.check_password_verification_throttle(
+        "admin@example.com", "203.0.113.10"
+    )
+    login_state = auth_rate_limit.check_login_throttle(
+        "admin@example.com", "203.0.113.10"
+    )
 
     assert verification_state.blocked is True
     assert login_state.blocked is False
+
+
+def test_sensitive_mfa_throttle_uses_a_separate_namespace(monkeypatch):
+    redis_client = _MemoryRedis()
+    monkeypatch.setattr(auth_rate_limit, "redis_client", redis_client)
+    monkeypatch.setattr(auth_rate_limit.settings, "auth_login_max_attempts", 1)
+    monkeypatch.setattr(auth_rate_limit.settings, "auth_login_window_seconds", 60)
+    monkeypatch.setattr(auth_rate_limit.settings, "auth_login_lockout_seconds", 120)
+
+    auth_rate_limit.record_mfa_action_failure("admin@example.com", "203.0.113.10")
+
+    mfa_state = auth_rate_limit.check_mfa_action_throttle(
+        "admin@example.com", "203.0.113.10"
+    )
+    login_state = auth_rate_limit.check_login_throttle(
+        "admin@example.com", "203.0.113.10"
+    )
+    password_state = auth_rate_limit.check_password_verification_throttle(
+        "admin@example.com", "203.0.113.10"
+    )
+
+    assert mfa_state.blocked is True
+    assert login_state.blocked is False
+    assert password_state.blocked is False
 
 
 def test_self_registration_throttle_uses_a_separate_namespace(monkeypatch):
@@ -216,13 +308,37 @@ def test_self_registration_throttle_uses_a_separate_namespace(monkeypatch):
     monkeypatch.setattr(auth_rate_limit.settings, "auth_login_window_seconds", 60)
     monkeypatch.setattr(auth_rate_limit.settings, "auth_login_lockout_seconds", 120)
 
-    auth_rate_limit.record_self_registration_attempt("pending@example.com", "203.0.113.10")
+    auth_rate_limit.record_self_registration_attempt(
+        "pending@example.com", "203.0.113.10"
+    )
 
-    registration_state = auth_rate_limit.check_self_registration_throttle("pending@example.com", "203.0.113.10")
-    login_state = auth_rate_limit.check_login_throttle("pending@example.com", "203.0.113.10")
+    registration_state = auth_rate_limit.check_self_registration_throttle(
+        "pending@example.com", "203.0.113.10"
+    )
+    login_state = auth_rate_limit.check_login_throttle(
+        "pending@example.com", "203.0.113.10"
+    )
 
     assert registration_state.blocked is True
     assert login_state.blocked is False
+
+
+def test_invalid_oidc_callbacks_are_rate_limited_per_source_ip(monkeypatch):
+    redis_client = _MemoryRedis()
+    monkeypatch.setattr(auth_rate_limit, "redis_client", redis_client)
+    monkeypatch.setattr(auth_rate_limit.settings, "auth_login_max_attempts", 2)
+    monkeypatch.setattr(auth_rate_limit.settings, "auth_login_ip_max_attempts", 10)
+    monkeypatch.setattr(auth_rate_limit.settings, "auth_login_window_seconds", 60)
+    monkeypatch.setattr(auth_rate_limit.settings, "auth_login_lockout_seconds", 120)
+
+    auth_rate_limit.record_invalid_oidc_callback("203.0.113.10")
+    auth_rate_limit.record_invalid_oidc_callback("203.0.113.10")
+
+    assert auth_rate_limit.check_oidc_callback_throttle("203.0.113.10").blocked
+    assert not auth_rate_limit.check_oidc_callback_throttle("203.0.113.11").blocked
+    assert not auth_rate_limit.check_login_throttle(
+        "admin@example.com", "203.0.113.10"
+    ).blocked
 
 
 def test_clear_login_failures_removes_existing_locks(monkeypatch):
@@ -233,12 +349,16 @@ def test_clear_login_failures_removes_existing_locks(monkeypatch):
     monkeypatch.setattr(auth_rate_limit.settings, "auth_login_lockout_seconds", 120)
 
     auth_rate_limit.record_login_failure("admin@example.com", "203.0.113.10")
-    blocked_state = auth_rate_limit.check_login_throttle("admin@example.com", "203.0.113.10")
+    blocked_state = auth_rate_limit.check_login_throttle(
+        "admin@example.com", "203.0.113.10"
+    )
     assert blocked_state.blocked is True
 
     auth_rate_limit.clear_login_failures("admin@example.com", "203.0.113.10")
 
-    cleared_state = auth_rate_limit.check_login_throttle("admin@example.com", "203.0.113.10")
+    cleared_state = auth_rate_limit.check_login_throttle(
+        "admin@example.com", "203.0.113.10"
+    )
     assert cleared_state.blocked is False
 
 
@@ -252,8 +372,12 @@ def test_login_throttle_email_lock_is_scoped_to_source_ip(monkeypatch):
     auth_rate_limit.record_login_failure("admin@example.com", "203.0.113.10")
     auth_rate_limit.record_login_failure("admin@example.com", "203.0.113.10")
 
-    blocked_state = auth_rate_limit.check_login_throttle("admin@example.com", "203.0.113.10")
-    other_ip_state = auth_rate_limit.check_login_throttle("admin@example.com", "203.0.113.11")
+    blocked_state = auth_rate_limit.check_login_throttle(
+        "admin@example.com", "203.0.113.10"
+    )
+    other_ip_state = auth_rate_limit.check_login_throttle(
+        "admin@example.com", "203.0.113.11"
+    )
 
     assert blocked_state.blocked is True
     assert other_ip_state.blocked is False
@@ -276,7 +400,9 @@ def test_login_throttle_blocks_distributed_account_spray(monkeypatch):
     assert state.retry_after_seconds == 120
 
 
-def test_login_throttle_does_not_globally_lock_account_before_spray_threshold(monkeypatch):
+def test_login_throttle_does_not_globally_lock_account_before_spray_threshold(
+    monkeypatch,
+):
     redis_client = _MemoryRedis()
     monkeypatch.setattr(auth_rate_limit, "redis_client", redis_client)
     monkeypatch.setattr(auth_rate_limit.settings, "auth_login_max_attempts", 2)
@@ -287,14 +413,18 @@ def test_login_throttle_does_not_globally_lock_account_before_spray_threshold(mo
         auth_rate_limit.record_login_failure("admin@example.com", ip)
         auth_rate_limit.record_login_failure("admin@example.com", ip)
 
-    blocked_state = auth_rate_limit.check_login_throttle("admin@example.com", "203.0.113.10")
-    fresh_ip_state = auth_rate_limit.check_login_throttle("admin@example.com", "203.0.113.99")
+    blocked_state = auth_rate_limit.check_login_throttle(
+        "admin@example.com", "203.0.113.10"
+    )
+    fresh_ip_state = auth_rate_limit.check_login_throttle(
+        "admin@example.com", "203.0.113.99"
+    )
 
     assert blocked_state.blocked is True
     assert fresh_ip_state.blocked is False
 
 
-def test_login_throttle_degrades_cleanly_without_redis_set_operations(monkeypatch):
+def test_atomic_login_throttle_does_not_depend_on_client_set_helpers(monkeypatch):
     redis_client = _MemoryRedisWithoutSets()
     monkeypatch.setattr(auth_rate_limit, "redis_client", redis_client)
     monkeypatch.setattr(auth_rate_limit.settings, "auth_login_max_attempts", 2)
@@ -305,11 +435,15 @@ def test_login_throttle_degrades_cleanly_without_redis_set_operations(monkeypatc
         auth_rate_limit.record_login_failure("admin@example.com", ip)
         auth_rate_limit.record_login_failure("admin@example.com", ip)
 
-    blocked_state = auth_rate_limit.check_login_throttle("admin@example.com", "203.0.113.10")
-    fresh_ip_state = auth_rate_limit.check_login_throttle("admin@example.com", "203.0.113.99")
+    blocked_state = auth_rate_limit.check_login_throttle(
+        "admin@example.com", "203.0.113.10"
+    )
+    fresh_ip_state = auth_rate_limit.check_login_throttle(
+        "admin@example.com", "203.0.113.99"
+    )
 
     assert blocked_state.blocked is True
-    assert fresh_ip_state.blocked is False
+    assert fresh_ip_state.blocked is True
 
 
 def test_successful_login_clear_removes_local_emergency_state(monkeypatch):
@@ -320,11 +454,15 @@ def test_successful_login_clear_removes_local_emergency_state(monkeypatch):
 
     auth_rate_limit.record_login_failure("admin@example.com", "203.0.113.10")
     auth_rate_limit.record_login_failure("admin@example.com", "203.0.113.10")
-    blocked_state = auth_rate_limit.check_login_throttle("admin@example.com", "203.0.113.10")
+    blocked_state = auth_rate_limit.check_login_throttle(
+        "admin@example.com", "203.0.113.10"
+    )
     assert blocked_state.blocked is True
 
     auth_rate_limit.clear_login_failures("admin@example.com", "203.0.113.10")
-    cleared_state = auth_rate_limit.check_login_throttle("admin@example.com", "203.0.113.10")
+    cleared_state = auth_rate_limit.check_login_throttle(
+        "admin@example.com", "203.0.113.10"
+    )
     assert cleared_state.blocked is False
 
 
@@ -345,7 +483,7 @@ def test_emergency_login_throttle_blocks_distributed_account_spray(monkeypatch):
     assert state.backend_available is False
 
 
-def test_pending_redis_clear_is_replayed_after_backend_recovers(monkeypatch):
+def test_failed_clear_is_not_replayed_over_a_newer_failure(monkeypatch):
     redis_client = _DeleteFlakyRedis()
     monkeypatch.setattr(auth_rate_limit, "redis_client", redis_client)
     monkeypatch.setattr(auth_rate_limit.settings, "auth_login_max_attempts", 1)
@@ -353,13 +491,52 @@ def test_pending_redis_clear_is_replayed_after_backend_recovers(monkeypatch):
     monkeypatch.setattr(auth_rate_limit.settings, "auth_login_lockout_seconds", 120)
 
     auth_rate_limit.record_login_failure("admin@example.com", "203.0.113.10")
-    assert auth_rate_limit.check_login_throttle("admin@example.com", "203.0.113.10").blocked is True
+    assert (
+        auth_rate_limit.check_login_throttle(
+            "admin@example.com", "203.0.113.10"
+        ).blocked
+        is True
+    )
 
-    auth_rate_limit.clear_login_failures("admin@example.com", "203.0.113.10")
-    assert auth_rate_limit._pending_redis_clears
+    ticket = auth_rate_limit.check_login_throttle(
+        "admin@example.com", "203.0.113.10"
+    )
+    auth_rate_limit.clear_login_failures(
+        "admin@example.com",
+        "203.0.113.10",
+        observed_failure_version=ticket.failure_version,
+    )
 
-    redis_client.fail_delete = False
+    redis_client.fail_clear = False
+    auth_rate_limit.record_login_failure("admin@example.com", "203.0.113.10")
+    auth_rate_limit.clear_login_failures(
+        "admin@example.com",
+        "203.0.113.10",
+        observed_failure_version=ticket.failure_version,
+    )
     state = auth_rate_limit.check_login_throttle("admin@example.com", "203.0.113.10")
 
-    assert state.blocked is False
-    assert auth_rate_limit._pending_redis_clears == set()
+    assert state.blocked is True
+
+
+def test_success_clear_preserves_global_ip_abuse_state(monkeypatch):
+    redis_client = _MemoryRedis()
+    monkeypatch.setattr(auth_rate_limit, "redis_client", redis_client)
+    monkeypatch.setattr(auth_rate_limit.settings, "auth_login_max_attempts", 1)
+    monkeypatch.setattr(auth_rate_limit.settings, "auth_login_ip_max_attempts", 1)
+    monkeypatch.setattr(auth_rate_limit.settings, "auth_login_window_seconds", 60)
+    monkeypatch.setattr(auth_rate_limit.settings, "auth_login_lockout_seconds", 120)
+
+    auth_rate_limit.record_login_failure("admin@example.com", "203.0.113.10")
+    ticket = auth_rate_limit.check_login_throttle(
+        "admin@example.com", "203.0.113.10"
+    )
+    auth_rate_limit.clear_login_failures(
+        "admin@example.com",
+        "203.0.113.10",
+        observed_failure_version=ticket.failure_version,
+    )
+
+    assert auth_rate_limit.check_login_throttle(
+        "fresh@example.com", "203.0.113.10"
+    ).blocked

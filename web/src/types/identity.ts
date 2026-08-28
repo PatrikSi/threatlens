@@ -19,6 +19,41 @@ export interface AdminUser extends User {
   oidc_last_login_at: string | null
   password_managed_by: 'local' | 'oidc'
   role_managed_by: 'local' | 'oidc'
+  identity_linked?: boolean
+  sso_sign_in_available?: boolean
+  oidc_identity_status?:
+    'not_linked' | 'linked_available' | 'linked_unavailable'
+  credential_management_source?: 'local' | 'oidc'
+  /** Local TOTP state for password sign-in; this does not describe OIDC assurance. */
+  mfa_enabled: boolean
+  mfa_confirmed_at: string | null
+  /** Active opaque browser sessions tracked after the session hardening migration. */
+  active_session_count: number
+  /** Optimistic concurrency token for role, activation, approval, and credential changes. */
+  security_version?: number
+  credentials_rotated?: boolean
+  revoked_api_tokens?: number
+  revoked_auth_sessions?: number
+}
+
+export interface CredentialRevocationCounts {
+  revoked_api_tokens?: number
+  revoked_auth_sessions?: number
+}
+
+export type AdminUserUpdateResponse = AdminUser & CredentialRevocationCounts
+
+export interface UserDirectoryResponse {
+  users: AdminUser[]
+  total: number
+  limit: number
+  offset: number
+  has_more: boolean
+}
+
+export interface PasswordChangeResponse extends CredentialRevocationCounts {
+  status: 'ok'
+  sign_in_required?: boolean
 }
 
 export interface AppFeatures {
@@ -32,11 +67,118 @@ export interface AppFeatures {
 
 export interface CurrentUser extends User {
   features: AppFeatures
+  /** Present on servers with opaque-session recent-authentication support. */
+  authentication?: CurrentAuthentication
+}
+
+export interface CurrentAuthentication {
+  credential_kind: 'opaque_session' | 'legacy_session' | 'api_token'
+  session_auth_method: AuthMethod | null
+  mfa_method: MFAMethod | null
+  recently_authenticated: boolean
+  recent_authentication_expires_at: string | null
+  identity_provider_mfa_asserted: boolean
+  reauthentication_endpoint: string | null
+  /** Transitional server fields retained while older self-hosted releases upgrade. */
+  session_id?: string | null
+  recent_authentication_valid?: boolean
+  security_actions_supported?: boolean
 }
 
 export interface TokenResponse {
   token_type: 'session_cookie'
-  csrf_token: string
+  csrf_token?: string | null
+  mfa_required?: boolean | null
+}
+
+export type AuthMethod = 'local' | 'oidc'
+export type MFAMethod = 'totp' | 'recovery_code' | 'external'
+
+export interface AuthSession {
+  id: string
+  current: boolean
+  auth_method: AuthMethod
+  mfa_method: MFAMethod | null
+  client_ip: string | null
+  user_agent: string | null
+  authenticated_at: string
+  last_seen_at: string
+  idle_expires_at: string
+  absolute_expires_at: string
+  revoked_at: string | null
+  revoked_reason: string | null
+}
+
+export interface AuthSessionListResponse {
+  sessions: AuthSession[]
+  active_count: number
+  active_truncated?: boolean
+  history_truncated: boolean
+}
+
+export interface MFAStatusResponse {
+  local_mfa_available: boolean
+  managed_by: 'local' | 'identity_provider'
+  enabled: boolean
+  confirmed_at: string | null
+  recovery_codes_remaining: number
+}
+
+export interface MFAEnrollmentResponse {
+  secret: string
+  provisioning_uri: string
+}
+
+export interface MFAEnrollmentCancelResponse {
+  status: 'ok'
+  cancelled: boolean
+}
+
+export interface MFARecoveryCodesResponse {
+  recovery_codes: string[]
+  generated_at: string
+}
+
+export interface SessionRevocationResponse {
+  status: 'ok'
+  revoked: boolean
+  current_session_revoked: boolean
+  revoked_session_count?: number
+  other_sessions_revoked?: number
+  auth_generation_rotated?: boolean
+}
+
+export interface SessionBulkRevocationResponse {
+  status: 'ok'
+  revoked_count: number
+}
+
+export interface MFADisableResponse {
+  status: 'ok'
+  disabled: boolean
+  revoked_sessions: number
+}
+
+export interface AdminMFAResetResponse {
+  status: 'ok'
+  disabled: boolean
+  revoked_api_tokens: number
+  revoked_auth_sessions: number
+}
+
+export interface RecentAuthenticationRequest {
+  current_password: string
+  code?: string
+}
+
+export interface RecentAuthenticationResponse {
+  verification_method: 'password' | 'password_totp'
+  session_id: string
+  authenticated_at: string
+  valid_until: string
+  status?: 'ok'
+  auth_method?: 'local'
+  session_rotated?: boolean
 }
 
 export interface UserCreateRequest {
@@ -48,6 +190,7 @@ export interface UserCreateRequest {
 }
 
 export interface UserUpdateRequest {
+  expected_security_version?: number
   email?: string
   password?: string
   role?: 'admin' | 'analyst' | 'viewer'
@@ -69,7 +212,19 @@ export interface OIDCStartResponse {
   authorization_url: string
 }
 
-export type OIDCClientAuthMethod = 'client_secret_basic' | 'client_secret_post' | 'none'
+export interface OIDCLinkStartRequest {
+  current_password: string
+  code?: string
+}
+
+export type OIDCUnlinkRequest = OIDCLinkStartRequest
+
+export interface OIDCUnlinkResponse extends CredentialRevocationCounts {
+  status?: 'ok'
+}
+
+export type OIDCClientAuthMethod =
+  'client_secret_basic' | 'client_secret_post' | 'none'
 
 export interface OIDCRoleMapping {
   claim_value: string
@@ -79,6 +234,7 @@ export interface OIDCRoleMapping {
 export interface OIDCProviderSettings {
   id: string | null
   configured: boolean
+  config_revision: number
   name: string
   enabled: boolean
   issuer_url: string
@@ -117,6 +273,7 @@ export interface OIDCProviderUpdateRequest {
   auto_approve_users: boolean
   require_verified_email: boolean
   sync_roles_on_login: boolean
+  expected_config_revision?: number
 }
 
 export interface OIDCProviderTestResponse {
@@ -148,8 +305,24 @@ export interface ApiToken {
   created_at: string
 }
 
+export interface ApiTokenListResponse {
+  tokens: ApiToken[]
+  total: number
+  unscoped_total?: number
+  page: number
+  page_size: number
+}
+
 export interface ApiTokenCreateResponse {
   token: string
   token_prefix: string
   expires_at: string | null
+}
+
+export interface ApiTokenCreateRequest {
+  name: string
+  expires_in_days: number
+  scopes?: string[]
+  current_password?: string
+  code?: string
 }

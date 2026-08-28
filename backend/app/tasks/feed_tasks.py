@@ -55,6 +55,7 @@ from app.services.ioc_extraction import extract_iocs
 from app.services.integration_events import (
     emit_integration_event,
 )
+from app.services.alert_evaluation import persist_alert_evaluation_intent
 from app.services.notification_webhooks import build_alert_match_context_for_item
 from app.services.tag_feedback import load_feedback_adjustments
 from app.services.safe_fetch import (
@@ -66,6 +67,7 @@ from app.services.safe_fetch import (
 )
 from app.services.url_utils import extract_url_domain, is_fetchable_url, normalize_url
 from app.tasks.celery_app import celery_app
+from app.tasks.alert_tasks import enqueue_alert_evaluation_requests
 from app.tasks.article_fetch_tasks import run_fetch_article as _run_fetch_article
 from app.tasks.feed_fetch_tasks import (
     run_backfill_feed_metadata as _run_backfill_feed_metadata,
@@ -798,6 +800,7 @@ _EXTRACTED_TASK_RUNTIME_DEPENDENCIES = (
     domain_slot,
     ensure_feed_fetch_owned,
     ensure_lease_owned,
+    enqueue_alert_evaluation_requests,
     enqueue_integration_event_routing,
     extract_canonical_url,
     extract_iocs,
@@ -810,6 +813,7 @@ _EXTRACTED_TASK_RUNTIME_DEPENDENCIES = (
     load_feedback_adjustments,
     normalize_url,
     probe_feed_metadata,
+    persist_alert_evaluation_intent,
     record_ai_task_event,
     run_item_ai_enrichment,
     safe_fetch_request_guard,

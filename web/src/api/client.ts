@@ -5,9 +5,15 @@ const DEFAULT_API_BASE_URL = import.meta.env.DEV
   : '/api/v1'
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? DEFAULT_API_BASE_URL
 const DEFAULT_REQUEST_TIMEOUT_MS = 15000
-const REQUEST_TIMEOUT_MS = normalizeTimeoutMs(import.meta.env.VITE_API_TIMEOUT_MS, DEFAULT_REQUEST_TIMEOUT_MS)
-const CSRF_COOKIE_NAME = import.meta.env.VITE_CSRF_COOKIE_NAME ?? 'threatlens_csrf'
-const CSRF_HEADER_NAME = (import.meta.env.VITE_CSRF_HEADER_NAME ?? 'x-csrf-token').toLowerCase()
+const REQUEST_TIMEOUT_MS = normalizeTimeoutMs(
+  import.meta.env.VITE_API_TIMEOUT_MS,
+  DEFAULT_REQUEST_TIMEOUT_MS,
+)
+const CSRF_COOKIE_NAME =
+  import.meta.env.VITE_CSRF_COOKIE_NAME ?? 'threatlens_csrf'
+const CSRF_HEADER_NAME = (
+  import.meta.env.VITE_CSRF_HEADER_NAME ?? 'x-csrf-token'
+).toLowerCase()
 const UNSAFE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 
 export type ApiFetchOptions = RequestInit & {
@@ -18,6 +24,12 @@ export interface ApiDownloadResult {
   blob: Blob
   filename: string | null
   contentType: string | null
+}
+
+export interface ApiFetchResult<T> {
+  data: T
+  status: number
+  headers: Headers
 }
 
 export class ApiError extends Error {
@@ -61,7 +73,12 @@ export class ApiTransportError extends Error {
   kind: 'timeout' | 'network'
   retryable = true
 
-  constructor(message: string, path: string, kind: 'timeout' | 'network', cause?: unknown) {
+  constructor(
+    message: string,
+    path: string,
+    kind: 'timeout' | 'network',
+    cause?: unknown,
+  ) {
     super(message, cause === undefined ? undefined : { cause })
     this.name = 'ApiTransportError'
     this.path = path
@@ -74,7 +91,12 @@ export class ApiRequestError extends Error {
   code: 'invalid_csrf_cookie'
   retryable = false
 
-  constructor(message: string, path: string, code: 'invalid_csrf_cookie', cause?: unknown) {
+  constructor(
+    message: string,
+    path: string,
+    code: 'invalid_csrf_cookie',
+    cause?: unknown,
+  ) {
     super(message, cause === undefined ? undefined : { cause })
     this.name = 'ApiRequestError'
     this.path = path
@@ -87,28 +109,30 @@ export function buildApiUrl(path: string): string {
   return `${API_BASE_URL}${normalizedPath}`
 }
 
-export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}, auth = true): Promise<T> {
-  return requestApiResponse(path, options, auth, 'application/json', async (response) => {
-    if (response.status === 204) {
-      return undefined as T
-    }
+export async function apiFetch<T>(
+  path: string,
+  options: ApiFetchOptions = {},
+  auth = true,
+): Promise<T> {
+  return (await apiFetchWithResponse<T>(path, options, auth)).data
+}
 
-    const raw = await response.text()
-    if (!raw.trim()) {
-      return undefined as T
-    }
-
-    const parsed = tryParseJsonResult(raw)
-    if (!parsed.ok) {
-      throw new ApiError('The API returned an unreadable response instead of JSON.', response.status, path, raw, {
-        responseBody: raw,
-        code: 'invalid_response',
-        requestId: response.headers.get('x-request-id'),
-        retryable: true,
-      })
-    }
-    return parsed.value as T
-  })
+export async function apiFetchWithResponse<T>(
+  path: string,
+  options: ApiFetchOptions = {},
+  auth = true,
+): Promise<ApiFetchResult<T>> {
+  return requestApiResponse(
+    path,
+    options,
+    auth,
+    'application/json',
+    async (response) => ({
+      data: await consumeJsonResponse<T>(response, path),
+      status: response.status,
+      headers: response.headers,
+    }),
+  )
 }
 
 export async function apiDownload(
@@ -116,11 +140,19 @@ export async function apiDownload(
   options: ApiFetchOptions = {},
   auth = true,
 ): Promise<ApiDownloadResult> {
-  return requestApiResponse(path, options, auth, 'application/octet-stream', async (response) => ({
-    blob: await response.blob(),
-    filename: parseDownloadFilename(response.headers.get('content-disposition')),
-    contentType: response.headers.get('content-type'),
-  }))
+  return requestApiResponse(
+    path,
+    options,
+    auth,
+    'application/octet-stream',
+    async (response) => ({
+      blob: await response.blob(),
+      filename: parseDownloadFilename(
+        response.headers.get('content-disposition'),
+      ),
+      contentType: response.headers.get('content-type'),
+    }),
+  )
 }
 
 async function requestApiResponse<T>(
@@ -132,11 +164,19 @@ async function requestApiResponse<T>(
 ): Promise<T> {
   const { timeoutMs, ...requestOptions } = options
   const headers = new Headers(requestOptions.headers)
-  const hasBody = requestOptions.body !== undefined && requestOptions.body !== null
+  const hasBody =
+    requestOptions.body !== undefined && requestOptions.body !== null
   const method = (requestOptions.method ?? 'GET').toUpperCase()
-  const bodyIsFormData = typeof FormData !== 'undefined' && requestOptions.body instanceof FormData
-  const bodyIsBlob = typeof Blob !== 'undefined' && requestOptions.body instanceof Blob
-  if (hasBody && !headers.has('Content-Type') && !bodyIsFormData && !bodyIsBlob) {
+  const bodyIsFormData =
+    typeof FormData !== 'undefined' && requestOptions.body instanceof FormData
+  const bodyIsBlob =
+    typeof Blob !== 'undefined' && requestOptions.body instanceof Blob
+  if (
+    hasBody &&
+    !headers.has('Content-Type') &&
+    !bodyIsFormData &&
+    !bodyIsBlob
+  ) {
     headers.set('Content-Type', 'application/json')
   }
   if (!headers.has('Accept')) {
@@ -160,7 +200,10 @@ async function requestApiResponse<T>(
   }
 
   const timeoutController = new AbortController()
-  const { signal, cleanup } = composeAbortSignals(requestOptions.signal, timeoutController.signal)
+  const { signal, cleanup } = composeAbortSignals(
+    requestOptions.signal,
+    timeoutController.signal,
+  )
   const requestTimeoutMs = normalizeTimeoutMs(timeoutMs, REQUEST_TIMEOUT_MS)
   const timeout = setTimeout(() => timeoutController.abort(), requestTimeoutMs)
 
@@ -177,14 +220,28 @@ async function requestApiResponse<T>(
       const problem = extractProblemDetails(parsed)
       const message =
         problem.message ??
-        extractErrorMessage(parsed, raw, response.status, response.statusText, response.headers.get('content-type'))
-      throw new ApiError(message, response.status, path, extractResponseDetail(parsed, raw), {
-        responseBody: parsed ?? raw,
-        code: problem.code,
-        requestId: problem.requestId ?? response.headers.get('x-request-id'),
-        retryable: problem.retryable ?? isRetryableStatus(response.status),
-        retryAfterSeconds: parseRetryAfterSeconds(response.headers.get('retry-after')),
-      })
+        extractErrorMessage(
+          parsed,
+          raw,
+          response.status,
+          response.statusText,
+          response.headers.get('content-type'),
+        )
+      throw new ApiError(
+        message,
+        response.status,
+        path,
+        extractResponseDetail(parsed, raw),
+        {
+          responseBody: parsed ?? raw,
+          code: problem.code,
+          requestId: problem.requestId ?? response.headers.get('x-request-id'),
+          retryable: problem.retryable ?? isRetryableStatus(response.status),
+          retryAfterSeconds: parseRetryAfterSeconds(
+            response.headers.get('retry-after'),
+          ),
+        },
+      )
     }
     return await consumeResponse(response)
   } catch (error) {
@@ -214,12 +271,47 @@ async function requestApiResponse<T>(
   }
 }
 
-function parseDownloadFilename(contentDisposition: string | null): string | null {
+async function consumeJsonResponse<T>(
+  response: Response,
+  path: string,
+): Promise<T> {
+  if (response.status === 204) {
+    return undefined as T
+  }
+
+  const raw = await response.text()
+  if (!raw.trim()) {
+    return undefined as T
+  }
+
+  const parsed = tryParseJsonResult(raw)
+  if (!parsed.ok) {
+    throw new ApiError(
+      'The API returned an unreadable response instead of JSON.',
+      response.status,
+      path,
+      raw,
+      {
+        responseBody: raw,
+        code: 'invalid_response',
+        requestId: response.headers.get('x-request-id'),
+        retryable: true,
+      },
+    )
+  }
+  return parsed.value as T
+}
+
+function parseDownloadFilename(
+  contentDisposition: string | null,
+): string | null {
   if (!contentDisposition) {
     return null
   }
   const encodedMatch = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i)
-  const simpleMatch = contentDisposition.match(/filename=(?:"([^"]+)"|([^;]+))/i)
+  const simpleMatch = contentDisposition.match(
+    /filename=(?:"([^"]+)"|([^;]+))/i,
+  )
   const raw = encodedMatch?.[1] ?? simpleMatch?.[1] ?? simpleMatch?.[2]
   if (!raw) {
     return null
@@ -232,7 +324,12 @@ function parseDownloadFilename(contentDisposition: string | null): string | null
   }
   const filename = Array.from(decoded, (character) => {
     const codePoint = character.codePointAt(0) ?? 0
-    return character === '/' || character === '\\' || codePoint < 32 || codePoint === 127 ? '-' : character
+    return character === '/' ||
+      character === '\\' ||
+      codePoint < 32 ||
+      codePoint === 127
+      ? '-'
+      : character
   })
     .join('')
     .trim()
@@ -252,11 +349,22 @@ function extractProblemDetails(parsed: unknown): {
   if (!error || typeof error !== 'object') {
     return { code: null, message: null, requestId: null, retryable: null }
   }
-  const record = error as { code?: unknown; message?: unknown; request_id?: unknown; retryable?: unknown }
+  const record = error as {
+    code?: unknown
+    message?: unknown
+    request_id?: unknown
+    retryable?: unknown
+  }
   return {
     code: typeof record.code === 'string' ? record.code : null,
-    message: typeof record.message === 'string' && record.message.trim() ? record.message.trim() : null,
-    requestId: typeof record.request_id === 'string' && record.request_id.trim() ? record.request_id.trim() : null,
+    message:
+      typeof record.message === 'string' && record.message.trim()
+        ? record.message.trim()
+        : null,
+    requestId:
+      typeof record.request_id === 'string' && record.request_id.trim()
+        ? record.request_id.trim()
+        : null,
     retryable: typeof record.retryable === 'boolean' ? record.retryable : null,
   }
 }
@@ -277,7 +385,9 @@ function parseRetryAfterSeconds(value: string | null): number | null {
     return Math.ceil(seconds)
   }
   const retryAt = Date.parse(value)
-  return Number.isNaN(retryAt) ? null : Math.max(0, Math.ceil((retryAt - Date.now()) / 1000))
+  return Number.isNaN(retryAt)
+    ? null
+    : Math.max(0, Math.ceil((retryAt - Date.now()) / 1000))
 }
 
 function isRetryableStatus(status: number): boolean {
@@ -289,7 +399,10 @@ function formatTimeoutSeconds(milliseconds: number): string {
   return `${Number.isInteger(seconds) ? seconds : seconds.toFixed(1)} seconds`
 }
 
-function composeAbortSignals(primary: AbortSignal | null | undefined, secondary: AbortSignal) {
+function composeAbortSignals(
+  primary: AbortSignal | null | undefined,
+  secondary: AbortSignal,
+) {
   if (!primary) {
     return { signal: secondary, cleanup: () => {} }
   }
@@ -339,7 +452,9 @@ function tryParseJson(value: string): unknown {
   }
 }
 
-function tryParseJsonResult(value: string): { ok: true; value: unknown } | { ok: false } {
+function tryParseJsonResult(
+  value: string,
+): { ok: true; value: unknown } | { ok: false } {
   try {
     return { ok: true, value: JSON.parse(value) as unknown }
   } catch {
@@ -360,7 +475,9 @@ function extractErrorMessage(
       return detail
     }
     if (Array.isArray(detail)) {
-      const messages = detail.map(formatValidationIssue).filter((message) => message.length > 0)
+      const messages = detail
+        .map(formatValidationIssue)
+        .filter((message) => message.length > 0)
       if (messages.length) {
         return messages.join('; ')
       }
@@ -389,7 +506,9 @@ function isAbortError(error: unknown): boolean {
 
 function truncateSingleLine(value: string, maxLength: number): string {
   const normalized = value.replace(/\s+/g, ' ').trim()
-  return normalized.length <= maxLength ? normalized : `${normalized.slice(0, maxLength - 3)}...`
+  return normalized.length <= maxLength
+    ? normalized
+    : `${normalized.slice(0, maxLength - 3)}...`
 }
 
 function formatValidationIssue(issue: unknown): string {
@@ -412,7 +531,10 @@ function formatValidationIssue(issue: unknown): string {
   }
 
   const location = record.loc
-    .filter((part): part is string | number => typeof part === 'string' || typeof part === 'number')
+    .filter(
+      (part): part is string | number =>
+        typeof part === 'string' || typeof part === 'number',
+    )
     .join('.')
   return location ? `${location}: ${message}` : message
 }

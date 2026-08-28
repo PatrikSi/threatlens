@@ -9,6 +9,7 @@ from sqlalchemy import select
 
 from app.models.alert_interest import AlertInterest
 from app.models.feed import Feed
+from app.models.integration import IntegrationInstance
 from app.models.item import Item
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
@@ -18,8 +19,13 @@ from app.schemas.notification import (
     NotificationWebhookTestResponse,
     NotificationWebhookWrite,
 )
+from app.services.integration_compat import (
+    WebhookConfigurationCompatibilityError,
+    ensure_webhook_integration,
+)
 from app.services.notification_webhook_http import (
     RedirectError,
+    notification_delivery_external_io_marker,
     notification_delivery_lease_heartbeat,
     read_response_preview,
     send_rendered_notification_request,
@@ -78,6 +84,47 @@ def test_validate_notification_webhook_payload_rejects_unknown_template_variable
         assert "item.unknown" in str(exc)
     else:
         raise AssertionError("expected payload validation to fail")
+
+
+def test_legacy_webhook_repair_refuses_future_integration_schema(db_session):
+    user = User(
+        id=uuid.uuid4(),
+        email=f"future-webhook-{uuid.uuid4()}@example.com",
+        password_hash="x",
+        role="analyst",
+        is_active=True,
+        is_approved=True,
+    )
+    webhook = NotificationWebhook(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        name="Future webhook projection",
+        enabled=True,
+        event_type="rss_item_new",
+        url_template="https://example.com/hook",
+        method="POST",
+        feed_scope="all",
+        feed_ids_json=[],
+        query_params_json=[],
+        headers_json=[],
+        body_mode="none",
+        body_fields_json=[],
+        timeout_seconds=10,
+    )
+    _persist_rows(db_session, user, webhook)
+    instance, _subscription = ensure_webhook_integration(db_session, webhook)
+    instance.schema_version = 2
+    instance.config_json = {**instance.config_json, "future_option": True}
+    db_session.add(instance)
+    db_session.commit()
+
+    with pytest.raises(WebhookConfigurationCompatibilityError):
+        ensure_webhook_integration(db_session, webhook)
+
+    stored = db_session.get(IntegrationInstance, instance.id)
+    assert stored is not None
+    assert stored.schema_version == 2
+    assert stored.config_json["future_option"] is True
 
 
 def test_validate_notification_webhook_payload_rejects_public_http_targets(monkeypatch):
@@ -837,6 +884,7 @@ def test_send_request_with_redirects_does_not_replay_original_query_params_after
     monkeypatch,
 ):
     seen_urls: list[str] = []
+    marker_calls: list[bool] = []
     monkeypatch.setattr(
         "app.services.notification_webhook_http.ensure_runtime_fetchable_url",
         lambda *args, **kwargs: None,
@@ -851,23 +899,27 @@ def test_send_request_with_redirects_does_not_replay_original_query_params_after
         return httpx.Response(204, request=request)
 
     transport = httpx.MockTransport(_handler)
-    with httpx.Client(transport=transport) as client:
-        response = send_request_with_redirects(
-            client,
-            method="POST",
-            url="https://hooks.example.com/start?orig=1",
-            headers={"Content-Type": "application/json"},
-            params=[("token", "abc123")],
-            json_body={"title": "ThreatLens"},
-            form_body=None,
-            raw_body=None,
-        )
+    with notification_delivery_external_io_marker(
+        lambda: marker_calls.append(True)
+    ):
+        with httpx.Client(transport=transport) as client:
+            response = send_request_with_redirects(
+                client,
+                method="POST",
+                url="https://hooks.example.com/start?orig=1",
+                headers={"Content-Type": "application/json"},
+                params=[("token", "abc123")],
+                json_body={"title": "ThreatLens"},
+                form_body=None,
+                raw_body=None,
+            )
 
     assert response.status_code == 204
     assert seen_urls == [
         "https://hooks.example.com/start?orig=1&token=abc123",
         "https://hooks.example.com/final?server=1",
     ]
+    assert marker_calls == [True]
 
 
 def test_send_request_with_redirects_blocks_cross_origin_redirects(monkeypatch):

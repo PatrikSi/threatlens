@@ -1933,6 +1933,41 @@
     ]
   },
   {
+    "name": "pyotp",
+    "version": "2.9.0",
+    "license": "MIT",
+    "license_source": "license",
+    "summary": "Python One Time Password Library",
+    "home_page": "https://github.com/pyotp/pyotp",
+    "author": "PyOTP contributors",
+    "metadata_license": "MIT License",
+    "license_files": [
+      "LICENSE"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "LICENSE",
+        "source_path": "pyotp-2.9.0.dist-info/LICENSE",
+        "artifact_path": "pyotp/2.9.0/pyotp-2.9.0.dist-info/LICENSE",
+        "sha256": "795885123341458172aad6ebfab31b071cc7b40524929e6901662d5dbbf57ea3"
+      }
+    ],
+    "project_urls": [
+      "Documentation, https://pyauth.github.io/pyotp",
+      "Source Code, https://github.com/pyauth/pyotp",
+      "Issue Tracker, https://github.com/pyauth/pyotp/issues",
+      "Change Log, https://github.com/pyauth/pyotp/blob/master/Changes.rst"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: MIT License"
+    ],
+    "metadata_license_files": [
+      "LICENSE"
+    ]
+  },
+  {
     "name": "python-dateutil",
     "version": "2.9.0.post0",
     "license": "Dual License",

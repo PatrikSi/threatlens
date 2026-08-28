@@ -14,6 +14,10 @@ class IntegrationEventContextError(ValueError):
     pass
 
 
+class IntegrationEventCompatibilityError(RuntimeError):
+    """A newer persisted event needs a compatible connector worker."""
+
+
 @dataclass(frozen=True)
 class IntegrationConnectorDefinition:
     integration_type: str
@@ -22,6 +26,7 @@ class IntegrationConnectorDefinition:
     description: str
     config_schema_version: int
     supports_test: bool
+    handles_delivery_compatibility: bool = False
     supported_event_types: tuple[str, ...] = ()
     capabilities: tuple[str, ...] = ()
 
@@ -55,7 +60,9 @@ class ConnectorDeliveryResult:
     status: str
     reason: str | None = None
     retry_at: str | None = None
-    followup_deliveries: tuple[ConnectorFollowupDelivery, ...] = field(default_factory=tuple)
+    followup_deliveries: tuple[ConnectorFollowupDelivery, ...] = field(
+        default_factory=tuple
+    )
     followup_event_ids: tuple[uuid.UUID, ...] = field(default_factory=tuple)
 
 
@@ -67,7 +74,9 @@ class IntegrationConnector(Protocol):
 
     def prepare_routing(self, db: Session, *, event: IntegrationEvent) -> None: ...
 
-    def route_event(self, db: Session, *, event: IntegrationEvent) -> ConnectorRoutingResult: ...
+    def route_event(
+        self, db: Session, *, event: IntegrationEvent
+    ) -> ConnectorRoutingResult: ...
 
     def process_delivery(
         self,

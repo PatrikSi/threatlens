@@ -17,7 +17,15 @@ from app.schemas.health import EncryptedDataInventoryResponse
 from app.services.beat_heartbeat import BeatHealthSnapshot, read_beat_heartbeat
 from app.services.encrypted_data_inventory import scan_encrypted_data_inventory
 from app.services.notification_webhooks import get_notification_delivery_queue_snapshot
-from app.tasks.celery_app import QUEUE_AI, QUEUE_INGEST, QUEUE_MAINTENANCE, QUEUE_NOTIFICATIONS, QUEUE_PROCESSING, celery_app
+from app.tasks.celery_app import (
+    QUEUE_AI,
+    QUEUE_AI_REPORTS,
+    QUEUE_INGEST,
+    QUEUE_MAINTENANCE,
+    QUEUE_NOTIFICATIONS,
+    QUEUE_PROCESSING,
+    celery_app,
+)
 
 router = APIRouter(prefix="/health", tags=["health"])
 logger = logging.getLogger(__name__)
@@ -226,7 +234,7 @@ def _worker_health_snapshot(settings) -> tuple[bool, dict[str, str], dict[str, o
 def _required_worker_queues(settings) -> list[str]:
     queues = [QUEUE_INGEST, QUEUE_PROCESSING, QUEUE_NOTIFICATIONS, QUEUE_MAINTENANCE]
     if settings.ai_enabled:
-        queues.append(QUEUE_AI)
+        queues.extend([QUEUE_AI, QUEUE_AI_REPORTS])
     return queues
 
 

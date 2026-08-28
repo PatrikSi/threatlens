@@ -15,6 +15,7 @@ type DialogSurfaceProps = {
   dismissDisabled?: boolean
   ariaBusy?: boolean
   initialFocusRef?: RefObject<HTMLElement | null>
+  describeBody?: boolean
   panelClassName?: string
   bodyClassName?: string
   footerClassName?: string
@@ -30,10 +31,12 @@ type ConfirmDialogProps = {
   cancelLabel?: string
   closeLabel?: string
   isConfirming?: boolean
+  confirmingLabel?: string
   confirmDisabled?: boolean
   cancelDisabled?: boolean
   confirmTone?: 'danger' | 'primary'
   role?: 'dialog' | 'alertdialog'
+  initialFocusRef?: RefObject<HTMLElement | null>
   onConfirm: () => void
   onCancel: () => void
 }
@@ -50,6 +53,7 @@ export function DialogSurface({
   dismissDisabled = false,
   ariaBusy = false,
   initialFocusRef,
+  describeBody = true,
   panelClassName = 'max-w-xl',
   bodyClassName = 'mt-4 space-y-3 text-sm text-slate dark:text-white/75',
   footerClassName = 'mt-5 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center sm:justify-end',
@@ -73,14 +77,20 @@ export function DialogSurface({
     return null
   }
 
-  const describedBy = [description ? descriptionId : null, children ? bodyId : null].filter(Boolean).join(' ') || undefined
+  const describedBy =
+    [
+      description ? descriptionId : null,
+      children && describeBody ? bodyId : null,
+    ]
+      .filter(Boolean)
+      .join(' ') || undefined
 
   const dialog = (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 px-3 py-3 sm:px-4 sm:py-6">
+    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/60 px-3 py-3 sm:px-4 sm:py-6">
       <div
         ref={dialogRef}
         data-dialog-root="true"
-        className={`max-h-[calc(100dvh-1.5rem)] w-full overflow-y-auto rounded-lg border border-slate/20 bg-white p-4 shadow-2xl sm:max-h-none sm:overflow-visible sm:rounded-2xl sm:p-5 dark:border-cyan-900/40 dark:bg-[#041612] ${panelClassName}`}
+        className={`max-h-[calc(100dvh-1.5rem)] w-full overflow-y-auto rounded-lg border border-slate/20 bg-white p-4 shadow-2xl sm:max-h-[calc(100dvh-3rem)] sm:rounded-2xl sm:p-5 dark:border-cyan-900/40 dark:bg-[#041612] ${panelClassName}`}
         role={role}
         aria-modal="true"
         aria-labelledby={titleId}
@@ -89,13 +99,23 @@ export function DialogSurface({
         tabIndex={-1}
       >
         <div className="flex items-start justify-between gap-4">
-          <div className="space-y-1">
-            {eyebrow && <p className="text-xs font-semibold text-slate dark:text-white/55">{eyebrow}</p>}
-            <h3 id={titleId} className="font-display text-xl text-ink dark:text-white">
+          <div className="min-w-0 flex-1 space-y-1">
+            {eyebrow && (
+              <p className="text-xs font-semibold text-slate dark:text-white/55">
+                {eyebrow}
+              </p>
+            )}
+            <h3
+              id={titleId}
+              className="break-words font-display text-xl text-ink [overflow-wrap:anywhere] dark:text-white"
+            >
               {title}
             </h3>
             {description && (
-              <div id={descriptionId} className="text-sm text-slate dark:text-white/75">
+              <div
+                id={descriptionId}
+                className="text-sm text-slate dark:text-white/75"
+              >
                 {description}
               </div>
             )}
@@ -103,7 +123,7 @@ export function DialogSurface({
           <button
             ref={closeButtonRef}
             type="button"
-            className="rounded border border-slate/20 px-2 py-1 text-xs dark:border-cyan-900/40"
+            className="min-h-11 min-w-11 shrink-0 rounded border border-slate/20 px-2 py-1 text-xs sm:min-h-0 sm:min-w-0 dark:border-cyan-900/40"
             onClick={onClose}
             disabled={dismissDisabled}
             aria-label={closeLabel}
@@ -139,21 +159,25 @@ export function ConfirmDialog({
   cancelLabel = 'Cancel',
   closeLabel = 'Close dialog',
   isConfirming = false,
+  confirmingLabel = 'Working...',
   confirmDisabled = false,
   cancelDisabled = false,
   confirmTone = 'danger',
   role = 'alertdialog',
+  initialFocusRef: requestedInitialFocusRef,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
   const dismissDisabled = cancelDisabled || isConfirming
   const cancelButtonRef = useRef<HTMLButtonElement | null>(null)
-  const initialFocusRef = dismissDisabled ? undefined : cancelButtonRef
+  const initialFocusRef = dismissDisabled
+    ? undefined
+    : (requestedInitialFocusRef ?? cancelButtonRef)
   const showHeaderDescription = Boolean(description) && !children
   const confirmButtonClassName =
     confirmTone === 'primary'
-      ? 'rounded bg-ink px-3 py-2 text-sm font-semibold text-white hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-cyan dark:text-[#053c2e] dark:hover:bg-cyan/90'
-      : 'tl-button-danger rounded px-3 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60'
+      ? 'min-h-11 rounded bg-ink px-3 py-2 text-sm font-semibold text-white hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-0 dark:bg-cyan dark:text-[#053c2e] dark:hover:bg-cyan/90'
+      : 'tl-button-danger min-h-11 rounded px-3 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-0'
 
   return (
     <DialogSurface
@@ -171,7 +195,7 @@ export function ConfirmDialog({
           <button
             ref={cancelButtonRef}
             type="button"
-            className="rounded border border-slate/20 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate/5 dark:border-cyan-900/40 dark:text-slate-100 dark:hover:bg-white/[0.04]"
+            className="min-h-11 rounded border border-slate/20 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate/5 sm:min-h-0 dark:border-cyan-900/40 dark:text-slate-100 dark:hover:bg-white/[0.04]"
             onClick={onCancel}
             disabled={dismissDisabled}
           >
@@ -183,7 +207,7 @@ export function ConfirmDialog({
             onClick={onConfirm}
             disabled={confirmDisabled || isConfirming}
           >
-            {isConfirming ? 'Working...' : confirmLabel}
+            {isConfirming ? confirmingLabel : confirmLabel}
           </button>
         </>
       }

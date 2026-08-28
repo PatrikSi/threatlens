@@ -9,6 +9,7 @@ export type TokenCreateFormState = {
   expiresInDays: number
   scopesText: string
   currentPassword: string
+  code: string
   createdToken: ApiTokenCreateResponse | null
 }
 
@@ -17,9 +18,12 @@ type TokenCreateFormAction =
   | { type: 'setExpiresInDays'; value: number }
   | { type: 'setScopesText'; value: string }
   | { type: 'setCurrentPassword'; value: string }
+  | { type: 'setCode'; value: string }
+  | { type: 'clearCode' }
   | { type: 'createStarted' }
   | { type: 'createFailed' }
   | { type: 'createSucceeded'; value: ApiTokenCreateResponse }
+  | { type: 'dismissCreatedToken' }
 
 export function createInitialTokenCreateFormState(): TokenCreateFormState {
   return {
@@ -27,6 +31,7 @@ export function createInitialTokenCreateFormState(): TokenCreateFormState {
     expiresInDays: DEFAULT_TOKEN_EXPIRY_DAYS,
     scopesText: '',
     currentPassword: '',
+    code: '',
     createdToken: null,
   }
 }
@@ -44,6 +49,10 @@ export function reduceTokenCreateFormState(
       return { ...state, scopesText: action.value }
     case 'setCurrentPassword':
       return { ...state, currentPassword: action.value }
+    case 'setCode':
+      return { ...state, code: action.value }
+    case 'clearCode':
+      return { ...state, code: '' }
     case 'createStarted':
     case 'createFailed':
       return { ...state, createdToken: null }
@@ -52,11 +61,17 @@ export function reduceTokenCreateFormState(
         ...createInitialTokenCreateFormState(),
         createdToken: action.value,
       }
+    case 'dismissCreatedToken':
+      return { ...state, createdToken: null }
     default:
       return state
   }
 }
 
 export function useTokenCreateFormState() {
-  return useReducer(reduceTokenCreateFormState, undefined, createInitialTokenCreateFormState)
+  return useReducer(
+    reduceTokenCreateFormState,
+    undefined,
+    createInitialTokenCreateFormState,
+  )
 }

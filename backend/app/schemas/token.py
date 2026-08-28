@@ -20,6 +20,13 @@ class ApiTokenCreateRequest(BaseModel):
         ),
         json_schema_extra={"format": "password", "writeOnly": True},
     )
+    code: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=128,
+        description="Required for browser token creation when local MFA is enabled.",
+        json_schema_extra={"format": "password", "writeOnly": True},
+    )
 
     @field_validator("scopes")
     @classmethod
@@ -55,3 +62,11 @@ class ApiTokenResponse(BaseModel):
     expires_at: datetime | None
     revoked_at: datetime | None
     created_at: datetime
+
+
+class ApiTokenListResponse(BaseModel):
+    tokens: list[ApiTokenResponse]
+    total: int
+    unscoped_total: int
+    page: int
+    page_size: int

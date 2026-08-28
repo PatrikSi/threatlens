@@ -6,6 +6,7 @@ from sqlalchemy import select
 
 from app.models.feed import Feed
 from app.models.alert_interest import AlertInterest
+from app.models.alert_occurrence import AlertOccurrence
 from app.models.integration import (
     IntegrationDelivery,
     IntegrationEvent,
@@ -17,7 +18,7 @@ from app.models.item import Item
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.user import User
-from app.schemas.integration import SMTPSettingsUpdate
+from app.schemas.integration import SMTPHookWrite, SMTPSettingsUpdate
 from app.schemas.notification import NotificationWebhookTestResponse
 from app.services.integration_compat import ensure_webhook_integration
 from app.services.integration_events import (
@@ -26,9 +27,17 @@ from app.services.integration_events import (
     reserve_recoverable_integration_events,
     route_integration_event,
 )
-from app.services.integration_storage import apply_smtp_settings_update, get_or_create_smtp_integration
+from app.services.integration_processors import process_smtp_integration_delivery
+from app.services.integration_storage import (
+    apply_smtp_settings_update,
+    get_or_create_smtp_integration,
+)
+from app.services.integration_smtp_hooks import create_smtp_hook
 from app.services.integration_registry import get_integration_connector
+from app.services.integration_registry_constants import SMTP_CONFIG_SCHEMA_VERSION
 from app.services.notification_webhook_storage import decrypt_notification_text
+from app.services.smtp_delivery_eligibility import SMTP_SOURCE_OWNER_IDS_KEY
+from app.services.smtp_integration import SMTPNotificationResult
 
 
 def test_emit_integration_event_is_idempotent(db_session):
@@ -53,7 +62,24 @@ def test_emit_integration_event_is_idempotent(db_session):
     assert db_session.query(IntegrationEvent).count() == 1
 
 
-def test_route_event_matches_normalized_feed_subscriptions_and_preserves_legacy_history(db_session):
+def test_emit_integration_event_binds_explicit_schema_to_payload(db_session):
+    event = emit_integration_event(
+        db_session,
+        event_type="daily_digest",
+        source_type="daily_brief",
+        source_id=uuid.uuid4(),
+        idempotency_key=f"explicit-schema:{uuid.uuid4()}",
+        payload={"schema_version": 2, "brief_id": str(uuid.uuid4())},
+        schema_version=1,
+    )
+
+    assert event.schema_version == 1
+    assert event.payload_json["schema_version"] == 1
+
+
+def test_route_event_matches_normalized_feed_subscriptions_and_preserves_legacy_history(
+    db_session,
+):
     user = _persist_user(db_session)
     selected_feed = _persist_feed(db_session, "Selected feed")
     other_feed = _persist_feed(db_session, "Other feed")
@@ -92,9 +118,14 @@ def test_route_event_matches_normalized_feed_subscriptions_and_preserves_legacy_
     assert result.status == "routed"
     assert len(result.webhook_delivery_ids) == 2
     legacy = db_session.scalars(
-        select(NotificationWebhookDelivery).where(NotificationWebhookDelivery.id.in_(result.webhook_delivery_ids))
+        select(NotificationWebhookDelivery).where(
+            NotificationWebhookDelivery.id.in_(result.webhook_delivery_ids)
+        )
     ).all()
-    assert {delivery.webhook_id for delivery in legacy} == {all_webhook.id, selected_webhook.id}
+    assert {delivery.webhook_id for delivery in legacy} == {
+        all_webhook.id,
+        selected_webhook.id,
+    }
     generic = db_session.scalars(
         select(IntegrationDelivery).where(IntegrationDelivery.event_id == event.id)
     ).all()
@@ -110,7 +141,9 @@ def test_route_event_matches_normalized_feed_subscriptions_and_preserves_legacy_
     assert db_session.query(IntegrationDelivery).count() == 2
 
 
-def test_webhook_connector_processes_generic_delivery_and_updates_legacy_history(db_session, monkeypatch):
+def test_webhook_connector_processes_generic_delivery_and_updates_legacy_history(
+    db_session, monkeypatch
+):
     user = _persist_user(db_session)
     feed = _persist_feed(db_session, "Connector feed")
     item = _persist_item(db_session, feed)
@@ -121,7 +154,11 @@ def test_webhook_connector_processes_generic_delivery_and_updates_legacy_history
         source_type="item",
         source_id=item.id,
         idempotency_key=f"connector-process:{item.id}",
-        payload={"item_id": str(item.id), "feed_id": str(feed.id), "owner_user_id": str(user.id)},
+        payload={
+            "item_id": str(item.id),
+            "feed_id": str(feed.id),
+            "owner_user_id": str(user.id),
+        },
     )
     routed = route_integration_event(db_session, event_id=event.id)
     delivery = db_session.get(IntegrationDelivery, routed.integration_delivery_ids[0])
@@ -186,7 +223,9 @@ def test_webhook_repair_ignores_deleted_and_invalid_selected_feed_ids(db_session
 def test_route_event_reconciles_webhook_changes_written_by_older_node(db_session):
     user = _persist_user(db_session)
     selected_feed = _persist_feed(db_session, "Selected after legacy update")
-    previously_selected_feed = _persist_feed(db_session, "Selected before legacy update")
+    previously_selected_feed = _persist_feed(
+        db_session, "Selected before legacy update"
+    )
     item = _persist_item(db_session, selected_feed)
     webhook = _persist_webhook(
         db_session,
@@ -270,6 +309,475 @@ def test_route_event_fans_out_to_smtp_generic_delivery(db_session):
     assert deliveries[0].state == "pending"
 
 
+def test_alert_event_routes_to_ownerless_default_and_created_smtp_hooks(
+    db_session,
+    monkeypatch,
+):
+    user = _persist_user(db_session)
+    feed = _persist_feed(db_session, "SMTP alert routing feed")
+    item = _persist_item(db_session, feed)
+    db_session.add(
+        AlertInterest(
+            user_id=user.id,
+            name="Durable event watch",
+            category="threat",
+            keywords=["durable"],
+            enabled=True,
+        )
+    )
+    settings = SMTPSettingsUpdate(
+        enabled=True,
+        host="smtp.example.com",
+        from_email="threatlens@example.com",
+        to_emails=["soc@example.com"],
+        event_types=["alert_match"],
+    )
+    default_smtp = get_or_create_smtp_integration(db_session)
+    apply_smtp_settings_update(default_smtp, settings)
+    created_smtp = create_smtp_hook(
+        db_session,
+        SMTPHookWrite(name="Secondary alert relay", settings=settings),
+    )
+    legacy_event = emit_integration_event(
+        db_session,
+        event_type="alert_match",
+        source_type="item",
+        source_id=item.id,
+        idempotency_key=f"smtp-alert-route-legacy:{item.id}",
+        payload={
+            "item_id": str(item.id),
+            "feed_id": str(feed.id),
+            "evaluation_request_id": str(uuid.uuid4()),
+        },
+    )
+    legacy_result = route_integration_event(db_session, event_id=legacy_event.id)
+    current_payload = dict(legacy_event.payload_json)
+    current_payload.update(
+        {
+            "schema_version": 3,
+            "owner_user_id": str(user.id),
+            "occurrence_ids": [],
+            "occurrence_ids_by_owner": [
+                {"owner_user_id": str(user.id), "occurrence_ids": []}
+            ],
+        }
+    )
+    event = emit_integration_event(
+        db_session,
+        event_type="alert_match",
+        source_type="item",
+        source_id=item.id,
+        idempotency_key=f"smtp-alert-route-current:{item.id}",
+        payload=current_payload,
+        schema_version=3,
+    )
+
+    result = route_integration_event(db_session, event_id=event.id)
+
+    legacy_deliveries = db_session.scalars(
+        select(IntegrationDelivery).where(
+            IntegrationDelivery.event_id == legacy_event.id,
+            IntegrationDelivery.connector_type == "smtp",
+        )
+    ).all()
+    deliveries = db_session.scalars(
+        select(IntegrationDelivery).where(
+            IntegrationDelivery.event_id == event.id,
+            IntegrationDelivery.connector_type == "smtp",
+        )
+    ).all()
+    assert legacy_result.status == "routed"
+    assert result.status == "routed"
+    assert {delivery.integration_id for delivery in legacy_deliveries} == {
+        default_smtp.id,
+        created_smtp.id,
+    }
+    assert {delivery.integration_id for delivery in deliveries} == {
+        default_smtp.id,
+        created_smtp.id,
+    }
+    assert default_smtp.owner_user_id is None
+    assert created_smtp.owner_user_id is None
+    assert {delivery.owner_user_id for delivery in deliveries} == {None}
+    assert all(
+        delivery.payload_json["owner_user_id"] == str(user.id)
+        for delivery in deliveries
+    )
+    assert all(
+        delivery.payload_json[SMTP_SOURCE_OWNER_IDS_KEY] == [str(user.id)]
+        for delivery in deliveries
+    )
+    assert all("alert_matches" not in delivery.payload_json for delivery in deliveries)
+
+    def _send(active, **kwargs):
+        kwargs["lease_heartbeat"](10, active)
+        return SMTPNotificationResult(
+            success=True,
+            duration_ms=10,
+            recipient_count=len(active.to_emails),
+            accepted_count=len(active.to_emails),
+            error_code=None,
+            error=None,
+            server_message="250 accepted",
+            attempted_at=datetime.now(timezone.utc),
+            delivery_id=kwargs["delivery_id"],
+            delivery_outcome="accepted",
+            accepted_recipients=tuple(active.to_emails),
+        )
+
+    monkeypatch.setattr("app.services.smtp_integration.send_smtp_notification", _send)
+    db_session.commit()
+    processing_results = [
+        process_smtp_integration_delivery(db_session, delivery_id=delivery.id)
+        for delivery in deliveries
+    ]
+    assert [result.status for result in processing_results] == [
+        "succeeded",
+        "succeeded",
+    ]
+
+
+def test_ownerless_smtp_route_upgrades_legacy_v1_alert_context(db_session):
+    user = _persist_user(db_session)
+    feed = _persist_feed(db_session, "Legacy v1 SMTP feed")
+    item = _persist_item(db_session, feed)
+    smtp = get_or_create_smtp_integration(db_session)
+    apply_smtp_settings_update(
+        smtp,
+        SMTPSettingsUpdate(
+            enabled=True,
+            host="smtp.example.com",
+            from_email="threatlens@example.com",
+            to_emails=["soc@example.com"],
+            event_types=["alert_match"],
+        ),
+    )
+    event = emit_integration_event(
+        db_session,
+        event_type="alert_match",
+        source_type="item",
+        source_id=item.id,
+        idempotency_key=f"legacy-v1-smtp:{item.id}",
+        schema_version=1,
+        payload={
+            "item_id": str(item.id),
+            "feed_id": str(feed.id),
+            "evaluation_request_id": str(uuid.uuid4()),
+        },
+    )
+    _persist_alert_occurrence(
+        db_session,
+        owner=user,
+        item=item,
+        event=event,
+        name="Legacy v1 watch",
+    )
+    item.title = "Mutable item title"
+    feed.name = "Mutable feed name"
+    db_session.add_all([item, feed])
+    unrelated_user = _persist_user(db_session)
+    db_session.add(
+        AlertInterest(
+            user_id=unrelated_user.id,
+            name="Current mutable rule",
+            category="threat",
+            keywords=["durable"],
+            enabled=True,
+        )
+    )
+    db_session.flush()
+
+    result = route_integration_event(db_session, event_id=event.id)
+
+    delivery = db_session.scalar(
+        select(IntegrationDelivery).where(
+            IntegrationDelivery.event_id == event.id,
+            IntegrationDelivery.connector_type == "smtp",
+        )
+    )
+    assert result.status == "routed"
+    assert delivery is not None
+    assert delivery.owner_user_id is None
+    assert delivery.payload_json["schema_version"] == 3
+    assert delivery.payload_json["owner_user_id"] == str(user.id)
+    assert delivery.payload_json[SMTP_SOURCE_OWNER_IDS_KEY] == [str(user.id)]
+    assert delivery.payload_json["alert"]["primary_name"] == "Legacy v1 watch"
+    assert delivery.payload_json["item"]["title"] == "Integration event item"
+    assert delivery.payload_json["feed"]["name"] == "Legacy v1 SMTP feed"
+
+
+def test_future_smtp_alert_schema_remains_recoverable_past_attempt_limit(
+    db_session,
+    monkeypatch,
+):
+    user = _persist_user(db_session)
+    feed = _persist_feed(db_session, "Future SMTP alert feed")
+    item = _persist_item(db_session, feed)
+    _persist_webhook(
+        db_session,
+        user,
+        name="Future alert webhook",
+        feed_scope="all",
+        event_type="alert_match",
+    )
+    smtp = get_or_create_smtp_integration(db_session)
+    apply_smtp_settings_update(
+        smtp,
+        SMTPSettingsUpdate(
+            enabled=True,
+            host="smtp.example.com",
+            from_email="threatlens@example.com",
+            to_emails=["soc@example.com"],
+            event_types=["alert_match"],
+        ),
+    )
+    event = emit_integration_event(
+        db_session,
+        event_type="alert_match",
+        source_type="item",
+        source_id=item.id,
+        idempotency_key=f"future-smtp-alert:{item.id}",
+        schema_version=4,
+        payload={
+            "schema_version": 4,
+            "item_id": str(item.id),
+            "feed_id": {"future_reference": str(feed.id)},
+            "evaluation_request_id": str(uuid.uuid4()),
+        },
+    )
+    monkeypatch.setattr(
+        "app.services.integration_events.settings.integration_event_routing_max_attempts",
+        1,
+    )
+
+    first = route_integration_event(db_session, event_id=event.id)
+    second = route_integration_event(db_session, event_id=event.id)
+
+    db_session.refresh(event)
+    assert first.status == "failed"
+    assert second.status == "failed"
+    assert event.routing_attempt_count == 0
+    assert "newer schema version 4" in (event.last_error or "")
+    assert all(error.compatibility_wait for error in first.routing_errors)
+    assert (
+        db_session.scalar(
+            select(IntegrationDelivery.id).where(
+                IntegrationDelivery.event_id == event.id
+            )
+        )
+        is None
+    )
+    assert db_session.scalar(select(NotificationWebhookDelivery.id)) is None
+    assert event.id in list_recoverable_integration_event_ids(
+        db_session,
+        now=event.available_at + timedelta(seconds=1),
+    )
+
+
+def test_future_resource_event_with_non_object_payload_waits_before_connectors(
+    db_session,
+):
+    user = _persist_user(db_session)
+    _persist_webhook(
+        db_session,
+        user,
+        name="Future resource webhook",
+        feed_scope="all",
+    )
+    smtp = get_or_create_smtp_integration(db_session)
+    apply_smtp_settings_update(
+        smtp,
+        SMTPSettingsUpdate(
+            enabled=True,
+            host="smtp.example.com",
+            from_email="threatlens@example.com",
+            to_emails=["soc@example.com"],
+            event_types=["rss_item_new"],
+        ),
+    )
+    event = IntegrationEvent(
+        event_type="rss_item_new",
+        schema_version=3,
+        source_type="item",
+        source_id=str(uuid.uuid4()),
+        idempotency_key=f"future-resource:{uuid.uuid4()}",
+        payload_json=["future", {"resource_reference": "opaque"}],
+    )
+    db_session.add(event)
+    db_session.flush()
+
+    result = route_integration_event(db_session, event_id=event.id)
+
+    db_session.refresh(event)
+    assert result.status == "failed"
+    assert event.routing_attempt_count == 0
+    assert "newer schema version 3" in (event.last_error or "")
+    assert all(error.compatibility_wait for error in result.routing_errors)
+    assert (
+        db_session.scalar(
+            select(IntegrationDelivery.id).where(
+                IntegrationDelivery.event_id == event.id
+            )
+        )
+        is None
+    )
+    assert db_session.scalar(select(NotificationWebhookDelivery.id)) is None
+
+
+def test_future_smtp_config_schema_waits_without_normalizing_configuration(db_session):
+    future_config = {"event_types": ["future_event"], "future_option": {"mode": "v4"}}
+    smtp = IntegrationInstance(
+        name="Future SMTP configuration",
+        integration_type="smtp",
+        direction="destination",
+        enabled=True,
+        schema_version=SMTP_CONFIG_SCHEMA_VERSION + 1,
+        config_json=future_config,
+    )
+    db_session.add(smtp)
+    db_session.flush()
+    event = emit_integration_event(
+        db_session,
+        event_type="rss_item_new",
+        source_type="item",
+        source_id=uuid.uuid4(),
+        idempotency_key=f"future-smtp-config:{uuid.uuid4()}",
+        payload={"item_id": str(uuid.uuid4())},
+        schema_version=1,
+    )
+
+    result = route_integration_event(db_session, event_id=event.id)
+
+    db_session.refresh(event)
+    db_session.refresh(smtp)
+    subscriptions = db_session.scalars(
+        select(IntegrationSubscription).where(
+            IntegrationSubscription.integration_id == smtp.id
+        )
+    ).all()
+    assert result.status == "failed"
+    assert event.routing_attempt_count == 0
+    assert all(error.compatibility_wait for error in result.routing_errors)
+    assert "newer configuration schema version" in (event.last_error or "")
+    assert smtp.config_json == future_config
+    assert subscriptions == []
+
+
+def test_future_webhook_config_schema_remains_recoverable_past_attempt_limit(
+    db_session,
+    monkeypatch,
+):
+    user = _persist_user(db_session)
+    feed = _persist_feed(db_session, "Future webhook configuration feed")
+    item = _persist_item(db_session, feed)
+    webhook = _persist_webhook(
+        db_session,
+        user,
+        name="Future webhook configuration",
+        feed_scope="all",
+    )
+    instance = db_session.get(IntegrationInstance, webhook.integration_id)
+    assert instance is not None
+    future_config = {
+        **instance.config_json,
+        "future_option": {"mode": "v2"},
+    }
+    instance.schema_version = 2
+    instance.config_json = future_config
+    db_session.add(instance)
+    event = emit_integration_event(
+        db_session,
+        event_type="rss_item_new",
+        source_type="item",
+        source_id=item.id,
+        idempotency_key=f"future-webhook-config:{item.id}",
+        payload={"item_id": str(item.id), "feed_id": str(feed.id)},
+    )
+    monkeypatch.setattr(
+        "app.services.integration_events.settings.integration_event_routing_max_attempts",
+        1,
+    )
+
+    first = route_integration_event(db_session, event_id=event.id)
+    second = route_integration_event(db_session, event_id=event.id)
+
+    db_session.refresh(event)
+    db_session.refresh(instance)
+    assert first.status == "failed"
+    assert second.status == "failed"
+    assert event.routing_attempt_count == 0
+    assert all(error.compatibility_wait for error in second.routing_errors)
+    assert "schema version 2" in (event.last_error or "")
+    assert instance.schema_version == 2
+    assert instance.config_json == future_config
+    assert (
+        db_session.scalar(
+            select(IntegrationDelivery.id).where(
+                IntegrationDelivery.event_id == event.id
+            )
+        )
+        is None
+    )
+    assert event.id in list_recoverable_integration_event_ids(
+        db_session,
+        now=event.available_at + timedelta(seconds=1),
+    )
+
+
+def test_smtp_route_rejects_oversized_legacy_v2_owner_context(db_session):
+    feed = _persist_feed(db_session, "Oversized SMTP alert feed")
+    smtp = get_or_create_smtp_integration(db_session)
+    apply_smtp_settings_update(
+        smtp,
+        SMTPSettingsUpdate(
+            enabled=True,
+            host="smtp.example.com",
+            from_email="threatlens@example.com",
+            to_emails=["soc@example.com"],
+            event_types=["alert_match"],
+        ),
+    )
+    alert_context = {
+        "count": 1,
+        "primary_name": "Oversized alert context",
+        "names": ["Oversized alert context"],
+        "categories": ["threat"],
+        "matched_keywords": ["oversized"],
+    }
+    event = emit_integration_event(
+        db_session,
+        event_type="alert_match",
+        source_type="item",
+        source_id=uuid.uuid4(),
+        idempotency_key=f"oversized-v2-smtp:{uuid.uuid4()}",
+        schema_version=2,
+        payload={
+            "schema_version": 2,
+            "evaluation_request_id": str(uuid.uuid4()),
+            "feed_id": str(feed.id),
+            "alert": alert_context,
+            "alert_matches": [
+                {"owner_user_id": str(uuid.uuid4()), **alert_context}
+                for _ in range(101)
+            ],
+        },
+    )
+
+    result = route_integration_event(db_session, event_id=event.id)
+
+    assert result.status == "dead_letter"
+    assert "smtp_source_owner_context_too_large" in (event.last_error or "")
+    assert (
+        db_session.scalar(
+            select(IntegrationDelivery.id).where(
+                IntegrationDelivery.event_id == event.id,
+                IntegrationDelivery.connector_type == "smtp",
+            )
+        )
+        is None
+    )
+
+
 def test_route_event_keeps_valid_delivery_recoverable_when_connector_is_unknown(
     db_session, monkeypatch
 ):
@@ -317,7 +825,12 @@ def test_route_event_keeps_valid_delivery_recoverable_when_connector_is_unknown(
 
     assert result.status == "failed"
     assert len(result.integration_delivery_ids) == 1
-    assert db_session.get(IntegrationDelivery, result.integration_delivery_ids[0]).connector_type == "smtp"
+    assert (
+        db_session.get(
+            IntegrationDelivery, result.integration_delivery_ids[0]
+        ).connector_type
+        == "smtp"
+    )
     assert "future_destination" in (event.last_error or "")
     assert "worker is upgraded" in (event.last_error or "")
     assert event.id in list_recoverable_integration_event_ids(
@@ -327,19 +840,22 @@ def test_route_event_keeps_valid_delivery_recoverable_when_connector_is_unknown(
 
     monkeypatch.setattr(
         "app.services.integration_events.settings.integration_event_routing_max_attempts",
-        2,
+        1,
     )
     second = route_integration_event(db_session, event_id=event.id)
 
-    assert second.status == "dead_letter"
-    assert event.routing_attempt_count == 2
-    assert event.id not in list_recoverable_integration_event_ids(
+    assert second.status == "failed"
+    assert event.routing_attempt_count == 0
+    assert all(error.compatibility_wait for error in second.routing_errors)
+    assert event.id in list_recoverable_integration_event_ids(
         db_session,
         now=event.available_at + timedelta(hours=1),
     )
 
 
-def test_unsupported_connector_subscription_does_not_roll_back_valid_route(db_session, monkeypatch):
+def test_unsupported_connector_subscription_does_not_roll_back_valid_route(
+    db_session, monkeypatch
+):
     feed = _persist_feed(db_session, "Unsupported connector feed")
     item = _persist_item(db_session, feed)
     smtp = get_or_create_smtp_integration(db_session)
@@ -377,7 +893,11 @@ def test_unsupported_connector_subscription_does_not_roll_back_valid_route(db_se
     )
     monkeypatch.setattr(
         "app.services.integration_events.get_integration_connector",
-        lambda integration_type: connector if integration_type == "known_destination" else registered_lookup(integration_type),
+        lambda integration_type: (
+            connector
+            if integration_type == "known_destination"
+            else registered_lookup(integration_type)
+        ),
     )
     event = emit_integration_event(
         db_session,
@@ -388,11 +908,24 @@ def test_unsupported_connector_subscription_does_not_roll_back_valid_route(db_se
         payload={"item_id": str(item.id), "feed_id": str(feed.id)},
     )
 
+    monkeypatch.setattr(
+        "app.services.integration_events.settings.integration_event_routing_max_attempts",
+        1,
+    )
     result = route_integration_event(db_session, event_id=event.id)
+    retried = route_integration_event(db_session, event_id=event.id)
 
     assert result.status == "failed"
+    assert retried.status == "failed"
+    assert event.routing_attempt_count == 0
+    assert all(error.compatibility_wait for error in retried.routing_errors)
     assert len(result.integration_delivery_ids) == 1
-    assert db_session.get(IntegrationDelivery, result.integration_delivery_ids[0]).connector_type == "smtp"
+    assert (
+        db_session.get(
+            IntegrationDelivery, result.integration_delivery_ids[0]
+        ).connector_type
+        == "smtp"
+    )
     assert "does not support persisted event type" in (event.last_error or "")
 
 
@@ -400,7 +933,9 @@ def test_v2_item_event_routes_from_immutable_snapshots(db_session):
     user = _persist_user(db_session)
     feed = _persist_feed(db_session, "Original feed")
     item = _persist_item(db_session, feed)
-    webhook = _persist_webhook(db_session, user, name="Snapshot webhook", feed_scope="all")
+    webhook = _persist_webhook(
+        db_session, user, name="Snapshot webhook", feed_scope="all"
+    )
     webhook.body_mode = "raw"
     webhook.body_template = "{{item.title}}|{{feed.name}}"
     db_session.add(webhook)
@@ -421,9 +956,14 @@ def test_v2_item_event_routes_from_immutable_snapshots(db_session):
     db_session.flush()
     result = route_integration_event(db_session, event_id=event.id)
 
-    delivery = db_session.get(NotificationWebhookDelivery, result.webhook_delivery_ids[0])
+    delivery = db_session.get(
+        NotificationWebhookDelivery, result.webhook_delivery_ids[0]
+    )
     generic = db_session.get(IntegrationDelivery, result.integration_delivery_ids[0])
-    assert decrypt_notification_text(delivery.rendered_body) == "Integration event item|Original feed"
+    assert (
+        decrypt_notification_text(delivery.rendered_body)
+        == "Integration event item|Original feed"
+    )
     assert delivery.item_title_snapshot == "Integration event item"
     assert delivery.feed_name_snapshot == "Original feed"
     assert generic.payload_json["item"]["title"] == "Integration event item"
@@ -434,7 +974,9 @@ def test_v1_item_event_retains_legacy_id_hydration(db_session):
     user = _persist_user(db_session)
     feed = _persist_feed(db_session, "Legacy original feed")
     item = _persist_item(db_session, feed)
-    webhook = _persist_webhook(db_session, user, name="Legacy webhook", feed_scope="all")
+    webhook = _persist_webhook(
+        db_session, user, name="Legacy webhook", feed_scope="all"
+    )
     webhook.body_mode = "raw"
     webhook.body_template = "{{item.title}}|{{feed.name}}"
     db_session.add(webhook)
@@ -453,9 +995,14 @@ def test_v1_item_event_retains_legacy_id_hydration(db_session):
 
     result = route_integration_event(db_session, event_id=event.id)
 
-    delivery = db_session.get(NotificationWebhookDelivery, result.webhook_delivery_ids[0])
+    delivery = db_session.get(
+        NotificationWebhookDelivery, result.webhook_delivery_ids[0]
+    )
     assert event.schema_version == 1
-    assert decrypt_notification_text(delivery.rendered_body) == "Legacy hydrated item|Legacy hydrated feed"
+    assert (
+        decrypt_notification_text(delivery.rendered_body)
+        == "Legacy hydrated item|Legacy hydrated feed"
+    )
 
 
 def test_v2_alert_event_preserves_owner_specific_match_snapshot(db_session):
@@ -470,7 +1017,9 @@ def test_v2_alert_event_preserves_owner_specific_match_snapshot(db_session):
         enabled=True,
     )
     db_session.add(alert)
-    webhook = _persist_webhook(db_session, user, name="Alert snapshot webhook", feed_scope="all")
+    webhook = _persist_webhook(
+        db_session, user, name="Alert snapshot webhook", feed_scope="all"
+    )
     webhook.event_type = "alert_match"
     webhook.body_mode = "raw"
     webhook.body_template = "{{alert.primary_name}}|{{alert.matched_keywords}}"
@@ -482,7 +1031,11 @@ def test_v2_alert_event_preserves_owner_specific_match_snapshot(db_session):
         source_type="item",
         source_id=item.id,
         idempotency_key=f"immutable-alert:{item.id}",
-        payload={"item_id": str(item.id), "feed_id": str(feed.id)},
+        payload={
+            "item_id": str(item.id),
+            "feed_id": str(feed.id),
+            "evaluation_request_id": str(uuid.uuid4()),
+        },
     )
     assert event.schema_version == 2
     assert event.payload_json["alert_matches"][0]["owner_user_id"] == str(user.id)
@@ -493,14 +1046,21 @@ def test_v2_alert_event_preserves_owner_specific_match_snapshot(db_session):
     db_session.flush()
     result = route_integration_event(db_session, event_id=event.id)
 
-    delivery = db_session.get(NotificationWebhookDelivery, result.webhook_delivery_ids[0])
+    delivery = db_session.get(
+        NotificationWebhookDelivery, result.webhook_delivery_ids[0]
+    )
     generic = db_session.get(IntegrationDelivery, result.integration_delivery_ids[0])
-    assert decrypt_notification_text(delivery.rendered_body) == "Original durable alert|durable"
+    assert (
+        decrypt_notification_text(delivery.rendered_body)
+        == "Original durable alert|durable"
+    )
     assert generic.payload_json["alert"]["primary_name"] == "Original durable alert"
     assert "alert_matches" not in generic.payload_json
 
 
-def test_route_daily_digest_event_renders_immutable_ai_brief_context_for_webhook(db_session):
+def test_route_daily_digest_event_renders_immutable_ai_brief_context_for_webhook(
+    db_session,
+):
     user = _persist_user(db_session)
     selected_feed = _persist_feed(db_session, "Selected but ignored for AI brief")
     webhook = _persist_webhook(
@@ -546,7 +1106,9 @@ def test_route_daily_digest_event_renders_immutable_ai_brief_context_for_webhook
     result = route_integration_event(db_session, event_id=event.id)
 
     assert len(result.webhook_delivery_ids) == 1
-    delivery = db_session.get(NotificationWebhookDelivery, result.webhook_delivery_ids[0])
+    delivery = db_session.get(
+        NotificationWebhookDelivery, result.webhook_delivery_ids[0]
+    )
     assert delivery is not None
     assert delivery.item_title_snapshot == "AI brief title"
     assert delivery.feed_name_snapshot == "AI Daily Brief"
@@ -555,7 +1117,9 @@ def test_route_daily_digest_event_renders_immutable_ai_brief_context_for_webhook
 
 def test_route_legacy_rolling_digest_event_fails_with_clear_context_error(db_session):
     user = _persist_user(db_session)
-    webhook = _persist_webhook(db_session, user, name="Legacy digest webhook", feed_scope="all")
+    webhook = _persist_webhook(
+        db_session, user, name="Legacy digest webhook", feed_scope="all"
+    )
     webhook.event_type = "daily_digest"
     db_session.add(webhook)
     db_session.flush()
@@ -615,16 +1179,23 @@ def test_route_event_creates_smtp_delivery_for_selected_feed_subscription(db_ses
     assert delivery is not None
     assert result.integration_delivery_ids == [delivery.id]
     assert result.webhook_delivery_ids == []
-    assert db_session.scalar(
-        select(IntegrationSubscriptionFeed.feed_id).where(
-            IntegrationSubscriptionFeed.subscription_id == delivery.subscription_id
+    assert (
+        db_session.scalar(
+            select(IntegrationSubscriptionFeed.feed_id).where(
+                IntegrationSubscriptionFeed.subscription_id == delivery.subscription_id
+            )
         )
-    ) == feed.id
+        == feed.id
+    )
 
 
-def test_recoverable_event_scan_excludes_future_routed_and_dead_letter_events(db_session):
+def test_recoverable_event_scan_excludes_future_routed_and_dead_letter_events(
+    db_session,
+):
     now = datetime(2026, 7, 14, 12, 0, tzinfo=timezone.utc)
-    due = _persist_event(db_session, state="pending", available_at=now - timedelta(seconds=1))
+    due = _persist_event(
+        db_session, state="pending", available_at=now - timedelta(seconds=1)
+    )
     failed = _persist_event(db_session, state="failed", available_at=now)
     stale_routing = _persist_event(
         db_session,
@@ -634,7 +1205,9 @@ def test_recoverable_event_scan_excludes_future_routed_and_dead_letter_events(db
     )
     _persist_event(db_session, state="pending", available_at=now + timedelta(minutes=1))
     _persist_event(db_session, state="routed", available_at=now - timedelta(minutes=1))
-    _persist_event(db_session, state="dead_letter", available_at=now - timedelta(minutes=1))
+    _persist_event(
+        db_session, state="dead_letter", available_at=now - timedelta(minutes=1)
+    )
 
     event_ids = list_recoverable_integration_event_ids(db_session, now=now)
 
@@ -703,7 +1276,9 @@ def _persist_user(db_session) -> User:
 
 
 def _persist_feed(db_session, name: str) -> Feed:
-    feed = Feed(id=uuid.uuid4(), name=name, url=f"https://example.com/{uuid.uuid4()}.xml")
+    feed = Feed(
+        id=uuid.uuid4(), name=name, url=f"https://example.com/{uuid.uuid4()}.xml"
+    )
     db_session.add(feed)
     db_session.flush()
     return feed
@@ -727,6 +1302,56 @@ def _persist_item(db_session, feed: Feed) -> Item:
     return item
 
 
+def _persist_alert_occurrence(
+    db_session,
+    *,
+    owner: User,
+    item: Item,
+    event: IntegrationEvent,
+    name: str,
+) -> AlertOccurrence:
+    feed = db_session.get(Feed, item.feed_id)
+    assert feed is not None
+    occurrence = AlertOccurrence(
+        rule_id_snapshot=uuid.uuid4(),
+        owner_user_id=owner.id,
+        item_id=item.id,
+        item_id_snapshot=item.id,
+        integration_event_id=event.id,
+        rule_revision=1,
+        item_content_hash=uuid.uuid4().hex * 2,
+        alert_name_snapshot=name,
+        alert_category_snapshot="threat",
+        alert_keywords_snapshot=["durable"],
+        matched_keywords=["durable"],
+        source_snapshot_json={
+            "item": {
+                "id": str(item.id),
+                "title": item.title,
+                "summary": item.summary,
+                "url": item.url,
+                "canonical_url": item.canonical_url,
+                "published_at": item.published_at.isoformat()
+                if item.published_at is not None
+                else None,
+                "first_seen_at": item.first_seen_at.isoformat()
+                if item.first_seen_at is not None
+                else None,
+                "status": item.status,
+            },
+            "feed": {
+                "id": str(feed.id),
+                "name": feed.name,
+                "url": feed.url,
+            },
+        },
+        severity_snapshot="medium",
+    )
+    db_session.add(occurrence)
+    db_session.flush()
+    return occurrence
+
+
 def _persist_webhook(
     db_session,
     user: User,
@@ -734,13 +1359,14 @@ def _persist_webhook(
     name: str,
     feed_scope: str,
     feed_ids: list[uuid.UUID] | None = None,
+    event_type: str = "rss_item_new",
 ) -> NotificationWebhook:
     webhook = NotificationWebhook(
         id=uuid.uuid4(),
         user_id=user.id,
         name=name,
         enabled=True,
-        event_type="rss_item_new",
+        event_type=event_type,
         url_template="https://example.com/hook",
         method="POST",
         feed_scope=feed_scope,

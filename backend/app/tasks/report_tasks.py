@@ -21,6 +21,7 @@ from app.services.ai_ops import (
     start_ai_task_run,
 )
 from app.services.ai_ops_common import AI_TASK_TYPE_REPORT
+from app.services import report_dispatch
 from app.services.report_generation import generate_report
 from app.services.report_execution import (
     ReportGenerationLeaseLostError,
@@ -32,15 +33,6 @@ from app.services.report_execution import (
     renew_report_generation,
 )
 from app.services.report_notifications import REPORT_READY_EVENT_TYPE
-from app.services.report_dispatch import (
-    claim_report_dispatch,
-    initialize_report_dispatch,
-    list_due_report_dispatches,
-    record_report_dispatch_failure,
-    record_report_dispatch_success,
-    stable_report_task_id,
-    supersede_legacy_report_dispatch,
-)
 from app.services.report_schedules import list_due_schedule_ids, reserve_schedule_runs
 from app.services.report_schedules import record_schedule_failure
 from app.services.report_task_lineage import find_report_request_task_run
@@ -94,7 +86,7 @@ def create_report_task_run(
     )
     run.request_idempotency_key_hash = request_idempotency_key_hash
     run.request_fingerprint = request_fingerprint
-    initialize_report_dispatch(run)
+    report_dispatch.initialize_report_dispatch(run)
     if originating_request:
         report.request_task_run_id = run.id
         db.add(report)
@@ -105,13 +97,13 @@ def enqueue_report_task(*, report_id: uuid.UUID, task_run_id: uuid.UUID) -> str 
     now = datetime.now(timezone.utc)
     try:
         with db_session() as db:
-            task_run_id = supersede_legacy_report_dispatch(
+            task_run_id = report_dispatch.supersede_legacy_report_dispatch(
                 db,
                 report_id=report_id,
                 task_run_id=task_run_id,
                 now=now,
             )
-            claim = claim_report_dispatch(
+            claim = report_dispatch.claim_report_dispatch(
                 db,
                 report_id=report_id,
                 task_run_id=task_run_id,
@@ -128,7 +120,7 @@ def enqueue_report_task(*, report_id: uuid.UUID, task_run_id: uuid.UUID) -> str 
     if not claim.claimed:
         return claim.celery_task_id
 
-    task_id = stable_report_task_id(task_run_id)
+    task_id = report_dispatch.stable_report_task_id(task_run_id)
     dispatch_token = claim.dispatch_token
     if dispatch_token is None:
         logger.error(
@@ -151,7 +143,7 @@ def enqueue_report_task(*, report_id: uuid.UUID, task_run_id: uuid.UUID) -> str 
         )
         try:
             with db_session() as db:
-                record_report_dispatch_failure(
+                report_dispatch.record_report_dispatch_failure(
                     db,
                     report_id=report_id,
                     task_run_id=task_run_id,
@@ -169,7 +161,7 @@ def enqueue_report_task(*, report_id: uuid.UUID, task_run_id: uuid.UUID) -> str 
 
     try:
         with db_session() as db:
-            record_report_dispatch_success(
+            report_dispatch.record_report_dispatch_success(
                 db,
                 report_id=report_id,
                 task_run_id=task_run_id,
@@ -1072,7 +1064,42 @@ def dispatch_due_report_schedules():
 def dispatch_pending_report_tasks():
     now = datetime.now(timezone.utc)
     with db_session() as db:
-        entries = list_due_report_dispatches(db, now=now)
+        entries = report_dispatch.list_due_report_dispatches(db, now=now)
+        queued_reports_exist = report_dispatch.has_queued_report_dispatches(db)
+    if not queued_reports_exist:
+        return {"status": "ok", "dispatched": 0, "deferred": 0}
+
+    queue_available = report_dispatch.report_queue_subscription_available()
+    if queue_available is False:
+        with db_session() as db:
+            changed = report_dispatch.set_report_dispatch_waiting_state(
+                db, waiting=True
+            )
+            db.commit()
+        if changed:
+            logger.error(
+                "report_dispatch_queue_has_no_consumer queue=%s affected_reports=%d",
+                QUEUE_AI_REPORTS,
+                changed,
+            )
+        return {
+            "status": "partial",
+            "dispatched": 0,
+            "deferred": len(entries),
+        }
+    if queue_available is True:
+        with db_session() as db:
+            resumed = report_dispatch.set_report_dispatch_waiting_state(
+                db, waiting=False
+            )
+            db.commit()
+        if resumed:
+            logger.info(
+                "report_dispatch_queue_consumer_restored queue=%s affected_reports=%d",
+                QUEUE_AI_REPORTS,
+                resumed,
+            )
+
     dispatched = 0
     deferred = 0
     for report_id, run_id in entries:
@@ -1086,8 +1113,6 @@ def dispatch_pending_report_tasks():
         "dispatched": dispatched,
         "deferred": deferred,
     }
-
-
 def _report_error_for_display(exc: Exception) -> str:
     from app.services.ai_context_budget import AIContextBudgetError
     from app.services.ai_provider_client import AIIntegrationError

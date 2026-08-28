@@ -21,7 +21,11 @@ from app.services.user_access import (
     acquire_active_admin_invariant_lock,
     ensure_active_approved_admin_remains,
     load_user_for_access_update,
-    revoke_user_credentials,
+    revoke_user_credentials_with_counts,
+)
+from app.services.investigation_ownership import (
+    InvestigationOwnerReassignmentRequired,
+    reconcile_user_investigation_access_change,
 )
 
 ROLE_PRECEDENCE = {ROLE_VIEWER: 1, ROLE_ANALYST: 2, ROLE_ADMIN: 3}
@@ -30,9 +34,18 @@ INTERNAL_DOMAIN_VALIDATION_SUFFIX = ".x"
 
 
 class OIDCIdentityError(RuntimeError):
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        user_id: str | None = None,
+        details: dict[str, object] | None = None,
+    ) -> None:
         super().__init__(message)
         self.code = code
+        self.user_id = user_id
+        self.details = details or {}
 
 
 @dataclass(frozen=True)
@@ -43,13 +56,19 @@ class OIDCAuthenticationResult:
     previous_role: str | None = None
     role_sync_skipped: str | None = None
     revoked_api_tokens: int = 0
+    revoked_auth_sessions: int = 0
+    cleared_investigation_assignments: int = 0
 
 
 def resolve_oidc_role(provider: OIDCProvider, claims: dict[str, Any]) -> str:
     claim_value = _nested_claim_value(claims, provider.role_claim)
-    values = {claim_value} if isinstance(claim_value, str) else {
-        value for value in claim_value if isinstance(value, str)
-    } if isinstance(claim_value, list) else set()
+    values = (
+        {claim_value}
+        if isinstance(claim_value, str)
+        else {value for value in claim_value if isinstance(value, str)}
+        if isinstance(claim_value, list)
+        else set()
+    )
 
     mapped_roles = {
         str(mapping.get("role"))
@@ -60,7 +79,9 @@ def resolve_oidc_role(provider: OIDCProvider, claims: dict[str, Any]) -> str:
         and mapping.get("role") in ALL_ROLES
     }
     if not mapped_roles:
-        return provider.default_role if provider.default_role in ALL_ROLES else ROLE_VIEWER
+        return (
+            provider.default_role if provider.default_role in ALL_ROLES else ROLE_VIEWER
+        )
     return max(mapped_roles, key=lambda role: ROLE_PRECEDENCE[role])
 
 
@@ -68,7 +89,12 @@ def authenticate_oidc_identity(
     db: Session,
     provider: OIDCProvider,
     oidc_claims: OIDCClaims,
+    *,
+    active_admin_invariant_locked: bool = False,
 ) -> OIDCAuthenticationResult:
+    if provider.sync_roles_on_login and not active_admin_invariant_locked:
+        # Role synchronization must take the invariant before any user row.
+        acquire_active_admin_invariant_lock(db)
     identity = db.scalar(
         select(ExternalIdentity).where(
             ExternalIdentity.issuer == oidc_claims.issuer,
@@ -78,22 +104,41 @@ def authenticate_oidc_identity(
     provisioned = False
     if identity is None:
         if not provider.jit_provisioning_enabled:
-            raise OIDCIdentityError("not_provisioned", "No linked ThreatLens account exists for this identity")
+            raise OIDCIdentityError(
+                "not_provisioned",
+                "No linked ThreatLens account exists for this identity",
+            )
         user, identity = _provision_identity(db, provider, oidc_claims)
         provisioned = True
     else:
         if identity.provider_id != provider.id:
-            raise OIDCIdentityError("identity_conflict", "The external identity belongs to another provider")
+            raise OIDCIdentityError(
+                "identity_conflict", "The external identity belongs to another provider"
+            )
         user = load_user_for_access_update(db, identity.user_id)
         if user is None:
-            raise OIDCIdentityError("account_missing", "The linked ThreatLens account no longer exists")
+            raise OIDCIdentityError(
+                "account_missing", "The linked ThreatLens account no longer exists"
+            )
 
     previous_role: str | None = None
     role_sync_skipped: str | None = None
     revoked_api_tokens = 0
+    revoked_auth_sessions = 0
+    cleared_investigation_assignments = 0
     mapped_role = resolve_oidc_role(provider, oidc_claims.claims)
     if provider.sync_roles_on_login and user.role != mapped_role:
-        previous_role, role_sync_skipped, revoked_api_tokens = _synchronize_role(db, user, mapped_role)
+        (
+            previous_role,
+            role_sync_skipped,
+            revoked_api_tokens,
+            revoked_auth_sessions,
+            cleared_investigation_assignments,
+        ) = _synchronize_role(
+            db,
+            user,
+            mapped_role,
+        )
 
     now = datetime.now(timezone.utc)
     identity.last_login_at = now
@@ -108,6 +153,8 @@ def authenticate_oidc_identity(
         previous_role=previous_role,
         role_sync_skipped=role_sync_skipped,
         revoked_api_tokens=revoked_api_tokens,
+        revoked_auth_sessions=revoked_auth_sessions,
+        cleared_investigation_assignments=cleared_investigation_assignments,
     )
 
 
@@ -124,9 +171,15 @@ def link_oidc_identity(
         )
     )
     if existing_identity is not None:
-        if existing_identity.user_id == user.id and existing_identity.provider_id == provider.id:
+        if (
+            existing_identity.user_id == user.id
+            and existing_identity.provider_id == provider.id
+        ):
             return existing_identity
-        raise OIDCIdentityError("identity_in_use", "This external identity is already linked to another account")
+        raise OIDCIdentityError(
+            "identity_in_use",
+            "This external identity is already linked to another account",
+        )
 
     user_identity = db.scalar(
         select(ExternalIdentity).where(
@@ -135,7 +188,10 @@ def link_oidc_identity(
         )
     )
     if user_identity is not None:
-        raise OIDCIdentityError("account_already_linked", "This account is already linked to an external identity")
+        raise OIDCIdentityError(
+            "account_already_linked",
+            "This account is already linked to an external identity",
+        )
 
     email = _verified_email(oidc_claims.claims, required=False) or user.email
     identity = ExternalIdentity(
@@ -151,11 +207,15 @@ def link_oidc_identity(
             db.add(identity)
             db.flush()
     except IntegrityError as exc:
-        raise OIDCIdentityError("identity_conflict", "The identity link changed concurrently; try again") from exc
+        raise OIDCIdentityError(
+            "identity_conflict", "The identity link changed concurrently; try again"
+        ) from exc
     return identity
 
 
-def unlink_oidc_identity(db: Session, provider: OIDCProvider, user: User) -> ExternalIdentity:
+def unlink_oidc_identity(
+    db: Session, provider: OIDCProvider, user: User
+) -> ExternalIdentity:
     if user.provisioning_source == PROVISIONING_SOURCE_OIDC:
         raise OIDCIdentityError(
             "sso_managed_account",
@@ -173,7 +233,9 @@ def unlink_oidc_identity(db: Session, provider: OIDCProvider, user: User) -> Ext
         )
     )
     if identity is None:
-        raise OIDCIdentityError("not_linked", "No OIDC identity is linked to this account")
+        raise OIDCIdentityError(
+            "not_linked", "No OIDC identity is linked to this account"
+        )
     db.delete(identity)
     return identity
 
@@ -233,7 +295,9 @@ def _provision_identity(
                     "identity_conflict",
                     "The external identity belongs to another provider",
                 ) from exc
-            concurrent_user = load_user_for_access_update(db, concurrent_identity.user_id)
+            concurrent_user = load_user_for_access_update(
+                db, concurrent_identity.user_id
+            )
             if concurrent_user is not None:
                 return concurrent_user, concurrent_identity
         if db.scalar(select(User.id).where(User.email == email)) is not None:
@@ -241,17 +305,25 @@ def _provision_identity(
                 "email_link_required",
                 "A ThreatLens account already uses this email; sign in locally and link the identity from Account settings",
             ) from exc
-        raise OIDCIdentityError("provisioning_conflict", "Account provisioning changed concurrently; try again") from exc
+        raise OIDCIdentityError(
+            "provisioning_conflict",
+            "Account provisioning changed concurrently; try again",
+        ) from exc
     return user, identity
 
 
-def _synchronize_role(db: Session, user: User, mapped_role: str) -> tuple[str | None, str | None, int]:
-    acquire_active_admin_invariant_lock(db)
+def _synchronize_role(
+    db: Session,
+    user: User,
+    mapped_role: str,
+) -> tuple[str | None, str | None, int, int, int]:
     locked_user = load_user_for_access_update(db, user.id)
     if locked_user is None:
-        raise OIDCIdentityError("account_missing", "The linked ThreatLens account no longer exists")
+        raise OIDCIdentityError(
+            "account_missing", "The linked ThreatLens account no longer exists"
+        )
     if locked_user.role == mapped_role:
-        return None, None, 0
+        return None, None, 0, 0, 0
 
     previous_role = locked_user.role
     try:
@@ -262,12 +334,43 @@ def _synchronize_role(db: Session, user: User, mapped_role: str) -> tuple[str | 
             next_is_active=locked_user.is_active,
             next_is_approved=locked_user.is_approved,
         )
-    except LastActiveAdminError:
-        return None, "last_active_admin", 0
+    except LastActiveAdminError as exc:
+        _ = exc
+        # Preserve the viable administrator and permit sign-in so the mapping can
+        # be repaired. The skipped synchronization is emitted to the audit log.
+        return None, "last_active_admin", 0, 0, 0
+
+    try:
+        investigation_access = reconcile_user_investigation_access_change(
+            db,
+            user=locked_user,
+            next_role=mapped_role,
+            next_is_active=locked_user.is_active,
+            next_is_approved=locked_user.is_approved,
+            actor_user_id=locked_user.id,
+        )
+    except InvestigationOwnerReassignmentRequired as exc:
+        raise OIDCIdentityError(
+            "role_sync_blocked",
+            "The identity-provider role cannot be applied until investigation ownership is reassigned.",
+            user_id=str(locked_user.id),
+            details={
+                "role_sync_reason": "investigation_owner_reassignment_required",
+                "current_role": previous_role,
+                "mapped_role": mapped_role,
+                "affected_investigation_count": len(exc.investigations),
+            },
+        ) from exc
 
     locked_user.role = mapped_role
-    revoked_api_tokens = revoke_user_credentials(db, locked_user)
-    return previous_role, None, revoked_api_tokens
+    revoked = revoke_user_credentials_with_counts(db, locked_user)
+    return (
+        previous_role,
+        None,
+        revoked.api_tokens,
+        revoked.auth_sessions,
+        investigation_access.cleared_assignment_count,
+    )
 
 
 def _verified_email(claims: dict[str, Any], *, required: bool) -> str | None:
@@ -296,7 +399,10 @@ def _normalized_email(
         return None
     if not isinstance(email, str):
         if required:
-            raise OIDCIdentityError("invalid_email", "The identity provider returned an invalid email address")
+            raise OIDCIdentityError(
+                "invalid_email",
+                "The identity provider returned an invalid email address",
+            )
         return None
     if require_verified and claims.get("email_verified") is not True:
         if required:
@@ -306,10 +412,15 @@ def _normalized_email(
             )
         return None
     try:
-        return _normalize_email_identifier(email, allow_internal_domain=not require_verified)
+        return _normalize_email_identifier(
+            email, allow_internal_domain=not require_verified
+        )
     except EmailNotValidError as exc:
         if required:
-            raise OIDCIdentityError("invalid_email", "The identity provider returned an invalid email address") from exc
+            raise OIDCIdentityError(
+                "invalid_email",
+                "The identity provider returned an invalid email address",
+            ) from exc
         return None
 
 
@@ -329,12 +440,23 @@ def _normalize_email_identifier(email: str, *, allow_internal_domain: bool) -> s
         f"{domain}{INTERNAL_DOMAIN_VALIDATION_SUFFIX}",
         globally_deliverable=False,
     )
-    normalized_domain = domain_with_suffix["domain"][: -len(INTERNAL_DOMAIN_VALIDATION_SUFFIX)]
-    ascii_domain = domain_with_suffix["ascii_domain"][: -len(INTERNAL_DOMAIN_VALIDATION_SUFFIX)]
+    normalized_domain = domain_with_suffix["domain"][
+        : -len(INTERNAL_DOMAIN_VALIDATION_SUFFIX)
+    ]
+    ascii_domain = domain_with_suffix["ascii_domain"][
+        : -len(INTERNAL_DOMAIN_VALIDATION_SUFFIX)
+    ]
     normalized = f"{local['local_part']}@{normalized_domain}".lower()
     ascii_local_part = local["ascii_local_part"]
-    ascii_email = f"{ascii_local_part}@{ascii_domain}" if ascii_local_part is not None else normalized
-    if any(len(value.encode("utf-8")) > EMAIL_MAX_OCTETS for value in (email, normalized, ascii_email)):
+    ascii_email = (
+        f"{ascii_local_part}@{ascii_domain}"
+        if ascii_local_part is not None
+        else normalized
+    )
+    if any(
+        len(value.encode("utf-8")) > EMAIL_MAX_OCTETS
+        for value in (email, normalized, ascii_email)
+    ):
         raise EmailSyntaxError("The email address is too long")
     return normalized
 

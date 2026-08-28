@@ -2,8 +2,11 @@ import { describe, expect, it } from 'vitest'
 
 import { AlertInterest } from '../types/api'
 import {
+  alertSuppressionInputValue,
+  alertSuppressionISOString,
   formatAlertPreviewSummary,
   getAlertSaveDisabledReason,
+  getAlertSuppressionValidationError,
   groupAlertsByCategory,
   parseAlertKeywords,
 } from './alertPageModel'
@@ -40,6 +43,31 @@ describe('alert page model', () => {
   })
 
   it('turns HTML summaries into readable preview text', () => {
-    expect(formatAlertPreviewSummary('<p>VPN &amp; gateway&nbsp;update &#65;</p>')).toBe('VPN & gateway update A')
+    expect(formatAlertPreviewSummary('<p>VPN &amp; gateway&nbsp;update &#65;</p>')).toBe(
+      'VPN & gateway update A',
+    )
+  })
+
+  it('validates suppression as a future paired timestamp and reason', () => {
+    const now = new Date('2026-08-27T12:00:00Z')
+    expect(getAlertSuppressionValidationError(false, '', '', now)).toBeNull()
+    expect(getAlertSuppressionValidationError(true, '', '', now)).toContain('end time')
+    expect(
+      getAlertSuppressionValidationError(true, '2026-08-27T11:59', 'Maintenance', now),
+    ).toContain('future')
+    expect(getAlertSuppressionValidationError(true, '2030-01-01T09:00', '', now)).toContain(
+      'reason',
+    )
+    expect(
+      getAlertSuppressionValidationError(true, '2030-01-01T09:00', 'Maintenance', now),
+    ).toBeNull()
+  })
+
+  it('round-trips suppression timestamps through datetime-local inputs', () => {
+    const source = '2030-01-01T09:00:00Z'
+    const localInput = alertSuppressionInputValue(source)
+    expect(alertSuppressionISOString(localInput)).toBe(source.replace('Z', '.000Z'))
+    expect(alertSuppressionInputValue('invalid')).toBe('')
+    expect(alertSuppressionISOString('invalid')).toBeNull()
   })
 })

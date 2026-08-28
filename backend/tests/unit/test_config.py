@@ -25,14 +25,24 @@ def production_settings_kwargs(**overrides):
 
 
 def test_cors_origins_parses_csv():
-    settings = isolated_settings(cors_origins="http://localhost:3000, https://threatlens.local")
-    assert settings.cors_origins == ["http://localhost:3000", "https://threatlens.local"]
+    settings = isolated_settings(
+        cors_origins="http://localhost:3000, https://threatlens.local"
+    )
+    assert settings.cors_origins == [
+        "http://localhost:3000",
+        "https://threatlens.local",
+    ]
 
 
 def test_cors_origins_parses_csv_from_env(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("CORS_ORIGINS", "http://localhost:3000, https://threatlens.local")
+    monkeypatch.setenv(
+        "CORS_ORIGINS", "http://localhost:3000, https://threatlens.local"
+    )
     settings = Settings(_env_file=None)
-    assert settings.cors_origins == ["http://localhost:3000", "https://threatlens.local"]
+    assert settings.cors_origins == [
+        "http://localhost:3000",
+        "https://threatlens.local",
+    ]
 
 
 def test_trusted_proxy_cidrs_parses_csv_from_env(monkeypatch: pytest.MonkeyPatch):
@@ -50,6 +60,32 @@ def test_trusted_proxy_hosts_parses_csv_from_env(monkeypatch: pytest.MonkeyPatch
 def test_ip_login_threshold_cannot_be_lower_than_account_threshold():
     with pytest.raises(ValueError, match="auth_login_ip_max_attempts"):
         isolated_settings(auth_login_max_attempts=10, auth_login_ip_max_attempts=9)
+
+
+def test_auth_session_timing_is_coherent():
+    with pytest.raises(ValueError, match="absolute_ttl_seconds must be at least 300"):
+        isolated_settings(auth_session_absolute_ttl_seconds=299)
+    with pytest.raises(ValueError, match="idle_ttl_seconds must be at least 300"):
+        isolated_settings(auth_session_idle_ttl_seconds=299)
+    with pytest.raises(ValueError, match="activity_update_seconds must be at least 30"):
+        isolated_settings(auth_session_activity_update_seconds=29)
+    with pytest.raises(ValueError, match="auth_session_idle_ttl_seconds"):
+        isolated_settings(
+            auth_session_absolute_ttl_seconds=300,
+            auth_session_idle_ttl_seconds=301,
+        )
+    with pytest.raises(ValueError, match="auth_session_activity_update_seconds"):
+        isolated_settings(
+            auth_session_idle_ttl_seconds=300,
+            auth_session_activity_update_seconds=301,
+        )
+
+
+def test_security_cookie_names_are_valid_and_distinct():
+    with pytest.raises(ValueError, match="HTTP token characters"):
+        isolated_settings(auth_mfa_challenge_cookie_name="bad cookie")
+    with pytest.raises(ValueError, match="cookie names must be distinct"):
+        isolated_settings(auth_mfa_challenge_cookie_name="threatlens_session")
 
 
 def test_report_generation_lease_covers_provider_timeout():
@@ -86,9 +122,7 @@ def test_legacy_report_worker_grace_covers_visibility_timeout():
 
 
 def test_report_schedule_retry_backoff_must_be_bounded():
-    with pytest.raises(
-        ValueError, match="report_schedule_retry_max_backoff_seconds"
-    ):
+    with pytest.raises(ValueError, match="report_schedule_retry_max_backoff_seconds"):
         isolated_settings(
             report_schedule_retry_backoff_seconds=120,
             report_schedule_retry_max_backoff_seconds=60,
@@ -125,7 +159,9 @@ def test_production_requires_dedicated_data_encryption_key():
 
 
 def test_non_production_can_require_explicit_data_encryption_key():
-    with pytest.raises(ValueError, match="app_data_encryption_key must be explicitly set"):
+    with pytest.raises(
+        ValueError, match="app_data_encryption_key must be explicitly set"
+    ):
         isolated_settings(
             app_env="development",
             require_explicit_data_encryption_key=True,
@@ -151,7 +187,9 @@ def test_admin_seeding_rejects_default_admin_password():
         ("admin_password", "replace-with-strong-admin-password"),
     ],
 )
-def test_production_rejects_placeholder_secret_values(field_name: str, field_value: str):
+def test_production_rejects_placeholder_secret_values(
+    field_name: str, field_value: str
+):
     kwargs = production_settings_kwargs()
     kwargs[field_name] = field_value
     with pytest.raises(ValueError):
@@ -170,10 +208,14 @@ def test_production_requires_csrf_for_cookie_auth():
 
 def test_production_rejects_legacy_unscoped_token_bypass():
     with pytest.raises(ValueError):
-        isolated_settings(**production_settings_kwargs(allow_legacy_unscoped_tokens=True))
+        isolated_settings(
+            **production_settings_kwargs(allow_legacy_unscoped_tokens=True)
+        )
 
 
-@pytest.mark.parametrize("origin", ["*", "null", "https://*.example.com", "https://example.com/path"])
+@pytest.mark.parametrize(
+    "origin", ["*", "null", "https://*.example.com", "https://example.com/path"]
+)
 def test_production_rejects_unsafe_credentialed_cors_origins(origin: str):
     with pytest.raises(ValueError, match="cors_origins"):
         isolated_settings(**production_settings_kwargs(cors_origins=[origin]))
@@ -188,7 +230,11 @@ def test_production_rejects_unsafe_allowed_hosts(host: str):
 @pytest.mark.parametrize(
     ("field_name", "field_value", "message"),
     [
-        ("database_url", "postgresql+psycopg://postgres:postgres@db:5432/threatlens", "database_url"),
+        (
+            "database_url",
+            "postgresql+psycopg://postgres:postgres@db:5432/threatlens",
+            "database_url",
+        ),
         ("postgres_password", None, "postgres_password"),
         ("postgres_password", "postgres", "postgres_password"),
         ("redis_url", "redis://:redis@redis:6379/0", "redis_url"),
@@ -196,7 +242,9 @@ def test_production_rejects_unsafe_allowed_hosts(host: str):
         ("redis_password", "redis", "redis_password"),
     ],
 )
-def test_production_rejects_weak_database_and_redis_defaults(field_name: str, field_value: str | None, message: str):
+def test_production_rejects_weak_database_and_redis_defaults(
+    field_name: str, field_value: str | None, message: str
+):
     with pytest.raises(ValueError, match=message):
         isolated_settings(**production_settings_kwargs(**{field_name: field_value}))
 
@@ -214,12 +262,18 @@ def test_bootstrap_mutation_flags_default_off():
         ("log_level", "TRACE", "log_level"),
         ("log_format", "xml", "log_format"),
         ("log_detail", "everything", "log_detail"),
-        ("log_level_overrides", ["app.services.oidc_client=TRACE"], "log_level_overrides"),
+        (
+            "log_level_overrides",
+            ["app.services.oidc_client=TRACE"],
+            "log_level_overrides",
+        ),
         ("log_slow_request_ms", 0, "greater than zero"),
         ("log_max_event_chars", 0, "greater than zero"),
     ],
 )
-def test_logging_settings_reject_invalid_values(field_name: str, field_value: object, message: str):
+def test_logging_settings_reject_invalid_values(
+    field_name: str, field_value: object, message: str
+):
     with pytest.raises(ValueError, match=message):
         isolated_settings(**{field_name: field_value})
 
@@ -257,7 +311,9 @@ def test_export_pdf_and_preview_limits_must_fit_item_limit():
     with pytest.raises(ValueError, match="export_pdf_max_items"):
         isolated_settings(export_max_items=10, export_pdf_max_items=11)
     with pytest.raises(ValueError, match="export_preview_limit"):
-        isolated_settings(export_max_items=10, export_pdf_max_items=10, export_preview_limit=11)
+        isolated_settings(
+            export_max_items=10, export_pdf_max_items=10, export_preview_limit=11
+        )
 
 
 @pytest.mark.parametrize(
@@ -302,7 +358,9 @@ def test_redis_url_keeps_explicit_password():
 
 
 def test_production_accepts_passwordless_redis_url_when_redis_password_is_set():
-    settings = isolated_settings(**production_settings_kwargs(redis_url="redis://redis:6379/0"))
+    settings = isolated_settings(
+        **production_settings_kwargs(redis_url="redis://redis:6379/0")
+    )
 
     assert settings.redis_url == "redis://:strong-redis-pass@redis:6379/0"
 
@@ -325,7 +383,9 @@ def test_development_generates_runtime_secrets_when_not_configured():
         ("app_data_encryption_key", "change-me"),
     ],
 )
-def test_placeholder_runtime_secrets_are_replaced_outside_production(field_name: str, field_value: str):
+def test_placeholder_runtime_secrets_are_replaced_outside_production(
+    field_name: str, field_value: str
+):
     kwargs = {field_name: field_value}
     settings = isolated_settings(**kwargs)
     assert getattr(settings, field_name) != field_value
@@ -358,3 +418,26 @@ def test_development_secret_fallbacks_are_stable_for_same_local_settings():
     assert first.jwt_secret == second.jwt_secret
     assert first.app_data_encryption_key == second.app_data_encryption_key
     assert first.jwt_secret != first.app_data_encryption_key
+
+
+def test_oidc_admin_mfa_assurance_lists_are_normalized_and_deduplicated():
+    settings = isolated_settings(
+        auth_oidc_admin_mfa_acr_values=" urn:company:loa:2, urn:company:loa:2, loa3 ",
+        auth_oidc_admin_mfa_amr_values=" MFA, otp, mfa, HWK ",
+    )
+
+    assert settings.auth_oidc_admin_mfa_acr_values == [
+        "urn:company:loa:2",
+        "loa3",
+    ]
+    assert settings.auth_oidc_admin_mfa_amr_values == ["mfa", "otp", "hwk"]
+
+
+def test_empty_oidc_admin_mfa_assurance_lists_remain_empty_for_fail_closed_use():
+    settings = isolated_settings(
+        auth_oidc_admin_mfa_acr_values="",
+        auth_oidc_admin_mfa_amr_values="",
+    )
+
+    assert settings.auth_oidc_admin_mfa_acr_values == []
+    assert settings.auth_oidc_admin_mfa_amr_values == []

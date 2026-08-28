@@ -69,7 +69,11 @@ def complete_task_log_context(
 
     request = getattr(task, "request", None)
     started_at = getattr(request, _TASK_STARTED_AT_ATTRIBUTE, None)
-    duration_ms = (time.perf_counter() - started_at) * 1000 if isinstance(started_at, (int, float)) else None
+    duration_ms = (
+        (time.perf_counter() - started_at) * 1000
+        if isinstance(started_at, (int, float))
+        else None
+    )
     task_name = str(getattr(task, "name", None) or type(task).__name__)
     if verbose_logging_enabled(settings):
         logger.debug(
@@ -79,7 +83,9 @@ def complete_task_log_context(
                 "task_id": task_id,
                 "task_name": task_name,
                 "queue": _task_queue(request),
-                "duration_ms": round(duration_ms, 2) if duration_ms is not None else None,
+                "duration_ms": round(duration_ms, 2)
+                if duration_ms is not None
+                else None,
             },
         )
 
@@ -100,6 +106,7 @@ def _task_queue(request) -> str | None:
     queue = delivery_info.get("routing_key") or delivery_info.get("exchange")
     return str(queue) if queue else None
 
+
 QUEUE_DEFAULT = "default"
 QUEUE_INGEST = "ingest"
 QUEUE_PROCESSING = "processing"
@@ -112,7 +119,9 @@ TASK_ROUTES = {
     "app.tasks.feed_tasks.fetch_feed": {"queue": QUEUE_INGEST},
     "app.tasks.feed_tasks.backfill_feed_metadata": {"queue": QUEUE_INGEST},
     "app.tasks.feed_tasks.dispatch_due_feeds": {"queue": QUEUE_MAINTENANCE},
-    "app.tasks.feed_tasks.dispatch_feed_metadata_backfill": {"queue": QUEUE_MAINTENANCE},
+    "app.tasks.feed_tasks.dispatch_feed_metadata_backfill": {
+        "queue": QUEUE_MAINTENANCE
+    },
     "app.tasks.feed_tasks.dispatch_unclassified_items": {"queue": QUEUE_PROCESSING},
     "app.tasks.feed_tasks.classify_item": {"queue": QUEUE_PROCESSING},
     "app.tasks.feed_tasks.dispatch_items_missing_articles": {"queue": QUEUE_PROCESSING},
@@ -120,22 +129,52 @@ TASK_ROUTES = {
     "app.tasks.feed_tasks.dispatch_items_missing_iocs": {"queue": QUEUE_PROCESSING},
     "app.tasks.feed_tasks.extract_item_iocs": {"queue": QUEUE_PROCESSING},
     "app.tasks.feed_tasks.reapply_recent_item_tags": {"queue": QUEUE_PROCESSING},
-    "app.tasks.feed_tasks.dispatch_new_item_notification_webhooks": {"queue": QUEUE_NOTIFICATIONS},
-    "app.tasks.feed_tasks.dispatch_alert_match_notification_webhooks": {"queue": QUEUE_NOTIFICATIONS},
-    "app.tasks.feed_tasks.dispatch_feed_failing_notification_webhooks": {"queue": QUEUE_NOTIFICATIONS},
-    "app.tasks.feed_tasks.dispatch_webhook_failed_notification_webhooks": {"queue": QUEUE_NOTIFICATIONS},
-    "app.tasks.feed_tasks.dispatch_daily_digest_notification_webhooks": {"queue": QUEUE_NOTIFICATIONS},
-    "app.tasks.feed_tasks.dispatch_smtp_new_item_notification": {"queue": QUEUE_NOTIFICATIONS},
-    "app.tasks.feed_tasks.dispatch_smtp_alert_match_notification": {"queue": QUEUE_NOTIFICATIONS},
-    "app.tasks.feed_tasks.dispatch_smtp_feed_failing_notification": {"queue": QUEUE_NOTIFICATIONS},
-    "app.tasks.feed_tasks.dispatch_smtp_webhook_failed_notification": {"queue": QUEUE_NOTIFICATIONS},
-    "app.tasks.feed_tasks.dispatch_pending_notification_webhook_deliveries": {"queue": QUEUE_NOTIFICATIONS},
-    "app.tasks.feed_tasks.process_notification_webhook_deliveries": {"queue": QUEUE_NOTIFICATIONS},
+    "app.tasks.feed_tasks.dispatch_new_item_notification_webhooks": {
+        "queue": QUEUE_NOTIFICATIONS
+    },
+    "app.tasks.feed_tasks.dispatch_alert_match_notification_webhooks": {
+        "queue": QUEUE_NOTIFICATIONS
+    },
+    "app.tasks.feed_tasks.dispatch_feed_failing_notification_webhooks": {
+        "queue": QUEUE_NOTIFICATIONS
+    },
+    "app.tasks.feed_tasks.dispatch_webhook_failed_notification_webhooks": {
+        "queue": QUEUE_NOTIFICATIONS
+    },
+    "app.tasks.feed_tasks.dispatch_daily_digest_notification_webhooks": {
+        "queue": QUEUE_NOTIFICATIONS
+    },
+    "app.tasks.feed_tasks.dispatch_smtp_new_item_notification": {
+        "queue": QUEUE_NOTIFICATIONS
+    },
+    "app.tasks.feed_tasks.dispatch_smtp_alert_match_notification": {
+        "queue": QUEUE_NOTIFICATIONS
+    },
+    "app.tasks.feed_tasks.dispatch_smtp_feed_failing_notification": {
+        "queue": QUEUE_NOTIFICATIONS
+    },
+    "app.tasks.feed_tasks.dispatch_smtp_webhook_failed_notification": {
+        "queue": QUEUE_NOTIFICATIONS
+    },
+    "app.tasks.feed_tasks.dispatch_pending_notification_webhook_deliveries": {
+        "queue": QUEUE_NOTIFICATIONS
+    },
+    "app.tasks.feed_tasks.process_notification_webhook_deliveries": {
+        "queue": QUEUE_NOTIFICATIONS
+    },
     "app.tasks.feed_tasks.route_integration_event": {"queue": QUEUE_NOTIFICATIONS},
-    "app.tasks.feed_tasks.dispatch_pending_integration_events": {"queue": QUEUE_MAINTENANCE},
-    "app.tasks.feed_tasks.process_integration_deliveries": {"queue": QUEUE_NOTIFICATIONS},
-    "app.tasks.feed_tasks.dispatch_pending_integration_deliveries": {"queue": QUEUE_MAINTENANCE},
-    "app.tasks.feed_tasks.maintain_integration_delivery_history": {"queue": QUEUE_MAINTENANCE},
+    "app.tasks.feed_tasks.dispatch_pending_integration_events": {
+        "queue": QUEUE_MAINTENANCE
+    },
+    "app.tasks.feed_tasks.process_integration_deliveries": {
+        "queue": QUEUE_NOTIFICATIONS
+    },
+    "app.tasks.feed_tasks.dispatch_pending_integration_deliveries": {
+        "queue": QUEUE_MAINTENANCE
+    },
+    "app.tasks.feed_tasks.maintain_integration_delivery_history": {
+        "queue": QUEUE_MAINTENANCE
+    },
     "app.tasks.feed_tasks.dispatch_items_missing_ai_enrichment": {"queue": QUEUE_AI},
     "app.tasks.feed_tasks.generate_item_ai_enrichment": {"queue": QUEUE_AI},
     "app.tasks.feed_tasks.dispatch_daily_ai_brief_generation": {"queue": QUEUE_AI},
@@ -146,14 +185,25 @@ TASK_ROUTES = {
     "app.tasks.feed_tasks.dispatch_pending_report_tasks": {"queue": QUEUE_MAINTENANCE},
     "app.tasks.feed_tasks.reconcile_ai_task_runs": {"queue": QUEUE_MAINTENANCE},
     "app.tasks.feed_tasks.record_beat_heartbeat": {"queue": QUEUE_MAINTENANCE},
-    "app.tasks.history_maintenance_tasks.maintain_application_history": {"queue": QUEUE_MAINTENANCE},
+    "app.tasks.history_maintenance_tasks.maintain_application_history": {
+        "queue": QUEUE_MAINTENANCE
+    },
+    "app.tasks.alert_tasks.process_alert_evaluation": {"queue": QUEUE_PROCESSING},
+    "app.tasks.alert_tasks.dispatch_pending_alert_evaluations": {
+        "queue": QUEUE_MAINTENANCE
+    },
+    "app.tasks.alert_tasks.maintain_alert_history": {"queue": QUEUE_MAINTENANCE},
 }
 
 celery_app = Celery(
     "threatlens",
     broker=settings.redis_url,
     backend=settings.redis_url,
-    include=["app.tasks.feed_tasks", "app.tasks.history_maintenance_tasks"],
+    include=[
+        "app.tasks.feed_tasks",
+        "app.tasks.history_maintenance_tasks",
+        "app.tasks.alert_tasks",
+    ],
 )
 
 celery_app.conf.update(
@@ -229,6 +279,14 @@ celery_app.conf.update(
         "maintain-application-history": {
             "task": "app.tasks.history_maintenance_tasks.maintain_application_history",
             "schedule": 3600.0,
+        },
+        "dispatch-pending-alert-evaluations": {
+            "task": "app.tasks.alert_tasks.dispatch_pending_alert_evaluations",
+            "schedule": 30.0,
+        },
+        "maintain-alert-history": {
+            "task": "app.tasks.alert_tasks.maintain_alert_history",
+            "schedule": 900.0,
         },
         "dispatch-daily-ai-brief-generation": {
             "task": "app.tasks.feed_tasks.dispatch_daily_ai_brief_generation",
