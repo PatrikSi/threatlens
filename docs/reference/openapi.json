@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "1.7.0",
-    "x-threatlens-contract-sha256": "1d16294d319fbe3c1ab479d5dc8b16a00751897422df10ee5ab4dc234bda504c"
+    "x-threatlens-contract-sha256": "2ebae071cae2c5291bc0caf02696c75153e8fea978f008b7043103c4dda6f353"
   },
   "servers": [
     {
@@ -774,7 +774,7 @@
             }
           },
           "403": {
-            "description": "Requires a recent opaque admin browser session. Stable codes include `browser_session_required`, `local_reauthentication_required`, and `oidc_reauthentication_required`; OIDC sessions also require `oidc_mfa_assurance_required`."
+            "description": "Requires an administrator API token with `write:users`, or a recent opaque administrator browser session. Browser-session codes include `local_reauthentication_required` and `oidc_reauthentication_required`; OIDC sessions also require `oidc_mfa_assurance_required`."
           },
           "409": {
             "description": "Provider identity conflict or `oidc_provider_revision_conflict`; revision conflicts include the current revision in the response body and `X-Current-Version`. Disabling OIDC without a viable local administrator returns `oidc_break_glass_admin_required`."
@@ -792,8 +792,14 @@
         },
         "security": [
           {
+            "ApiTokenBearer": []
+          },
+          {
             "SessionCookieAuth": []
           }
+        ],
+        "x-threatlens-required-token-scopes": [
+          "write:users"
         ]
       }
     },
@@ -16024,6 +16030,10 @@
             "type": "integer",
             "title": "Total"
           },
+          "unscoped_total": {
+            "type": "integer",
+            "title": "Unscoped Total"
+          },
           "page": {
             "type": "integer",
             "title": "Page"
@@ -16037,6 +16047,7 @@
         "required": [
           "tokens",
           "total",
+          "unscoped_total",
           "page",
           "page_size"
         ],
@@ -28981,7 +28992,7 @@
               }
             ],
             "title": "Expected Security Version",
-            "description": "Required when changing role, active, or approval state. Password-only legacy requests may omit it; when supplied, it is always enforced. Use security_version from the latest user-directory response."
+            "description": "Optional optimistic-concurrency precondition. Legacy requests may omit it; when supplied, it must match security_version from the latest user-directory response and is enforced for every update."
           },
           "email": {
             "anyOf": [

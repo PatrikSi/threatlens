@@ -5,7 +5,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ## Published Contract
 
 - Schema version: `1.7.0`
-- OpenAPI contract anchor: `openapi-sha256:1d16294d319fbe3c1ab479d5dc8b16a00751897422df10ee5ab4dc234bda504c`
+- OpenAPI contract anchor: `openapi-sha256:2ebae071cae2c5291bc0caf02696c75153e8fea978f008b7043103c4dda6f353`
 - API service base path: `/v1`
 - Web proxy base path: `/api/v1`
 - Bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`.
@@ -399,7 +399,8 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Responses: `200` `application/json` -> OIDCProviderResponse
 ### `PUT /v1/auth/oidc/provider`
 - Summary: Update Oidc Provider
-- Auth: SessionCookieAuth
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:users`
 - Request body: `application/json` -> OIDCProviderUpdateRequest
 - Responses: `200` `application/json` -> OIDCProviderResponse, `403`, `409`, `422` `application/json` -> HTTPValidationError
 ### `POST /v1/auth/oidc/provider/test`

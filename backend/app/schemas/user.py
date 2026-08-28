@@ -30,9 +30,9 @@ class UserUpdateRequest(BaseModel):
         default=None,
         ge=0,
         description=(
-            "Required when changing role, active, or approval state. Password-only "
-            "legacy requests may omit it; when supplied, it is always enforced. Use "
-            "security_version from the latest user-directory response."
+            "Optional optimistic-concurrency precondition. Legacy requests may omit it; "
+            "when supplied, it must match security_version from the latest user-directory "
+            "response and is enforced for every update."
         ),
     )
     email: EmailStr | None = None
