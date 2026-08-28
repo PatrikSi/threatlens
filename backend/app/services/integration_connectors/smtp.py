@@ -22,6 +22,7 @@ from app.services.integration_connectors.base import (
 )
 from app.services.integration_processors import process_smtp_integration_delivery
 from app.services.integration_registry_constants import SMTP_CONFIG_SCHEMA_VERSION
+from app.services.smtp_delivery_eligibility import SMTP_SOURCE_OWNER_IDS_KEY
 from app.services.integration_storage import sync_smtp_subscriptions
 
 settings = get_settings()
@@ -179,6 +180,16 @@ class SMTPIntegrationConnector:
             )
             if delivery_payload is None:
                 continue
+            if event.event_type == "alert_match":
+                source_owner_ids = (
+                    frozenset({payload_owner_id})
+                    if payload_owner_id is not None
+                    else eligible_owner_ids
+                )
+                if source_owner_ids:
+                    delivery_payload[SMTP_SOURCE_OWNER_IDS_KEY] = [
+                        str(owner_id) for owner_id in sorted(source_owner_ids, key=str)
+                    ]
             existing = db.scalar(
                 select(IntegrationDelivery).where(
                     IntegrationDelivery.event_id == event.id,
