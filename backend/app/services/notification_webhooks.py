@@ -984,6 +984,7 @@ def process_notification_webhook_delivery(
         )
     except (
         notification_webhook_http.RedirectError,
+        notification_webhook_http.WebhookAmbiguousResponseError,
         WebhookDeliveryIneligibleError,
     ) as exc:
         return finalize_claimed_notification_webhook_for_policy_error(

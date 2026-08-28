@@ -72,6 +72,21 @@ class RenderedNotificationRequestLike(Protocol):
     raw_body: bytes | None
 
 
+class WebhookAmbiguousResponseError(RuntimeError):
+    code = "ambiguous_webhook_response"
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        duration_ms: int = 0,
+    ) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.duration_ms = duration_ms
+
+
 @contextmanager
 def notification_delivery_lease_heartbeat(
     callback: Callable[[int], None] | None,
@@ -204,6 +219,13 @@ def send_rendered_notification_request(
         if _delivery_external_io_started.get() is True:
             raise
         return _failed_request_result(rendered, started_at=started_at, error=exc)
+    except httpx.RemoteProtocolError as exc:
+        if _delivery_external_io_started.get() is True:
+            raise WebhookAmbiguousResponseError(
+                f"Webhook response was invalid after the request began: {exc}",
+                duration_ms=int((time.perf_counter() - started_at) * 1000),
+            ) from exc
+        return _failed_request_result(rendered, started_at=started_at, error=exc)
     except (SafeFetchError, httpx.HTTPError, ValueError) as exc:
         if _delivery_redirect_chain_started.get() is True:
             raise RedirectError(
@@ -212,6 +234,13 @@ def send_rendered_notification_request(
         return _failed_request_result(rendered, started_at=started_at, error=exc)
 
     duration_ms = int((time.perf_counter() - started_at) * 1000)
+    if not 200 <= status_code < 400 and _delivery_redirect_chain_started.get() is True:
+        raise WebhookAmbiguousResponseError(
+            f"Redirect chain ended with HTTP {status_code}; the original request "
+            "will not be retried automatically.",
+            status_code=status_code,
+            duration_ms=duration_ms,
+        )
     return NotificationWebhookTestResponse(
         success=200 <= status_code < 400,
         status_code=status_code,
