@@ -9,7 +9,6 @@ from app.models.integration import IntegrationDelivery
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 
 _GENERIC_TERMINAL_STATES = frozenset({"succeeded", "failed", "dead_letter"})
-_LEGACY_TERMINAL_STATES = frozenset({"succeeded", "failed"})
 
 
 def reconcile_linked_terminal_webhook_projection(
@@ -45,10 +44,7 @@ def sync_terminal_webhook_projection(
     legacy_delivery: NotificationWebhookDelivery,
     current_time: datetime,
 ) -> bool:
-    if (
-        generic.state not in _GENERIC_TERMINAL_STATES
-        or legacy_delivery.delivery_state in _LEGACY_TERMINAL_STATES
-    ):
+    if generic.state not in _GENERIC_TERMINAL_STATES:
         return False
 
     succeeded = generic.state == "succeeded"
