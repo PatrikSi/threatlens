@@ -177,6 +177,8 @@ def test_terminal_generic_webhook_projection_is_recoverable_after_commit_gap(
     generic.attempt_count = 1
     generic.max_attempts = 1
     generic.not_before = now - timedelta(seconds=1)
+    generic.last_status_code = 503
+    generic.last_duration_ms = 27
     db_session.add(generic)
     db_session.commit()
 
@@ -196,6 +198,12 @@ def test_terminal_generic_webhook_projection_is_recoverable_after_commit_gap(
         now=now,
     )
 
+    instance = db_session.get(IntegrationInstance, generic.integration_id)
+    assert instance is not None
+    instance.schema_version = 2
+    db_session.add(instance)
+    db_session.commit()
+
     claimed = claim_webhook_delivery(
         db_session,
         webhook=webhook,
@@ -206,7 +214,10 @@ def test_terminal_generic_webhook_projection_is_recoverable_after_commit_gap(
     assert claimed is None
     assert legacy.delivery_state == "failed"
     assert legacy.attempt_count == 1
+    assert legacy.status_code == 503
+    assert legacy.duration_ms == 27
     assert legacy.error == "Delivery exhausted its configured attempts."
+    assert legacy.attempted_at == generic.dead_lettered_at
 
 
 def test_webhook_preflight_failure_preserves_prior_external_io_marker(db_session):
