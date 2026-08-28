@@ -432,6 +432,7 @@ def test_user_email_update_rotates_credentials_and_fences_stale_version(
     seed_users,
 ):
     viewer = seed_users["viewer"]
+    viewer_email_before = viewer.email
     original_version = int(viewer.auth_token_version or 0)
     browser_session = create_auth_session(
         db_session,
@@ -488,6 +489,11 @@ def test_user_email_update_rotates_credentials_and_fences_stale_version(
     )
     assert update_audit is not None
     assert update_audit.metadata_json["email_updated"] is True
+    assert update_audit.metadata_json["email_before_update"] == viewer_email_before
+    assert (
+        update_audit.metadata_json["email_after_update"]
+        == "renamed-viewer@example.com"
+    )
 
     stale = client.patch(
         f"/users/{viewer.id}",

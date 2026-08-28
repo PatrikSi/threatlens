@@ -44,6 +44,24 @@ def upgrade() -> None:
     op.create_index(
         "ix_api_tokens_parent_token_id", "api_tokens", ["parent_token_id"]
     )
+    # Token delegation predated the ancestry column, but every supported creator
+    # records the parent in the same transaction's immutable audit entry.
+    op.execute(
+        sa.text(
+            """
+            UPDATE api_tokens AS child
+            SET parent_token_id = parent.id
+            FROM audit_logs AS audit, api_tokens AS parent
+            WHERE child.parent_token_id IS NULL
+              AND audit.action = 'tokens.create'
+              AND audit.resource_type = 'api_token'
+              AND audit.success IS TRUE
+              AND audit.resource_id = CAST(child.id AS TEXT)
+              AND audit.metadata_json ->> 'delegated_via_api_token' = 'true'
+              AND audit.metadata_json ->> 'parent_token_id' = CAST(parent.id AS TEXT)
+            """
+        )
+    )
 
     op.create_table(
         "auth_sessions",
@@ -240,11 +258,24 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     bind = op.get_bind()
-    bind.execute(
-        sa.text(
-            "LOCK TABLE user_totp_credentials, api_tokens, oidc_providers IN SHARE MODE"
+    bind.execute(sa.text("SET LOCAL lock_timeout = '10s'"))
+    try:
+        bind.execute(
+            sa.text(
+                """
+                LOCK TABLE users, oidc_providers, api_tokens, auth_sessions,
+                    user_totp_credentials, user_recovery_codes,
+                    mfa_login_challenges
+                IN ACCESS EXCLUSIVE MODE
+                """
+            )
         )
-    )
+    except sa.exc.DBAPIError as exc:
+        raise RuntimeError(
+            "Cannot acquire exclusive IAM downgrade locks within 10 seconds. Stop "
+            "all ThreatLens API and worker processes, close database transactions, "
+            "and retry the downgrade."
+        ) from exc
     active_mfa_count = bind.scalar(
         sa.text("SELECT count(*) FROM user_totp_credentials WHERE status = 'active'")
     )
@@ -270,15 +301,15 @@ def downgrade() -> None:
             "Revoke or allow every delegated token to expire and complete a verified "
             "backup before retrying the downgrade."
         )
-    advanced_oidc_revision_count = bind.scalar(
-        sa.text("SELECT count(*) FROM oidc_providers WHERE config_revision > 1")
+    configured_oidc_provider_count = bind.scalar(
+        sa.text("SELECT count(*) FROM oidc_providers")
     )
-    if int(advanced_oidc_revision_count or 0) > 0:
+    if int(configured_oidc_provider_count or 0) > 0:
         raise RuntimeError(
-            "Cannot downgrade IAM hardening after the OIDC provider configuration "
-            "revision has advanced. Removing the revision would permit stale provider "
-            "writes after a future re-upgrade; use a verified database backup and restore "
-            "procedure instead."
+            "Cannot downgrade IAM hardening while an OIDC provider is configured. "
+            "Removing its monotonic revision would permit stale provider writes after "
+            "a future re-upgrade; use a verified database backup and restore procedure "
+            "instead."
         )
     for name in (
         "ix_mfa_login_challenges_user_created",
@@ -320,3 +351,4 @@ def downgrade() -> None:
         type_="check",
     )
     op.drop_column("oidc_providers", "config_revision")
+    bind.execute(sa.text("SET LOCAL lock_timeout = '0'"))
