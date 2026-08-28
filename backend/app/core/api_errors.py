@@ -39,20 +39,43 @@ _ERROR_CODE_BY_STATUS = {
 }
 
 
+class ApiHTTPException(StarletteHTTPException):
+    """HTTP error with a stable machine-readable code and legacy-safe detail."""
+
+    def __init__(
+        self,
+        *,
+        status_code: int,
+        detail: Any,
+        error_code: str,
+        error_context: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        super().__init__(status_code=status_code, detail=detail, headers=headers)
+        self.error_code = error_code
+        self.error_context = error_context
+
+
 def install_api_error_handlers(application: FastAPI) -> None:
     application.add_exception_handler(StarletteHTTPException, http_exception_handler)
-    application.add_exception_handler(RequestValidationError, validation_exception_handler)
+    application.add_exception_handler(
+        RequestValidationError, validation_exception_handler
+    )
     application.add_exception_handler(Exception, unexpected_exception_handler)
 
 
-async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+async def http_exception_handler(
+    request: Request, exc: StarletteHTTPException
+) -> JSONResponse:
     request_id = request_id_for(request)
     status_code = int(exc.status_code)
     detail = exc.detail
     message = _detail_message(detail, status_code)
+    error_code = getattr(exc, "error_code", None) or error_code_for_status(status_code)
+    error_context = getattr(exc, "error_context", None)
     logger.debug(
         "request_rejected error_code=%s detail=%s",
-        error_code_for_status(status_code),
+        error_code,
         message,
         extra=_error_log_fields(request, request_id=request_id, status=status_code),
     )
@@ -61,11 +84,15 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException) 
         detail=detail,
         message=message,
         request_id=request_id,
+        code=error_code,
+        error_context=error_context,
         headers=exc.headers,
     )
 
 
-async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+async def validation_exception_handler(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
     request_id = request_id_for(request)
     issues = [_public_validation_issue(issue) for issue in exc.errors()]
     message = _validation_message(issues)
@@ -84,7 +111,9 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     )
 
 
-async def unexpected_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+async def unexpected_exception_handler(
+    request: Request, exc: Exception
+) -> JSONResponse:
     request_id = request_id_for(request)
     logger.error(
         "unhandled_request_exception error_type=%s",
@@ -108,28 +137,34 @@ def error_response(
     message: str,
     request_id: str,
     code: str | None = None,
+    error_context: dict[str, Any] | None = None,
     headers: dict[str, str] | None = None,
 ) -> JSONResponse:
     response_headers = dict(headers or {})
     response_headers["X-Request-ID"] = request_id
+    error_payload: dict[str, Any] = {
+        "code": code or error_code_for_status(status_code),
+        "message": message,
+        "request_id": request_id,
+        "status": status_code,
+        "retryable": status_code in _RETRYABLE_STATUS_CODES,
+    }
+    if error_context is not None:
+        error_payload["context"] = error_context
     return JSONResponse(
         status_code=status_code,
         headers=response_headers,
         content={
             "detail": detail,
-            "error": {
-                "code": code or error_code_for_status(status_code),
-                "message": message,
-                "request_id": request_id,
-                "status": status_code,
-                "retryable": status_code in _RETRYABLE_STATUS_CODES,
-            },
+            "error": error_payload,
         },
     )
 
 
 def request_id_for(request: Request) -> str:
-    request_id = getattr(request.state, "request_id", None) or get_log_context().get("request_id")
+    request_id = getattr(request.state, "request_id", None) or get_log_context().get(
+        "request_id"
+    )
     return str(request_id or uuid.uuid4())
 
 
@@ -151,26 +186,30 @@ def _detail_message(detail: Any, status_code: int) -> str:
 
 
 def _public_validation_issue(issue: dict[str, Any]) -> dict[str, Any]:
-    return {
-        key: issue[key]
-        for key in ("type", "loc", "msg")
-        if key in issue
-    }
+    return {key: issue[key] for key in ("type", "loc", "msg") if key in issue}
 
 
 def _validation_message(issues: list[dict[str, Any]]) -> str:
     summaries: list[str] = []
     for issue in issues[:5]:
-        location = ".".join(str(part) for part in issue.get("loc", []) if part != "body")
+        location = ".".join(
+            str(part) for part in issue.get("loc", []) if part != "body"
+        )
         message = str(issue.get("msg", "Invalid value")).strip()
         summaries.append(f"{location}: {message}" if location else message)
     if not summaries:
         return "Request validation failed."
-    suffix = f"; plus {len(issues) - len(summaries)} more issue(s)" if len(issues) > len(summaries) else ""
+    suffix = (
+        f"; plus {len(issues) - len(summaries)} more issue(s)"
+        if len(issues) > len(summaries)
+        else ""
+    )
     return f"Request validation failed: {'; '.join(summaries)}{suffix}"
 
 
-def _error_log_fields(request: Request, *, request_id: str, status: int) -> dict[str, object]:
+def _error_log_fields(
+    request: Request, *, request_id: str, status: int
+) -> dict[str, object]:
     route = request.scope.get("route")
     return {
         "request_id": request_id,
@@ -182,6 +221,7 @@ def _error_log_fields(request: Request, *, request_id: str, status: int) -> dict
 
 
 __all__ = [
+    "ApiHTTPException",
     "error_code_for_status",
     "error_response",
     "install_api_error_handlers",

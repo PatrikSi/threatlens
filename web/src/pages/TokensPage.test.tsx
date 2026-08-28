@@ -29,6 +29,7 @@ const tokensPageMocks = vi.hoisted(() => ({
     isLoading: false,
     isError: false,
     error: null,
+    refetch: vi.fn(),
   },
   queryClient: {
     invalidateQueries: vi.fn(),
@@ -84,6 +85,8 @@ vi.mock('react-router-dom', () => ({
     proceed: vi.fn(),
     reset: vi.fn(),
   }),
+  useLocation: () => ({ pathname: '/settings/tokens', search: '', state: null }),
+  useNavigate: () => vi.fn(),
 }))
 
 import { TokensPage } from './TokensPage'
@@ -100,7 +103,9 @@ describe('reduceTokenCreateFormState', () => {
       },
     }
 
-    expect(reduceTokenCreateFormState(startingState, { type: 'createStarted' })).toMatchObject({
+    expect(
+      reduceTokenCreateFormState(startingState, { type: 'createStarted' }),
+    ).toMatchObject({
       name: 'Threat bot',
       createdToken: null,
     })
@@ -110,6 +115,7 @@ describe('reduceTokenCreateFormState', () => {
     const startingState = {
       ...createInitialTokenCreateFormState(),
       currentPassword: 'correct horse battery staple',
+      code: '123456',
       createdToken: {
         token: 'secret-old',
         token_prefix: 'tl_old',
@@ -117,7 +123,9 @@ describe('reduceTokenCreateFormState', () => {
       },
     }
 
-    expect(reduceTokenCreateFormState(startingState, { type: 'createFailed' })).toMatchObject({
+    expect(
+      reduceTokenCreateFormState(startingState, { type: 'createFailed' }),
+    ).toMatchObject({
       currentPassword: 'correct horse battery staple',
       createdToken: null,
     })
@@ -146,11 +154,29 @@ describe('reduceTokenCreateFormState', () => {
       expiresInDays: DEFAULT_TOKEN_EXPIRY_DAYS,
       scopesText: '',
       currentPassword: '',
+      code: '',
       createdToken: {
         token: 'secret-new',
         token_prefix: 'tl_new',
         expires_at: '2026-07-20T10:00:00Z',
       },
+    })
+  })
+
+  it('clears an MFA code without discarding the retryable token draft', () => {
+    const startingState = {
+      ...createInitialTokenCreateFormState(),
+      name: 'Threat bot',
+      currentPassword: 'exact password ',
+      code: 'recovery-code',
+    }
+
+    expect(
+      reduceTokenCreateFormState(startingState, { type: 'clearCode' }),
+    ).toMatchObject({
+      name: 'Threat bot',
+      currentPassword: 'exact password ',
+      code: '',
     })
   })
 })
@@ -162,7 +188,9 @@ describe('TokensPage rendered workflow', () => {
     expect(markup).toContain('Create API Token')
     expect(markup).toContain('Current Password')
     expect(markup).toContain('Filter by User ID')
-    expect(markup).toContain('Browser sessions must confirm the current account password')
+    expect(markup).toContain(
+      'Browser sessions must confirm the current account password',
+    )
     expect(markup).toContain('Scoped API routes now reject unscoped tokens')
     expect(markup).toContain('User ID')
     expect(markup).toContain('viewer-2')

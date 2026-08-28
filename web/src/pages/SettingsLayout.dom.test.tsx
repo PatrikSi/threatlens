@@ -7,6 +7,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
+const settingsLayoutMocks = vi.hoisted(() => ({
+  currentUserError: false,
+}))
+
 vi.mock('../hooks/useCurrentUser', () => ({
   useCurrentUser: () => ({
     data: {
@@ -26,7 +30,7 @@ vi.mock('../hooks/useCurrentUser', () => ({
       },
     },
     isLoading: false,
-    isError: false,
+    isError: settingsLayoutMocks.currentUserError,
     error: null,
   }),
 }))
@@ -66,6 +70,7 @@ afterEach(() => {
   container?.remove()
   container = null
   document.body.innerHTML = ''
+  settingsLayoutMocks.currentUserError = false
 })
 
 describe('SettingsLayout navigation', () => {
@@ -119,5 +124,19 @@ describe('SettingsLayout navigation', () => {
     expect(document.body.textContent ?? '').toContain('Webhooks')
     expect(document.body.textContent ?? '').toContain('SMTP')
     expect(document.body.textContent ?? '').toContain('SMTP body')
+  })
+
+  it('fails closed and labels the role unavailable when identity refresh fails', () => {
+    settingsLayoutMocks.currentUserError = true
+    const view = renderLayout('/settings/account')
+
+    expect(view.textContent).toContain('Current role')
+    expect(view.textContent).toContain('unavailable')
+    expect(view.textContent).not.toContain('Tagging')
+    expect(view.textContent).not.toContain('Identity')
+    expect(view.textContent).not.toContain('Users')
+    expect(view.textContent).not.toContain('Audit Logs')
+    expect(view.textContent).not.toContain('Operations')
+    expect(view.textContent).not.toContain('SMTP')
   })
 })

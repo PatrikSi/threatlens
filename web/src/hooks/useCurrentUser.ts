@@ -12,6 +12,10 @@ export function useCurrentUser() {
     queryKey: ['auth', 'me', sessionVersion],
     queryFn: () => apiFetch<CurrentUser>('/auth/me'),
     staleTime: 60_000,
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
     retry: (failureCount, error) => {
       if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
         return false

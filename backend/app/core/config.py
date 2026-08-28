@@ -1,4 +1,5 @@
 import hashlib
+import re
 import secrets
 from functools import lru_cache
 from typing import Annotated
@@ -7,9 +8,17 @@ from urllib.parse import quote, urlsplit, urlunsplit
 from pydantic import PrivateAttr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
-_PLACEHOLDER_SECRET_PREFIXES = ("replace-with", "change-me", "changeme", "placeholder", "example-", "your-")
+_PLACEHOLDER_SECRET_PREFIXES = (
+    "replace-with",
+    "change-me",
+    "changeme",
+    "placeholder",
+    "example-",
+    "your-",
+)
 _DEFAULT_DATABASE_URL = "postgresql+psycopg://postgres:postgres@db:5432/threatlens"
 _DEFAULT_REDIS_URL = "redis://redis:6379/0"
+_COOKIE_NAME_RE = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$")
 
 
 def _looks_like_placeholder_secret(value: str | None) -> bool:
@@ -29,7 +38,11 @@ def _looks_like_default_service_password(value: str | None) -> bool:
     normalized = value.strip().lower()
     if not normalized:
         return True
-    return normalized in {"postgres", "redis", "password"} or _looks_like_placeholder_secret(normalized)
+    return normalized in {
+        "postgres",
+        "redis",
+        "password",
+    } or _looks_like_placeholder_secret(normalized)
 
 
 def _url_password(value: str | None) -> str | None:
@@ -51,7 +64,9 @@ def _database_url_uses_weak_default(value: str | None) -> bool:
         parts = urlsplit(normalized)
     except ValueError:
         return True
-    return (parts.username or "").lower() == "postgres" and (parts.password or "") == "postgres"
+    return (parts.username or "").lower() == "postgres" and (
+        parts.password or ""
+    ) == "postgres"
 
 
 def _redis_url_is_passwordless_or_default(value: str | None) -> bool:
@@ -81,12 +96,18 @@ def _redis_url_with_password(value: str | None, password: str | None) -> str | N
         return value
 
     hostname = parts.hostname
-    host = f"[{hostname}]" if ":" in hostname and not hostname.startswith("[") else hostname
+    host = (
+        f"[{hostname}]"
+        if ":" in hostname and not hostname.startswith("[")
+        else hostname
+    )
     if port is not None:
         host = f"{host}:{port}"
     username = f"{quote(parts.username, safe='')}:" if parts.username else ":"
     credentials = f"{username}{quote(password.strip(), safe='')}@"
-    return urlunsplit((parts.scheme, f"{credentials}{host}", parts.path, parts.query, parts.fragment))
+    return urlunsplit(
+        (parts.scheme, f"{credentials}{host}", parts.path, parts.query, parts.fragment)
+    )
 
 
 def _is_unsafe_credentialed_cors_origin(value: str) -> bool:
@@ -115,7 +136,9 @@ def _generate_runtime_secret() -> str:
     return secrets.token_urlsafe(48)
 
 
-def _derive_development_secret(*, purpose: str, app_env: str, database_url: str, redis_url: str, admin_email: str) -> str:
+def _derive_development_secret(
+    *, purpose: str, app_env: str, database_url: str, redis_url: str, admin_email: str
+) -> str:
     seed = "\x1f".join(
         [
             "threatlens-development-secret",
@@ -131,7 +154,9 @@ def _derive_development_secret(*, purpose: str, app_env: str, database_url: str,
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8", extra="ignore"
+    )
 
     _jwt_secret_was_derived: bool = PrivateAttr(default=False)
     _app_data_encryption_key_was_derived: bool = PrivateAttr(default=False)
@@ -164,9 +189,28 @@ class Settings(BaseSettings):
     auth_csrf_cookie_name: str = "threatlens_csrf"
     auth_csrf_header_name: str = "x-csrf-token"
     auth_require_csrf: bool = True
+    auth_session_absolute_ttl_seconds: int = 86_400
+    auth_session_idle_ttl_seconds: int = 43_200
+    auth_session_activity_update_seconds: int = 300
+    auth_session_retention_days: int = 30
+    auth_max_active_sessions_per_user: int = 100
+    auth_mfa_challenge_cookie_name: str = "threatlens_mfa_challenge"
+    auth_mfa_challenge_ttl_seconds: int = 300
+    auth_mfa_challenge_max_attempts: int = 6
+    auth_mfa_pending_enrollment_ttl_seconds: int = 900
+    auth_totp_issuer: str = "ThreatLens"
+    auth_recent_auth_seconds: int = 600
+    auth_oidc_admin_mfa_acr_values: Annotated[list[str], NoDecode] = []
+    auth_oidc_admin_mfa_amr_values: Annotated[list[str], NoDecode] = ["mfa"]
     trusted_proxy_cidrs: Annotated[list[str], NoDecode] = []
     trusted_proxy_hosts: Annotated[list[str], NoDecode] = []
-    allowed_hosts: Annotated[list[str], NoDecode] = ["api", "localhost", "127.0.0.1", "::1", "testserver"]
+    allowed_hosts: Annotated[list[str], NoDecode] = [
+        "api",
+        "localhost",
+        "127.0.0.1",
+        "::1",
+        "testserver",
+    ]
 
     admin_email: str = "admin@example.com"
     admin_password: str = "admin123"
@@ -293,7 +337,10 @@ class Settings(BaseSettings):
     ai_usage_retention_days: int = 730
     tag_feedback_retention_days: int = 730
     integration_run_retention_days: int = 180
-    cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:3000", "http://127.0.0.1:3000"]
+    cors_origins: Annotated[list[str], NoDecode] = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ]
 
     @field_validator(
         "cors_origins",
@@ -301,6 +348,8 @@ class Settings(BaseSettings):
         "trusted_proxy_hosts",
         "allowed_hosts",
         "app_data_encryption_previous_keys",
+        "auth_oidc_admin_mfa_acr_values",
+        "auth_oidc_admin_mfa_amr_values",
         "log_level_overrides",
         mode="before",
     )
@@ -309,6 +358,23 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return [entry.strip() for entry in value.split(",") if entry.strip()]
         return value
+
+    @field_validator(
+        "auth_oidc_admin_mfa_acr_values",
+        "auth_oidc_admin_mfa_amr_values",
+    )
+    @classmethod
+    def _normalize_oidc_assurance_values(
+        cls, value: list[str], info
+    ) -> list[str]:
+        normalized: list[str] = []
+        for raw_value in value:
+            candidate = str(raw_value).strip()
+            if info.field_name == "auth_oidc_admin_mfa_amr_values":
+                candidate = candidate.lower()
+            if candidate and candidate not in normalized:
+                normalized.append(candidate)
+        return normalized
 
     @field_validator("auth_cookie_samesite", mode="before")
     @classmethod
@@ -323,12 +389,33 @@ class Settings(BaseSettings):
     def _normalize_header_name(cls, value):
         return str(value).strip().lower()
 
+    @field_validator(
+        "auth_cookie_name",
+        "auth_csrf_cookie_name",
+        "auth_mfa_challenge_cookie_name",
+        "oidc_transaction_cookie_name",
+        mode="before",
+    )
+    @classmethod
+    def _normalize_cookie_name(cls, value):
+        normalized = str(value).strip()
+        if not _COOKIE_NAME_RE.fullmatch(normalized):
+            raise ValueError("cookie names must contain only HTTP token characters")
+        return normalized
+
     @field_validator("oidc_callback_path", mode="before")
     @classmethod
     def _normalize_oidc_callback_path(cls, value):
         normalized = str(value).strip()
-        if not normalized.startswith("/") or normalized.startswith("//") or "?" in normalized or "#" in normalized:
-            raise ValueError("oidc_callback_path must be an absolute URL path without a query or fragment")
+        if (
+            not normalized.startswith("/")
+            or normalized.startswith("//")
+            or "?" in normalized
+            or "#" in normalized
+        ):
+            raise ValueError(
+                "oidc_callback_path must be an absolute URL path without a query or fragment"
+            )
         return normalized
 
     @field_validator("public_app_url", mode="before")
@@ -362,7 +449,9 @@ class Settings(BaseSettings):
     @classmethod
     def _validate_positive_oidc_limits(cls, value: int) -> int:
         if value <= 0:
-            raise ValueError("OIDC transaction, cache, and response limits must be greater than zero")
+            raise ValueError(
+                "OIDC transaction, cache, and response limits must be greater than zero"
+            )
         return value
 
     @field_validator("oidc_connect_timeout_seconds", "oidc_read_timeout_seconds")
@@ -382,6 +471,15 @@ class Settings(BaseSettings):
     @field_validator(
         "auth_login_max_attempts",
         "auth_login_ip_max_attempts",
+        "auth_session_absolute_ttl_seconds",
+        "auth_session_idle_ttl_seconds",
+        "auth_session_activity_update_seconds",
+        "auth_session_retention_days",
+        "auth_max_active_sessions_per_user",
+        "auth_mfa_challenge_ttl_seconds",
+        "auth_mfa_challenge_max_attempts",
+        "auth_mfa_pending_enrollment_ttl_seconds",
+        "auth_recent_auth_seconds",
         "database_connect_timeout_seconds",
         "database_statement_timeout_ms",
         "database_pool_timeout_seconds",
@@ -404,7 +502,9 @@ class Settings(BaseSettings):
     @classmethod
     def _validate_positive_operational_limits(cls, value: int) -> int:
         if value <= 0:
-            raise ValueError("Authentication and database limits must be greater than zero")
+            raise ValueError(
+                "Authentication and database limits must be greater than zero"
+            )
         return value
 
     @field_validator("report_generation_lease_seconds")
@@ -430,7 +530,10 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _validate_report_legacy_worker_grace(self):
-        if self.report_legacy_worker_grace_seconds < self.celery_visibility_timeout_seconds:
+        if (
+            self.report_legacy_worker_grace_seconds
+            < self.celery_visibility_timeout_seconds
+        ):
             raise ValueError(
                 "report_legacy_worker_grace_seconds must be at least "
                 "celery_visibility_timeout_seconds"
@@ -497,7 +600,44 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def _validate_login_ip_threshold(self):
         if self.auth_login_ip_max_attempts < self.auth_login_max_attempts:
-            raise ValueError("auth_login_ip_max_attempts must be at least auth_login_max_attempts")
+            raise ValueError(
+                "auth_login_ip_max_attempts must be at least auth_login_max_attempts"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_auth_session_timing(self):
+        if self.auth_session_absolute_ttl_seconds < 300:
+            raise ValueError("auth_session_absolute_ttl_seconds must be at least 300")
+        if self.auth_session_idle_ttl_seconds < 300:
+            raise ValueError("auth_session_idle_ttl_seconds must be at least 300")
+        if self.auth_session_activity_update_seconds < 30:
+            raise ValueError("auth_session_activity_update_seconds must be at least 30")
+        if self.auth_session_idle_ttl_seconds > self.auth_session_absolute_ttl_seconds:
+            raise ValueError(
+                "auth_session_idle_ttl_seconds must not exceed auth_session_absolute_ttl_seconds"
+            )
+        if (
+            self.auth_session_activity_update_seconds
+            > self.auth_session_idle_ttl_seconds
+        ):
+            raise ValueError(
+                "auth_session_activity_update_seconds must not exceed auth_session_idle_ttl_seconds"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_security_cookie_names(self):
+        names = {
+            self.auth_cookie_name,
+            self.auth_csrf_cookie_name,
+            self.auth_mfa_challenge_cookie_name,
+            self.oidc_transaction_cookie_name,
+        }
+        if len(names) != 4:
+            raise ValueError(
+                "auth, CSRF, MFA challenge, and OIDC transaction cookie names must be distinct"
+            )
         return self
 
     @field_validator("log_level", mode="before")
@@ -505,7 +645,9 @@ class Settings(BaseSettings):
     def _normalize_log_level(cls, value):
         normalized = str(value).strip().upper() or "INFO"
         if normalized not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
-            raise ValueError("log_level must be one of: DEBUG, INFO, WARNING, ERROR, CRITICAL")
+            raise ValueError(
+                "log_level must be one of: DEBUG, INFO, WARNING, ERROR, CRITICAL"
+            )
         return normalized
 
     @field_validator("log_level_overrides")
@@ -516,10 +658,18 @@ class Settings(BaseSettings):
             logger_name, separator, level = value.partition("=")
             logger_name = logger_name.strip()
             level = level.strip().upper()
-            if not separator or not logger_name or any(character.isspace() for character in logger_name):
-                raise ValueError("log_level_overrides entries must use logger.name=LEVEL")
+            if (
+                not separator
+                or not logger_name
+                or any(character.isspace() for character in logger_name)
+            ):
+                raise ValueError(
+                    "log_level_overrides entries must use logger.name=LEVEL"
+                )
             if level not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
-                raise ValueError("log_level_overrides levels must be DEBUG, INFO, WARNING, ERROR, or CRITICAL")
+                raise ValueError(
+                    "log_level_overrides levels must be DEBUG, INFO, WARNING, ERROR, or CRITICAL"
+                )
             normalized.append(f"{logger_name}={level}")
         return normalized
 
@@ -556,7 +706,9 @@ class Settings(BaseSettings):
     @classmethod
     def _validate_positive_beat_timing(cls, value: int) -> int:
         if value <= 0:
-            raise ValueError("Beat heartbeat and watchdog timing values must be greater than zero")
+            raise ValueError(
+                "Beat heartbeat and watchdog timing values must be greater than zero"
+            )
         return value
 
     @field_validator("beat_watchdog_startup_grace_seconds")
@@ -576,8 +728,13 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _validate_beat_timing(self):
-        if self.beat_watchdog_startup_grace_seconds < self.beat_heartbeat_interval_seconds:
-            raise ValueError("beat_watchdog_startup_grace_seconds must cover at least one heartbeat interval")
+        if (
+            self.beat_watchdog_startup_grace_seconds
+            < self.beat_heartbeat_interval_seconds
+        ):
+            raise ValueError(
+                "beat_watchdog_startup_grace_seconds must cover at least one heartbeat interval"
+            )
         return self
 
     @model_validator(mode="after")
@@ -589,9 +746,16 @@ class Settings(BaseSettings):
         if self.redis_password:
             normalized_redis_password = self.redis_password.strip()
             self.redis_password = normalized_redis_password or None
-            self.redis_url = _redis_url_with_password(self.redis_url, self.redis_password) or self.redis_url
+            self.redis_url = (
+                _redis_url_with_password(self.redis_url, self.redis_password)
+                or self.redis_url
+            )
 
-        if not self.jwt_secret or _looks_like_placeholder_secret(self.jwt_secret) or len(self.jwt_secret) < 32:
+        if (
+            not self.jwt_secret
+            or _looks_like_placeholder_secret(self.jwt_secret)
+            or len(self.jwt_secret) < 32
+        ):
             if is_production:
                 raise ValueError("jwt_secret must be explicitly set in production")
             self._jwt_secret_was_derived = True
@@ -620,36 +784,68 @@ class Settings(BaseSettings):
             )
 
         if is_production:
-            if _looks_like_placeholder_secret(self.jwt_secret) or len(self.jwt_secret) < 32:
-                raise ValueError("jwt_secret must be set and at least 32 characters in production")
+            if (
+                _looks_like_placeholder_secret(self.jwt_secret)
+                or len(self.jwt_secret) < 32
+            ):
+                raise ValueError(
+                    "jwt_secret must be set and at least 32 characters in production"
+                )
             if (
                 not self.app_data_encryption_key
                 or _looks_like_placeholder_secret(self.app_data_encryption_key)
                 or len(self.app_data_encryption_key) < 32
             ):
-                raise ValueError("app_data_encryption_key must be set and at least 32 characters in production")
+                raise ValueError(
+                    "app_data_encryption_key must be set and at least 32 characters in production"
+                )
             if _looks_like_placeholder_secret(self.admin_password):
-                raise ValueError("admin_password must not use a default or placeholder value in production")
+                raise ValueError(
+                    "admin_password must not use a default or placeholder value in production"
+                )
             if not self.auth_cookie_secure:
                 raise ValueError("auth_cookie_secure must be true in production")
             if not self.auth_require_csrf:
                 raise ValueError("auth_require_csrf must be true in production")
             if self.allow_legacy_unscoped_tokens:
-                raise ValueError("allow_legacy_unscoped_tokens is not allowed in production")
-            if any(_is_unsafe_credentialed_cors_origin(origin) for origin in self.cors_origins):
-                raise ValueError("cors_origins must be explicit http(s) origins when credentialed CORS is enabled in production")
-            if not self.allowed_hosts or any(_is_unsafe_allowed_host(host) for host in self.allowed_hosts):
-                raise ValueError("allowed_hosts must list explicit trusted hosts in production")
+                raise ValueError(
+                    "allow_legacy_unscoped_tokens is not allowed in production"
+                )
+            if any(
+                _is_unsafe_credentialed_cors_origin(origin)
+                for origin in self.cors_origins
+            ):
+                raise ValueError(
+                    "cors_origins must be explicit http(s) origins when credentialed CORS is enabled in production"
+                )
+            if not self.allowed_hosts or any(
+                _is_unsafe_allowed_host(host) for host in self.allowed_hosts
+            ):
+                raise ValueError(
+                    "allowed_hosts must list explicit trusted hosts in production"
+                )
             if _database_url_uses_weak_default(self.database_url):
-                raise ValueError("database_url must use explicit non-default database credentials in production")
+                raise ValueError(
+                    "database_url must use explicit non-default database credentials in production"
+                )
             if _looks_like_default_service_password(self.postgres_password):
-                raise ValueError("postgres_password must be explicitly set to a non-default value in production")
+                raise ValueError(
+                    "postgres_password must be explicitly set to a non-default value in production"
+                )
             if _redis_url_is_passwordless_or_default(self.redis_url):
-                raise ValueError("redis_url must include a non-default password in production")
+                raise ValueError(
+                    "redis_url must include a non-default password in production"
+                )
             if _looks_like_default_service_password(self.redis_password):
-                raise ValueError("redis_password must be explicitly set to a non-default value in production")
-        if self.seed_admin_on_startup and _looks_like_placeholder_secret(self.admin_password):
-            raise ValueError("admin_password must not use a default or placeholder value when seed_admin_on_startup is enabled")
+                raise ValueError(
+                    "redis_password must be explicitly set to a non-default value in production"
+                )
+        if self.seed_admin_on_startup and _looks_like_placeholder_secret(
+            self.admin_password
+        ):
+            raise ValueError(
+                "admin_password must not use a default or placeholder value when seed_admin_on_startup is enabled"
+            )
         return self
 
     @property

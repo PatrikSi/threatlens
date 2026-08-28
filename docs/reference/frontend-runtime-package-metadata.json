@@ -1,5 +1,28 @@
 [
   {
+    "name": "@noble/hashes",
+    "version": "2.0.1",
+    "license": "MIT",
+    "description": "Audited & minimal 0-dependency JS implementation of SHA, RIPEMD, BLAKE, HMAC, HKDF, PBKDF & Scrypt",
+    "homepage": "https://paulmillr.com/noble/",
+    "repository": "git+https://github.com/paulmillr/noble-hashes.git",
+    "author": "Paul Miller (https://paulmillr.com)",
+    "package_path": "node_modules/@noble/hashes",
+    "license_files": [
+      "LICENSE"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "LICENSE",
+        "source_path": "node_modules/@noble/hashes/LICENSE",
+        "artifact_path": "@noble/hashes/2.0.1/LICENSE",
+        "sha256": "4f221aee6e072336700c408c68ab3b96a3fc09f6aebe6f48f1bd99e5ef13faec"
+      }
+    ]
+  },
+  {
     "name": "@tanstack/query-core",
     "version": "5.97.0",
     "license": "MIT",

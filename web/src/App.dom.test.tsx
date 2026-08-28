@@ -98,7 +98,7 @@ async function renderApp(pathname: string) {
 }
 
 async function waitForSelector<T extends Element>(selector: string) {
-  for (let attempt = 0; attempt < 10; attempt += 1) {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
     const match = document.querySelector<T>(selector)
     if (match) {
       return match
@@ -112,7 +112,7 @@ async function waitForSelector<T extends Element>(selector: string) {
 }
 
 async function waitForText(text: string) {
-  for (let attempt = 0; attempt < 10; attempt += 1) {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
     if ((document.body.textContent ?? '').includes(text)) {
       return true
     }

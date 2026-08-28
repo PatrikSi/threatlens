@@ -60,6 +60,7 @@ pydantic_core==2.46.4
 pydantic-settings==2.10.1
 PyJWT==2.13.0
 pymisp==2.5.34.1
+pyotp==2.9.0
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.2
 python-multipart==0.0.32

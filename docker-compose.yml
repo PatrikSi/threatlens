@@ -45,6 +45,19 @@ x-backend-environment: &backend-environment
   AUTH_LOGIN_IP_MAX_ATTEMPTS: "${AUTH_LOGIN_IP_MAX_ATTEMPTS:-50}"
   AUTH_LOGIN_WINDOW_SECONDS: "${AUTH_LOGIN_WINDOW_SECONDS:-300}"
   AUTH_LOGIN_LOCKOUT_SECONDS: "${AUTH_LOGIN_LOCKOUT_SECONDS:-900}"
+  AUTH_SESSION_ABSOLUTE_TTL_SECONDS: "${AUTH_SESSION_ABSOLUTE_TTL_SECONDS:-86400}"
+  AUTH_SESSION_IDLE_TTL_SECONDS: "${AUTH_SESSION_IDLE_TTL_SECONDS:-43200}"
+  AUTH_SESSION_ACTIVITY_UPDATE_SECONDS: "${AUTH_SESSION_ACTIVITY_UPDATE_SECONDS:-300}"
+  AUTH_SESSION_RETENTION_DAYS: "${AUTH_SESSION_RETENTION_DAYS:-30}"
+  AUTH_MAX_ACTIVE_SESSIONS_PER_USER: "${AUTH_MAX_ACTIVE_SESSIONS_PER_USER:-100}"
+  AUTH_MFA_CHALLENGE_COOKIE_NAME: "${AUTH_MFA_CHALLENGE_COOKIE_NAME:-threatlens_mfa_challenge}"
+  AUTH_MFA_CHALLENGE_TTL_SECONDS: "${AUTH_MFA_CHALLENGE_TTL_SECONDS:-300}"
+  AUTH_MFA_CHALLENGE_MAX_ATTEMPTS: "${AUTH_MFA_CHALLENGE_MAX_ATTEMPTS:-6}"
+  AUTH_MFA_PENDING_ENROLLMENT_TTL_SECONDS: "${AUTH_MFA_PENDING_ENROLLMENT_TTL_SECONDS:-900}"
+  AUTH_TOTP_ISSUER: "${AUTH_TOTP_ISSUER:-ThreatLens}"
+  AUTH_RECENT_AUTH_SECONDS: "${AUTH_RECENT_AUTH_SECONDS:-600}"
+  AUTH_OIDC_ADMIN_MFA_ACR_VALUES: "${AUTH_OIDC_ADMIN_MFA_ACR_VALUES:-}"
+  AUTH_OIDC_ADMIN_MFA_AMR_VALUES: "${AUTH_OIDC_ADMIN_MFA_AMR_VALUES:-mfa}"
   REDIS_CONNECT_TIMEOUT_SECONDS: "${REDIS_CONNECT_TIMEOUT_SECONDS:-2}"
   REDIS_SOCKET_TIMEOUT_SECONDS: "${REDIS_SOCKET_TIMEOUT_SECONDS:-2}"
   DATABASE_CONNECT_TIMEOUT_SECONDS: "${DATABASE_CONNECT_TIMEOUT_SECONDS:-5}"
@@ -296,7 +309,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "python -c \"from app.tasks.celery_app import celery_app; import os, sys; target = f'ai@{os.environ[\\\"HOSTNAME\\\"]}'; result = celery_app.control.inspect(timeout=2).ping([target]) or {}; sys.exit(0 if target in result else 1)\"",
+          "python -c \"from app.tasks.celery_app import celery_app; import os, sys; target = f'ai@{os.environ[\\\"HOSTNAME\\\"]}'; inspector = celery_app.control.inspect(destination=[target], timeout=2); ping = inspector.ping() or {}; queues = inspector.active_queues() or {}; names = {entry.get('name') for entry in queues.get(target, [])}; sys.exit(0 if target in ping and {'ai', 'ai-reports-v2'} <= names else 1)\"",
         ]
       interval: 30s
       timeout: 10s

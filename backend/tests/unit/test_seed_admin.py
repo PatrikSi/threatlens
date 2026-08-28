@@ -101,7 +101,8 @@ def test_seed_admin_can_reset_existing_password(db_session, monkeypatch):
 
     assert verify_password("AdminPass123!", existing.password_hash)
     assert existing.auth_token_version == 1
-    assert db_session.scalar(select(ApiToken).where(ApiToken.user_id == existing.id)) is None
+    db_session.refresh(api_token)
+    assert api_token.revoked_at is not None
 
 
 def test_seed_admin_role_and_reactivation_rotate_credentials_and_audit(db_session, monkeypatch):

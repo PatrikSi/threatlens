@@ -12,6 +12,7 @@ import { useTheme } from './ThemeContext'
 const NAV_LINKS = [
   { to: '/', label: 'Dashboard' },
   { to: '/alerts', label: 'Alerts' },
+  { to: '/investigations', label: 'Investigations' },
   { to: '/feeds', label: 'Feeds' },
   { to: '/stats', label: 'Stats' },
   { to: '/export', label: 'Export' },

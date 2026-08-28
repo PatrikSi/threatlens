@@ -74,6 +74,27 @@ def notification_smtp_exception_result(
     )
 
 
+def notification_timeout_result(
+    *,
+    started_at: float,
+    attempted_at: datetime,
+    delivery_id: uuid.UUID,
+    active: ActiveSMTPSettings,
+    send_started: bool,
+) -> SMTPNotificationResult:
+    return notification_smtp_exception_result(
+        started_at=started_at,
+        attempted_at=attempted_at,
+        delivery_id=delivery_id,
+        active=active,
+        error_code="timeout",
+        error=f"SMTP delivery timed out after {active.timeout_seconds}s.",
+        server_message=None,
+        delivery_outcome="unknown" if send_started else "not_attempted",
+        unknown_recipients=tuple(active.to_emails) if send_started else (),
+    )
+
+
 def notification_failure_result(
     *,
     started_at: float,

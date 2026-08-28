@@ -29,6 +29,9 @@ const FeedsPage = lazy(() => import('./pages/FeedsPage').then((module) => ({ def
 const IntegrationsSettingsPage = lazy(() =>
   import('./pages/IntegrationsSettingsPage').then((module) => ({ default: module.SMTPIntegrationSettingsPage })),
 )
+const InvestigationsPage = lazy(() =>
+  import('./pages/InvestigationsPage').then((module) => ({ default: module.InvestigationsPage })),
+)
 const ReportingPage = lazy(() => import('./pages/ReportingPage').then((module) => ({ default: module.ReportingPage })))
 const IdentitySettingsPage = lazy(() =>
   import('./pages/IdentitySettingsPage').then((module) => ({ default: module.IdentitySettingsPage })),
@@ -36,6 +39,7 @@ const IdentitySettingsPage = lazy(() =>
 const NotificationWebhooksSettingsPage = lazy(() =>
   import('./pages/NotificationsPage').then((module) => ({ default: module.NotificationWebhooksSettings })),
 )
+const OperationsPage = lazy(() => import('./pages/OperationsPage').then((module) => ({ default: module.OperationsPage })))
 const SettingsLayout = lazy(() =>
   import('./pages/SettingsLayout').then((module) => ({ default: module.SettingsLayout })),
 )
@@ -95,6 +99,8 @@ function createAppRouter() {
         >
           <Route index element={suspenseRoute(<DashboardPage />, 'Loading dashboard...')} />
           <Route path="alerts" element={suspenseRoute(<AlertsPage />, 'Loading alerts...')} />
+          <Route path="investigations" element={suspenseRoute(<InvestigationsPage />, 'Loading investigations...')} />
+          <Route path="investigations/:investigationId" element={suspenseRoute(<InvestigationsPage />, 'Loading investigation...')} />
           <Route path="feeds" element={suspenseRoute(<FeedsPage />, 'Loading feeds...')} />
           <Route path="stats" element={suspenseRoute(<StatsPage />, 'Loading statistics...')} />
           <Route path="export" element={suspenseRoute(<ExportPage />, 'Loading export workspace...')} />
@@ -142,6 +148,14 @@ function createAppRouter() {
               }
             />
             <Route path="tokens" element={suspenseRoute(<TokensPage />, 'Loading token inventory...')} />
+            <Route
+              path="operations"
+              element={
+                <RoleRoute roles={['admin']}>
+                  {suspenseRoute(<OperationsPage />, 'Loading operations status...')}
+                </RoleRoute>
+              }
+            />
             <Route
               path="users"
               element={

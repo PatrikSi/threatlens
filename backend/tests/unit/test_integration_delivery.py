@@ -1,6 +1,8 @@
+import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 
+import pytest
 from sqlalchemy import select
 
 from app.models.integration import (
@@ -12,17 +14,35 @@ from app.models.integration import (
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.user import User
+from app.schemas.notification import NotificationWebhookField
+from app.services.integration_compat import WebhookConfigurationCompatibilityError
 from app.services.integration_delivery import (
     claim_integration_delivery,
     claim_webhook_delivery,
-    defer_integration_delivery,
+    defer_unclaimed_integration_delivery,
     ensure_webhook_delivery,
     finalize_integration_delivery,
     finalize_webhook_delivery,
     list_recoverable_integration_delivery_ids,
+    list_recoverable_webhook_delivery_ids,
     replay_dead_letter_delivery,
     renew_integration_delivery_lease,
     reserve_recoverable_integration_deliveries,
+)
+from app.services.notification_delivery_processing import (
+    process_reserved_notification_deliveries,
+)
+from app.services.notification_webhook_history import (
+    claim_notification_webhook_delivery,
+    create_pending_notification_webhook_delivery,
+)
+from app.services.notification_webhook_requests import (
+    RenderedNotificationRequest,
+    rendered_request_from_delivery,
+)
+from app.services.notification_webhook_compatibility import (
+    WebhookExternalIOFenceError,
+    defer_claimed_notification_webhook_for_preflight_error,
 )
 
 
@@ -159,6 +179,126 @@ def test_webhook_claim_reconciles_terminal_delivery_from_legacy_worker(db_sessio
     )
 
 
+def test_terminal_generic_webhook_projection_is_recoverable_after_commit_gap(
+    db_session,
+):
+    webhook, legacy = _persist_legacy_delivery(db_session)
+    generic = ensure_webhook_delivery(
+        db_session, webhook=webhook, legacy_delivery=legacy
+    )
+    now = datetime(2026, 7, 14, 12, 0, tzinfo=timezone.utc)
+    generic.state = "retry_wait"
+    generic.attempt_count = 1
+    generic.max_attempts = 1
+    generic.not_before = now - timedelta(seconds=1)
+    generic.last_status_code = 503
+    generic.last_duration_ms = 27
+    db_session.add(generic)
+    db_session.commit()
+
+    terminal = claim_integration_delivery(
+        db_session,
+        delivery_id=generic.id,
+        now=now,
+    )
+
+    db_session.refresh(legacy)
+    assert terminal.status == "terminal"
+    assert generic.state == "dead_letter"
+    assert legacy.delivery_state == "pending"
+    assert legacy.attempt_count == 0
+    assert legacy.id in list_recoverable_webhook_delivery_ids(
+        db_session,
+        now=now,
+    )
+
+    instance = db_session.get(IntegrationInstance, generic.integration_id)
+    assert instance is not None
+    instance.schema_version = 2
+    db_session.add(instance)
+    db_session.commit()
+
+    def _old_worker(*_args, **_kwargs):
+        raise WebhookConfigurationCompatibilityError(
+            "Older worker cannot read connector schema version 2"
+        )
+
+    old_worker_result = process_reserved_notification_deliveries(
+        db_session,
+        [legacy.id],
+        process_delivery=_old_worker,
+        reserve_retryable_delivery=lambda *_args, **_kwargs: None,
+        reserve_failed_delivery_notifications=None,
+        logger=logging.getLogger(__name__),
+    )
+    db_session.refresh(legacy)
+    assert old_worker_result.failed == 1
+    assert legacy.delivery_state == "failed"
+    assert legacy.attempt_count == 0
+    assert "Older worker cannot read connector schema version 2" in (
+        legacy.error or ""
+    )
+    assert legacy.id in list_recoverable_webhook_delivery_ids(
+        db_session,
+        now=now + timedelta(seconds=1),
+    )
+
+    claimed = claim_notification_webhook_delivery(
+        db_session,
+        delivery_id=legacy.id,
+        now=now + timedelta(seconds=1),
+    )
+
+    assert claimed is None
+    assert legacy.delivery_state == "failed"
+    assert legacy.attempt_count == 1
+    assert legacy.status_code == 503
+    assert legacy.duration_ms == 27
+    assert legacy.error == "Delivery exhausted its configured attempts."
+    assert legacy.attempted_at == generic.dead_lettered_at
+
+
+def test_webhook_preflight_failure_preserves_prior_external_io_marker(db_session):
+    webhook, legacy = _persist_legacy_delivery(db_session)
+    claimed = claim_webhook_delivery(
+        db_session,
+        webhook=webhook,
+        legacy_delivery=legacy,
+    )
+    assert claimed is not None
+    generic = db_session.get(IntegrationDelivery, claimed.integration_delivery_id)
+    assert generic is not None
+    attempt = db_session.scalar(
+        select(IntegrationAttempt).where(
+            IntegrationAttempt.delivery_id == generic.id,
+            IntegrationAttempt.attempt_number == 1,
+        )
+    )
+    assert attempt is not None
+    attempt.response_json = {
+        "delivery_outcome": "unknown",
+        "external_side_effect_possible": True,
+    }
+    db_session.add(attempt)
+    db_session.commit()
+
+    deferred = defer_claimed_notification_webhook_for_preflight_error(
+        db_session,
+        delivery=claimed,
+        expected_attempt_number=1,
+        error=WebhookExternalIOFenceError("Database marker unavailable"),
+        commit_outcome=True,
+    )
+
+    db_session.refresh(generic)
+    db_session.refresh(attempt)
+    assert deferred.claimed is False
+    assert generic.state == "retry_wait"
+    assert attempt.response_json["delivery_outcome"] == "unknown"
+    assert attempt.response_json["external_side_effect_possible"] is True
+    assert "retry_budget_consumed" not in attempt.response_json
+
+
 def test_webhook_claim_reconciles_inflight_delivery_from_legacy_worker(db_session):
     webhook, legacy = _persist_legacy_delivery(db_session)
     generic = ensure_webhook_delivery(
@@ -282,6 +422,17 @@ def test_active_operation_lease_prevents_stale_reclaim(db_session, monkeypatch):
     assert active.status == "deferred"
     assert active.reason == "active_lease"
 
+    attempt = db_session.scalar(
+        select(IntegrationAttempt).where(IntegrationAttempt.delivery_id == delivery.id)
+    )
+    assert attempt is not None
+    attempt.response_json = {
+        "delivery_outcome": "unknown",
+        "external_side_effect_possible": True,
+    }
+    db_session.add(attempt)
+    db_session.commit()
+
     recovered = claim_integration_delivery(
         db_session,
         delivery_id=delivery.id,
@@ -292,12 +443,161 @@ def test_active_operation_lease_prevents_stale_reclaim(db_session, monkeypatch):
     db_session.refresh(delivery)
     assert delivery.state == "dead_letter"
     assert delivery.last_error_retryable is False
+    db_session.refresh(attempt)
+    assert attempt.status == "interrupted"
+    assert attempt.response_json["delivery_outcome"] == "unknown"
+
+
+def test_fresh_claim_is_preserved_when_integration_is_disabled(db_session, monkeypatch):
+    delivery = _persist_generic_delivery(db_session)
+    monkeypatch.setattr(
+        "app.services.integration_delivery.settings.notification_delivery_sending_stale_after_seconds",
+        30,
+    )
+    started_at = datetime(2026, 7, 14, 12, 0, tzinfo=timezone.utc)
+    claimed = claim_integration_delivery(
+        db_session,
+        delivery_id=delivery.id,
+        now=started_at,
+    )
+    instance = db_session.get(IntegrationInstance, delivery.integration_id)
+    assert claimed.attempt_number == 1
+    assert instance is not None
+    instance.enabled = False
+    db_session.add(instance)
+    db_session.commit()
+
+    duplicate = claim_integration_delivery(
+        db_session,
+        delivery_id=delivery.id,
+        now=started_at + timedelta(seconds=1),
+    )
+
+    db_session.refresh(delivery)
     attempt = db_session.scalar(
         select(IntegrationAttempt).where(IntegrationAttempt.delivery_id == delivery.id)
     )
+    assert duplicate.status == "deferred"
+    assert duplicate.reason == "already_claimed"
+    assert delivery.state == "sending"
+    assert delivery.attempt_count == 1
+    assert attempt is not None and attempt.status == "running"
+
+
+@pytest.mark.parametrize(
+    ("marker", "expected_reason"),
+    [
+        (False, "integration_disabled"),
+        (True, "unknown_delivery_outcome"),
+        (None, "unknown_delivery_outcome"),
+    ],
+)
+def test_stale_smtp_attempt_is_classified_before_disabled_integration(
+    db_session,
+    monkeypatch,
+    marker,
+    expected_reason,
+):
+    delivery = _persist_generic_delivery(db_session)
+    monkeypatch.setattr(
+        "app.services.integration_delivery.settings.notification_delivery_sending_stale_after_seconds",
+        30,
+    )
+    started_at = datetime(2026, 7, 14, 12, 0, tzinfo=timezone.utc)
+    claimed = claim_integration_delivery(
+        db_session,
+        delivery_id=delivery.id,
+        now=started_at,
+    )
+    assert claimed.attempt_number == 1
+    instance = db_session.get(IntegrationInstance, delivery.integration_id)
+    attempt = db_session.scalar(
+        select(IntegrationAttempt).where(IntegrationAttempt.delivery_id == delivery.id)
+    )
+    assert instance is not None
     assert attempt is not None
+    attempt.response_json = (
+        {
+            "delivery_outcome": "unknown",
+            "external_side_effect_possible": True,
+        }
+        if marker is True
+        else {
+            "delivery_outcome": "not_attempted",
+            "external_side_effect_possible": False,
+        }
+        if marker is False
+        else {}
+    )
+    instance.enabled = False
+    db_session.add_all([attempt, instance])
+    db_session.commit()
+
+    recovered = claim_integration_delivery(
+        db_session,
+        delivery_id=delivery.id,
+        now=started_at + timedelta(seconds=31),
+    )
+
+    db_session.refresh(delivery)
+    db_session.refresh(attempt)
+    assert recovered.status == "terminal"
+    assert recovered.reason == expected_reason
+    assert delivery.state == "dead_letter"
+    assert delivery.last_error_code == expected_reason
     assert attempt.status == "interrupted"
-    assert attempt.response_json["delivery_outcome"] == "unknown"
+    assert attempt.response_json["external_side_effect_possible"] is (marker is not False)
+
+
+def test_stale_smtp_attempt_before_external_side_effect_is_reclaimed(
+    db_session, monkeypatch
+):
+    delivery = _persist_generic_delivery(db_session)
+    monkeypatch.setattr(
+        "app.services.integration_delivery.settings.notification_delivery_sending_stale_after_seconds",
+        30,
+    )
+    started_at = datetime(2026, 7, 14, 12, 0, tzinfo=timezone.utc)
+
+    first = claim_integration_delivery(
+        db_session,
+        delivery_id=delivery.id,
+        now=started_at,
+    )
+    first_attempt = db_session.scalar(
+        select(IntegrationAttempt).where(
+            IntegrationAttempt.delivery_id == delivery.id,
+            IntegrationAttempt.attempt_number == 1,
+        )
+    )
+
+    assert first.status == "claimed"
+    assert first_attempt is not None
+    assert first_attempt.response_json == {
+        "delivery_outcome": "not_attempted",
+        "external_side_effect_possible": False,
+    }
+
+    recovered = claim_integration_delivery(
+        db_session,
+        delivery_id=delivery.id,
+        now=started_at + timedelta(seconds=31),
+    )
+
+    assert recovered.status == "claimed"
+    assert recovered.attempt_number == 2
+    attempts = db_session.scalars(
+        select(IntegrationAttempt)
+        .where(IntegrationAttempt.delivery_id == delivery.id)
+        .order_by(IntegrationAttempt.attempt_number)
+    ).all()
+    assert [(attempt.attempt_number, attempt.status) for attempt in attempts] == [
+        (1, "interrupted"),
+        (2, "running"),
+    ]
+    assert attempts[0].retryable is True
+    assert attempts[0].response_json["delivery_outcome"] == "not_attempted"
+    assert attempts[0].response_json["external_side_effect_possible"] is False
 
 
 def test_recovery_publication_reservation_suppresses_duplicate_sweeps_without_blocking_claim(
@@ -494,6 +794,75 @@ def test_webhook_dead_letter_replay_creates_legacy_history_projection(db_session
     assert projection.rendered_url == legacy.rendered_url
 
 
+def test_webhook_replay_preserves_encrypted_request_snapshot_for_processing(
+    db_session,
+):
+    webhook, _legacy = _persist_legacy_delivery(db_session)
+    source_id = uuid.uuid4()
+    rendered_source = RenderedNotificationRequest(
+        method="POST",
+        url="https://example.com/hook",
+        headers=[
+            NotificationWebhookField(
+                key="Authorization",
+                value="Bearer replay-secret",
+            )
+        ],
+        query_params=[
+            NotificationWebhookField(key="token", value="query-secret")
+        ],
+        body='{"message":"encrypted replay"}',
+        headers_dict={"Authorization": "Bearer replay-secret"},
+        query_param_pairs=[("token", "query-secret")],
+        json_body={"message": "encrypted replay"},
+        form_body=None,
+        raw_body=None,
+        timeout_seconds=10,
+    )
+    source = create_pending_notification_webhook_delivery(
+        db_session,
+        delivery_id=source_id,
+        webhook=webhook,
+        event_type="rss_item_new",
+        rendered=rendered_source,
+        delivery_kind="live",
+        item_id=None,
+        feed_id=None,
+        item_title=None,
+        feed_name=None,
+        source_delivery_id=None,
+        scope_key=None,
+        attempted_at=datetime.now(timezone.utc),
+        not_before=None,
+    )
+    generic = db_session.get(IntegrationDelivery, source.integration_delivery_id)
+    assert generic is not None
+    generic.state = "dead_letter"
+    generic.dead_lettered_at = datetime.now(timezone.utc)
+    source.delivery_state = "failed"
+    source.error = "Connection refused"
+    db_session.add_all([generic, source])
+    db_session.commit()
+
+    assert isinstance(source.rendered_headers_json, dict)
+    assert isinstance(source.rendered_query_params_json, dict)
+    replay = replay_dead_letter_delivery(db_session, delivery_id=generic.id)
+    db_session.flush()
+    projection = db_session.scalar(
+        select(NotificationWebhookDelivery).where(
+            NotificationWebhookDelivery.integration_delivery_id == replay.id
+        )
+    )
+
+    assert projection is not None
+    assert projection.rendered_headers_json == source.rendered_headers_json
+    assert projection.rendered_query_params_json == source.rendered_query_params_json
+    rendered_replay = rendered_request_from_delivery(projection)
+    assert rendered_replay.headers_dict["Authorization"] == "Bearer replay-secret"
+    assert rendered_replay.query_param_pairs == [("token", "query-secret")]
+    assert rendered_replay.body == '{"message":"encrypted replay"}'
+
+
 def test_webhook_dead_letter_replay_rejects_missing_history_projection(db_session):
     delivery = _persist_generic_delivery(db_session)
     delivery.connector_type = "webhook"
@@ -526,7 +895,7 @@ def test_unknown_connector_delivery_is_deferred_for_rolling_upgrade(db_session):
     delivery.connector_type = "future-connector"
     started_at = datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc)
 
-    deferred = defer_integration_delivery(
+    deferred = defer_unclaimed_integration_delivery(
         db_session,
         delivery_id=delivery.id,
         error_code="unsupported_connector",

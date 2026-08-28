@@ -11,6 +11,7 @@ from app.core.config import get_settings
 from app.models.ai_daily_brief import AIDailyBrief
 from app.models.ai_task_run import AITaskRun
 from app.models.alert_interest import AlertInterest
+from app.models.alert_evaluation_request import AlertEvaluationRequest
 from app.models.article import Article
 from app.models.feed import Feed
 from app.models.ioc import IOC, ItemIOC
@@ -3513,7 +3514,7 @@ def test_classify_item_continues_when_ai_enqueue_fails(db_session, monkeypatch):
     assert child_runs[0].reason == "enqueue_failed"
 
 
-def test_classify_item_persists_alert_match_event_when_enqueue_fails(db_session, monkeypatch):
+def test_classify_item_persists_alert_evaluation_intent_when_enqueue_fails(db_session, monkeypatch):
     feed = Feed(
         id=uuid.uuid4(),
         name="Unit42",
@@ -3595,24 +3596,22 @@ def test_classify_item_persists_alert_match_event_when_enqueue_fails(db_session,
         )(),
     )
     monkeypatch.setattr("app.tasks.feed_tasks.extract_item_iocs.delay", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(
-        "app.tasks.feed_tasks.route_integration_event.delay",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("broker down")),
-    )
+    monkeypatch.setattr("app.tasks.feed_tasks.enqueue_alert_evaluation_requests", lambda _ids: False)
 
     result = classify_item.run(str(item.id))
 
-    event = db_session.scalar(
-        select(IntegrationEvent).where(
-            IntegrationEvent.event_type == "alert_match",
-            IntegrationEvent.source_id == str(item.id),
+    evaluation_request = db_session.scalar(
+        select(AlertEvaluationRequest).where(
+            AlertEvaluationRequest.item_id == item.id,
+            AlertEvaluationRequest.item_content_hash == item.content_hash,
         )
     )
 
     assert result["status"] == "ok"
     assert result["notification_enqueue_failed"] is True
-    assert event is not None
-    assert event.routing_state == "pending"
+    assert evaluation_request is not None
+    assert evaluation_request.state == "pending"
+    assert evaluation_request.notify is True
 
 
 def test_reprocess_recent_ai_items_tracks_parent_progress(db_session, monkeypatch):
@@ -5302,7 +5301,7 @@ def test_process_reserved_notification_deliveries_schedules_retryable_failures(d
     db_session.commit()
 
     monkeypatch.setattr(
-        "app.services.notification_webhooks._send_rendered_notification_request",
+        "app.services.notification_webhook_http.send_rendered_notification_request",
         lambda _rendered: NotificationWebhookTestResponse(
             success=False,
             status_code=503,
@@ -5387,7 +5386,7 @@ def test_webhook_retry_reservation_failure_is_isolated_and_deferred(db_session, 
     db_session.add_all([webhook, delivery])
     db_session.commit()
     monkeypatch.setattr(
-        "app.services.notification_webhooks._send_rendered_notification_request",
+        "app.services.notification_webhook_http.send_rendered_notification_request",
         lambda _rendered: NotificationWebhookTestResponse(
             success=False,
             status_code=503,

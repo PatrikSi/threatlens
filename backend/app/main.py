@@ -29,13 +29,16 @@ from app.api.routes import (
     alerts,
     audit,
     auth,
+    auth_security,
     exports,
     feeds,
     health,
     integrations,
+    investigations,
     items,
     notifications,
     oidc,
+    operations,
     reports,
     stats,
     tagging,
@@ -61,11 +64,27 @@ API_TOKEN_SECURITY_SCHEME_NAME = "ApiTokenBearer"
 SESSION_COOKIE_SECURITY_SCHEME_NAME = "SessionCookieAuth"
 OPENAPI_CONTRACT_ANCHOR_FIELD = "x-threatlens-contract-sha256"
 OPENAPI_REQUIRED_TOKEN_SCOPES_FIELD = "x-threatlens-required-token-scopes"
+OPENAPI_BROWSER_SESSION_ONLY_FIELD = "x-threatlens-browser-session-only"
+PUBLIC_BROWSER_RESPONSE_HEADERS = (
+    "Content-Disposition",
+    "Retry-After",
+    "X-Current-Revision",
+    "X-Current-Row-Version",
+    "X-Current-Rule-Revision",
+    "X-Current-Security-Version",
+    "X-Current-Version",
+    "X-Error-Code",
+    "X-Request-ID",
+    "X-ThreatLens-Revoked-Descendant-Count",
+    "X-ThreatLens-Revoked-Token-Count",
+    "X-ThreatLens-Root-Token-Revoked",
+)
 SAVED_VIEW_QUERY_SCHEMA = "SavedViewQueryPayload"
 SAVED_VIEW_QUERY_INPUT_SCHEMA = "SavedViewQueryPayload-Input"
 SAVED_VIEW_QUERY_OUTPUT_SCHEMA = "SavedViewQueryPayload-Output"
 API_ROUTERS: tuple[APIRouter, ...] = (
     auth.router,
+    auth_security.router,
     oidc.router,
     exports.router,
     reports.router,
@@ -79,9 +98,11 @@ API_ROUTERS: tuple[APIRouter, ...] = (
     users.router,
     audit.router,
     integrations.router,
+    investigations.router,
     notifications.router,
     ai.router,
     stats.router,
+    operations.router,
     health.router,
 )
 
@@ -155,6 +176,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=list(PUBLIC_BROWSER_RESPONSE_HEADERS),
 )
 
 if settings.allowed_hosts:
@@ -323,6 +345,13 @@ def _apply_published_security_contract(
             required_scopes = required_scopes_by_operation.get((path, method.lower()))
             if required_scopes:
                 operation[OPENAPI_REQUIRED_TOKEN_SCOPES_FIELD] = list(required_scopes)
+            browser_session_only = bool(
+                operation.pop(OPENAPI_BROWSER_SESSION_ONLY_FIELD, False)
+            )
+            if browser_session_only:
+                operation.pop(OPENAPI_REQUIRED_TOKEN_SCOPES_FIELD, None)
+                operation["security"] = [{SESSION_COOKIE_SECURITY_SCHEME_NAME: []}]
+                continue
             security = operation.get("security")
             if not security:
                 continue

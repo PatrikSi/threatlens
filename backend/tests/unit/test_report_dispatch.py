@@ -5,8 +5,10 @@ from datetime import datetime, timedelta, timezone
 from app.core.config import get_settings
 from app.models.ai_task_run import AITaskRun
 from app.models.report import Report
+from app.services import report_dispatch as report_dispatch_service
 from app.services.report_dispatch import (
     claim_report_dispatch,
+    has_queued_report_dispatches,
     initialize_report_dispatch,
     list_due_report_dispatches,
     record_report_dispatch_failure,
@@ -244,7 +246,7 @@ def test_published_task_is_recoverable_when_metadata_commit_fails(
         lambda *, args, queue, task_id: published.append((args, queue, task_id)),
     )
     monkeypatch.setattr(
-        report_tasks,
+        report_dispatch_service,
         "record_report_dispatch_success",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             ConnectionError("database unavailable after publish")
@@ -569,9 +571,14 @@ def test_pending_dispatch_task_reports_partial_progress(monkeypatch):
 
     monkeypatch.setattr(report_tasks, "db_session", _session)
     monkeypatch.setattr(
-        report_tasks,
+        report_dispatch_service,
         "list_due_report_dispatches",
         lambda *_args, **_kwargs: [first, second],
+    )
+    monkeypatch.setattr(
+        report_dispatch_service,
+        "has_queued_report_dispatches",
+        lambda *_args, **_kwargs: True,
     )
     monkeypatch.setattr(
         report_tasks,
@@ -580,10 +587,123 @@ def test_pending_dispatch_task_reports_partial_progress(monkeypatch):
             stable_report_task_id(task_run_id) if task_run_id == first[1] else None
         ),
     )
+    monkeypatch.setattr(
+        report_dispatch_service,
+        "report_queue_subscription_available",
+        lambda: None,
+    )
 
     result = report_tasks.dispatch_pending_report_tasks.run()
 
     assert result == {"status": "partial", "dispatched": 1, "deferred": 1}
+
+
+def test_pending_dispatch_marks_waiting_before_redrive_is_due(
+    db_session,
+    monkeypatch,
+):
+    report, run = _queued_run(db_session)
+    _use_test_session(monkeypatch, db_session)
+    monkeypatch.setattr(
+        report_dispatch_service,
+        "list_due_report_dispatches",
+        lambda *_args, **_kwargs: [],
+    )
+    monkeypatch.setattr(
+        report_dispatch_service,
+        "report_queue_subscription_available",
+        lambda: False,
+    )
+    monkeypatch.setattr(
+        report_tasks,
+        "enqueue_report_task",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("must not publish")),
+    )
+
+    result = report_tasks.dispatch_pending_report_tasks.run()
+
+    db_session.expire_all()
+    assert db_session.get(Report, report.id).generation_stage == "waiting_for_worker"
+    assert result == {"status": "partial", "dispatched": 0, "deferred": 0}
+
+
+def test_pending_dispatch_resumes_when_report_queue_returns(
+    db_session,
+    monkeypatch,
+):
+    report, run = _queued_run(db_session)
+    report.generation_stage = "waiting_for_worker"
+    db_session.commit()
+    _use_test_session(monkeypatch, db_session)
+    monkeypatch.setattr(
+        report_dispatch_service,
+        "list_due_report_dispatches",
+        lambda *_args, **_kwargs: [(report.id, run.id)],
+    )
+    monkeypatch.setattr(
+        report_dispatch_service,
+        "report_queue_subscription_available",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        report_tasks,
+        "enqueue_report_task",
+        lambda *, task_run_id, **_kwargs: stable_report_task_id(task_run_id),
+    )
+
+    result = report_tasks.dispatch_pending_report_tasks.run()
+
+    db_session.expire_all()
+    assert db_session.get(Report, report.id).generation_stage == "queued"
+    assert result == {"status": "ok", "dispatched": 1, "deferred": 0}
+
+
+def test_queued_dispatch_detection_ignores_terminal_reports(db_session):
+    report, run = _queued_run(db_session)
+
+    assert has_queued_report_dispatches(db_session) is True
+
+    report.status = "error"
+    db_session.commit()
+    assert has_queued_report_dispatches(db_session) is False
+
+    report.status = "queued"
+    run.status = "error"
+    run.finished_at = datetime.now(timezone.utc)
+    db_session.commit()
+    assert has_queued_report_dispatches(db_session) is False
+
+
+def test_report_queue_subscription_inspection_is_tristate(monkeypatch):
+    class _Inspector:
+        def __init__(self, response):
+            self.response = response
+
+        def active_queues(self):
+            return self.response
+
+    monkeypatch.setattr(
+        report_dispatch_service.celery_app.control,
+        "inspect",
+        lambda timeout: _Inspector(
+            {"ai@worker": [{"name": "ai"}, {"name": "ai-reports-v2"}]}
+        ),
+    )
+    assert report_dispatch_service.report_queue_subscription_available() is True
+
+    monkeypatch.setattr(
+        report_dispatch_service.celery_app.control,
+        "inspect",
+        lambda timeout: _Inspector({"ai@worker": [{"name": "ai"}]}),
+    )
+    assert report_dispatch_service.report_queue_subscription_available() is False
+
+    monkeypatch.setattr(
+        report_dispatch_service.celery_app.control,
+        "inspect",
+        lambda timeout: (_ for _ in ()).throw(ConnectionError("offline")),
+    )
+    assert report_dispatch_service.report_queue_subscription_available() is None
 
 
 def test_initialize_dispatch_resets_previous_failure_state():

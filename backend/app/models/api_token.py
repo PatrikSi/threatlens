@@ -15,10 +15,16 @@ class ApiToken(Base):
         UniqueConstraint("token_hash", name="uq_api_tokens_token_hash"),
         UniqueConstraint("token_prefix", name="uq_api_tokens_token_prefix"),
         Index("ix_api_tokens_user_id", "user_id"),
+        Index("ix_api_tokens_parent_token_id", "parent_token_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    parent_token_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("api_tokens.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     token_prefix: Mapped[str] = mapped_column(String(32), nullable=False)
     token_hash: Mapped[str] = mapped_column(String(64), nullable=False)

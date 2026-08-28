@@ -16,12 +16,18 @@ It stores feeds, extracts article text, and gives a single pane of glass to revi
 
 - RSS feed collection and article extraction
 - Read/starred state, notes, tags, and saved dashboard views
-- Keyword alert interests with preview before saving
+- Versioned alert rules, durable occurrences, analyst triage, suppression, backfill,
+  dead-letter replay, and retained metrics
+- Collaborative investigation collections with members, evidence snapshots, notes,
+  lifecycle, and activity history
 - Filtered article export as CSV, JSONL, ThreatLens ZIP, STIX 2.1, MISP, or readable PDF bundles
 - Feed backup/restore plus webhook and multi-hook SMTP notifications
-- Role-based users: `admin`, `analyst`, and `viewer`
-- OpenID Connect SSO with account linking, verified-email JIT provisioning, and claim-to-role mapping
-- API tokens and audit logs
+- Role-based users: `admin`, `analyst`, and `viewer`, with scoped API tokens and
+  audit logs
+- OpenID Connect SSO with account linking, verified-email JIT provisioning,
+  claim-to-role mapping, revocable sessions, and local TOTP MFA
+- Administrator operations diagnostics plus verified PostgreSQL backup, isolated
+  restore-drill, and post-restore quarantine tooling
 - Durable integration outbox, bounded retries, dead-letter replay, circuit breaking, and delivery metrics
 - Optional AI summaries, relevance scoring, task history, and daily briefs
 - Prompted, sourced intelligence reports with templates, schedules, context-safe chunking, and Markdown/HTML/PDF artifacts
@@ -129,6 +135,7 @@ Update to the latest published images:
 
 ```bash
 docker compose pull
+docker compose stop api beat worker worker-ai worker-maintenance worker-notifications
 docker compose up -d
 ```
 
@@ -136,8 +143,13 @@ Update to a pinned release:
 
 ```bash
 THREATLENS_IMAGE_TAG=1.0.0 docker compose pull
+docker compose stop api beat worker worker-ai worker-maintenance worker-notifications
 THREATLENS_IMAGE_TAG=1.0.0 docker compose up -d
 ```
+
+Stopping every API and worker process before recreation is required for schema
+compatibility. PostgreSQL, Redis, and the web proxy may remain running; the web
+interface will report the brief API outage until the matching release starts.
 
 Check services:
 

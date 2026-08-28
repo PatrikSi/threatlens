@@ -19,10 +19,15 @@ from app.services.oidc_client import (
     OIDCMetadata,
     OIDCProtocolError,
     build_oidc_authorization_url,
+    oidc_external_mfa_asserted,
     validate_oidc_token_claims,
 )
 from app.services import oidc_client, oidc_config
-from app.services.oidc_config import OIDCConfigurationError, oidc_callback_url, validate_oidc_provider_urls
+from app.services.oidc_config import (
+    OIDCConfigurationError,
+    oidc_callback_url,
+    validate_oidc_provider_urls,
+)
 from app.services.oidc_identity import resolve_oidc_role
 from app.services.secret_storage import encrypt_text
 from app.services.oidc_transaction import (
@@ -65,6 +70,10 @@ def _request_with_cookie(cookie_name: str, cookie_value: str) -> Request:
 
 def test_oidc_provider_schema_requires_openid_and_unique_mapping_values():
     assert OIDCProviderUpdateRequest().require_verified_email is True
+    assert (
+        OIDCProviderUpdateRequest(expected_config_revision=0).expected_config_revision
+        == 0
+    )
 
     with pytest.raises(ValueError, match="must include openid"):
         OIDCProviderUpdateRequest(scopes=["profile"])
@@ -91,9 +100,22 @@ def test_oidc_role_mapping_supports_nested_claims_and_uses_highest_role():
         ],
     )
 
-    assert resolve_oidc_role(provider, {"realm_access": {"roles": ["readers", "responders"]}}) == "analyst"
-    assert resolve_oidc_role(provider, {"realm_access": {"roles": ["responders", "soc-admins"]}}) == "admin"
-    assert resolve_oidc_role(provider, {"realm_access": {"roles": ["unmapped"]}}) == "viewer"
+    assert (
+        resolve_oidc_role(
+            provider, {"realm_access": {"roles": ["readers", "responders"]}}
+        )
+        == "analyst"
+    )
+    assert (
+        resolve_oidc_role(
+            provider, {"realm_access": {"roles": ["responders", "soc-admins"]}}
+        )
+        == "admin"
+    )
+    assert (
+        resolve_oidc_role(provider, {"realm_access": {"roles": ["unmapped"]}})
+        == "viewer"
+    )
 
 
 def test_oidc_urls_require_https_by_default(monkeypatch):
@@ -108,7 +130,9 @@ def test_oidc_urls_require_https_by_default(monkeypatch):
         )
 
 
-def test_oidc_urls_allow_http_only_with_explicit_transport_and_network_opt_ins(monkeypatch):
+def test_oidc_urls_allow_http_only_with_explicit_transport_and_network_opt_ins(
+    monkeypatch,
+):
     settings = get_settings()
     monkeypatch.setattr(settings, "allow_insecure_http_oidc", True)
     monkeypatch.setattr(settings, "allow_private_network_oidc", False)
@@ -131,7 +155,9 @@ def test_oidc_urls_allow_http_only_with_explicit_transport_and_network_opt_ins(m
     )
 
 
-def test_oidc_urls_allow_public_http_with_explicit_insecure_transport_opt_in(monkeypatch):
+def test_oidc_urls_allow_public_http_with_explicit_insecure_transport_opt_in(
+    monkeypatch,
+):
     settings = get_settings()
     monkeypatch.setattr(settings, "allow_insecure_http_oidc", True)
     monkeypatch.setattr(settings, "allow_private_network_oidc", False)
@@ -161,11 +187,16 @@ def test_private_http_oidc_remains_backward_compatible(monkeypatch):
 
 def test_oidc_callback_path_is_configurable(monkeypatch):
     monkeypatch.setattr(get_settings(), "oidc_callback_path", "/v1/auth/oidc/callback")
-    assert oidc_callback_url("https://threatlens.example.com") == "https://threatlens.example.com/v1/auth/oidc/callback"
+    assert (
+        oidc_callback_url("https://threatlens.example.com")
+        == "https://threatlens.example.com/v1/auth/oidc/callback"
+    )
 
 
 def test_oidc_transaction_rejects_state_mismatch():
-    transaction = new_oidc_transaction(provider_id="provider-1", mode="login")
+    transaction = new_oidc_transaction(
+        provider_id="provider-1", provider_config_revision=1, mode="login"
+    )
     encoded = encode_oidc_transaction(transaction)
     settings = get_settings()
     request = _request_with_cookie(settings.oidc_transaction_cookie_name, encoded)
@@ -192,13 +223,19 @@ def test_authorization_url_contains_pkce_nonce_and_exact_callback():
         state="state-value",
         nonce="nonce-value",
         code_verifier="a" * 64,
+        max_age_seconds=0,
+        prompt="login",
     )
     query = parse_qs(urlsplit(authorization_url).query)
 
     assert query["state"] == ["state-value"]
     assert query["nonce"] == ["nonce-value"]
     assert query["code_challenge_method"] == ["S256"]
-    assert query["redirect_uri"] == ["https://threatlens.example.com/api/v1/auth/oidc/callback"]
+    assert query["redirect_uri"] == [
+        "https://threatlens.example.com/api/v1/auth/oidc/callback"
+    ]
+    assert query["max_age"] == ["0"]
+    assert query["prompt"] == ["login"]
 
 
 def test_id_token_validation_checks_signature_audience_issuer_and_nonce(monkeypatch):
@@ -216,33 +253,42 @@ def test_id_token_validation_checks_signature_audience_issuer_and_nonce(monkeypa
     public_jwk = json.loads(RSAAlgorithm.to_jwk(private_key.public_key()))
     public_jwk.update({"kid": "test-key", "use": "sig", "alg": "RS256"})
     key_set = KeySet.import_key_set({"keys": [public_jwk]})
-    monkeypatch.setattr("app.services.oidc_client._load_jwks", lambda _metadata: key_set)
+    monkeypatch.setattr(
+        "app.services.oidc_client._load_jwks", lambda _metadata: key_set
+    )
     now = datetime.now(timezone.utc)
 
-    def token_for(nonce: str):
+    def token_for(nonce: str, *, amr: list[str] | None = None):
+        payload = {
+            "iss": provider.issuer_url,
+            "sub": "subject-1",
+            "aud": provider.client_id,
+            "iat": now,
+            "exp": now + timedelta(minutes=5),
+            "nonce": nonce,
+            "email": "analyst@example.com",
+            "email_verified": True,
+        }
+        if amr is not None:
+            payload["amr"] = amr
         id_token = jwt.encode(
-            {
-                "iss": provider.issuer_url,
-                "sub": "subject-1",
-                "aud": provider.client_id,
-                "iat": now,
-                "exp": now + timedelta(minutes=5),
-                "nonce": nonce,
-                "email": "analyst@example.com",
-                "email_verified": True,
-            },
+            payload,
             private_key,
             algorithm="RS256",
             headers={"kid": "test-key"},
         )
         return {"id_token": id_token, "access_token": "access-token"}
 
-    claims = validate_oidc_token_claims(provider, metadata, token_for("expected-nonce"), nonce="expected-nonce")
+    claims = validate_oidc_token_claims(
+        provider, metadata, token_for("expected-nonce"), nonce="expected-nonce"
+    )
     assert claims.subject == "subject-1"
     assert claims.claims["email_verified"] is True
 
     with pytest.raises(OIDCProtocolError, match="claims validation failed"):
-        validate_oidc_token_claims(provider, metadata, token_for("wrong-nonce"), nonce="expected-nonce")
+        validate_oidc_token_claims(
+            provider, metadata, token_for("wrong-nonce"), nonce="expected-nonce"
+        )
 
     userinfo_metadata = OIDCMetadata(
         issuer=metadata.issuer,
@@ -256,7 +302,10 @@ def test_id_token_validation_checks_signature_audience_issuer_and_nonce(monkeypa
     monkeypatch.setattr(
         oidc_client,
         "_fetch_json",
-        lambda *_args, **_kwargs: {"sub": "different-subject", "email": "attacker@example.com"},
+        lambda *_args, **_kwargs: {
+            "sub": "different-subject",
+            "email": "attacker@example.com",
+        },
     )
     with pytest.raises(OIDCProtocolError, match="UserInfo subject does not match"):
         validate_oidc_token_claims(
@@ -265,6 +314,36 @@ def test_id_token_validation_checks_signature_audience_issuer_and_nonce(monkeypa
             token_for("expected-nonce"),
             nonce="expected-nonce",
         )
+
+    monkeypatch.setattr(
+        oidc_client,
+        "_fetch_json",
+        lambda *_args, **_kwargs: {
+            "sub": "subject-1",
+            "email": "updated@example.com",
+            "amr": ["mfa"],
+            "acr": "elevated-by-userinfo",
+        },
+    )
+    merged_claims = validate_oidc_token_claims(
+        provider,
+        userinfo_metadata,
+        token_for("expected-nonce"),
+        nonce="expected-nonce",
+    )
+    assert merged_claims.claims["email"] == "updated@example.com"
+    assert "amr" not in merged_claims.claims
+    assert "acr" not in merged_claims.claims
+    assert oidc_external_mfa_asserted(merged_claims) is False
+
+    signed_mfa_claims = validate_oidc_token_claims(
+        provider,
+        userinfo_metadata,
+        token_for("expected-nonce", amr=["pwd", "mfa"]),
+        nonce="expected-nonce",
+    )
+    assert signed_mfa_claims.claims["amr"] == ["pwd", "mfa"]
+    assert oidc_external_mfa_asserted(signed_mfa_claims) is True
 
 
 def test_id_token_validation_wraps_failure_after_jwks_refresh(monkeypatch):
@@ -287,7 +366,9 @@ def test_id_token_validation_wraps_failure_after_jwks_refresh(monkeypatch):
             raise InvalidKeyIdError()
         raise ValueError("rotated key is still unavailable")
 
-    monkeypatch.setattr("app.services.oidc_client._load_jwks", lambda _metadata: object())
+    monkeypatch.setattr(
+        "app.services.oidc_client._load_jwks", lambda _metadata: object()
+    )
     monkeypatch.setattr("app.services.oidc_client.jose_jwt.decode", fail_decode)
 
     with pytest.raises(OIDCProtocolError, match="signature validation failed"):
@@ -312,7 +393,9 @@ def test_provider_connection_test_rejects_unsupported_client_auth_method(monkeyp
         token_endpoint_auth_methods_supported=("client_secret_basic",),
         id_token_signing_alg_values_supported=("RS256",),
     )
-    monkeypatch.setattr(oidc_client, "load_oidc_metadata", lambda _provider, *, force: metadata)
+    monkeypatch.setattr(
+        oidc_client, "load_oidc_metadata", lambda _provider, *, force: metadata
+    )
 
     with pytest.raises(OIDCConfigurationError, match="client_secret_post"):
         oidc_client.test_oidc_provider(provider)
@@ -337,7 +420,9 @@ def test_oidc_metadata_load_caches_discovery_and_supports_forced_refresh(monkeyp
         return discovery_payload
 
     monkeypatch.setattr(oidc_client, "_fetch_json", fetch_json)
-    monkeypatch.setattr(oidc_client, "validate_oidc_endpoint_url", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        oidc_client, "validate_oidc_endpoint_url", lambda *_args, **_kwargs: None
+    )
     oidc_client._metadata_cache.clear()
     try:
         first = oidc_client.load_oidc_metadata(provider)
@@ -405,7 +490,9 @@ def test_oidc_code_exchange_preserves_secret_and_pkce_fields(monkeypatch):
         ({"id_token": "id-token"}, "did not include an access token"),
     ],
 )
-def test_oidc_code_exchange_rejects_incomplete_token_responses(monkeypatch, payload, message):
+def test_oidc_code_exchange_rejects_incomplete_token_responses(
+    monkeypatch, payload, message
+):
     provider = _provider(client_auth_method="none")
     metadata = OIDCMetadata(
         issuer=provider.issuer_url,
@@ -431,8 +518,8 @@ def test_oidc_code_exchange_rejects_incomplete_token_responses(monkeypatch, payl
     ("content", "status_code", "message"),
     [
         (b"not-json", 200, "invalid JSON"),
-        (b'{}', 502, "HTTP 502"),
-        (b'{}', 302, "unexpected redirect"),
+        (b"{}", 502, "HTTP 502"),
+        (b"{}", 302, "unexpected redirect"),
     ],
 )
 def test_oidc_json_fetch_rejects_invalid_responses_and_closes_stream(
@@ -444,7 +531,9 @@ def test_oidc_json_fetch_rejects_invalid_responses_and_closes_stream(
     response = oidc_client.httpx.Response(
         status_code,
         content=content,
-        headers={"Location": "https://other.example.com"} if status_code == 302 else None,
+        headers={"Location": "https://other.example.com"}
+        if status_code == 302
+        else None,
         request=oidc_client.httpx.Request("GET", "https://idp.example.com/metadata"),
     )
 
@@ -461,8 +550,12 @@ def test_oidc_json_fetch_rejects_invalid_responses_and_closes_stream(
         def send(self, *_args, **_kwargs):
             return response
 
-    monkeypatch.setattr(oidc_client, "build_safe_http_client", lambda **_kwargs: FakeClient())
-    monkeypatch.setattr(oidc_client, "ensure_runtime_fetchable_url", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        oidc_client, "build_safe_http_client", lambda **_kwargs: FakeClient()
+    )
+    monkeypatch.setattr(
+        oidc_client, "ensure_runtime_fetchable_url", lambda *_args, **_kwargs: None
+    )
 
     with pytest.raises(OIDCProtocolError, match=message):
         oidc_client._fetch_json("GET", "https://idp.example.com/metadata")
@@ -479,7 +572,9 @@ def test_oidc_json_fetch_rejects_invalid_responses_and_closes_stream(
         (oidc_client.httpx.PoolTimeout("pool timeout"), "request timed out"),
     ],
 )
-def test_oidc_json_fetch_classifies_network_failures(monkeypatch, request_error, message):
+def test_oidc_json_fetch_classifies_network_failures(
+    monkeypatch, request_error, message
+):
     class FakeClient:
         def __enter__(self):
             return self
@@ -493,8 +588,12 @@ def test_oidc_json_fetch_classifies_network_failures(monkeypatch, request_error,
         def send(self, *_args, **_kwargs):
             raise request_error
 
-    monkeypatch.setattr(oidc_client, "build_safe_http_client", lambda **_kwargs: FakeClient())
-    monkeypatch.setattr(oidc_client, "ensure_runtime_fetchable_url", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        oidc_client, "build_safe_http_client", lambda **_kwargs: FakeClient()
+    )
+    monkeypatch.setattr(
+        oidc_client, "ensure_runtime_fetchable_url", lambda *_args, **_kwargs: None
+    )
 
     with pytest.raises(OIDCProtocolError, match=message):
         oidc_client._fetch_json("GET", "https://idp.example.com/metadata")
@@ -502,7 +601,9 @@ def test_oidc_json_fetch_classifies_network_failures(monkeypatch, request_error,
 
 def test_oidc_json_fetch_identifies_dns_resolution_failures(monkeypatch):
     request_error = oidc_client.httpx.ConnectError("connection failed")
-    request_error.__cause__ = socket.gaierror(-3, "Temporary failure in name resolution")
+    request_error.__cause__ = socket.gaierror(
+        -3, "Temporary failure in name resolution"
+    )
 
     class FakeClient:
         def __enter__(self):
@@ -517,8 +618,12 @@ def test_oidc_json_fetch_identifies_dns_resolution_failures(monkeypatch):
         def send(self, *_args, **_kwargs):
             raise request_error
 
-    monkeypatch.setattr(oidc_client, "build_safe_http_client", lambda **_kwargs: FakeClient())
-    monkeypatch.setattr(oidc_client, "ensure_runtime_fetchable_url", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        oidc_client, "build_safe_http_client", lambda **_kwargs: FakeClient()
+    )
+    monkeypatch.setattr(
+        oidc_client, "ensure_runtime_fetchable_url", lambda *_args, **_kwargs: None
+    )
 
     with pytest.raises(OIDCProtocolError, match="hostname could not be resolved"):
         oidc_client._fetch_json("GET", "https://idp.example.com/metadata")
@@ -539,7 +644,9 @@ def test_oidc_runtime_url_check_distinguishes_dns_and_network_policy(monkeypatch
             allow_private_network=True,
         )
 
-    monkeypatch.setattr(oidc_client, "is_fetchable_url", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(
+        oidc_client, "is_fetchable_url", lambda *_args, **_kwargs: False
+    )
     with pytest.raises(OIDCProtocolError, match="blocked by outbound network policy"):
         oidc_client._ensure_oidc_runtime_fetchable_url(
             "http://authentik.patriksi.local/discovery",
@@ -552,7 +659,10 @@ def test_oidc_failure_reason_bounds_expected_errors_and_hides_unexpected_values(
 
     assert oidc_client.oidc_failure_reason(expected).startswith("provider failure ")
     assert len(oidc_client.oidc_failure_reason(expected)) == 512
-    assert oidc_client.oidc_failure_reason(ValueError("sensitive value")) == "OIDC validation failed"
+    assert (
+        oidc_client.oidc_failure_reason(ValueError("sensitive value"))
+        == "OIDC validation failed"
+    )
 
 
 def test_oidc_json_fetch_enforces_response_size_limit(monkeypatch):
@@ -575,8 +685,12 @@ def test_oidc_json_fetch_enforces_response_size_limit(monkeypatch):
         def send(self, *_args, **_kwargs):
             return response
 
-    monkeypatch.setattr(oidc_client, "build_safe_http_client", lambda **_kwargs: FakeClient())
-    monkeypatch.setattr(oidc_client, "ensure_runtime_fetchable_url", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        oidc_client, "build_safe_http_client", lambda **_kwargs: FakeClient()
+    )
+    monkeypatch.setattr(
+        oidc_client, "ensure_runtime_fetchable_url", lambda *_args, **_kwargs: None
+    )
     monkeypatch.setattr(get_settings(), "oidc_max_response_bytes", 8)
 
     with pytest.raises(OIDCProtocolError, match="size limit"):
@@ -605,8 +719,12 @@ def test_oidc_json_fetch_closes_streamed_httpx_response(monkeypatch):
         def send(self, *_args, **_kwargs):
             return response
 
-    monkeypatch.setattr(oidc_client, "build_safe_http_client", lambda **_kwargs: FakeClient())
-    monkeypatch.setattr(oidc_client, "ensure_runtime_fetchable_url", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        oidc_client, "build_safe_http_client", lambda **_kwargs: FakeClient()
+    )
+    monkeypatch.setattr(
+        oidc_client, "ensure_runtime_fetchable_url", lambda *_args, **_kwargs: None
+    )
 
     assert oidc_client._fetch_json("GET", "https://idp.example.com/metadata") == {
         "issuer": "https://idp.example.com"

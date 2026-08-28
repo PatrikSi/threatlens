@@ -4,6 +4,7 @@ from app.services.integration_connectors.base import (
     ConnectorRoutingResult,
     IntegrationConnector,
     IntegrationConnectorDefinition,
+    IntegrationEventCompatibilityError,
     IntegrationEventContextError,
 )
 
@@ -13,5 +14,6 @@ __all__ = [
     "ConnectorRoutingResult",
     "IntegrationConnector",
     "IntegrationConnectorDefinition",
+    "IntegrationEventCompatibilityError",
     "IntegrationEventContextError",
 ]

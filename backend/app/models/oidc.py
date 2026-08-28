@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, JSON, String, Text, UniqueConstraint, Uuid, func
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.rbac import ROLE_VIEWER
@@ -10,6 +10,11 @@ from app.db.base import Base
 
 class OIDCProvider(Base):
     __tablename__ = "oidc_providers"
+    __table_args__ = (
+        CheckConstraint(
+            "config_revision >= 1", name="ck_oidc_providers_config_revision"
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     system_key: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, default="primary")
@@ -52,6 +57,9 @@ class OIDCProvider(Base):
         nullable=False,
         default=True,
         server_default="true",
+    )
+    config_revision: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
     )
     updated_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True),

@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
-from app.core.api_errors import install_api_error_handlers
+from app.core.api_errors import ApiHTTPException, install_api_error_handlers
 
 
 class _Payload(BaseModel):
@@ -20,6 +20,15 @@ def _test_app() -> FastAPI:
     @application.post("/validate")
     def validate(payload: _Payload):
         return payload
+
+    @application.get("/version-conflict")
+    def version_conflict():
+        raise ApiHTTPException(
+            status_code=409,
+            detail="The resource changed after it was loaded.",
+            error_code="resource_version_conflict",
+            error_context={"current_version": 7, "reload_required": True},
+        )
 
     @application.get("/boom")
     def boom():
@@ -54,6 +63,21 @@ def test_validation_errors_do_not_echo_submitted_input():
     assert "count" in payload["error"]["message"]
     assert "secret-input" not in response.text
     assert set(payload["detail"][0]) <= {"type", "loc", "msg"}
+
+
+def test_coded_http_errors_preserve_detail_and_use_stable_error_code():
+    with TestClient(_test_app()) as client:
+        response = client.get("/version-conflict")
+
+    payload = response.json()
+    assert response.status_code == 409
+    assert payload["detail"] == "The resource changed after it was loaded."
+    assert payload["error"]["code"] == "resource_version_conflict"
+    assert payload["error"]["message"] == payload["detail"]
+    assert payload["error"]["context"] == {
+        "current_version": 7,
+        "reload_required": True,
+    }
 
 
 def test_unexpected_errors_return_safe_reference_without_exception_details():

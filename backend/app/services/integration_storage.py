@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import get_args
 
 from pydantic import EmailStr, TypeAdapter
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -30,6 +30,7 @@ from app.services.integration_registry_constants import SMTP_CONFIG_SCHEMA_VERSI
 from app.services.secret_storage import decrypt_json, encrypt_json
 
 SMTP_SYSTEM_KEY = "smtp.default"
+SMTP_CONFIGURATION_ADVISORY_LOCK_ID = 6072351299479551568
 SMTP_INTEGRATION_TYPE = "smtp"
 INTEGRATION_DIRECTION_DESTINATION = "destination"
 INTEGRATION_HEALTH_UNKNOWN = "unknown"
@@ -68,7 +69,11 @@ class SMTPSecretError(ValueError):
 
 
 def get_or_create_smtp_integration(db: Session) -> IntegrationInstance:
-    instance = db.scalar(select(IntegrationInstance).where(IntegrationInstance.system_key == SMTP_SYSTEM_KEY))
+    instance = db.scalar(
+        select(IntegrationInstance).where(
+            IntegrationInstance.system_key == SMTP_SYSTEM_KEY
+        )
+    )
     if instance is not None:
         return instance
 
@@ -88,7 +93,11 @@ def get_or_create_smtp_integration(db: Session) -> IntegrationInstance:
             db.add(instance)
             db.flush()
     except IntegrityError:
-        existing = db.scalar(select(IntegrationInstance).where(IntegrationInstance.system_key == SMTP_SYSTEM_KEY))
+        existing = db.scalar(
+            select(IntegrationInstance).where(
+                IntegrationInstance.system_key == SMTP_SYSTEM_KEY
+            )
+        )
         if existing is None:
             raise
         return existing
@@ -96,7 +105,11 @@ def get_or_create_smtp_integration(db: Session) -> IntegrationInstance:
 
 
 def get_or_create_persisted_smtp_integration(db: Session) -> IntegrationInstance:
-    instance = db.scalar(select(IntegrationInstance).where(IntegrationInstance.system_key == SMTP_SYSTEM_KEY))
+    instance = db.scalar(
+        select(IntegrationInstance).where(
+            IntegrationInstance.system_key == SMTP_SYSTEM_KEY
+        )
+    )
     if instance is not None:
         return instance
     instance = get_or_create_smtp_integration(db)
@@ -106,6 +119,7 @@ def get_or_create_persisted_smtp_integration(db: Session) -> IntegrationInstance
 
 
 def lock_smtp_configuration(db: Session) -> IntegrationInstance:
+    acquire_smtp_configuration_write_lock(db)
     instance = get_or_create_smtp_integration(db)
     db.flush()
     locked = db.scalar(
@@ -117,14 +131,41 @@ def lock_smtp_configuration(db: Session) -> IntegrationInstance:
     return locked or instance
 
 
+def acquire_smtp_configuration_write_lock(db: Session) -> None:
+    bind = db.get_bind()
+    if bind is not None and bind.dialect.name == "postgresql":
+        db.scalar(
+            select(func.pg_advisory_xact_lock(SMTP_CONFIGURATION_ADVISORY_LOCK_ID))
+        )
+
+
+def acquire_smtp_configuration_read_lock(db: Session) -> None:
+    """Prevent SMTP configuration commits while outbound I/O is in progress."""
+
+    bind = db.get_bind()
+    if bind is not None and bind.dialect.name == "postgresql":
+        db.scalar(
+            select(
+                func.pg_advisory_xact_lock_shared(SMTP_CONFIGURATION_ADVISORY_LOCK_ID)
+            )
+        )
+
+
 def list_integration_summaries(db: Session) -> list[IntegrationSummaryResponse]:
-    instances = db.scalars(select(IntegrationInstance).order_by(IntegrationInstance.name.asc())).all()
+    instances = db.scalars(
+        select(IntegrationInstance).order_by(IntegrationInstance.name.asc())
+    ).all()
     summaries: list[IntegrationSummaryResponse] = []
     for instance in instances:
-        if instance.integration_type == SMTP_INTEGRATION_TYPE and not smtp_instance_is_archived(instance):
+        if (
+            instance.integration_type == SMTP_INTEGRATION_TYPE
+            and not smtp_instance_is_archived(instance)
+        ):
             try:
                 credential_source = get_smtp_credential_source(db, instance)
-                smtp = smtp_settings_response_from_model(instance, credential_source=credential_source)
+                smtp = smtp_settings_response_from_model(
+                    instance, credential_source=credential_source
+                )
             except SMTPSecretError as exc:
                 smtp = smtp_settings_response_from_model(instance).model_copy(
                     update={
@@ -151,7 +192,9 @@ def list_integration_summaries(db: Session) -> list[IntegrationSummaryResponse]:
     return summaries
 
 
-def apply_smtp_settings_update(instance: IntegrationInstance, payload: SMTPSettingsUpdate) -> None:
+def apply_smtp_settings_update(
+    instance: IntegrationInstance, payload: SMTPSettingsUpdate
+) -> None:
     instance.integration_type = SMTP_INTEGRATION_TYPE
     instance.direction = INTEGRATION_DIRECTION_DESTINATION
     instance.enabled = payload.enabled
@@ -180,7 +223,9 @@ def apply_smtp_hook_settings_update(
 ) -> None:
     apply_smtp_settings_update(instance, payload)
     instance.name = name
-    instance.credential_source_integration_id = credential_source.id if credential_source is not None else None
+    instance.credential_source_integration_id = (
+        credential_source.id if credential_source is not None else None
+    )
     if credential_source is not None:
         config = dict(instance.config_json)
         config["host"] = None
@@ -189,14 +234,18 @@ def apply_smtp_hook_settings_update(
         instance.secret_json = None
 
 
-def sync_smtp_subscriptions(db: Session, instance: IntegrationInstance) -> list[IntegrationSubscription]:
+def sync_smtp_subscriptions(
+    db: Session, instance: IntegrationInstance
+) -> list[IntegrationSubscription]:
     """Synchronize SMTP routing rows while retaining disabled rows for delivery history."""
     config = _normalize_smtp_config(instance.config_json)
     configured_event_types = set(config["event_types"])
     subscriptions = {
         subscription.event_type: subscription
         for subscription in db.scalars(
-            select(IntegrationSubscription).where(IntegrationSubscription.integration_id == instance.id)
+            select(IntegrationSubscription).where(
+                IntegrationSubscription.integration_id == instance.id
+            )
         ).all()
     }
     active_subscriptions: list[IntegrationSubscription] = []
@@ -218,7 +267,9 @@ def sync_smtp_subscriptions(db: Session, instance: IntegrationInstance) -> list[
         }
         subscription.transform_json = {}
         db.flush()
-        _sync_smtp_subscription_feeds(db, subscription=subscription, feed_ids=set(config["feed_ids"]))
+        _sync_smtp_subscription_feeds(
+            db, subscription=subscription, feed_ids=set(config["feed_ids"])
+        )
         active_subscriptions.append(subscription)
 
     for event_type, subscription in subscriptions.items():
@@ -260,7 +311,9 @@ def smtp_settings_response_from_model(
         port=credential_config["port"],
         security=credential_config["security"],
         username=credential_config["username"],
-        password_configured=bool(secrets.get("password")) if not secret_error else False,
+        password_configured=bool(secrets.get("password"))
+        if not secret_error
+        else False,
         has_unreadable_secret=bool(secret_error),
         from_email=config["from_email"],
         from_name=config["from_name"],
@@ -343,33 +396,54 @@ def build_active_smtp_settings(
     )
 
 
-def read_smtp_secret_config(instance: IntegrationInstance) -> tuple[dict[str, str], str | None]:
+def read_smtp_secret_config(
+    instance: IntegrationInstance,
+) -> tuple[dict[str, str], str | None]:
     if not instance.secret_json:
         return {}, None
     try:
         decrypted = decrypt_json(instance.secret_json) or {}
     except ValueError:
-        return {}, "Stored SMTP secret cannot be decrypted. Enter a new password or clear the saved password."
+        return (
+            {},
+            "Stored SMTP secret cannot be decrypted. Enter a new password or clear the saved password.",
+        )
     if not isinstance(decrypted, dict):
-        return {}, "Stored SMTP secret has an invalid format. Enter a new password or clear the saved password."
+        return (
+            {},
+            "Stored SMTP secret has an invalid format. Enter a new password or clear the saved password.",
+        )
 
     password = decrypted.get("password")
     if password is None:
         return {}, None
     if not isinstance(password, str):
-        return {}, "Stored SMTP password has an invalid format. Enter a new password or clear the saved password."
+        return (
+            {},
+            "Stored SMTP password has an invalid format. Enter a new password or clear the saved password.",
+        )
     return {"password": password}, None
 
 
-def get_smtp_credential_source(db: Session, instance: IntegrationInstance) -> IntegrationInstance | None:
+def get_smtp_credential_source(
+    db: Session, instance: IntegrationInstance
+) -> IntegrationInstance | None:
     source_id = instance.credential_source_integration_id
     if source_id is None:
         return None
     source = db.get(IntegrationInstance, source_id)
-    if source is None or source.integration_type != SMTP_INTEGRATION_TYPE or smtp_instance_is_archived(source):
-        raise SMTPSecretError("The shared SMTP credential source is no longer available. Choose another source or enter new credentials.")
+    if (
+        source is None
+        or source.integration_type != SMTP_INTEGRATION_TYPE
+        or smtp_instance_is_archived(source)
+    ):
+        raise SMTPSecretError(
+            "The shared SMTP credential source is no longer available. Choose another source or enter new credentials."
+        )
     if source.credential_source_integration_id is not None:
-        raise SMTPSecretError("The shared SMTP credential source is invalid because credential chains are not supported.")
+        raise SMTPSecretError(
+            "The shared SMTP credential source is invalid because credential chains are not supported."
+        )
     return source
 
 
@@ -396,9 +470,13 @@ def record_smtp_test_result(
         error_message=result.error,
         metadata_json={
             "action": result.action,
-            "recipient_email": str(result.recipient_email) if result.recipient_email else None,
+            "recipient_email": str(result.recipient_email)
+            if result.recipient_email
+            else None,
             "used_unsaved_settings": used_unsaved_settings,
-            "server_message": result.server_message[:4000] if result.server_message else None,
+            "server_message": result.server_message[:4000]
+            if result.server_message
+            else None,
         },
     )
     db.add(run)
@@ -420,7 +498,9 @@ def record_smtp_test_result(
     return run
 
 
-def _resolve_override_password(instance: IntegrationInstance, payload: SMTPSettingsUpdate) -> str | None:
+def _resolve_override_password(
+    instance: IntegrationInstance, payload: SMTPSettingsUpdate
+) -> str | None:
     if payload.password is not None:
         return payload.password
     if payload.clear_password:
@@ -437,7 +517,9 @@ def _smtp_config_from_payload(payload: SMTPSettingsUpdate) -> dict:
         "port": int(payload.port),
         "security": payload.security,
         "username": _normalize_optional_text(payload.username),
-        "from_email": str(payload.from_email) if payload.from_email is not None else None,
+        "from_email": str(payload.from_email)
+        if payload.from_email is not None
+        else None,
         "from_name": _normalize_optional_text(payload.from_name),
         "to_emails": [str(email) for email in payload.to_emails],
         "timeout_seconds": int(payload.timeout_seconds),
@@ -454,7 +536,9 @@ def _normalize_smtp_config(value) -> dict:
     defaults = _default_smtp_config()
     normalized = {
         "host": _normalize_optional_text(config.get("host")),
-        "port": _coerce_int(config.get("port"), default=defaults["port"], minimum=1, maximum=65535),
+        "port": _coerce_int(
+            config.get("port"), default=defaults["port"], minimum=1, maximum=65535
+        ),
         "security": _normalize_security(config.get("security")),
         "username": _normalize_optional_text(config.get("username")),
         "from_email": _normalize_optional_text(config.get("from_email")),
@@ -466,14 +550,18 @@ def _normalize_smtp_config(value) -> dict:
             minimum=1,
             maximum=60,
         ),
-        "event_types": _normalize_event_types(config.get("event_types"), default=defaults["event_types"]),
+        "event_types": _normalize_event_types(
+            config.get("event_types"), default=defaults["event_types"]
+        ),
         "feed_scope": _normalize_feed_scope(config.get("feed_scope")),
         "feed_ids": _normalize_feed_ids(config.get("feed_ids")),
         "subject_template": _normalize_required_text(
             config.get("subject_template"),
             default=defaults["subject_template"],
         ),
-        "html_template": _normalize_required_text(config.get("html_template"), default=defaults["html_template"]),
+        "html_template": _normalize_required_text(
+            config.get("html_template"), default=defaults["html_template"]
+        ),
     }
     if normalized["feed_scope"] == "all":
         normalized["feed_ids"] = []
@@ -537,7 +625,11 @@ def _sync_smtp_subscription_feeds(
         if feed_id not in valid_feed_ids:
             db.delete(row)
     for feed_id in valid_feed_ids - set(existing):
-        db.add(IntegrationSubscriptionFeed(subscription_id=subscription.id, feed_id=feed_id))
+        db.add(
+            IntegrationSubscriptionFeed(
+                subscription_id=subscription.id, feed_id=feed_id
+            )
+        )
 
 
 def _normalize_optional_text(value) -> str | None:
@@ -561,7 +653,11 @@ def _normalize_event_types(value, *, default: list[str]) -> list[str]:
     normalized: list[str] = []
     seen: set[str] = set()
     for candidate in candidates:
-        if not isinstance(candidate, str) or candidate not in VALID_SMTP_EVENT_TYPES or candidate in seen:
+        if (
+            not isinstance(candidate, str)
+            or candidate not in VALID_SMTP_EVENT_TYPES
+            or candidate in seen
+        ):
             continue
         seen.add(candidate)
         normalized.append(candidate)
@@ -581,7 +677,11 @@ def _normalize_feed_ids(value) -> list[uuid.UUID]:
     seen: set[uuid.UUID] = set()
     for candidate in candidates:
         try:
-            feed_id = candidate if isinstance(candidate, uuid.UUID) else uuid.UUID(str(candidate))
+            feed_id = (
+                candidate
+                if isinstance(candidate, uuid.UUID)
+                else uuid.UUID(str(candidate))
+            )
         except (TypeError, ValueError):
             continue
         if feed_id in seen:

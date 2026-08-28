@@ -1,9 +1,16 @@
-import uuid
+import smtplib
 import socket
+import ssl
+import time
+import uuid
 from contextlib import contextmanager
+from dataclasses import replace
 from datetime import datetime, timezone
 from email.message import EmailMessage
+from threading import Event, Thread, enumerate as enumerate_threads
+from types import SimpleNamespace
 
+import pytest
 from sqlalchemy import select
 
 from app.models.alert_interest import AlertInterest
@@ -23,10 +30,17 @@ from app.services.integration_storage import (
 )
 from app.services.smtp_integration import (
     SMTP_DELIVERY_AUDIT_ACTION,
+    _fenced_smtp_io_timeout_seconds,
     dispatch_smtp_notification,
     send_smtp_notification,
     smtp_notification_event_enabled,
     test_smtp_integration as run_smtp_integration_test,
+)
+from app.services.smtp_deadlines import remaining_smtp_operation_seconds
+from app.services.smtp_transport import (
+    SMTP_DNS_RESOLVER_CONCURRENCY,
+    SMTPStartTLSNotSupportedError,
+    _resolve_smtp_addresses,
 )
 from app.tasks.feed_tasks import (
     dispatch_daily_digest_notification_webhooks,
@@ -286,6 +300,566 @@ def test_smtp_timeout_after_send_starts_records_unknown_outcome(monkeypatch):
     assert result.unknown_recipients == ("analyst@example.com", "soc@example.com")
 
 
+def test_smtp_data_rejection_records_definitive_rejected_outcome(monkeypatch):
+    class _DataRejectedSMTP(FakeSMTP):
+        def send_message(self, message):
+            self.sent_messages.append(message)
+            raise smtplib.SMTPDataError(554, b"message rejected")
+
+    active = build_active_smtp_settings(_configured_smtp_instance())
+    monkeypatch.setattr(
+        "app.services.smtp_integration._open_smtp",
+        lambda _active: _DataRejectedSMTP([]),
+    )
+
+    result = send_smtp_notification(active, event_type="rss_item_new")
+
+    assert result.success is False
+    assert result.error_code == "smtp_rejected"
+    assert result.delivery_outcome == "rejected"
+    assert result.refused_recipients == tuple(active.to_emails)
+    assert result.unknown_recipients == ()
+
+
+def test_missing_starttls_is_a_precise_terminal_capability_error(monkeypatch):
+    class _MissingStartTLSSMTP(FakeSMTP):
+        def starttls(self, context=None):
+            _ = context
+            raise SMTPStartTLSNotSupportedError(
+                "STARTTLS extension not supported by server."
+            )
+
+    active = replace(
+        build_active_smtp_settings(_configured_smtp_instance()),
+        security="starttls",
+    )
+    monkeypatch.setattr(
+        "app.services.smtp_integration._open_smtp",
+        lambda _active: _MissingStartTLSSMTP([]),
+    )
+
+    delivery_result = send_smtp_notification(active, event_type="rss_item_new")
+    test_result = run_smtp_integration_test(active, recipient_email=None)
+
+    assert delivery_result.success is False
+    assert delivery_result.error_code == "starttls_not_supported"
+    assert delivery_result.delivery_outcome == "not_attempted"
+    assert "STARTTLS" in (delivery_result.error or "")
+    assert test_result.success is False
+    assert test_result.error_code == "starttls_not_supported"
+    assert "STARTTLS" in (test_result.error or "")
+
+
+@pytest.mark.parametrize("failure_call", [1, 2])
+def test_transient_ehlo_failure_before_or_after_starttls_is_retryable(
+    monkeypatch,
+    failure_call,
+):
+    class _TransientEHLOSMTP(FakeSMTP):
+        def __init__(self):
+            super().__init__([])
+            self.ehlo_calls = 0
+
+        def ehlo(self):
+            self.ehlo_calls += 1
+            if self.ehlo_calls == failure_call:
+                return (451, b"temporary directory failure")
+            return super().ehlo()
+
+    active = replace(
+        build_active_smtp_settings(_configured_smtp_instance()),
+        security="starttls",
+    )
+    monkeypatch.setattr(
+        "app.services.smtp_integration._open_smtp",
+        lambda _active: _TransientEHLOSMTP(),
+    )
+
+    delivery_result = send_smtp_notification(active, event_type="rss_item_new")
+    test_result = run_smtp_integration_test(active, recipient_email=None)
+
+    assert delivery_result.success is False
+    assert delivery_result.error_code == "transient_smtp_error"
+    assert delivery_result.delivery_outcome == "not_attempted"
+    assert test_result.success is False
+    assert test_result.error_code == "transient_smtp_error"
+
+
+@pytest.mark.parametrize(
+    "smtp_error",
+    [
+        smtplib.SMTPAuthenticationError(454, b"temporary auth failure"),
+        smtplib.SMTPRecipientsRefused(
+            {"analyst@example.com": (451, b"temporary mailbox failure")}
+        ),
+        smtplib.SMTPSenderRefused(
+            450,
+            b"temporary sender failure",
+            "threatlens@example.com",
+        ),
+    ],
+)
+def test_temporary_pre_data_smtp_refusals_are_retryable(monkeypatch, smtp_error):
+    class _FailingSMTP(FakeSMTP):
+        def login(self, username, password):
+            _ = username, password
+            if isinstance(smtp_error, smtplib.SMTPAuthenticationError):
+                raise smtp_error
+            return super().login(username, password)
+
+        def send_message(self, message):
+            if not isinstance(smtp_error, smtplib.SMTPAuthenticationError):
+                raise smtp_error
+            return super().send_message(message)
+
+    active = replace(
+        build_active_smtp_settings(_configured_smtp_instance()),
+        username="relay-user",
+        password="relay-password",
+    )
+    monkeypatch.setattr(
+        "app.services.smtp_integration._open_smtp",
+        lambda _active: _FailingSMTP([]),
+    )
+
+    delivery_result = send_smtp_notification(active, event_type="rss_item_new")
+    test_result = run_smtp_integration_test(
+        active,
+        recipient_email="analyst@example.com",
+    )
+
+    assert delivery_result.success is False
+    assert delivery_result.error_code == "transient_smtp_error"
+    assert delivery_result.delivery_outcome in {"not_attempted", "rejected"}
+    assert test_result.success is False
+    assert test_result.error_code == "transient_smtp_error"
+
+
+@pytest.mark.parametrize(
+    ("response_code", "expected_error_code"),
+    [(421, "transient_smtp_error"), (554, "connect_rejected")],
+)
+def test_smtp_connection_banner_uses_reply_classification(
+    monkeypatch,
+    response_code,
+    expected_error_code,
+):
+    def _raise_connect_error(_active):
+        raise smtplib.SMTPConnectError(response_code, b"connection rejected")
+
+    active = build_active_smtp_settings(_configured_smtp_instance())
+    monkeypatch.setattr(
+        "app.services.smtp_integration._open_smtp",
+        _raise_connect_error,
+    )
+
+    delivery_result = send_smtp_notification(active, event_type="rss_item_new")
+    test_result = run_smtp_integration_test(active, recipient_email=None)
+
+    assert delivery_result.success is False
+    assert delivery_result.error_code == expected_error_code
+    assert delivery_result.delivery_outcome == "not_attempted"
+    assert test_result.success is False
+    assert test_result.error_code == expected_error_code
+
+
+def test_smtp_tls_failure_after_send_starts_records_unknown_outcome(monkeypatch):
+    class _TLSFailureSMTP(FakeSMTP):
+        def send_message(self, message):
+            self.sent_messages.append(message)
+            raise ssl.SSLError("TLS record failed after DATA began")
+
+        def close(self):
+            return None
+
+    sent_messages: list[EmailMessage] = []
+    marker_calls: list[bool] = []
+    active = build_active_smtp_settings(_configured_smtp_instance())
+    monkeypatch.setattr(
+        "app.services.smtp_integration._open_smtp",
+        lambda _settings: _TLSFailureSMTP(sent_messages),
+    )
+
+    result = send_smtp_notification(
+        active,
+        event_type="rss_item_new",
+        on_external_side_effect_possible=lambda: marker_calls.append(True),
+    )
+
+    assert marker_calls == [True]
+    assert result.success is False
+    assert result.error_code == "tls_error"
+    assert result.delivery_outcome == "unknown"
+    assert result.unknown_recipients == tuple(active.to_emails)
+
+
+def test_fenced_smtp_timeout_is_bounded_below_database_statement_timeout(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "app.services.smtp_deadlines.get_settings",
+        lambda: SimpleNamespace(database_statement_timeout_ms=9_000),
+    )
+
+    assert _fenced_smtp_io_timeout_seconds(60) == 6
+    assert _fenced_smtp_io_timeout_seconds(4) == 4
+    monkeypatch.setattr(
+        "app.services.smtp_deadlines.get_settings",
+        lambda: SimpleNamespace(database_statement_timeout_ms=1_000),
+    )
+    assert 0 < _fenced_smtp_io_timeout_seconds(60) < 1
+    monkeypatch.setattr(
+        "app.services.smtp_deadlines.get_settings",
+        lambda: SimpleNamespace(database_statement_timeout_ms=10),
+    )
+    assert 0 < _fenced_smtp_io_timeout_seconds(60) < 0.01
+    monkeypatch.setattr(
+        "app.services.smtp_deadlines.get_settings",
+        lambda: SimpleNamespace(database_statement_timeout_ms=1),
+    )
+    assert 0 < _fenced_smtp_io_timeout_seconds(60) < 0.001
+
+
+def test_sub_millisecond_smtp_deadline_preserves_database_margin(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.smtp_deadlines.time.perf_counter",
+        lambda: 100.0,
+    )
+
+    remaining = remaining_smtp_operation_seconds(100.000_5)
+
+    assert 0 < remaining < 0.001
+
+
+def test_smtp_commands_share_one_decreasing_operation_deadline(monkeypatch):
+    class _Clock:
+        current = 100.0
+
+        def __call__(self):
+            self.current += 0.2
+            return self.current
+
+    class _Socket:
+        def __init__(self):
+            self.timeouts: list[float] = []
+
+        def settimeout(self, timeout):
+            self.timeouts.append(timeout)
+
+    class _DeadlineSMTP(FakeSMTP):
+        def __init__(self, sent_messages):
+            super().__init__(sent_messages)
+            self.sock = _Socket()
+            self.closed = False
+
+        def close(self):
+            self.closed = True
+
+    sent_messages: list[EmailMessage] = []
+    opened_with: list[float] = []
+    server = _DeadlineSMTP(sent_messages)
+    clock = _Clock()
+    active = replace(
+        build_active_smtp_settings(_configured_smtp_instance()), timeout_seconds=5
+    )
+
+    def _open(settings):
+        opened_with.append(float(settings.timeout_seconds))
+        return server
+
+    monkeypatch.setattr("app.services.smtp_integration.time.perf_counter", clock)
+    monkeypatch.setattr("app.services.smtp_deadlines.time.perf_counter", clock)
+    monkeypatch.setattr("app.services.smtp_integration._open_smtp", _open)
+
+    result = send_smtp_notification(active, event_type="rss_item_new")
+
+    assert result.success is True
+    assert len(sent_messages) == 1
+    assert 0 < opened_with[0] < active.timeout_seconds
+    assert len(server.sock.timeouts) == 2
+    assert server.sock.timeouts == sorted(server.sock.timeouts, reverse=True)
+    assert all(0 < timeout < opened_with[0] for timeout in server.sock.timeouts)
+    assert server.closed is True
+
+
+def test_smtp_total_deadline_interrupts_one_blocking_command(monkeypatch):
+    class _BlockingSMTP(FakeSMTP):
+        def send_message(self, message):
+            self.sent_messages.append(message)
+            time.sleep(1)
+            return {}
+
+        def close(self):
+            return None
+
+    sent_messages: list[EmailMessage] = []
+    active = replace(
+        build_active_smtp_settings(_configured_smtp_instance()),
+        timeout_seconds=0.1,
+    )
+    monkeypatch.setattr(
+        "app.services.smtp_integration._open_smtp",
+        lambda _settings: _BlockingSMTP(sent_messages),
+    )
+    started_at = time.monotonic()
+
+    result = send_smtp_notification(active, event_type="rss_item_new")
+
+    elapsed = time.monotonic() - started_at
+    assert elapsed < 0.5
+    assert result.success is False
+    assert result.error_code == "timeout"
+    assert result.delivery_outcome == "unknown"
+    assert len(sent_messages) == 1
+
+
+def test_smtp_total_deadline_interrupts_slow_banner_in_worker_thread(monkeypatch):
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+    port = listener.getsockname()[1]
+
+    def _slow_server() -> None:
+        try:
+            connection, _address = listener.accept()
+            with connection:
+                for byte in b"220 slow.example ESMTP ready\r\n":
+                    connection.sendall(bytes([byte]))
+                    time.sleep(0.04)
+        except OSError:
+            pass
+        finally:
+            listener.close()
+
+    server_thread = Thread(target=_slow_server, daemon=True)
+    server_thread.start()
+    getaddrinfo_calls = 0
+    original_getaddrinfo = socket.getaddrinfo
+
+    def _counted_getaddrinfo(*args, **kwargs):
+        nonlocal getaddrinfo_calls
+        getaddrinfo_calls += 1
+        return original_getaddrinfo(*args, **kwargs)
+
+    monkeypatch.setattr(
+        "app.services.smtp_transport.socket.getaddrinfo",
+        _counted_getaddrinfo,
+    )
+    active = replace(
+        build_active_smtp_settings(_configured_smtp_instance()),
+        host="127.0.0.1",
+        port=port,
+        timeout_seconds=0.1,
+    )
+    results = []
+    started_at = time.monotonic()
+    worker = Thread(
+        target=lambda: results.append(
+            send_smtp_notification(active, event_type="rss_item_new")
+        )
+    )
+    worker.start()
+    worker.join(timeout=1)
+    elapsed = time.monotonic() - started_at
+    server_thread.join(timeout=1)
+
+    assert worker.is_alive() is False
+    assert elapsed < 0.5
+    assert len(results) == 1
+    assert results[0].success is False
+    assert results[0].error_code == "timeout"
+    assert results[0].delivery_outcome == "not_attempted"
+    assert getaddrinfo_calls == 1
+
+
+def test_smtp_test_deadline_classifies_watchdog_closed_command_as_timeout():
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+    port = listener.getsockname()[1]
+
+    def _stalled_command_server() -> None:
+        try:
+            connection, _address = listener.accept()
+            with connection:
+                connection.sendall(b"220 test.example ESMTP ready\r\n")
+                connection.recv(4096)
+                time.sleep(1)
+        except OSError:
+            pass
+        finally:
+            listener.close()
+
+    server_thread = Thread(target=_stalled_command_server, daemon=True)
+    server_thread.start()
+    active = replace(
+        build_active_smtp_settings(_configured_smtp_instance()),
+        host="127.0.0.1",
+        port=port,
+        security="none",
+        timeout_seconds=0.1,
+    )
+    results = []
+    started_at = time.monotonic()
+    worker = Thread(
+        target=lambda: results.append(
+            run_smtp_integration_test(active, recipient_email=None)
+        )
+    )
+    worker.start()
+    worker.join(timeout=1)
+    elapsed = time.monotonic() - started_at
+    server_thread.join(timeout=1.5)
+
+    assert worker.is_alive() is False
+    assert elapsed < 0.5
+    assert len(results) == 1
+    assert results[0].success is False
+    assert results[0].error_code == "timeout"
+    assert results[0].error == "SMTP test timed out after 0.1s."
+
+
+def test_smtp_dns_timeout_bounds_outstanding_resolver_threads(monkeypatch):
+    release_resolvers = Event()
+    started_resolvers: list[bool] = []
+
+    def _blocked_getaddrinfo(*_args, **_kwargs):
+        started_resolvers.append(True)
+        release_resolvers.wait(timeout=2)
+        return []
+
+    monkeypatch.setattr(
+        "app.services.smtp_transport.socket.getaddrinfo",
+        _blocked_getaddrinfo,
+    )
+    try:
+        for _ in range(SMTP_DNS_RESOLVER_CONCURRENCY + 8):
+            with pytest.raises(TimeoutError):
+                _resolve_smtp_addresses(
+                    "blocked.example",
+                    25,
+                    operation_deadline=time.perf_counter() + 0.01,
+                )
+        resolver_threads = [
+            thread
+            for thread in enumerate_threads()
+            if thread.name == "smtp-dns-resolution" and thread.is_alive()
+        ]
+        assert len(started_resolvers) == SMTP_DNS_RESOLVER_CONCURRENCY
+        assert len(resolver_threads) <= SMTP_DNS_RESOLVER_CONCURRENCY
+    finally:
+        release_resolvers.set()
+
+    deadline = time.monotonic() + 1
+    while time.monotonic() < deadline and any(
+        thread.name == "smtp-dns-resolution" and thread.is_alive()
+        for thread in enumerate_threads()
+    ):
+        time.sleep(0.01)
+    assert not any(
+        thread.name == "smtp-dns-resolution" and thread.is_alive()
+        for thread in enumerate_threads()
+    )
+
+
+def test_smtp_dns_capacity_waits_for_a_healthy_resolver_slot(monkeypatch):
+    def _bounded_getaddrinfo(*_args, **_kwargs):
+        time.sleep(0.08)
+        return [
+            (
+                socket.AF_INET,
+                socket.SOCK_STREAM,
+                socket.IPPROTO_TCP,
+                "",
+                ("127.0.0.1", 25),
+            )
+        ]
+
+    monkeypatch.setattr(
+        "app.services.smtp_transport.socket.getaddrinfo",
+        _bounded_getaddrinfo,
+    )
+    results: list[tuple] = []
+    errors: list[Exception] = []
+
+    def _resolve() -> None:
+        try:
+            results.append(
+                _resolve_smtp_addresses(
+                    "healthy.example",
+                    25,
+                    operation_deadline=time.perf_counter() + 1,
+                )
+            )
+        except Exception as exc:
+            errors.append(exc)
+
+    workers = [Thread(target=_resolve) for _ in range(5)]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join(timeout=1)
+
+    assert all(worker.is_alive() is False for worker in workers)
+    assert errors == []
+    assert len(results) == 5
+
+
+@pytest.mark.parametrize("security", ["ssl_tls", "starttls"])
+def test_smtp_tls_handshake_obeys_deadline_in_worker_thread(security):
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+    port = listener.getsockname()[1]
+
+    def _stalled_tls_server() -> None:
+        try:
+            connection, _address = listener.accept()
+            with connection:
+                if security == "starttls":
+                    connection.sendall(b"220 test.example ESMTP ready\r\n")
+                    connection.recv(4096)
+                    connection.sendall(b"250-test.example\r\n250 STARTTLS\r\n")
+                    connection.recv(4096)
+                    connection.sendall(b"220 Ready to start TLS\r\n")
+                time.sleep(1)
+        except OSError:
+            pass
+        finally:
+            listener.close()
+
+    server_thread = Thread(target=_stalled_tls_server, daemon=True)
+    server_thread.start()
+    active = replace(
+        build_active_smtp_settings(_configured_smtp_instance()),
+        host="127.0.0.1",
+        port=port,
+        security=security,
+        timeout_seconds=0.1,
+    )
+    results = []
+    started_at = time.monotonic()
+    worker = Thread(
+        target=lambda: results.append(
+            send_smtp_notification(active, event_type="rss_item_new")
+        )
+    )
+    worker.start()
+    worker.join(timeout=1)
+    elapsed = time.monotonic() - started_at
+    server_thread.join(timeout=1.5)
+
+    assert worker.is_alive() is False
+    assert elapsed < 0.5
+    assert len(results) == 1
+    assert results[0].success is False
+    assert results[0].error_code == "timeout"
+    assert results[0].delivery_outcome == "not_attempted"
+
+
 def test_dispatch_smtp_notification_records_message_build_failures(
     db_session, monkeypatch
 ):
@@ -372,6 +946,46 @@ def test_smtp_test_rejects_invalid_message_headers_before_connect(
     assert result.error_code == "validation_error"
     assert result.error is not None
     assert "Subject" in result.error
+
+
+@pytest.mark.parametrize(
+    ("smtp_error", "expected_code"),
+    [
+        (
+            smtplib.SMTPSenderRefused(
+                550,
+                b"sender rejected",
+                "threatlens@example.com",
+            ),
+            "sender_rejected",
+        ),
+        (smtplib.SMTPDataError(554, b"message rejected"), "smtp_rejected"),
+    ],
+)
+def test_smtp_test_returns_structured_sender_and_data_errors(
+    monkeypatch,
+    smtp_error,
+    expected_code,
+):
+    class _FailingSMTP(FakeSMTP):
+        def send_message(self, message):
+            self.sent_messages.append(message)
+            raise smtp_error
+
+    monkeypatch.setattr(
+        "app.services.smtp_integration._open_smtp",
+        lambda _settings: _FailingSMTP([]),
+    )
+    active = build_active_smtp_settings(_configured_smtp_instance())
+
+    result = run_smtp_integration_test(
+        active,
+        recipient_email="analyst@example.com",
+    )
+
+    assert result.success is False
+    assert result.error_code == expected_code
+    assert result.server_message is not None
 
 
 def test_dispatch_smtp_notification_dedupes_unreadable_secret_failures(db_session):

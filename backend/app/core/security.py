@@ -77,7 +77,10 @@ def verify_password_and_update(
     if hashed_password.startswith(LEGACY_BCRYPT_SHA256_PREFIX):
         verified = _verify_legacy_bcrypt_sha256(plain_password, hashed_password)
         return verified, get_password_hash(plain_password) if verified else None
-    if _is_legacy_bcrypt_hash(hashed_password) and len(plain_password.encode("utf-8")) > BCRYPT_MAX_PASSWORD_BYTES:
+    if (
+        _is_legacy_bcrypt_hash(hashed_password)
+        and len(plain_password.encode("utf-8")) > BCRYPT_MAX_PASSWORD_BYTES
+    ):
         return False, None
     try:
         return _password_hash.verify_and_update(plain_password, hashed_password)
@@ -124,7 +127,9 @@ def _verify_legacy_bcrypt_sha256(
 
 def create_access_token(subject: str, *, token_version: int = 0) -> str:
     settings = get_settings()
-    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.jwt_expires_minutes)
+    expire = datetime.now(timezone.utc) + timedelta(
+        minutes=settings.jwt_expires_minutes
+    )
     payload: dict[str, Any] = {"sub": subject, "exp": expire, "ver": int(token_version)}
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
@@ -137,7 +142,9 @@ def access_token_ttl_seconds() -> int:
 def decode_access_token_claims(token: str) -> dict[str, Any] | None:
     settings = get_settings()
     try:
-        payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+        payload = jwt.decode(
+            token, settings.jwt_secret, algorithms=[settings.jwt_algorithm]
+        )
     except InvalidTokenError:
         return None
     if not isinstance(payload, dict):
@@ -180,9 +187,17 @@ def generate_csrf_token() -> str:
     return secrets.token_urlsafe(32)
 
 
-def set_auth_cookies(response: Response, access_token: str, csrf_token: str) -> None:
+def set_auth_cookies(
+    response: Response,
+    access_token: str,
+    csrf_token: str,
+    *,
+    max_age_seconds: int | None = None,
+) -> None:
     settings = get_settings()
-    max_age = access_token_ttl_seconds()
+    max_age = (
+        max_age_seconds if max_age_seconds is not None else access_token_ttl_seconds()
+    )
     cookie_common = {
         "max_age": max_age,
         "domain": settings.auth_cookie_domain,
@@ -213,3 +228,26 @@ def clear_auth_cookies(response: Response) -> None:
     }
     response.delete_cookie(settings.auth_cookie_name, **cookie_common)
     response.delete_cookie(settings.auth_csrf_cookie_name, **cookie_common)
+
+
+def set_mfa_challenge_cookie(response: Response, challenge_token: str) -> None:
+    settings = get_settings()
+    response.set_cookie(
+        key=settings.auth_mfa_challenge_cookie_name,
+        value=challenge_token,
+        max_age=settings.auth_mfa_challenge_ttl_seconds,
+        domain=settings.auth_cookie_domain,
+        path=settings.auth_cookie_path,
+        secure=settings.auth_cookie_secure,
+        httponly=True,
+        samesite=settings.auth_cookie_samesite,
+    )
+
+
+def clear_mfa_challenge_cookie(response: Response) -> None:
+    settings = get_settings()
+    response.delete_cookie(
+        settings.auth_mfa_challenge_cookie_name,
+        domain=settings.auth_cookie_domain,
+        path=settings.auth_cookie_path,
+    )
