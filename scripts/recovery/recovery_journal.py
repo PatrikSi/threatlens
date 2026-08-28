@@ -85,6 +85,7 @@ def _make_directories_without_links(path: Path) -> None:
             metadata = current.lstat()
         except FileNotFoundError:
             current.mkdir(mode=0o700)
+            _fsync_directory(current.parent)
             metadata = current.lstat()
         if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
             _fail(f"Journal path component is not a real directory: {current}")

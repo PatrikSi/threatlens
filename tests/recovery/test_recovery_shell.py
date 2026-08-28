@@ -12,6 +12,7 @@ from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 RECOVERY = REPOSITORY_ROOT / "scripts" / "recovery" / "threatlens-recovery.sh"
+RESTORE_LIBRARY = REPOSITORY_ROOT / "scripts" / "recovery" / "recovery_restore_lib.sh"
 
 
 FAKE_DOCKER = r"""#!/usr/bin/env bash
@@ -179,6 +180,10 @@ JSON
     fi
     payload="$(cat || true)"
     request="$*"$'\n'"$payload"
+    if [[ "${FAKE_REDIS_DURABILITY_EXIT:-0}" != "0" \
+      && "$request" == *"CONFIG SET appendfsync always"* ]]; then
+      exit "${FAKE_REDIS_DURABILITY_EXIT}"
+    fi
     if [[ "$request" == *"SELECT EXISTS"* && " $* " == *"THREATLENS_DATABASE_NAME="* ]]; then
       if [[ "${FAKE_POST_DROP_PROBE_FAIL_ONCE:-0}" == "1" \
         && -e "${FAKE_DOCKER_LOG}.rollback-dropped" \
@@ -560,6 +565,33 @@ class RecoveryShellTests(unittest.TestCase):
         self.assertFalse(list(output_directory.glob(".threatlens-backup.partial.*")))
         self.assertFalse(list(output_directory.glob("threatlens-postgresql-*")))
 
+    def test_failed_restore_safety_backup_cleans_parent_shell_state(self) -> None:
+        backup = self._create_backup()
+        hook, hook_log = self._create_hook()
+        confirmation = self._restore_confirmation(backup)
+        safety_directory = self.root / "safety"
+
+        result = self._run(
+            "restore",
+            "--backup",
+            str(backup),
+            "--confirm",
+            confirmation,
+            "--acknowledge-data-loss",
+            "--quarantine-hook",
+            str(hook),
+            "--safety-backup-dir",
+            str(safety_directory),
+            FAKE_HOOK_LOG=str(hook_log),
+            FAKE_BACKUP_EXIT="1",
+        )
+
+        self.assertEqual(result.returncode, 8, result.stderr)
+        self.assertIn("ERROR [E804]", result.stderr)
+        self.assertIn("Cause [E512]", result.stderr)
+        self.assertFalse((safety_directory / ".threatlens-recovery.lock").exists())
+        self.assertFalse(list(safety_directory.glob(".threatlens-backup.partial.*")))
+
     def test_backup_lock_does_not_follow_or_truncate_a_symlink(self) -> None:
         output_directory = self.root / "backups"
         output_directory.mkdir()
@@ -815,6 +847,111 @@ class RecoveryShellTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("completed_quarantined_after_reconciliation", result.stdout)
+
+    def test_crash_after_durable_completed_phase_reconciles_forward(self) -> None:
+        backup = self._create_backup()
+        hook, hook_log = self._create_hook()
+        confirmation = self._restore_confirmation(backup)
+
+        interrupted = self._run(
+            "restore",
+            "--backup",
+            str(backup),
+            "--confirm",
+            confirmation,
+            "--acknowledge-data-loss",
+            "--quarantine-hook",
+            str(hook),
+            "--safety-backup-dir",
+            str(self.root / "safety"),
+            FAKE_HOOK_LOG=str(hook_log),
+            THREATLENS_RECOVERY_RESTORE_TEST_FAILPOINT="after_completed_phase",
+        )
+
+        self.assertNotEqual(interrupted.returncode, 0)
+        journal = self.root / "journal" / "active" / "journal.json"
+        document = json.loads(journal.read_text(encoding="utf-8"))
+        self.assertEqual(document["phase"], "completed")
+        self.assertEqual(document["status"], "running")
+
+        reconciled = self._run("reconcile")
+
+        self.assertEqual(reconciled.returncode, 0, reconciled.stderr)
+        self.assertIn("RECONCILE_STATUS=forward_committed", reconciled.stdout)
+        self.assertFalse((self.root / "journal" / "active").exists())
+
+    def test_restore_refuses_to_journal_a_non_durable_redis_flush(self) -> None:
+        backup = self._create_backup()
+        hook, hook_log = self._create_hook()
+        confirmation = self._restore_confirmation(backup)
+
+        result = self._run(
+            "restore",
+            "--backup",
+            str(backup),
+            "--confirm",
+            confirmation,
+            "--acknowledge-data-loss",
+            "--quarantine-hook",
+            str(hook),
+            "--safety-backup-dir",
+            str(self.root / "safety"),
+            FAKE_HOOK_LOG=str(hook_log),
+            FAKE_REDIS_DURABILITY_EXIT="1",
+        )
+
+        self.assertEqual(result.returncode, 8, result.stderr)
+        self.assertIn("ERROR [E811]", result.stderr)
+        self.assertNotIn("RESTORE_STATUS=completed", result.stdout)
+
+    def test_redis_flush_restores_appendfsync_after_flush_failure(self) -> None:
+        redis_log = self.root / "redis-cli.log"
+        redis_cli = self.bin_directory / "redis-cli"
+        redis_cli.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -eu\n"
+            'printf \'%s\\n\' "$*" >>"$FAKE_REDIS_LOG"\n'
+            'case "$*" in\n'
+            "  *'CONFIG GET appendonly') printf 'appendonly\\nyes\\n' ;;\n"
+            "  *'CONFIG GET appendfsync') printf 'appendfsync\\neverysec\\n' ;;\n"
+            "  *'CONFIG SET appendfsync always') printf 'OK\\n' ;;\n"
+            "  *'CONFIG SET appendfsync everysec') printf 'OK\\n' ;;\n"
+            "  *FLUSHDB*) exit 1 ;;\n"
+            "  *) exit 2 ;;\n"
+            "esac\n",
+            encoding="utf-8",
+        )
+        redis_cli.chmod(0o755)
+        harness = f"""
+set -Eeuo pipefail
+source {RESTORE_LIBRARY!s}
+compose() {{
+  [[ "$1" == exec && "$2" == -T && "$3" == redis && "$4" == sh && "$5" == -ceu ]]
+  sh -ceu "$6"
+}}
+export REDIS_PASSWORD=test-password
+_tlr_restore_clear_redis
+"""
+
+        result = subprocess.run(
+            ["bash", "-c", harness],
+            capture_output=True,
+            text=True,
+            env=self._environment(FAKE_REDIS_LOG=str(redis_log)),
+        )
+
+        self.assertNotEqual(result.returncode, 0)
+        calls = redis_log.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(
+            calls,
+            [
+                "--no-auth-warning -n 0 --raw CONFIG GET appendonly",
+                "--no-auth-warning -n 0 --raw CONFIG GET appendfsync",
+                "--no-auth-warning -n 0 --raw CONFIG SET appendfsync always",
+                "--no-auth-warning -n 0 --raw FLUSHDB",
+                "--no-auth-warning -n 0 --raw CONFIG SET appendfsync everysec",
+            ],
+        )
 
     def test_forward_commit_refuses_mismatched_quarantine_marker(self) -> None:
         backup = self._create_backup()

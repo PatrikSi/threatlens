@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import os
 import subprocess
@@ -8,10 +9,22 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 HELPER = REPOSITORY_ROOT / "scripts" / "recovery" / "recovery_manifest.py"
+
+
+def _load_manifest_helper():
+    spec = importlib.util.spec_from_file_location(
+        "test_recovery_manifest_helper", HELPER
+    )
+    if spec is None or spec.loader is None:  # pragma: no cover - import machinery guard
+        raise RuntimeError("Unable to load recovery manifest helper")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 class RecoveryManifestTests(unittest.TestCase):
@@ -83,6 +96,19 @@ class RecoveryManifestTests(unittest.TestCase):
         self.assertFalse(list(backup.glob("*.partial")))
         result = self._run("verify", "--backup", str(backup))
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_prepare_directory_fsyncs_each_new_parent_entry(self) -> None:
+        helper = _load_manifest_helper()
+        backup_root = self.root / "new-parent" / "backups"
+
+        with mock.patch.object(helper, "_fsync_directory_path") as fsync_directory:
+            helper._make_directories_without_links(backup_root)
+
+        self.assertEqual(
+            fsync_directory.call_args_list,
+            [mock.call(self.root), mock.call(self.root / "new-parent")],
+        )
+        self.assertTrue(backup_root.is_dir())
 
     def test_inspect_returns_all_bounded_fields_after_one_validation(self) -> None:
         backup = self._create_backup()

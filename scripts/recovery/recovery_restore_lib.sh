@@ -364,7 +364,7 @@ _tlr_restore_rollback_database() {
       log "The original database OID is already present at the application name; finishing rollback cleanup"
     elif [[ -n "${RESTORE_REPLACEMENT_DATABASE_OID}" \
       && "${target_oid}" == "${RESTORE_REPLACEMENT_DATABASE_OID}" \
-      && "${RESTORE_PHASE}" =~ ^(forward_commit_requested|rollback_database_removed)$ ]]; then
+      && "${RESTORE_PHASE}" =~ ^(forward_commit_requested|rollback_database_removed|completed)$ ]]; then
       _tlr_restore_verify_forward_commit || return 7
       RESTORE_PHASE="forward_committed"
       RESTORE_REPLACEMENT_ACTIVE=false
@@ -534,7 +534,53 @@ _tlr_restore_archive() {
 
 _tlr_restore_clear_redis() {
   compose exec -T redis sh -ceu '
-    REDISCLI_AUTH="$REDIS_PASSWORD" exec redis-cli --no-auth-warning -n 0 FLUSHDB
+    redis_call() {
+      REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli --no-auth-warning -n 0 --raw "$@"
+    }
+    redis_config_get() {
+      response="$(redis_call CONFIG GET "$1")" || return 1
+      value="$(printf "%s\n" "$response" | sed -n "2p")"
+      [ -n "$value" ] || return 1
+      printf "%s\n" "$value"
+    }
+
+    appendonly="$(redis_config_get appendonly)" || exit 1
+    [ "$appendonly" = yes ] || {
+      printf "%s\n" "Redis AOF persistence is disabled; refusing a non-durable flush" >&2
+      exit 1
+    }
+    previous_appendfsync="$(redis_config_get appendfsync)" || exit 1
+    case "$previous_appendfsync" in
+      always|everysec|no) ;;
+      *)
+        printf "%s\n" "Redis returned an unsupported appendfsync policy" >&2
+        exit 1
+        ;;
+    esac
+
+    appendfsync_changed=false
+    restore_appendfsync() {
+      original_status=$?
+      trap - EXIT HUP INT TERM
+      if [ "$appendfsync_changed" = true ]; then
+        response="$(redis_call CONFIG SET appendfsync "$previous_appendfsync")" \
+          && [ "$response" = OK ] \
+          || return 1
+      fi
+      return "$original_status"
+    }
+    trap restore_appendfsync EXIT
+    trap "exit 130" HUP INT TERM
+
+    appendfsync_changed=true
+    response="$(redis_call CONFIG SET appendfsync always)" || exit 1
+    [ "$response" = OK ] || exit 1
+    response="$(redis_call FLUSHDB)" || exit 1
+    [ "$response" = OK ] || exit 1
+    response="$(redis_call CONFIG SET appendfsync "$previous_appendfsync")" || exit 1
+    [ "$response" = OK ] || exit 1
+    appendfsync_changed=false
+    trap - EXIT HUP INT TERM
   ' >/dev/null
 }
 
@@ -749,6 +795,9 @@ SQL
   [[ "${rollback_state}" == "missing" ]] || return 1
 
   _tlr_restore_set_phase completed || return 1
+  if [[ "${THREATLENS_RECOVERY_RESTORE_TEST_FAILPOINT:-}" == "after_completed_phase" ]]; then
+    kill -KILL "$$"
+  fi
   RESTORE_REPLACEMENT_ACTIVE=false
   RESTORE_RECOVERY_PASSWORD=""
 }
@@ -896,9 +945,12 @@ tlr_restore_command() {
       "Isolated restore, packaged migration/API smoke, or quarantine preflight failed at stage ${isolated_status}; production was not changed"
 
   log "Creating mandatory fresh safety backup before destructive restore"
-  local safety_backup
-  safety_backup="$(perform_backup "${safety_backup_directory}")" \
-    || die "${EXIT_RESTORE}" "E804" "Fresh safety backup failed; destructive restore was not started"
+  BACKUP_ERROR_CONTEXT=restore_safety
+  perform_backup "${safety_backup_directory}" >/dev/null
+  # Consumed by the sourcing dispatcher's error handler.
+  # shellcheck disable=SC2034
+  BACKUP_ERROR_CONTEXT=""
+  local safety_backup="${COMPLETED_BACKUP_DIRECTORY}"
 
   _tlr_restore_stop_application_services
   require_running_service db
