@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.core.logging_config import redact_log_text
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
+from app.services.integration_compat import WebhookConfigurationCompatibilityError
 from app.services.integration_delivery import (
     DELIVERY_DEAD_LETTER,
     DELIVERY_FAILED,
@@ -22,6 +23,9 @@ from app.services.integration_delivery import (
     lock_webhook_delivery_external_io_eligibility,
     record_integration_delivery_unknown_outcome,
     renew_integration_delivery_lease,
+)
+from app.services.integration_delivery_compatibility import (
+    defer_integration_delivery_for_compatibility,
 )
 from app.services.notification_webhook_http import notification_delivery_lease_heartbeat
 from app.services.notification_webhooks import NotificationDeliveryReservationBatch
@@ -162,6 +166,7 @@ def _complete_webhook_delivery_attempt(
     terminal_failed_delivery_ids: list[uuid.UUID],
 ) -> str:
     if not getattr(attempt, "claimed", True):
+        db.commit()
         logger.info(
             "notification_webhook_delivery_already_claimed delivery_id=%s state=%s",
             attempt.delivery.id,
@@ -299,19 +304,32 @@ def _record_webhook_processing_failure(
     exc: Exception,
 ) -> bool:
     error_message = redact_log_text(f"{type(exc).__name__}: {exc}", max_chars=4000)
+    error_code = getattr(exc, "code", "worker_error")
     retry_at = datetime.now(timezone.utc) + timedelta(seconds=60)
     generic_state: str | None = None
     if expected_attempt_number is None:
         if delivery.delivery_state != "pending":
             return False
         if delivery.integration_delivery_id is not None:
-            defer_unclaimed_integration_delivery(
-                db,
-                delivery_id=delivery.integration_delivery_id,
-                error_code="worker_error",
-                error_message=error_message,
-                delay_seconds=60,
-            )
+            if isinstance(exc, WebhookConfigurationCompatibilityError):
+                compatibility = defer_integration_delivery_for_compatibility(
+                    db,
+                    delivery_id=delivery.integration_delivery_id,
+                    error_code=error_code,
+                    error_message=error_message,
+                    delay_seconds=60,
+                )
+                generic_state = compatibility.status
+                if compatibility.scheduled_for is not None:
+                    retry_at = compatibility.scheduled_for
+            else:
+                defer_unclaimed_integration_delivery(
+                    db,
+                    delivery_id=delivery.integration_delivery_id,
+                    error_code=error_code,
+                    error_message=error_message,
+                    delay_seconds=60,
+                )
     elif delivery.delivery_state != "sending" or int(
         delivery.attempt_count or 0
     ) != int(expected_attempt_number):
@@ -321,7 +339,7 @@ def _record_webhook_processing_failure(
             db,
             delivery_id=delivery.integration_delivery_id,
             expected_attempt_number=expected_attempt_number,
-            error_code="worker_error",
+            error_code=error_code,
             error_message=error_message,
         )
         generic_state = outcome.state
@@ -332,7 +350,7 @@ def _record_webhook_processing_failure(
 
     delivery.delivery_state = (
         "failed"
-        if generic_state in {DELIVERY_DEAD_LETTER, DELIVERY_FAILED}
+        if generic_state in {DELIVERY_DEAD_LETTER, DELIVERY_FAILED, "missing", "terminal"}
         else "pending"
     )
     delivery.success = False

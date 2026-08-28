@@ -17,6 +17,7 @@ from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.user import User
 from app.services.integration_compat import (
     WEBHOOK_CONFIG_SCHEMA_VERSION,
+    WebhookConfigurationCompatibilityError,
     ensure_webhook_integration,
     repair_legacy_webhook_integrations,
 )
@@ -25,6 +26,7 @@ from app.services.integration_connectors.base import (
     ConnectorFollowupDelivery,
     ConnectorRoutingResult,
     IntegrationConnectorDefinition,
+    IntegrationEventCompatibilityError,
     IntegrationEventContextError,
 )
 from app.services.integration_delivery import ensure_webhook_delivery, mark_integration_delivery_dead_letter
@@ -73,20 +75,28 @@ class WebhookIntegrationConnector:
         return event_type in self.definition.supported_event_types
 
     def prepare_routing(self, db: Session, *, event: IntegrationEvent) -> None:
-        repair_legacy_webhook_integrations(db)
-        webhooks = db.scalars(
-            select(NotificationWebhook).where(NotificationWebhook.event_type == event.event_type)
-        ).all()
-        for webhook in webhooks:
-            ensure_webhook_integration(db, webhook)
+        try:
+            repair_legacy_webhook_integrations(db)
+            webhooks = db.scalars(
+                select(NotificationWebhook).where(
+                    NotificationWebhook.event_type == event.event_type
+                )
+            ).all()
+            for webhook in webhooks:
+                ensure_webhook_integration(db, webhook)
+        except WebhookConfigurationCompatibilityError as exc:
+            raise IntegrationEventCompatibilityError(str(exc)) from exc
 
     def route_event(self, db: Session, *, event: IntegrationEvent) -> ConnectorRoutingResult:
-        reservation = self._reserve_event_deliveries(db, event=event)
-        delivery_ids = self._attach_event_to_deliveries(
-            db,
-            event=event,
-            compatibility_delivery_ids=reservation.delivery_ids,
-        )
+        try:
+            reservation = self._reserve_event_deliveries(db, event=event)
+            delivery_ids = self._attach_event_to_deliveries(
+                db,
+                event=event,
+                compatibility_delivery_ids=reservation.delivery_ids,
+            )
+        except WebhookConfigurationCompatibilityError as exc:
+            raise IntegrationEventCompatibilityError(str(exc)) from exc
         return ConnectorRoutingResult(
             delivery_ids=tuple(delivery_ids),
             compatibility_delivery_ids=tuple(reservation.delivery_ids),

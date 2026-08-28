@@ -19,7 +19,10 @@ from app.models.integration import (
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.services.integration_compat import ensure_webhook_integration
-from app.services.integration_delivery_attempts import interrupt_running_attempt
+from app.services.integration_delivery_attempts import (
+    interrupt_running_attempt,
+    retry_budget_attempt_count as _retry_budget_attempt_count,
+)
 from app.services.integration_delivery_replay import smtp_replay_recipient_override
 from app.services.integration_delivery_state import (
     coerce_utc as _coerce_utc,
@@ -198,7 +201,9 @@ def claim_integration_delivery(
         db.commit()
         return _claim_result(delivery, status=TERMINAL, reason="integration_disabled")
 
-    if int(delivery.attempt_count or 0) >= max(1, int(delivery.max_attempts or 1)):
+    if _retry_budget_attempt_count(db, delivery=delivery) >= max(
+        1, int(delivery.max_attempts or 1)
+    ):
         _dead_letter_without_attempt(
             delivery,
             code="attempts_exhausted",
@@ -303,7 +308,7 @@ def claim_integration_delivery(
                     "delivery_outcome": "not_attempted",
                     "external_side_effect_possible": False,
                 }
-                if delivery.connector_type == "smtp"
+                if delivery.connector_type in {"smtp", "webhook"}
                 else {}
             ),
         )
@@ -407,6 +412,9 @@ def finalize_integration_delivery(
     attempt.error_message = None if success else safe_error_message
     attempt.retryable = False if success else retryable
     attempt.response_json = dict(response_json or {})
+    db.add(attempt)
+    db.flush()
+    retry_budget_attempt_count = _retry_budget_attempt_count(db, delivery=delivery)
 
     delivery.claimed_at = None
     delivery.completed_at = completed_at if success else None
@@ -424,7 +432,7 @@ def finalize_integration_delivery(
         delivery.state = DELIVERY_FAILED
         delivery.completed_at = completed_at
         delivery.not_before = None
-    elif retryable and int(delivery.attempt_count or 0) < max(
+    elif retryable and retry_budget_attempt_count < max(
         1, int(delivery.max_attempts or 1)
     ):
         retry_at = completed_at + timedelta(seconds=_retry_backoff_seconds(delivery))
@@ -896,6 +904,28 @@ def claim_webhook_delivery(
             return None
     claim = claim_integration_delivery(db, delivery_id=generic.id, now=current_time)
     if claim.status != CLAIMED or claim.attempt_number is None:
+        if (
+            generic.state in DELIVERY_TERMINAL_STATES
+            and legacy_delivery.delivery_state not in {DELIVERY_SUCCEEDED, DELIVERY_FAILED}
+        ):
+            succeeded = generic.state == DELIVERY_SUCCEEDED
+            legacy_delivery.delivery_state = (
+                DELIVERY_SUCCEEDED if succeeded else DELIVERY_FAILED
+            )
+            legacy_delivery.success = succeeded
+            legacy_delivery.status_code = generic.last_status_code
+            legacy_delivery.duration_ms = generic.last_duration_ms
+            legacy_delivery.error = None if succeeded else generic.last_error_message
+            legacy_delivery.attempt_count = max(
+                int(legacy_delivery.attempt_count or 0),
+                int(generic.attempt_count or 0),
+            )
+            legacy_delivery.claimed_at = None
+            legacy_delivery.not_before = None
+            legacy_delivery.attempted_at = generic.completed_at or current_time
+            db.add(legacy_delivery)
+            db.commit()
+            db.refresh(legacy_delivery)
         return None
     preserve_error = (
         legacy_delivery.delivery_state == DELIVERY_PENDING
@@ -973,10 +1003,18 @@ def finalize_webhook_delivery(
 def list_recoverable_webhook_delivery_ids(
     db: Session,
     *,
-    limit: int,
+    limit: int | None = None,
     now: datetime | None = None,
 ) -> list[uuid.UUID]:
     current_time = now or datetime.now(timezone.utc)
+    batch_size = max(
+        0,
+        int(
+            settings.notification_delivery_recovery_batch_size
+            if limit is None
+            else limit
+        ),
+    )
     stale_cutoff = current_time - timedelta(
         seconds=settings.notification_delivery_sending_stale_after_seconds
     )
@@ -1003,6 +1041,12 @@ def list_recoverable_webhook_delivery_ids(
             ),
         ),
     )
+    terminal_projection_mismatch = and_(
+        IntegrationDelivery.state.in_(DELIVERY_TERMINAL_STATES),
+        NotificationWebhookDelivery.delivery_state.notin_(
+            [DELIVERY_SUCCEEDED, DELIVERY_FAILED]
+        ),
+    )
     linked_ids = list(
         db.scalars(
             select(NotificationWebhookDelivery.id)
@@ -1011,16 +1055,19 @@ def list_recoverable_webhook_delivery_ids(
                 IntegrationDelivery.id
                 == NotificationWebhookDelivery.integration_delivery_id,
             )
-            .where(IntegrationDelivery.connector_type == "webhook", generic_due)
+            .where(
+                IntegrationDelivery.connector_type == "webhook",
+                or_(generic_due, terminal_projection_mismatch),
+            )
             .order_by(
                 func.coalesce(
                     IntegrationDelivery.not_before, IntegrationDelivery.created_at
                 ).asc()
             )
-            .limit(max(0, int(limit)))
+            .limit(batch_size)
         ).all()
     )
-    remaining = max(0, int(limit) - len(linked_ids))
+    remaining = max(0, batch_size - len(linked_ids))
     if remaining == 0:
         return linked_ids
 

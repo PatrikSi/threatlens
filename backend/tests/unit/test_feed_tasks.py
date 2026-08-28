@@ -5301,7 +5301,7 @@ def test_process_reserved_notification_deliveries_schedules_retryable_failures(d
     db_session.commit()
 
     monkeypatch.setattr(
-        "app.services.notification_webhooks._send_rendered_notification_request",
+        "app.services.notification_webhook_http.send_rendered_notification_request",
         lambda _rendered: NotificationWebhookTestResponse(
             success=False,
             status_code=503,
@@ -5386,7 +5386,7 @@ def test_webhook_retry_reservation_failure_is_isolated_and_deferred(db_session, 
     db_session.add_all([webhook, delivery])
     db_session.commit()
     monkeypatch.setattr(
-        "app.services.notification_webhooks._send_rendered_notification_request",
+        "app.services.notification_webhook_http.send_rendered_notification_request",
         lambda _rendered: NotificationWebhookTestResponse(
             success=False,
             status_code=503,

@@ -53,6 +53,8 @@ def interrupt_running_attempt(
     *,
     delivery: IntegrationDelivery,
     now: datetime,
+    compatibility_error_code: str | None = None,
+    compatibility_error_message: str | None = None,
 ) -> bool | None:
     """Interrupt an attempt and return its last durable side-effect marker."""
 
@@ -82,11 +84,44 @@ def interrupt_running_attempt(
         }
     )
 
+    compatibility_wait = known_pre_side_effect and compatibility_error_code is not None
+    if compatibility_wait:
+        response["retry_budget_consumed"] = False
+
     attempt.status = ATTEMPT_INTERRUPTED
     attempt.finished_at = now
-    attempt.error_code = "worker_interrupted"
-    attempt.error_message = "Delivery worker stopped before recording an outcome."
-    attempt.retryable = delivery.connector_type != "smtp" or known_pre_side_effect
+    attempt.error_code = (
+        compatibility_error_code if compatibility_wait else "worker_interrupted"
+    )
+    attempt.error_message = (
+        compatibility_error_message
+        if compatibility_wait
+        else "Delivery worker stopped before recording an outcome."
+    )
+    attempt.retryable = (
+        True
+        if compatibility_wait
+        else delivery.connector_type != "smtp" or known_pre_side_effect
+    )
     attempt.response_json = response
     db.add(attempt)
     return side_effect_possible
+
+
+def retry_budget_attempt_count(
+    db: Session,
+    *,
+    delivery: IntegrationDelivery,
+) -> int:
+    responses = db.scalars(
+        select(IntegrationAttempt.response_json).where(
+            IntegrationAttempt.delivery_id == delivery.id
+        )
+    ).all()
+    exempt_attempts = sum(
+        1
+        for response in responses
+        if isinstance(response, dict)
+        and response.get("retry_budget_consumed") is False
+    )
+    return max(0, int(delivery.attempt_count or 0) - exempt_attempts)

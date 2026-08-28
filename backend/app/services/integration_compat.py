@@ -15,6 +15,20 @@ WEBHOOK_SUBSCRIPTION_KEY = "legacy-webhook"
 INTEGRATION_DIRECTION_DESTINATION = "destination"
 
 
+class WebhookConfigurationCompatibilityError(RuntimeError):
+    code = "unsupported_connector_config_schema"
+
+
+def ensure_webhook_config_schema_compatible(instance: IntegrationInstance) -> None:
+    schema_version = int(instance.schema_version or 1)
+    if schema_version > WEBHOOK_CONFIG_SCHEMA_VERSION:
+        raise WebhookConfigurationCompatibilityError(
+            f"Webhook integration configuration uses schema version {schema_version}; "
+            f"this worker supports through version {WEBHOOK_CONFIG_SCHEMA_VERSION}. "
+            "Delivery will retry after the worker is upgraded."
+        )
+
+
 def lock_notification_webhook(
     db: Session,
     webhook_id: uuid.UUID,
@@ -67,6 +81,8 @@ def ensure_webhook_integration(
         )
         db.add(instance)
         db.flush()
+    else:
+        ensure_webhook_config_schema_compatible(instance)
 
     _sync_webhook_instance(instance, webhook)
 
@@ -132,7 +148,12 @@ def repair_legacy_webhook_integrations(db: Session, *, limit: int = 500) -> int:
 def _load_webhook_instance(db: Session, webhook: NotificationWebhook) -> IntegrationInstance | None:
     if webhook.integration_id is None:
         return None
-    instance = db.get(IntegrationInstance, webhook.integration_id)
+    instance = db.scalar(
+        select(IntegrationInstance)
+        .where(IntegrationInstance.id == webhook.integration_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     if instance is None or instance.integration_type != WEBHOOK_INTEGRATION_TYPE:
         webhook.integration_id = None
         return None

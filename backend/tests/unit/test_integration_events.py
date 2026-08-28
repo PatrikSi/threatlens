@@ -663,6 +663,67 @@ def test_future_smtp_config_schema_waits_without_normalizing_configuration(db_se
     assert subscriptions == []
 
 
+def test_future_webhook_config_schema_remains_recoverable_past_attempt_limit(
+    db_session,
+    monkeypatch,
+):
+    user = _persist_user(db_session)
+    feed = _persist_feed(db_session, "Future webhook configuration feed")
+    item = _persist_item(db_session, feed)
+    webhook = _persist_webhook(
+        db_session,
+        user,
+        name="Future webhook configuration",
+        feed_scope="all",
+    )
+    instance = db_session.get(IntegrationInstance, webhook.integration_id)
+    assert instance is not None
+    future_config = {
+        **instance.config_json,
+        "future_option": {"mode": "v2"},
+    }
+    instance.schema_version = 2
+    instance.config_json = future_config
+    db_session.add(instance)
+    event = emit_integration_event(
+        db_session,
+        event_type="rss_item_new",
+        source_type="item",
+        source_id=item.id,
+        idempotency_key=f"future-webhook-config:{item.id}",
+        payload={"item_id": str(item.id), "feed_id": str(feed.id)},
+    )
+    monkeypatch.setattr(
+        "app.services.integration_events.settings.integration_event_routing_max_attempts",
+        1,
+    )
+
+    first = route_integration_event(db_session, event_id=event.id)
+    second = route_integration_event(db_session, event_id=event.id)
+
+    db_session.refresh(event)
+    db_session.refresh(instance)
+    assert first.status == "failed"
+    assert second.status == "failed"
+    assert event.routing_attempt_count == 0
+    assert all(error.compatibility_wait for error in second.routing_errors)
+    assert "schema version 2" in (event.last_error or "")
+    assert instance.schema_version == 2
+    assert instance.config_json == future_config
+    assert (
+        db_session.scalar(
+            select(IntegrationDelivery.id).where(
+                IntegrationDelivery.event_id == event.id
+            )
+        )
+        is None
+    )
+    assert event.id in list_recoverable_integration_event_ids(
+        db_session,
+        now=event.available_at + timedelta(seconds=1),
+    )
+
+
 def test_smtp_route_rejects_oversized_legacy_v2_owner_context(db_session):
     feed = _persist_feed(db_session, "Oversized SMTP alert feed")
     smtp = get_or_create_smtp_integration(db_session)

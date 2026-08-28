@@ -29,6 +29,10 @@ _delivery_lease_heartbeat: ContextVar[Callable[[int], None] | None] = ContextVar
     "notification_delivery_lease_heartbeat",
     default=None,
 )
+_delivery_external_io_marker: ContextVar[Callable[[], None] | None] = ContextVar(
+    "notification_delivery_external_io_marker",
+    default=None,
+)
 BLOCKED_REQUEST_HEADERS = frozenset(
     {
         "connection",
@@ -69,6 +73,17 @@ def notification_delivery_lease_heartbeat(
         yield
     finally:
         _delivery_lease_heartbeat.reset(token)
+
+
+@contextmanager
+def notification_delivery_external_io_marker(
+    callback: Callable[[], None] | None,
+) -> Iterator[None]:
+    token = _delivery_external_io_marker.set(callback)
+    try:
+        yield
+    finally:
+        _delivery_external_io_marker.reset(token)
 
 
 def canonical_header_name(header_name: str) -> str:
@@ -235,6 +250,7 @@ def send_request_with_redirects(
             if current_form_body is not None
             else current_raw_body,
         )
+        _mark_notification_external_io_started()
         response = client.send(request, stream=True, follow_redirects=False)
         if response.status_code not in REDIRECT_STATUS_CODES:
             return response
@@ -269,6 +285,13 @@ def _renew_notification_operation_lease(timeout_seconds: float | int | None) -> 
         return
     timeout = max(1, int(timeout_seconds or 1))
     callback(max(30, (timeout * 2) + 15))
+
+
+def _mark_notification_external_io_started() -> None:
+    callback = _delivery_external_io_marker.get()
+    if callback is not None:
+        callback()
+        _delivery_external_io_marker.set(None)
 
 
 def _merge_request_url(url: str, params: list[tuple[str, str]]) -> str:
