@@ -45,6 +45,7 @@ import {
   buildCreateUserConfirmation,
   createUserSettingsDraft,
   CreateUserConfirmationState,
+  isUserSettingsDraftEqual,
   syncUserSettingsDrafts,
   UserSettingsDraft,
   UserSettingsDraftConflict,
@@ -144,6 +145,7 @@ export function UsersPage() {
   const settingsDraftBaselinesByUserIdRef = useRef<
     Record<string, UserSettingsDraft>
   >({})
+  const knownUserEmailsByIdRef = useRef<Record<string, string>>({})
   const [createForm, setCreateForm] = useState<UserCreateRequest>(
     DEFAULT_CREATE_USER_FORM,
   )
@@ -359,6 +361,9 @@ export function UsersPage() {
 
   useEffect(() => {
     const users = usersQuery.data?.users ?? []
+    for (const user of users) {
+      knownUserEmailsByIdRef.current[user.id] = user.email
+    }
     const synced = syncUserSettingsDrafts(
       users,
       settingsDraftsByUserIdRef.current,
@@ -483,6 +488,26 @@ export function UsersPage() {
     [passwordDraftsByUserId],
   )
   const hasUnsavedCreateUserChanges = isCreateUserFormDirty(createForm)
+  const hiddenUserDrafts = useMemo(() => {
+    const visibleUserIds = new Set(filteredUsers.map((user) => user.id))
+    const dirtyUserIds = new Set<string>()
+    for (const [userId, draft] of Object.entries(settingsDraftsByUserId)) {
+      const baseline = settingsDraftBaselinesByUserIdRef.current[userId]
+      if (baseline && !isUserSettingsDraftEqual(draft, baseline)) {
+        dirtyUserIds.add(userId)
+      }
+    }
+    for (const [userId, password] of Object.entries(passwordDraftsByUserId)) {
+      if (password.length > 0) dirtyUserIds.add(userId)
+    }
+    return Array.from(dirtyUserIds)
+      .filter((userId) => !visibleUserIds.has(userId))
+      .map((userId) => ({
+        userId,
+        email: knownUserEmailsByIdRef.current[userId] ?? null,
+      }))
+  }, [filteredUsers, passwordDraftsByUserId, settingsDraftsByUserId])
+  const firstHiddenUserDraft = hiddenUserDrafts[0] ?? null
   const confirmDiscardUnsavedUserSettingsChanges = useUnsavedChangesWarning(
     hasUnsavedUserSettingsChanges ||
       hasUnsavedPasswordDrafts ||
@@ -515,6 +540,44 @@ export function UsersPage() {
     setCreateForm(updater)
   }
 
+  const showHiddenUserDraft = (email: string | null) => {
+    setSearch(email ?? '')
+    setRoleFilter('all')
+    setAccountFilter('all')
+    setDirectoryOffset(0)
+  }
+
+  const discardHiddenUserDraft = (userId: string) => {
+    if (userUpdatePending.isPending('update', userId)) return
+    const baseline = settingsDraftBaselinesByUserIdRef.current[userId]
+    const hasPasswordDraft = Boolean(passwordDraftsByUserId[userId])
+    setSettingsDraftsByUserId((current) => {
+      const next = { ...current }
+      if (baseline) next[userId] = baseline
+      else delete next[userId]
+      settingsDraftsByUserIdRef.current = next
+      return next
+    })
+    setPasswordDraftsByUserId((current) => {
+      const next = { ...current }
+      delete next[userId]
+      return next
+    })
+    setSettingsConflictsByUserId((current) => {
+      const next = { ...current }
+      delete next[userId]
+      settingsConflictsByUserIdRef.current = next
+      return next
+    })
+    if (hasPasswordDraft) {
+      forgetCredentialMutation(
+        queryClient,
+        UPDATE_USER_MUTATION_KEY,
+        updateUser.reset,
+      )
+    }
+  }
+
   const directoryIsUnfiltered =
     !search.trim() && roleFilter === 'all' && accountFilter === 'all'
   const createUserFormVisible =
@@ -531,6 +594,7 @@ export function UsersPage() {
           isError={usersQuery.isError}
           isSuccess={usersQuery.isSuccess}
           createUserFormVisible={createUserFormVisible}
+          hasCreateUserDraft={hasUnsavedCreateUserChanges}
           search={search}
           roleFilter={roleFilter}
           accountFilter={accountFilter}
@@ -562,6 +626,53 @@ export function UsersPage() {
           >
             {directoryNotice.message}
           </p>
+        )}
+
+        {firstHiddenUserDraft && (
+          <div
+            className="mt-3 rounded border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100"
+          >
+            <p role="status" aria-live="polite">
+              {hiddenUserDrafts.length} unsaved account draft
+              {hiddenUserDrafts.length === 1 ? ' is' : 's are'} hidden by the current filters or
+              directory page.
+            </p>
+            <div className="mt-2 grid gap-2 sm:flex sm:flex-wrap">
+              <button
+                type="button"
+                className="min-h-11 rounded border border-current px-3 py-2 font-semibold sm:min-h-0 sm:py-1.5"
+                onClick={() => showHiddenUserDraft(firstHiddenUserDraft.email)}
+              >
+                {firstHiddenUserDraft.email
+                  ? `Show draft for ${firstHiddenUserDraft.email}`
+                  : 'Show hidden account draft'}
+              </button>
+              <button
+                type="button"
+                className="min-h-11 rounded border border-current px-3 py-2 font-semibold sm:min-h-0 sm:py-1.5"
+                onClick={() => discardHiddenUserDraft(firstHiddenUserDraft.userId)}
+                disabled={userUpdatePending.isPending(
+                  'update',
+                  firstHiddenUserDraft.userId,
+                )}
+                title={
+                  userUpdatePending.isPending(
+                    'update',
+                    firstHiddenUserDraft.userId,
+                  )
+                    ? 'Wait for the in-progress account update to finish before discarding this draft.'
+                    : undefined
+                }
+              >
+                {userUpdatePending.isPending(
+                  'update',
+                  firstHiddenUserDraft.userId,
+                )
+                  ? 'Account update in progress...'
+                  : 'Discard hidden draft'}
+              </button>
+            </div>
+          </div>
         )}
 
         {usersQuery.isSuccess && (

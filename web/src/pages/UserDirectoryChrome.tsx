@@ -49,6 +49,7 @@ export function UserDirectoryHeader({
   isError,
   isSuccess,
   createUserFormVisible,
+  hasCreateUserDraft,
   search,
   roleFilter,
   accountFilter,
@@ -63,6 +64,7 @@ export function UserDirectoryHeader({
   isError: boolean
   isSuccess: boolean
   createUserFormVisible: boolean
+  hasCreateUserDraft: boolean
   search: string
   roleFilter: UserRoleFilter
   accountFilter: UserProvisioningFilter
@@ -107,12 +109,16 @@ export function UserDirectoryHeader({
         <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:justify-end">
           <button
             type="button"
-            className="rounded bg-ink px-3 py-2 text-sm font-semibold text-white dark:bg-cyan dark:text-[#053c2e]"
+            className="min-h-11 rounded bg-ink px-3 py-2 text-sm font-semibold text-white sm:min-h-0 dark:bg-cyan dark:text-[#053c2e]"
             aria-expanded={createUserFormVisible}
             aria-controls="create-user-form"
             onClick={onToggleCreate}
           >
-            {createUserFormVisible ? 'Close form' : 'New local user'}
+            {createUserFormVisible
+              ? 'Close form'
+              : hasCreateUserDraft
+                ? 'Resume local user draft'
+                : 'New local user'}
           </button>
           <label htmlFor="user-account-filter" className="sr-only">
             Filter by provisioning source

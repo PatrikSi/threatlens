@@ -613,6 +613,7 @@ export function AccountSecuritySection({
           oidcSessionReauthentication.reset()
         }}
       >
+        <StaleSessionDialogNotice stale={sessionsQuery.isError} />
         {revokeSessionMutation.isError && (
           <DialogError
             error={revokeSessionMutation.error}
@@ -661,6 +662,7 @@ export function AccountSecuritySection({
           oidcSessionReauthentication.reset()
         }}
       >
+        <StaleSessionDialogNotice stale={sessionsQuery.isError} />
         {revokeOthersMutation.isError && (
           <DialogError
             error={revokeOthersMutation.error}
@@ -688,6 +690,20 @@ export function AccountSecuritySection({
         />
       </ConfirmDialog>
     </section>
+  )
+}
+
+function StaleSessionDialogNotice({ stale }: { stale: boolean }) {
+  if (!stale) return null
+  return (
+    <p
+      role="alert"
+      aria-live="assertive"
+      className="rounded border border-amber-300/70 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700/50 dark:bg-amber-950/25 dark:text-amber-200"
+    >
+      Session revocation is disabled because the latest session list could not be loaded. Close this
+      dialog, refresh security status, then review the current sessions before trying again.
+    </p>
   )
 }
 
