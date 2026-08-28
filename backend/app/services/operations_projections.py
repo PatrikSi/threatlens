@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, or_, select, union_all
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
@@ -229,14 +229,72 @@ def _load_report_backlog(
 def _load_recovery_state(
     db: Session,
 ) -> tuple[OperationsRecoverySnapshot, _RecoveryCorrelation]:
-    correlation = _load_recovery_correlation(db)
-    latest_backup = _latest_recovery_run(db, "backup")
-    latest_restore = _latest_recovery_run(db, "restore")
+    latest_successful_backup_checksum = (
+        select(SystemOperationRun.metadata_json["archive_sha256"].as_string())
+        .where(
+            SystemOperationRun.operation_type == "backup",
+            SystemOperationRun.status == "succeeded",
+        )
+        .order_by(SystemOperationRun.started_at.desc(), SystemOperationRun.id.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+    candidate_ids = union_all(
+        _latest_recovery_run_id("backup"),
+        _latest_recovery_run_id("restore"),
+        _latest_recovery_run_id("verify"),
+        _latest_recovery_run_id("restore_drill"),
+        _latest_recovery_run_id("backup", status="succeeded"),
+        _latest_recovery_run_id("verify", status="succeeded"),
+        _latest_recovery_run_id("restore_drill", status="succeeded"),
+        _latest_recovery_run_id(
+            "verify", archive_sha256=latest_successful_backup_checksum
+        ),
+        _latest_recovery_run_id(
+            "restore_drill", archive_sha256=latest_successful_backup_checksum
+        ),
+    ).subquery()
+    candidates = [
+        system_operation_run_response(model)
+        for model in db.scalars(
+            select(SystemOperationRun).where(
+                SystemOperationRun.id.in_(select(candidate_ids.c.run_id))
+            )
+        ).all()
+    ]
+
+    latest_backup = _latest_recovery_candidate(candidates, "backup")
+    latest_restore = _latest_recovery_candidate(candidates, "restore")
+    backup = _latest_recovery_candidate(candidates, "backup", status="succeeded")
+    latest_successful_verify = _latest_recovery_candidate(
+        candidates, "verify", status="succeeded"
+    )
+    latest_successful_restore_drill = _latest_recovery_candidate(
+        candidates, "restore_drill", status="succeeded"
+    )
+    checksum = _archive_checksum(backup) if backup is not None else None
+    correlation = _RecoveryCorrelation(
+        backup=backup,
+        verify=(
+            _latest_recovery_candidate(candidates, "verify", archive_sha256=checksum)
+            if checksum is not None
+            else None
+        ),
+        restore_drill=(
+            _latest_recovery_candidate(
+                candidates, "restore_drill", archive_sha256=checksum
+            )
+            if checksum is not None
+            else None
+        ),
+        latest_successful_verify=latest_successful_verify,
+        latest_successful_restore_drill=latest_successful_restore_drill,
+    )
     latest_verify = correlation.verify
     latest_restore_drill = correlation.restore_drill
     if correlation.backup is None:
-        latest_verify = _latest_recovery_run(db, "verify")
-        latest_restore_drill = _latest_recovery_run(db, "restore_drill")
+        latest_verify = _latest_recovery_candidate(candidates, "verify")
+        latest_restore_drill = _latest_recovery_candidate(candidates, "restore_drill")
     return OperationsRecoverySnapshot(
         latest_backup=latest_backup,
         latest_verify=latest_verify,
@@ -245,13 +303,12 @@ def _load_recovery_state(
     ), correlation
 
 
-def _latest_recovery_run(
-    db: Session,
+def _latest_recovery_run_id(
     operation_type: str,
     *,
     status: str | None = None,
-    archive_sha256: str | None = None,
-) -> SystemOperationRunResponse | None:
+    archive_sha256=None,
+):
     filters = [SystemOperationRun.operation_type == operation_type]
     if status is not None:
         filters.append(SystemOperationRun.status == status)
@@ -260,56 +317,29 @@ def _latest_recovery_run(
             SystemOperationRun.metadata_json["archive_sha256"].as_string()
             == archive_sha256
         )
-    model = db.scalar(
-        select(SystemOperationRun)
+    return (
+        select(SystemOperationRun.id.label("run_id"))
         .where(*filters)
         .order_by(SystemOperationRun.started_at.desc(), SystemOperationRun.id.desc())
         .limit(1)
     )
-    return system_operation_run_response(model) if model is not None else None
 
 
-def _load_recovery_correlation(db: Session) -> _RecoveryCorrelation:
-    backup = _latest_recovery_run(db, "backup", status="succeeded")
-    if backup is None:
-        return _RecoveryCorrelation(
-            backup=None,
-            verify=None,
-            restore_drill=None,
-            latest_successful_verify=_latest_recovery_run(
-                db, "verify", status="succeeded"
-            ),
-            latest_successful_restore_drill=_latest_recovery_run(
-                db, "restore_drill", status="succeeded"
-            ),
-        )
-    checksum = _archive_checksum(backup)
-    if checksum is None:
-        return _RecoveryCorrelation(
-            backup=backup,
-            verify=None,
-            restore_drill=None,
-            latest_successful_verify=_latest_recovery_run(
-                db, "verify", status="succeeded"
-            ),
-            latest_successful_restore_drill=_latest_recovery_run(
-                db, "restore_drill", status="succeeded"
-            ),
-        )
-
-    return _RecoveryCorrelation(
-        backup=backup,
-        verify=_latest_recovery_run(db, "verify", archive_sha256=checksum),
-        restore_drill=_latest_recovery_run(
-            db, "restore_drill", archive_sha256=checksum
-        ),
-        latest_successful_verify=_latest_recovery_run(
-            db, "verify", status="succeeded"
-        ),
-        latest_successful_restore_drill=_latest_recovery_run(
-            db, "restore_drill", status="succeeded"
-        ),
-    )
+def _latest_recovery_candidate(
+    candidates: list[SystemOperationRunResponse],
+    operation_type: str,
+    *,
+    status: str | None = None,
+    archive_sha256: str | None = None,
+) -> SystemOperationRunResponse | None:
+    matching = [
+        run
+        for run in candidates
+        if run.operation_type == operation_type
+        and (status is None or run.status == status)
+        and (archive_sha256 is None or _archive_checksum(run) == archive_sha256)
+    ]
+    return max(matching, key=lambda run: (run.started_at, run.id.int), default=None)
 
 
 def _append_recovery_issues(

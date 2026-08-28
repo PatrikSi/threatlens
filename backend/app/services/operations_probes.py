@@ -18,7 +18,9 @@ from app.schemas.operations import (
     OperationsIssue,
     OperationsStorageIndicator,
 )
-from app.services.encrypted_data_inventory import scan_encrypted_data_inventory
+from app.services.encrypted_data_inventory import (
+    get_operations_encrypted_data_inventory,
+)
 from app.services.operations_common import issue, safe_db_probe, safe_probe
 from app.services.operations_redaction import safe_reason, safe_revision, safe_string_list
 from app.version import get_app_version
@@ -395,13 +397,13 @@ def _encrypted_data_component(
             summary="Encrypted-data inventory was not checked because the database is unavailable.",
             checked_at=checked_at,
         )
-    inventory = safe_db_probe(
+    inventory_snapshot = safe_db_probe(
         db,
         "encrypted_data",
-        lambda: scan_encrypted_data_inventory(db, settings=settings),
+        lambda: get_operations_encrypted_data_inventory(db, settings=settings),
         None,
     )
-    if inventory is None:
+    if inventory_snapshot is None:
         issues.append(
             issue(
                 "encrypted_data_probe_unavailable",
@@ -419,11 +421,26 @@ def _encrypted_data_component(
             summary="Encrypted-data inventory is unavailable.",
             checked_at=checked_at,
         )
+    inventory = inventory_snapshot.inventory
+    scan_complete = not inventory_snapshot.truncated_categories
 
     status = {"healthy": "healthy", "warning": "degraded", "critical": "critical"}.get(
         inventory.status,
         "unknown",
     )
+    if not scan_complete:
+        if status == "healthy":
+            status = "degraded"
+        issues.append(
+            issue(
+                "encrypted_data_inventory_truncated",
+                "warning",
+                "encrypted_data",
+                "The Operations encrypted-data probe inspected a bounded sample.",
+                "Unreadable encrypted values outside the recent sample cannot be ruled out.",
+                "Run the dedicated encrypted-data health check for an exact inventory before retiring keys.",
+            )
+        )
     if inventory.summary.unreadable_fields:
         issues.append(
             issue(
@@ -452,6 +469,8 @@ def _encrypted_data_component(
         status=status,
         summary=(
             "All inventoried encrypted fields are readable."
+            if inventory.summary.unreadable_fields == 0 and scan_complete
+            else "No unreadable fields were found in the bounded encrypted-data sample."
             if inventory.summary.unreadable_fields == 0
             else "Some inventoried encrypted fields are unreadable."
         ),
@@ -462,6 +481,11 @@ def _encrypted_data_component(
             "unreadable_records": inventory.summary.unreadable_records,
             "unreadable_fields": inventory.summary.unreadable_fields,
             "using_derived_key": inventory.using_derived_app_data_encryption_key,
+            "scan_complete": scan_complete,
+            "scan_limit_per_category": inventory_snapshot.row_limit_per_category,
+            "truncated_categories": list(inventory_snapshot.truncated_categories),
+            "cache_hit": inventory_snapshot.cache_hit,
+            "inventory_scanned_at": inventory.scanned_at.isoformat(),
         },
     )
 

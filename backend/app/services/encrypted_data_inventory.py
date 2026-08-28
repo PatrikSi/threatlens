@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from threading import Lock
+from time import monotonic
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -21,7 +23,10 @@ from app.schemas.health import (
     RecoveryCodeHashInventory,
 )
 from app.services.feed_storage import try_decrypt_feed_url
-from app.services.notification_webhook_storage import decrypt_notification_json, decrypt_notification_text
+from app.services.notification_webhook_storage import (
+    decrypt_notification_json,
+    decrypt_notification_text,
+)
 from app.services.secret_storage import (
     configured_hashing_key_ids,
     decrypt_text,
@@ -32,6 +37,33 @@ from app.services.secret_storage import (
 
 _startup_inventory_lock = Lock()
 _startup_inventory_state = EncryptedDataStartupScan()
+OPERATIONS_INVENTORY_ROW_LIMIT = 500
+OPERATIONS_INVENTORY_CACHE_TTL_SECONDS = 60
+
+
+@dataclass(frozen=True)
+class OperationsEncryptedDataInventory:
+    inventory: EncryptedDataInventoryResponse
+    row_limit_per_category: int
+    truncated_categories: tuple[str, ...]
+    cache_hit: bool = False
+
+
+@dataclass
+class _InventoryScanBounds:
+    row_limit: int
+    truncated_categories: set[str]
+
+
+@dataclass(frozen=True)
+class _OperationsInventoryCacheEntry:
+    key: tuple[object, ...]
+    expires_at: float
+    snapshot: OperationsEncryptedDataInventory
+
+
+_operations_inventory_cache_lock = Lock()
+_operations_inventory_cache: _OperationsInventoryCacheEntry | None = None
 
 
 def scan_encrypted_data_inventory(
@@ -40,13 +72,85 @@ def scan_encrypted_data_inventory(
     settings: Settings | None = None,
 ) -> EncryptedDataInventoryResponse:
     active_settings = settings or get_settings()
-    feeds = _scan_feeds(db)
-    integration_secrets = _scan_integration_secrets(db)
-    notification_webhooks = _scan_notification_webhooks(db)
-    notification_delivery_snapshots = _scan_notification_delivery_snapshots(db)
-    oidc_client_secrets = _scan_encrypted_text_column(db, OIDCProvider.client_secret_encrypted)
-    mfa_secrets = _scan_encrypted_text_column(db, UserTOTPCredential.secret_encrypted)
-    recovery_hashes = _scan_recovery_code_hashes(db, settings=active_settings)
+    return _scan_encrypted_data_inventory(db, settings=active_settings, bounds=None)
+
+
+def get_operations_encrypted_data_inventory(
+    db: Session,
+    *,
+    settings: Settings | None = None,
+) -> OperationsEncryptedDataInventory:
+    active_settings = settings or get_settings()
+    active_key_id, previous_key_ids = configured_hashing_key_ids(active_settings)
+    cache_key = (
+        id(db.get_bind()),
+        active_key_id,
+        tuple(previous_key_ids),
+        active_settings.app_data_encryption_key_was_derived,
+        active_settings.require_explicit_data_encryption_key,
+    )
+    now = monotonic()
+    global _operations_inventory_cache
+    with _operations_inventory_cache_lock:
+        cached = _operations_inventory_cache
+        if cached is not None and cached.key == cache_key and cached.expires_at > now:
+            return replace(cached.snapshot, cache_hit=True)
+
+        bounds = _InventoryScanBounds(
+            row_limit=OPERATIONS_INVENTORY_ROW_LIMIT,
+            truncated_categories=set(),
+        )
+        inventory = _scan_encrypted_data_inventory(
+            db,
+            settings=active_settings,
+            bounds=bounds,
+        )
+        snapshot = OperationsEncryptedDataInventory(
+            inventory=inventory,
+            row_limit_per_category=bounds.row_limit,
+            truncated_categories=tuple(sorted(bounds.truncated_categories)),
+        )
+        _operations_inventory_cache = _OperationsInventoryCacheEntry(
+            key=cache_key,
+            expires_at=now + OPERATIONS_INVENTORY_CACHE_TTL_SECONDS,
+            snapshot=snapshot,
+        )
+        return snapshot
+
+
+def _clear_operations_encrypted_data_inventory_cache() -> None:
+    global _operations_inventory_cache
+    with _operations_inventory_cache_lock:
+        _operations_inventory_cache = None
+
+
+def _scan_encrypted_data_inventory(
+    db: Session,
+    *,
+    settings: Settings,
+    bounds: _InventoryScanBounds | None,
+) -> EncryptedDataInventoryResponse:
+    feeds = _scan_feeds(db, bounds=bounds)
+    integration_secrets = _scan_integration_secrets(db, bounds=bounds)
+    notification_webhooks = _scan_notification_webhooks(db, bounds=bounds)
+    notification_delivery_snapshots = _scan_notification_delivery_snapshots(
+        db, bounds=bounds
+    )
+    oidc_client_secrets = _scan_encrypted_text_column(
+        db,
+        OIDCProvider.client_secret_encrypted,
+        category_name="oidc_client_secrets",
+        order_columns=(OIDCProvider.updated_at, OIDCProvider.id),
+        bounds=bounds,
+    )
+    mfa_secrets = _scan_encrypted_text_column(
+        db,
+        UserTOTPCredential.secret_encrypted,
+        category_name="mfa_secrets",
+        order_columns=(UserTOTPCredential.updated_at, UserTOTPCredential.id),
+        bounds=bounds,
+    )
+    recovery_hashes = _scan_recovery_code_hashes(db, settings=settings, bounds=bounds)
     summary = _build_summary(
         feeds,
         integration_secrets,
@@ -58,7 +162,7 @@ def scan_encrypted_data_inventory(
     )
 
     warnings: list[str] = []
-    if active_settings.app_data_encryption_key_was_derived:
+    if settings.app_data_encryption_key_was_derived:
         warnings.append(
             "APP_DATA_ENCRYPTION_KEY is using a derived development fallback. Set an explicit persistent value before relying on durable data."
         )
@@ -82,15 +186,12 @@ def scan_encrypted_data_inventory(
         warnings=warnings,
     )
     return EncryptedDataInventoryResponse(
-        ok=(
-            summary.unreadable_fields == 0
-            and recovery_hashes.missing_key_codes == 0
-        ),
+        ok=(summary.unreadable_fields == 0 and recovery_hashes.missing_key_codes == 0),
         status=status,
         scanned_at=datetime.now(timezone.utc),
         warnings=warnings,
-        require_explicit_app_data_encryption_key=active_settings.require_explicit_data_encryption_key,
-        using_derived_app_data_encryption_key=active_settings.app_data_encryption_key_was_derived,
+        require_explicit_app_data_encryption_key=settings.require_explicit_data_encryption_key,
+        using_derived_app_data_encryption_key=settings.app_data_encryption_key_was_derived,
         key_retirement_blocked=recovery_hashes.key_retirement_blocked,
         startup_scan=get_startup_encrypted_data_inventory(),
         feeds=feeds,
@@ -141,17 +242,46 @@ def _store_startup_inventory_success(snapshot: EncryptedDataInventoryResponse) -
         _startup_inventory_state.total_unreadable_fields = (
             snapshot.summary.unreadable_fields + missing_hashes
         )
-        _startup_inventory_state.key_retirement_blocked = snapshot.key_retirement_blocked
+        _startup_inventory_state.key_retirement_blocked = (
+            snapshot.key_retirement_blocked
+        )
+
+
+def _inventory_rows(
+    db: Session,
+    statement,
+    *,
+    category_name: str,
+    order_columns: tuple,
+    bounds: _InventoryScanBounds | None,
+):
+    if bounds is None:
+        return db.execute(statement)
+    rows = db.execute(
+        statement.order_by(*(column.desc() for column in order_columns)).limit(
+            bounds.row_limit + 1
+        )
+    ).all()
+    if len(rows) > bounds.row_limit:
+        bounds.truncated_categories.add(category_name)
+    return rows[: bounds.row_limit]
 
 
 def _scan_recovery_code_hashes(
-    db: Session, *, settings: Settings
+    db: Session,
+    *,
+    settings: Settings,
+    bounds: _InventoryScanBounds | None = None,
 ) -> RecoveryCodeHashInventory:
     active_key_id, previous_key_ids = configured_hashing_key_ids(settings)
     previous = set(previous_key_ids)
     inventory = RecoveryCodeHashInventory()
-    for (code_hash,) in db.execute(
-        select(UserRecoveryCode.code_hash).where(UserRecoveryCode.used_at.is_(None))
+    for (code_hash,) in _inventory_rows(
+        db,
+        select(UserRecoveryCode.code_hash).where(UserRecoveryCode.used_at.is_(None)),
+        category_name="mfa_recovery_code_hashes",
+        order_columns=(UserRecoveryCode.created_at, UserRecoveryCode.id),
+        bounds=bounds,
     ):
         inventory.unused_codes += 1
         key_id = stored_keyed_digest_key_id(code_hash)
@@ -171,9 +301,17 @@ def _scan_recovery_code_hashes(
     return inventory
 
 
-def _scan_feeds(db: Session) -> EncryptedDataInventoryCategory:
+def _scan_feeds(
+    db: Session, *, bounds: _InventoryScanBounds | None = None
+) -> EncryptedDataInventoryCategory:
     category = EncryptedDataInventoryCategory()
-    rows = db.execute(select(Feed._url_encrypted))
+    rows = _inventory_rows(
+        db,
+        select(Feed._url_encrypted),
+        category_name="feeds",
+        order_columns=(Feed.created_at, Feed.id),
+        bounds=bounds,
+    )
     for (encrypted_url,) in rows:
         category.total_records += 1
         if not is_encrypted_text(encrypted_url):
@@ -187,27 +325,45 @@ def _scan_feeds(db: Session) -> EncryptedDataInventoryCategory:
     return category
 
 
-def _scan_integration_secrets(db: Session) -> EncryptedDataInventoryCategory:
+def _scan_integration_secrets(
+    db: Session, *, bounds: _InventoryScanBounds | None = None
+) -> EncryptedDataInventoryCategory:
     category = EncryptedDataInventoryCategory()
-    rows = db.execute(select(IntegrationInstance.secret_json))
+    rows = _inventory_rows(
+        db,
+        select(IntegrationInstance.secret_json),
+        category_name="integration_secrets",
+        order_columns=(IntegrationInstance.updated_at, IntegrationInstance.id),
+        bounds=bounds,
+    )
     for (secret_json,) in rows:
         category.total_records += 1
         encrypted_fields = _count_json_field(secret_json)
         unreadable_fields = _count_unreadable_json_field(secret_json)
-        _apply_record_counts(category, encrypted_fields=encrypted_fields, unreadable_fields=unreadable_fields)
+        _apply_record_counts(
+            category,
+            encrypted_fields=encrypted_fields,
+            unreadable_fields=unreadable_fields,
+        )
     return category
 
 
-def _scan_notification_webhooks(db: Session) -> EncryptedDataInventoryCategory:
+def _scan_notification_webhooks(
+    db: Session, *, bounds: _InventoryScanBounds | None = None
+) -> EncryptedDataInventoryCategory:
     category = EncryptedDataInventoryCategory()
-    rows = db.execute(
+    rows = _inventory_rows(
+        db,
         select(
             NotificationWebhook.url_template,
             NotificationWebhook.query_params_json,
             NotificationWebhook.headers_json,
             NotificationWebhook.body_fields_json,
             NotificationWebhook.body_template,
-        )
+        ),
+        category_name="notification_webhooks",
+        order_columns=(NotificationWebhook.updated_at, NotificationWebhook.id),
+        bounds=bounds,
     )
     for row in rows:
         category.total_records += 1
@@ -223,20 +379,33 @@ def _scan_notification_webhooks(db: Session) -> EncryptedDataInventoryCategory:
         unreadable_fields += _count_unreadable_json_field(row.body_fields_json)
         encrypted_fields += _count_text_field(row.body_template)
         unreadable_fields += _count_unreadable_text_field(row.body_template)
-        _apply_record_counts(category, encrypted_fields=encrypted_fields, unreadable_fields=unreadable_fields)
+        _apply_record_counts(
+            category,
+            encrypted_fields=encrypted_fields,
+            unreadable_fields=unreadable_fields,
+        )
     return category
 
 
-def _scan_notification_delivery_snapshots(db: Session) -> EncryptedDataInventoryCategory:
+def _scan_notification_delivery_snapshots(
+    db: Session, *, bounds: _InventoryScanBounds | None = None
+) -> EncryptedDataInventoryCategory:
     category = EncryptedDataInventoryCategory()
-    rows = db.execute(
+    rows = _inventory_rows(
+        db,
         select(
             NotificationWebhookDelivery.rendered_url,
             NotificationWebhookDelivery.rendered_headers_json,
             NotificationWebhookDelivery.rendered_query_params_json,
             NotificationWebhookDelivery.rendered_body,
             NotificationWebhookDelivery.response_body_preview,
-        )
+        ),
+        category_name="notification_delivery_snapshots",
+        order_columns=(
+            NotificationWebhookDelivery.attempted_at,
+            NotificationWebhookDelivery.id,
+        ),
+        bounds=bounds,
     )
     for row in rows:
         category.total_records += 1
@@ -247,18 +416,37 @@ def _scan_notification_delivery_snapshots(db: Session) -> EncryptedDataInventory
         encrypted_fields += _count_json_field(row.rendered_headers_json)
         unreadable_fields += _count_unreadable_json_field(row.rendered_headers_json)
         encrypted_fields += _count_json_field(row.rendered_query_params_json)
-        unreadable_fields += _count_unreadable_json_field(row.rendered_query_params_json)
+        unreadable_fields += _count_unreadable_json_field(
+            row.rendered_query_params_json
+        )
         encrypted_fields += _count_text_field(row.rendered_body)
         unreadable_fields += _count_unreadable_text_field(row.rendered_body)
         encrypted_fields += _count_text_field(row.response_body_preview)
         unreadable_fields += _count_unreadable_text_field(row.response_body_preview)
-        _apply_record_counts(category, encrypted_fields=encrypted_fields, unreadable_fields=unreadable_fields)
+        _apply_record_counts(
+            category,
+            encrypted_fields=encrypted_fields,
+            unreadable_fields=unreadable_fields,
+        )
     return category
 
 
-def _scan_encrypted_text_column(db: Session, column) -> EncryptedDataInventoryCategory:
+def _scan_encrypted_text_column(
+    db: Session,
+    column,
+    *,
+    category_name: str,
+    order_columns: tuple,
+    bounds: _InventoryScanBounds | None = None,
+) -> EncryptedDataInventoryCategory:
     category = EncryptedDataInventoryCategory()
-    for (value,) in db.execute(select(column)):
+    for (value,) in _inventory_rows(
+        db,
+        select(column),
+        category_name=category_name,
+        order_columns=order_columns,
+        bounds=bounds,
+    ):
         category.total_records += 1
         if not is_encrypted_text(value):
             continue
@@ -340,7 +528,9 @@ def _build_summary(
     )
 
 
-def _resolve_inventory_status(*, total_unreadable_fields: int, warnings: list[str]) -> str:
+def _resolve_inventory_status(
+    *, total_unreadable_fields: int, warnings: list[str]
+) -> str:
     if total_unreadable_fields > 0:
         return "critical"
     if warnings:

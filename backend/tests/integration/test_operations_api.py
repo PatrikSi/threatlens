@@ -17,7 +17,7 @@ from app.schemas.health import (
     EncryptedDataInventorySummary,
     EncryptedDataStartupScan,
 )
-from app.services import operations, operations_probes
+from app.services import encrypted_data_inventory, operations, operations_probes
 from app.services.beat_heartbeat import BeatHealthSnapshot, BeatHeartbeatSnapshot
 
 
@@ -58,8 +58,8 @@ def healthy_operations_probes(monkeypatch):
     )
     monkeypatch.setattr(
         operations_probes,
-        "scan_encrypted_data_inventory",
-        lambda _db, settings: _healthy_inventory(now),
+        "get_operations_encrypted_data_inventory",
+        lambda _db, settings: _healthy_operations_inventory(now),
     )
     monkeypatch.setattr(
         operations_probes.shutil,
@@ -238,7 +238,7 @@ def test_operations_overview_returns_redacted_degraded_200_when_advisory_probes_
     _ = healthy_operations_probes
     monkeypatch.setattr(
         operations_probes,
-        "scan_encrypted_data_inventory",
+        "get_operations_encrypted_data_inventory",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("client_secret=private-value")),
     )
     monkeypatch.setattr(
@@ -351,4 +351,14 @@ def _healthy_inventory(now: datetime) -> EncryptedDataInventoryResponse:
         notification_webhooks=empty,
         notification_delivery_snapshots=empty,
         summary=EncryptedDataInventorySummary(),
+    )
+
+
+def _healthy_operations_inventory(
+    now: datetime,
+) -> encrypted_data_inventory.OperationsEncryptedDataInventory:
+    return encrypted_data_inventory.OperationsEncryptedDataInventory(
+        inventory=_healthy_inventory(now),
+        row_limit_per_category=encrypted_data_inventory.OPERATIONS_INVENTORY_ROW_LIMIT,
+        truncated_categories=(),
     )
