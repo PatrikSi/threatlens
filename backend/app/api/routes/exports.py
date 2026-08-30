@@ -6,7 +6,7 @@ from sqlalchemy import exists, func, select
 from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
 
-from app.api.deps import require_token_scopes
+from app.api.deps import require_permissions
 from app.core.config import get_settings
 from app.core.logging_config import verbose_logging_enabled
 from app.core.token_scopes import SCOPE_READ_ITEMS
@@ -114,10 +114,12 @@ FORMAT_CAPABILITIES = (
 @router.get("/capabilities", response_model=ArticleExportCapabilitiesResponse)
 def get_export_capabilities(
     db: Session = Depends(get_db),
-    _user: User = Depends(require_token_scopes(SCOPE_READ_ITEMS)),
+    _user: User = Depends(require_permissions(SCOPE_READ_ITEMS)),
 ):
     settings = get_settings()
-    feeds = db.execute(select(Feed.id, Feed.name).order_by(Feed.name.asc(), Feed.id.asc())).all()
+    feeds = db.execute(
+        select(Feed.id, Feed.name).order_by(Feed.name.asc(), Feed.id.asc())
+    ).all()
     tags = db.execute(
         select(Tag.id, Tag.name)
         .where(exists(select(1).where(ItemTag.tag_id == Tag.id)))
@@ -144,12 +146,14 @@ def get_export_capabilities(
 def preview_export(
     payload: ArticleExportPreviewRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_READ_ITEMS)),
+    user: User = Depends(require_permissions(SCOPE_READ_ITEMS)),
 ):
     settings = get_settings()
     context = build_export_query_context(user_id=user.id, filters=payload.filters)
     counts = load_export_counts(db, context=context)
-    item_ids = load_export_item_ids(db, context=context, limit=settings.export_preview_limit)
+    item_ids = load_export_item_ids(
+        db, context=context, limit=settings.export_preview_limit
+    )
     records = list(
         iter_export_records(
             db,
@@ -173,19 +177,27 @@ def preview_export(
 def download_export(
     payload: ArticleExportRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_READ_ITEMS)),
+    user: User = Depends(require_permissions(SCOPE_READ_ITEMS)),
 ):
     settings = get_settings()
     context = build_export_query_context(user_id=user.id, filters=payload.filters)
     counts = load_export_counts(db, context=context)
-    item_limit = settings.export_pdf_max_items if payload.format == "pdf_bundle" else settings.export_max_items
-    _validate_export_count(counts.total, item_limit=item_limit, export_format=payload.format)
+    item_limit = (
+        settings.export_pdf_max_items
+        if payload.format == "pdf_bundle"
+        else settings.export_max_items
+    )
+    _validate_export_count(
+        counts.total, item_limit=item_limit, export_format=payload.format
+    )
 
     artifact: ExportArtifact | None = None
     try:
         with acquire_export_lock(user_id=user.id, settings=settings):
             item_ids = load_export_item_ids(db, context=context, limit=item_limit + 1)
-            _validate_export_count(len(item_ids), item_limit=item_limit, export_format=payload.format)
+            _validate_export_count(
+                len(item_ids), item_limit=item_limit, export_format=payload.format
+            )
             records = iter_export_records(
                 db,
                 item_ids=item_ids,
@@ -236,14 +248,19 @@ def download_export(
             type(exc).__name__,
             exc_info=verbose_logging_enabled(settings),
         )
-        _record_failed_export(db, user=user, payload=payload, reason="generation_failed")
+        _record_failed_export(
+            db, user=user, payload=payload, reason="generation_failed"
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="The export could not be generated. Review the server logs and try again.",
         ) from exc
 
     if artifact is None:  # pragma: no cover - defensive only
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Export was not generated")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Export was not generated",
+        )
     try:
         record_audit(
             db,
@@ -321,6 +338,7 @@ def _filter_audit_summary(payload: ArticleExportRequest) -> dict[str, object]:
         "classification_count": len(filters.classifications),
         "ai_relevance_labels": list(filters.ai_relevance_labels),
         "has_date_range": bool(filters.since or filters.until),
-        "user_state_filtered": filters.is_read is not None or filters.is_starred is not None,
+        "user_state_filtered": filters.is_read is not None
+        or filters.is_starred is not None,
         "article_text_filter": filters.has_article_text,
     }

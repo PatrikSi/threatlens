@@ -3,11 +3,16 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, timezone
 
+from sqlalchemy import select
+
 from app.core.security import generate_api_token
 from app.models.api_token import ApiToken
+from app.models.audit_log import AuditLog
 
 
-def test_ungranted_viewer_remains_denied_tag_creation(client, auth_headers):
+def test_ungranted_viewer_remains_denied_tag_creation(
+    client, auth_headers, db_session, seed_users
+):
     response = client.post(
         "/tags",
         headers=auth_headers["viewer"],
@@ -17,6 +22,18 @@ def test_ungranted_viewer_remains_denied_tag_creation(client, auth_headers):
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "permission_denied"
     assert response.json()["error"]["context"]["missing_permissions"] == ["write:tags"]
+    denial = db_session.scalar(
+        select(AuditLog)
+        .where(
+            AuditLog.action == "authorization.permission_denied",
+            AuditLog.actor_user_id == seed_users["viewer"].id,
+        )
+        .order_by(AuditLog.created_at.desc())
+    )
+    assert denial is not None
+    assert denial.success is False
+    assert denial.resource_id == "/tags"
+    assert denial.metadata_json["missing_permissions"] == ["write:tags"]
 
 
 def test_custom_role_grant_reaches_route_and_token_scope_still_attenuates(
@@ -75,3 +92,31 @@ def test_custom_role_grant_reaches_route_and_token_scope_still_attenuates(
     assert denied.status_code == 403
     assert denied.json()["error"]["code"] == "permission_denied"
     assert denied.json()["error"]["context"]["missing_permissions"] == ["write:tags"]
+
+
+def test_custom_audit_reader_can_query_but_not_mutate_iam(
+    client, auth_headers, seed_users
+):
+    role = client.post(
+        "/iam/roles",
+        headers=auth_headers["admin"],
+        json={
+            "key": f"audit-reader-{uuid.uuid4().hex}",
+            "name": "Audit reader",
+            "permissions": ["read:audit"],
+        },
+    ).json()
+    assigned = client.post(
+        f"/iam/users/{seed_users['viewer'].id}/role-assignments",
+        headers=auth_headers["admin"],
+        json={"role_id": role["id"], "expected_role_revision": role["revision"]},
+    )
+    assert assigned.status_code == 201
+
+    assert client.get("/audit-logs", headers=auth_headers["viewer"]).status_code == 200
+    denied = client.post(
+        "/iam/roles",
+        headers=auth_headers["viewer"],
+        json={"key": "not-allowed", "name": "Not allowed", "permissions": []},
+    )
+    assert denied.status_code == 403

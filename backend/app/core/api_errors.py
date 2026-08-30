@@ -38,6 +38,27 @@ _ERROR_CODE_BY_STATUS = {
     504: "upstream_timeout",
 }
 
+_API_ERROR_DETAIL_SCHEMA = {
+    "type": "object",
+    "required": ["code", "message", "request_id", "status", "retryable"],
+    "properties": {
+        "code": {"type": "string"},
+        "message": {"type": "string"},
+        "request_id": {"type": "string"},
+        "status": {"type": "integer"},
+        "retryable": {"type": "boolean"},
+        "context": {"type": "object", "additionalProperties": True},
+    },
+}
+_API_ERROR_RESPONSE_SCHEMA = {
+    "type": "object",
+    "required": ["detail", "error"],
+    "properties": {
+        "detail": {},
+        "error": {"$ref": "#/components/schemas/ApiErrorDetail"},
+    },
+}
+
 
 class ApiHTTPException(StarletteHTTPException):
     """HTTP error with a stable machine-readable code and legacy-safe detail."""
@@ -170,6 +191,32 @@ def request_id_for(request: Request) -> str:
 
 def error_code_for_status(status_code: int) -> str:
     return _ERROR_CODE_BY_STATUS.get(status_code, "request_failed")
+
+
+def apply_openapi_error_contract(schema: dict[str, Any]) -> dict[str, Any]:
+    """Align declared API errors with the envelope emitted by our handlers."""
+
+    schemas = schema.setdefault("components", {}).setdefault("schemas", {})
+    schemas["ApiErrorDetail"] = _API_ERROR_DETAIL_SCHEMA
+    schemas["ApiErrorResponse"] = _API_ERROR_RESPONSE_SCHEMA
+    error_ref = {"$ref": "#/components/schemas/ApiErrorResponse"}
+    for path_item in schema.get("paths", {}).values():
+        if not isinstance(path_item, dict):
+            continue
+        for operation in path_item.values():
+            if not isinstance(operation, dict):
+                continue
+            responses = operation.get("responses")
+            if not isinstance(responses, dict):
+                continue
+            for status_code, response in responses.items():
+                if not str(status_code).isdigit() or int(status_code) < 400:
+                    continue
+                if not isinstance(response, dict) or "$ref" in response:
+                    continue
+                content = response.setdefault("content", {})
+                content.setdefault("application/json", {})["schema"] = error_ref
+    return schema
 
 
 def _detail_message(detail: Any, status_code: int) -> str:

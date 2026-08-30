@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_token_scopes
+from app.api.deps import require_permissions
 from app.api.routes.alert_operations import router as alert_operations_router
 from app.core.api_errors import ApiHTTPException
 from app.core.config import get_settings
@@ -147,7 +147,7 @@ def _parse_category_csv(raw_value: str | None) -> list[str]:
 def list_alert_interests(
     include_disabled: bool = Query(default=True),
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_READ_ALERTS)),
+    user: User = Depends(require_permissions(SCOPE_READ_ALERTS)),
 ):
     query = select(AlertInterest).where(AlertInterest.user_id == user.id)
     if not include_disabled:
@@ -163,7 +163,7 @@ def list_alert_interests(
 def create_alert_interest(
     payload: AlertInterestCreate,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_ALERTS)),
+    user: User = Depends(require_permissions(SCOPE_WRITE_ALERTS)),
 ):
     try:
         lock_alert_rule_creation_slot(db, owner_user_id=user.id)
@@ -217,7 +217,7 @@ def create_alert_interest(
 def preview_alert_interest(
     payload: AlertInterestPreviewRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_READ_ALERTS, SCOPE_READ_ITEMS)),
+    user: User = Depends(require_permissions(SCOPE_READ_ALERTS, SCOPE_READ_ITEMS)),
 ):
     preview = AlertMatchDefinition(
         id=uuid.uuid4(),
@@ -249,7 +249,7 @@ def list_alert_matches(
     page_size: int = Query(default=25, ge=1, le=100),
     sort: str = Query(default="published_at_desc"),
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_READ_ALERTS, SCOPE_READ_ITEMS)),
+    user: User = Depends(require_permissions(SCOPE_READ_ALERTS, SCOPE_READ_ITEMS)),
 ):
     selected_alert_ids = _parse_uuid_csv(alert_ids, "Invalid alert id in alert_ids")
     selected_categories = _parse_category_csv(categories)
@@ -300,7 +300,7 @@ def get_alert_occurrences(
     page: AlertPage = 1,
     page_size: int = Query(default=25, ge=1, le=100),
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_READ_ALERTS, SCOPE_READ_ITEMS)),
+    user: User = Depends(require_permissions(SCOPE_READ_ALERTS, SCOPE_READ_ITEMS)),
 ):
     since = _as_utc(since)
     until = _as_utc(until)
@@ -352,7 +352,7 @@ def get_alert_occurrences(
 def preview_alert_occurrence_backfill(
     payload: AlertBackfillRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_READ_ALERTS, SCOPE_READ_ITEMS)),
+    user: User = Depends(require_permissions(SCOPE_READ_ALERTS, SCOPE_READ_ITEMS)),
 ):
     _require_alert_admin(user)
     snapshot = create_alert_backfill_preview(
@@ -397,7 +397,7 @@ def preview_alert_occurrence_backfill(
 def apply_alert_occurrence_backfill(
     payload: AlertBackfillApplyRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_ALERTS, SCOPE_READ_ITEMS)),
+    user: User = Depends(require_permissions(SCOPE_WRITE_ALERTS, SCOPE_READ_ITEMS)),
 ):
     _require_alert_admin(user)
     try:
@@ -454,7 +454,7 @@ def apply_alert_occurrence_backfill(
 def bulk_acknowledge_alert_occurrences(
     payload: AlertOccurrenceBulkUpdate,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_ALERTS, SCOPE_READ_ITEMS)),
+    user: User = Depends(require_permissions(SCOPE_WRITE_ALERTS, SCOPE_READ_ITEMS)),
 ):
     if payload.disposition is not None:
         raise ApiHTTPException(
@@ -478,7 +478,7 @@ def bulk_acknowledge_alert_occurrences(
 def bulk_close_alert_occurrences(
     payload: AlertOccurrenceBulkUpdate,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_ALERTS, SCOPE_READ_ITEMS)),
+    user: User = Depends(require_permissions(SCOPE_WRITE_ALERTS, SCOPE_READ_ITEMS)),
 ):
     if payload.disposition is None:
         raise ApiHTTPException(
@@ -505,7 +505,7 @@ router.include_router(alert_operations_router)
 def get_alert_occurrence_detail(
     occurrence_id: uuid.UUID,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_READ_ALERTS, SCOPE_READ_ITEMS)),
+    user: User = Depends(require_permissions(SCOPE_READ_ALERTS, SCOPE_READ_ITEMS)),
 ):
     try:
         return get_alert_occurrence(db, user=user, occurrence_id=occurrence_id)
@@ -522,7 +522,7 @@ def get_alert_occurrence_activity(
     page: AlertPage = 1,
     page_size: int = Query(default=50, ge=1, le=100),
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_READ_ALERTS)),
+    user: User = Depends(require_permissions(SCOPE_READ_ALERTS)),
 ):
     try:
         result = list_alert_occurrence_activity(
@@ -550,7 +550,7 @@ def patch_alert_occurrence_lifecycle(
     occurrence_id: uuid.UUID,
     payload: AlertOccurrenceLifecycleUpdate,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_ALERTS, SCOPE_READ_ITEMS)),
+    user: User = Depends(require_permissions(SCOPE_WRITE_ALERTS, SCOPE_READ_ITEMS)),
 ):
     try:
         occurrence = update_alert_occurrence_lifecycle(
@@ -588,7 +588,7 @@ def patch_alert_occurrence_snooze(
     occurrence_id: uuid.UUID,
     payload: AlertOccurrenceSnoozeUpdate,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_ALERTS, SCOPE_READ_ITEMS)),
+    user: User = Depends(require_permissions(SCOPE_WRITE_ALERTS, SCOPE_READ_ITEMS)),
 ):
     try:
         occurrence = update_alert_occurrence_snooze(
@@ -622,7 +622,7 @@ def update_alert_interest(
     alert_id: uuid.UUID,
     payload: AlertInterestUpdate,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_ALERTS)),
+    user: User = Depends(require_permissions(SCOPE_WRITE_ALERTS)),
 ):
     alert = db.scalar(
         select(AlertInterest)
@@ -775,7 +775,7 @@ def delete_alert_interest(
     expected_revision: int | None = Query(default=None, ge=1),
     expected_row_version: int | None = Query(default=None, ge=1),
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_ALERTS)),
+    user: User = Depends(require_permissions(SCOPE_WRITE_ALERTS)),
 ):
     alert = db.scalar(
         select(AlertInterest)

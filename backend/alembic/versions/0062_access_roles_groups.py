@@ -324,6 +324,11 @@ def _add_audit_context_columns() -> None:
     )
     op.create_index("ix_audit_logs_request_id", "audit_logs", ["request_id"])
     op.create_index(
+        "ix_audit_logs_credential_created",
+        "audit_logs",
+        ["credential_kind", "credential_id", "created_at"],
+    )
+    op.create_index(
         "ix_audit_logs_resource_created",
         "audit_logs",
         ["resource_type", "resource_id", "created_at"],
@@ -427,6 +432,7 @@ def downgrade() -> None:
 
     op.drop_index("ix_audit_logs_success_created", table_name="audit_logs")
     op.drop_index("ix_audit_logs_resource_created", table_name="audit_logs")
+    op.drop_index("ix_audit_logs_credential_created", table_name="audit_logs")
     op.drop_index("ix_audit_logs_request_id", table_name="audit_logs")
     op.drop_index("ix_audit_logs_actor_principal", table_name="audit_logs")
     for column_name in (

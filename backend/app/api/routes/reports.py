@@ -13,7 +13,7 @@ from sqlalchemy import exists, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_token_scopes
+from app.api.deps import require_permissions
 from app.api.resource_preconditions import (
     InvalidResourceVersion,
     ResourceVersionMismatch,
@@ -32,7 +32,7 @@ from app.api.routes.report_request_idempotency import (
     retry_request_identity,
     schedule_run_request_identity,
 )
-from app.core.rbac import ROLE_ADMIN, ROLE_ANALYST
+from app.core.rbac import ROLE_ADMIN
 from app.core.token_scopes import SCOPE_READ_REPORTS, SCOPE_WRITE_REPORTS
 from app.db.session import get_db
 from app.models.ai_task_run import AITaskRun
@@ -107,6 +107,16 @@ from app.tasks.report_tasks import create_report_task_run, enqueue_report_task
 
 
 router = APIRouter(prefix="/reports", tags=["reports"])
+require_report_write = require_permissions(
+    SCOPE_WRITE_REPORTS,
+    denial_detail="Report generation requires the analyst or administrator role.",
+)
+require_report_admin_write = require_permissions(
+    SCOPE_WRITE_REPORTS,
+    denial_detail=(
+        "Report schedules and shared templates require the administrator role."
+    ),
+)
 REPORT_PREVIEW_LIMIT = 25
 RESOURCE_PRECONDITION_RESPONSES = {
     status.HTTP_400_BAD_REQUEST: {"description": "Malformed If-Match header"},
@@ -120,7 +130,7 @@ logger = logging.getLogger(__name__)
 @router.get("/capabilities", response_model=ReportCapabilitiesResponse)
 def get_report_capabilities(
     db: Session = Depends(get_db),
-    _user: User = Depends(require_token_scopes(SCOPE_READ_REPORTS)),
+    _user: User = Depends(require_permissions(SCOPE_READ_REPORTS)),
 ):
     active = load_active_ai_settings(db)
     feeds = db.execute(select(Feed.id, Feed.name).order_by(Feed.name.asc())).all()
@@ -154,9 +164,8 @@ def get_report_capabilities(
 def preview_report(
     payload: ReportPreviewRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_REPORTS)),
+    user: User = Depends(require_report_write),
 ):
-    _require_report_author(user)
     active = _active_reporting_settings(db)
     started_at = time.monotonic()
     try:
@@ -202,7 +211,7 @@ def preview_report(
 @router.get("/templates", response_model=list[ReportTemplateResponse])
 def list_report_templates(
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_READ_REPORTS)),
+    user: User = Depends(require_permissions(SCOPE_READ_REPORTS)),
 ):
     return [
         report_template_response(template)
@@ -222,9 +231,8 @@ def create_template(
         Header(alias="Idempotency-Key"),
     ] = None,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_REPORTS)),
+    user: User = Depends(require_report_write),
 ):
-    _require_report_author(user)
     _require_shared_template_admin(user, payload.visibility)
     operation = "report:template:create"
     identity = operation_request_identity(
@@ -282,9 +290,8 @@ def update_template(
     response: Response,
     if_match: Annotated[list[str] | None, Header(alias="If-Match")] = None,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_REPORTS)),
+    user: User = Depends(require_report_write),
 ):
-    _require_report_author(user)
     _require_shared_template_admin(user, payload.visibility)
     template = get_visible_report_template(
         db,
@@ -335,9 +342,8 @@ def clone_template(
         Header(alias="Idempotency-Key"),
     ] = None,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_REPORTS)),
+    user: User = Depends(require_report_write),
 ):
-    _require_report_author(user)
     operation = f"report:template:clone:{template_id}"
     identity = operation_request_identity(
         idempotency_key,
@@ -397,9 +403,8 @@ def remove_template(
     template_id: uuid.UUID,
     if_match: Annotated[list[str] | None, Header(alias="If-Match")] = None,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_REPORTS)),
+    user: User = Depends(require_report_write),
 ):
-    _require_report_author(user)
     template = get_visible_report_template(
         db,
         template_id=template_id,
@@ -445,7 +450,7 @@ def list_reports(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
-    _user: User = Depends(require_token_scopes(SCOPE_READ_REPORTS)),
+    _user: User = Depends(require_permissions(SCOPE_READ_REPORTS)),
 ):
     query = select(Report)
     if report_status:
@@ -471,9 +476,8 @@ def create_report(
         Header(alias="Idempotency-Key"),
     ] = None,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_REPORTS)),
+    user: User = Depends(require_report_write),
 ):
-    _require_report_author(user)
     filters = filters_for_report_period(
         payload.filters,
         period_start=payload.period_start,
@@ -562,7 +566,7 @@ def create_report(
 def get_report(
     report_id: uuid.UUID,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_token_scopes(SCOPE_READ_REPORTS)),
+    _user: User = Depends(require_permissions(SCOPE_READ_REPORTS)),
 ):
     report = db.get(Report, report_id)
     if report is None:
@@ -577,7 +581,7 @@ def download_report(
     report_id: uuid.UUID,
     format: str = Query(default="markdown", pattern="^(markdown|html|pdf)$"),
     db: Session = Depends(get_db),
-    _user: User = Depends(require_token_scopes(SCOPE_READ_REPORTS)),
+    _user: User = Depends(require_permissions(SCOPE_READ_REPORTS)),
 ):
     report = db.get(Report, report_id)
     if report is None:
@@ -624,9 +628,8 @@ def retry_report(
         Header(alias="Idempotency-Key"),
     ] = None,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_REPORTS)),
+    user: User = Depends(require_report_write),
 ):
-    _require_report_author(user)
     identity = retry_request_identity(idempotency_key, report_id=report_id)
     report = db.scalar(
         select(Report)
@@ -710,9 +713,8 @@ def retry_report(
 def remove_report(
     report_id: uuid.UUID,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_REPORTS)),
+    user: User = Depends(require_report_write),
 ):
-    _require_report_author(user)
     report = db.get(Report, report_id)
     if report is None:
         raise HTTPException(
@@ -738,7 +740,7 @@ def remove_report(
 @router.get("/schedules", response_model=list[ReportScheduleResponse])
 def list_schedules(
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_READ_REPORTS)),
+    user: User = Depends(require_permissions(SCOPE_READ_REPORTS)),
 ):
     _require_admin(user)
     schedules = db.scalars(
@@ -759,7 +761,7 @@ def create_schedule(
         Header(alias="Idempotency-Key"),
     ] = None,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_REPORTS)),
+    user: User = Depends(require_report_admin_write),
 ):
     _require_admin(user)
     operation = "report:schedule:create"
@@ -821,7 +823,7 @@ def update_schedule(
     response: Response,
     if_match: Annotated[list[str] | None, Header(alias="If-Match")] = None,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_REPORTS)),
+    user: User = Depends(require_report_admin_write),
 ):
     _require_admin(user)
     schedule = db.scalar(
@@ -873,7 +875,7 @@ def run_schedule(
     ] = None,
     if_match: Annotated[list[str] | None, Header(alias="If-Match")] = None,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_REPORTS)),
+    user: User = Depends(require_report_admin_write),
 ):
     _require_admin(user)
     identity = schedule_run_request_identity(
@@ -1012,7 +1014,7 @@ def remove_schedule(
     schedule_id: uuid.UUID,
     if_match: Annotated[list[str] | None, Header(alias="If-Match")] = None,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_REPORTS)),
+    user: User = Depends(require_report_admin_write),
 ):
     _require_admin(user)
     schedule = db.scalar(
@@ -1097,14 +1099,6 @@ def _require_current_resource_version(
 def _integrity_constraint_name(exc: IntegrityError) -> str | None:
     diagnostic = getattr(exc.orig, "diag", None)
     return getattr(diagnostic, "constraint_name", None)
-
-
-def _require_report_author(user: User) -> None:
-    if user.role not in {ROLE_ADMIN, ROLE_ANALYST}:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Report generation requires the analyst or administrator role.",
-        )
 
 
 def _require_admin(user: User) -> None:

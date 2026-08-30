@@ -1,5 +1,6 @@
 import json
 import logging
+from contextvars import copy_context
 from types import SimpleNamespace
 
 from app.core import logging_config
@@ -7,9 +8,11 @@ from app.core.logging_config import (
     ThreatLensJsonFormatter,
     ThreatLensTextFormatter,
     configure_logging,
+    get_log_context,
     redact_log_text,
     reset_log_context,
     set_log_context,
+    update_log_context,
 )
 
 
@@ -47,7 +50,11 @@ def test_text_formatter_adds_diagnostic_context_without_secret_values():
     token = set_log_context(request_id="request-123")
     try:
         record = _record("request failed token=%s", "private-token")
-        for key, value in {"request_id": "request-123", "method": "GET", "path": "/v1/test"}.items():
+        for key, value in {
+            "request_id": "request-123",
+            "method": "GET",
+            "path": "/v1/test",
+        }.items():
             setattr(record, key, value)
         rendered = ThreatLensTextFormatter(max_chars=20_000).format(record)
     finally:
@@ -72,11 +79,33 @@ def test_json_formatter_emits_machine_parseable_context():
     assert payload["duration_ms"] == 42.5
 
 
+def test_log_context_updates_cross_copied_sync_worker_contexts():
+    token = set_log_context(request_id="request-shared")
+    try:
+        worker_context = copy_context()
+        worker_context.run(
+            update_log_context,
+            credential_kind="api_token",
+            credential_id="00000000-0000-4000-8000-000000000001",
+        )
+        current = get_log_context()
+    finally:
+        reset_log_context(token)
+
+    assert current["request_id"] == "request-shared"
+    assert current["credential_kind"] == "api_token"
+    assert current["credential_id"] == "00000000-0000-4000-8000-000000000001"
+
+
 def test_per_logger_override_can_be_more_verbose_than_root(monkeypatch):
     configured: dict[str, object] = {}
     logger_levels: dict[str, str] = {}
 
-    monkeypatch.setattr(logging_config.logging.config, "dictConfig", lambda value: configured.update(value))
+    monkeypatch.setattr(
+        logging_config.logging.config,
+        "dictConfig",
+        lambda value: configured.update(value),
+    )
     for logger_name in ("sqlalchemy.engine", "app.services.oidc_client"):
         target = logging.getLogger(logger_name)
         monkeypatch.setattr(
