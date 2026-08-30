@@ -5,7 +5,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ## Published Contract
 
 - Schema version: `1.8.0`
-- OpenAPI contract anchor: `openapi-sha256:8ebc88d3923e9cafb45522b639845e897800c01d3a4b49593f86ac3b162791c1`
+- OpenAPI contract anchor: `openapi-sha256:551f8a2eb0eda611c58ac797856ab700cb280272d0e5d4c57dbcd2b17cfc9e15`
 - API service base path: `/v1`
 - Web proxy base path: `/api/v1`
 - Bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`.
@@ -707,6 +707,65 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `session_id` (path, required): string
 - Responses: `200` `application/json` -> SessionRevocationResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+
+## Data Policies
+
+### `GET /v1/iam/data-policies`
+- Summary: Get Data Policy Overview
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:data_policies`
+- Responses: `200` `application/json` -> DataPolicyOverviewResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `PUT /v1/iam/data-policies/feeds/{feed_id}`
+- Summary: Put Feed Handling Label
+- Auth: SessionCookieAuth
+- Parameters:
+  - `feed_id` (path, required): string
+  - `Idempotency-Key` (header, required): string
+- Request body: `application/json` -> FeedHandlingLabelAssignmentRequest
+- Responses: `200` `application/json` -> FeedHandlingLabelAssignmentResponse, `400` `application/json` -> ApiErrorResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `404` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/iam/data-policies/labels`
+- Summary: Post Handling Label
+- Auth: SessionCookieAuth
+- Parameters:
+  - `Idempotency-Key` (header, required): string
+- Request body: `application/json` -> HandlingLabelCreateRequest
+- Responses: `201` `application/json` -> HandlingLabelMutationResponse, `400` `application/json` -> ApiErrorResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `404` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `PATCH /v1/iam/data-policies/labels/{label_id}`
+- Summary: Patch Handling Label
+- Auth: SessionCookieAuth
+- Parameters:
+  - `label_id` (path, required): string
+  - `Idempotency-Key` (header, required): string
+- Request body: `application/json` -> HandlingLabelUpdateRequest
+- Responses: `200` `application/json` -> HandlingLabelMutationResponse, `400` `application/json` -> ApiErrorResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `404` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `PUT /v1/iam/data-policies/labels/{label_id}/role-grants`
+- Summary: Put Handling Label Role Grants
+- Auth: SessionCookieAuth
+- Parameters:
+  - `label_id` (path, required): string
+  - `Idempotency-Key` (header, required): string
+- Request body: `application/json` -> HandlingLabelRoleGrantsRequest
+- Responses: `200` `application/json` -> HandlingLabelMutationResponse, `400` `application/json` -> ApiErrorResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `404` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `PUT /v1/iam/data-policies/labels/{label_id}/status`
+- Summary: Put Handling Label Status
+- Auth: SessionCookieAuth
+- Parameters:
+  - `label_id` (path, required): string
+  - `Idempotency-Key` (header, required): string
+- Request body: `application/json` -> HandlingLabelStatusRequest
+- Responses: `200` `application/json` -> HandlingLabelMutationResponse, `400` `application/json` -> ApiErrorResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `404` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `PUT /v1/iam/data-policies/mode`
+- Summary: Put Data Policy Mode
+- Auth: SessionCookieAuth
+- Parameters:
+  - `Idempotency-Key` (header, required): string
+- Request body: `application/json` -> DataPolicyModeUpdateRequest
+- Responses: `200` `application/json` -> DataPolicyModeUpdateResponse, `400` `application/json` -> ApiErrorResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `404` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `GET /v1/iam/data-policies/preflight`
+- Summary: Get Data Policy Preflight
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:data_policies`
+- Responses: `200` `application/json` -> DataPolicyPreflightResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 
 ## Elevations
 

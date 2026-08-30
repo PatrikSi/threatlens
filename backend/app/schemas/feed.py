@@ -127,6 +127,7 @@ class FeedResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
+    handling_label_id: uuid.UUID
     name: str
     url: str
     description: str | None

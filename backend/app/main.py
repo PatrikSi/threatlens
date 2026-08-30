@@ -32,6 +32,7 @@ from app.api.routes import (
     audit,
     auth,
     auth_security,
+    data_policies,
     exports,
     feeds,
     health,
@@ -122,6 +123,7 @@ API_ROUTERS: tuple[APIRouter, ...] = (
     temporary_elevations.router,
     action_approvals.router,
     access_reviews.router,
+    data_policies.router,
 )
 
 
