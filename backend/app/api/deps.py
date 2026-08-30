@@ -34,6 +34,11 @@ from app.services.authorization import (
     authorization_context_for_service_account,
     authorization_context_for_user,
 )
+from app.services.data_access_policy import (
+    DataAccessContext,
+    DataPolicyUnavailable,
+    data_access_context_for_authorization,
+)
 from app.services.service_accounts import (
     SERVICE_ACCOUNT_TOKEN_MARKER,
     extract_service_account_token_prefix,
@@ -149,6 +154,43 @@ def _current_credential_id(request: Request) -> uuid.UUID | None:
 
 def get_authorization_context(request: Request) -> AuthorizationContext | None:
     return getattr(request.state, "authorization_context", None)
+
+
+def get_data_access_context(
+    request: Request,
+    _principal: AuthenticatedPrincipal = Depends(get_current_principal),
+    db: Session = Depends(get_db),
+) -> DataAccessContext:
+    cached = getattr(request.state, "data_access_context", None)
+    if isinstance(cached, DataAccessContext):
+        return cached
+
+    authorization = get_authorization_context(request)
+    if authorization is None:
+        raise DataPolicyUnavailable(
+            "Data access policy could not be evaluated because effective access is missing. Retry authentication."
+        )
+    try:
+        context = data_access_context_for_authorization(db, authorization)
+    except SQLAlchemyError as exc:
+        db.rollback()
+        logger.error(
+            "data_policy_context_load_failed principal_type=%s principal_id=%s",
+            authorization.principal_type,
+            authorization.principal_id,
+            exc_info=verbose_logging_enabled(get_settings()),
+        )
+        raise DataPolicyUnavailable(
+            "Data access policy could not be loaded. Retry the request."
+        ) from exc
+
+    request.state.data_access_context = context
+    update_log_context(
+        data_policy_mode=context.mode,
+        data_policy_revision=context.policy_revision,
+        data_policy_coverage_version=context.coverage_version,
+    )
+    return context
 
 
 def is_cookie_session_auth(request: Request) -> bool:
