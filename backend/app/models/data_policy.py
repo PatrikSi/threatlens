@@ -21,6 +21,7 @@ from app.db.base import Base
 
 
 UNRESTRICTED_HANDLING_LABEL_ID = uuid.UUID("00000000-0000-4000-8000-000000000201")
+QUARANTINE_HANDLING_LABEL_ID = uuid.UUID("00000000-0000-4000-8000-000000000202")
 
 
 class DataPolicyState(Base):
@@ -174,9 +175,83 @@ class DataPolicyRoleGrant(Base):
     )
 
 
+class DataAccessEnvelope(Base):
+    __tablename__ = "data_access_envelopes"
+    __table_args__ = (
+        CheckConstraint(
+            "resource_type = lower(resource_type) AND "
+            "resource_type ~ '^[a-z][a-z0-9_]{0,63}$'",
+            name="ck_data_access_envelopes_resource_type",
+        ),
+        CheckConstraint(
+            "source_count >= 0", name="ck_data_access_envelopes_source_count"
+        ),
+        CheckConstraint(
+            "policy_revision >= 1",
+            name="ck_data_access_envelopes_policy_revision",
+        ),
+        UniqueConstraint(
+            "resource_type",
+            "resource_id",
+            name="uq_data_access_envelopes_resource",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    resource_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    resource_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    source_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    policy_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class DataAccessEnvelopeLabel(Base):
+    __tablename__ = "data_access_envelope_labels"
+    __table_args__ = (
+        CheckConstraint(
+            "source_count >= 1",
+            name="ck_data_access_envelope_labels_source_count",
+        ),
+        Index(
+            "ix_data_access_envelope_labels_label",
+            "label_id",
+            "envelope_id",
+        ),
+    )
+
+    envelope_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("data_access_envelopes.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    label_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("handling_labels.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    source_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
+
+
 __all__ = [
+    "DataAccessEnvelope",
+    "DataAccessEnvelopeLabel",
     "DataPolicyRoleGrant",
     "DataPolicyState",
     "HandlingLabel",
+    "QUARANTINE_HANDLING_LABEL_ID",
     "UNRESTRICTED_HANDLING_LABEL_ID",
 ]

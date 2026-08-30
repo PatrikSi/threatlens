@@ -4,7 +4,10 @@ from sqlalchemy import func, select
 
 from app.core.permissions import SYSTEM_ROLE_IDS
 from app.models.audit_log import AuditLog
-from app.models.data_policy import HandlingLabel, UNRESTRICTED_HANDLING_LABEL_ID
+from app.models.data_policy import (
+    HandlingLabel,
+    QUARANTINE_HANDLING_LABEL_ID,
+)
 from app.models.feed import Feed
 
 
@@ -184,7 +187,7 @@ def test_data_policy_read_permissions_and_idempotent_audited_mutations(
     assert assigned.status_code == 200, assigned.text
     assigned_body = assigned.json()
     assert assigned_body["previous_handling_label_id"] == str(
-        UNRESTRICTED_HANDLING_LABEL_ID
+        QUARANTINE_HANDLING_LABEL_ID
     )
     assert assigned_body["handling_label_id"] == body["label"]["id"]
 
@@ -241,7 +244,7 @@ def test_data_policy_read_permissions_and_idempotent_audited_mutations(
         if audit.action == "data_policy.feed.assign" and audit.success
     )
     assert feed_audit.metadata_json["previous_handling_label_id"] == str(
-        UNRESTRICTED_HANDLING_LABEL_ID
+        QUARANTINE_HANDLING_LABEL_ID
     )
 
 

@@ -11,6 +11,7 @@ from app.models.data_policy import (
     DataPolicyRoleGrant,
     DataPolicyState,
     HandlingLabel,
+    QUARANTINE_HANDLING_LABEL_ID,
     UNRESTRICTED_HANDLING_LABEL_ID,
 )
 from app.models.feed import Feed
@@ -74,7 +75,7 @@ def test_label_grants_feed_assignment_and_archive_invariants(db_session, seed_us
     feed = _feed("Restricted source", "https://example.com/restricted.xml")
     db_session.add(feed)
     db_session.flush()
-    assert feed.handling_label_id == UNRESTRICTED_HANDLING_LABEL_ID
+    assert feed.handling_label_id == QUARANTINE_HANDLING_LABEL_ID
 
     created = create_handling_label(
         db_session,

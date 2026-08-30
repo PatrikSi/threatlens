@@ -9,9 +9,11 @@ from sqlalchemy.orm import Session
 
 from app.core.permissions import SYSTEM_ROLE_IDS
 from app.models.data_policy import (
+    DataAccessEnvelopeLabel,
     DataPolicyRoleGrant,
     DataPolicyState,
     HandlingLabel,
+    QUARANTINE_HANDLING_LABEL_ID,
     UNRESTRICTED_HANDLING_LABEL_ID,
 )
 from app.models.feed import Feed
@@ -190,6 +192,25 @@ def data_policy_preflight(
             )
         )
 
+    quarantine = db.get(HandlingLabel, QUARANTINE_HANDLING_LABEL_ID)
+    quarantine_valid = bool(
+        quarantine is not None
+        and quarantine.key == "quarantine"
+        and not quarantine.is_unrestricted
+        and quarantine.is_system
+        and quarantine.is_active
+    )
+    if not quarantine_valid:
+        blockers.append(
+            DataPolicyBlockerResponse(
+                code="quarantine_label_invalid",
+                detail=(
+                    "The required quarantine handling label is missing or invalid. "
+                    "Restore it from a known-good backup before enabling policy."
+                ),
+            )
+        )
+
     inactive_feed_count = int(
         db.scalar(
             select(func.count(Feed.id))
@@ -259,6 +280,7 @@ def data_policy_preflight(
     audit_blocker_codes = {
         "coverage_incomplete",
         "unrestricted_label_invalid",
+        "quarantine_label_invalid",
         "feeds_use_inactive_labels",
     }
     ready_for_audit = not any(
@@ -281,9 +303,9 @@ def create_handling_label(
 ) -> HandlingLabelMutationResponse:
     state = _lock_policy_state(db)
     _assert_policy_revision(state, payload.expected_policy_revision)
-    if payload.key == "unrestricted":
+    if payload.key in {"unrestricted", "quarantine"}:
         raise DataPolicyValidationError(
-            "The unrestricted key is reserved for the built-in handling label."
+            "This key is reserved for a built-in handling label."
         )
     existing = db.scalar(
         select(HandlingLabel.id).where(HandlingLabel.key == payload.key)
@@ -347,7 +369,7 @@ def update_handling_label(
     updates = payload.model_dump(exclude_unset=True, exclude={"expected_revision"})
     if label.is_system and updates:
         raise DataPolicyConflict(
-            "The built-in unrestricted handling label cannot be changed."
+            "Built-in handling labels cannot be changed."
         )
     if "name" in updates:
         updates["name"] = _required_text(updates["name"], field="name")
@@ -386,9 +408,9 @@ def replace_handling_label_role_grants(
         payload.expected_revision,
         policy_revision=state.revision,
     )
-    if label.is_unrestricted:
+    if label.is_system:
         raise DataPolicyConflict(
-            "The unrestricted label is available to all eligible principals and does not accept role grants."
+            "Built-in handling-label grants cannot be changed."
         )
     if not label.is_active:
         raise DataPolicyConflict(
@@ -452,7 +474,7 @@ def set_handling_label_status(
     )
     if label.is_system:
         raise DataPolicyConflict(
-            "The built-in unrestricted handling label cannot be archived."
+            "Built-in handling labels cannot be archived."
         )
     if label.is_active == payload.active:
         return HandlingLabelMutationResponse(
@@ -471,6 +493,19 @@ def set_handling_label_status(
             raise DataPolicyConflict(
                 "Reassign every feed using this handling label before archiving it.",
                 context={"assigned_feed_count": assigned_feed_count},
+            )
+        derived_reference_count = int(
+            db.scalar(
+                select(func.count(DataAccessEnvelopeLabel.envelope_id)).where(
+                    DataAccessEnvelopeLabel.label_id == label.id
+                )
+            )
+            or 0
+        )
+        if derived_reference_count:
+            raise DataPolicyConflict(
+                "This handling label is retained by derived intelligence. Keep it active or remove the derived records first.",
+                context={"derived_reference_count": derived_reference_count},
             )
     else:
         role_ids = set(

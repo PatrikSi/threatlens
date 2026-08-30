@@ -16,6 +16,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.models.data_policy import QUARANTINE_HANDLING_LABEL_ID
 from app.services.feed_storage import encrypt_feed_url, feed_url_digest, try_decrypt_feed_url
 
 
@@ -54,7 +55,8 @@ class Feed(Base):
         Uuid(as_uuid=True),
         ForeignKey("handling_labels.id", ondelete="RESTRICT"),
         nullable=False,
-        server_default="00000000-0000-4000-8000-000000000201",
+        default=QUARANTINE_HANDLING_LABEL_ID,
+        server_default="00000000-0000-4000-8000-000000000202",
         index=True,
     )
 
