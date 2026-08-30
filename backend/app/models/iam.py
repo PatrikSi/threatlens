@@ -5,6 +5,7 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     DateTime,
+    ForeignKeyConstraint,
     ForeignKey,
     Index,
     Integer,
@@ -98,6 +99,23 @@ class IAMUserRoleAssignment(Base):
             "(source = 'oidc' AND length(source_key) > 0)",
             name="ck_iam_user_role_assignments_source_key",
         ),
+        CheckConstraint(
+            "(source = 'local' AND oidc_role_mapping_id IS NULL "
+            "AND oidc_assertion_expires_at IS NULL) OR "
+            "(source = 'oidc' AND oidc_role_mapping_id IS NOT NULL "
+            "AND oidc_assertion_expires_at IS NOT NULL)",
+            name="ck_iam_user_role_assignments_oidc_ownership",
+        ),
+        ForeignKeyConstraint(
+            ["oidc_role_mapping_id", "source_key", "role_id"],
+            [
+                "oidc_role_claim_mappings.id",
+                "oidc_role_claim_mappings.source_key",
+                "oidc_role_claim_mappings.role_id",
+            ],
+            name="fk_iam_user_role_assignments_oidc_mapping",
+            ondelete="CASCADE",
+        ),
         UniqueConstraint(
             "user_id",
             "role_id",
@@ -107,6 +125,14 @@ class IAMUserRoleAssignment(Base):
         ),
         Index("ix_iam_user_role_assignments_user", "user_id"),
         Index("ix_iam_user_role_assignments_role", "role_id"),
+        Index(
+            "ix_iam_user_role_assignments_oidc_mapping",
+            "oidc_role_mapping_id",
+        ),
+        Index(
+            "ix_iam_user_role_assignments_oidc_expiry",
+            "oidc_assertion_expires_at",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -127,6 +153,13 @@ class IAMUserRoleAssignment(Base):
     )
     source_key: Mapped[str] = mapped_column(
         String(255), nullable=False, default="", server_default=""
+    )
+    oidc_role_mapping_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        nullable=True,
+    )
+    oidc_assertion_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
     assigned_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True),
@@ -199,6 +232,23 @@ class IAMGroupMembership(Base):
             "(source = 'oidc' AND length(source_key) > 0)",
             name="ck_iam_group_memberships_source_key",
         ),
+        CheckConstraint(
+            "(source = 'local' AND oidc_group_mapping_id IS NULL "
+            "AND oidc_assertion_expires_at IS NULL) OR "
+            "(source = 'oidc' AND oidc_group_mapping_id IS NOT NULL "
+            "AND oidc_assertion_expires_at IS NOT NULL)",
+            name="ck_iam_group_memberships_oidc_ownership",
+        ),
+        ForeignKeyConstraint(
+            ["oidc_group_mapping_id", "source_key", "group_id"],
+            [
+                "oidc_group_claim_mappings.id",
+                "oidc_group_claim_mappings.source_key",
+                "oidc_group_claim_mappings.group_id",
+            ],
+            name="fk_iam_group_memberships_oidc_mapping",
+            ondelete="CASCADE",
+        ),
         UniqueConstraint(
             "group_id",
             "user_id",
@@ -208,6 +258,14 @@ class IAMGroupMembership(Base):
         ),
         Index("ix_iam_group_memberships_user", "user_id"),
         Index("ix_iam_group_memberships_group", "group_id"),
+        Index(
+            "ix_iam_group_memberships_oidc_mapping",
+            "oidc_group_mapping_id",
+        ),
+        Index(
+            "ix_iam_group_memberships_oidc_expiry",
+            "oidc_assertion_expires_at",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -228,6 +286,13 @@ class IAMGroupMembership(Base):
     )
     source_key: Mapped[str] = mapped_column(
         String(255), nullable=False, default="", server_default=""
+    )
+    oidc_group_mapping_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        nullable=True,
+    )
+    oidc_assertion_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
     assigned_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True),

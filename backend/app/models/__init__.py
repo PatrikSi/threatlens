@@ -56,6 +56,12 @@ from app.models.mfa import MFALoginChallenge, UserRecoveryCode, UserTOTPCredenti
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.oidc import ExternalIdentity, OIDCProvider
+from app.models.oidc_access import (
+    OIDCAccessPolicy,
+    OIDCClaimMappingSet,
+    OIDCGroupClaimMapping,
+    OIDCRoleClaimMapping,
+)
 from app.models.report import Report
 from app.models.report_generation_lease import ReportGenerationLease
 from app.models.report_operation_receipt import ReportOperationReceipt
@@ -127,6 +133,10 @@ __all__ = [
     "NotificationWebhook",
     "NotificationWebhookDelivery",
     "OIDCProvider",
+    "OIDCAccessPolicy",
+    "OIDCClaimMappingSet",
+    "OIDCGroupClaimMapping",
+    "OIDCRoleClaimMapping",
     "Report",
     "ReportGenerationLease",
     "ReportOperationReceipt",

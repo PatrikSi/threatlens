@@ -15,6 +15,7 @@ from app.models.iam import (
     IAMUserRoleAssignment,
 )
 from app.models.service_account import ServiceAccountRoleAssignment
+from app.models.oidc_access import OIDCRoleClaimMapping
 from app.models.user import User
 from app.schemas.iam import (
     RoleResponse,
@@ -197,6 +198,18 @@ def delete_role(db: Session, *, role_id: uuid.UUID) -> IAMRole:
         )
         or 0
     )
+    oidc_mapping_count = int(
+        db.scalar(
+            select(func.count(OIDCRoleClaimMapping.id)).where(
+                OIDCRoleClaimMapping.role_id == role.id
+            )
+        )
+        or 0
+    )
+    if oidc_mapping_count:
+        raise IAMRoleConflict(
+            "Role is referenced by an OIDC claim mapping. Remove that mapping before deleting the role."
+        )
     if assignment_count or group_count or service_account_count:
         raise IAMRoleConflict(
             "Role is still assigned. Remove its user, group, and service-account "

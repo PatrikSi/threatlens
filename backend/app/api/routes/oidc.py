@@ -18,9 +18,11 @@ from app.api.deps import (
     resolve_client_ip,
 )
 from app.api.routes.oidc_account import router as account_router
+from app.api.routes.oidc_access_policy import router as access_policy_router
 from app.api.routes.oidc_provider import router as provider_router
 from app.core.api_errors import ApiHTTPException
 from app.core.config import get_settings
+from app.core.logging_config import verbose_logging_enabled
 from app.core.security import generate_csrf_token, set_auth_cookies
 from app.db.session import get_db
 from app.models.auth_session import AuthSession
@@ -53,6 +55,11 @@ from app.services.oidc_client import (
     oidc_identity_authenticated_at,
     validate_oidc_reauthentication,
     validate_oidc_token_claims,
+)
+from app.services.oidc_access_flow import (
+    oidc_access_policy_transaction_fields,
+    oidc_transaction_access_policy_matches,
+    sync_oidc_transaction_access,
 )
 from app.services.oidc_config import (
     OIDCConfigurationError,
@@ -421,6 +428,9 @@ def oidc_callback(
         or not provider.enabled
         or transaction.provider_config_revision is None
         or provider.config_revision != transaction.provider_config_revision
+        or not oidc_transaction_access_policy_matches(
+            db, provider_id=provider.id, transaction=transaction
+        )
     ):
         provider = _detach_provider(db, provider)
         return _callback_failure(
@@ -448,11 +458,19 @@ def oidc_callback(
         claims = validate_oidc_token_claims(
             provider, metadata, token, nonce=transaction.nonce
         )
-        role_sync_lock_held = bool(
+        fixed_role_sync_lock_held = bool(
             transaction.mode == "login" and provider.sync_roles_on_login
         )
-        if role_sync_lock_held:
+        custom_access_sync_lock_held = bool(
+            transaction.mode == "login"
+            and (
+                transaction.access_policy_generation is not None
+                or transaction.access_policy_revision is not None
+            )
+        )
+        if fixed_role_sync_lock_held or custom_access_sync_lock_held:
             lock_iam_policy_for_mutation(db)
+        if fixed_role_sync_lock_held:
             acquire_active_admin_invariant_lock(db)
         acquire_oidc_provider_config_read_lock(db)
         fenced_provider = _lock_provider_for_callback(db, transaction)
@@ -624,7 +642,15 @@ def oidc_callback(
             db,
             provider,
             claims,
-            active_admin_invariant_locked=role_sync_lock_held,
+            active_admin_invariant_locked=fixed_role_sync_lock_held,
+        )
+        sync_oidc_transaction_access(
+            db,
+            provider=provider,
+            user=result.user,
+            claims=claims,
+            transaction=transaction,
+            credentials_already_rotated=result.previous_role is not None,
         )
         _record_oidc_authentication_audit(db, provider, result)
         if not result.user.is_approved:
@@ -805,6 +831,9 @@ def _prepare_oidc_flow(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="OIDC sign-in is not available",
         )
+    access_policy_fields = oidc_access_policy_transaction_fields(
+        db, provider_id=provider.id, mode=mode
+    )
     provider = _detach_provider(db, provider)
     try:
         metadata = load_oidc_metadata(provider)
@@ -824,6 +853,7 @@ def _prepare_oidc_flow(
             session_binding=session_binding,
             auth_token_version=auth_token_version,
             earliest_auth_time=earliest_auth_time,
+            **access_policy_fields,
         )
         authorization_url = build_oidc_authorization_url(
             provider,
@@ -1048,16 +1078,26 @@ def _callback_failure(
     if details:
         audit_metadata.update(details)
     if persist_audit:
-        record_audit(
-            db,
-            actor_user_id=parsed_actor_id,
-            action="auth.oidc.callback",
-            resource_type="oidc_provider",
-            resource_id=str(provider.id) if provider else None,
-            success=False,
-            metadata=audit_metadata,
-        )
-        db.commit()
+        try:
+            record_audit(
+                db,
+                actor_user_id=parsed_actor_id,
+                action="auth.oidc.callback",
+                resource_type="oidc_provider",
+                resource_id=str(provider.id) if provider else None,
+                success=False,
+                metadata=audit_metadata,
+            )
+            db.commit()
+        except Exception as exc:
+            db.rollback()
+            logger.error(
+                "oidc_callback_failure_audit_unavailable error_code=%s mode=%s error_type=%s",
+                error_code,
+                response_mode,
+                type(exc).__name__,
+                exc_info=verbose_logging_enabled(get_settings()),
+            )
     target_path = (
         "/settings/account" if response_mode in {"link", "reauth"} else "/login"
     )
@@ -1150,5 +1190,6 @@ def _callback_redirect(
 
 router = APIRouter(prefix="/auth/oidc", tags=["auth", "oidc"])
 router.include_router(provider_router)
+router.include_router(access_policy_router)
 router.include_router(session_router)
 router.include_router(account_router)

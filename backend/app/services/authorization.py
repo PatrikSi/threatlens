@@ -4,7 +4,7 @@ import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.permissions import (
@@ -189,6 +189,10 @@ def _authorization_snapshot_for_user(
         .where(
             IAMUserRoleAssignment.user_id == user.id,
             IAMRole.is_system.is_(False),
+            or_(
+                IAMUserRoleAssignment.source != "oidc",
+                IAMUserRoleAssignment.oidc_assertion_expires_at > func.now(),
+            ),
         )
     ).all()
     seen_role_ids: set[uuid.UUID] = set()
@@ -211,7 +215,13 @@ def _authorization_snapshot_for_user(
     membership_rows = db.scalars(
         select(IAMGroup.key)
         .join(IAMGroupMembership, IAMGroupMembership.group_id == IAMGroup.id)
-        .where(IAMGroupMembership.user_id == user.id)
+        .where(
+            IAMGroupMembership.user_id == user.id,
+            or_(
+                IAMGroupMembership.source != "oidc",
+                IAMGroupMembership.oidc_assertion_expires_at > func.now(),
+            ),
+        )
     ).all()
     groups.update(membership_rows)
 
@@ -233,6 +243,10 @@ def _authorization_snapshot_for_user(
         .where(
             IAMGroupMembership.user_id == user.id,
             IAMRole.is_system.is_(False),
+            or_(
+                IAMGroupMembership.source != "oidc",
+                IAMGroupMembership.oidc_assertion_expires_at > func.now(),
+            ),
         )
     ).all()
     for row in group_rows:

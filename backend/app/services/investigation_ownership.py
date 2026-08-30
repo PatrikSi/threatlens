@@ -8,12 +8,23 @@ from sqlalchemy import exists, or_, select
 from sqlalchemy.orm import Session, aliased
 
 from app.core.rbac import ROLE_ADMIN, ROLE_ANALYST
+from app.core.token_scopes import SCOPE_WRITE_INVESTIGATIONS
+from app.models.iam import (
+    IAMGroupMembership,
+    IAMGroupRoleAssignment,
+    IAMRole,
+    IAMRolePermission,
+    IAMUserRoleAssignment,
+)
 from app.models.investigation import (
     Investigation,
     InvestigationActivity,
     InvestigationMember,
 )
 from app.models.user import User
+from app.services.investigation_owner_eligibility import (
+    has_durable_investigation_write_access,
+)
 
 ELIGIBLE_INVESTIGATION_OWNER_ROLES = frozenset({ROLE_ADMIN, ROLE_ANALYST})
 
@@ -58,18 +69,52 @@ def reconcile_user_investigation_access_change(
     actor_user_id: uuid.UUID | None,
 ) -> InvestigationAccessChangeResult:
     """Protect ownership and assignment invariants before reducing account access."""
-    if not is_eligible_investigation_owner(
-        role=user.role,
-        is_active=user.is_active,
-        is_approved=user.is_approved,
-    ):
+    if not has_durable_investigation_write_access(db, user):
         return InvestigationAccessChangeResult()
-    if is_eligible_investigation_owner(
+    if has_durable_investigation_write_access(
+        db,
+        user,
         role=next_role,
         is_active=next_is_active,
         is_approved=next_is_approved,
     ):
         return InvestigationAccessChangeResult()
+
+    return _reconcile_lost_investigation_access(
+        db,
+        user=user,
+        actor_user_id=actor_user_id,
+        activity_details={
+            "next_role": next_role,
+            "next_is_active": next_is_active,
+            "next_is_approved": next_is_approved,
+        },
+    )
+
+
+def reconcile_user_investigation_permission_reduction(
+    db: Session,
+    *,
+    user: User,
+    actor_user_id: uuid.UUID | None,
+) -> InvestigationAccessChangeResult:
+    """Protect ownership when live IAM evaluation loses investigation write."""
+
+    return _reconcile_lost_investigation_access(
+        db,
+        user=user,
+        actor_user_id=actor_user_id,
+        activity_details={"next_has_write_investigations": False},
+    )
+
+
+def _reconcile_lost_investigation_access(
+    db: Session,
+    *,
+    user: User,
+    actor_user_id: uuid.UUID | None,
+    activity_details: dict[str, object],
+) -> InvestigationAccessChangeResult:
 
     affected_ids = db.scalars(
         select(Investigation.id)
@@ -117,9 +162,7 @@ def reconcile_user_investigation_access_change(
                 entity_id=user.id,
                 details_json={
                     "reason": "account_access_reduced",
-                    "next_role": next_role,
-                    "next_is_active": next_is_active,
-                    "next_is_approved": next_is_approved,
+                    **activity_details,
                     "version": investigation.version,
                 },
             )
@@ -139,6 +182,34 @@ def _orphaned_investigations_after_user_change(
     current_owner = aliased(InvestigationMember)
     other_owner = aliased(InvestigationMember)
     other_user = aliased(User)
+    direct_write_grant = exists(
+        select(1)
+        .select_from(IAMUserRoleAssignment)
+        .join(IAMRole, IAMRole.id == IAMUserRoleAssignment.role_id)
+        .join(IAMRolePermission, IAMRolePermission.role_id == IAMRole.id)
+        .where(
+            IAMUserRoleAssignment.user_id == other_user.id,
+            IAMRole.is_system.is_(False),
+            IAMRolePermission.permission == SCOPE_WRITE_INVESTIGATIONS,
+            IAMUserRoleAssignment.source == "local",
+        )
+    )
+    group_write_grant = exists(
+        select(1)
+        .select_from(IAMGroupMembership)
+        .join(
+            IAMGroupRoleAssignment,
+            IAMGroupRoleAssignment.group_id == IAMGroupMembership.group_id,
+        )
+        .join(IAMRole, IAMRole.id == IAMGroupRoleAssignment.role_id)
+        .join(IAMRolePermission, IAMRolePermission.role_id == IAMRole.id)
+        .where(
+            IAMGroupMembership.user_id == other_user.id,
+            IAMRole.is_system.is_(False),
+            IAMRolePermission.permission == SCOPE_WRITE_INVESTIGATIONS,
+            IAMGroupMembership.source == "local",
+        )
+    )
     eligible_other_owner = exists(
         select(1)
         .select_from(other_owner)
@@ -147,7 +218,11 @@ def _orphaned_investigations_after_user_change(
             other_owner.investigation_id == Investigation.id,
             other_owner.user_id != user_id,
             other_owner.role == "owner",
-            other_user.role.in_(ELIGIBLE_INVESTIGATION_OWNER_ROLES),
+            or_(
+                other_user.role.in_(ELIGIBLE_INVESTIGATION_OWNER_ROLES),
+                direct_write_grant,
+                group_write_grant,
+            ),
             other_user.is_active.is_(True),
             other_user.is_approved.is_(True),
         )
@@ -193,4 +268,5 @@ __all__ = [
     "InvestigationOwnerReassignmentRequired",
     "is_eligible_investigation_owner",
     "reconcile_user_investigation_access_change",
+    "reconcile_user_investigation_permission_reduction",
 ]

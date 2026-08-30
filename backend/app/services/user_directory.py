@@ -35,6 +35,7 @@ class UserManagementContext:
         if (
             self.identity is not None
             and self.provider is not None
+            and self.provider.enabled
             and self.provider.sync_roles_on_login
         ):
             return "oidc"
