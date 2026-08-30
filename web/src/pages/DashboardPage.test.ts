@@ -7,7 +7,6 @@ import {
 import {
   buildSavedViewPreview,
   buildDashboardSavedViewState,
-  loadDashboardWindows,
   MAX_DASHBOARD_WINDOWS,
   normalizeDashboardWindows,
   normalizePanelRect,
@@ -18,6 +17,7 @@ import {
   serializeDashboardWindowLayouts,
   withPanelRectPercentages,
 } from './dashboardSavedViews'
+import { loadDashboardWindows, loadStoredDashboardWindows } from './dashboardWindowStorage'
 import { parseArticleBlocks, sanitizeHref } from './dashboardContent'
 import { summarizeGlobalSearchAcrossWindows } from './dashboardState'
 import type { SavedView } from '../types/api'
@@ -664,6 +664,57 @@ describe('saved view payloads', () => {
         selected_daily_brief_id: null,
       },
     ])
+  })
+
+  it('uses workspace panel defaults only when no local dashboard layout exists', () => {
+    const seeded = loadDashboardWindows(
+      'threatlens.dashboard.windows.v2:new-user',
+      1380,
+      760,
+      ['rss', 'alerts', 'notes'],
+    )
+
+    expect(seeded.map((window) => window.type)).toEqual(['rss', 'alerts', 'notes'])
+    expect(seeded.map((window) => window.snap)).toEqual(['top_left', 'top_right', 'bottom_left'])
+
+    localStorageMock.setItem(
+      'threatlens.dashboard.windows.v2:existing-user',
+      JSON.stringify([
+        {
+          id: 'notes-existing',
+          type: 'notes',
+          title: 'Existing notes',
+          snap: 'full',
+          rect: { x: 0, y: 0, width: 1380, height: 760 },
+          controls_collapsed: false,
+          scratch_note: '',
+          time_override: null,
+          rss_filters: null,
+          alert_filters: null,
+          selected_daily_brief_id: null,
+        },
+      ]),
+    )
+    const existing = loadDashboardWindows(
+      'threatlens.dashboard.windows.v2:existing-user',
+      1380,
+      760,
+      ['rss', 'alerts'],
+    )
+    expect(existing.map((window) => window.type)).toEqual(['notes'])
+  })
+
+  it('distinguishes a valid persisted layout from missing or malformed storage', () => {
+    expect(loadStoredDashboardWindows('missing-layout', 1380, 760)).toBeNull()
+    localStorageMock.setItem('malformed-layout', '{not-json')
+    expect(loadStoredDashboardWindows('malformed-layout', 1380, 760)).toBeNull()
+
+    localStorageMock.setItem(
+      'valid-layout',
+      JSON.stringify([createNotesWindow(1)]),
+    )
+    expect(loadStoredDashboardWindows('valid-layout', 1380, 760)?.map((window) => window.type))
+      .toEqual(['notes'])
   })
 
   it('builds saved-view previews from the parsed contract shape', () => {

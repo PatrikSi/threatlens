@@ -6,14 +6,15 @@ Centralized account, token, and admin operations.
 
 ## Navigation Items
 
-Always visible:
+Default authenticated-user items:
 
 - Account
 - API Tokens
+- Workspace
 - Integrations
   - Webhooks
 
-Admin-only:
+Default administrator-role items (canonical permissions remain authoritative):
 
 - AI (`/settings/ai`) when enabled
 - Integrations
@@ -23,12 +24,20 @@ Admin-only:
 - Users
 - Audit Logs
 
+The effective workspace policy may reorder or hide modules marked optional. The
+frontend resolves server policy only against its static trusted module registry;
+server-supplied labels, routes, and unknown module IDs never become navigation
+links. Account and Workspace remain fixed local controls when their required
+permissions are available.
+
 Legacy route behavior:
 
 - `/ai` redirects to `/settings/ai`
-- `/settings` redirects to `/settings/account`
+- `/settings` redirects to the first visible trusted Settings child, with
+  `/settings/account` as the fallback
 - `/settings/notifications` redirects to `/settings/integrations/webhooks`
-- `/settings/integrations` redirects to `/settings/integrations/webhooks`
+- `/settings/integrations` redirects to the first visible trusted integration
+  child, with `/settings` as the fallback
 
 ## Account Page
 
@@ -173,6 +182,36 @@ Legacy route behavior:
   - `POST /tokens`
   - `DELETE /tokens/{id}`
 
+## Workspace Page
+
+- Personal preferences let each user reorder optional primary and Settings
+  modules, hide optional modules, choose an available landing page, and select
+  first-use dashboard panels.
+- Personal controls cannot expose a module hidden by role policy, unavailable to
+  the account, disabled by a feature dependency, or blocked by permissions.
+- Principals with durable `write:workspace` authority can edit role policies for `admin`,
+  `analyst`, and `viewer`, including visibility, optionality, desktop order,
+  mobile priority, landing page, and dashboard defaults.
+- Role preview is an inert navigation simulation. It does not impersonate a
+  role, issue requests as another user, or turn preview entries into links.
+- Revision conflicts keep the current draft visible and prompt the editor to
+  reload before retrying, preventing an older browser from overwriting newer
+  policy.
+- Unknown module and dashboard-panel IDs are shown as version-skew warnings and
+  preserved in write payloads when the server reports them. They never create
+  routes or arbitrary links.
+- Workspace mutations use the backend workspace audit events; the frontend does
+  not maintain a second audit trail.
+- API calls:
+  - `GET /workspace/modules`
+  - `GET /workspace/effective`
+  - `GET /workspace/preferences`
+  - `PUT /workspace/preferences`
+  - `POST /workspace/preferences/reset`
+  - `GET /workspace/role-policies`
+  - `PUT /workspace/role-policies/{role}`
+  - `POST /workspace/role-policies/{role}/reset`
+
 ## Users Page (Admin)
 
 - Create user form
@@ -200,7 +239,14 @@ Legacy route behavior:
 ## Access Rules
 
 - Protected by authenticated route guard.
+- Navigation visibility is presentation policy, not an authorization boundary;
+  direct routes and API requests remain protected by route and backend IAM.
+- The Workspace page is available with `read:workspace`; organization policy
+  editing additionally requires durable `write:workspace` authority.
 - Webhook analytics/list/history are available to authenticated users for their own webhooks.
 - Webhook create/update/test/retry/delete additionally require operator access (`admin` or `analyst`) and write notification access.
-- Admin-only pages additionally protected with `RoleRoute` (`roles=['admin']`).
-- AI is a nested admin-only settings page at `/settings/ai`, with `/ai` redirecting there for backward compatibility.
+- Restricted settings pages use `PermissionRoute` with the same canonical read
+  permission enforced by their backend APIs. Legacy role names do not override
+  effective IAM grants.
+- AI is nested at `/settings/ai`, requires `read:ai`, and remains available at
+  `/ai` through a backward-compatible redirect.

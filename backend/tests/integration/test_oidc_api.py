@@ -1284,7 +1284,7 @@ def test_oidc_jit_login_provisions_verified_user_and_maps_role(
     callback = _start_and_complete(client)
 
     assert callback.status_code == 302
-    assert callback.headers["location"] == "http://testserver/"
+    assert callback.headers["location"] == "http://testserver/start"
     user = db_session.scalar(select(User).where(User.email == "new-user@example.com"))
     assert user is not None
     assert user.role == "analyst"
@@ -1377,7 +1377,7 @@ def test_oidc_jit_can_accept_unverified_email_only_when_provider_policy_allows_i
     callback = _start_and_complete(client)
 
     assert callback.status_code == 302
-    assert callback.headers["location"] == "http://testserver/"
+    assert callback.headers["location"] == "http://testserver/start"
     user = db_session.scalar(select(User).where(User.email == "trusted@example.com"))
     assert user is not None
     assert user.is_approved is True
@@ -1408,7 +1408,7 @@ def test_oidc_jit_accepts_internal_email_identifier_when_verification_is_optiona
     callback = _start_and_complete(client)
 
     assert callback.status_code == 302
-    assert callback.headers["location"] == "http://testserver/"
+    assert callback.headers["location"] == "http://testserver/start"
     user = db_session.scalar(select(User).where(User.email == "admin@admin.local"))
     assert user is not None
     identity = db_session.scalar(
@@ -1826,7 +1826,7 @@ def test_oidc_login_remains_compatible_when_provider_omits_auth_time(
 
     callback = _start_and_complete(client)
 
-    assert callback.headers["location"] == "http://testserver/"
+    assert callback.headers["location"] == "http://testserver/start"
     assert client.get("/auth/me").status_code == 200
 
 
@@ -2296,7 +2296,7 @@ def test_oidc_only_account_cannot_use_local_login_or_unlink(
         },
     )
     callback = _start_and_complete(client)
-    assert callback.headers["location"] == "http://testserver/"
+    assert callback.headers["location"] == "http://testserver/start"
 
     local_login = client.post(
         "/auth/login",
@@ -2553,7 +2553,7 @@ def test_sso_provisioned_account_rejects_locally_managed_identity_changes(
         },
     )
     callback = _start_and_complete(client)
-    assert callback.headers["location"] == "http://testserver/"
+    assert callback.headers["location"] == "http://testserver/start"
     user = db_session.scalar(select(User).where(User.email == "recovery@example.com"))
     assert user is not None
     assert user.password_login_enabled is False
@@ -2644,7 +2644,7 @@ def test_user_directory_describes_sso_account_management_boundaries(
         },
     )
     callback = _start_and_complete(client)
-    assert callback.headers["location"] == "http://testserver/"
+    assert callback.headers["location"] == "http://testserver/start"
 
     response = client.get("/users", headers=auth_headers["admin"])
 

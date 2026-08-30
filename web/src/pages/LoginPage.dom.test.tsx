@@ -3,7 +3,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { AuthProvider } from '../components/AuthContext'
@@ -56,7 +56,13 @@ vi.mock('../api/client', () => ({
   buildApiUrl: (path: string) => `/api/v1${path}`,
 }))
 
-import { LoginPage } from './LoginPage'
+import {
+  LoginPage,
+  clearPendingOidcReturnDestination,
+  readPendingOidcReturnDestination,
+  resolvePostLoginDestination,
+  stagePendingOidcReturnDestination,
+} from './LoginPage'
 
 let queryClient: QueryClient | null = null
 let root: Root | null = null
@@ -80,6 +86,7 @@ function renderPage(initialEntries: InitialEntry[] = ['/login']) {
         <AuthProvider>
           <QueryClientProvider client={queryClient!}>
             <LoginPage />
+            <LocationProbe />
           </QueryClientProvider>
         </AuthProvider>
       </MemoryRouter>,
@@ -132,9 +139,90 @@ afterEach(async () => {
   container = null
   document.body.innerHTML = ''
   loginPageDomMocks.apiFetch.mockReset()
+  window.sessionStorage.clear()
 })
 
+function LocationProbe() {
+  const location = useLocation()
+  return <output data-testid="location">{`${location.pathname}${location.search}${location.hash}`}</output>
+}
+
 describe('LoginPage accessibility', () => {
+  it('uses the workspace start route after ordinary local sign-in', async () => {
+    loginPageDomMocks.apiFetch.mockImplementation((path: string) => {
+      if (path === '/auth/login') return Promise.resolve({ token_type: 'session_cookie' })
+      if (path === '/auth/oidc/settings') return Promise.resolve({ enabled: false, provider_name: null })
+      return Promise.resolve({ allow_self_registration: false })
+    })
+    const view = renderPage()
+    await act(async () => await flushPromises())
+
+    act(() => {
+      setInputValue(view.querySelector<HTMLInputElement>('#login-email')!, 'analyst@example.com')
+      setInputValue(view.querySelector<HTMLInputElement>('#login-password')!, 'local-password')
+    })
+    await submitForm(view)
+
+    expect(view.querySelector('[data-testid="location"]')?.textContent).toBe('/start')
+  })
+
+  it('preserves an explicit protected deep link after local sign-in', async () => {
+    loginPageDomMocks.apiFetch.mockImplementation((path: string) => {
+      if (path === '/auth/login') return Promise.resolve({ token_type: 'session_cookie' })
+      if (path === '/auth/oidc/settings') return Promise.resolve({ enabled: false, provider_name: null })
+      return Promise.resolve({ allow_self_registration: false })
+    })
+    const view = renderPage([{
+      pathname: '/login',
+      state: { from: { pathname: '/alerts', search: '?severity=high', hash: '#match-1' } },
+    }])
+    await act(async () => await flushPromises())
+
+    act(() => {
+      setInputValue(view.querySelector<HTMLInputElement>('#login-email')!, 'analyst@example.com')
+      setInputValue(view.querySelector<HTMLInputElement>('#login-password')!, 'local-password')
+    })
+    await submitForm(view)
+
+    expect(view.querySelector('[data-testid="location"]')?.textContent).toBe('/alerts?severity=high#match-1')
+  })
+
+  it('treats root and unsafe return state as workspace entry instead of external navigation', () => {
+    expect(resolvePostLoginDestination({ from: { pathname: '/' } })).toBe('/start')
+    expect(resolvePostLoginDestination({ from: { pathname: '//attacker.example' } })).toBe('/start')
+    expect(resolvePostLoginDestination({ from: { pathname: '/feeds', search: 'bad' } })).toBe('/feeds')
+  })
+
+  it('stores a bounded one-time OIDC deep-link return without storing ordinary landing intent', () => {
+    stagePendingOidcReturnDestination({
+      from: { pathname: '/investigations/case-1', search: '?tab=evidence', hash: '#ioc' },
+    })
+
+    expect(readPendingOidcReturnDestination()).toBe('/investigations/case-1?tab=evidence#ioc')
+    expect(readPendingOidcReturnDestination()).toBe('/investigations/case-1?tab=evidence#ioc')
+    clearPendingOidcReturnDestination()
+    expect(readPendingOidcReturnDestination()).toBeNull()
+
+    stagePendingOidcReturnDestination({ from: { pathname: '/' } })
+    expect(window.sessionStorage.length).toBe(0)
+  })
+
+  it('discards expired or external OIDC return state', () => {
+    window.sessionStorage.setItem(
+      'threatlens.auth.oidc-return.v1',
+      JSON.stringify({ destination: '/alerts', createdAt: Date.now() - 11 * 60 * 1000 }),
+    )
+    expect(readPendingOidcReturnDestination()).toBeNull()
+
+    window.sessionStorage.setItem(
+      'threatlens.auth.oidc-return.v1',
+      JSON.stringify({ destination: '//attacker.example', createdAt: Date.now() }),
+    )
+    expect(readPendingOidcReturnDestination()).toBeNull()
+    clearPendingOidcReturnDestination()
+    expect(window.sessionStorage.length).toBe(0)
+  })
+
   it('shows an explicit error when registration settings cannot be loaded', async () => {
     loginPageDomMocks.apiFetch.mockRejectedValue(
       new Error('registration settings unavailable'),

@@ -85,6 +85,15 @@ vi.mock('../hooks/useCurrentUser', () => ({
   useCurrentUser: () => dashboardPageRenderMocks.currentUser,
 }))
 
+vi.mock('../workspace/useWorkspace', () => ({
+  useWorkspace: () => ({
+    isLoading: false,
+    effective: { role: 'admin' },
+    userContext: { role: 'admin' },
+    model: { dashboardPanelIds: ['rss'] },
+  }),
+}))
+
 vi.mock('../hooks/useUnsavedChangesWarning', () => ({
   useUnsavedChangesWarning: vi.fn(() =>
     Object.assign(
