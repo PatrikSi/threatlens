@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_token_scopes
+from app.api.deps import require_permissions
 from app.core.token_scopes import SCOPE_READ_VIEWS, SCOPE_WRITE_VIEWS
 from app.db.session import get_db
 from app.models.saved_view import SavedView
@@ -32,7 +32,7 @@ def _ensure_saved_view_window_limit(payload: SavedViewCreate | SavedViewUpdate) 
 @router.get("", response_model=list[SavedViewResponse])
 def list_views(
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_READ_VIEWS)),
+    user: User = Depends(require_permissions(SCOPE_READ_VIEWS)),
 ):
     views = db.scalars(
         select(SavedView)
@@ -46,7 +46,7 @@ def list_views(
 def create_view(
     payload: SavedViewCreate,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_VIEWS)),
+    user: User = Depends(require_permissions(SCOPE_WRITE_VIEWS)),
 ):
     _ensure_saved_view_window_limit(payload)
     view = SavedView(
@@ -74,7 +74,7 @@ def update_view(
     view_id: uuid.UUID,
     payload: SavedViewUpdate,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_VIEWS)),
+    user: User = Depends(require_permissions(SCOPE_WRITE_VIEWS)),
 ):
     _ensure_saved_view_window_limit(payload)
     view = db.scalar(select(SavedView).where(SavedView.id == view_id, SavedView.user_id == user.id))
@@ -103,7 +103,7 @@ def update_view(
 def delete_view(
     view_id: uuid.UUID,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_VIEWS)),
+    user: User = Depends(require_permissions(SCOPE_WRITE_VIEWS)),
 ):
     view = db.scalar(select(SavedView).where(SavedView.id == view_id, SavedView.user_id == user.id))
     if view is None:

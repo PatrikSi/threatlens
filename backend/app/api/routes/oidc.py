@@ -42,6 +42,7 @@ from app.services.auth_sessions import (
     rotate_exact_auth_session,
     rotate_user_auth_sessions,
 )
+from app.services.authorization import lock_iam_policy_for_mutation
 from app.services.oidc_client import (
     OIDCClaims,
     OIDCProtocolError,
@@ -451,6 +452,7 @@ def oidc_callback(
             transaction.mode == "login" and provider.sync_roles_on_login
         )
         if role_sync_lock_held:
+            lock_iam_policy_for_mutation(db)
             acquire_active_admin_invariant_lock(db)
         acquire_oidc_provider_config_read_lock(db)
         fenced_provider = _lock_provider_for_callback(db, transaction)

@@ -3,7 +3,7 @@ from sqlalchemy import exists, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_operator_user, require_token_scopes
+from app.api.deps import require_permissions
 from app.core.token_scopes import SCOPE_READ_TAGS, SCOPE_WRITE_TAGS
 from app.db.session import get_db
 from app.models.tag import ItemTag, Tag
@@ -17,7 +17,7 @@ router = APIRouter(prefix="/tags", tags=["tags"])
 @router.get("", response_model=list[TagResponse])
 def list_tags(
     db: Session = Depends(get_db),
-    _user: User = Depends(require_token_scopes(SCOPE_READ_TAGS)),
+    _user: User = Depends(require_permissions(SCOPE_READ_TAGS)),
 ):
     tags = db.scalars(
         select(Tag)
@@ -31,8 +31,7 @@ def list_tags(
 def create_tag(
     payload: TagCreate,
     db: Session = Depends(get_db),
-    user: User = Depends(get_operator_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_TAGS)),
+    user: User = Depends(require_permissions(SCOPE_WRITE_TAGS)),
 ):
     existing = db.scalar(select(Tag).where(Tag.name == payload.name.lower()))
     if existing is not None:

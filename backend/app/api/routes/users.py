@@ -29,6 +29,10 @@ from app.schemas.user import (
     UserUpdateRequest,
 )
 from app.services.audit import record_audit
+from app.services.authorization import (
+    bump_iam_policy_revision,
+    lock_iam_policy_for_mutation,
+)
 from app.services.auth_sessions import lock_exact_auth_session, lock_user_auth_states
 from app.services.local_mfa import (
     MFAError,
@@ -258,6 +262,7 @@ def create_user(
     db.add(user)
     try:
         db.flush()
+        bump_iam_policy_revision(db)
     except IntegrityError as exc:
         db.rollback()
         raise HTTPException(
@@ -310,6 +315,8 @@ def update_user(
         value is not None
         for value in (payload.role, payload.is_active, payload.is_approved)
     )
+    if access_state_update:
+        lock_iam_policy_for_mutation(db)
     locked_users = (
         lock_users_for_security_change(db, [admin.id, user_id])
         if access_state_update
@@ -334,6 +341,14 @@ def update_user(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid role"
         )
+    access_state_changed = any(
+        (
+            payload.role is not None and payload.role != user.role,
+            payload.is_active is not None and payload.is_active != user.is_active,
+            payload.is_approved is not None
+            and payload.is_approved != user.is_approved,
+        )
+    )
 
     management = load_user_management_context(db, user.id)
     _ensure_locally_managed_changes(user, payload, management)
@@ -461,6 +476,8 @@ def update_user(
         revoked_auth_sessions = revoked.auth_sessions
 
     db.add(user)
+    if access_state_changed:
+        bump_iam_policy_revision(db)
     legacy_unversioned_password_update = (
         payload.password is not None and payload.expected_security_version is None
     )

@@ -5,7 +5,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ## Published Contract
 
 - Schema version: `1.8.0`
-- OpenAPI contract anchor: `openapi-sha256:1cd03ff5c6cb4bf4bfecc05743109285f11f0cdddbabb8f588916fb8ce5357c2`
+- OpenAPI contract anchor: `openapi-sha256:ae693d6b2e2944837f351e3beb4019acb44938cb66fb4732305f228a6fbe6685`
 - API service base path: `/v1`
 - Web proxy base path: `/api/v1`
 - Bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`.
@@ -328,6 +328,14 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `action` (query, optional): Action
   - `actor_user_id` (query, optional): Actor User Id
+  - `actor_principal_type` (query, optional): Actor Principal Type
+  - `actor_principal_id` (query, optional): Actor Principal Id
+  - `resource_type` (query, optional): Resource Type
+  - `resource_id` (query, optional): Resource Id
+  - `request_id` (query, optional): Request Id
+  - `success` (query, optional): Success
+  - `created_from` (query, optional): Created From
+  - `created_to` (query, optional): Created To
   - `page` (query, optional): integer
   - `page_size` (query, optional): integer
 - Responses: `200` `application/json` -> AuditLogListResponse, `422` `application/json` -> HTTPValidationError
@@ -338,6 +346,14 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `action` (query, optional): Action
   - `actor_user_id` (query, optional): Actor User Id
+  - `actor_principal_type` (query, optional): Actor Principal Type
+  - `actor_principal_id` (query, optional): Actor Principal Id
+  - `resource_type` (query, optional): Resource Type
+  - `resource_id` (query, optional): Resource Id
+  - `request_id` (query, optional): Request Id
+  - `success` (query, optional): Success
+  - `created_from` (query, optional): Created From
+  - `created_to` (query, optional): Created To
   - `limit` (query, optional): integer
 - Responses: `200` `application/json` -> AuditLogExportResponse, `422` `application/json` -> HTTPValidationError
 
@@ -514,7 +530,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 ### `GET /v1/feeds/export/backup`
 - Summary: Export Feeds Backup
 - Auth: ApiTokenBearer or SessionCookieAuth
-- Token scopes: `write:feeds`
+- Token scopes: `admin:feeds`
 - Responses: `200` `application/json` -> FeedExportResponse
 ### `POST /v1/feeds/import`
 - Summary: Import Feeds
@@ -525,13 +541,13 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 ### `POST /v1/feeds/metadata`
 - Summary: Get Feed Metadata
 - Auth: ApiTokenBearer or SessionCookieAuth
-- Token scopes: `read:feeds`
+- Token scopes: `write:feeds`
 - Request body: `application/json` -> FeedMetadataRequest
 - Responses: `200` `application/json` -> FeedMetadataResponse, `422` `application/json` -> HTTPValidationError
 ### `DELETE /v1/feeds/{feed_id}`
 - Summary: Delete Feed
 - Auth: ApiTokenBearer or SessionCookieAuth
-- Token scopes: `write:feeds`
+- Token scopes: `admin:feeds`
 - Parameters:
   - `feed_id` (path, required): string
 - Responses: `204`, `422` `application/json` -> HTTPValidationError
@@ -585,6 +601,159 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:health`
 - Responses: `200` `application/json` -> unspecified
+
+## Iam
+
+### `GET /v1/iam/effective`
+- Summary: Get My Effective Access
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Responses: `200` `application/json` -> EffectiveAccessResponse
+### `GET /v1/iam/effective/explain`
+- Summary: Explain My Access
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Parameters:
+  - `permission` (query, required): string
+- Responses: `200` `application/json` -> AccessExplanationResponse, `422` `application/json` -> HTTPValidationError
+### `GET /v1/iam/groups`
+- Summary: Get Groups
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:iam`
+- Responses: `200` `application/json` -> array[GroupResponse]
+### `POST /v1/iam/groups`
+- Summary: Post Group
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:iam`
+- Request body: `application/json` -> GroupWriteRequest
+- Responses: `201` `application/json` -> GroupResponse, `422` `application/json` -> HTTPValidationError
+### `DELETE /v1/iam/groups/{group_id}`
+- Summary: Remove Group
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:iam`
+- Parameters:
+  - `group_id` (path, required): string
+- Responses: `204`, `422` `application/json` -> HTTPValidationError
+### `PATCH /v1/iam/groups/{group_id}`
+- Summary: Patch Group
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:iam`
+- Parameters:
+  - `group_id` (path, required): string
+- Request body: `application/json` -> GroupUpdateRequest
+- Responses: `200` `application/json` -> GroupResponse, `422` `application/json` -> HTTPValidationError
+### `GET /v1/iam/groups/{group_id}/members`
+- Summary: Get Group Members
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:iam`
+- Parameters:
+  - `group_id` (path, required): string
+- Responses: `200` `application/json` -> array[GroupMemberResponse], `422` `application/json` -> HTTPValidationError
+### `POST /v1/iam/groups/{group_id}/members`
+- Summary: Post Group Member
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:iam`
+- Parameters:
+  - `group_id` (path, required): string
+- Request body: `application/json` -> GroupMemberRequest
+- Responses: `201` `application/json` -> GroupMemberResponse, `422` `application/json` -> HTTPValidationError
+### `DELETE /v1/iam/groups/{group_id}/members/{membership_id}`
+- Summary: Delete Group Member
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:iam`
+- Parameters:
+  - `group_id` (path, required): string
+  - `membership_id` (path, required): string
+- Responses: `204`, `422` `application/json` -> HTTPValidationError
+### `GET /v1/iam/groups/{group_id}/role-assignments`
+- Summary: Get Group Roles
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:iam`
+- Parameters:
+  - `group_id` (path, required): string
+- Responses: `200` `application/json` -> array[GroupRoleAssignmentResponse], `422` `application/json` -> HTTPValidationError
+### `POST /v1/iam/groups/{group_id}/role-assignments`
+- Summary: Post Group Role
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:iam`
+- Parameters:
+  - `group_id` (path, required): string
+- Request body: `application/json` -> GroupRoleRequest
+- Responses: `201` `application/json` -> GroupResponse, `422` `application/json` -> HTTPValidationError
+### `DELETE /v1/iam/groups/{group_id}/role-assignments/{assignment_id}`
+- Summary: Delete Group Role
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:iam`
+- Parameters:
+  - `group_id` (path, required): string
+  - `assignment_id` (path, required): string
+- Responses: `204`, `422` `application/json` -> HTTPValidationError
+### `GET /v1/iam/permissions`
+- Summary: Get Permissions
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:iam`
+- Responses: `200` `application/json` -> array[PermissionResponse]
+### `GET /v1/iam/roles`
+- Summary: Get Roles
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:iam`
+- Responses: `200` `application/json` -> array[RoleResponse]
+### `POST /v1/iam/roles`
+- Summary: Post Role
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:iam`
+- Request body: `application/json` -> RoleWriteRequest
+- Responses: `201` `application/json` -> RoleResponse, `422` `application/json` -> HTTPValidationError
+### `DELETE /v1/iam/roles/{role_id}`
+- Summary: Remove Role
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:iam`
+- Parameters:
+  - `role_id` (path, required): string
+- Responses: `204`, `422` `application/json` -> HTTPValidationError
+### `GET /v1/iam/roles/{role_id}`
+- Summary: Get Role
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:iam`
+- Parameters:
+  - `role_id` (path, required): string
+- Responses: `200` `application/json` -> RoleResponse, `422` `application/json` -> HTTPValidationError
+### `PATCH /v1/iam/roles/{role_id}`
+- Summary: Patch Role
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:iam`
+- Parameters:
+  - `role_id` (path, required): string
+- Request body: `application/json` -> RoleUpdateRequest
+- Responses: `200` `application/json` -> RoleResponse, `422` `application/json` -> HTTPValidationError
+### `GET /v1/iam/users/{user_id}/effective`
+- Summary: Get User Effective Access
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:iam`
+- Parameters:
+  - `user_id` (path, required): string
+- Responses: `200` `application/json` -> EffectiveAccessResponse, `422` `application/json` -> HTTPValidationError
+### `GET /v1/iam/users/{user_id}/role-assignments`
+- Summary: Get User Roles
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:iam`
+- Parameters:
+  - `user_id` (path, required): string
+- Responses: `200` `application/json` -> array[UserRoleAssignmentResponse], `422` `application/json` -> HTTPValidationError
+### `POST /v1/iam/users/{user_id}/role-assignments`
+- Summary: Post User Role
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:iam`
+- Parameters:
+  - `user_id` (path, required): string
+- Request body: `application/json` -> UserRoleAssignmentRequest
+- Responses: `201` `application/json` -> UserRoleAssignmentResponse, `422` `application/json` -> HTTPValidationError
+### `DELETE /v1/iam/users/{user_id}/role-assignments/{assignment_id}`
+- Summary: Delete User Role
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:iam`
+- Parameters:
+  - `user_id` (path, required): string
+  - `assignment_id` (path, required): string
+- Responses: `204`, `422` `application/json` -> HTTPValidationError
 
 ## Integrations
 
@@ -1190,32 +1359,32 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 ### `POST /v1/tagging/reapply`
 - Summary: Queue Tagging Reapply
 - Auth: ApiTokenBearer or SessionCookieAuth
-- Token scopes: `write:tags`
+- Token scopes: `write:tagging`
 - Request body: `application/json` -> TaggingReapplyRequest
 - Responses: `200` `application/json` -> TaggingReapplyResponse, `422` `application/json` -> HTTPValidationError
 ### `POST /v1/tagging/rules`
 - Summary: Create Tagging Rule
 - Auth: ApiTokenBearer or SessionCookieAuth
-- Token scopes: `write:tags`
+- Token scopes: `write:tagging`
 - Request body: `application/json` -> TaggingRuleWrite
 - Responses: `201` `application/json` -> TaggingRuleResponse, `422` `application/json` -> HTTPValidationError
 ### `POST /v1/tagging/rules/preview`
 - Summary: Preview Tagging Rule
 - Auth: ApiTokenBearer or SessionCookieAuth
-- Token scopes: `read:tags`
+- Token scopes: `read:tagging`
 - Request body: `application/json` -> TaggingRulePreviewRequest
 - Responses: `200` `application/json` -> TaggingRulePreviewResponse, `422` `application/json` -> HTTPValidationError
 ### `DELETE /v1/tagging/rules/{rule_id}`
 - Summary: Delete Tagging Rule
 - Auth: ApiTokenBearer or SessionCookieAuth
-- Token scopes: `write:tags`
+- Token scopes: `write:tagging`
 - Parameters:
   - `rule_id` (path, required): string
 - Responses: `204`, `422` `application/json` -> HTTPValidationError
 ### `PATCH /v1/tagging/rules/{rule_id}`
 - Summary: Update Tagging Rule
 - Auth: ApiTokenBearer or SessionCookieAuth
-- Token scopes: `write:tags`
+- Token scopes: `write:tagging`
 - Parameters:
   - `rule_id` (path, required): string
 - Request body: `application/json` -> TaggingRuleWrite
@@ -1223,12 +1392,12 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 ### `GET /v1/tagging/settings`
 - Summary: Get Tagging Settings Bundle
 - Auth: ApiTokenBearer or SessionCookieAuth
-- Token scopes: `read:tags`
+- Token scopes: `read:tagging`
 - Responses: `200` `application/json` -> TaggingSettingsBundleResponse
 ### `PUT /v1/tagging/settings`
 - Summary: Update Tagging Settings
 - Auth: ApiTokenBearer or SessionCookieAuth
-- Token scopes: `write:tags`
+- Token scopes: `write:tagging`
 - Request body: `application/json` -> TaggingSettingsUpdate
 - Responses: `200` `application/json` -> TaggingSettingsResponse, `422` `application/json` -> HTTPValidationError
 

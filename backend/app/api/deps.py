@@ -12,18 +12,24 @@ from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
 from app.core.rbac import ROLE_ADMIN, ROLE_ANALYST
+from app.core.api_errors import ApiHTTPException
 from app.core.security import (
     decode_access_token_claims,
     extract_api_token_prefix,
     hash_api_token,
 )
 from app.core.config import get_settings
-from app.core.logging_config import verbose_logging_enabled
+from app.core.logging_config import set_log_context, verbose_logging_enabled
 from app.core.token_scopes import has_required_scope, normalize_token_scopes
 from app.db.session import get_db
 from app.models.api_token import ApiToken
 from app.models.user import User
 from app.services.auth_sessions import resolve_auth_session, touch_auth_session
+from app.services.authorization import (
+    AuthorizationContext,
+    AuthorizationStateUnavailable,
+    authorization_context_for_user,
+)
 
 AUTH_SESSION_BEARER = "session_bearer"
 AUTH_SESSION_COOKIE = "session_cookie"
@@ -59,6 +65,10 @@ def get_current_user(
             )
         detail = "Invalid credentials" if credentials_present else "Not authenticated"
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=detail)
+    request.state.authorization_context = _authorization_context_for_request(
+        request, db, user
+    )
+    _set_authenticated_log_context(request, user)
     return user
 
 
@@ -68,6 +78,11 @@ def get_optional_current_user(
     token: str | None = Depends(oauth2_scheme),
 ) -> User | None:
     user, _credentials_present = _resolve_authenticated_user(request, db, token)
+    if user is not None:
+        request.state.authorization_context = _authorization_context_for_request(
+            request, db, user
+        )
+        _set_authenticated_log_context(request, user)
     return user
 
 
@@ -77,6 +92,10 @@ def get_auth_credential_kind(request: Request) -> str | None:
 
 def get_current_auth_session_id(request: Request) -> uuid.UUID | None:
     return getattr(request.state, "auth_session_id", None)
+
+
+def get_authorization_context(request: Request) -> AuthorizationContext | None:
+    return getattr(request.state, "authorization_context", None)
 
 
 def is_cookie_session_auth(request: Request) -> bool:
@@ -143,6 +162,69 @@ def require_token_scopes(*required_scopes: str):
     return _checker
 
 
+def require_permissions(*required_permissions: str):
+    def _checker(request: Request, user: User = Depends(get_current_user)) -> User:
+        authorization = get_authorization_context(request)
+        if authorization is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Effective access could not be resolved. Retry the request.",
+            )
+        missing_permissions = [
+            permission
+            for permission in required_permissions
+            if not authorization.has(permission)
+        ]
+        if missing_permissions:
+            raise ApiHTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Your account does not have the required permission.",
+                error_code="permission_denied",
+                error_context={
+                    "required_permissions": list(required_permissions),
+                    "missing_permissions": missing_permissions,
+                    "policy_revision": authorization.policy_revision,
+                },
+            )
+        return user
+
+    _checker._threatlens_required_scopes = tuple(required_permissions)
+    return _checker
+
+
+def _authorization_context_for_request(
+    request: Request, db: Session, user: User
+) -> AuthorizationContext:
+    credential_scopes = getattr(request.state, "token_scopes", None)
+    if credential_scopes == [] and get_settings().allow_legacy_unscoped_tokens:
+        credential_scopes = None
+    try:
+        return authorization_context_for_user(
+            db,
+            user,
+            credential_scopes=credential_scopes,
+        )
+    except AuthorizationStateUnavailable as exc:
+        raise ApiHTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+            error_code="iam_policy_unavailable",
+        ) from exc
+
+
+def _set_authenticated_log_context(request: Request, user: User) -> None:
+    credential_id = getattr(request.state, "api_token_id", None)
+    if credential_id is None:
+        credential_id = get_current_auth_session_id(request)
+    set_log_context(
+        actor_principal_type="user",
+        actor_principal_id=user.id,
+        credential_kind=get_auth_credential_kind(request),
+        credential_id=credential_id,
+        source_ip=resolve_client_ip(request),
+    )
+
+
 def _resolve_jwt_user(db: Session, token: str) -> User | None:
     claims = decode_access_token_claims(token)
     if claims is None:
@@ -169,7 +251,9 @@ def _resolve_jwt_user(db: Session, token: str) -> User | None:
     return user
 
 
-def _resolve_api_token_user(db: Session, token: str) -> tuple[User, list[str]] | None:
+def _resolve_api_token_user(
+    db: Session, token: str
+) -> tuple[User, list[str], uuid.UUID] | None:
     prefix = extract_api_token_prefix(token)
     if prefix is None:
         return None
@@ -214,7 +298,7 @@ def _resolve_api_token_user(db: Session, token: str) -> tuple[User, list[str]] |
                 type(exc).__name__,
                 exc_info=verbose_logging_enabled(get_settings()),
             )
-    return user, scopes
+    return user, scopes, api_token.id
 
 
 def _resolve_authenticated_user(
@@ -224,6 +308,8 @@ def _resolve_authenticated_user(
     request.state.auth_via_api_token = False
     request.state.auth_credential_kind = None
     request.state.auth_session_id = None
+    request.state.authorization_context = None
+    request.state.api_token_id = None
     token_source = "header"
 
     if not token:
@@ -261,11 +347,12 @@ def _resolve_authenticated_user(
     if token_result is None:
         return None, True
 
-    user, scopes = token_result
+    user, scopes, api_token_id = token_result
     _ensure_user_can_authenticate(user)
     request.state.token_scopes = scopes
     request.state.auth_via_api_token = True
     request.state.auth_credential_kind = AUTH_API_TOKEN
+    request.state.api_token_id = api_token_id
     return user, True
 
 

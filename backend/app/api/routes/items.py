@@ -7,7 +7,7 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy import String, and_, cast, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_operator_user, require_token_scopes
+from app.api.deps import require_permissions
 from app.core.config import get_settings
 from app.core.logging_config import verbose_logging_enabled
 from app.core.token_scopes import SCOPE_READ_ITEMS, SCOPE_WRITE_ITEMS
@@ -117,7 +117,7 @@ def list_items(
         pattern="^(published_at_desc|published_at_asc|first_seen_desc|first_seen_asc)$",
     ),
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_READ_ITEMS)),
+    user: User = Depends(require_permissions(SCOPE_READ_ITEMS)),
 ):
     selected_feed_ids = _parse_feed_ids(feed_ids)
     selected_tags = _parse_tag_filters(tag, tags)
@@ -264,7 +264,7 @@ def list_items(
 def get_item(
     item_id: uuid.UUID,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_READ_ITEMS)),
+    user: User = Depends(require_permissions(SCOPE_READ_ITEMS)),
 ):
     row = db.execute(
         select(Item, Feed.name.label("feed_name"))
@@ -355,7 +355,7 @@ def get_item_graph(
     ioc_limit: int = Query(default=18, ge=1, le=60),
     since_days: int = Query(default=30, ge=1, le=180),
     db: Session = Depends(get_db),
-    _user: User = Depends(require_token_scopes(SCOPE_READ_ITEMS)),
+    _user: User = Depends(require_permissions(SCOPE_READ_ITEMS)),
 ):
     return build_item_graph(
         db,
@@ -375,7 +375,7 @@ def get_item_graph(
 def get_item_article_preview(
     item_id: uuid.UUID,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_token_scopes(SCOPE_READ_ITEMS)),
+    _user: User = Depends(require_permissions(SCOPE_READ_ITEMS)),
 ):
     item = db.scalar(select(Item).where(Item.id == item_id))
     if item is None:
@@ -398,8 +398,7 @@ def set_item_read(
     item_id: uuid.UUID,
     payload: ReadUpdateRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(get_operator_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_ITEMS)),
+    user: User = Depends(require_permissions(SCOPE_WRITE_ITEMS)),
 ):
     item = db.scalar(select(Item.id).where(Item.id == item_id))
     if item is None:
@@ -434,8 +433,7 @@ def set_item_star(
     item_id: uuid.UUID,
     payload: StarUpdateRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(get_operator_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_ITEMS)),
+    user: User = Depends(require_permissions(SCOPE_WRITE_ITEMS)),
 ):
     item = db.scalar(select(Item.id).where(Item.id == item_id))
     if item is None:
@@ -471,8 +469,7 @@ def set_item_note(
     item_id: uuid.UUID,
     payload: NoteUpdateRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(get_operator_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_ITEMS)),
+    user: User = Depends(require_permissions(SCOPE_WRITE_ITEMS)),
 ):
     item = db.scalar(select(Item.id).where(Item.id == item_id))
     if item is None:
@@ -496,8 +493,7 @@ def set_item_note(
 def retry_item_article_fetch(
     item_id: uuid.UUID,
     db: Session = Depends(get_db),
-    user: User = Depends(get_operator_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_ITEMS)),
+    user: User = Depends(require_permissions(SCOPE_WRITE_ITEMS)),
 ):
     item = db.scalar(select(Item.id).where(Item.id == item_id))
     if item is None:
@@ -544,8 +540,7 @@ def set_item_tags(
     item_id: uuid.UUID,
     payload: ItemTagsUpdateRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(get_operator_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_ITEMS)),
+    user: User = Depends(require_permissions(SCOPE_WRITE_ITEMS)),
 ):
     item = db.scalar(select(Item.id).where(Item.id == item_id))
     if item is None:
@@ -621,7 +616,7 @@ def set_item_tags(
 def get_item_tag_suggestions(
     item_id: uuid.UUID,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_token_scopes(SCOPE_READ_ITEMS)),
+    _user: User = Depends(require_permissions(SCOPE_READ_ITEMS)),
 ):
     item = db.scalar(select(Item).where(Item.id == item_id))
     if item is None:

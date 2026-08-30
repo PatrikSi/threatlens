@@ -7,6 +7,7 @@ from sqlalchemy import and_, func, select, update
 from sqlalchemy.orm import Session
 
 from app.api.deps import (
+    get_authorization_context,
     get_current_auth_session_id,
     is_cookie_session_auth,
     require_token_scopes,
@@ -393,7 +394,12 @@ def _enforce_requested_token_scopes_authorized(
     if not is_cookie_session_auth(request):
         return
 
-    disallowed_scopes = missing_role_token_scopes(user.role, scopes)
+    authorization = get_authorization_context(request)
+    disallowed_scopes = (
+        missing_delegable_scopes(authorization.grants, scopes)
+        if authorization is not None
+        else missing_role_token_scopes(user.role, scopes)
+    )
     if disallowed_scopes:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

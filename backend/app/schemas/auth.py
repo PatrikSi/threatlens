@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.core.rbac import ROLE_VIEWER
 from app.schemas.user import ProvisioningSource
+from app.schemas.iam import EffectiveAccessResponse
 
 
 class LoginRequest(BaseModel):
@@ -96,3 +97,4 @@ class CurrentAuthenticationResponse(BaseModel):
 class CurrentUserResponse(UserResponse):
     features: AppFeaturesResponse
     authentication: CurrentAuthenticationResponse
+    access: EffectiveAccessResponse

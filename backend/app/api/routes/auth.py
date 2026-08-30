@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import (
     AUTH_API_TOKEN,
     get_auth_credential_kind,
+    get_authorization_context,
     get_current_auth_session_id,
     get_current_user,
     is_cookie_session_auth,
@@ -41,7 +42,9 @@ from app.schemas.auth import (
     UserResponse,
 )
 from app.schemas.auth_security import MFALoginVerifyRequest
+from app.api.access_responses import effective_access_response
 from app.services.audit import record_audit
+from app.services.authorization import bump_iam_policy_revision
 from app.services.auth_rate_limit import (
     check_login_throttle,
     check_self_registration_throttle,
@@ -163,6 +166,7 @@ def register(payload: RegisterRequest, request: Request, db: Session = Depends(g
     db.add(user)
     try:
         db.flush()
+        bump_iam_policy_revision(db)
     except IntegrityError as exc:
         db.rollback()
         raise HTTPException(
@@ -512,6 +516,12 @@ def me(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    authorization = get_authorization_context(request)
+    if authorization is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Effective access could not be resolved. Retry the request.",
+        )
     return CurrentUserResponse(
         id=user.id,
         email=user.email,
@@ -524,6 +534,7 @@ def me(
         provisioning_source=user.provisioning_source,
         features=_resolve_app_features(db),
         authentication=_current_authentication_response(request, db, user),
+        access=effective_access_response(authorization),
     )
 
 

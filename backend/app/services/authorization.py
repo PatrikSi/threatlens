@@ -1,0 +1,325 @@
+from __future__ import annotations
+
+import uuid
+from collections.abc import Iterable
+from dataclasses import dataclass
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.core.permissions import SYSTEM_ROLE_IDS, expand_permission_grants
+from app.core.token_scopes import (
+    get_role_api_token_scope_grants,
+    has_required_scope,
+    normalize_token_scopes,
+)
+from app.models.iam import (
+    IAMGroup,
+    IAMGroupMembership,
+    IAMGroupRoleAssignment,
+    IAMPolicyState,
+    IAMRole,
+    IAMRolePermission,
+    IAMUserRoleAssignment,
+)
+from app.models.user import User
+
+
+_AUTHORIZATION_SNAPSHOT_ATTEMPTS = 3
+
+
+class AuthorizationStateUnavailable(RuntimeError):
+    """Raised when IAM state cannot be read without risking a fail-open result."""
+
+
+@dataclass(frozen=True)
+class EffectiveRole:
+    id: uuid.UUID | None
+    key: str
+    name: str
+    source: str
+
+
+@dataclass(frozen=True)
+class AuthorizationContext:
+    principal_type: str
+    principal_id: uuid.UUID
+    legacy_role: str | None
+    account_eligible: bool
+    roles: tuple[EffectiveRole, ...]
+    groups: tuple[str, ...]
+    grants: frozenset[str]
+    credential_grants: frozenset[str] | None
+    permissions: frozenset[str]
+    provenance: dict[str, tuple[str, ...]]
+    policy_revision: int
+
+    @property
+    def credential_limited(self) -> bool:
+        return self.credential_grants is not None
+
+    def has(self, permission: str) -> bool:
+        if not self.account_eligible or not has_required_scope(
+            set(self.grants), permission
+        ):
+            return False
+        if self.credential_grants is None:
+            return True
+        return has_required_scope(set(self.credential_grants), permission)
+
+    def explanation(self, permission: str) -> dict[str, object]:
+        principal_allowed = has_required_scope(set(self.grants), permission)
+        credential_allowed = self.credential_grants is None or has_required_scope(
+            set(self.credential_grants), permission
+        )
+        allowed = self.account_eligible and principal_allowed and credential_allowed
+        if not self.account_eligible:
+            reason = "account_ineligible"
+        elif not principal_allowed:
+            reason = "permission_not_granted"
+        elif not credential_allowed:
+            reason = "credential_scope_missing"
+        else:
+            reason = "permission_granted"
+        return {
+            "permission": permission,
+            "allowed": allowed,
+            "grant_sources": list(self.provenance.get(permission, ())),
+            "policy_revision": self.policy_revision,
+            "reason": reason,
+        }
+
+
+def authorization_context_for_user(
+    db: Session,
+    user: User,
+    *,
+    credential_scopes: Iterable[str] | None = None,
+) -> AuthorizationContext:
+    credential_grants = (
+        frozenset(normalize_token_scopes(credential_scopes))
+        if credential_scopes is not None
+        else None
+    )
+    for _attempt in range(_AUTHORIZATION_SNAPSHOT_ATTEMPTS):
+        revision_before = _policy_revision(db)
+        snapshot = _authorization_snapshot_for_user(
+            db,
+            user,
+            credential_grants=credential_grants,
+            policy_revision=revision_before,
+        )
+        revision_after = _policy_revision(db)
+        if revision_before == revision_after:
+            return snapshot
+    raise AuthorizationStateUnavailable(
+        "Access policy changed repeatedly while permissions were evaluated. Retry the request."
+    )
+
+
+def _authorization_snapshot_for_user(
+    db: Session,
+    user: User,
+    *,
+    credential_grants: frozenset[str] | None,
+    policy_revision: int,
+) -> AuthorizationContext:
+    base_grants = set(get_role_api_token_scope_grants(user.role))
+    account_eligible = bool(user.is_active and user.is_approved)
+    roles: list[EffectiveRole] = [
+        EffectiveRole(
+            id=SYSTEM_ROLE_IDS.get(user.role),
+            key=user.role,
+            name=_legacy_role_name(user.role),
+            source="built-in",
+        )
+    ]
+    groups: set[str] = {"all-users"} if account_eligible else set()
+    grants = set(base_grants)
+    grant_sources: dict[str, set[str]] = {
+        permission: {f"built-in role: {user.role}"}
+        for permission in expand_permission_grants(base_grants)
+    }
+
+    direct_rows = db.execute(
+        select(
+            IAMRole.id,
+            IAMRole.key,
+            IAMRole.name,
+            IAMRolePermission.permission,
+            IAMUserRoleAssignment.source,
+        )
+        .join(IAMUserRoleAssignment, IAMUserRoleAssignment.role_id == IAMRole.id)
+        .outerjoin(IAMRolePermission, IAMRolePermission.role_id == IAMRole.id)
+        .where(
+            IAMUserRoleAssignment.user_id == user.id,
+            IAMRole.is_system.is_(False),
+        )
+    ).all()
+    seen_role_ids: set[uuid.UUID] = set()
+    for row in direct_rows:
+        source_label = f"assigned role: {row.name}"
+        if row.permission is not None:
+            grants.add(row.permission)
+            _record_grant_source(grant_sources, row.permission, source_label)
+        if row.id not in seen_role_ids:
+            seen_role_ids.add(row.id)
+            roles.append(
+                EffectiveRole(
+                    id=row.id,
+                    key=row.key,
+                    name=row.name,
+                    source=row.source,
+                )
+            )
+
+    membership_rows = db.scalars(
+        select(IAMGroup.key)
+        .join(IAMGroupMembership, IAMGroupMembership.group_id == IAMGroup.id)
+        .where(IAMGroupMembership.user_id == user.id)
+    ).all()
+    groups.update(membership_rows)
+
+    group_rows = db.execute(
+        select(
+            IAMGroup.key.label("group_key"),
+            IAMRole.id.label("role_id"),
+            IAMRole.key.label("role_key"),
+            IAMRole.name.label("role_name"),
+            IAMRolePermission.permission,
+        )
+        .join(
+            IAMGroupRoleAssignment,
+            IAMGroupRoleAssignment.group_id == IAMGroup.id,
+        )
+        .join(IAMRole, IAMRole.id == IAMGroupRoleAssignment.role_id)
+        .outerjoin(IAMRolePermission, IAMRolePermission.role_id == IAMRole.id)
+        .join(IAMGroupMembership, IAMGroupMembership.group_id == IAMGroup.id)
+        .where(
+            IAMGroupMembership.user_id == user.id,
+            IAMRole.is_system.is_(False),
+        )
+    ).all()
+    for row in group_rows:
+        source_label = f"group {row.group_key}: {row.role_name}"
+        if row.permission is not None:
+            grants.add(row.permission)
+            _record_grant_source(grant_sources, row.permission, source_label)
+        if row.role_id not in seen_role_ids:
+            seen_role_ids.add(row.role_id)
+            roles.append(
+                EffectiveRole(
+                    id=row.role_id,
+                    key=row.role_key,
+                    name=row.role_name,
+                    source=f"group:{row.group_key}",
+                )
+            )
+
+    principal_permissions = expand_permission_grants(grants)
+    provenance = {
+        permission: tuple(
+            sorted(_sources_for_permission(grant_sources, grants, permission))
+        )
+        for permission in principal_permissions
+    }
+    if not account_eligible:
+        permissions = frozenset()
+    elif credential_grants is None:
+        permissions = principal_permissions
+    else:
+        permissions = frozenset(
+            permission
+            for permission in principal_permissions
+            if has_required_scope(set(credential_grants), permission)
+        )
+    return AuthorizationContext(
+        principal_type="user",
+        principal_id=user.id,
+        legacy_role=user.role,
+        account_eligible=account_eligible,
+        roles=tuple(roles),
+        groups=tuple(sorted(groups)),
+        grants=frozenset(grants),
+        credential_grants=credential_grants,
+        permissions=permissions,
+        provenance=provenance,
+        policy_revision=policy_revision,
+    )
+
+
+def lock_iam_policy_for_mutation(db: Session) -> IAMPolicyState:
+    state = db.scalar(
+        select(IAMPolicyState).where(IAMPolicyState.id == 1).with_for_update()
+    )
+    if state is None:
+        raise AuthorizationStateUnavailable(
+            "Access policy state is missing. Restore the database or rerun migrations before changing access."
+        )
+    return state
+
+
+def bump_iam_policy_revision(db: Session) -> int:
+    state = lock_iam_policy_for_mutation(db)
+    state.revision += 1
+    db.add(state)
+    db.flush()
+    return state.revision
+
+
+def role_permissions(db: Session, role_id: uuid.UUID) -> frozenset[str]:
+    return frozenset(
+        db.scalars(
+            select(IAMRolePermission.permission).where(
+                IAMRolePermission.role_id == role_id
+            )
+        ).all()
+    )
+
+
+def _policy_revision(db: Session) -> int:
+    revision = db.scalar(
+        select(IAMPolicyState.revision).where(IAMPolicyState.id == 1)
+    )
+    if revision is None:
+        raise AuthorizationStateUnavailable(
+            "Access policy state is unavailable. Restore the database or rerun migrations."
+        )
+    return int(revision)
+
+
+def _record_grant_source(
+    grant_sources: dict[str, set[str]], permission: str, source: str
+) -> None:
+    grant_sources.setdefault(permission, set()).add(source)
+
+
+def _sources_for_permission(
+    grant_sources: dict[str, set[str]], grants: set[str], permission: str
+) -> set[str]:
+    sources = set(grant_sources.get(permission, set()))
+    for grant, grant_labels in grant_sources.items():
+        if grant != permission and has_required_scope({grant}, permission):
+            sources.update(grant_labels)
+    if not sources and has_required_scope(grants, permission):
+        sources.add("inherited wildcard")
+    return sources
+
+
+def _legacy_role_name(role: str) -> str:
+    return {
+        "admin": "Administrator",
+        "analyst": "Analyst",
+        "viewer": "Viewer",
+    }.get(role, role)
+
+
+__all__ = [
+    "AuthorizationContext",
+    "AuthorizationStateUnavailable",
+    "EffectiveRole",
+    "authorization_context_for_user",
+    "bump_iam_policy_revision",
+    "lock_iam_policy_for_mutation",
+    "role_permissions",
+]
