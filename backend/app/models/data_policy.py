@@ -246,9 +246,96 @@ class DataAccessEnvelopeLabel(Base):
     )
 
 
+class DataAccessEnvelopeSource(Base):
+    __tablename__ = "data_access_envelope_sources"
+    __table_args__ = (
+        CheckConstraint(
+            "source_type = lower(source_type) AND "
+            "source_type ~ '^[a-z][a-z0-9_]{0,63}$'",
+            name="ck_data_access_envelope_sources_type",
+        ),
+        CheckConstraint(
+            "source_id = btrim(source_id) AND length(source_id) BETWEEN 1 AND 512 "
+            "AND source_id !~ '[[:cntrl:]]'",
+            name="ck_data_access_envelope_sources_id",
+        ),
+        CheckConstraint(
+            "source_version = btrim(source_version) "
+            "AND length(source_version) BETWEEN 1 AND 128 "
+            "AND source_version !~ '[[:cntrl:]]'",
+            name="ck_data_access_envelope_sources_version",
+        ),
+        CheckConstraint(
+            "captured_policy_revision >= 1",
+            name="ck_data_access_envelope_sources_policy_revision",
+        ),
+        CheckConstraint(
+            "source_digest IS NULL OR source_digest ~ '^[0-9a-f]{64}$'",
+            name="ck_data_access_envelope_sources_digest",
+        ),
+        UniqueConstraint(
+            "envelope_id",
+            "source_type",
+            "source_id",
+            "source_version",
+            "source_parent_id",
+            name="uq_data_access_envelope_sources_identity",
+            postgresql_nulls_not_distinct=True,
+        ),
+        Index(
+            "ix_data_access_envelope_sources_feed_envelope",
+            "source_feed_id",
+            "envelope_id",
+        ),
+        Index(
+            "ix_data_access_envelope_sources_label_envelope",
+            "handling_label_id",
+            "envelope_id",
+        ),
+        Index(
+            "ix_data_access_envelope_sources_parent_source",
+            "source_parent_id",
+            "envelope_id",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    envelope_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("data_access_envelopes.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    source_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_id: Mapped[str] = mapped_column(String(512), nullable=False)
+    source_version: Mapped[str] = mapped_column(String(128), nullable=False)
+    source_feed_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("feeds.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    source_parent_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("data_access_envelope_sources.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    handling_label_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("handling_labels.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    captured_policy_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    source_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    captured_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 __all__ = [
     "DataAccessEnvelope",
     "DataAccessEnvelopeLabel",
+    "DataAccessEnvelopeSource",
     "DataPolicyRoleGrant",
     "DataPolicyState",
     "HandlingLabel",
