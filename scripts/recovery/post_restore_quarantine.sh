@@ -458,6 +458,7 @@ DECLARE
   quarantined_alert_evaluations bigint := 0;
   revoked_temporary_elevations bigint := 0;
   cancelled_elevation_requests bigint := 0;
+  cancelled_action_approvals bigint := 0;
   audit_already_recorded boolean := false;
 BEGIN
   SELECT EXISTS (
@@ -537,6 +538,20 @@ BEGIN
        AND to_regclass('public.iam_policy_state') IS NOT NULL THEN
       EXECUTE 'UPDATE iam_policy_state SET revision = revision + 1, updated_at = clock_timestamp() WHERE id = 1';
     END IF;
+  END IF;
+
+  IF to_regclass('public.action_approval_requests') IS NOT NULL THEN
+    EXECUTE $sql$UPDATE action_approval_requests
+      SET status = 'cancelled', cancelled_by_user_id = NULL,
+          cancelled_by_principal_type = 'system',
+          cancelled_by_email_snapshot = NULL,
+          cancelled_from_status = status,
+          cancelled_at = statement_timestamp(),
+          cancel_reason = 'restore_quarantine', revision = revision + 1,
+          updated_at = statement_timestamp()
+      WHERE status IN ('pending', 'approved')
+        AND expires_at > statement_timestamp()$sql$;
+    GET DIAGNOSTICS cancelled_action_approvals = ROW_COUNT;
   END IF;
 
   IF to_regclass('public.integration_instances') IS NOT NULL THEN
@@ -759,7 +774,8 @@ BEGIN
       'interrupted_report_sections', interrupted_report_sections,
       'quarantined_alert_evaluations', quarantined_alert_evaluations,
       'revoked_temporary_elevations', revoked_temporary_elevations,
-      'cancelled_elevation_requests', cancelled_elevation_requests
+      'cancelled_elevation_requests', cancelled_elevation_requests,
+      'cancelled_action_approvals', cancelled_action_approvals
     )
   );
 END
@@ -806,6 +822,15 @@ BEGIN
       SELECT 1 FROM temporary_elevations WHERE status IN ('pending', 'approved')
     ) THEN
       RAISE EXCEPTION 'pending or active temporary elevations remain after restore quarantine';
+    END IF;
+  END IF;
+  IF to_regclass('public.action_approval_requests') IS NOT NULL THEN
+    IF EXISTS (
+      SELECT 1 FROM action_approval_requests
+      WHERE status IN ('pending', 'approved')
+        AND expires_at > clock_timestamp()
+    ) THEN
+      RAISE EXCEPTION 'actionable sensitive-action approvals remain after restore quarantine';
     END IF;
   END IF;
   IF to_regclass('public.feeds') IS NOT NULL THEN
