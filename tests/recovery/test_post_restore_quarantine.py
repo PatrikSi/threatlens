@@ -181,6 +181,8 @@ class PostRestoreQuarantineTests(unittest.TestCase):
         self.assertIn("UPDATE service_accounts", sql)
         self.assertIn("UPDATE auth_sessions", sql)
         self.assertIn("UPDATE mfa_login_challenges", sql)
+        self.assertIn("UPDATE temporary_elevations", sql)
+        self.assertIn("closed_by_principal_type = 'system'", sql)
         self.assertIn("UPDATE integration_instances", sql)
         self.assertIn("UPDATE integration_subscriptions", sql)
         self.assertIn("UPDATE notification_webhooks", sql)
@@ -213,6 +215,7 @@ class PostRestoreQuarantineTests(unittest.TestCase):
             "service_account_credentials",
             "service_accounts",
             "auth_sessions",
+            "temporary_elevations",
             "mfa_login_challenges",
             "integration_instances",
             "integration_subscriptions",

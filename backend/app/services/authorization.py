@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
@@ -31,6 +31,10 @@ from app.models.service_account import (
     ServiceAccount,
     ServiceAccountCredential,
     ServiceAccountRoleAssignment,
+)
+from app.models.temporary_elevation import (
+    TemporaryElevation,
+    TemporaryElevationPermission,
 )
 from app.models.user import User
 
@@ -63,6 +67,9 @@ class AuthorizationContext:
     permissions: frozenset[str]
     provenance: dict[str, tuple[str, ...]]
     policy_revision: int
+    elevation_ids: tuple[uuid.UUID, ...] = ()
+    durable_grants: frozenset[str] = frozenset()
+    elevation_grants: dict[uuid.UUID, frozenset[str]] = field(default_factory=dict)
 
     @property
     def credential_limited(self) -> bool:
@@ -76,6 +83,27 @@ class AuthorizationContext:
         if self.credential_grants is None:
             return True
         return has_required_scope(set(self.credential_grants), permission)
+
+    def has_durable(self, permission: str) -> bool:
+        if not self.account_eligible or not has_required_scope(
+            set(self.durable_grants), permission
+        ):
+            return False
+        if self.credential_grants is None:
+            return True
+        return has_required_scope(set(self.credential_grants), permission)
+
+    def authorizing_elevation_ids(
+        self, required_permissions: Iterable[str]
+    ) -> tuple[uuid.UUID, ...]:
+        contributing: set[uuid.UUID] = set()
+        for permission in required_permissions:
+            if self.has_durable(permission):
+                continue
+            for elevation_id, grants in self.elevation_grants.items():
+                if has_required_scope(set(grants), permission):
+                    contributing.add(elevation_id)
+        return tuple(sorted(contributing, key=str))
 
     def explanation(self, permission: str) -> dict[str, object]:
         principal_allowed = has_required_scope(set(self.grants), permission)
@@ -159,6 +187,7 @@ def _authorization_snapshot_for_user(
     credential_grants: frozenset[str] | None,
     policy_revision: int,
 ) -> AuthorizationContext:
+    clock = database_clock(db)
     base_grants = set(get_role_api_token_scope_grants(user.role))
     account_eligible = bool(user.is_active and user.is_approved)
     roles: list[EffectiveRole] = [
@@ -191,7 +220,7 @@ def _authorization_snapshot_for_user(
             IAMRole.is_system.is_(False),
             or_(
                 IAMUserRoleAssignment.source != "oidc",
-                IAMUserRoleAssignment.oidc_assertion_expires_at > func.now(),
+                IAMUserRoleAssignment.oidc_assertion_expires_at > clock,
             ),
         )
     ).all()
@@ -219,7 +248,7 @@ def _authorization_snapshot_for_user(
             IAMGroupMembership.user_id == user.id,
             or_(
                 IAMGroupMembership.source != "oidc",
-                IAMGroupMembership.oidc_assertion_expires_at > func.now(),
+                IAMGroupMembership.oidc_assertion_expires_at > clock,
             ),
         )
     ).all()
@@ -245,7 +274,7 @@ def _authorization_snapshot_for_user(
             IAMRole.is_system.is_(False),
             or_(
                 IAMGroupMembership.source != "oidc",
-                IAMGroupMembership.oidc_assertion_expires_at > func.now(),
+                IAMGroupMembership.oidc_assertion_expires_at > clock,
             ),
         )
     ).all()
@@ -262,6 +291,48 @@ def _authorization_snapshot_for_user(
                     key=row.role_key,
                     name=row.role_name,
                     source=f"group:{row.group_key}",
+                )
+            )
+
+    durable_grants = frozenset(grants)
+
+    elevation_rows = db.execute(
+        select(
+            TemporaryElevation.id.label("elevation_id"),
+            TemporaryElevation.role_id,
+            TemporaryElevation.role_key_snapshot.label("role_key"),
+            TemporaryElevation.role_name_snapshot.label("role_name"),
+            TemporaryElevationPermission.permission,
+        )
+        .outerjoin(
+            TemporaryElevationPermission,
+            TemporaryElevationPermission.elevation_id == TemporaryElevation.id,
+        )
+        .where(
+            TemporaryElevation.target_user_id == user.id,
+            TemporaryElevation.status == "approved",
+            TemporaryElevation.grant_started_at <= clock,
+            TemporaryElevation.grant_expires_at > clock,
+        )
+    ).all()
+    active_elevation_ids: set[uuid.UUID] = set()
+    elevation_grants: dict[uuid.UUID, set[str]] = {}
+    for row in elevation_rows:
+        active_elevation_ids.add(row.elevation_id)
+        elevation_grants.setdefault(row.elevation_id, set())
+        source_label = f"temporary elevation {row.elevation_id}: {row.role_name}"
+        if row.permission is not None:
+            grants.add(row.permission)
+            elevation_grants[row.elevation_id].add(row.permission)
+            _record_grant_source(grant_sources, row.permission, source_label)
+        if row.role_id not in seen_role_ids:
+            seen_role_ids.add(row.role_id)
+            roles.append(
+                EffectiveRole(
+                    id=row.role_id,
+                    key=row.role_key,
+                    name=row.role_name,
+                    source=f"elevation:{row.elevation_id}",
                 )
             )
 
@@ -294,6 +365,12 @@ def _authorization_snapshot_for_user(
         permissions=permissions,
         provenance=provenance,
         policy_revision=policy_revision,
+        elevation_ids=tuple(sorted(active_elevation_ids, key=str)),
+        durable_grants=durable_grants,
+        elevation_grants={
+            elevation_id: frozenset(values)
+            for elevation_id, values in elevation_grants.items()
+        },
     )
 
 
@@ -305,6 +382,7 @@ def _authorization_snapshot_for_service_account(
     credential_grants: frozenset[str],
     policy_revision: int,
 ) -> AuthorizationContext:
+    clock = database_clock(db)
     account_is_active = db.scalar(
         select(ServiceAccount.is_active)
         .where(ServiceAccount.id == account.id)
@@ -315,7 +393,7 @@ def _authorization_snapshot_for_service_account(
             ServiceAccountCredential.id == credential_id,
             ServiceAccountCredential.service_account_id == account.id,
             ServiceAccountCredential.revoked_at.is_(None),
-            ServiceAccountCredential.expires_at > func.now(),
+            ServiceAccountCredential.expires_at > clock,
         )
     )
     account_eligible = account_is_active is True and credential_is_active is not None
@@ -382,6 +460,9 @@ def _authorization_snapshot_for_service_account(
         permissions=permissions,
         provenance=provenance,
         policy_revision=policy_revision,
+        elevation_ids=(),
+        durable_grants=frozenset(raw_grants),
+        elevation_grants={},
     )
 
 
@@ -411,6 +492,14 @@ def role_permissions(db: Session, role_id: uuid.UUID) -> frozenset[str]:
                 IAMRolePermission.role_id == role_id
             )
         ).all()
+    )
+
+
+def database_clock(db: Session):
+    return (
+        func.clock_timestamp()
+        if db.get_bind().dialect.name == "postgresql"
+        else func.now()
     )
 
 
@@ -456,6 +545,7 @@ __all__ = [
     "authorization_context_for_user",
     "authorization_context_for_service_account",
     "bump_iam_policy_revision",
+    "database_clock",
     "lock_iam_policy_for_mutation",
     "role_permissions",
 ]

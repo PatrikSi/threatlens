@@ -3,7 +3,8 @@ from datetime import datetime, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Query, Request, status
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, cast, func, or_, select
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
 from app.api.deps import (
@@ -35,6 +36,7 @@ def _build_audit_query(
     actor_principal_id: uuid.UUID | None,
     credential_kind: str | None,
     credential_id: uuid.UUID | None,
+    elevation_id: uuid.UUID | None,
     resource_type: str | None,
     resource_id: str | None,
     request_id: str | None,
@@ -57,6 +59,18 @@ def _build_audit_query(
         filters.append(AuditLog.credential_kind == credential_kind)
     if credential_id:
         filters.append(AuditLog.credential_id == credential_id)
+    if elevation_id:
+        filters.append(
+            or_(
+                cast(AuditLog.authorization_elevation_ids, JSONB).contains(
+                    [str(elevation_id)]
+                ),
+                and_(
+                    AuditLog.resource_type == "temporary_elevation",
+                    AuditLog.resource_id == str(elevation_id),
+                ),
+            )
+        )
     if resource_type:
         filters.append(AuditLog.resource_type == resource_type)
     if resource_id:
@@ -111,6 +125,7 @@ def list_audit_logs(
     actor_principal_id: uuid.UUID | None = None,
     credential_kind: str | None = Query(default=None, max_length=32),
     credential_id: uuid.UUID | None = None,
+    elevation_id: uuid.UUID | None = None,
     resource_type: str | None = Query(default=None, max_length=255),
     resource_id: str | None = Query(default=None, max_length=255),
     request_id: str | None = Query(default=None, max_length=128),
@@ -131,6 +146,7 @@ def list_audit_logs(
         actor_principal_id=actor_principal_id,
         credential_kind=credential_kind,
         credential_id=credential_id,
+        elevation_id=elevation_id,
         resource_type=resource_type,
         resource_id=resource_id,
         request_id=request_id,
@@ -166,6 +182,7 @@ def export_audit_logs(
     actor_principal_id: uuid.UUID | None = None,
     credential_kind: str | None = Query(default=None, max_length=32),
     credential_id: uuid.UUID | None = None,
+    elevation_id: uuid.UUID | None = None,
     resource_type: str | None = Query(default=None, max_length=255),
     resource_id: str | None = Query(default=None, max_length=255),
     request_id: str | None = Query(default=None, max_length=128),
@@ -185,6 +202,7 @@ def export_audit_logs(
         actor_principal_id=actor_principal_id,
         credential_kind=credential_kind,
         credential_id=credential_id,
+        elevation_id=elevation_id,
         resource_type=resource_type,
         resource_id=resource_id,
         request_id=request_id,
@@ -228,6 +246,7 @@ def export_audit_logs(
                 ),
                 "credential_kind": credential_kind,
                 "credential_id": str(credential_id) if credential_id else None,
+                "elevation_id": str(elevation_id) if elevation_id else None,
                 "resource_type": resource_type,
                 "resource_id": resource_id,
                 "request_id": request_id,

@@ -66,6 +66,11 @@ class _WorkspaceActorAccessChanged(WorkspacePolicyError):
     status_code = 403
 
 
+class _WorkspaceDurableAuthorityRequired(WorkspacePolicyError):
+    code = "workspace_durable_authority_required"
+    status_code = 403
+
+
 @router.get("/modules", response_model=WorkspaceRegistryResponse)
 def get_workspace_modules(
     _reader: User = Depends(require_permissions(SCOPE_READ_WORKSPACE)),
@@ -104,7 +109,11 @@ def put_workspace_role_policy(
     actor_id = actor.id
     try:
         locked_actor = _lock_and_reauthorize_actor(
-            db, request, actor, required_permission=SCOPE_WRITE_WORKSPACE
+            db,
+            request,
+            actor,
+            required_permission=SCOPE_WRITE_WORKSPACE,
+            require_durable=True,
         )
         before = get_role_policy(db, role)
         updated = update_role_policy(
@@ -157,7 +166,11 @@ def reset_workspace_role_policy(
     actor_id = actor.id
     try:
         locked_actor = _lock_and_reauthorize_actor(
-            db, request, actor, required_permission=SCOPE_WRITE_WORKSPACE
+            db,
+            request,
+            actor,
+            required_permission=SCOPE_WRITE_WORKSPACE,
+            require_durable=True,
         )
         before = get_role_policy(db, role)
         reset = reset_role_policy(
@@ -344,6 +357,7 @@ def _lock_and_reauthorize_actor(
     actor: User,
     *,
     required_permission: str,
+    require_durable: bool = False,
 ) -> User:
     try:
         lock_iam_policy_for_mutation(db)
@@ -373,6 +387,10 @@ def _lock_and_reauthorize_actor(
         if not refreshed_context.has(required_permission):
             raise _WorkspaceActorAccessChanged(
                 "Your workspace permission changed while this request was being authorized. Reload and retry."
+            )
+        if require_durable and not refreshed_context.has_durable(required_permission):
+            raise _WorkspaceDurableAuthorityRequired(
+                "Workspace role-policy changes require durably assigned authority. Temporary access cannot alter persistent workspace policy."
             )
         request.state.authorization_context = refreshed_context
         return locked_actor

@@ -42,6 +42,18 @@ def record_audit(
     resolved_credential_id = credential_id or _uuid_or_none(
         request_context.get("credential_id")
     )
+    resolved_metadata = dict(metadata or {})
+    raw_elevation_ids = request_context.get("authorization_elevation_ids")
+    elevation_ids = (
+        [value for value in raw_elevation_ids.split(",") if value]
+        if raw_elevation_ids
+        else []
+    )
+    if elevation_ids:
+        resolved_metadata.setdefault(
+            "authorization_elevation_ids",
+            elevation_ids,
+        )
     log = AuditLog(
         actor_user_id=actor_user_id,
         actor_principal_type=resolved_principal_type,
@@ -50,11 +62,12 @@ def record_audit(
         credential_id=resolved_credential_id,
         request_id=request_id or request_context.get("request_id"),
         source_ip=source_ip or request_context.get("source_ip"),
+        authorization_elevation_ids=elevation_ids,
         action=action,
         resource_type=resource_type,
         resource_id=resource_id,
         success=success,
-        metadata_json=metadata or {},
+        metadata_json=resolved_metadata,
     )
     db.add(log)
     db.flush()

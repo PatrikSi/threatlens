@@ -280,6 +280,19 @@ def require_permissions(
                     "policy_revision": authorization.policy_revision,
                 },
             )
+        elevation_ids = set(getattr(request.state, "authorization_elevation_ids", ()))
+        elevation_ids.update(
+            authorization.authorizing_elevation_ids(required_permissions)
+        )
+        resolved_elevation_ids = tuple(sorted(elevation_ids, key=str))
+        request.state.authorization_elevation_ids = resolved_elevation_ids
+        update_log_context(
+            authorization_elevation_ids=(
+                ",".join(str(value) for value in resolved_elevation_ids)
+                if resolved_elevation_ids
+                else None
+            )
+        )
         return principal
 
     _checker._threatlens_required_scopes = tuple(required_permissions)
@@ -487,6 +500,7 @@ def _set_authenticated_log_context(
         credential_kind=get_auth_credential_kind(request),
         credential_id=_current_credential_id(request),
         source_ip=resolve_client_ip(request),
+        authorization_elevation_ids=None,
     )
 
 

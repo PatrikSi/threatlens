@@ -115,9 +115,7 @@ def list_token_inventory(
         target_user_id = user_id
 
     criteria = (ApiToken.user_id == target_user_id,)
-    total = int(
-        db.scalar(select(func.count(ApiToken.id)).where(*criteria)) or 0
-    )
+    total = int(db.scalar(select(func.count(ApiToken.id)).where(*criteria)) or 0)
     unscoped_total = int(
         db.scalar(
             select(func.count(ApiToken.id)).where(
@@ -396,7 +394,7 @@ def _enforce_requested_token_scopes_authorized(
 
     authorization = get_authorization_context(request)
     disallowed_scopes = (
-        missing_delegable_scopes(authorization.grants, scopes)
+        missing_delegable_scopes(authorization.durable_grants, scopes)
         if authorization is not None
         else missing_role_token_scopes(user.role, scopes)
     )

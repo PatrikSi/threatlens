@@ -173,6 +173,26 @@ def require_service_account_mutation_actor(
                 ),
                 error_code="service_account_actor_access_changed",
             )
+        if not refreshed_context.has_durable(SCOPE_WRITE_SERVICE_ACCOUNTS):
+            _record_request_audit(
+                db,
+                request=request,
+                actor=locked_actor,
+                action="service_accounts.authorization.reject",
+                resource_type="service_account",
+                resource_id=None,
+                success=False,
+                metadata={"reason": "durable_authority_required"},
+            )
+            db.commit()
+            raise ApiHTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    "Service-account changes require durably assigned management access. "
+                    "Temporary access cannot create persistent machine credentials."
+                ),
+                error_code="service_account_durable_authority_required",
+            )
         request.state.authorization_context = refreshed_context
         return locked_actor
     except AuthorizationStateUnavailable as exc:

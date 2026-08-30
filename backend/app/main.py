@@ -45,6 +45,7 @@ from app.api.routes import (
     stats,
     tagging,
     tags,
+    temporary_elevations,
     tokens,
     users,
     views,
@@ -116,6 +117,7 @@ API_ROUTERS: tuple[APIRouter, ...] = (
     iam.router,
     workspace.router,
     service_accounts.router,
+    temporary_elevations.router,
 )
 
 

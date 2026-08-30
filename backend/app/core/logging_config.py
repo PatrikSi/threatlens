@@ -41,6 +41,7 @@ _SAFE_RECORD_FIELDS = (
     "actor_principal_id",
     "credential_kind",
     "credential_id",
+    "authorization_elevation_ids",
 )
 
 

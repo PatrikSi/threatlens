@@ -47,6 +47,7 @@ class EffectiveAccessResponse(BaseModel):
     groups: list[str]
     permissions: list[str]
     policy_revision: int = Field(ge=1)
+    elevation_ids: list[uuid.UUID] = Field(default_factory=list)
 
 
 class AccessExplanationResponse(BaseModel):
