@@ -28,6 +28,8 @@ from app.models.article import Article
 from app.models.auth_session import AuthSession
 from app.models.audit_log import AuditLog
 from app.models.data_policy import (
+    DataAccessEnvelope,
+    DataAccessEnvelopeLabel,
     DataPolicyRoleGrant,
     DataPolicyState,
     HandlingLabel,
@@ -124,6 +126,8 @@ __all__ = [
     "Article",
     "AuthSession",
     "AuditLog",
+    "DataAccessEnvelope",
+    "DataAccessEnvelopeLabel",
     "DataPolicyRoleGrant",
     "DataPolicyState",
     "Feed",
