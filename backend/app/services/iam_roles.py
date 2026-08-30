@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.permissions import SERVICE_ACCOUNT_PERMISSION_IDS
+from app.models.data_policy import DataPolicyRoleGrant
 from app.models.iam import (
     IAMGroupRoleAssignment,
     IAMRole,
@@ -213,6 +214,18 @@ def delete_role(db: Session, *, role_id: uuid.UUID) -> IAMRole:
         )
         or 0
     )
+    data_policy_grant_count = int(
+        db.scalar(
+            select(func.count(DataPolicyRoleGrant.label_id)).where(
+                DataPolicyRoleGrant.role_id == role.id
+            )
+        )
+        or 0
+    )
+    if data_policy_grant_count:
+        raise IAMRoleConflict(
+            "Role is referenced by handling-label access policy. Remove those data-policy grants before deleting the role."
+        )
     if oidc_mapping_count:
         raise IAMRoleConflict(
             "Role is referenced by an OIDC claim mapping. Remove that mapping before deleting the role."

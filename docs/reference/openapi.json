@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "1.8.0",
-    "x-threatlens-contract-sha256": "8ebc88d3923e9cafb45522b639845e897800c01d3a4b49593f86ac3b162791c1"
+    "x-threatlens-contract-sha256": "551f8a2eb0eda611c58ac797856ab700cb280272d0e5d4c57dbcd2b17cfc9e15"
   },
   "servers": [
     {
@@ -24084,6 +24084,872 @@
           }
         }
       }
+    },
+    "/v1/iam/data-policies": {
+      "get": {
+        "tags": [
+          "data policies"
+        ],
+        "summary": "Get Data Policy Overview",
+        "operationId": "get_data_policy_overview_v1_iam_data_policies_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataPolicyOverviewResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "x-threatlens-required-token-scopes": [
+          "read:data_policies"
+        ]
+      }
+    },
+    "/v1/iam/data-policies/preflight": {
+      "get": {
+        "tags": [
+          "data policies"
+        ],
+        "summary": "Get Data Policy Preflight",
+        "operationId": "get_data_policy_preflight_v1_iam_data_policies_preflight_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataPolicyPreflightResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "x-threatlens-required-token-scopes": [
+          "read:data_policies"
+        ]
+      }
+    },
+    "/v1/iam/data-policies/labels": {
+      "post": {
+        "tags": [
+          "data policies"
+        ],
+        "summary": "Post Handling Label",
+        "operationId": "post_handling_label_v1_iam_data_policies_labels_post",
+        "security": [
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HandlingLabelCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HandlingLabelMutationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid idempotency key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Human browser session or durable authority required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Label or feed not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Revision, idempotency, invariant, or activation conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "IAM or data-policy storage unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/iam/data-policies/labels/{label_id}": {
+      "patch": {
+        "tags": [
+          "data policies"
+        ],
+        "summary": "Patch Handling Label",
+        "operationId": "patch_handling_label_v1_iam_data_policies_labels__label_id__patch",
+        "security": [
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "label_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Label Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HandlingLabelUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HandlingLabelMutationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid idempotency key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Human browser session or durable authority required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Label or feed not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Revision, idempotency, invariant, or activation conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "IAM or data-policy storage unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/iam/data-policies/labels/{label_id}/role-grants": {
+      "put": {
+        "tags": [
+          "data policies"
+        ],
+        "summary": "Put Handling Label Role Grants",
+        "operationId": "put_handling_label_role_grants_v1_iam_data_policies_labels__label_id__role_grants_put",
+        "security": [
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "label_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Label Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HandlingLabelRoleGrantsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HandlingLabelMutationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid idempotency key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Human browser session or durable authority required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Label or feed not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Revision, idempotency, invariant, or activation conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "IAM or data-policy storage unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/iam/data-policies/labels/{label_id}/status": {
+      "put": {
+        "tags": [
+          "data policies"
+        ],
+        "summary": "Put Handling Label Status",
+        "operationId": "put_handling_label_status_v1_iam_data_policies_labels__label_id__status_put",
+        "security": [
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "label_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Label Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HandlingLabelStatusRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HandlingLabelMutationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid idempotency key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Human browser session or durable authority required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Label or feed not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Revision, idempotency, invariant, or activation conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "IAM or data-policy storage unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/iam/data-policies/feeds/{feed_id}": {
+      "put": {
+        "tags": [
+          "data policies"
+        ],
+        "summary": "Put Feed Handling Label",
+        "operationId": "put_feed_handling_label_v1_iam_data_policies_feeds__feed_id__put",
+        "security": [
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "feed_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Feed Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeedHandlingLabelAssignmentRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedHandlingLabelAssignmentResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid idempotency key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Human browser session or durable authority required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Label or feed not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Revision, idempotency, invariant, or activation conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "IAM or data-policy storage unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/iam/data-policies/mode": {
+      "put": {
+        "tags": [
+          "data policies"
+        ],
+        "summary": "Put Data Policy Mode",
+        "operationId": "put_data_policy_mode_v1_iam_data_policies_mode_put",
+        "security": [
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DataPolicyModeUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataPolicyModeUpdateResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid idempotency key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Human browser session or durable authority required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Label or feed not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Revision, idempotency, invariant, or activation conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "IAM or data-policy storage unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -32629,6 +33495,226 @@
         ],
         "title": "DailyVolumePoint"
       },
+      "DataPolicyBlockerResponse": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          },
+          "count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "detail"
+        ],
+        "title": "DataPolicyBlockerResponse"
+      },
+      "DataPolicyModeUpdateRequest": {
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Revision"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "disabled",
+              "audit",
+              "enforced"
+            ],
+            "title": "Mode"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 3,
+            "title": "Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_revision",
+          "mode",
+          "reason"
+        ],
+        "title": "DataPolicyModeUpdateRequest"
+      },
+      "DataPolicyModeUpdateResponse": {
+        "properties": {
+          "state": {
+            "$ref": "#/components/schemas/DataPolicyStateResponse"
+          },
+          "changed": {
+            "type": "boolean",
+            "title": "Changed"
+          },
+          "preflight": {
+            "$ref": "#/components/schemas/DataPolicyPreflightResponse"
+          }
+        },
+        "type": "object",
+        "required": [
+          "state",
+          "changed",
+          "preflight"
+        ],
+        "title": "DataPolicyModeUpdateResponse"
+      },
+      "DataPolicyOverviewResponse": {
+        "properties": {
+          "state": {
+            "$ref": "#/components/schemas/DataPolicyStateResponse"
+          },
+          "labels": {
+            "items": {
+              "$ref": "#/components/schemas/HandlingLabelResponse"
+            },
+            "type": "array",
+            "title": "Labels"
+          },
+          "preflight": {
+            "$ref": "#/components/schemas/DataPolicyPreflightResponse"
+          }
+        },
+        "type": "object",
+        "required": [
+          "state",
+          "labels",
+          "preflight"
+        ],
+        "title": "DataPolicyOverviewResponse"
+      },
+      "DataPolicyPreflightResponse": {
+        "properties": {
+          "ready_for_audit": {
+            "type": "boolean",
+            "title": "Ready For Audit"
+          },
+          "ready_for_enforcement": {
+            "type": "boolean",
+            "title": "Ready For Enforcement"
+          },
+          "current_coverage_version": {
+            "type": "integer",
+            "title": "Current Coverage Version"
+          },
+          "required_coverage_version": {
+            "type": "integer",
+            "title": "Required Coverage Version"
+          },
+          "blockers": {
+            "items": {
+              "$ref": "#/components/schemas/DataPolicyBlockerResponse"
+            },
+            "type": "array",
+            "title": "Blockers"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ready_for_audit",
+          "ready_for_enforcement",
+          "current_coverage_version",
+          "required_coverage_version",
+          "blockers"
+        ],
+        "title": "DataPolicyPreflightResponse"
+      },
+      "DataPolicyStateResponse": {
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "disabled",
+              "audit",
+              "enforced"
+            ],
+            "title": "Mode"
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision"
+          },
+          "coverage_version": {
+            "type": "integer",
+            "title": "Coverage Version"
+          },
+          "required_coverage_version": {
+            "type": "integer",
+            "title": "Required Coverage Version"
+          },
+          "enforced_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enforced At"
+          },
+          "enforced_by_user_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enforced By User Id"
+          },
+          "updated_by_user_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated By User Id"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "mode",
+          "revision",
+          "coverage_version",
+          "required_coverage_version",
+          "enforced_at",
+          "enforced_by_user_id",
+          "updated_by_user_id",
+          "updated_at"
+        ],
+        "title": "DataPolicyStateResponse"
+      },
       "DerivedSummary": {
         "properties": {
           "extraction_success_rate_pct": {
@@ -33341,6 +34427,63 @@
         ],
         "title": "FeedExportResponse"
       },
+      "FeedHandlingLabelAssignmentRequest": {
+        "properties": {
+          "expected_policy_revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Policy Revision"
+          },
+          "handling_label_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Handling Label Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_policy_revision",
+          "handling_label_id"
+        ],
+        "title": "FeedHandlingLabelAssignmentRequest"
+      },
+      "FeedHandlingLabelAssignmentResponse": {
+        "properties": {
+          "feed_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Feed Id"
+          },
+          "previous_handling_label_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Previous Handling Label Id"
+          },
+          "handling_label_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Handling Label Id"
+          },
+          "policy_revision": {
+            "type": "integer",
+            "title": "Policy Revision"
+          },
+          "changed": {
+            "type": "boolean",
+            "title": "Changed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "feed_id",
+          "previous_handling_label_id",
+          "handling_label_id",
+          "policy_revision",
+          "changed"
+        ],
+        "title": "FeedHandlingLabelAssignmentResponse"
+      },
       "FeedImportEntry": {
         "properties": {
           "name": {
@@ -33617,6 +34760,11 @@
             "format": "uuid",
             "title": "Id"
           },
+          "handling_label_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Handling Label Id"
+          },
           "name": {
             "type": "string",
             "title": "Name"
@@ -33760,6 +34908,7 @@
         "type": "object",
         "required": [
           "id",
+          "handling_label_id",
           "name",
           "url",
           "description",
@@ -34344,6 +35493,256 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "HandlingLabelCreateRequest": {
+        "properties": {
+          "expected_policy_revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Policy Revision"
+          },
+          "key": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9]*([._-][a-z0-9]+)*$",
+            "title": "Key"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000,
+            "title": "Description",
+            "default": ""
+          },
+          "color": {
+            "type": "string",
+            "pattern": "^#[0-9A-Fa-f]{6}$",
+            "title": "Color",
+            "default": "#64748B"
+          },
+          "role_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "maxItems": 256,
+            "title": "Role Ids"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_policy_revision",
+          "key",
+          "name"
+        ],
+        "title": "HandlingLabelCreateRequest"
+      },
+      "HandlingLabelMutationResponse": {
+        "properties": {
+          "label": {
+            "$ref": "#/components/schemas/HandlingLabelResponse"
+          },
+          "policy_revision": {
+            "type": "integer",
+            "title": "Policy Revision"
+          },
+          "changed": {
+            "type": "boolean",
+            "title": "Changed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "label",
+          "policy_revision",
+          "changed"
+        ],
+        "title": "HandlingLabelMutationResponse"
+      },
+      "HandlingLabelResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "color": {
+            "type": "string",
+            "title": "Color"
+          },
+          "is_unrestricted": {
+            "type": "boolean",
+            "title": "Is Unrestricted"
+          },
+          "is_system": {
+            "type": "boolean",
+            "title": "Is System"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active"
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision"
+          },
+          "role_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Role Ids"
+          },
+          "assigned_feed_count": {
+            "type": "integer",
+            "title": "Assigned Feed Count"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "key",
+          "name",
+          "description",
+          "color",
+          "is_unrestricted",
+          "is_system",
+          "is_active",
+          "revision",
+          "role_ids",
+          "assigned_feed_count",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "HandlingLabelResponse"
+      },
+      "HandlingLabelRoleGrantsRequest": {
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Revision"
+          },
+          "role_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "maxItems": 256,
+            "title": "Role Ids"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_revision",
+          "role_ids"
+        ],
+        "title": "HandlingLabelRoleGrantsRequest"
+      },
+      "HandlingLabelStatusRequest": {
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Revision"
+          },
+          "active": {
+            "type": "boolean",
+            "title": "Active"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_revision",
+          "active"
+        ],
+        "title": "HandlingLabelStatusRequest"
+      },
+      "HandlingLabelUpdateRequest": {
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Revision"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "color": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^#[0-9A-Fa-f]{6}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Color"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_revision"
+        ],
+        "title": "HandlingLabelUpdateRequest"
       },
       "IntegrationConnectorResponse": {
         "properties": {

@@ -5,6 +5,7 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     DateTime,
+    ForeignKey,
     Index,
     Integer,
     String,
@@ -49,6 +50,13 @@ class Feed(Base):
     error_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    handling_label_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("handling_labels.id", ondelete="RESTRICT"),
+        nullable=False,
+        server_default="00000000-0000-4000-8000-000000000201",
+        index=True,
+    )
 
     @property
     def url(self) -> str:

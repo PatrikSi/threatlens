@@ -27,6 +27,11 @@ from app.models.action_approval import ActionApprovalRequest, ActionExecutionRec
 from app.models.article import Article
 from app.models.auth_session import AuthSession
 from app.models.audit_log import AuditLog
+from app.models.data_policy import (
+    DataPolicyRoleGrant,
+    DataPolicyState,
+    HandlingLabel,
+)
 from app.models.feed import Feed
 from app.models.governance_operation_receipt import GovernanceOperationReceipt
 from app.models.ioc import IOC, ItemIOC
@@ -119,6 +124,8 @@ __all__ = [
     "Article",
     "AuthSession",
     "AuditLog",
+    "DataPolicyRoleGrant",
+    "DataPolicyState",
     "Feed",
     "GovernanceOperationReceipt",
     "ExternalIdentity",
@@ -138,6 +145,7 @@ __all__ = [
     "IAMRole",
     "IAMRolePermission",
     "IAMUserRoleAssignment",
+    "HandlingLabel",
     "Investigation",
     "InvestigationActivity",
     "InvestigationEvidence",
