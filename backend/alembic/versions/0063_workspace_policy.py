@@ -246,9 +246,7 @@ def _grant_workspace_permissions_to_legacy_roles(bind) -> None:
 
 def _is_default_policy(role: str, row) -> bool:
     return (
-        row["revision"] == 1
-        and row["updated_by_user_id"] is None
-        and row["landing_module_id"] == _DEFAULT_LANDING_MODULE
+        row["landing_module_id"] == _DEFAULT_LANDING_MODULE
         and row["dashboard_panel_ids_json"] == _DEFAULT_DASHBOARD_PANELS
         and row["modules_json"] == _default_modules(role)
     )

@@ -29,6 +29,7 @@ class WorkspaceModuleDefinitionResponse(StrictWorkspaceModel):
     section: WorkspaceSection
     parent_id: str | None = None
     required_permission: str | None = None
+    required_permissions: list[str] = Field(default_factory=list)
     feature_flag: str | None = None
     default_optional: bool
     default_order: int = Field(ge=0)
@@ -40,6 +41,7 @@ class WorkspaceDashboardPanelDefinitionResponse(StrictWorkspaceModel):
     id: str
     label: str
     required_permission: str | None = None
+    required_permissions: list[str] = Field(default_factory=list)
     feature_flag: str | None = None
 
 
@@ -89,6 +91,10 @@ class WorkspaceRolePolicyWriteRequest(StrictWorkspaceModel):
         if len(self.dashboard_panel_ids) != len(set(self.dashboard_panel_ids)):
             raise ValueError("dashboard_panel_ids must not contain duplicates")
         return self
+
+
+class WorkspaceRolePolicyResetRequest(StrictWorkspaceModel):
+    expected_revision: int = Field(ge=1)
 
 
 class WorkspaceRolePolicyResponse(StrictWorkspaceModel):
@@ -159,6 +165,10 @@ class WorkspaceUserPreferenceWriteRequest(StrictWorkspaceModel):
         return self
 
 
+class WorkspaceUserPreferenceResetRequest(StrictWorkspaceModel):
+    expected_revision: int = Field(ge=0)
+
+
 class WorkspaceUserPreferenceResponse(StrictWorkspaceModel):
     user_id: uuid.UUID
     role: WorkspaceRole
@@ -186,10 +196,20 @@ class WorkspaceEffectiveModuleResponse(StrictWorkspaceModel):
     mobile_priority: int = Field(ge=0)
     mobile_behavior: WorkspaceMobileBehavior
     permission_allowed: bool
+    missing_permissions: list[str] = Field(default_factory=list)
     feature_available: bool
     policy_visible: bool
     preference_visible: bool
     reasons: list[str]
+
+
+class WorkspaceEffectiveDashboardPanelResponse(StrictWorkspaceModel):
+    id: str
+    visible: bool
+    permission_allowed: bool
+    feature_available: bool
+    missing_permissions: list[str] = Field(default_factory=list)
+    reasons: list[str] = Field(default_factory=list)
 
 
 class WorkspaceEffectiveResponse(StrictWorkspaceModel):
@@ -198,12 +218,16 @@ class WorkspaceEffectiveResponse(StrictWorkspaceModel):
     preference_revision: int = Field(ge=0)
     landing_module_id: str | None
     dashboard_panel_ids: list[str]
+    dashboard_panels: list[WorkspaceEffectiveDashboardPanelResponse] = Field(
+        default_factory=list
+    )
     modules: list[WorkspaceEffectiveModuleResponse]
     warnings: list[str] = Field(default_factory=list)
 
 
 __all__ = [
     "WorkspaceDashboardPanelDefinitionResponse",
+    "WorkspaceEffectiveDashboardPanelResponse",
     "WorkspaceEffectiveModuleResponse",
     "WorkspaceEffectiveResponse",
     "WorkspaceMobileBehavior",
@@ -213,8 +237,10 @@ __all__ = [
     "WorkspaceRegistryResponse",
     "WorkspaceRole",
     "WorkspaceRolePolicyResponse",
+    "WorkspaceRolePolicyResetRequest",
     "WorkspaceRolePolicyWriteRequest",
     "WorkspaceSection",
     "WorkspaceUserPreferenceResponse",
+    "WorkspaceUserPreferenceResetRequest",
     "WorkspaceUserPreferenceWriteRequest",
 ]

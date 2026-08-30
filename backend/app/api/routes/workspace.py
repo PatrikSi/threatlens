@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import logging
 import uuid
-from contextlib import contextmanager
 from collections.abc import Iterator
+from contextlib import contextmanager
 
 from fastapi import APIRouter, Depends, Request, Response, status
 from sqlalchemy import select
@@ -28,9 +28,11 @@ from app.models.user import User
 from app.schemas.workspace import (
     WorkspaceEffectiveResponse,
     WorkspaceRegistryResponse,
+    WorkspaceRolePolicyResetRequest,
     WorkspaceRolePolicyResponse,
     WorkspaceRolePolicyWriteRequest,
     WorkspaceUserPreferenceResponse,
+    WorkspaceUserPreferenceResetRequest,
     WorkspaceUserPreferenceWriteRequest,
 )
 from app.services.audit import record_audit
@@ -46,6 +48,8 @@ from app.services.workspace_policy import (
     get_role_policy,
     get_user_preferences,
     list_role_policies,
+    reset_role_policy,
+    reset_user_preferences,
     runtime_workspace_feature_flags,
     update_role_policy,
     update_user_preferences,
@@ -55,6 +59,8 @@ from app.services.workspace_policy import (
 
 logger = logging.getLogger("threatlens.workspace")
 router = APIRouter(prefix="/workspace", tags=["workspace"])
+
+
 class _WorkspaceActorAccessChanged(WorkspacePolicyError):
     code = "workspace_actor_access_changed"
     status_code = 403
@@ -139,6 +145,59 @@ def put_workspace_role_policy(
         raise _storage_error() from exc
 
 
+@router.post("/role-policies/{role}/reset", response_model=WorkspaceRolePolicyResponse)
+def reset_workspace_role_policy(
+    role: str,
+    payload: WorkspaceRolePolicyResetRequest,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_permissions(SCOPE_WRITE_WORKSPACE)),
+):
+    actor_id = actor.id
+    try:
+        locked_actor = _lock_and_reauthorize_actor(
+            db, request, actor, required_permission=SCOPE_WRITE_WORKSPACE
+        )
+        before = get_role_policy(db, role)
+        reset = reset_role_policy(
+            db,
+            role=role,
+            expected_revision=payload.expected_revision,
+            actor_user_id=locked_actor.id,
+        )
+        _record_request_audit(
+            db,
+            request=request,
+            actor_user_id=locked_actor.id,
+            action="workspace.role_policy.reset",
+            resource_type="workspace_role_policy",
+            resource_id=reset.role,
+            metadata={
+                "before": before.model_dump(mode="json"),
+                "after": reset.model_dump(mode="json"),
+            },
+        )
+        db.commit()
+        response.headers["X-Current-Revision"] = str(reset.revision)
+        return reset
+    except WorkspacePolicyError as exc:
+        _record_rejected_mutation(
+            db,
+            request=request,
+            actor_user_id=actor_id,
+            action="workspace.role_policy.reset",
+            resource_type="workspace_role_policy",
+            resource_id=role,
+            exc=exc,
+        )
+        raise _http_error(exc) from exc
+    except SQLAlchemyError as exc:
+        db.rollback()
+        logger.exception("workspace_role_policy_reset_failed role=%s", role)
+        raise _storage_error() from exc
+
+
 @router.get("/preferences", response_model=WorkspaceUserPreferenceResponse)
 def get_my_workspace_preferences(
     db: Session = Depends(get_db),
@@ -200,6 +259,60 @@ def put_my_workspace_preferences(
     except SQLAlchemyError as exc:
         db.rollback()
         logger.exception("workspace_preferences_update_failed user_id=%s", actor_id)
+        raise _storage_error() from exc
+
+
+@router.post("/preferences/reset", response_model=WorkspaceUserPreferenceResponse)
+def reset_my_workspace_preferences(
+    payload: WorkspaceUserPreferenceResetRequest,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_permissions(SCOPE_WRITE_WORKSPACE_PREFERENCES)),
+):
+    actor_id = actor.id
+    try:
+        locked_actor = _lock_and_reauthorize_actor(
+            db,
+            request,
+            actor,
+            required_permission=SCOPE_WRITE_WORKSPACE_PREFERENCES,
+        )
+        before = get_user_preferences(db, locked_actor)
+        reset = reset_user_preferences(
+            db,
+            user=locked_actor,
+            expected_revision=payload.expected_revision,
+        )
+        _record_request_audit(
+            db,
+            request=request,
+            actor_user_id=locked_actor.id,
+            action="workspace.preferences.reset",
+            resource_type="workspace_user_preferences",
+            resource_id=str(locked_actor.id),
+            metadata={
+                "before": before.model_dump(mode="json"),
+                "after": reset.model_dump(mode="json"),
+            },
+        )
+        db.commit()
+        response.headers["X-Current-Revision"] = str(reset.revision)
+        return reset
+    except WorkspacePolicyError as exc:
+        _record_rejected_mutation(
+            db,
+            request=request,
+            actor_user_id=actor_id,
+            action="workspace.preferences.reset",
+            resource_type="workspace_user_preferences",
+            resource_id=str(actor_id),
+            exc=exc,
+        )
+        raise _http_error(exc) from exc
+    except SQLAlchemyError as exc:
+        db.rollback()
+        logger.exception("workspace_preferences_reset_failed user_id=%s", actor_id)
         raise _storage_error() from exc
 
 

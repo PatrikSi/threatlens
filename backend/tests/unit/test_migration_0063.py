@@ -11,10 +11,44 @@ from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import make_url
 
 from app.core.config import get_settings
-from app.services.workspace_policy import WORKSPACE_MODULES, default_role_modules
 
 
 _BACKEND_DIR = Path(__file__).resolve().parents[2]
+_EXPECTED_0063_MODULE_DEFAULTS = (
+    ("primary.dashboard", "all", False, 0, 0),
+    ("primary.alerts", "all", True, 10, 10),
+    ("primary.investigations", "all", True, 20, 20),
+    ("primary.feeds", "all", True, 30, 30),
+    ("primary.stats", "all", True, 40, 40),
+    ("primary.export", "all", True, 50, 50),
+    ("primary.reporting", "all", True, 60, 60),
+    ("primary.settings", "all", False, 70, 70),
+    ("settings.account", "all", False, 0, 0),
+    ("settings.tokens", "all", True, 10, 10),
+    ("settings.ai", "admin", True, 20, 20),
+    ("settings.tagging", "admin", True, 30, 30),
+    ("settings.identity", "admin", True, 40, 40),
+    ("settings.users", "admin", True, 50, 50),
+    ("settings.audit", "admin", True, 60, 60),
+    ("settings.operations", "admin", True, 70, 70),
+    ("settings.integrations", "all", True, 80, 80),
+    ("settings.integrations.webhooks", "all", True, 90, 90),
+    ("settings.integrations.smtp", "admin", True, 100, 100),
+)
+
+
+def _expected_0063_modules(role: str) -> dict[str, dict[str, object]]:
+    return {
+        module_id: {
+            "visible": visibility == "all" or role == "admin",
+            "optional": optional,
+            "order": order,
+            "mobile_priority": mobile_priority,
+        }
+        for module_id, visibility, optional, order, mobile_priority in (
+            _EXPECTED_0063_MODULE_DEFAULTS
+        )
+    }
 
 
 def _alembic_config() -> Config:
@@ -70,7 +104,7 @@ def test_workspace_policy_migration_seeds_defaults_and_guards_downgrade(
             assert {
                 "workspace_role_policies",
                 "workspace_user_preferences",
-            } <= set(inspector.get_table_names())
+            } <= set(inspector.get_table_names(schema=schema_name))
             assert {
                 "ck_workspace_role_policies_role",
                 "ck_workspace_role_policies_modules_object",
@@ -79,7 +113,7 @@ def test_workspace_policy_migration_seeds_defaults_and_guards_downgrade(
             } <= {
                 constraint["name"]
                 for constraint in inspector.get_check_constraints(
-                    "workspace_role_policies"
+                    "workspace_role_policies", schema=schema_name
                 )
             }
             assert {
@@ -89,7 +123,7 @@ def test_workspace_policy_migration_seeds_defaults_and_guards_downgrade(
             } <= {
                 constraint["name"]
                 for constraint in inspector.get_check_constraints(
-                    "workspace_user_preferences"
+                    "workspace_user_preferences", schema=schema_name
                 )
             }
 
@@ -104,10 +138,10 @@ def test_workspace_policy_migration_seeds_defaults_and_guards_downgrade(
                 policies = {row["role"]: row for row in rows}
                 assert set(policies) == {"admin", "analyst", "viewer"}
                 assert set(policies["viewer"]["modules_json"]) == {
-                    module.id for module in WORKSPACE_MODULES
+                    module_id for module_id, *_rest in _EXPECTED_0063_MODULE_DEFAULTS
                 }
                 for role, row in policies.items():
-                    assert row["modules_json"] == default_role_modules(role)
+                    assert row["modules_json"] == _expected_0063_modules(role)
                     assert row["landing_module_id"] == "primary.dashboard"
                     assert row["dashboard_panel_ids_json"] == ["rss"]
                     assert row["revision"] == 1
@@ -128,6 +162,8 @@ def test_workspace_policy_migration_seeds_defaults_and_guards_downgrade(
                 }
 
             with schema_engine.begin() as connection:
+                customized_modules = _expected_0063_modules("viewer")
+                customized_modules["primary.feeds"]["visible"] = False
                 connection.execute(
                     text(
                         "INSERT INTO workspace_user_preferences "
@@ -149,9 +185,15 @@ def test_workspace_policy_migration_seeds_defaults_and_guards_downgrade(
                 )
                 connection.execute(
                     text(
-                        "UPDATE workspace_role_policies SET revision = 2 "
+                        "UPDATE workspace_role_policies SET revision = 2, "
+                        "updated_by_user_id = :user_id, "
+                        "modules_json = CAST(:modules AS jsonb) "
                         "WHERE role = 'viewer'"
-                    )
+                    ),
+                    {
+                        "user_id": user_id,
+                        "modules": json.dumps(customized_modules),
+                    },
                 )
             with pytest.raises(RuntimeError, match="customized role policy: viewer"):
                 command.downgrade(config, "0062_access_roles_groups")
@@ -159,22 +201,25 @@ def test_workspace_policy_migration_seeds_defaults_and_guards_downgrade(
             with schema_engine.begin() as connection:
                 connection.execute(
                     text(
-                        "UPDATE workspace_role_policies SET revision = 1, "
-                        "updated_by_user_id = NULL, modules_json = CAST(:modules AS jsonb), "
+                        "UPDATE workspace_role_policies SET revision = 3, "
+                        "updated_by_user_id = :user_id, "
+                        "modules_json = CAST(:modules AS jsonb), "
                         "landing_module_id = 'primary.dashboard', "
                         "dashboard_panel_ids_json = CAST(:panels AS jsonb) "
                         "WHERE role = 'viewer'"
                     ),
                     {
-                        "modules": json.dumps(default_role_modules("viewer")),
+                        "user_id": user_id,
+                        "modules": json.dumps(_expected_0063_modules("viewer")),
                         "panels": json.dumps(["rss"]),
                     },
                 )
             command.downgrade(config, "0062_access_roles_groups")
             inspector = inspect(schema_engine)
             inspector.clear_cache()
-            assert "workspace_role_policies" not in inspector.get_table_names()
-            assert "workspace_user_preferences" not in inspector.get_table_names()
+            migrated_tables = inspector.get_table_names(schema=schema_name)
+            assert "workspace_role_policies" not in migrated_tables
+            assert "workspace_user_preferences" not in migrated_tables
             with schema_engine.connect() as connection:
                 assert (
                     connection.scalar(
