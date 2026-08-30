@@ -14,6 +14,7 @@ from stix2 import parse
 from app.api.routes import exports as exports_route
 from app.models.article import Article
 from app.models.audit_log import AuditLog
+from app.models.data_policy import DataPolicyState
 from app.models.feed import Feed
 from app.models.ioc import IOC, ItemIOC
 from app.models.item import Item
@@ -21,6 +22,7 @@ from app.models.item_ai_enrichment import ItemAIEnrichment
 from app.models.item_classification import ItemClassification
 from app.models.item_state import ItemState
 from app.models.tag import ItemTag, Tag
+from app.services import export_query
 
 
 @pytest.fixture(autouse=True)
@@ -182,6 +184,40 @@ def test_export_requires_authentication(client: TestClient):
     assert client.get("/exports/capabilities").status_code == 401
     assert client.post("/exports/preview", json={}).status_code == 401
     assert client.post("/exports", json={"format": "csv"}).status_code == 401
+
+
+def test_export_preview_rejects_policy_revision_change(
+    client: TestClient,
+    auth_headers,
+    db_session,
+    seed_users,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _seed_export_records(db_session, user_id=seed_users["viewer"].id)
+    state = db_session.get(DataPolicyState, 1)
+    assert state is not None
+    calls = 0
+
+    def changing_revision(_db):
+        nonlocal calls
+        calls += 1
+        return state.revision if calls == 1 else state.revision + 1
+
+    monkeypatch.setattr(
+        export_query,
+        "current_data_policy_revision",
+        changing_revision,
+    )
+
+    response = client.post(
+        "/exports/preview",
+        headers=auth_headers["viewer"],
+        json={},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "export_authorization_changed"
+    assert "data access changed" in response.json()["detail"].lower()
 
 
 def test_export_size_error_survives_audit_storage_failure(

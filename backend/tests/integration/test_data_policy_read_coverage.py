@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
@@ -15,7 +16,9 @@ from app.models.data_policy import (
 from app.models.feed import Feed
 from app.models.ioc import IOC, ItemIOC
 from app.models.item import Item
+from app.models.item_classification import ItemClassification
 from app.models.item_state import ItemState
+from app.models.tag import ItemTag, Tag
 from app.services import data_access_policy
 
 
@@ -281,3 +284,104 @@ def test_item_reads_mutations_preview_and_graph_enforce_feed_labels(
         headers=auth_headers["analyst"],
     )
     assert hidden_graph.status_code == 404
+
+
+def test_export_capabilities_preview_and_download_enforce_feed_labels(
+    client,
+    auth_headers,
+    seed_users,
+    db_session,
+    monkeypatch,
+):
+    @contextmanager
+    def unlocked(**_kwargs):
+        yield
+
+    monkeypatch.setattr("app.api.routes.exports.acquire_export_lock", unlocked)
+    restricted = _enable_enforcement(db_session, seed_users, monkeypatch)
+    visible_feed = _feed(
+        "Visible export feed",
+        "https://example.com/visible-export.xml",
+        handling_label_id=UNRESTRICTED_HANDLING_LABEL_ID,
+    )
+    restricted_feed = _feed(
+        "Restricted export feed",
+        "https://example.com/restricted-export.xml",
+        handling_label_id=restricted.id,
+    )
+    db_session.add_all([visible_feed, restricted_feed])
+    db_session.flush()
+    now = datetime.now(timezone.utc)
+    visible_item = _item(visible_feed, title="Visible export item", seen_at=now)
+    restricted_item = _item(
+        restricted_feed,
+        title="Restricted export item",
+        seen_at=now,
+    )
+    db_session.add_all([visible_item, restricted_item])
+    db_session.flush()
+    visible_tag = Tag(name=f"visible-export-{uuid.uuid4().hex[:8]}")
+    restricted_tag = Tag(name=f"restricted-export-{uuid.uuid4().hex[:8]}")
+    db_session.add_all([visible_tag, restricted_tag])
+    db_session.flush()
+    db_session.add_all(
+        [
+            ItemTag(item_id=visible_item.id, tag_id=visible_tag.id),
+            ItemTag(item_id=restricted_item.id, tag_id=restricted_tag.id),
+            ItemClassification(
+                item_id=visible_item.id,
+                primary_category="visible-category",
+                confidence=1.0,
+                scores_json={},
+                matched_terms_json={},
+                source_hash="a" * 64,
+            ),
+            ItemClassification(
+                item_id=restricted_item.id,
+                primary_category="restricted-category",
+                confidence=1.0,
+                scores_json={},
+                matched_terms_json={},
+                source_hash="b" * 64,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    capabilities = client.get(
+        "/exports/capabilities",
+        headers=auth_headers["analyst"],
+    )
+    assert capabilities.status_code == 200, capabilities.text
+    payload = capabilities.json()
+    assert {entry["id"] for entry in payload["feeds"]} == {str(visible_feed.id)}
+    assert {entry["id"] for entry in payload["tags"]} == {str(visible_tag.id)}
+    assert payload["classifications"] == ["visible-category"]
+
+    preview = client.post(
+        "/exports/preview",
+        headers=auth_headers["analyst"],
+        json={},
+    )
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["total_matches"] == 1
+    assert [entry["id"] for entry in preview.json()["items"]] == [str(visible_item.id)]
+
+    downloaded = client.post(
+        "/exports",
+        headers=auth_headers["analyst"],
+        json={"format": "jsonl"},
+    )
+    assert downloaded.status_code == 200, downloaded.text
+    lines = [line for line in downloaded.text.splitlines() if line]
+    assert len(lines) == 1
+    assert "Visible export item" in lines[0]
+    assert "Restricted export item" not in lines[0]
+
+    admin_preview = client.post(
+        "/exports/preview",
+        headers=auth_headers["admin"],
+        json={},
+    )
+    assert admin_preview.status_code == 200, admin_preview.text
+    assert admin_preview.json()["total_matches"] == 2

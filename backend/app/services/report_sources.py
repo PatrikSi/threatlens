@@ -24,6 +24,7 @@ from app.services.ai_context_budget import (
     estimate_tokens,
 )
 from app.services.ai_prompting import build_company_context
+from app.services.data_access_policy import DataAccessContext
 from app.services.export_models import ExportRecord
 from app.services.export_query import (
     build_export_query_context,
@@ -68,6 +69,7 @@ class ReportSourcePlan:
     omitted_source_count: int
     warnings: tuple[str, ...]
     metrics: dict
+    data_policy_revision: int
 
     @property
     def included_sources(self) -> tuple[PlannedReportSource, ...]:
@@ -95,6 +97,7 @@ def build_report_source_plan(
     prompt: ReportPromptConfig,
     sections: list[ReportSectionConfig],
     active: ActiveAISettings,
+    data_access: DataAccessContext,
 ) -> ReportSourcePlan:
     budget = build_context_budget(
         context_window_tokens=active.report_context_window_tokens,
@@ -115,15 +118,23 @@ def build_report_source_plan(
         budget=budget,
     )
 
-    context = build_export_query_context(user_id=user_id, filters=filters)
+    context = build_export_query_context(
+        user_id=user_id,
+        filters=filters,
+        data_access=data_access,
+    )
     counts = load_export_counts(db, context=context)
     excluded_ids = set(excluded_item_ids)
     load_limit = min(2000, active.report_max_sources + len(excluded_ids) + 250)
     item_ids = load_export_item_ids(db, context=context, limit=load_limit)
-    records = list(iter_export_records(db, item_ids=item_ids, context=context, include_iocs=True))
+    records = list(
+        iter_export_records(db, item_ids=item_ids, context=context, include_iocs=True)
+    )
 
     model_section_count = sum(
-        1 for section in sections if section.enabled and section.key not in DETERMINISTIC_SECTION_KEYS
+        1
+        for section in sections
+        if section.enabled and section.key not in DETERMINISTIC_SECTION_KEYS
     )
     max_batches = active.report_max_model_calls - model_section_count
     if max_batches < 1:
@@ -187,7 +198,9 @@ def build_report_source_plan(
             f"Only the highest-ranked {len(records):,} candidates were inspected; {counts.total - len(records):,} were outside the planning window."
         )
     if selected_count >= active.report_max_sources and counts.total > selected_count:
-        warnings.append(f"The configured source limit selected {selected_count:,} of {counts.total:,} matching articles.")
+        warnings.append(
+            f"The configured source limit selected {selected_count:,} of {counts.total:,} matching articles."
+        )
     if context_omitted:
         warnings.append(
             f"The context and model-call guardrails omitted {context_omitted:,} candidate articles after the evidence budget was filled."
@@ -197,7 +210,9 @@ def build_report_source_plan(
         for source in planned
         if source.included
     ):
-        warnings.append("Long source text is represented by bounded excerpts; titles, metadata, summaries, and citations remain intact.")
+        warnings.append(
+            "Long source text is represented by bounded excerpts; titles, metadata, summaries, and citations remain intact."
+        )
     if not selected_count and counts.total:
         warnings.append("No articles fit the current exclusions and context budget.")
 
@@ -213,12 +228,17 @@ def build_report_source_plan(
         estimated_source_tokens=selected_tokens,
         omitted_source_count=omitted,
         warnings=tuple(warnings),
-        metrics=_build_metrics([source.record for source in planned if source.included]),
+        metrics=_build_metrics(
+            [source.record for source in planned if source.included]
+        ),
         largest_batch_input_tokens=batch_plan.largest_batch_input_tokens,
+        data_policy_revision=data_access.policy_revision,
     )
 
 
-def report_preview_from_plan(plan: ReportSourcePlan, *, preview_limit: int) -> ReportPreviewResponse:
+def report_preview_from_plan(
+    plan: ReportSourcePlan, *, preview_limit: int
+) -> ReportPreviewResponse:
     preview_sources = list(plan.sources[:preview_limit])
     preview_items = build_preview_items([source.record for source in preview_sources])
     selected_by_id = {source.record.id: source for source in preview_sources}
@@ -259,9 +279,15 @@ def report_preview_from_plan(plan: ReportSourcePlan, *, preview_limit: int) -> R
 
 def _build_evidence_text(record: ExportRecord, *, citation_key: str) -> str:
     date_value = record.published_at or record.first_seen_at
-    classification = record.classification.primary_category if record.classification else "unclassified"
+    classification = (
+        record.classification.primary_category
+        if record.classification
+        else "unclassified"
+    )
     ai_summary = record.ai.summary if record.ai and record.ai.summary else None
-    article_text = record.article.text if record.article and record.article.text else None
+    article_text = (
+        record.article.text if record.article and record.article.text else None
+    )
     iocs = ", ".join(f"{ioc.type}:{ioc.value}" for ioc in record.iocs[:30])
     parts = [
         f"[{citation_key}] {record.title}",
@@ -270,7 +296,11 @@ def _build_evidence_text(record: ExportRecord, *, citation_key: str) -> str:
         f"Classification: {classification}",
         f"Tags: {', '.join(tag.name for tag in record.tags) or 'none'}",
         f"AI relevance: {record.ai.relevance_label if record.ai else 'not scored'}"
-        + (f" ({record.ai.relevance_score:.2f})" if record.ai and record.ai.relevance_score is not None else ""),
+        + (
+            f" ({record.ai.relevance_score:.2f})"
+            if record.ai and record.ai.relevance_score is not None
+            else ""
+        ),
         f"Source URL: {record.url}",
     ]
     if ai_summary:
@@ -287,14 +317,24 @@ def _build_evidence_text(record: ExportRecord, *, citation_key: str) -> str:
 def _build_metrics(records: list[ExportRecord]) -> dict:
     feeds = Counter(record.feed_name for record in records)
     classifications = Counter(
-        record.classification.primary_category if record.classification else "unclassified" for record in records
+        record.classification.primary_category
+        if record.classification
+        else "unclassified"
+        for record in records
     )
-    relevance = Counter(record.ai.relevance_label if record.ai and record.ai.relevance_label else "not_scored" for record in records)
+    relevance = Counter(
+        record.ai.relevance_label
+        if record.ai and record.ai.relevance_label
+        else "not_scored"
+        for record in records
+    )
     tags = Counter(tag.name for record in records for tag in record.tags)
     ioc_types = Counter(ioc.type for record in records for ioc in record.iocs)
     return {
         "article_count": len(records),
-        "articles_with_extracted_text": sum(bool(record.article and record.article.text) for record in records),
+        "articles_with_extracted_text": sum(
+            bool(record.article and record.article.text) for record in records
+        ),
         "articles_with_iocs": sum(bool(record.iocs) for record in records),
         "ioc_count": sum(len(record.iocs) for record in records),
         "feeds": dict(feeds.most_common()),

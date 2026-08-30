@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.models.report import Report
 from app.models.report_schedule import ReportSchedule
 from app.models.report_template import ReportTemplate
+from app.models.user import User
 from app.core.config import get_settings
 from app.schemas.reports import (
     ReportArticleFilters,
@@ -29,7 +30,15 @@ from app.schemas.reports import (
 from app.services.ai_config import load_active_ai_settings
 from app.services.ai_context_budget import AIContextBudgetError
 from app.services.ai_prompting import build_company_context
-from app.services.export_query import ExportSnapshotChangedError
+from app.services.authorization import authorization_context_for_user
+from app.services.data_access_policy import (
+    DataPolicyError,
+    data_access_context_for_authorization,
+)
+from app.services.export_query import (
+    ExportAuthorizationChangedError,
+    ExportSnapshotChangedError,
+)
 from app.services.report_availability import (
     ReportingUnavailableError,
     ensure_reporting_available,
@@ -210,9 +219,7 @@ def list_due_schedule_ids(
                 ),
             )
             .order_by(
-                func.coalesce(
-                    ReportSchedule.retry_at, ReportSchedule.next_run_at
-                ).asc()
+                func.coalesce(ReportSchedule.retry_at, ReportSchedule.next_run_at).asc()
             )
             .limit(limit)
         ).all()
@@ -337,6 +344,15 @@ def _create_one_scheduled_report(
     )
     active = load_active_ai_settings(db)
     ensure_reporting_available(active)
+    owner = db.get(User, schedule.owner_user_id)
+    if owner is None:
+        raise ReportStorageError(
+            "The scheduled report owner no longer exists. Assign a new owner before retrying."
+        )
+    data_access = data_access_context_for_authorization(
+        db,
+        authorization_context_for_user(db, owner),
+    )
     plan = build_report_source_plan(
         db,
         user_id=schedule.owner_user_id,
@@ -345,6 +361,7 @@ def _create_one_scheduled_report(
         prompt=prompt,
         sections=sections,
         active=active,
+        data_access=data_access,
     )
     payload = ReportCreateRequest(
         template_id=template.id,
@@ -522,6 +539,13 @@ def classify_schedule_failure(error: Exception) -> ScheduleFailure:
             "source_snapshot_changed",
             "Matching articles changed while the scheduled report was being prepared.",
         )
+    if isinstance(error, ExportAuthorizationChangedError):
+        return ScheduleFailure(
+            "source_authorization_changed",
+            "The schedule owner's data access changed while the scheduled report was being prepared.",
+        )
+    if isinstance(error, DataPolicyError):
+        return ScheduleFailure(error.code, str(error))
     if isinstance(error, ReportStorageError):
         return ScheduleFailure("source_selection", str(error))
     if isinstance(
@@ -551,7 +575,9 @@ def _quarantine_schedule(
     schedule.retry_at = None
     schedule.failure_state = "quarantined"
     schedule.failure_count = int(schedule.failure_count or 0) + 1
-    schedule.consecutive_failure_count = int(schedule.consecutive_failure_count or 0) + 1
+    schedule.consecutive_failure_count = (
+        int(schedule.consecutive_failure_count or 0) + 1
+    )
     schedule.last_error_code = code
     schedule.last_error = message
     schedule.last_error_at = _as_utc(now)
