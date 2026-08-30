@@ -13,7 +13,7 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.routing import APIRoute
 
-from app.core.api_errors import install_api_error_handlers
+from app.core.api_errors import apply_openapi_error_contract, install_api_error_handlers
 from app.core.config import Settings, get_settings
 from app.core.logging_config import (
     configure_logging,
@@ -48,13 +48,18 @@ from app.api.routes import (
     users,
     views,
 )
-from app.services.encrypted_data_inventory import record_startup_encrypted_data_inventory_error, refresh_startup_encrypted_data_inventory
+from app.services.encrypted_data_inventory import (
+    record_startup_encrypted_data_inventory_error,
+    refresh_startup_encrypted_data_inventory,
+)
 from app.version import get_app_version
 
 settings = get_settings()
 configure_logging(settings)
 logger = logging.getLogger("threatlens.api")
-_REQUEST_ID_ALLOWED_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._")
+_REQUEST_ID_ALLOWED_CHARS = frozenset(
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._"
+)
 API_VERSION = "v1"
 API_SERVICE_PREFIX = f"/{API_VERSION}"
 WEB_PROXY_API_PREFIX = f"/api/{API_VERSION}"
@@ -109,7 +114,9 @@ API_ROUTERS: tuple[APIRouter, ...] = (
 )
 
 
-def _build_openapi_visibility_kwargs(active_settings: Settings) -> dict[str, str | None]:
+def _build_openapi_visibility_kwargs(
+    active_settings: Settings,
+) -> dict[str, str | None]:
     is_production = active_settings.app_env.lower() in {"production", "prod"}
     kwargs: dict[str, str | None] = {}
     if is_production and not active_settings.expose_api_docs_in_production:
@@ -140,8 +147,12 @@ async def app_lifespan(_application: FastAPI):
                 snapshot.summary.unreadable_fields,
             )
         except Exception as exc:
-            record_startup_encrypted_data_inventory_error(redact_log_text(exc, max_chars=4000))
-            logger.warning("startup_encrypted_data_inventory_failed error=%s", exc, exc_info=True)
+            record_startup_encrypted_data_inventory_error(
+                redact_log_text(exc, max_chars=4000)
+            )
+            logger.warning(
+                "startup_encrypted_data_inventory_failed error=%s", exc, exc_info=True
+            )
     yield
 
 
@@ -184,6 +195,7 @@ app.add_middleware(
 if settings.allowed_hosts:
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_hosts)
 
+
 @app.middleware("http")
 async def request_logging_middleware(request: Request, call_next):
     request_id = _normalize_request_id(request.headers.get("x-request-id"))
@@ -206,11 +218,15 @@ async def request_logging_middleware(request: Request, call_next):
 
         duration_ms = (time.perf_counter() - started_at) * 1000
         response.headers["X-Request-ID"] = request_id
-        completion_level = _request_completion_log_level(response.status_code, duration_ms)
+        completion_level = _request_completion_log_level(
+            response.status_code, duration_ms
+        )
         logger.log(
             completion_level,
             "request_complete",
-            extra=_request_log_fields(request, status=response.status_code, duration_ms=duration_ms),
+            extra=_request_log_fields(
+                request, status=response.status_code, duration_ms=duration_ms
+            ),
         )
         return response
     finally:
@@ -267,7 +283,9 @@ def _mount_api_routers(application: FastAPI, *, include_legacy_aliases: bool) ->
             application.include_router(router, include_in_schema=False)
 
 
-_mount_api_routers(app, include_legacy_aliases=_should_mount_legacy_api_aliases(settings))
+_mount_api_routers(
+    app, include_legacy_aliases=_should_mount_legacy_api_aliases(settings)
+)
 
 
 def _collect_route_token_scopes(route: Any) -> tuple[str, ...]:
@@ -298,7 +316,9 @@ def _iter_effective_api_routes(application: FastAPI):
                 yield route_context
 
 
-def _route_required_token_scopes_by_operation(application: FastAPI) -> dict[tuple[str, str], tuple[str, ...]]:
+def _route_required_token_scopes_by_operation(
+    application: FastAPI,
+) -> dict[tuple[str, str], tuple[str, ...]]:
     required_by_operation: dict[tuple[str, str], tuple[str, ...]] = {}
     for route in _iter_effective_api_routes(application):
         scopes = _collect_route_token_scopes(route)
@@ -361,7 +381,8 @@ def _apply_published_security_contract(
             if not security:
                 continue
             if not any(
-                isinstance(requirement, dict) and "OAuth2PasswordBearer" in requirement for requirement in security
+                isinstance(requirement, dict) and "OAuth2PasswordBearer" in requirement
+                for requirement in security
             ):
                 continue
             operation["security"] = [
@@ -413,7 +434,9 @@ def _apply_contract_anchor(schema: dict[str, Any]) -> dict[str, Any]:
     info = schema.setdefault("info", {})
     info.pop(OPENAPI_CONTRACT_ANCHOR_FIELD, None)
     digest = hashlib.sha256(
-        json.dumps(schema, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+        json.dumps(
+            schema, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+        ).encode("utf-8")
     ).hexdigest()
     info[OPENAPI_CONTRACT_ANCHOR_FIELD] = digest
     return schema
@@ -438,6 +461,7 @@ def custom_openapi() -> dict[str, Any]:
         schema,
         required_scopes_by_operation=_route_required_token_scopes_by_operation(app),
     )
+    schema = apply_openapi_error_contract(schema)
     app.openapi_schema = _apply_contract_anchor(schema)
     return app.openapi_schema
 

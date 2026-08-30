@@ -33,6 +33,12 @@ class AuditLog(Base):
         ),
         Index("ix_audit_logs_request_id", "request_id"),
         Index(
+            "ix_audit_logs_credential_created",
+            "credential_kind",
+            "credential_id",
+            "created_at",
+        ),
+        Index(
             "ix_audit_logs_resource_created",
             "resource_type",
             "resource_id",
@@ -41,7 +47,9 @@ class AuditLog(Base):
         Index("ix_audit_logs_success_created", "success", "created_at"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
     actor_user_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
@@ -58,6 +66,12 @@ class AuditLog(Base):
     action: Mapped[str] = mapped_column(Text, nullable=False)
     resource_type: Mapped[str] = mapped_column(Text, nullable=False)
     resource_id: Mapped[str | None] = mapped_column(Text, nullable=True)
-    success: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
-    metadata_json: Mapped[dict] = mapped_column(JSON().with_variant(JSONB(), "postgresql"), nullable=False, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    success: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    metadata_json: Mapped[dict] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql"), nullable=False, default=dict
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

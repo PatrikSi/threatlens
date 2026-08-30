@@ -111,6 +111,7 @@ def test_access_roles_groups_migration_validates_legacy_roles_and_round_trips(
             }
             assert {
                 "ix_audit_logs_actor_principal",
+                "ix_audit_logs_credential_created",
                 "ix_audit_logs_request_id",
                 "ix_audit_logs_resource_created",
                 "ix_audit_logs_success_created",
@@ -175,9 +176,9 @@ def test_access_roles_groups_migration_validates_legacy_roles_and_round_trips(
                 )
             command.downgrade(config, "0061_alert_dispatch_publication")
             with schema_engine.connect() as connection:
-                assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-                    "0061_alert_dispatch_publication"
-                )
+                assert connection.scalar(
+                    text("SELECT version_num FROM alembic_version")
+                ) == ("0061_alert_dispatch_publication")
             inspector = inspect(schema_engine)
             inspector.clear_cache()
             assert "iam_roles" not in inspector.get_table_names(schema=schema_name)

@@ -83,6 +83,16 @@ from app.services.iam_roles import (
 
 
 router = APIRouter(prefix="/iam", tags=["iam"])
+IAM_NOT_FOUND_RESPONSE = {
+    status.HTTP_404_NOT_FOUND: {"description": "Referenced IAM resource not found"}
+}
+IAM_CONFLICT_RESPONSE = {
+    status.HTTP_409_CONFLICT: {"description": "IAM policy conflict or stale revision"}
+}
+IAM_TARGET_MUTATION_RESPONSES = {
+    **IAM_NOT_FOUND_RESPONSE,
+    **IAM_CONFLICT_RESPONSE,
+}
 
 
 def require_iam_mutation_actor(
@@ -182,7 +192,11 @@ def explain_my_access(
     return AccessExplanationResponse.model_validate(context.explanation(permission))
 
 
-@router.get("/users/{user_id}/effective", response_model=EffectiveAccessResponse)
+@router.get(
+    "/users/{user_id}/effective",
+    response_model=EffectiveAccessResponse,
+    responses=IAM_NOT_FOUND_RESPONSE,
+)
 def get_user_effective_access(
     user_id: uuid.UUID,
     db: Session = Depends(get_db),
@@ -202,7 +216,11 @@ def get_roles(
     return list_roles(db)
 
 
-@router.get("/roles/{role_id}", response_model=RoleResponse)
+@router.get(
+    "/roles/{role_id}",
+    response_model=RoleResponse,
+    responses=IAM_NOT_FOUND_RESPONSE,
+)
 def get_role(
     role_id: uuid.UUID,
     db: Session = Depends(get_db),
@@ -214,7 +232,12 @@ def get_role(
         raise _http_error(exc) from exc
 
 
-@router.post("/roles", response_model=RoleResponse, status_code=201)
+@router.post(
+    "/roles",
+    response_model=RoleResponse,
+    status_code=201,
+    responses=IAM_CONFLICT_RESPONSE,
+)
 def post_role(
     payload: RoleWriteRequest,
     request: Request,
@@ -242,7 +265,11 @@ def post_role(
         raise _http_error(exc) from exc
 
 
-@router.patch("/roles/{role_id}", response_model=RoleResponse)
+@router.patch(
+    "/roles/{role_id}",
+    response_model=RoleResponse,
+    responses=IAM_TARGET_MUTATION_RESPONSES,
+)
 def patch_role(
     role_id: uuid.UUID,
     payload: RoleUpdateRequest,
@@ -277,7 +304,11 @@ def patch_role(
         raise _http_error(exc) from exc
 
 
-@router.delete("/roles/{role_id}", status_code=204)
+@router.delete(
+    "/roles/{role_id}",
+    status_code=204,
+    responses=IAM_TARGET_MUTATION_RESPONSES,
+)
 def remove_role(
     role_id: uuid.UUID,
     request: Request,
@@ -312,6 +343,7 @@ def remove_role(
 @router.get(
     "/users/{user_id}/role-assignments",
     response_model=list[UserRoleAssignmentResponse],
+    responses=IAM_NOT_FOUND_RESPONSE,
 )
 def get_user_roles(
     user_id: uuid.UUID,
@@ -327,6 +359,7 @@ def get_user_roles(
     "/users/{user_id}/role-assignments",
     response_model=UserRoleAssignmentResponse,
     status_code=201,
+    responses=IAM_TARGET_MUTATION_RESPONSES,
 )
 def post_user_role(
     user_id: uuid.UUID,
@@ -374,7 +407,11 @@ def post_user_role(
         raise _http_error(exc) from exc
 
 
-@router.delete("/users/{user_id}/role-assignments/{assignment_id}", status_code=204)
+@router.delete(
+    "/users/{user_id}/role-assignments/{assignment_id}",
+    status_code=204,
+    responses=IAM_TARGET_MUTATION_RESPONSES,
+)
 def delete_user_role(
     user_id: uuid.UUID,
     assignment_id: uuid.UUID,
@@ -419,7 +456,12 @@ def get_groups(
     return list_groups(db)
 
 
-@router.post("/groups", response_model=GroupResponse, status_code=201)
+@router.post(
+    "/groups",
+    response_model=GroupResponse,
+    status_code=201,
+    responses=IAM_CONFLICT_RESPONSE,
+)
 def post_group(
     payload: GroupWriteRequest,
     request: Request,
@@ -447,7 +489,11 @@ def post_group(
         raise _http_error(exc) from exc
 
 
-@router.patch("/groups/{group_id}", response_model=GroupResponse)
+@router.patch(
+    "/groups/{group_id}",
+    response_model=GroupResponse,
+    responses=IAM_TARGET_MUTATION_RESPONSES,
+)
 def patch_group(
     group_id: uuid.UUID,
     payload: GroupUpdateRequest,
@@ -482,7 +528,11 @@ def patch_group(
         raise _http_error(exc) from exc
 
 
-@router.delete("/groups/{group_id}", status_code=204)
+@router.delete(
+    "/groups/{group_id}",
+    status_code=204,
+    responses=IAM_TARGET_MUTATION_RESPONSES,
+)
 def remove_group(
     group_id: uuid.UUID,
     request: Request,
@@ -514,7 +564,11 @@ def remove_group(
         raise _http_error(exc) from exc
 
 
-@router.get("/groups/{group_id}/members", response_model=list[GroupMemberResponse])
+@router.get(
+    "/groups/{group_id}/members",
+    response_model=list[GroupMemberResponse],
+    responses=IAM_NOT_FOUND_RESPONSE,
+)
 def get_group_members(
     group_id: uuid.UUID,
     db: Session = Depends(get_db),
@@ -527,7 +581,10 @@ def get_group_members(
 
 
 @router.post(
-    "/groups/{group_id}/members", response_model=GroupMemberResponse, status_code=201
+    "/groups/{group_id}/members",
+    response_model=GroupMemberResponse,
+    status_code=201,
+    responses=IAM_TARGET_MUTATION_RESPONSES,
 )
 def post_group_member(
     group_id: uuid.UUID,
@@ -574,7 +631,11 @@ def post_group_member(
         raise _http_error(exc) from exc
 
 
-@router.delete("/groups/{group_id}/members/{membership_id}", status_code=204)
+@router.delete(
+    "/groups/{group_id}/members/{membership_id}",
+    status_code=204,
+    responses=IAM_TARGET_MUTATION_RESPONSES,
+)
 def delete_group_member(
     group_id: uuid.UUID,
     membership_id: uuid.UUID,
@@ -612,7 +673,10 @@ def delete_group_member(
 
 
 @router.post(
-    "/groups/{group_id}/role-assignments", response_model=GroupResponse, status_code=201
+    "/groups/{group_id}/role-assignments",
+    response_model=GroupResponse,
+    status_code=201,
+    responses=IAM_TARGET_MUTATION_RESPONSES,
 )
 def post_group_role(
     group_id: uuid.UUID,
@@ -660,6 +724,7 @@ def post_group_role(
 @router.get(
     "/groups/{group_id}/role-assignments",
     response_model=list[GroupRoleAssignmentResponse],
+    responses=IAM_NOT_FOUND_RESPONSE,
 )
 def get_group_roles(
     group_id: uuid.UUID,
@@ -672,7 +737,11 @@ def get_group_roles(
         raise _http_error(exc) from exc
 
 
-@router.delete("/groups/{group_id}/role-assignments/{assignment_id}", status_code=204)
+@router.delete(
+    "/groups/{group_id}/role-assignments/{assignment_id}",
+    status_code=204,
+    responses=IAM_TARGET_MUTATION_RESPONSES,
+)
 def delete_group_role(
     group_id: uuid.UUID,
     assignment_id: uuid.UUID,

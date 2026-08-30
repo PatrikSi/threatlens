@@ -3,10 +3,18 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import exists, func, or_, select
 from sqlalchemy.orm import Session, aliased
 
 from app.core.rbac import ROLE_ADMIN, ROLE_ANALYST
+from app.core.token_scopes import SCOPE_WRITE_INVESTIGATIONS
+from app.models.iam import (
+    IAMGroupMembership,
+    IAMGroupRoleAssignment,
+    IAMRole,
+    IAMRolePermission,
+    IAMUserRoleAssignment,
+)
 from app.models.investigation import (
     Investigation,
     InvestigationActivity,
@@ -28,6 +36,10 @@ from app.schemas.investigation import (
     InvestigationSummaryResponse,
 )
 from app.services.auth_sessions import lock_user_auth_state, lock_user_auth_states
+from app.services.authorization import (
+    authorization_context_for_user,
+    lock_iam_policy_for_mutation,
+)
 from app.services.investigation_evidence import (
     EvidenceSourceError,
     build_evidence_snapshot,
@@ -333,6 +345,7 @@ def update_investigation(
     expected_version: int,
     changes: dict,
 ) -> tuple[Investigation, list[str]]:
+    lock_iam_policy_for_mutation(db)
     requested_assignee_id = changes.get("assignee_user_id")
     locked_accounts = lock_user_auth_states(
         db,
@@ -387,7 +400,7 @@ def update_investigation(
                     "The assignee must be an owner or editor of this investigation."
                 )
             _validate_member_role_for_account(
-                requested_assignee, assignee_membership.role
+                db, requested_assignee, assignee_membership.role
             )
         if investigation.assignee_user_id != assignee_user_id:
             investigation.assignee_user_id = assignee_user_id
@@ -447,6 +460,7 @@ def add_member(
     role: str,
     expected_version: int,
 ) -> InvestigationMember:
+    lock_iam_policy_for_mutation(db)
     target = lock_user_auth_states(db, [user.id, member_user_id]).get(member_user_id)
     investigation, actor_member = _lock_for_write(
         db, investigation_id=investigation_id, user=user
@@ -458,7 +472,7 @@ def add_member(
         raise InvestigationValidationError(
             "The selected user is not an active, approved ThreatLens account."
         )
-    _validate_member_role_for_account(target, role)
+    _validate_member_role_for_account(db, target, role)
     existing = db.scalar(
         select(InvestigationMember).where(
             InvestigationMember.investigation_id == investigation.id,
@@ -500,6 +514,7 @@ def update_member(
     role: str,
     expected_version: int,
 ) -> tuple[InvestigationMember, bool]:
+    lock_iam_policy_for_mutation(db)
     target = lock_user_auth_states(db, [user.id, member_user_id]).get(member_user_id)
     investigation, actor_member = _lock_for_write(
         db, investigation_id=investigation_id, user=user
@@ -523,7 +538,7 @@ def update_member(
             "The investigation member account no longer exists.",
             code="investigation_member_account_missing",
         )
-    _validate_member_role_for_account(target, role)
+    _validate_member_role_for_account(db, target, role)
     if member.role == OWNER_MEMBER_ROLE and role != OWNER_MEMBER_ROLE:
         _require_another_owner(db, investigation.id, excluding_user_id=member.user_id)
     if member.role == role:
@@ -1054,14 +1069,17 @@ def _require_owner(member: InvestigationMember) -> None:
         )
 
 
-def _validate_member_role_for_account(user: User, member_role: str) -> None:
+def _validate_member_role_for_account(
+    db: Session, user: User, member_role: str
+) -> None:
     if member_role in WRITE_MEMBER_ROLES and (
-        user.role not in {ROLE_ADMIN, ROLE_ANALYST}
-        or not user.is_active
+        not user.is_active
         or not user.is_approved
+        or not authorization_context_for_user(db, user).has(SCOPE_WRITE_INVESTIGATIONS)
     ):
         raise InvestigationValidationError(
-            "Owner and editor membership requires an analyst or administrator account."
+            "Owner and editor membership requires an analyst or administrator account, "
+            "or an active, approved account with an explicit investigation-write role."
         )
 
 
@@ -1071,16 +1089,17 @@ def _lock_membership_account(db: Session, user_id: uuid.UUID) -> User | None:
 
 
 def _lock_eligible_actor(db: Session, user_id: uuid.UUID) -> User:
+    lock_iam_policy_for_mutation(db)
     actor = _lock_membership_account(db, user_id)
     if (
         actor is None
-        or actor.role not in {ROLE_ADMIN, ROLE_ANALYST}
         or not actor.is_active
         or not actor.is_approved
+        or not authorization_context_for_user(db, actor).has(SCOPE_WRITE_INVESTIGATIONS)
     ):
         raise InvestigationActorNotEligibleError(
-            "Your account is no longer active, approved, or assigned the analyst or "
-            "administrator role. Sign in again before changing investigations."
+            "Your account is no longer active, approved, or permitted to change "
+            "investigations. Sign in again before retrying."
         )
     return actor
 
@@ -1091,6 +1110,32 @@ def eligible_investigation_owner_ids_query(
     excluding_user_id: uuid.UUID | None = None,
 ):
     """Return eligible owner IDs for mutation guards and IAM reconciliation."""
+    direct_write_grant = exists(
+        select(1)
+        .select_from(IAMUserRoleAssignment)
+        .join(IAMRole, IAMRole.id == IAMUserRoleAssignment.role_id)
+        .join(IAMRolePermission, IAMRolePermission.role_id == IAMRole.id)
+        .where(
+            IAMUserRoleAssignment.user_id == User.id,
+            IAMRole.is_system.is_(False),
+            IAMRolePermission.permission == SCOPE_WRITE_INVESTIGATIONS,
+        )
+    )
+    group_write_grant = exists(
+        select(1)
+        .select_from(IAMGroupMembership)
+        .join(
+            IAMGroupRoleAssignment,
+            IAMGroupRoleAssignment.group_id == IAMGroupMembership.group_id,
+        )
+        .join(IAMRole, IAMRole.id == IAMGroupRoleAssignment.role_id)
+        .join(IAMRolePermission, IAMRolePermission.role_id == IAMRole.id)
+        .where(
+            IAMGroupMembership.user_id == User.id,
+            IAMRole.is_system.is_(False),
+            IAMRolePermission.permission == SCOPE_WRITE_INVESTIGATIONS,
+        )
+    )
     query = (
         select(InvestigationMember.user_id)
         .join(User, User.id == InvestigationMember.user_id)
@@ -1099,7 +1144,11 @@ def eligible_investigation_owner_ids_query(
             InvestigationMember.role == OWNER_MEMBER_ROLE,
             User.is_active.is_(True),
             User.is_approved.is_(True),
-            User.role.in_((ROLE_ADMIN, ROLE_ANALYST)),
+            or_(
+                User.role.in_((ROLE_ADMIN, ROLE_ANALYST)),
+                direct_write_grant,
+                group_write_grant,
+            ),
         )
     )
     if excluding_user_id is not None:
@@ -1118,7 +1167,8 @@ def _require_another_owner(
     )
     if other_owner is None:
         raise InvestigationConflictError(
-            "An investigation must retain at least one owner who is an active, approved analyst or administrator. "
+            "An investigation must retain at least one owner who is active, approved, "
+            "and has investigation write access. "
             "Promote an eligible member before changing this owner.",
             code="investigation_owner_required",
         )

@@ -19,12 +19,13 @@ from app.core.security import (
     hash_api_token,
 )
 from app.core.config import get_settings
-from app.core.logging_config import set_log_context, verbose_logging_enabled
+from app.core.logging_config import update_log_context, verbose_logging_enabled
 from app.core.token_scopes import has_required_scope, normalize_token_scopes
 from app.db.session import get_db
 from app.models.api_token import ApiToken
 from app.models.user import User
 from app.services.auth_sessions import resolve_auth_session, touch_auth_session
+from app.services.audit import record_audit
 from app.services.authorization import (
     AuthorizationContext,
     AuthorizationStateUnavailable,
@@ -162,8 +163,15 @@ def require_token_scopes(*required_scopes: str):
     return _checker
 
 
-def require_permissions(*required_permissions: str):
-    def _checker(request: Request, user: User = Depends(get_current_user)) -> User:
+def require_permissions(
+    *required_permissions: str,
+    denial_detail: str | None = None,
+):
+    def _checker(
+        request: Request,
+        user: User = Depends(get_current_user),
+        db: Session = Depends(get_db),
+    ) -> User:
         authorization = get_authorization_context(request)
         if authorization is None:
             raise HTTPException(
@@ -176,13 +184,36 @@ def require_permissions(*required_permissions: str):
             if not authorization.has(permission)
         ]
         if missing_permissions:
+            denial_reasons = {
+                permission: authorization.explanation(permission)["reason"]
+                for permission in missing_permissions
+            }
+            _record_permission_denial(
+                db,
+                request=request,
+                user=user,
+                required_permissions=required_permissions,
+                missing_permissions=missing_permissions,
+                policy_revision=authorization.policy_revision,
+                denial_reasons=denial_reasons,
+            )
+            credential_scope_denial = all(
+                reason == "credential_scope_missing"
+                for reason in denial_reasons.values()
+            )
             raise ApiHTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Your account does not have the required permission.",
+                detail=(
+                    "Insufficient token scope"
+                    if credential_scope_denial
+                    else denial_detail
+                    or "Your account does not have the required permission."
+                ),
                 error_code="permission_denied",
                 error_context={
                     "required_permissions": list(required_permissions),
                     "missing_permissions": missing_permissions,
+                    "denial_reasons": denial_reasons,
                     "policy_revision": authorization.policy_revision,
                 },
             )
@@ -190,6 +221,45 @@ def require_permissions(*required_permissions: str):
 
     _checker._threatlens_required_scopes = tuple(required_permissions)
     return _checker
+
+
+def _record_permission_denial(
+    db: Session,
+    *,
+    request: Request,
+    user: User,
+    required_permissions: tuple[str, ...],
+    missing_permissions: list[str],
+    policy_revision: int,
+    denial_reasons: dict[str, object],
+) -> None:
+    route = request.scope.get("route")
+    route_path = getattr(route, "path", None)
+    try:
+        record_audit(
+            db,
+            actor_user_id=user.id,
+            action="authorization.permission_denied",
+            resource_type="api_route",
+            resource_id=route_path or request.url.path,
+            success=False,
+            metadata={
+                "method": request.method,
+                "required_permissions": list(required_permissions),
+                "missing_permissions": missing_permissions,
+                "denial_reasons": denial_reasons,
+                "policy_revision": policy_revision,
+            },
+        )
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.error(
+            "permission_denial_audit_failed user_id=%s error_type=%s",
+            user.id,
+            type(exc).__name__,
+            exc_info=verbose_logging_enabled(get_settings()),
+        )
 
 
 def _authorization_context_for_request(
@@ -216,7 +286,7 @@ def _set_authenticated_log_context(request: Request, user: User) -> None:
     credential_id = getattr(request.state, "api_token_id", None)
     if credential_id is None:
         credential_id = get_current_auth_session_id(request)
-    set_log_context(
+    update_log_context(
         actor_principal_type="user",
         actor_principal_id=user.id,
         credential_kind=get_auth_credential_kind(request),

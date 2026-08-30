@@ -7,7 +7,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_token_scopes
+from app.api.deps import require_permissions
 from app.core.rbac import ROLE_ADMIN
 from app.core.api_errors import ApiHTTPException
 from app.core.token_scopes import SCOPE_READ_ALERTS, SCOPE_WRITE_ALERTS
@@ -55,7 +55,7 @@ def get_alert_occurrence_metrics(
     suppressed: bool | None = None,
     limit: int = Query(default=500, ge=1, le=1_000),
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_READ_ALERTS)),
+    user: User = Depends(require_permissions(SCOPE_READ_ALERTS)),
 ):
     current_time = datetime.now(timezone.utc)
     normalized_until = _as_utc(until) or current_time
@@ -106,7 +106,7 @@ def get_alert_evaluations(
     page: AlertPage = 1,
     page_size: int = Query(default=25, ge=1, le=100),
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_READ_ALERTS)),
+    user: User = Depends(require_permissions(SCOPE_READ_ALERTS)),
 ):
     _require_admin(user)
     _validate_values(states, ALERT_EVALUATION_STATES, "evaluation state")
@@ -135,7 +135,7 @@ def get_alert_evaluations(
 def get_alert_evaluation_detail(
     request_id: uuid.UUID,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_READ_ALERTS)),
+    user: User = Depends(require_permissions(SCOPE_READ_ALERTS)),
 ):
     _require_admin(user)
     try:
@@ -157,7 +157,7 @@ def get_alert_evaluation_activity(
     page: AlertPage = 1,
     page_size: int = Query(default=50, ge=1, le=100),
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_READ_ALERTS)),
+    user: User = Depends(require_permissions(SCOPE_READ_ALERTS)),
 ):
     _require_admin(user)
     try:
@@ -190,7 +190,7 @@ def replay_alert_evaluation(
     request_id: uuid.UUID,
     payload: AlertEvaluationReplayRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_ALERTS)),
+    user: User = Depends(require_permissions(SCOPE_WRITE_ALERTS)),
 ):
     _require_admin(user)
     try:

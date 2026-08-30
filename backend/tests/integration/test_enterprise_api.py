@@ -3598,9 +3598,12 @@ def test_api_token_can_delegate_subset_of_parent_scopes(
     grandchild_row = db_session.get(ApiToken, grandchild_row.id)
     assert child_row is not None and child_row.revoked_at is not None
     assert grandchild_row is not None and grandchild_row.revoked_at is not None
-    assert client.get(
-        "/feeds", headers={"Authorization": f"Bearer {child_token}"}
-    ).status_code == 401
+    assert (
+        client.get(
+            "/feeds", headers={"Authorization": f"Bearer {child_token}"}
+        ).status_code
+        == 401
+    )
 
 
 def test_parent_token_ownership_is_revalidated_against_locked_user(
@@ -3618,9 +3621,7 @@ def test_parent_token_ownership_is_revalidated_against_locked_user(
             "type": "http",
             "method": "POST",
             "path": "/tokens",
-            "headers": [
-                (b"authorization", f"Bearer {parent_token}".encode("ascii"))
-            ],
+            "headers": [(b"authorization", f"Bearer {parent_token}".encode("ascii"))],
         }
     )
     request.state.auth_via_api_token = True
@@ -3652,7 +3653,10 @@ def test_api_token_child_rejects_semantic_write_token_wildcards(
     )
 
     assert response.status_code == 403
-    assert response.json()["detail"] == "API tokens cannot mint child tokens with write:tokens scope"
+    assert (
+        response.json()["detail"]
+        == "API tokens cannot mint child tokens with write:tokens scope"
+    )
 
 
 def test_api_token_auth_rejects_unapproved_user(
@@ -3840,9 +3844,9 @@ def test_token_inventory_paginates_without_changing_legacy_list_contract(
     assert first.json()["page_size"] == 2
     assert len(first.json()["tokens"]) == 2
     assert len(second.json()["tokens"]) == min(2, expected_total - 2)
-    assert {
-        token["id"] for token in first.json()["tokens"]
-    }.isdisjoint({token["id"] for token in second.json()["tokens"]})
+    assert {token["id"] for token in first.json()["tokens"]}.isdisjoint(
+        {token["id"] for token in second.json()["tokens"]}
+    )
     assert legacy.status_code == 200
     assert isinstance(legacy.json(), list)
     assert len(legacy.json()) == expected_total
@@ -3874,7 +3878,37 @@ def test_audit_log_endpoint(client: TestClient, auth_headers):
     logs_response = client.get("/audit-logs", headers=auth_headers["admin"])
     assert logs_response.status_code == 200
     logs = logs_response.json()["logs"]
-    assert any(log["action"] == "feeds.create" for log in logs)
+    feed_log = next(log for log in logs if log["action"] == "feeds.create")
+    assert feed_log["actor_principal_type"] == "user"
+    assert feed_log["actor_principal_id"] == feed_log["actor_user_id"]
+    assert feed_log["credential_kind"] == "api_token"
+    assert feed_log["credential_id"]
+    assert feed_log["request_id"]
+    assert feed_log["source_ip"]
+
+    credential_filter = client.get(
+        f"/audit-logs?credential_id={feed_log['credential_id']}&resource_type=feed",
+        headers=auth_headers["admin"],
+    )
+    assert credential_filter.status_code == 200
+    assert credential_filter.json()["total"] >= 1
+    assert all(
+        log["credential_id"] == feed_log["credential_id"]
+        for log in credential_filter.json()["logs"]
+    )
+
+    missing_zone = client.get(
+        "/audit-logs?created_from=2026-08-30T12:00:00",
+        headers=auth_headers["admin"],
+    )
+    assert missing_zone.status_code == 422
+    assert missing_zone.json()["error"]["code"] == "audit_time_zone_required"
+    reversed_window = client.get(
+        "/audit-logs?created_from=2026-08-31T00:00:00Z&created_to=2026-08-30T00:00:00Z",
+        headers=auth_headers["admin"],
+    )
+    assert reversed_window.status_code == 422
+    assert reversed_window.json()["error"]["code"] == "audit_time_range_invalid"
 
 
 def test_audit_log_export_endpoint(client: TestClient, auth_headers, db_session):
