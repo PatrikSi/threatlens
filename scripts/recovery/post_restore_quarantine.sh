@@ -316,7 +316,15 @@ BEGIN
     ('alert_evaluation_requests', 'last_error_message'),
     ('service_accounts', 'is_active'),
     ('service_accounts', 'disabled_at'),
-    ('service_account_credentials', 'revoked_at')
+    ('service_account_credentials', 'revoked_at'),
+    ('temporary_elevations', 'status'),
+    ('temporary_elevations', 'revision'),
+    ('temporary_elevations', 'closed_by_user_id'),
+    ('temporary_elevations', 'closed_by_principal_type'),
+    ('temporary_elevations', 'closed_by_email_snapshot'),
+    ('temporary_elevations', 'closed_at'),
+    ('temporary_elevations', 'close_reason'),
+    ('temporary_elevations', 'updated_at')
   ) AS required(table_name, column_name)
   WHERE to_regclass('public.' || required.table_name) IS NOT NULL
     AND NOT EXISTS (
@@ -448,6 +456,8 @@ DECLARE
   interrupted_reports bigint := 0;
   interrupted_report_sections bigint := 0;
   quarantined_alert_evaluations bigint := 0;
+  revoked_temporary_elevations bigint := 0;
+  cancelled_elevation_requests bigint := 0;
   audit_already_recorded boolean := false;
 BEGIN
   SELECT EXISTS (
@@ -504,6 +514,29 @@ BEGIN
       SET consumed_at = COALESCE(consumed_at, clock_timestamp())
       WHERE consumed_at IS NULL$sql$;
     GET DIAGNOSTICS consumed_mfa_challenges = ROW_COUNT;
+  END IF;
+
+  IF to_regclass('public.temporary_elevations') IS NOT NULL THEN
+    EXECUTE $sql$UPDATE temporary_elevations
+      SET status = 'revoked', closed_by_user_id = NULL,
+          closed_by_principal_type = 'system', closed_by_email_snapshot = NULL,
+          closed_at = clock_timestamp(),
+          close_reason = 'restore_quarantine', revision = revision + 1,
+          updated_at = clock_timestamp()
+      WHERE status = 'approved'$sql$;
+    GET DIAGNOSTICS revoked_temporary_elevations = ROW_COUNT;
+    EXECUTE $sql$UPDATE temporary_elevations
+      SET status = 'cancelled', closed_by_user_id = NULL,
+          closed_by_principal_type = 'system', closed_by_email_snapshot = NULL,
+          closed_at = clock_timestamp(),
+          close_reason = 'restore_quarantine', revision = revision + 1,
+          updated_at = clock_timestamp()
+      WHERE status = 'pending'$sql$;
+    GET DIAGNOSTICS cancelled_elevation_requests = ROW_COUNT;
+    IF revoked_temporary_elevations > 0
+       AND to_regclass('public.iam_policy_state') IS NOT NULL THEN
+      EXECUTE 'UPDATE iam_policy_state SET revision = revision + 1, updated_at = clock_timestamp() WHERE id = 1';
+    END IF;
   END IF;
 
   IF to_regclass('public.integration_instances') IS NOT NULL THEN
@@ -724,7 +757,9 @@ BEGIN
       'disabled_report_deliveries', disabled_report_deliveries,
       'interrupted_reports', interrupted_reports,
       'interrupted_report_sections', interrupted_report_sections,
-      'quarantined_alert_evaluations', quarantined_alert_evaluations
+      'quarantined_alert_evaluations', quarantined_alert_evaluations,
+      'revoked_temporary_elevations', revoked_temporary_elevations,
+      'cancelled_elevation_requests', cancelled_elevation_requests
     )
   );
 END
@@ -764,6 +799,13 @@ BEGIN
   IF to_regclass('public.auth_sessions') IS NOT NULL THEN
     IF EXISTS (SELECT 1 FROM auth_sessions WHERE revoked_at IS NULL) THEN
       RAISE EXCEPTION 'active browser sessions remain after restore quarantine';
+    END IF;
+  END IF;
+  IF to_regclass('public.temporary_elevations') IS NOT NULL THEN
+    IF EXISTS (
+      SELECT 1 FROM temporary_elevations WHERE status IN ('pending', 'approved')
+    ) THEN
+      RAISE EXCEPTION 'pending or active temporary elevations remain after restore quarantine';
     END IF;
   END IF;
   IF to_regclass('public.feeds') IS NOT NULL THEN

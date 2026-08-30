@@ -68,9 +68,9 @@ from app.services.iam_groups import (
 )
 from app.services.iam_delegation import (
     IAMDelegationDenied,
-    require_delegable_group,
-    require_delegable_permissions,
-    require_delegable_role,
+    require_durable_delegable_group,
+    require_durable_delegable_permissions,
+    require_durable_delegable_role,
 )
 from app.services.iam_roles import (
     IAMRoleConflict,
@@ -158,6 +158,26 @@ def require_iam_mutation_actor(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Your IAM permission changed while this request was being authorized. Reload and retry.",
                 error_code="iam_actor_access_changed",
+            )
+        if not refreshed_context.has_durable(SCOPE_WRITE_IAM):
+            _record_request_audit(
+                db,
+                request=request,
+                actor=locked_actor,
+                action="iam.authorization.reject",
+                resource_type="iam_policy",
+                resource_id=None,
+                success=False,
+                metadata={"reason": "durable_authority_required"},
+            )
+            db.commit()
+            raise ApiHTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    "IAM changes require durably assigned write:iam access. Temporary "
+                    "access cannot create or change persistent entitlements."
+                ),
+                error_code="iam_durable_authority_required",
             )
         request.state.authorization_context = refreshed_context
         return locked_actor
@@ -259,7 +279,9 @@ def post_role(
     admin: User = Depends(require_iam_mutation_actor),
 ):
     try:
-        require_delegable_permissions(_delegation_context(request), payload.permissions)
+        require_durable_delegable_permissions(
+            _delegation_context(request), payload.permissions
+        )
         role = create_role(db, payload=payload, actor_user_id=admin.id)
         after = get_role_response(db, role.id).model_dump(mode="json")
         _record_request_audit(
@@ -294,7 +316,7 @@ def patch_role(
 ):
     try:
         before = get_role_response(db, role_id).model_dump(mode="json")
-        require_delegable_permissions(
+        require_durable_delegable_permissions(
             _delegation_context(request),
             payload.permissions
             if payload.permissions is not None
@@ -390,7 +412,9 @@ def post_user_role(
     admin: User = Depends(require_iam_mutation_actor),
 ):
     try:
-        require_delegable_role(db, _delegation_context(request), payload.role_id)
+        require_durable_delegable_role(
+            db, _delegation_context(request), payload.role_id
+        )
         result = assign_role_to_user(
             db,
             user_id=user_id,
@@ -616,7 +640,7 @@ def post_group_member(
     admin: User = Depends(require_iam_mutation_actor),
 ):
     try:
-        require_delegable_group(db, _delegation_context(request), group_id)
+        require_durable_delegable_group(db, _delegation_context(request), group_id)
         result = add_group_member(
             db,
             group_id=group_id,
@@ -709,7 +733,9 @@ def post_group_role(
     admin: User = Depends(require_iam_mutation_actor),
 ):
     try:
-        require_delegable_role(db, _delegation_context(request), payload.role_id)
+        require_durable_delegable_role(
+            db, _delegation_context(request), payload.role_id
+        )
         result = add_group_role(
             db,
             group_id=group_id,
@@ -947,6 +973,8 @@ def _http_error(
         context["current_revision"] = current_revision
     if isinstance(exc, IAMDelegationDenied):
         context["missing_permissions"] = list(exc.missing_permissions)
+        if getattr(exc, "durable_required", False):
+            context["durable_authority_required"] = True
     return ApiHTTPException(
         status_code=status_code,
         detail=str(exc),

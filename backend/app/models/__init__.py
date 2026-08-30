@@ -21,6 +21,7 @@ from app.models.article import Article
 from app.models.auth_session import AuthSession
 from app.models.audit_log import AuditLog
 from app.models.feed import Feed
+from app.models.governance_operation_receipt import GovernanceOperationReceipt
 from app.models.ioc import IOC, ItemIOC
 from app.models.integration import (
     IntegrationAttempt,
@@ -79,6 +80,10 @@ from app.models.system_operation_run import SystemOperationRun
 from app.models.tag import ItemTag, Tag, TagFeedbackEvent
 from app.models.tagging_rule import TaggingRule
 from app.models.tagging_settings import TaggingSettings
+from app.models.temporary_elevation import (
+    TemporaryElevation,
+    TemporaryElevationPermission,
+)
 from app.models.user import User
 from app.models.workspace import WorkspaceRolePolicy, WorkspaceUserPreference
 
@@ -102,6 +107,7 @@ __all__ = [
     "AuthSession",
     "AuditLog",
     "Feed",
+    "GovernanceOperationReceipt",
     "ExternalIdentity",
     "IOC",
     "IntegrationAttempt",
@@ -154,6 +160,8 @@ __all__ = [
     "TagFeedbackEvent",
     "TaggingRule",
     "TaggingSettings",
+    "TemporaryElevation",
+    "TemporaryElevationPermission",
     "User",
     "UserRecoveryCode",
     "UserTOTPCredential",

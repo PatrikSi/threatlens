@@ -24,6 +24,18 @@ class IAMDelegationDenied(PermissionError):
         )
 
 
+class IAMDurableDelegationDenied(IAMDelegationDenied):
+    code = "iam_delegation_denied"
+    durable_required = True
+
+    def __init__(self, missing_permissions: Iterable[str]) -> None:
+        self.missing_permissions = tuple(sorted(set(missing_permissions)))
+        PermissionError.__init__(
+            self,
+            "Temporary access cannot be converted into a persistent entitlement or credential. You may delegate only durably assigned permissions.",
+        )
+
+
 def require_delegable_permissions(
     authorization: AuthorizationContext,
     permissions: Iterable[str],
@@ -48,6 +60,48 @@ def require_delegable_role(
     require_delegable_permissions(authorization, permissions)
 
 
+def require_durable_delegable_role(
+    db: Session,
+    authorization: AuthorizationContext,
+    role_id: uuid.UUID,
+) -> None:
+    permissions = db.scalars(
+        select(IAMRolePermission.permission)
+        .join(IAMRole, IAMRole.id == IAMRolePermission.role_id)
+        .where(IAMRole.id == role_id, IAMRole.is_system.is_(False))
+    ).all()
+    require_durable_delegable_permissions(authorization, permissions)
+
+
+def require_durable_delegable_permissions(
+    authorization: AuthorizationContext,
+    permissions: Iterable[str],
+) -> None:
+    missing = [
+        permission
+        for permission in permissions
+        if not authorization.has_durable(permission)
+    ]
+    if missing:
+        raise IAMDurableDelegationDenied(missing)
+
+
+def require_durable_delegable_group(
+    db: Session,
+    authorization: AuthorizationContext,
+    group_id: uuid.UUID,
+) -> None:
+    permissions = db.scalars(
+        select(IAMRolePermission.permission)
+        .join(
+            IAMGroupRoleAssignment,
+            IAMGroupRoleAssignment.role_id == IAMRolePermission.role_id,
+        )
+        .where(IAMGroupRoleAssignment.group_id == group_id)
+    ).all()
+    require_durable_delegable_permissions(authorization, permissions)
+
+
 def require_delegable_group(
     db: Session,
     authorization: AuthorizationContext,
@@ -66,7 +120,11 @@ def require_delegable_group(
 
 __all__ = [
     "IAMDelegationDenied",
+    "IAMDurableDelegationDenied",
     "require_delegable_group",
     "require_delegable_permissions",
     "require_delegable_role",
+    "require_durable_delegable_group",
+    "require_durable_delegable_permissions",
+    "require_durable_delegable_role",
 ]

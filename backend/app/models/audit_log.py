@@ -4,6 +4,7 @@ from datetime import datetime
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
     DateTime,
     ForeignKey,
     Index,
@@ -45,6 +46,17 @@ class AuditLog(Base):
             "created_at",
         ),
         Index("ix_audit_logs_success_created", "success", "created_at"),
+        CheckConstraint(
+            "jsonb_typeof(authorization_elevation_ids) = 'array' AND "
+            "NOT jsonb_path_exists(authorization_elevation_ids, "
+            "'$[*] ? (@.type() != \"string\")')",
+            name="ck_audit_logs_authorization_elevation_ids",
+        ),
+        Index(
+            "ix_audit_logs_authorization_elevation_ids",
+            "authorization_elevation_ids",
+            postgresql_using="gin",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -63,6 +75,12 @@ class AuditLog(Base):
     )
     request_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     source_ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    authorization_elevation_ids: Mapped[list[str]] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql"),
+        nullable=False,
+        default=list,
+        server_default="[]",
+    )
     action: Mapped[str] = mapped_column(Text, nullable=False)
     resource_type: Mapped[str] = mapped_column(Text, nullable=False)
     resource_id: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -24,6 +24,7 @@ from app.schemas.iam import (
     UserRoleAssignmentResponse,
 )
 from app.services.authorization import bump_iam_policy_revision, role_permissions
+from app.services.temporary_elevations import role_has_live_elevation_reference
 
 
 class IAMRoleError(RuntimeError):
@@ -137,6 +138,12 @@ def update_role(
         )
     if role.revision != payload.expected_revision:
         raise IAMRoleRevisionConflict(role)
+    if payload.permissions is not None and role_has_live_elevation_reference(
+        db, role.id
+    ):
+        raise IAMRoleConflict(
+            "Role permissions cannot change while a pending or active temporary elevation references this role. Resolve, revoke, or let those elevations expire first."
+        )
     if payload.name is not None:
         role.name = payload.name
     if payload.description is not None:
@@ -209,6 +216,10 @@ def delete_role(db: Session, *, role_id: uuid.UUID) -> IAMRole:
     if oidc_mapping_count:
         raise IAMRoleConflict(
             "Role is referenced by an OIDC claim mapping. Remove that mapping before deleting the role."
+        )
+    if role_has_live_elevation_reference(db, role.id):
+        raise IAMRoleConflict(
+            "Role is referenced by a pending or active temporary elevation. Deny, cancel, revoke, or let that elevation expire before deleting the role."
         )
     if assignment_count or group_count or service_account_count:
         raise IAMRoleConflict(

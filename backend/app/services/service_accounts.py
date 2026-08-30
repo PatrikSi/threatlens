@@ -35,7 +35,7 @@ from app.services.authorization import bump_iam_policy_revision
 from app.services.authorization import AuthorizationContext
 from app.services.iam_delegation import (
     IAMDelegationDenied,
-    require_delegable_permissions,
+    require_durable_delegable_permissions,
 )
 
 
@@ -881,7 +881,7 @@ def _require_service_account_delegation(
     permissions: set[str] | list[str],
 ) -> None:
     try:
-        require_delegable_permissions(authorization, permissions)
+        require_durable_delegable_permissions(authorization, permissions)
     except IAMDelegationDenied as exc:
         raise ServiceAccountDelegationDenied(exc.missing_permissions) from exc
 

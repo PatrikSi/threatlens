@@ -23,6 +23,7 @@ def effective_access_response(
         groups=list(context.groups),
         permissions=sorted(context.permissions),
         policy_revision=context.policy_revision,
+        elevation_ids=list(context.elevation_ids),
     )
 
 
