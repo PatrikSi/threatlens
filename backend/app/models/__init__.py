@@ -17,6 +17,12 @@ from app.models.alert_occurrence import (
     AlertOccurrenceMetric,
 )
 from app.models.api_token import ApiToken
+from app.models.access_review import (
+    AccessReviewApplyReceipt,
+    AccessReviewCampaign,
+    AccessReviewDecision,
+    AccessReviewItem,
+)
 from app.models.action_approval import ActionApprovalRequest, ActionExecutionReceipt
 from app.models.article import Article
 from app.models.auth_session import AuthSession
@@ -96,6 +102,10 @@ __all__ = [
     "AITaskRun",
     "AIUsageEvent",
     "ApiToken",
+    "AccessReviewApplyReceipt",
+    "AccessReviewCampaign",
+    "AccessReviewDecision",
+    "AccessReviewItem",
     "ActionApprovalRequest",
     "ActionExecutionReceipt",
     "AlertBackfillPreview",

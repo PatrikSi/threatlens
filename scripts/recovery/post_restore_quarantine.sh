@@ -459,6 +459,7 @@ DECLARE
   revoked_temporary_elevations bigint := 0;
   cancelled_elevation_requests bigint := 0;
   cancelled_action_approvals bigint := 0;
+  quarantined_access_reviews bigint := 0;
   audit_already_recorded boolean := false;
 BEGIN
   SELECT EXISTS (
@@ -552,6 +553,18 @@ BEGIN
       WHERE status IN ('pending', 'approved')
         AND expires_at > statement_timestamp()$sql$;
     GET DIAGNOSTICS cancelled_action_approvals = ROW_COUNT;
+  END IF;
+
+  IF to_regclass('public.access_review_campaigns') IS NOT NULL THEN
+    EXECUTE $sql$UPDATE access_review_campaigns
+      SET status = 'quarantined', quarantined_by_user_id = NULL,
+          quarantined_by_principal_type = 'system',
+          quarantined_by_email_snapshot = NULL,
+          quarantined_at = statement_timestamp(),
+          quarantine_reason = 'restore_quarantine', revision = revision + 1,
+          updated_at = statement_timestamp()
+      WHERE status IN ('open', 'closed', 'applying')$sql$;
+    GET DIAGNOSTICS quarantined_access_reviews = ROW_COUNT;
   END IF;
 
   IF to_regclass('public.integration_instances') IS NOT NULL THEN
@@ -775,7 +788,8 @@ BEGIN
       'quarantined_alert_evaluations', quarantined_alert_evaluations,
       'revoked_temporary_elevations', revoked_temporary_elevations,
       'cancelled_elevation_requests', cancelled_elevation_requests,
-      'cancelled_action_approvals', cancelled_action_approvals
+      'cancelled_action_approvals', cancelled_action_approvals,
+      'quarantined_access_reviews', quarantined_access_reviews
     )
   );
 END
@@ -831,6 +845,14 @@ BEGIN
         AND expires_at > clock_timestamp()
     ) THEN
       RAISE EXCEPTION 'actionable sensitive-action approvals remain after restore quarantine';
+    END IF;
+  END IF;
+  IF to_regclass('public.access_review_campaigns') IS NOT NULL THEN
+    IF EXISTS (
+      SELECT 1 FROM access_review_campaigns
+      WHERE status IN ('open', 'closed', 'applying')
+    ) THEN
+      RAISE EXCEPTION 'actionable access-review campaigns remain after restore quarantine';
     END IF;
   END IF;
   IF to_regclass('public.feeds') IS NOT NULL THEN
