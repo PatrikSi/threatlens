@@ -496,6 +496,17 @@ def set_handling_label_status(
             )
             or 0
         )
+        from app.models.alert_occurrence import AlertOccurrenceMetricLabel
+
+        metric_reference_count = int(
+            db.scalar(
+                select(func.count(AlertOccurrenceMetricLabel.metric_id)).where(
+                    AlertOccurrenceMetricLabel.label_id == label.id
+                )
+            )
+            or 0
+        )
+        derived_reference_count += metric_reference_count
         if derived_reference_count:
             raise DataPolicyConflict(
                 "This handling label is retained by derived intelligence. Keep it active or remove the derived records first.",
@@ -560,6 +571,9 @@ def assign_feed_handling_label(
         from app.services.data_access_envelopes import (
             taint_data_access_envelopes_for_feed,
         )
+        from app.services.alert_metric_data_policy import (
+            taint_alert_occurrence_metrics_for_feed,
+        )
 
         feed.handling_label_id = label.id
         db.add(feed)
@@ -570,6 +584,11 @@ def assign_feed_handling_label(
             feed_id=feed.id,
             handling_label_id=label.id,
             policy_revision=state.revision,
+        )
+        taint_alert_occurrence_metrics_for_feed(
+            db,
+            feed_id=feed.id,
+            handling_label_id=label.id,
         )
     return FeedHandlingLabelAssignmentResponse(
         feed_id=feed.id,
@@ -706,6 +725,33 @@ def handling_label_access_predicate(
     if not context.enforced:
         return true()
     return label_column.in_(context.allowed_label_ids)
+
+
+def fence_data_access_context(
+    db: Session,
+    context: DataAccessContext,
+) -> None:
+    """Hold the policy revision stable for the caller's transaction."""
+
+    current_revision = db.scalar(
+        select(DataPolicyState.revision)
+        .where(DataPolicyState.id == 1)
+        .with_for_update(read=True)
+        .execution_options(populate_existing=True)
+    )
+    if current_revision is None:
+        raise DataPolicyUnavailable(
+            "Data policy state is missing. Restore the singleton row from a known-good backup before serving data."
+        )
+    if int(current_revision) != context.policy_revision:
+        raise DataPolicyRevisionConflict(
+            "Data access policy changed while the request was being authorized. Retry the request.",
+            current_revision=int(current_revision),
+            context={
+                "expected_revision": context.policy_revision,
+                "current_revision": int(current_revision),
+            },
+        )
 
 
 def _policy_state(db: Session) -> DataPolicyState:
@@ -942,6 +988,7 @@ __all__ = [
     "create_handling_label",
     "current_data_policy_revision",
     "data_access_context_for_authorization",
+    "fence_data_access_context",
     "data_policy_overview",
     "data_policy_preflight",
     "get_handling_label",

@@ -39,8 +39,10 @@ from app.services.data_access_envelopes import (
     merge_data_access_envelope_sources,
 )
 from app.services.data_access_policy import (
+    DataAccessContext,
     DataPolicyRevisionConflict,
     DataPolicyUnavailable,
+    handling_label_access_predicate,
 )
 
 
@@ -255,6 +257,8 @@ def merge_investigation_evidence_data_access(
     db: Session,
     *,
     evidence: InvestigationEvidence,
+    data_access: DataAccessContext | None = None,
+    source_item_ids: Sequence[uuid.UUID] | None = None,
     expected_policy_revision: int | None = None,
 ) -> DataAccessEnvelopeSnapshot:
     investigation = db.get(Investigation, evidence.investigation_id)
@@ -275,6 +279,8 @@ def merge_investigation_evidence_data_access(
         investigation=investigation,
         evidence=evidence,
         policy_revision=revision,
+        data_access=data_access,
+        source_item_ids=source_item_ids,
     )
 
 
@@ -456,6 +462,8 @@ def _merge_investigation_evidence(
     investigation: Investigation,
     evidence: InvestigationEvidence,
     policy_revision: int,
+    data_access: DataAccessContext | None = None,
+    source_item_ids: Sequence[uuid.UUID] | None = None,
 ) -> DataAccessEnvelopeSnapshot:
     if evidence.source_type == "item":
         sources = _item_sources(
@@ -477,13 +485,26 @@ def _merge_investigation_evidence(
             sources=sources,
         )
     if evidence.source_type == "ioc":
-        item_ids = list(
-            db.scalars(
-                select(ItemIOC.item_id)
-                .where(ItemIOC.ioc_id == evidence.source_id)
-                .order_by(ItemIOC.item_id)
-            ).all()
-        )
+        if source_item_ids is None:
+            predicates = [ItemIOC.ioc_id == evidence.source_id]
+            if data_access is not None:
+                predicates.append(
+                    handling_label_access_predicate(
+                        Feed.handling_label_id,
+                        data_access,
+                    )
+                )
+            item_ids = list(
+                db.scalars(
+                    select(ItemIOC.item_id)
+                    .join(Item, Item.id == ItemIOC.item_id)
+                    .join(Feed, Feed.id == Item.feed_id)
+                    .where(*predicates)
+                    .order_by(ItemIOC.item_id)
+                ).all()
+            )
+        else:
+            item_ids = list(dict.fromkeys(source_item_ids))
         refs = tuple(
             _ItemSourceRef(
                 item_id=item_id,

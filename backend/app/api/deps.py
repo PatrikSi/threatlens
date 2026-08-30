@@ -33,11 +33,13 @@ from app.services.authorization import (
     AuthorizationStateUnavailable,
     authorization_context_for_service_account,
     authorization_context_for_user,
+    fence_authorization_context,
 )
 from app.services.data_access_policy import (
     DataAccessContext,
     DataPolicyUnavailable,
     data_access_context_for_authorization,
+    fence_data_access_context,
 )
 from app.services.service_accounts import (
     SERVICE_ACCOUNT_TOKEN_MARKER,
@@ -162,16 +164,23 @@ def get_data_access_context(
     db: Session = Depends(get_db),
 ) -> DataAccessContext:
     cached = getattr(request.state, "data_access_context", None)
-    if isinstance(cached, DataAccessContext):
-        return cached
-
     authorization = get_authorization_context(request)
     if authorization is None:
         raise DataPolicyUnavailable(
             "Data access policy could not be evaluated because effective access is missing. Retry authentication."
         )
     try:
-        context = data_access_context_for_authorization(db, authorization)
+        fence_authorization_context(db, authorization)
+        context = (
+            cached
+            if isinstance(cached, DataAccessContext)
+            else data_access_context_for_authorization(db, authorization)
+        )
+        fence_data_access_context(db, context)
+    except AuthorizationStateUnavailable as exc:
+        raise DataPolicyUnavailable(
+            "Data access policy could not be evaluated because effective access changed. Retry the request."
+        ) from exc
     except SQLAlchemyError as exc:
         db.rollback()
         logger.error(

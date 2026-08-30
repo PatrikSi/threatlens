@@ -1,5 +1,6 @@
 from app.models.iam import IAMPolicyState
 from app.services import authorization
+import pytest
 
 
 def test_authorization_retries_when_policy_revision_changes_during_read(
@@ -41,10 +42,22 @@ def test_authorization_fails_closed_when_policy_state_is_missing(
     db_session.flush()
 
     try:
-        authorization.authorization_context_for_user(
-            db_session, seed_users["viewer"]
-        )
+        authorization.authorization_context_for_user(db_session, seed_users["viewer"])
     except authorization.AuthorizationStateUnavailable as exc:
         assert "unavailable" in str(exc)
     else:
         raise AssertionError("missing IAM policy state must fail closed")
+
+
+def test_authorization_fence_rejects_a_stale_snapshot(db_session, seed_users):
+    context = authorization.authorization_context_for_user(
+        db_session,
+        seed_users["viewer"],
+    )
+    state = db_session.get(IAMPolicyState, 1)
+    assert state is not None
+    state.revision += 1
+    db_session.flush()
+
+    with pytest.raises(authorization.AuthorizationStateUnavailable, match="changed"):
+        authorization.fence_authorization_context(db_session, context)

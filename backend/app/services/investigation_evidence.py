@@ -9,11 +9,20 @@ from sqlalchemy.orm import Session
 
 from app.models.alert_occurrence import AlertOccurrence
 from app.models.feed import Feed
-from app.models.ioc import IOC
+from app.models.ioc import IOC, ItemIOC
 from app.models.item import Item
 from app.models.item_classification import ItemClassification
 from app.models.report import Report
 from app.models.tag import ItemTag, Tag
+from app.services.data_access_envelopes import (
+    DATA_ACCESS_RESOURCE_ALERT_OCCURRENCE,
+    DATA_ACCESS_RESOURCE_REPORT,
+    data_access_envelope_predicate,
+)
+from app.services.data_access_policy import (
+    DataAccessContext,
+    handling_label_access_predicate,
+)
 
 MAX_SNAPSHOT_TITLE_CHARS = 512
 MAX_SNAPSHOT_DESCRIPTION_CHARS = 2_000
@@ -31,6 +40,7 @@ class EvidenceSnapshot:
     description: str | None
     url: str | None
     metadata: dict
+    source_item_ids: tuple[uuid.UUID, ...] = ()
 
 
 def build_evidence_snapshot(
@@ -40,28 +50,36 @@ def build_evidence_snapshot(
     source_id: uuid.UUID,
     requesting_user_id: uuid.UUID,
     requesting_user_is_admin: bool,
+    data_access: DataAccessContext,
 ) -> EvidenceSnapshot:
     if source_type == "item":
-        return _item_snapshot(db, source_id)
+        return _item_snapshot(db, source_id, data_access=data_access)
     if source_type == "ioc":
-        return _ioc_snapshot(db, source_id)
+        return _ioc_snapshot(db, source_id, data_access=data_access)
     if source_type == "report":
         return _report_snapshot(
             db,
             source_id,
             requesting_user_id=requesting_user_id,
             requesting_user_is_admin=requesting_user_is_admin,
+            data_access=data_access,
         )
     if source_type == "alert_occurrence":
         return _alert_occurrence_snapshot(
             db,
             source_id,
             requesting_user_id=requesting_user_id,
+            data_access=data_access,
         )
     raise EvidenceSourceError("Unsupported investigation evidence type.")
 
 
-def _item_snapshot(db: Session, source_id: uuid.UUID) -> EvidenceSnapshot:
+def _item_snapshot(
+    db: Session,
+    source_id: uuid.UUID,
+    *,
+    data_access: DataAccessContext,
+) -> EvidenceSnapshot:
     row = db.execute(
         select(
             Item,
@@ -70,7 +88,10 @@ def _item_snapshot(db: Session, source_id: uuid.UUID) -> EvidenceSnapshot:
         )
         .join(Feed, Feed.id == Item.feed_id)
         .outerjoin(ItemClassification, ItemClassification.item_id == Item.id)
-        .where(Item.id == source_id)
+        .where(
+            Item.id == source_id,
+            handling_label_access_predicate(Feed.handling_label_id, data_access),
+        )
         .with_for_update(read=True, of=(Item, Feed))
     ).first()
     if row is None:
@@ -103,10 +124,29 @@ def _item_snapshot(db: Session, source_id: uuid.UUID) -> EvidenceSnapshot:
     )
 
 
-def _ioc_snapshot(db: Session, source_id: uuid.UUID) -> EvidenceSnapshot:
+def _ioc_snapshot(
+    db: Session,
+    source_id: uuid.UUID,
+    *,
+    data_access: DataAccessContext,
+) -> EvidenceSnapshot:
     ioc = db.scalar(select(IOC).where(IOC.id == source_id).with_for_update(read=True))
     if ioc is None:
         raise EvidenceSourceError("The selected IOC no longer exists.")
+    observations = db.execute(
+        select(ItemIOC.item_id, Item.first_seen_at)
+        .join(Item, Item.id == ItemIOC.item_id)
+        .join(Feed, Feed.id == Item.feed_id)
+        .where(
+            ItemIOC.ioc_id == ioc.id,
+            handling_label_access_predicate(Feed.handling_label_id, data_access),
+        )
+        .order_by(ItemIOC.item_id)
+        .with_for_update(read=True, of=(ItemIOC, Item, Feed))
+    ).all()
+    if data_access.enforced and not observations:
+        raise EvidenceSourceError("The selected IOC no longer exists.")
+    observed_at = [row.first_seen_at for row in observations]
     raw_value = _bounded_text(ioc.value_raw, 384) or "unknown"
     return EvidenceSnapshot(
         title=_bounded_text(f"{ioc.type}: {raw_value}", MAX_SNAPSHOT_TITLE_CHARS)
@@ -116,9 +156,14 @@ def _ioc_snapshot(db: Session, source_id: uuid.UUID) -> EvidenceSnapshot:
         metadata={
             "ioc_type": ioc.type,
             "value": raw_value,
-            "first_seen_at": _isoformat(ioc.first_seen_at),
-            "last_seen_at": _isoformat(ioc.last_seen_at),
+            "first_seen_at": _isoformat(
+                min(observed_at) if data_access.enforced else ioc.first_seen_at
+            ),
+            "last_seen_at": _isoformat(
+                max(observed_at) if data_access.enforced else ioc.last_seen_at
+            ),
         },
+        source_item_ids=tuple(row.item_id for row in observations),
     )
 
 
@@ -128,8 +173,16 @@ def _report_snapshot(
     *,
     requesting_user_id: uuid.UUID,
     requesting_user_is_admin: bool,
+    data_access: DataAccessContext,
 ) -> EvidenceSnapshot:
-    predicates = [Report.id == source_id]
+    predicates = [
+        Report.id == source_id,
+        data_access_envelope_predicate(
+            DATA_ACCESS_RESOURCE_REPORT,
+            Report.id,
+            data_access,
+        ),
+    ]
     if not requesting_user_is_admin:
         predicates.append(Report.owner_user_id == requesting_user_id)
     report = db.scalar(select(Report).where(*predicates).with_for_update(read=True))
@@ -157,12 +210,18 @@ def _alert_occurrence_snapshot(
     source_id: uuid.UUID,
     *,
     requesting_user_id: uuid.UUID,
+    data_access: DataAccessContext,
 ) -> EvidenceSnapshot:
     occurrence = db.scalar(
         select(AlertOccurrence)
         .where(
             AlertOccurrence.id == source_id,
             AlertOccurrence.owner_user_id == requesting_user_id,
+            data_access_envelope_predicate(
+                DATA_ACCESS_RESOURCE_ALERT_OCCURRENCE,
+                AlertOccurrence.id,
+                data_access,
+            ),
         )
         .with_for_update(read=True)
     )
