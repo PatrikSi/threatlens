@@ -14,6 +14,7 @@ from app.models.iam import (
     IAMRole,
 )
 from app.models.user import User
+from app.models.oidc_access import OIDCGroupClaimMapping
 from app.schemas.iam import (
     GroupMemberResponse,
     GroupRoleAssignmentResponse,
@@ -217,6 +218,18 @@ def delete_group(db: Session, *, group_id: uuid.UUID) -> IAMGroup:
         raise IAMGroupConflict(
             "Identity-provider groups must be removed through the provider mapping."
         )
+    oidc_mapping_count = int(
+        db.scalar(
+            select(func.count(OIDCGroupClaimMapping.id)).where(
+                OIDCGroupClaimMapping.group_id == group.id
+            )
+        )
+        or 0
+    )
+    if oidc_mapping_count:
+        raise IAMGroupConflict(
+            "Group is referenced by an OIDC claim mapping. Remove that mapping before deleting the group."
+        )
     db.delete(group)
     bump_iam_policy_revision(db)
     db.flush()
@@ -324,7 +337,9 @@ def add_group_role(
         db.flush()
     except IntegrityError as exc:
         if _integrity_constraint_name(exc) == "uq_iam_group_role_assignments":
-            raise IAMGroupConflict("This group role assignment already exists.") from exc
+            raise IAMGroupConflict(
+                "This group role assignment already exists."
+            ) from exc
         raise IAMGroupConflict(
             "The referenced group or role changed while the assignment was created. Reload access policy and retry."
         ) from exc

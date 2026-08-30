@@ -132,7 +132,17 @@ Provisioning and role mapping:
 - `role_claim` accepts a claim name or dotted object path such as `realm_access.roles`. Claim values may be a string or a list of strings.
 - Role mappings use exact, case-sensitive claim values. When multiple mappings match, `admin` takes precedence over `analyst`, then `viewer`. With no match, the configured default role applies.
 - Optional role synchronization runs at each OIDC login. A role change rotates browser sessions and revokes active API tokens. A mapping can never demote the final active, approved admin.
+- Fixed-role synchronization records the role it replaced. Disabling the provider or unlinking a local account restores tracked local roles transactionally and revokes affected credentials. Upgraded identities whose pre-upgrade role origin cannot be proven are marked `legacy`; provider disable retains that role but revokes every linked credential, while unlink asks an administrator to confirm the intended local role first.
+- Custom OIDC access policies add exact, case-sensitive claim mappings to custom roles and local groups without replacing locally assigned access. Materialized grants are leased for `OIDC_ACCESS_GRANT_TTL_SECONDS`; expired grants are ignored immediately. An expiring OIDC grant may authorize editor work but cannot be the durable basis for investigation ownership.
 - Once identities are linked, the provider issuer and client ID cannot be changed. Unlink identities first or retain the existing provider identity key.
+
+Before upgrading an installation that manually created `source='oidc'` rows in the IAM assignment tables, run the preflight against the existing database:
+
+```bash
+docker compose run --rm api python scripts/prepare_oidc_access_upgrade.py
+```
+
+Migration `0065_oidc_claim_mappings` fails before changing the schema when those unowned legacy rows exist. Review the inventory count, take a verified backup, then preserve the same access as locally managed assignments with `--convert-to-local --yes`. The conversion runs in one transaction, removes only duplicate origins, and refuses to run after managed OIDC claim mappings are installed.
 
 Account ownership and administration:
 

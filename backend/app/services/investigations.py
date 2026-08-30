@@ -3,18 +3,11 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import exists, func, or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, aliased
 
-from app.core.rbac import ROLE_ADMIN, ROLE_ANALYST
+from app.core.rbac import ROLE_ADMIN
 from app.core.token_scopes import SCOPE_WRITE_INVESTIGATIONS
-from app.models.iam import (
-    IAMGroupMembership,
-    IAMGroupRoleAssignment,
-    IAMRole,
-    IAMRolePermission,
-    IAMUserRoleAssignment,
-)
 from app.models.investigation import (
     Investigation,
     InvestigationActivity,
@@ -43,6 +36,10 @@ from app.services.authorization import (
 from app.services.investigation_evidence import (
     EvidenceSourceError,
     build_evidence_snapshot,
+)
+from app.services.investigation_owner_eligibility import (
+    eligible_investigation_owner_ids_query,
+    has_durable_investigation_write_access,
 )
 from app.services.investigation_collections import (
     list_evidence_page,
@@ -207,7 +204,8 @@ def create_investigation(
         raise InvestigationValidationError(
             "The initial assignee must be the creator. Add another member before assigning the investigation to them."
         )
-    _lock_eligible_actor(db, user.id)
+    locked_actor = _lock_eligible_actor(db, user.id)
+    _validate_member_role_for_account(db, locked_actor, OWNER_MEMBER_ROLE)
     investigation = Investigation(
         title=normalized_title,
         description=description.strip(),
@@ -1072,6 +1070,15 @@ def _require_owner(member: InvestigationMember) -> None:
 def _validate_member_role_for_account(
     db: Session, user: User, member_role: str
 ) -> None:
+    if member_role == OWNER_MEMBER_ROLE and not has_durable_investigation_write_access(
+        db, user
+    ):
+        raise InvestigationValidationError(
+            "Investigation ownership requires an analyst or administrator account with "
+            "durable built-in access, or a locally managed investigation-write role. "
+            "Expiring identity-provider access can be used for editor membership but "
+            "cannot be the basis for ownership."
+        )
     if member_role in WRITE_MEMBER_ROLES and (
         not user.is_active
         or not user.is_approved
@@ -1103,58 +1110,6 @@ def _lock_eligible_actor(db: Session, user_id: uuid.UUID) -> User:
             "again before retrying."
         )
     return actor
-
-
-def eligible_investigation_owner_ids_query(
-    investigation_id: uuid.UUID,
-    *,
-    excluding_user_id: uuid.UUID | None = None,
-):
-    """Return eligible owner IDs for mutation guards and IAM reconciliation."""
-    direct_write_grant = exists(
-        select(1)
-        .select_from(IAMUserRoleAssignment)
-        .join(IAMRole, IAMRole.id == IAMUserRoleAssignment.role_id)
-        .join(IAMRolePermission, IAMRolePermission.role_id == IAMRole.id)
-        .where(
-            IAMUserRoleAssignment.user_id == User.id,
-            IAMRole.is_system.is_(False),
-            IAMRolePermission.permission == SCOPE_WRITE_INVESTIGATIONS,
-        )
-    )
-    group_write_grant = exists(
-        select(1)
-        .select_from(IAMGroupMembership)
-        .join(
-            IAMGroupRoleAssignment,
-            IAMGroupRoleAssignment.group_id == IAMGroupMembership.group_id,
-        )
-        .join(IAMRole, IAMRole.id == IAMGroupRoleAssignment.role_id)
-        .join(IAMRolePermission, IAMRolePermission.role_id == IAMRole.id)
-        .where(
-            IAMGroupMembership.user_id == User.id,
-            IAMRole.is_system.is_(False),
-            IAMRolePermission.permission == SCOPE_WRITE_INVESTIGATIONS,
-        )
-    )
-    query = (
-        select(InvestigationMember.user_id)
-        .join(User, User.id == InvestigationMember.user_id)
-        .where(
-            InvestigationMember.investigation_id == investigation_id,
-            InvestigationMember.role == OWNER_MEMBER_ROLE,
-            User.is_active.is_(True),
-            User.is_approved.is_(True),
-            or_(
-                User.role.in_((ROLE_ADMIN, ROLE_ANALYST)),
-                direct_write_grant,
-                group_write_grant,
-            ),
-        )
-    )
-    if excluding_user_id is not None:
-        query = query.where(InvestigationMember.user_id != excluding_user_id)
-    return query
 
 
 def _require_another_owner(

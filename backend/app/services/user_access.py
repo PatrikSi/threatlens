@@ -199,6 +199,7 @@ def revoke_user_credentials_with_counts(
     user: User,
     *,
     now: datetime | None = None,
+    reason: str = "credentials_rotated",
 ) -> CredentialRevocationResult:
     revoked_at = now or datetime.now(timezone.utc)
     revoked_api_tokens = (
@@ -212,7 +213,7 @@ def revoke_user_credentials_with_counts(
     revoked_auth_sessions = revoke_all_auth_sessions(
         db,
         user_id=user.id,
-        reason="credentials_rotated",
+        reason=reason,
         now=revoked_at,
     )
     cancelled_pending_mfa = int(

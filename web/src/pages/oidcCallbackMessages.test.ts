@@ -11,6 +11,12 @@ describe('OIDC callback messages', () => {
   it.each([
     ['provider_configuration_changed', 'configuration changed'],
     ['callback_rate_limited', 'Wait briefly'],
+    ['access_claim_required', 'provider scopes and claim mappings'],
+    ['access_claim_invalid', 'unsupported form'],
+    ['access_policy_invalid', 'repair the access mapping'],
+    ['access_policy_unavailable', 'database and IAM logs'],
+    ['access_sync_blocked', 'transfer ownership'],
+    ['role_claim_invalid', 'role claim'],
   ])('provides actionable login guidance for %s', (code, expected) => {
     expect(resolveOIDCLoginError(code)).toContain(expected)
   })

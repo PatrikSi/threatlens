@@ -50,6 +50,7 @@ from app.services.investigation_ownership import (
     reconcile_user_investigation_access_change,
 )
 from app.services.password_verification import verify_current_password_or_raise
+from app.services.oidc_role_provenance import clear_oidc_role_provenance
 from app.services.recent_auth import (
     auth_session_has_configured_oidc_mfa_assurance,
     recent_authentication_error_context,
@@ -345,8 +346,7 @@ def update_user(
         (
             payload.role is not None and payload.role != user.role,
             payload.is_active is not None and payload.is_active != user.is_active,
-            payload.is_approved is not None
-            and payload.is_approved != user.is_approved,
+            payload.is_approved is not None and payload.is_approved != user.is_approved,
         )
     )
 
@@ -439,11 +439,18 @@ def update_user(
     should_rotate_auth_tokens = payload.password is not None or email_changed
     revoked_api_tokens = 0
     revoked_auth_sessions = 0
+    oidc_role_provenance_cleared = False
 
     if payload.role is not None:
         if payload.role != user.role:
             should_rotate_auth_tokens = True
         user.role = payload.role
+        if (
+            management.identity is not None
+            and management.identity.role_sync_provenance is not None
+        ):
+            clear_oidc_role_provenance(management.identity)
+            oidc_role_provenance_cleared = True
 
     if normalized_email is not None:
         existing = db.scalar(
@@ -518,6 +525,7 @@ def update_user(
             "revoked_api_tokens": int(revoked_api_tokens),
             "revoked_auth_sessions": int(revoked_auth_sessions),
             "cleared_investigation_assignments": investigation_access.cleared_assignment_count,
+            "oidc_role_provenance_cleared": oidc_role_provenance_cleared,
         },
     )
     try:

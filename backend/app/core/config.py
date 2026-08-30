@@ -246,6 +246,7 @@ class Settings(BaseSettings):
     api_token_last_used_update_interval_seconds: int = 300
     oidc_transaction_cookie_name: str = "threatlens_oidc_transaction"
     oidc_transaction_ttl_seconds: int = 600
+    oidc_access_grant_ttl_seconds: int = 86_400
     oidc_callback_path: str = "/api/v1/auth/oidc/callback"
     oidc_metadata_cache_seconds: int = 300
     oidc_connect_timeout_seconds: float = 5
@@ -364,9 +365,7 @@ class Settings(BaseSettings):
         "auth_oidc_admin_mfa_amr_values",
     )
     @classmethod
-    def _normalize_oidc_assurance_values(
-        cls, value: list[str], info
-    ) -> list[str]:
+    def _normalize_oidc_assurance_values(cls, value: list[str], info) -> list[str]:
         normalized: list[str] = []
         for raw_value in value:
             candidate = str(raw_value).strip()
@@ -443,6 +442,7 @@ class Settings(BaseSettings):
 
     @field_validator(
         "oidc_transaction_ttl_seconds",
+        "oidc_access_grant_ttl_seconds",
         "oidc_metadata_cache_seconds",
         "oidc_max_response_bytes",
     )
