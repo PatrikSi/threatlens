@@ -10,9 +10,11 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.routes import feeds as feeds_routes
 from app.models.audit_log import AuditLog
+from app.models.data_policy import UNRESTRICTED_HANDLING_LABEL_ID
 from app.models.feed import Feed
 from app.models.user import User
 from app.schemas.feed import FeedImportRequest
+from app.services.data_access_policy import DataAccessContext
 from app.services.feed_storage import feed_url_digest
 
 
@@ -162,6 +164,15 @@ def test_opposite_feed_imports_complete_without_database_deadlock(
         }
     )
     actor = SimpleNamespace(id=user_id)
+    data_access = DataAccessContext(
+        mode="disabled",
+        policy_revision=1,
+        coverage_version=0,
+        principal_type="user",
+        principal_id=user_id,
+        principal_eligible=True,
+        allowed_label_ids=frozenset({UNRESTRICTED_HANDLING_LABEL_ID}),
+    )
     first_insert_barrier = Barrier(2)
     thread_state = local()
     create_feed_record = feeds_routes._create_feed_record
@@ -183,7 +194,7 @@ def test_opposite_feed_imports_complete_without_database_deadlock(
     def _run_import(payload: FeedImportRequest):
         with session_factory() as db:
             db.execute(text("SET LOCAL lock_timeout = '8s'"))
-            return feeds_routes.import_feeds(payload, db, actor, actor)
+            return feeds_routes.import_feeds(payload, db, actor, data_access)
 
     try:
         with ThreadPoolExecutor(max_workers=2) as executor:
