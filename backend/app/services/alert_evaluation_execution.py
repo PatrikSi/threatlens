@@ -19,6 +19,10 @@ from app.models.item_classification import ItemClassification
 from app.models.user import User
 from app.services.alert_acceptance import lock_alert_evaluation_item_and_request
 from app.services.alert_evaluation_history import record_alert_evaluation_activity
+from app.services.data_access_runtime import (
+    ensure_alert_occurrence_data_access_envelope,
+    lock_data_policy_revision_for_derivation,
+)
 from app.services.integration_events import (
     build_alert_match_snapshot_payload,
     emit_integration_event,
@@ -97,7 +101,13 @@ def evaluate_alert_request(
             "The item changed before this alert evaluation completed; its current version requires a new intent.",
             retryable=False,
         )
-    feed = db.get(Feed, item.feed_id)
+    evidence_policy_revision = lock_data_policy_revision_for_derivation(db)
+    feed = db.scalar(
+        select(Feed)
+        .where(Feed.id == item.feed_id)
+        .with_for_update(read=True)
+        .execution_options(populate_existing=True)
+    )
     if feed is None:
         raise AlertEvaluationExecutionError(
             "evaluation_feed_missing",
@@ -159,6 +169,7 @@ def evaluate_alert_request(
                     owner_id=owner_id,
                     matches=matches,
                     source_snapshot=source_snapshot,
+                    evidence_policy_revision=evidence_policy_revision,
                     now=current_time,
                     context=owner_context,
                 )
@@ -246,6 +257,7 @@ def _evaluate_owner_matches(
     owner_id: uuid.UUID,
     matches: list[AlertEvaluationMatch],
     source_snapshot: dict,
+    evidence_policy_revision: int,
     now: datetime,
     context: AlertMatchContext | None,
 ) -> _OwnerEvaluationResult:
@@ -267,6 +279,7 @@ def _evaluate_owner_matches(
             live_rule_ids=live_rule_ids,
             item=item,
             source_snapshot=source_snapshot,
+            evidence_policy_revision=evidence_policy_revision,
             now=now,
         )
         if not created:
@@ -391,6 +404,7 @@ def _get_or_create_occurrence(
     live_rule_ids: set[uuid.UUID],
     item: Item,
     source_snapshot: dict,
+    evidence_policy_revision: int,
     now: datetime,
 ) -> tuple[AlertOccurrence, bool]:
     identity = (
@@ -401,6 +415,11 @@ def _get_or_create_occurrence(
     )
     existing = db.scalar(select(AlertOccurrence).where(*identity))
     if existing is not None:
+        ensure_alert_occurrence_data_access_envelope(
+            db,
+            occurrence_id=existing.id,
+            expected_policy_revision=evidence_policy_revision,
+        )
         return existing, False
 
     occurrence = AlertOccurrence(
@@ -432,6 +451,11 @@ def _get_or_create_occurrence(
         existing = db.scalar(select(AlertOccurrence).where(*identity))
         if existing is None:
             raise
+        ensure_alert_occurrence_data_access_envelope(
+            db,
+            occurrence_id=existing.id,
+            expected_policy_revision=evidence_policy_revision,
+        )
         return existing, False
     db.add(
         AlertOccurrenceActivity(
@@ -449,6 +473,12 @@ def _get_or_create_occurrence(
                 ),
             },
         )
+    )
+    db.flush()
+    ensure_alert_occurrence_data_access_envelope(
+        db,
+        occurrence_id=occurrence.id,
+        expected_policy_revision=evidence_policy_revision,
     )
     return occurrence, True
 

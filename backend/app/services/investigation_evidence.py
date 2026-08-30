@@ -63,10 +63,15 @@ def build_evidence_snapshot(
 
 def _item_snapshot(db: Session, source_id: uuid.UUID) -> EvidenceSnapshot:
     row = db.execute(
-        select(Item, Feed.name.label("feed_name"), ItemClassification.primary_category.label("classification"))
+        select(
+            Item,
+            Feed.name.label("feed_name"),
+            ItemClassification.primary_category.label("classification"),
+        )
         .join(Feed, Feed.id == Item.feed_id)
         .outerjoin(ItemClassification, ItemClassification.item_id == Item.id)
         .where(Item.id == source_id)
+        .with_for_update(read=True, of=(Item, Feed))
     ).first()
     if row is None:
         raise EvidenceSourceError("The selected article no longer exists.")
@@ -76,7 +81,9 @@ def _item_snapshot(db: Session, source_id: uuid.UUID) -> EvidenceSnapshot:
         .where(ItemTag.item_id == source_id)
         .order_by(Tag.name.asc())
     )
-    tag_count = int(db.scalar(select(func.count()).select_from(tag_query.subquery())) or 0)
+    tag_count = int(
+        db.scalar(select(func.count()).select_from(tag_query.subquery())) or 0
+    )
     tags = list(db.scalars(tag_query.limit(MAX_SNAPSHOT_TAGS)).all())
     item = row.Item
     return EvidenceSnapshot(
@@ -97,12 +104,13 @@ def _item_snapshot(db: Session, source_id: uuid.UUID) -> EvidenceSnapshot:
 
 
 def _ioc_snapshot(db: Session, source_id: uuid.UUID) -> EvidenceSnapshot:
-    ioc = db.scalar(select(IOC).where(IOC.id == source_id))
+    ioc = db.scalar(select(IOC).where(IOC.id == source_id).with_for_update(read=True))
     if ioc is None:
         raise EvidenceSourceError("The selected IOC no longer exists.")
     raw_value = _bounded_text(ioc.value_raw, 384) or "unknown"
     return EvidenceSnapshot(
-        title=_bounded_text(f"{ioc.type}: {raw_value}", MAX_SNAPSHOT_TITLE_CHARS) or "IOC",
+        title=_bounded_text(f"{ioc.type}: {raw_value}", MAX_SNAPSHOT_TITLE_CHARS)
+        or "IOC",
         description=None,
         url=None,
         metadata={
@@ -124,13 +132,14 @@ def _report_snapshot(
     predicates = [Report.id == source_id]
     if not requesting_user_is_admin:
         predicates.append(Report.owner_user_id == requesting_user_id)
-    report = db.scalar(select(Report).where(*predicates))
+    report = db.scalar(select(Report).where(*predicates).with_for_update(read=True))
     if report is None:
         raise EvidenceSourceError(
             "The selected report does not exist or is not available to your account."
         )
     return EvidenceSnapshot(
-        title=_bounded_text(report.title, MAX_SNAPSHOT_TITLE_CHARS) or "Untitled report",
+        title=_bounded_text(report.title, MAX_SNAPSHOT_TITLE_CHARS)
+        or "Untitled report",
         description=_bounded_text(report.summary_text, MAX_SNAPSHOT_DESCRIPTION_CHARS),
         url=None,
         metadata={
@@ -150,10 +159,12 @@ def _alert_occurrence_snapshot(
     requesting_user_id: uuid.UUID,
 ) -> EvidenceSnapshot:
     occurrence = db.scalar(
-        select(AlertOccurrence).where(
+        select(AlertOccurrence)
+        .where(
             AlertOccurrence.id == source_id,
             AlertOccurrence.owner_user_id == requesting_user_id,
         )
+        .with_for_update(read=True)
     )
     if occurrence is None:
         raise EvidenceSourceError(
@@ -188,9 +199,7 @@ def _alert_occurrence_snapshot(
             "rule_id": str(occurrence.rule_id_snapshot),
             "rule_revision": occurrence.rule_revision,
             "alert_name": _bounded_text(occurrence.alert_name_snapshot, 255),
-            "alert_category": _bounded_text(
-                occurrence.alert_category_snapshot, 64
-            ),
+            "alert_category": _bounded_text(occurrence.alert_category_snapshot, 64),
             "alert_keywords": [
                 value
                 for value in (
@@ -219,9 +228,7 @@ def _alert_occurrence_snapshot(
             "classification": _bounded_text(
                 _string_value(classification.get("primary_category")), 64
             ),
-            "published_at": _bounded_text(
-                _string_value(item.get("published_at")), 64
-            ),
+            "published_at": _bounded_text(_string_value(item.get("published_at")), 64),
             "first_seen_at": _bounded_text(
                 _string_value(item.get("first_seen_at")), 64
             ),

@@ -59,6 +59,10 @@ from app.services.ai_reporting import (
     get_recent_daily_briefs as get_recent_daily_briefs,
     prune_daily_brief_history as prune_daily_brief_history,
 )
+from app.services.data_access_runtime import (
+    ensure_daily_brief_data_access_envelope,
+    lock_data_policy_revision_for_derivation,
+)
 from app.services.safe_fetch import build_safe_http_client
 
 MAX_ITEM_ARTICLE_PROMPT_CHARS = _ai_prompting.MAX_ITEM_ARTICLE_PROMPT_CHARS
@@ -588,6 +592,7 @@ def run_daily_brief_generation(
             items_selected=len(existing.top_item_ids_json or []),
         )
 
+    planning_policy_revision = lock_data_policy_revision_for_derivation(db)
     window_end = now
     window_start = now - timedelta(hours=active.daily_brief_window_hours)
     item_window_at = func.coalesce(Item.published_at, Item.first_seen_at)
@@ -637,6 +642,7 @@ def run_daily_brief_generation(
             ItemAIEnrichment.relevance_score.desc().nullslast(), item_window_at.desc()
         )
         .limit(source_audit_limit)
+        .with_for_update(read=True, of=(Item, Feed))
     ).all()
     item_rows = item_rows_all[: active.daily_brief_max_items]
     if not item_rows:
@@ -692,7 +698,6 @@ def run_daily_brief_generation(
     selected_item_ids = {str(row.id) for row in item_rows}
     try:
         db.flush()
-        db.commit()
     except IntegrityError:
         db.rollback()
         competing_brief = db.scalar(
@@ -711,6 +716,19 @@ def run_daily_brief_generation(
             items_considered=int(competing_brief.item_count or total_items),
             items_selected=len(competing_brief.top_item_ids_json or []),
         )
+    _replace_daily_brief_source_items(
+        db,
+        brief=brief,
+        item_rows_all=item_rows_all,
+        selected_item_ids=selected_item_ids,
+    )
+    db.flush()
+    ensure_daily_brief_data_access_envelope(
+        db,
+        brief_id=brief_id,
+        expected_policy_revision=planning_policy_revision,
+    )
+    db.commit()
 
     try:
         completion = _request_json_with_usage(
@@ -774,12 +792,6 @@ def run_daily_brief_generation(
                 items_considered=len(item_rows_all),
                 items_selected=len(item_rows),
             )
-        _replace_daily_brief_source_items(
-            db,
-            brief=brief,
-            item_rows_all=item_rows_all,
-            selected_item_ids=selected_item_ids,
-        )
         prune_daily_brief_history(db, keep_limit=active.daily_brief_history_limit)
         return AIDailyBriefGenerationResult(
             brief=brief,
@@ -853,12 +865,6 @@ def run_daily_brief_generation(
             prompt_char_count=completion.prompt_char_count,
             response_char_count=completion.response_char_count,
         )
-    _replace_daily_brief_source_items(
-        db,
-        brief=brief,
-        item_rows_all=item_rows_all,
-        selected_item_ids=selected_item_ids,
-    )
     prune_daily_brief_history(db, keep_limit=active.daily_brief_history_limit)
     notification_event = (
         emit_daily_brief_ready_event(db, brief=brief) if emit_notification else None

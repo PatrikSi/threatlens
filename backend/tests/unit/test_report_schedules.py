@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfoNotFoundError
 import pytest
 
 from app.core.config import get_settings
+from app.models.data_policy import DataPolicyState
 from app.models.report_schedule import ReportSchedule
 from app.models.report_template import ReportTemplate
 from app.models.user import User
@@ -198,6 +199,7 @@ def test_skipped_scheduled_report_persists_complete_coverage(
     template.use_company_context = False
     plan = SimpleNamespace(
         included_sources=[],
+        sources=[],
         total_matches=total_matches,
         omitted_source_count=omitted_sources,
         metrics={"matched": total_matches},
@@ -205,6 +207,7 @@ def test_skipped_scheduled_report_persists_complete_coverage(
         estimated_source_tokens=0,
         budget=SimpleNamespace(context_window_tokens=4096),
         batch_count=0,
+        data_policy_revision=db_session.get(DataPolicyState, 1).revision,
     )
     active = SimpleNamespace(
         ai_enabled=True,

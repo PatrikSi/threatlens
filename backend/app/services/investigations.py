@@ -33,6 +33,11 @@ from app.services.authorization import (
     authorization_context_for_user,
     lock_iam_policy_for_mutation,
 )
+from app.services.data_access_runtime import (
+    ensure_investigation_data_access_envelope,
+    lock_data_policy_revision_for_derivation,
+    merge_investigation_evidence_data_access,
+)
 from app.services.investigation_evidence import (
     EvidenceSourceError,
     build_evidence_snapshot,
@@ -234,6 +239,7 @@ def create_investigation(
         details={"severity": severity, "visibility": visibility},
     )
     db.flush()
+    ensure_investigation_data_access_envelope(db, investigation_id=investigation.id)
     return investigation
 
 
@@ -642,6 +648,7 @@ def add_evidence(
             "This evidence is already included in the investigation.",
             code="investigation_evidence_exists",
         )
+    evidence_policy_revision = lock_data_policy_revision_for_derivation(db)
     try:
         snapshot = build_evidence_snapshot(
             db,
@@ -676,6 +683,11 @@ def add_evidence(
         details={"source_type": source_type, "source_id": str(source_id)},
     )
     db.flush()
+    merge_investigation_evidence_data_access(
+        db,
+        evidence=evidence,
+        expected_policy_revision=evidence_policy_revision,
+    )
     return evidence
 
 

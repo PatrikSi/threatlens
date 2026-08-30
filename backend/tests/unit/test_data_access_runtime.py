@@ -1,0 +1,383 @@
+from __future__ import annotations
+
+import uuid
+from datetime import date, datetime, timedelta, timezone
+
+import pytest
+
+from app.models.ai_daily_brief import AIDailyBrief
+from app.models.ai_daily_brief_source_item import AIDailyBriefSourceItem
+from app.models.data_policy import (
+    DataPolicyState,
+    HandlingLabel,
+    QUARANTINE_HANDLING_LABEL_ID,
+    UNRESTRICTED_HANDLING_LABEL_ID,
+)
+from app.models.feed import Feed
+from app.models.integration import (
+    IntegrationDelivery,
+    IntegrationEvent,
+    IntegrationInstance,
+)
+from app.models.investigation import Investigation, InvestigationEvidence
+from app.models.item import Item
+from app.models.report import Report
+from app.models.report_source_item import ReportSourceItem
+from app.services.data_access_envelopes import (
+    DATA_ACCESS_RESOURCE_DAILY_BRIEF,
+    DATA_ACCESS_RESOURCE_INTEGRATION_DELIVERY,
+    DATA_ACCESS_RESOURCE_INTEGRATION_EVENT,
+    DATA_ACCESS_RESOURCE_REPORT,
+    get_data_access_envelope,
+    get_data_access_envelope_sources,
+)
+from app.services.data_access_runtime import (
+    ensure_daily_brief_data_access_envelope,
+    ensure_integration_delivery_data_access_envelope,
+    ensure_integration_event_data_access_envelope,
+    ensure_investigation_data_access_envelope,
+    ensure_report_data_access_envelope,
+    merge_investigation_evidence_data_access,
+)
+from app.services.data_access_policy import DataPolicyRevisionConflict
+
+
+def _restricted_feed_and_item(db_session) -> tuple[HandlingLabel, Feed, Item]:
+    label = HandlingLabel(
+        key=f"runtime-{uuid.uuid4().hex[:12]}",
+        name="Runtime restricted",
+        description="Runtime lineage test label.",
+        color="#B91C1C",
+        is_unrestricted=False,
+        is_system=False,
+        is_active=True,
+        revision=1,
+    )
+    db_session.add(label)
+    db_session.flush()
+    feed = Feed(name=f"Runtime feed {uuid.uuid4()}", handling_label_id=label.id)
+    feed.url = f"https://example.com/runtime/{uuid.uuid4()}.xml"
+    db_session.add(feed)
+    db_session.flush()
+    item = Item(
+        feed_id=feed.id,
+        url=f"https://example.com/runtime/{uuid.uuid4()}",
+        title="Runtime lineage item",
+        dedupe_key=f"runtime-lineage:{uuid.uuid4()}",
+        content_hash=uuid.uuid4().hex * 2,
+        first_seen_at=datetime.now(timezone.utc),
+    )
+    db_session.add(item)
+    db_session.flush()
+    return label, feed, item
+
+
+def _report_with_source(db_session, item: Item) -> Report:
+    now = datetime.now(timezone.utc)
+    report = Report(
+        title="Runtime report",
+        period_start=now - timedelta(days=1),
+        period_end=now,
+    )
+    db_session.add(report)
+    db_session.flush()
+    db_session.add(
+        ReportSourceItem(
+            report_id=report.id,
+            item_id=item.id,
+            citation_key="S1",
+            included=True,
+            rank=1,
+            title_snapshot=item.title,
+            feed_name_snapshot="Runtime feed",
+            url_snapshot=item.url,
+            first_seen_at_snapshot=item.first_seen_at,
+            evidence_text=item.title,
+        )
+    )
+    db_session.flush()
+    return report
+
+
+def test_report_event_delivery_and_replay_copy_normalized_lineage(db_session):
+    label, _feed, item = _restricted_feed_and_item(db_session)
+    report = _report_with_source(db_session, item)
+    ensure_report_data_access_envelope(db_session, report_id=report.id)
+    captured_content_hash = item.content_hash
+    item.content_hash = uuid.uuid4().hex * 2
+    db_session.flush()
+
+    event = IntegrationEvent(
+        event_type="report_ready",
+        source_type="report",
+        source_id=str(report.id),
+        idempotency_key=f"runtime-report:{uuid.uuid4()}",
+        payload_json={"report_id": str(report.id)},
+    )
+    instance = IntegrationInstance(
+        name="Runtime SMTP",
+        integration_type="smtp",
+        direction="outbound",
+    )
+    db_session.add_all([event, instance])
+    db_session.flush()
+    ensure_integration_event_data_access_envelope(db_session, event_id=event.id)
+    delivery = IntegrationDelivery(
+        integration_id=instance.id,
+        event_id=event.id,
+        connector_type="smtp",
+        event_type=event.event_type,
+        delivery_kind="live",
+        state="pending",
+        idempotency_key=f"runtime-live:{uuid.uuid4()}",
+    )
+    db_session.add(delivery)
+    db_session.flush()
+    ensure_integration_delivery_data_access_envelope(
+        db_session, delivery_id=delivery.id
+    )
+    replay = IntegrationDelivery(
+        integration_id=instance.id,
+        event_id=event.id,
+        source_delivery_id=delivery.id,
+        connector_type="smtp",
+        event_type=event.event_type,
+        delivery_kind="replay",
+        state="pending",
+        idempotency_key=f"runtime-replay:{uuid.uuid4()}",
+    )
+    db_session.add(replay)
+    db_session.flush()
+    ensure_integration_delivery_data_access_envelope(db_session, delivery_id=replay.id)
+
+    resources = (
+        (DATA_ACCESS_RESOURCE_REPORT, report.id),
+        (DATA_ACCESS_RESOURCE_INTEGRATION_EVENT, event.id),
+        (DATA_ACCESS_RESOURCE_INTEGRATION_DELIVERY, delivery.id),
+        (DATA_ACCESS_RESOURCE_INTEGRATION_DELIVERY, replay.id),
+    )
+    source_sets = [
+        get_data_access_envelope_sources(
+            db_session, resource_type=resource_type, resource_id=resource_id
+        )
+        for resource_type, resource_id in resources
+    ]
+    assert all(len(sources) == 1 for sources in source_sets)
+    assert all(sources[0].handling_label_id == label.id for sources in source_sets)
+    assert source_sets[0][0].source_digest == captured_content_hash
+    assert source_sets[0][0].source_parent_id is None
+    assert source_sets[1][0].source_parent_id == source_sets[0][0].id
+    assert source_sets[2][0].source_parent_id == source_sets[1][0].id
+    assert source_sets[3][0].source_parent_id == source_sets[2][0].id
+
+
+def test_report_lineage_rejects_a_stale_planning_revision(db_session):
+    _label, _feed, item = _restricted_feed_and_item(db_session)
+    report = _report_with_source(db_session, item)
+    state = db_session.get(DataPolicyState, 1)
+    assert state is not None
+    planned_revision = state.revision
+    state.revision += 1
+    db_session.flush()
+
+    with pytest.raises(DataPolicyRevisionConflict):
+        ensure_report_data_access_envelope(
+            db_session,
+            report_id=report.id,
+            expected_policy_revision=planned_revision,
+        )
+
+    assert (
+        get_data_access_envelope(
+            db_session,
+            resource_type=DATA_ACCESS_RESOURCE_REPORT,
+            resource_id=report.id,
+        )
+        is None
+    )
+
+
+def test_missing_event_parent_is_quarantined_for_rolling_compatibility(db_session):
+    missing_brief_id = uuid.uuid4()
+    event = IntegrationEvent(
+        event_type="daily_digest",
+        source_type="ai_daily_brief",
+        source_id=str(missing_brief_id),
+        idempotency_key=f"runtime-missing:{uuid.uuid4()}",
+        payload_json={"brief_id": str(missing_brief_id)},
+    )
+    db_session.add(event)
+    db_session.flush()
+
+    ensure_integration_event_data_access_envelope(db_session, event_id=event.id)
+
+    sources = get_data_access_envelope_sources(
+        db_session,
+        resource_type=DATA_ACCESS_RESOURCE_INTEGRATION_EVENT,
+        resource_id=event.id,
+    )
+    assert len(sources) == 1
+    assert sources[0].source_type == "unresolved"
+    assert sources[0].handling_label_id == QUARANTINE_HANDLING_LABEL_ID
+
+
+def test_orphan_delivery_requires_explicit_test_kind_for_unrestricted_lineage(
+    db_session,
+):
+    instance = IntegrationInstance(
+        name="Runtime orphan",
+        integration_type="smtp",
+        direction="outbound",
+    )
+    db_session.add(instance)
+    db_session.flush()
+    delivery = IntegrationDelivery(
+        integration_id=instance.id,
+        connector_type="smtp",
+        event_type="contest_update",
+        delivery_kind="live",
+        state="pending",
+        idempotency_key=f"runtime-contest:{uuid.uuid4()}",
+    )
+    db_session.add(delivery)
+    db_session.flush()
+
+    snapshot = ensure_integration_delivery_data_access_envelope(
+        db_session, delivery_id=delivery.id
+    )
+
+    assert snapshot.label_ids == frozenset({QUARANTINE_HANDLING_LABEL_ID})
+
+
+def test_investigation_lineage_only_broadens_after_evidence_removal(db_session):
+    label, _feed, item = _restricted_feed_and_item(db_session)
+    investigation = Investigation(title="Runtime investigation")
+    db_session.add(investigation)
+    db_session.flush()
+    initial = ensure_investigation_data_access_envelope(
+        db_session, investigation_id=investigation.id
+    )
+    assert initial.label_ids == frozenset({UNRESTRICTED_HANDLING_LABEL_ID})
+
+    evidence = InvestigationEvidence(
+        investigation_id=investigation.id,
+        source_type="item",
+        source_id=item.id,
+        title_snapshot=item.title,
+        metadata_snapshot_json={},
+    )
+    db_session.add(evidence)
+    db_session.flush()
+    expanded = merge_investigation_evidence_data_access(db_session, evidence=evidence)
+    assert expanded.label_ids == frozenset({UNRESTRICTED_HANDLING_LABEL_ID, label.id})
+
+    db_session.commit()
+    state = db_session.get(DataPolicyState, 1)
+    assert state is not None
+    state.revision += 1
+    db_session.commit()
+    second_label, _second_feed, second_item = _restricted_feed_and_item(db_session)
+    second_evidence = InvestigationEvidence(
+        investigation_id=investigation.id,
+        source_type="item",
+        source_id=second_item.id,
+        title_snapshot=second_item.title,
+        metadata_snapshot_json={},
+    )
+    db_session.add(second_evidence)
+    db_session.flush()
+    expanded = merge_investigation_evidence_data_access(
+        db_session, evidence=second_evidence
+    )
+    assert expanded.label_ids == frozenset(
+        {UNRESTRICTED_HANDLING_LABEL_ID, label.id, second_label.id}
+    )
+
+    db_session.delete(evidence)
+    db_session.flush()
+    retained = ensure_investigation_data_access_envelope(
+        db_session, investigation_id=investigation.id
+    )
+    assert retained.label_ids == expanded.label_ids
+
+
+def test_missing_historical_investigation_parent_is_quarantined(db_session):
+    investigation = Investigation(title="Runtime missing parent")
+    db_session.add(investigation)
+    db_session.flush()
+    evidence = InvestigationEvidence(
+        investigation_id=investigation.id,
+        source_type="report",
+        source_id=uuid.uuid4(),
+        title_snapshot="Removed report",
+        metadata_snapshot_json={},
+    )
+    db_session.add(evidence)
+    db_session.flush()
+
+    snapshot = ensure_investigation_data_access_envelope(
+        db_session, investigation_id=investigation.id
+    )
+
+    assert snapshot.label_ids == frozenset(
+        {UNRESTRICTED_HANDLING_LABEL_ID, QUARANTINE_HANDLING_LABEL_ID}
+    )
+
+
+def test_daily_brief_captures_every_audited_source_item(db_session):
+    label, _feed, item = _restricted_feed_and_item(db_session)
+    now = datetime.now(timezone.utc)
+    brief = AIDailyBrief(
+        brief_date=date.today(),
+        window_start=now - timedelta(days=1),
+        window_end=now,
+    )
+    db_session.add(brief)
+    db_session.flush()
+    source_row = AIDailyBriefSourceItem(
+        daily_brief_id=brief.id,
+        item_id=item.id,
+        included=False,
+        rank=1,
+        exclusion_reason="brief_item_cap",
+        title_snapshot=item.title,
+    )
+    db_session.add(source_row)
+    db_session.flush()
+
+    snapshot = ensure_daily_brief_data_access_envelope(db_session, brief_id=brief.id)
+
+    assert snapshot.label_ids == frozenset({label.id})
+    sources = get_data_access_envelope_sources(
+        db_session,
+        resource_type=DATA_ACCESS_RESOURCE_DAILY_BRIEF,
+        resource_id=brief.id,
+    )
+    assert len(sources) == 1
+    assert sources[0].source_id == str(item.id)
+    assert sources[0].source_digest == item.content_hash
+
+    db_session.commit()
+    state = db_session.get(DataPolicyState, 1)
+    assert state is not None
+    state.revision += 1
+    db_session.commit()
+    db_session.delete(source_row)
+    db_session.flush()
+    db_session.add(
+        AIDailyBriefSourceItem(
+            daily_brief_id=brief.id,
+            item_id=item.id,
+            included=True,
+            rank=1,
+            title_snapshot=item.title,
+        )
+    )
+    db_session.flush()
+    ensure_daily_brief_data_access_envelope(db_session, brief_id=brief.id)
+    sources = get_data_access_envelope_sources(
+        db_session,
+        resource_type=DATA_ACCESS_RESOURCE_DAILY_BRIEF,
+        resource_id=brief.id,
+    )
+    assert len(sources) == 1
