@@ -15,6 +15,7 @@ from app.models.integration import (
     IntegrationSubscription,
 )
 from app.models.user import User
+from app.services import smtp_delivery_data_policy as smtp_data_policy
 from app.services.smtp_alert_context import (
     SMTP_ALERT_KEYWORD_CAP as _SMTP_ALERT_KEYWORD_CAP,
     SMTP_ALERT_NAME_CAP as _SMTP_ALERT_NAME_CAP,
@@ -27,9 +28,6 @@ from app.services.smtp_delivery_errors import (
     SMTPDeliverySourceCompatibilityError,
     SMTPDeliverySourceContextError,
     SMTPDeliveryTemporarilyIneligibleError,
-)
-from app.services.report_event_compatibility import (
-    validate_report_ready_delivery_owner,
 )
 from app.services.smtp_schema_compatibility import (
     ensure_smtp_config_schema_compatible,
@@ -45,6 +43,9 @@ from app.services.integration_storage import (
 )
 from app.services.smtp_legacy_alert_snapshot import (
     SMTPLegacyAlertSnapshot,
+)
+from app.services.smtp_report_delivery_eligibility import (
+    smtp_report_ready_delivery_owner_id,
 )
 from app.services.smtp_delivery_heartbeat import (  # noqa: F401 - compatibility re-export
     persisted_smtp_settings_heartbeat,
@@ -416,6 +417,7 @@ def lock_smtp_delivery_external_io_eligibility(
     after the next SMTP operation has completed.
     """
 
+    policy_fence = smtp_data_policy.lock_smtp_delivery_data_policy_fence(db)
     acquire_smtp_configuration_read_lock(db)
     delivery = db.scalar(
         select(IntegrationDelivery)
@@ -487,7 +489,7 @@ def lock_smtp_delivery_external_io_eligibility(
         )
 
     report_owner_id = (
-        _report_ready_delivery_owner_id(db, delivery=delivery)
+        smtp_report_ready_delivery_owner_id(db, delivery=delivery)
         if delivery.event_type == "report_ready"
         else None
     )
@@ -558,42 +560,9 @@ def lock_smtp_delivery_external_io_eligibility(
                 "smtp_report_owner_not_eligible",
                 "Report owner is temporarily inactive or unapproved for outbound delivery.",
             )
-
-
-def _report_ready_delivery_owner_id(
-    db: Session,
-    *,
-    delivery: IntegrationDelivery,
-) -> uuid.UUID:
-    if delivery.event_id is None:
-        raise SMTPDeliveryIneligibleError(
-            "smtp_report_event_missing",
-            "SMTP report delivery is missing its source event.",
-        )
-    event = db.scalar(
-        select(IntegrationEvent)
-        .where(IntegrationEvent.id == delivery.event_id)
-        .with_for_update(read=True)
-        .execution_options(populate_existing=True)
+    smtp_data_policy.enforce_smtp_delivery_data_policy(
+        db, instance=instance, delivery=delivery, policy_fence=policy_fence
     )
-    if event is None or event.event_type != "report_ready":
-        raise SMTPDeliveryIneligibleError(
-            "smtp_report_event_missing",
-            "SMTP report delivery source event no longer exists.",
-        )
-    try:
-        return validate_report_ready_delivery_owner(
-            db,
-            event=event,
-            delivery_payload=delivery.payload_json,
-            delivery_owner_user_id=delivery.owner_user_id,
-            require_eligible=False,
-        )
-    except ValueError as exc:
-        raise SMTPDeliveryIneligibleError(
-            "smtp_report_owner_context_invalid",
-            "SMTP report delivery has invalid owner context.",
-        ) from exc
 
 
 def _smtp_delivery_source_owner_ids(

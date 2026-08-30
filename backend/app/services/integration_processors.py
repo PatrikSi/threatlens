@@ -25,6 +25,9 @@ from app.services.integration_delivery import (
     finalize_integration_delivery,
     renew_integration_delivery_lease,
 )
+from app.services.integration_delivery_data_policy import (
+    record_integration_delivery_policy_audit,
+)
 from app.services.integration_delivery_compatibility import (
     defer_integration_delivery_for_compatibility,
 )
@@ -146,6 +149,18 @@ def _defer_smtp_temporarily_ineligible(
         error_code,
         outcome.retry_at.isoformat() if outcome.retry_at else None,
     )
+
+
+def _restore_smtp_data_policy_audit(
+    db: Session,
+    *,
+    error: SMTPDeliveryIneligibleError,
+) -> None:
+    if error.data_policy_audit is not None:
+        record_integration_delivery_policy_audit(
+            db,
+            audit=error.data_policy_audit,
+        )
 
 
 def process_smtp_integration_delivery(
@@ -397,6 +412,7 @@ def process_smtp_integration_delivery(
         except SMTPDeliveryIneligibleError as exc:
             external_side_effect_possible = False
             db.rollback()
+            _restore_smtp_data_policy_audit(db, error=exc)
             outcome = finalize_integration_delivery(
                 db,
                 delivery_id=delivery.id,
