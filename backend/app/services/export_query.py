@@ -3,7 +3,7 @@ from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import String, and_, cast, func, or_, select
+from sqlalchemy import String, and_, cast, false, func, or_, select
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -51,7 +51,7 @@ class ExportQueryContext:
 
 def build_export_query_context(
     *,
-    user_id: uuid.UUID,
+    user_id: uuid.UUID | None,
     filters: ArticleExportFilters,
 ) -> ExportQueryContext:
     state_subquery = (
@@ -62,7 +62,7 @@ def build_export_query_context(
             ItemState.note.label("note"),
             ItemState.updated_at.label("state_updated_at"),
         )
-        .where(ItemState.user_id == user_id)
+        .where(ItemState.user_id == user_id if user_id is not None else false())
         .subquery()
     )
     clauses: list[ColumnElement[bool]] = []
@@ -89,25 +89,39 @@ def build_export_query_context(
         else:
             clauses.append(
                 select(ItemTag.item_id)
-                .where(and_(ItemTag.item_id == Item.id, ItemTag.tag_id.in_(filters.tag_ids)))
+                .where(
+                    and_(
+                        ItemTag.item_id == Item.id, ItemTag.tag_id.in_(filters.tag_ids)
+                    )
+                )
                 .exists()
             )
     if filters.classifications:
-        clauses.append(func.lower(ItemClassification.primary_category).in_(filters.classifications))
+        clauses.append(
+            func.lower(ItemClassification.primary_category).in_(filters.classifications)
+        )
     if filters.ai_relevance_labels:
-        clauses.append(ItemAIEnrichment.relevance_label.in_(filters.ai_relevance_labels))
+        clauses.append(
+            ItemAIEnrichment.relevance_label.in_(filters.ai_relevance_labels)
+        )
     if filters.ai_score_min is not None:
         clauses.append(ItemAIEnrichment.relevance_score >= filters.ai_score_min)
     if filters.ai_score_max is not None:
         clauses.append(ItemAIEnrichment.relevance_score <= filters.ai_score_max)
     if filters.is_read is not None:
-        clauses.append(func.coalesce(state_subquery.c.is_read, False) == filters.is_read)
+        clauses.append(
+            func.coalesce(state_subquery.c.is_read, False) == filters.is_read
+        )
     if filters.is_starred is not None:
-        clauses.append(func.coalesce(state_subquery.c.is_starred, False) == filters.is_starred)
+        clauses.append(
+            func.coalesce(state_subquery.c.is_starred, False) == filters.is_starred
+        )
 
     article_has_text = _article_has_text_clause()
     if filters.has_article_text is not None:
-        clauses.append(article_has_text if filters.has_article_text else ~article_has_text)
+        clauses.append(
+            article_has_text if filters.has_article_text else ~article_has_text
+        )
 
     timeline_at = Item.first_seen_at
     if filters.date_basis == "published_at_or_first_seen_at":
@@ -118,8 +132,16 @@ def build_export_query_context(
         clauses.append(timeline_at <= filters.until)
 
     order_clauses = {
-        "published_at_desc": (Item.published_at.desc().nullslast(), Item.first_seen_at.desc(), Item.id.desc()),
-        "published_at_asc": (Item.published_at.asc().nullsfirst(), Item.first_seen_at.asc(), Item.id.asc()),
+        "published_at_desc": (
+            Item.published_at.desc().nullslast(),
+            Item.first_seen_at.desc(),
+            Item.id.desc(),
+        ),
+        "published_at_asc": (
+            Item.published_at.asc().nullsfirst(),
+            Item.first_seen_at.asc(),
+            Item.id.asc(),
+        ),
         "first_seen_desc": (Item.first_seen_at.desc(), Item.id.desc()),
         "first_seen_asc": (Item.first_seen_at.asc(), Item.id.asc()),
     }
@@ -133,11 +155,15 @@ def build_export_query_context(
 def load_export_counts(db: Session, *, context: ExportQueryContext) -> ExportCounts:
     return ExportCounts(
         total=_count_filtered_items(db, context=context),
-        with_article_text=_count_filtered_items(db, context=context, additional_clause=_article_has_text_clause()),
+        with_article_text=_count_filtered_items(
+            db, context=context, additional_clause=_article_has_text_clause()
+        ),
         with_iocs=_count_filtered_items(
             db,
             context=context,
-            additional_clause=select(ItemIOC.item_id).where(ItemIOC.item_id == Item.id).exists(),
+            additional_clause=select(ItemIOC.item_id)
+            .where(ItemIOC.item_id == Item.id)
+            .exists(),
         ),
     )
 
@@ -148,7 +174,9 @@ def load_export_item_ids(
     context: ExportQueryContext,
     limit: int,
 ) -> list[uuid.UUID]:
-    statement = _base_item_query(context, Item.id).order_by(*context.order_by).limit(limit)
+    statement = (
+        _base_item_query(context, Item.id).order_by(*context.order_by).limit(limit)
+    )
     return list(db.scalars(statement).all())
 
 
@@ -171,11 +199,17 @@ def iter_export_records(
         for item_id in chunk:
             record = records_by_id.get(item_id)
             if record is None:
-                raise ExportSnapshotChangedError(f"Export item {item_id} changed while the export was generated")
+                raise ExportSnapshotChangedError(
+                    f"Export item {item_id} changed while the export was generated"
+                )
             yield record
 
 
-def build_preview_items(records: Sequence[ExportRecord]) -> list[ArticleExportPreviewItem]:
+def build_preview_items(
+    records: Sequence[ExportRecord],
+    *,
+    personal_state_available: bool = True,
+) -> list[ArticleExportPreviewItem]:
     return [
         ArticleExportPreviewItem(
             id=record.id,
@@ -184,13 +218,18 @@ def build_preview_items(records: Sequence[ExportRecord]) -> list[ArticleExportPr
             feed_name=record.feed_name,
             published_at=record.published_at,
             first_seen_at=record.first_seen_at,
-            classification=record.classification.primary_category if record.classification else None,
+            classification=record.classification.primary_category
+            if record.classification
+            else None,
             ai_relevance_score=record.ai.relevance_score if record.ai else None,
             ai_relevance_label=record.ai.relevance_label if record.ai else None,
             tags=[tag.name for tag in record.tags],
             is_read=record.state.is_read,
             is_starred=record.state.is_starred,
-            has_article_text=bool(record.article and record.article.text and record.article.text.strip()),
+            personal_state_available=personal_state_available,
+            has_article_text=bool(
+                record.article and record.article.text and record.article.text.strip()
+            ),
             ioc_count=len(record.iocs),
         )
         for record in records
@@ -242,7 +281,9 @@ def _load_export_record_batch(
             ItemClassification,
             ItemAIEnrichment,
             func.coalesce(context.state_subquery.c.is_read, False).label("is_read"),
-            func.coalesce(context.state_subquery.c.is_starred, False).label("is_starred"),
+            func.coalesce(context.state_subquery.c.is_starred, False).label(
+                "is_starred"
+            ),
             context.state_subquery.c.note,
             context.state_subquery.c.state_updated_at,
         )
@@ -326,7 +367,9 @@ def _load_iocs_for_items(
     return by_item
 
 
-def _serialize_classification(value: ItemClassification | None) -> ExportClassification | None:
+def _serialize_classification(
+    value: ItemClassification | None,
+) -> ExportClassification | None:
     if value is None:
         return None
     return ExportClassification(
@@ -346,7 +389,9 @@ def _serialize_ai(value: ItemAIEnrichment | None) -> ExportAIInsight | None:
     return ExportAIInsight(
         status=value.status,
         summary=value.summary_text,
-        relevance_score=float(value.relevance_score) if value.relevance_score is not None else None,
+        relevance_score=float(value.relevance_score)
+        if value.relevance_score is not None
+        else None,
         relevance_label=value.relevance_label,
         relevance_reasons=list(value.relevance_reasons_json or []),
         provider=value.provider,

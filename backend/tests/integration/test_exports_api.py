@@ -51,9 +51,16 @@ def test_export_capabilities_and_preview_filters(
         "misp",
         "pdf_bundle",
     }
-    assert any(entry["id"] == str(data["matching_feed"].id) for entry in capability_payload["feeds"])
-    assert any(entry["id"] == str(data["tag"].id) for entry in capability_payload["tags"])
-    csv_capability = next(entry for entry in capability_payload["formats"] if entry["id"] == "csv")
+    assert any(
+        entry["id"] == str(data["matching_feed"].id)
+        for entry in capability_payload["feeds"]
+    )
+    assert any(
+        entry["id"] == str(data["tag"].id) for entry in capability_payload["tags"]
+    )
+    csv_capability = next(
+        entry for entry in capability_payload["formats"] if entry["id"] == "csv"
+    )
     assert csv_capability["supports_article_text"] is True
 
     preview = client.post(
@@ -81,7 +88,9 @@ def test_export_capabilities_and_preview_filters(
     assert payload["items"][0]["ioc_count"] == 2
 
 
-@pytest.mark.parametrize("export_format", ["csv", "jsonl", "threat_bundle", "stix", "misp", "pdf_bundle"])
+@pytest.mark.parametrize(
+    "export_format", ["csv", "jsonl", "threat_bundle", "stix", "misp", "pdf_bundle"]
+)
 def test_download_each_export_format(
     export_format: str,
     client: TestClient,
@@ -138,11 +147,15 @@ def test_download_each_export_format(
                 assert "articles.jsonl" in archive.namelist()
                 assert "iocs.csv" in archive.namelist()
                 rows = list(
-                    csv.DictReader(io.StringIO(archive.read("articles.csv").decode("utf-8-sig")))
+                    csv.DictReader(
+                        io.StringIO(archive.read("articles.csv").decode("utf-8-sig"))
+                    )
                 )
                 assert rows[0]["full_article_text"] == "Full extracted article text."
             else:
-                pdf_name = next(name for name in archive.namelist() if name.endswith(".pdf"))
+                pdf_name = next(
+                    name for name in archive.namelist() if name.endswith(".pdf")
+                )
                 assert archive.read(pdf_name).startswith(b"%PDF-")
 
     audit = db_session.scalar(
@@ -171,10 +184,46 @@ def test_export_requires_authentication(client: TestClient):
     assert client.post("/exports", json={"format": "csv"}).status_code == 401
 
 
+def test_export_size_error_survives_audit_storage_failure(
+    client: TestClient,
+    auth_headers,
+    db_session,
+    seed_users,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    data = _seed_export_records(db_session, user_id=seed_users["viewer"].id)
+
+    def fail_generation(*_args, **_kwargs):
+        raise exports_route.ExportSizeLimitError("test size limit")
+
+    def fail_audit(*_args, **_kwargs):
+        raise RuntimeError("audit storage unavailable")
+
+    monkeypatch.setattr(exports_route, "generate_export_artifact", fail_generation)
+    monkeypatch.setattr(exports_route, "record_audit", fail_audit)
+
+    response = client.post(
+        "/exports",
+        headers=auth_headers["viewer"],
+        json={
+            "format": "jsonl",
+            "filters": {"feed_ids": [str(data["matching_feed"].id)]},
+        },
+    )
+
+    assert response.status_code == 413
+    assert response.json()["error"]["code"] == "payload_too_large"
+    assert "configured size limit" in response.json()["detail"]
+
+
 def _seed_export_records(db_session, *, user_id: uuid.UUID):
     now = datetime.now(timezone.utc)
-    matching_feed = Feed(name="Matching feed", url=f"https://example.com/export-{uuid.uuid4()}.xml")
-    other_feed = Feed(name="Other feed", url=f"https://example.net/export-{uuid.uuid4()}.xml")
+    matching_feed = Feed(
+        name="Matching feed", url=f"https://example.com/export-{uuid.uuid4()}.xml"
+    )
+    other_feed = Feed(
+        name="Other feed", url=f"https://example.net/export-{uuid.uuid4()}.xml"
+    )
     db_session.add_all([matching_feed, other_feed])
     db_session.flush()
 
@@ -208,7 +257,11 @@ def _seed_export_records(db_session, *, user_id: uuid.UUID):
     tag = Tag(name=f"critical-{uuid.uuid4().hex[:8]}")
     db_session.add(tag)
     db_session.flush()
-    db_session.add(ItemTag(item_id=matching_item.id, tag_id=tag.id, source="manual", confidence=1.0))
+    db_session.add(
+        ItemTag(
+            item_id=matching_item.id, tag_id=tag.id, source="manual", confidence=1.0
+        )
+    )
     db_session.add(
         ItemClassification(
             item_id=matching_item.id,
@@ -263,9 +316,26 @@ def _seed_export_records(db_session, *, user_id: uuid.UUID):
     db_session.flush()
     db_session.add_all(
         [
-            ItemIOC(item_id=matching_item.id, ioc_id=ipv4.id, source_section="article", occurrences=2, confidence=1.0),
-            ItemIOC(item_id=matching_item.id, ioc_id=cve.id, source_section="title", occurrences=1, confidence=1.0),
+            ItemIOC(
+                item_id=matching_item.id,
+                ioc_id=ipv4.id,
+                source_section="article",
+                occurrences=2,
+                confidence=1.0,
+            ),
+            ItemIOC(
+                item_id=matching_item.id,
+                ioc_id=cve.id,
+                source_section="title",
+                occurrences=1,
+                confidence=1.0,
+            ),
         ]
     )
     db_session.commit()
-    return {"matching_feed": matching_feed, "other_feed": other_feed, "matching_item": matching_item, "tag": tag}
+    return {
+        "matching_feed": matching_feed,
+        "other_feed": other_feed,
+        "matching_item": matching_item,
+        "tag": tag,
+    }

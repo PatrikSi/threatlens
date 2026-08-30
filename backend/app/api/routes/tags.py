@@ -3,7 +3,7 @@ from sqlalchemy import exists, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_permissions
+from app.api.deps import AuthenticatedPrincipal, require_permissions
 from app.core.token_scopes import SCOPE_READ_TAGS, SCOPE_WRITE_TAGS
 from app.db.session import get_db
 from app.models.tag import ItemTag, Tag
@@ -17,7 +17,7 @@ router = APIRouter(prefix="/tags", tags=["tags"])
 @router.get("", response_model=list[TagResponse])
 def list_tags(
     db: Session = Depends(get_db),
-    _user: User = Depends(require_permissions(SCOPE_READ_TAGS)),
+    _principal: AuthenticatedPrincipal = Depends(require_permissions(SCOPE_READ_TAGS)),
 ):
     tags = db.scalars(
         select(Tag)
@@ -35,7 +35,9 @@ def create_tag(
 ):
     existing = db.scalar(select(Tag).where(Tag.name == payload.name.lower()))
     if existing is not None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Tag already exists")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Tag already exists"
+        )
 
     tag = Tag(name=payload.name.lower())
     try:
@@ -43,7 +45,9 @@ def create_tag(
             db.add(tag)
             db.flush()
     except IntegrityError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Tag already exists") from exc
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Tag already exists"
+        ) from exc
 
     record_audit(
         db,

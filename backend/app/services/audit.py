@@ -29,11 +29,14 @@ def record_audit(
         resolved_principal_type = request_context.get("actor_principal_type")
     if resolved_principal_type is None:
         resolved_principal_type = "user" if actor_user_id is not None else "system"
+    if resolved_principal_type == "service_account":
+        # Machine principal IDs do not reference users.id. Request handlers written
+        # before service accounts may still pass their principal ID through the
+        # actor_user_id argument, so normalize it before constructing the FK row.
+        actor_user_id = None
     resolved_principal_id = actor_principal_id
     if resolved_principal_id is None:
-        resolved_principal_id = _uuid_or_none(
-            request_context.get("actor_principal_id")
-        )
+        resolved_principal_id = _uuid_or_none(request_context.get("actor_principal_id"))
     if resolved_principal_id is None and resolved_principal_type == "user":
         resolved_principal_id = actor_user_id
     resolved_credential_id = credential_id or _uuid_or_none(

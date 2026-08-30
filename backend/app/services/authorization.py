@@ -4,10 +4,15 @@ import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.core.permissions import SYSTEM_ROLE_IDS, expand_permission_grants
+from app.core.permissions import (
+    SERVICE_ACCOUNT_PERMISSION_IDS,
+    SYSTEM_ROLE_IDS,
+    WILDCARD_PERMISSION_IDS,
+    expand_permission_grants,
+)
 from app.core.token_scopes import (
     get_role_api_token_scope_grants,
     has_required_scope,
@@ -21,6 +26,11 @@ from app.models.iam import (
     IAMRole,
     IAMRolePermission,
     IAMUserRoleAssignment,
+)
+from app.models.service_account import (
+    ServiceAccount,
+    ServiceAccountCredential,
+    ServiceAccountRoleAssignment,
 )
 from app.models.user import User
 
@@ -114,6 +124,31 @@ def authorization_context_for_user(
             return snapshot
     raise AuthorizationStateUnavailable(
         "Access policy changed repeatedly while permissions were evaluated. Retry the request."
+    )
+
+
+def authorization_context_for_service_account(
+    db: Session,
+    account: ServiceAccount,
+    *,
+    credential_id: uuid.UUID,
+    credential_scopes: Iterable[str],
+) -> AuthorizationContext:
+    credential_grants = frozenset(normalize_token_scopes(credential_scopes))
+    for _attempt in range(_AUTHORIZATION_SNAPSHOT_ATTEMPTS):
+        revision_before = _policy_revision(db)
+        snapshot = _authorization_snapshot_for_service_account(
+            db,
+            account,
+            credential_id=credential_id,
+            credential_grants=credential_grants,
+            policy_revision=revision_before,
+        )
+        revision_after = _policy_revision(db)
+        if revision_before == revision_after:
+            return snapshot
+    raise AuthorizationStateUnavailable(
+        "Access policy changed repeatedly while service-account permissions were evaluated. Retry the request."
     )
 
 
@@ -248,6 +283,94 @@ def _authorization_snapshot_for_user(
     )
 
 
+def _authorization_snapshot_for_service_account(
+    db: Session,
+    account: ServiceAccount,
+    *,
+    credential_id: uuid.UUID,
+    credential_grants: frozenset[str],
+    policy_revision: int,
+) -> AuthorizationContext:
+    account_is_active = db.scalar(
+        select(ServiceAccount.is_active)
+        .where(ServiceAccount.id == account.id)
+        .execution_options(populate_existing=True)
+    )
+    credential_is_active = db.scalar(
+        select(ServiceAccountCredential.id).where(
+            ServiceAccountCredential.id == credential_id,
+            ServiceAccountCredential.service_account_id == account.id,
+            ServiceAccountCredential.revoked_at.is_(None),
+            ServiceAccountCredential.expires_at > func.now(),
+        )
+    )
+    account_eligible = account_is_active is True and credential_is_active is not None
+    rows = db.execute(
+        select(
+            IAMRole.id,
+            IAMRole.key,
+            IAMRole.name,
+            IAMRolePermission.permission,
+        )
+        .join(
+            ServiceAccountRoleAssignment,
+            ServiceAccountRoleAssignment.role_id == IAMRole.id,
+        )
+        .outerjoin(IAMRolePermission, IAMRolePermission.role_id == IAMRole.id)
+        .where(
+            ServiceAccountRoleAssignment.service_account_id == account.id,
+            IAMRole.is_system.is_(False),
+        )
+    ).all()
+    raw_grants: set[str] = set()
+    grant_sources: dict[str, set[str]] = {}
+    roles: list[EffectiveRole] = []
+    seen_role_ids: set[uuid.UUID] = set()
+    for row in rows:
+        source_label = f"assigned service-account role: {row.name}"
+        if row.permission is not None and row.permission not in WILDCARD_PERMISSION_IDS:
+            raw_grants.add(row.permission)
+            _record_grant_source(grant_sources, row.permission, source_label)
+        if row.id not in seen_role_ids:
+            seen_role_ids.add(row.id)
+            roles.append(
+                EffectiveRole(
+                    id=row.id,
+                    key=row.key,
+                    name=row.name,
+                    source="service-account",
+                )
+            )
+
+    principal_permissions = (
+        expand_permission_grants(raw_grants) & SERVICE_ACCOUNT_PERMISSION_IDS
+    )
+    provenance = {
+        permission: tuple(
+            sorted(_sources_for_permission(grant_sources, raw_grants, permission))
+        )
+        for permission in principal_permissions
+    }
+    permissions = frozenset(
+        permission
+        for permission in principal_permissions
+        if account_eligible and has_required_scope(set(credential_grants), permission)
+    )
+    return AuthorizationContext(
+        principal_type="service_account",
+        principal_id=account.id,
+        legacy_role=None,
+        account_eligible=account_eligible,
+        roles=tuple(roles),
+        groups=(),
+        grants=principal_permissions,
+        credential_grants=credential_grants,
+        permissions=permissions,
+        provenance=provenance,
+        policy_revision=policy_revision,
+    )
+
+
 def lock_iam_policy_for_mutation(db: Session) -> IAMPolicyState:
     state = db.scalar(
         select(IAMPolicyState).where(IAMPolicyState.id == 1).with_for_update()
@@ -278,9 +401,7 @@ def role_permissions(db: Session, role_id: uuid.UUID) -> frozenset[str]:
 
 
 def _policy_revision(db: Session) -> int:
-    revision = db.scalar(
-        select(IAMPolicyState.revision).where(IAMPolicyState.id == 1)
-    )
+    revision = db.scalar(select(IAMPolicyState.revision).where(IAMPolicyState.id == 1))
     if revision is None:
         raise AuthorizationStateUnavailable(
             "Access policy state is unavailable. Restore the database or rerun migrations."
@@ -319,6 +440,7 @@ __all__ = [
     "AuthorizationStateUnavailable",
     "EffectiveRole",
     "authorization_context_for_user",
+    "authorization_context_for_service_account",
     "bump_iam_policy_revision",
     "lock_iam_policy_for_mutation",
     "role_permissions",

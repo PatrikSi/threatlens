@@ -64,6 +64,11 @@ from app.models.report_section import ReportSection
 from app.models.report_source_item import ReportSourceItem
 from app.models.report_template import ReportTemplate
 from app.models.saved_view import SavedView
+from app.models.service_account import (
+    ServiceAccount,
+    ServiceAccountCredential,
+    ServiceAccountRoleAssignment,
+)
 from app.models.system_operation_run import SystemOperationRun
 from app.models.tag import ItemTag, Tag, TagFeedbackEvent
 from app.models.tagging_rule import TaggingRule
@@ -130,6 +135,9 @@ __all__ = [
     "ReportSourceItem",
     "ReportTemplate",
     "SavedView",
+    "ServiceAccount",
+    "ServiceAccountCredential",
+    "ServiceAccountRoleAssignment",
     "SystemOperationRun",
     "Tag",
     "ItemTag",

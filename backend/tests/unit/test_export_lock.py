@@ -15,10 +15,12 @@ class FakeLockRedis:
         self.released = False
         self.renewals = 0
         self.closed = False
+        self.keys: list[str] = []
 
-    def set(self, *_args, **_kwargs):
+    def set(self, key, *_args, **_kwargs):
         if self.fail:
             raise RedisError("unavailable")
+        self.keys.append(key)
         return self.acquire
 
     def eval(self, script, *_args, **_kwargs):
@@ -34,7 +36,9 @@ class FakeLockRedis:
 
 def test_export_lock_is_released(monkeypatch: pytest.MonkeyPatch):
     backend = FakeLockRedis()
-    monkeypatch.setattr(export_lock, "redis_client_from_url", lambda *_args, **_kwargs: backend)
+    monkeypatch.setattr(
+        export_lock, "redis_client_from_url", lambda *_args, **_kwargs: backend
+    )
 
     with export_lock.acquire_export_lock(user_id=uuid.uuid4(), settings=get_settings()):
         assert backend.released is False
@@ -45,21 +49,57 @@ def test_export_lock_is_released(monkeypatch: pytest.MonkeyPatch):
 
 def test_export_lock_rejects_overlapping_work(monkeypatch: pytest.MonkeyPatch):
     backend = FakeLockRedis(acquire=False)
-    monkeypatch.setattr(export_lock, "redis_client_from_url", lambda *_args, **_kwargs: backend)
+    monkeypatch.setattr(
+        export_lock, "redis_client_from_url", lambda *_args, **_kwargs: backend
+    )
 
     with pytest.raises(export_lock.ExportAlreadyRunningError):
-        with export_lock.acquire_export_lock(user_id=uuid.uuid4(), settings=get_settings()):
+        with export_lock.acquire_export_lock(
+            user_id=uuid.uuid4(), settings=get_settings()
+        ):
             pass
 
     assert backend.closed is True
 
 
+def test_export_lock_namespaces_human_and_machine_principals(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    backend = FakeLockRedis()
+    monkeypatch.setattr(
+        export_lock, "redis_client_from_url", lambda *_args, **_kwargs: backend
+    )
+    principal_id = uuid.uuid4()
+
+    with export_lock.acquire_export_lock(
+        principal_type="user",
+        principal_id=principal_id,
+        settings=get_settings(),
+    ):
+        pass
+    with export_lock.acquire_export_lock(
+        principal_type="service_account",
+        principal_id=principal_id,
+        settings=get_settings(),
+    ):
+        pass
+
+    assert backend.keys == [
+        f"threatlens:export:user:{principal_id}",
+        f"threatlens:export:service_account:{principal_id}",
+    ]
+
+
 def test_export_lock_reports_redis_failure(monkeypatch: pytest.MonkeyPatch):
     backend = FakeLockRedis(fail=True)
-    monkeypatch.setattr(export_lock, "redis_client_from_url", lambda *_args, **_kwargs: backend)
+    monkeypatch.setattr(
+        export_lock, "redis_client_from_url", lambda *_args, **_kwargs: backend
+    )
 
     with pytest.raises(export_lock.ExportLockUnavailableError):
-        with export_lock.acquire_export_lock(user_id=uuid.uuid4(), settings=get_settings()):
+        with export_lock.acquire_export_lock(
+            user_id=uuid.uuid4(), settings=get_settings()
+        ):
             pass
 
     assert backend.closed is True
@@ -76,9 +116,7 @@ def test_export_lock_is_renewed_during_slow_generation(
         export_lock, "_lock_renewal_interval_seconds", lambda _ttl: 0.01
     )
 
-    with export_lock.acquire_export_lock(
-        user_id=uuid.uuid4(), settings=get_settings()
-    ):
+    with export_lock.acquire_export_lock(user_id=uuid.uuid4(), settings=get_settings()):
         time.sleep(0.03)
 
     assert backend.renewals >= 2

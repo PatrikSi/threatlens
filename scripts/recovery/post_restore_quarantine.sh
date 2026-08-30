@@ -313,7 +313,10 @@ BEGIN
     ('alert_evaluation_requests', 'lease_expires_at'),
     ('alert_evaluation_requests', 'completed_at'),
     ('alert_evaluation_requests', 'last_error_code'),
-    ('alert_evaluation_requests', 'last_error_message')
+    ('alert_evaluation_requests', 'last_error_message'),
+    ('service_accounts', 'is_active'),
+    ('service_accounts', 'disabled_at'),
+    ('service_account_credentials', 'revoked_at')
   ) AS required(table_name, column_name)
   WHERE to_regclass('public.' || required.table_name) IS NOT NULL
     AND NOT EXISTS (
@@ -424,6 +427,8 @@ DO $quarantine$
 DECLARE
   affected_users bigint := 0;
   revoked_api_tokens bigint := 0;
+  revoked_service_account_credentials bigint := 0;
+  disabled_service_accounts bigint := 0;
   revoked_sessions bigint := 0;
   consumed_mfa_challenges bigint := 0;
   disabled_instances bigint := 0;
@@ -443,16 +448,15 @@ DECLARE
   interrupted_reports bigint := 0;
   interrupted_report_sections bigint := 0;
   quarantined_alert_evaluations bigint := 0;
+  audit_already_recorded boolean := false;
 BEGIN
-  IF EXISTS (
+  SELECT EXISTS (
     SELECT 1 FROM audit_logs
     WHERE action = 'system.restore.quarantine'
       AND resource_type = 'postgresql_backup'
       AND resource_id = current_setting('threatlens.restore_checksum')
       AND success IS TRUE
-  ) THEN
-    RETURN;
-  END IF;
+  ) INTO audit_already_recorded;
 
   UPDATE users
   SET auth_token_version = auth_token_version + 1;
@@ -462,6 +466,22 @@ BEGIN
   SET revoked_at = COALESCE(revoked_at, clock_timestamp())
   WHERE revoked_at IS NULL;
   GET DIAGNOSTICS revoked_api_tokens = ROW_COUNT;
+
+  IF to_regclass('public.service_account_credentials') IS NOT NULL THEN
+    EXECUTE $sql$UPDATE service_account_credentials
+      SET revoked_at = COALESCE(revoked_at, clock_timestamp())
+      WHERE revoked_at IS NULL$sql$;
+    GET DIAGNOSTICS revoked_service_account_credentials = ROW_COUNT;
+  END IF;
+
+  IF to_regclass('public.service_accounts') IS NOT NULL THEN
+    EXECUTE $sql$UPDATE service_accounts
+      SET is_active = false,
+          disabled_at = COALESCE(disabled_at, clock_timestamp()),
+          revision = revision + 1
+      WHERE is_active IS TRUE$sql$;
+    GET DIAGNOSTICS disabled_service_accounts = ROW_COUNT;
+  END IF;
 
   IF to_regclass('public.auth_sessions') IS NOT NULL THEN
     IF EXISTS (
@@ -671,15 +691,21 @@ BEGIN
   VALUES (
     current_setting('threatlens.restore_audit_id')::uuid,
     NULL,
-    'system.restore.quarantine',
+    CASE
+      WHEN audit_already_recorded THEN 'system.restore.quarantine.reapply'
+      ELSE 'system.restore.quarantine'
+    END,
     'postgresql_backup',
     current_setting('threatlens.restore_checksum'),
     true,
     jsonb_build_object(
       'schema_version', 1,
       'source', 'host-recovery-hook',
+      'reapplied', audit_already_recorded,
       'affected_users', affected_users,
       'revoked_api_tokens', revoked_api_tokens,
+      'revoked_service_account_credentials', revoked_service_account_credentials,
+      'disabled_service_accounts', disabled_service_accounts,
       'revoked_sessions', revoked_sessions,
       'consumed_mfa_challenges', consumed_mfa_challenges,
       'disabled_instances', disabled_instances,
@@ -722,6 +748,18 @@ DO $verify$
 BEGIN
   IF EXISTS (SELECT 1 FROM api_tokens WHERE revoked_at IS NULL) THEN
     RAISE EXCEPTION 'active API tokens remain after restore quarantine';
+  END IF;
+  IF to_regclass('public.service_account_credentials') IS NOT NULL THEN
+    IF EXISTS (
+      SELECT 1 FROM service_account_credentials WHERE revoked_at IS NULL
+    ) THEN
+      RAISE EXCEPTION 'active service-account credentials remain after restore quarantine';
+    END IF;
+  END IF;
+  IF to_regclass('public.service_accounts') IS NOT NULL THEN
+    IF EXISTS (SELECT 1 FROM service_accounts WHERE is_active IS TRUE) THEN
+      RAISE EXCEPTION 'active service accounts remain after restore quarantine';
+    END IF;
   END IF;
   IF to_regclass('public.auth_sessions') IS NOT NULL THEN
     IF EXISTS (SELECT 1 FROM auth_sessions WHERE revoked_at IS NULL) THEN

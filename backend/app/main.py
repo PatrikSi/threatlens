@@ -41,6 +41,7 @@ from app.api.routes import (
     oidc,
     operations,
     reports,
+    service_accounts,
     stats,
     tagging,
     tags,
@@ -85,6 +86,7 @@ PUBLIC_BROWSER_RESPONSE_HEADERS = (
     "X-ThreatLens-Revoked-Descendant-Count",
     "X-ThreatLens-Revoked-Token-Count",
     "X-ThreatLens-Root-Token-Revoked",
+    "X-ThreatLens-Mutation-Changed",
 )
 SAVED_VIEW_QUERY_SCHEMA = "SavedViewQueryPayload"
 SAVED_VIEW_QUERY_INPUT_SCHEMA = "SavedViewQueryPayload-Input"
@@ -113,6 +115,7 @@ API_ROUTERS: tuple[APIRouter, ...] = (
     health.router,
     iam.router,
     workspace.router,
+    service_accounts.router,
 )
 
 
@@ -345,9 +348,11 @@ def _apply_published_security_contract(
     security_schemes[API_TOKEN_SECURITY_SCHEME_NAME] = {
         "type": "http",
         "scheme": "bearer",
-        "bearerFormat": "API token",
+        "bearerFormat": "API or service-account token",
         "description": (
-            "Use a scoped personal API token in the `Authorization: Bearer <token>` header. "
+            "Use a scoped personal API token or a `tlsa_` service-account token in "
+            "the `Authorization: Bearer <token>` header. Service-account tokens are "
+            "accepted only from this header and only on explicitly supported data-plane routes. "
             "Browser sign-in at `/v1/auth/login` creates a cookie session and returns only session-cookie metadata; "
             "bearer auth requires a dedicated API token."
         ),

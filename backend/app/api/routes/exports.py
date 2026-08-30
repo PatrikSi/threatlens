@@ -1,4 +1,5 @@
 import logging
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
@@ -6,7 +7,8 @@ from sqlalchemy import exists, func, select
 from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
 
-from app.api.deps import require_permissions
+from app.api.deps import AuthenticatedPrincipal, require_permissions
+from app.core.api_errors import ApiHTTPException
 from app.core.config import get_settings
 from app.core.logging_config import verbose_logging_enabled
 from app.core.token_scopes import SCOPE_READ_ITEMS
@@ -114,7 +116,7 @@ FORMAT_CAPABILITIES = (
 @router.get("/capabilities", response_model=ArticleExportCapabilitiesResponse)
 def get_export_capabilities(
     db: Session = Depends(get_db),
-    _user: User = Depends(require_permissions(SCOPE_READ_ITEMS)),
+    _principal: AuthenticatedPrincipal = Depends(require_permissions(SCOPE_READ_ITEMS)),
 ):
     settings = get_settings()
     feeds = db.execute(
@@ -146,10 +148,13 @@ def get_export_capabilities(
 def preview_export(
     payload: ArticleExportPreviewRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(require_permissions(SCOPE_READ_ITEMS)),
+    principal: AuthenticatedPrincipal = Depends(require_permissions(SCOPE_READ_ITEMS)),
 ):
     settings = get_settings()
-    context = build_export_query_context(user_id=user.id, filters=payload.filters)
+    _require_supported_machine_state_options(principal, filters=payload.filters)
+    context = build_export_query_context(
+        user_id=_human_user_id(principal), filters=payload.filters
+    )
     counts = load_export_counts(db, context=context)
     item_ids = load_export_item_ids(
         db, context=context, limit=settings.export_preview_limit
@@ -169,7 +174,10 @@ def preview_export(
         preview_limit=settings.export_preview_limit,
         exceeds_export_limit=counts.total > settings.export_max_items,
         exceeds_pdf_limit=counts.total > settings.export_pdf_max_items,
-        items=build_preview_items(records),
+        items=build_preview_items(
+            records,
+            personal_state_available=isinstance(principal, User),
+        ),
     )
 
 
@@ -177,10 +185,17 @@ def preview_export(
 def download_export(
     payload: ArticleExportRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(require_permissions(SCOPE_READ_ITEMS)),
+    principal: AuthenticatedPrincipal = Depends(require_permissions(SCOPE_READ_ITEMS)),
 ):
     settings = get_settings()
-    context = build_export_query_context(user_id=user.id, filters=payload.filters)
+    _require_supported_machine_state_options(
+        principal,
+        filters=payload.filters,
+        include_user_state=payload.options.include_user_state,
+    )
+    context = build_export_query_context(
+        user_id=_human_user_id(principal), filters=payload.filters
+    )
     counts = load_export_counts(db, context=context)
     item_limit = (
         settings.export_pdf_max_items
@@ -193,7 +208,11 @@ def download_export(
 
     artifact: ExportArtifact | None = None
     try:
-        with acquire_export_lock(user_id=user.id, settings=settings):
+        with acquire_export_lock(
+            principal_type=_principal_type(principal),
+            principal_id=principal.id,
+            settings=settings,
+        ):
             item_ids = load_export_item_ids(db, context=context, limit=item_limit + 1)
             _validate_export_count(
                 len(item_ids), item_limit=item_limit, export_format=payload.format
@@ -225,15 +244,19 @@ def download_export(
             detail="Export coordination is temporarily unavailable. Try again later.",
         ) from exc
     except ExportSizeLimitError as exc:
-        _record_failed_export(db, user=user, payload=payload, reason="size_limit")
+        _record_failed_export(
+            db, principal=principal, payload=payload, reason="size_limit"
+        )
         raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
             detail=(
                 "The generated export exceeded the configured size limit. Narrow the filters or exclude article text."
             ),
         ) from exc
     except ExportSnapshotChangedError as exc:
-        _record_failed_export(db, user=user, payload=payload, reason="snapshot_changed")
+        _record_failed_export(
+            db, principal=principal, payload=payload, reason="snapshot_changed"
+        )
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Matching articles changed while the export was generated. Refresh the preview and try again.",
@@ -243,13 +266,13 @@ def download_export(
             remove_export_artifact(artifact.path)
         logger.exception(
             "article_export_generation_failed user_id=%s format=%s error_type=%s",
-            user.id,
+            principal.id,
             payload.format,
             type(exc).__name__,
             exc_info=verbose_logging_enabled(settings),
         )
         _record_failed_export(
-            db, user=user, payload=payload, reason="generation_failed"
+            db, principal=principal, payload=payload, reason="generation_failed"
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -264,7 +287,9 @@ def download_export(
     try:
         record_audit(
             db,
-            actor_user_id=user.id,
+            actor_user_id=_human_user_id(principal),
+            actor_principal_type=_principal_type(principal),
+            actor_principal_id=principal.id,
             action="exports.download",
             resource_type="article_export",
             metadata={
@@ -302,7 +327,7 @@ def _validate_export_count(total: int, *, item_limit: int, export_format: str) -
     if total > item_limit:
         label = "PDF bundle" if export_format == "pdf_bundle" else "export"
         raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
             detail=f"The {label} matches {total} articles, above the configured limit of {item_limit}. Narrow the filters.",
         )
 
@@ -310,23 +335,69 @@ def _validate_export_count(total: int, *, item_limit: int, export_format: str) -
 def _record_failed_export(
     db: Session,
     *,
-    user: User,
+    principal: AuthenticatedPrincipal,
     payload: ArticleExportRequest,
     reason: str,
 ) -> None:
-    record_audit(
-        db,
-        actor_user_id=user.id,
-        action="exports.download",
-        resource_type="article_export",
-        success=False,
-        metadata={
-            "format": payload.format,
-            "reason": reason,
-            "filters": _filter_audit_summary(payload),
-        },
+    try:
+        record_audit(
+            db,
+            actor_user_id=_human_user_id(principal),
+            actor_principal_type=_principal_type(principal),
+            actor_principal_id=principal.id,
+            action="exports.download",
+            resource_type="article_export",
+            success=False,
+            metadata={
+                "format": payload.format,
+                "reason": reason,
+                "filters": _filter_audit_summary(payload),
+            },
+        )
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.error(
+            "article_export_failure_audit_failed principal_type=%s "
+            "principal_id=%s reason=%s error_type=%s",
+            _principal_type(principal),
+            principal.id,
+            reason,
+            type(exc).__name__,
+            exc_info=verbose_logging_enabled(get_settings()),
+        )
+
+
+def _human_user_id(principal: AuthenticatedPrincipal) -> uuid.UUID | None:
+    return principal.id if isinstance(principal, User) else None
+
+
+def _principal_type(principal: AuthenticatedPrincipal) -> str:
+    return "user" if isinstance(principal, User) else "service_account"
+
+
+def _require_supported_machine_state_options(
+    principal: AuthenticatedPrincipal,
+    *,
+    filters,
+    include_user_state: bool = False,
+) -> None:
+    if isinstance(principal, User):
+        return
+    if (
+        filters.is_read is None
+        and filters.is_starred is None
+        and not include_user_state
+    ):
+        return
+    raise ApiHTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail=(
+            "Service accounts do not have personal read, starred, or note state. "
+            "Remove user-state filters and disable user-state export fields."
+        ),
+        error_code="service_account_user_state_unsupported",
     )
-    db.commit()
 
 
 def _filter_audit_summary(payload: ArticleExportRequest) -> dict[str, object]:

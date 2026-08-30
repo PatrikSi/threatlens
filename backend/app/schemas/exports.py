@@ -6,7 +6,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 ExportFormat = Literal["csv", "jsonl", "threat_bundle", "stix", "misp", "pdf_bundle"]
 ExportDateBasis = Literal["first_seen_at", "published_at_or_first_seen_at"]
-ExportSort = Literal["published_at_desc", "published_at_asc", "first_seen_desc", "first_seen_asc"]
+ExportSort = Literal[
+    "published_at_desc", "published_at_asc", "first_seen_desc", "first_seen_asc"
+]
 ExportTagsMode = Literal["any", "all"]
 ExportTLPMarking = Literal["none", "TLP:WHITE", "TLP:GREEN", "TLP:AMBER", "TLP:RED"]
 
@@ -21,7 +23,9 @@ class ArticleExportFilters(ExportSchema):
     tag_ids: list[uuid.UUID] = Field(default_factory=list, max_length=250)
     tags_mode: ExportTagsMode = "any"
     classifications: list[str] = Field(default_factory=list, max_length=100)
-    ai_relevance_labels: list[Literal["low", "medium", "high"]] = Field(default_factory=list, max_length=3)
+    ai_relevance_labels: list[Literal["low", "medium", "high"]] = Field(
+        default_factory=list, max_length=3
+    )
     ai_score_min: float | None = Field(default=None, ge=0, le=1)
     ai_score_max: float | None = Field(default=None, ge=0, le=1)
     is_read: bool | None = None
@@ -50,7 +54,9 @@ class ArticleExportFilters(ExportSchema):
     def _normalize_classifications(cls, value: object) -> object:
         if not isinstance(value, list):
             return value
-        normalized = [str(entry).strip().lower() for entry in value if str(entry).strip()]
+        normalized = [
+            str(entry).strip().lower() for entry in value if str(entry).strip()
+        ]
         return list(dict.fromkeys(normalized))
 
     @field_validator("since", "until")
@@ -73,7 +79,9 @@ class ArticleExportFilters(ExportSchema):
             raise ValueError("since must be earlier than or equal to until")
         if self.ai_score_min is not None and self.ai_score_max is not None:
             if self.ai_score_min > self.ai_score_max:
-                raise ValueError("ai_score_min must be less than or equal to ai_score_max")
+                raise ValueError(
+                    "ai_score_min must be less than or equal to ai_score_max"
+                )
         return self
 
 
@@ -156,6 +164,7 @@ class ArticleExportPreviewItem(ExportSchema):
     tags: list[str]
     is_read: bool
     is_starred: bool
+    personal_state_available: bool = True
     has_article_text: bool
     ioc_count: int
 
