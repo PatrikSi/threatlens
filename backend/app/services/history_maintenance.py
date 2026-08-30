@@ -14,6 +14,7 @@ from app.models.integration import IntegrationRun
 from app.models.report import Report
 from app.models.tag import TagFeedbackEvent
 from app.services.auth_sessions import cleanup_auth_sessions
+from app.services.audit import record_audit
 from app.services.local_mfa import (
     cleanup_mfa_challenges,
     cleanup_pending_totp_enrollments,
@@ -111,6 +112,20 @@ def prune_application_history(
             limit=effective_batch_size,
         ),
     )
+    if deleted.audit_logs_deleted:
+        record_audit(
+            db,
+            actor_user_id=None,
+            actor_principal_type="system",
+            action="history.audit.prune",
+            resource_type="audit_log",
+            metadata={
+                "deleted_count": deleted.audit_logs_deleted,
+                "retention_days": max(1, int(settings.audit_log_retention_days)),
+                "batch_size": effective_batch_size,
+                "completed_at": current_time.isoformat(),
+            },
+        )
     db.commit()
     return deleted
 

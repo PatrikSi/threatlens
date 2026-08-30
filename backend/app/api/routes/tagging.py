@@ -9,10 +9,10 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_admin_user, require_token_scopes
+from app.api.deps import require_permissions
 from app.core.config import get_settings
 from app.core.logging_config import verbose_logging_enabled
-from app.core.token_scopes import SCOPE_READ_TAGS, SCOPE_WRITE_TAGS
+from app.core.token_scopes import SCOPE_READ_TAGGING, SCOPE_WRITE_TAGGING
 from app.db.session import get_db
 from app.models.article import Article
 from app.models.feed import Feed
@@ -52,8 +52,7 @@ logger = logging.getLogger(__name__)
 @router.get("/settings", response_model=TaggingSettingsBundleResponse)
 def get_tagging_settings_bundle(
     db: Session = Depends(get_db),
-    admin: User = Depends(get_admin_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_READ_TAGS)),
+    admin: User = Depends(require_permissions(SCOPE_READ_TAGGING)),
 ):
     settings = get_or_create_tagging_settings(db)
     rules = list_tagging_rules(db)
@@ -67,8 +66,7 @@ def get_tagging_settings_bundle(
 def update_tagging_settings(
     payload: TaggingSettingsUpdate,
     db: Session = Depends(get_db),
-    admin: User = Depends(get_admin_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_TAGS)),
+    admin: User = Depends(require_permissions(SCOPE_WRITE_TAGGING)),
 ):
     settings = get_or_create_tagging_settings(db)
     apply_tagging_settings_update(settings, payload)
@@ -94,8 +92,7 @@ def update_tagging_settings(
 def create_tagging_rule(
     payload: TaggingRuleWrite,
     db: Session = Depends(get_db),
-    admin: User = Depends(get_admin_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_TAGS)),
+    admin: User = Depends(require_permissions(SCOPE_WRITE_TAGGING)),
 ):
     normalized_tag_name = _validate_rule_payload(db, payload)
     rule = TaggingRule(
@@ -132,8 +129,7 @@ def update_tagging_rule(
     rule_id: uuid.UUID,
     payload: TaggingRuleWrite,
     db: Session = Depends(get_db),
-    admin: User = Depends(get_admin_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_TAGS)),
+    admin: User = Depends(require_permissions(SCOPE_WRITE_TAGGING)),
 ):
     rule = db.scalar(select(TaggingRule).where(TaggingRule.id == rule_id))
     if rule is None:
@@ -170,8 +166,7 @@ def update_tagging_rule(
 def delete_tagging_rule(
     rule_id: uuid.UUID,
     db: Session = Depends(get_db),
-    admin: User = Depends(get_admin_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_TAGS)),
+    admin: User = Depends(require_permissions(SCOPE_WRITE_TAGGING)),
 ):
     rule = db.scalar(select(TaggingRule).where(TaggingRule.id == rule_id))
     if rule is None:
@@ -193,8 +188,7 @@ def delete_tagging_rule(
 def preview_tagging_rule(
     payload: TaggingRulePreviewRequest,
     db: Session = Depends(get_db),
-    _admin: User = Depends(get_admin_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_READ_TAGS)),
+    _admin: User = Depends(require_permissions(SCOPE_READ_TAGGING)),
 ):
     _validate_rule_payload(db, payload)
     return _build_rule_preview_response(db, payload)
@@ -204,8 +198,7 @@ def preview_tagging_rule(
 def queue_tagging_reapply(
     payload: TaggingReapplyRequest,
     db: Session = Depends(get_db),
-    admin: User = Depends(get_admin_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_TAGS)),
+    admin: User = Depends(require_permissions(SCOPE_WRITE_TAGGING)),
 ):
     try:
         dispatch_token = claim_tagging_reapply_dispatch()

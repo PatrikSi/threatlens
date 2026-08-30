@@ -1,3 +1,4 @@
+export type * from './access'
 export type * from './administration'
 export type * from './ai'
 export type * from './alerts'

@@ -35,6 +35,10 @@ _SAFE_RECORD_FIELDS = (
     "status",
     "duration_ms",
     "client_ip",
+    "actor_principal_type",
+    "actor_principal_id",
+    "credential_kind",
+    "credential_id",
 )
 
 

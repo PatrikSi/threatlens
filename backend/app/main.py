@@ -33,6 +33,7 @@ from app.api.routes import (
     exports,
     feeds,
     health,
+    iam,
     integrations,
     investigations,
     items,
@@ -104,6 +105,7 @@ API_ROUTERS: tuple[APIRouter, ...] = (
     stats.router,
     operations.router,
     health.router,
+    iam.router,
 )
 
 
@@ -186,7 +188,10 @@ if settings.allowed_hosts:
 async def request_logging_middleware(request: Request, call_next):
     request_id = _normalize_request_id(request.headers.get("x-request-id"))
     request.state.request_id = request_id
-    context_token = set_log_context(request_id=request_id)
+    context_token = set_log_context(
+        request_id=request_id,
+        source_ip=request.client.host if request.client else None,
+    )
     started_at = time.perf_counter()
     try:
         if verbose_logging_enabled(settings):

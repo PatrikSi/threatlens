@@ -15,6 +15,10 @@ from app.core.rbac import ALL_ROLES, ROLE_ADMIN, ROLE_ANALYST, ROLE_VIEWER
 from app.core.security import get_password_hash
 from app.models.oidc import ExternalIdentity, OIDCProvider
 from app.models.user import PROVISIONING_SOURCE_OIDC, User
+from app.services.authorization import (
+    bump_iam_policy_revision,
+    lock_iam_policy_for_mutation,
+)
 from app.services.oidc_client import OIDCClaims
 from app.services.user_access import (
     LastActiveAdminError,
@@ -94,6 +98,7 @@ def authenticate_oidc_identity(
 ) -> OIDCAuthenticationResult:
     if provider.sync_roles_on_login and not active_admin_invariant_locked:
         # Role synchronization must take the invariant before any user row.
+        lock_iam_policy_for_mutation(db)
         acquire_active_admin_invariant_lock(db)
     identity = db.scalar(
         select(ExternalIdentity).where(
@@ -110,6 +115,7 @@ def authenticate_oidc_identity(
             )
         user, identity = _provision_identity(db, provider, oidc_claims)
         provisioned = True
+        bump_iam_policy_revision(db)
     else:
         if identity.provider_id != provider.id:
             raise OIDCIdentityError(
@@ -363,6 +369,7 @@ def _synchronize_role(
         ) from exc
 
     locked_user.role = mapped_role
+    bump_iam_policy_revision(db)
     revoked = revoke_user_credentials_with_counts(db, locked_user)
     return (
         previous_role,

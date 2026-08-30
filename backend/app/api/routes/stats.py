@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import Integer, case, cast, func, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_token_scopes
+from app.api.deps import require_permissions
 from app.core.config import get_settings
 from app.core.token_scopes import SCOPE_READ_STATS
 from app.db.session import get_db
@@ -79,7 +79,7 @@ def get_stats_overview(
     days: int = Query(default=30, ge=7, le=365),
     feed_ids: str | None = Query(default=None),
     db: Session = Depends(get_db),
-    _user: User = Depends(require_token_scopes(SCOPE_READ_STATS)),
+    _user: User = Depends(require_permissions(SCOPE_READ_STATS)),
 ):
     settings = get_settings()
     selected_feed_ids = _parse_feed_ids(feed_ids)
@@ -235,7 +235,7 @@ def get_feed_timeseries(
     feed_ids: str | None = Query(default=None),
     top_feeds: int | None = Query(default=None, ge=1, le=500),
     db: Session = Depends(get_db),
-    _user: User = Depends(require_token_scopes(SCOPE_READ_STATS)),
+    _user: User = Depends(require_permissions(SCOPE_READ_STATS)),
 ):
     selected_feed_ids = _parse_feed_ids(feed_ids)
     window = _build_stats_window(days)
@@ -310,7 +310,7 @@ def get_activity_heatmap(
     days: int = Query(default=30, ge=7, le=365),
     feed_ids: str | None = Query(default=None),
     db: Session = Depends(get_db),
-    _user: User = Depends(require_token_scopes(SCOPE_READ_STATS)),
+    _user: User = Depends(require_permissions(SCOPE_READ_STATS)),
 ):
     selected_feed_ids = _parse_feed_ids(feed_ids)
     window = _build_stats_window(days)
@@ -378,7 +378,7 @@ def get_signal_radar(
     days: int = Query(default=30, ge=7, le=365),
     feed_ids: str | None = Query(default=None),
     db: Session = Depends(get_db),
-    _user: User = Depends(require_token_scopes(SCOPE_READ_STATS)),
+    _user: User = Depends(require_permissions(SCOPE_READ_STATS)),
 ):
     selected_feed_ids = _parse_feed_ids(feed_ids)
     window = _build_stats_window(days)

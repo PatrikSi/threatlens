@@ -21,6 +21,7 @@ from app.core.security import generate_api_token
 from app.core.token_scopes import DEFAULT_API_TOKEN_SCOPES
 from app.models.api_token import ApiToken
 from app.models.article import Article
+from app.models.audit_log import AuditLog
 from app.models.feed import Feed
 from app.models.ioc import IOC, ItemIOC
 from app.models.item import Item
@@ -3876,7 +3877,7 @@ def test_audit_log_endpoint(client: TestClient, auth_headers):
     assert any(log["action"] == "feeds.create" for log in logs)
 
 
-def test_audit_log_export_endpoint(client: TestClient, auth_headers):
+def test_audit_log_export_endpoint(client: TestClient, auth_headers, db_session):
     create_feed = client.post(
         "/feeds",
         json={
@@ -3902,7 +3903,8 @@ def test_audit_log_export_endpoint(client: TestClient, auth_headers):
     assert create_feed_two.status_code == 201
 
     export_response = client.get(
-        "/audit-logs/export?action=feeds.create&limit=1", headers=auth_headers["admin"]
+        "/audit-logs/export?action=feeds.create&limit=1",
+        headers={**auth_headers["admin"], "X-Request-ID": "audit-export-test"},
     )
     assert export_response.status_code == 200
     payload = export_response.json()
@@ -3911,6 +3913,22 @@ def test_audit_log_export_endpoint(client: TestClient, auth_headers):
     assert payload["truncated"] is True
     assert len(payload["logs"]) == 1
     assert payload["logs"][0]["action"] == "feeds.create"
+    assert all(log["action"] != "audit.export" for log in payload["logs"])
+
+    export_entry = db_session.scalar(
+        select(AuditLog).where(
+            AuditLog.action == "audit.export",
+            AuditLog.request_id == "audit-export-test",
+        )
+    )
+    assert export_entry is not None
+    assert export_entry.actor_principal_type == "user"
+    assert export_entry.actor_principal_id == export_entry.actor_user_id
+    assert export_entry.credential_kind == "api_token"
+    assert export_entry.credential_id is not None
+    assert export_entry.metadata_json["filters"]["action"] == "feeds.create"
+    assert export_entry.metadata_json["exported_count"] == 1
+    assert export_entry.metadata_json["truncated"] is True
 
 
 def test_stats_overview_endpoint(client: TestClient, auth_headers):

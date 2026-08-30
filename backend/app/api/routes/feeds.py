@@ -8,10 +8,14 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_admin_user, get_operator_user, require_token_scopes
+from app.api.deps import require_permissions
 from app.core.config import get_settings
 from app.core.logging_config import verbose_logging_enabled
-from app.core.token_scopes import SCOPE_READ_FEEDS, SCOPE_WRITE_FEEDS
+from app.core.token_scopes import (
+    SCOPE_ADMIN_FEEDS,
+    SCOPE_READ_FEEDS,
+    SCOPE_WRITE_FEEDS,
+)
 from app.db.session import get_db
 from app.models.feed import Feed
 from app.models.user import User
@@ -53,7 +57,7 @@ logger = logging.getLogger(__name__)
 @router.get("", response_model=list[FeedResponse])
 def list_feeds(
     db: Session = Depends(get_db),
-    _user: User = Depends(require_token_scopes(SCOPE_READ_FEEDS)),
+    _user: User = Depends(require_permissions(SCOPE_READ_FEEDS)),
 ):
     feeds = db.scalars(select(Feed).order_by(Feed.created_at.desc())).all()
     return [_serialize_feed(feed) for feed in feeds]
@@ -62,8 +66,7 @@ def list_feeds(
 @router.post("/metadata", response_model=FeedMetadataResponse)
 def get_feed_metadata(
     payload: FeedMetadataRequest,
-    _operator: User = Depends(get_operator_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_READ_FEEDS)),
+    _operator: User = Depends(require_permissions(SCOPE_WRITE_FEEDS)),
 ):
     try:
         metadata = _probe_feed_metadata(payload.url)
@@ -91,7 +94,7 @@ def get_feed_metadata(
 @router.get("/export", response_model=FeedExportResponse, operation_id="export_feeds_v1_feeds_export_get")
 def export_feeds_sanitized(
     db: Session = Depends(get_db),
-    _user: User = Depends(require_token_scopes(SCOPE_READ_FEEDS)),
+    _user: User = Depends(require_permissions(SCOPE_READ_FEEDS)),
 ):
     exported, warnings = _build_feed_export(db, include_sensitive_urls=False)
     return FeedExportResponse(
@@ -106,8 +109,7 @@ def export_feeds_sanitized(
 @router.get("/export/backup", response_model=FeedExportResponse)
 def export_feeds_backup(
     db: Session = Depends(get_db),
-    _admin: User = Depends(get_admin_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_FEEDS)),
+    _admin: User = Depends(require_permissions(SCOPE_ADMIN_FEEDS)),
 ):
     exported, warnings = _build_feed_export(db, include_sensitive_urls=True)
     return FeedExportResponse(
@@ -149,8 +151,7 @@ def _build_feed_export(db: Session, *, include_sensitive_urls: bool) -> tuple[li
 def import_feeds(
     payload: FeedImportRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(get_operator_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_FEEDS)),
+    user: User = Depends(require_permissions(SCOPE_WRITE_FEEDS)),
 ):
     settings = get_settings()
     created = 0
@@ -230,8 +231,7 @@ def import_feeds(
 def create_feed(
     payload: FeedCreate,
     db: Session = Depends(get_db),
-    user: User = Depends(get_operator_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_FEEDS)),
+    user: User = Depends(require_permissions(SCOPE_WRITE_FEEDS)),
 ):
     settings = get_settings()
     feed_url = normalize_feed_url(payload.url)
@@ -303,8 +303,7 @@ def update_feed(
     feed_id: uuid.UUID,
     payload: FeedUpdate,
     db: Session = Depends(get_db),
-    user: User = Depends(get_operator_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_FEEDS)),
+    user: User = Depends(require_permissions(SCOPE_WRITE_FEEDS)),
 ):
     feed = db.scalar(select(Feed).where(Feed.id == feed_id).with_for_update())
     if feed is None:
@@ -385,8 +384,7 @@ def update_feed(
 def delete_feed(
     feed_id: uuid.UUID,
     db: Session = Depends(get_db),
-    user: User = Depends(get_admin_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_FEEDS)),
+    user: User = Depends(require_permissions(SCOPE_ADMIN_FEEDS)),
 ):
     feed = db.scalar(select(Feed).where(Feed.id == feed_id))
     if feed is None:
@@ -414,8 +412,7 @@ def delete_feed(
 def refresh_feed(
     feed_id: uuid.UUID,
     db: Session = Depends(get_db),
-    user: User = Depends(get_operator_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_FEEDS)),
+    user: User = Depends(require_permissions(SCOPE_WRITE_FEEDS)),
 ):
     feed = db.scalar(select(Feed.id).where(Feed.id == feed_id))
     if feed is None:

@@ -32,6 +32,15 @@ from app.models.integration import (
     IntegrationSubscription,
     IntegrationSubscriptionFeed,
 )
+from app.models.iam import (
+    IAMGroup,
+    IAMGroupMembership,
+    IAMGroupRoleAssignment,
+    IAMPolicyState,
+    IAMRole,
+    IAMRolePermission,
+    IAMUserRoleAssignment,
+)
 from app.models.investigation import (
     Investigation,
     InvestigationActivity,
@@ -91,6 +100,13 @@ __all__ = [
     "IntegrationRun",
     "IntegrationSubscription",
     "IntegrationSubscriptionFeed",
+    "IAMGroup",
+    "IAMGroupMembership",
+    "IAMGroupRoleAssignment",
+    "IAMPolicyState",
+    "IAMRole",
+    "IAMRolePermission",
+    "IAMUserRoleAssignment",
     "Investigation",
     "InvestigationActivity",
     "InvestigationEvidence",

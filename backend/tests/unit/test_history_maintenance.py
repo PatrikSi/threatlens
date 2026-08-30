@@ -1,6 +1,8 @@
 import uuid
 from datetime import datetime, timedelta, timezone
 
+from sqlalchemy import select
+
 from app.models.ai_task_run import AITaskRun
 from app.models.ai_usage_event import AIUsageEvent
 from app.models.audit_log import AuditLog
@@ -197,3 +199,9 @@ def test_application_history_retention_prunes_only_expired_terminal_rows(
     assert db_session.get(AITaskRun, unfinished_run.id) is not None
     assert db_session.get(AITaskRun, report_request_run.id) is not None
     assert db_session.query(AuditLog).filter(AuditLog.action == "recent").count() == 1
+    prune_entry = db_session.scalar(
+        select(AuditLog).where(AuditLog.action == "history.audit.prune")
+    )
+    assert prune_entry is not None
+    assert prune_entry.actor_principal_type == "system"
+    assert prune_entry.metadata_json["deleted_count"] == 1
