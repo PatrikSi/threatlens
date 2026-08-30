@@ -372,6 +372,24 @@ WILDCARD_PERMISSION_IDS = frozenset({"read:*", "write:*", "admin:*", "*:*"})
 # future release. Custom roles therefore enumerate concrete permissions only.
 RESERVED_CUSTOM_ROLE_PERMISSION_IDS = WILDCARD_PERMISSION_IDS
 
+# Machine credentials are intentionally limited to a small, reviewed data-plane
+# surface. Adding a permission to the catalog must never grant it to existing
+# service accounts implicitly.
+SERVICE_ACCOUNT_PERMISSION_IDS = frozenset(
+    {
+        "read:feeds",
+        "write:feeds",
+        "read:items",
+        "read:tags",
+        "read:stats",
+    }
+)
+
+if not SERVICE_ACCOUNT_PERMISSION_IDS <= ALL_PERMISSION_IDS:
+    raise RuntimeError("The service-account allowlist contains unknown permissions.")
+if SERVICE_ACCOUNT_PERMISSION_IDS & WILDCARD_PERMISSION_IDS:
+    raise RuntimeError("Service-account permissions must never contain wildcards.")
+
 
 def is_known_permission(permission_id: str) -> bool:
     return (
@@ -396,6 +414,7 @@ __all__ = [
     "PERMISSION_BY_ID",
     "PERMISSION_DEFINITIONS",
     "RESERVED_CUSTOM_ROLE_PERMISSION_IDS",
+    "SERVICE_ACCOUNT_PERMISSION_IDS",
     "SYSTEM_ROLE_IDS",
     "PermissionDefinition",
     "expand_permission_grants",

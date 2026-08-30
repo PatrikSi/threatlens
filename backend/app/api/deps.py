@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import and_, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.rbac import ROLE_ADMIN, ROLE_ANALYST
@@ -23,24 +24,34 @@ from app.core.logging_config import update_log_context, verbose_logging_enabled
 from app.core.token_scopes import has_required_scope, normalize_token_scopes
 from app.db.session import get_db
 from app.models.api_token import ApiToken
+from app.models.service_account import ServiceAccount, ServiceAccountCredential
 from app.models.user import User
 from app.services.auth_sessions import resolve_auth_session, touch_auth_session
 from app.services.audit import record_audit
 from app.services.authorization import (
     AuthorizationContext,
     AuthorizationStateUnavailable,
+    authorization_context_for_service_account,
     authorization_context_for_user,
+)
+from app.services.service_accounts import (
+    SERVICE_ACCOUNT_TOKEN_MARKER,
+    extract_service_account_token_prefix,
+    hash_service_account_token,
 )
 
 AUTH_SESSION_BEARER = "session_bearer"
 AUTH_SESSION_COOKIE = "session_cookie"
 AUTH_API_TOKEN = "api_token"
+AUTH_SERVICE_ACCOUNT_TOKEN = "service_account_token"
+
+AuthenticatedPrincipal = User | ServiceAccount
 
 oauth2_scheme = OAuth2PasswordBearer(
     tokenUrl="/v1/auth/login",
     auto_error=False,
     description=(
-        "Use a scoped API token in the Authorization header. Browser sign-in sessions are created at "
+        "Use a scoped personal or `tlsa_` service-account token in the Authorization header. Browser sign-in sessions are created at "
         "`/v1/auth/login`, mirrored through the web proxy at `/api/v1/auth/login`, and carried by HttpOnly cookies."
     ),
 )
@@ -51,13 +62,18 @@ _proxy_host_cache_lock = threading.Lock()
 _proxy_host_cache: dict[str, tuple[float, frozenset[str]]] = {}
 
 
-def get_current_user(
+def get_current_principal(
     request: Request,
     db: Session = Depends(get_db),
     token: str | None = Depends(oauth2_scheme),
-) -> User:
-    user, credentials_present = _resolve_authenticated_user(request, db, token)
-    if user is None:
+) -> AuthenticatedPrincipal:
+    try:
+        principal, credentials_present = _resolve_authenticated_principal(
+            request, db, token
+        )
+    except SQLAlchemyError as exc:
+        _raise_auth_state_unavailable(db, request=request, exc=exc)
+    if principal is None:
         if getattr(request.state, "auth_credential_kind", None) == AUTH_SESSION_BEARER:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -66,11 +82,30 @@ def get_current_user(
             )
         detail = "Invalid credentials" if credentials_present else "Not authenticated"
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=detail)
-    request.state.authorization_context = _authorization_context_for_request(
-        request, db, user
-    )
-    _set_authenticated_log_context(request, user)
-    return user
+    try:
+        request.state.authorization_context = _authorization_context_for_request(
+            request, db, principal
+        )
+    except SQLAlchemyError as exc:
+        _raise_auth_state_unavailable(db, request=request, exc=exc)
+    request.state.authenticated_principal = principal
+    _set_authenticated_log_context(request, principal)
+    return principal
+
+
+def get_current_user(
+    principal: AuthenticatedPrincipal = Depends(get_current_principal),
+) -> User:
+    if isinstance(principal, ServiceAccount):
+        raise ApiHTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "This endpoint requires a human account. Service-account "
+                "credentials cannot create browser sessions or manage user-owned settings."
+            ),
+            error_code="human_principal_required",
+        )
+    return principal
 
 
 def get_optional_current_user(
@@ -78,13 +113,22 @@ def get_optional_current_user(
     db: Session = Depends(get_db),
     token: str | None = Depends(oauth2_scheme),
 ) -> User | None:
-    user, _credentials_present = _resolve_authenticated_user(request, db, token)
-    if user is not None:
-        request.state.authorization_context = _authorization_context_for_request(
-            request, db, user
+    try:
+        principal, _credentials_present = _resolve_authenticated_principal(
+            request, db, token
         )
-        _set_authenticated_log_context(request, user)
-    return user
+    except SQLAlchemyError as exc:
+        _raise_auth_state_unavailable(db, request=request, exc=exc)
+    if principal is not None:
+        try:
+            request.state.authorization_context = _authorization_context_for_request(
+                request, db, principal
+            )
+        except SQLAlchemyError as exc:
+            _raise_auth_state_unavailable(db, request=request, exc=exc)
+        request.state.authenticated_principal = principal
+        _set_authenticated_log_context(request, principal)
+    return principal if isinstance(principal, User) else None
 
 
 def get_auth_credential_kind(request: Request) -> str | None:
@@ -93,6 +137,14 @@ def get_auth_credential_kind(request: Request) -> str | None:
 
 def get_current_auth_session_id(request: Request) -> uuid.UUID | None:
     return getattr(request.state, "auth_session_id", None)
+
+
+def _current_credential_id(request: Request) -> uuid.UUID | None:
+    return (
+        getattr(request.state, "service_account_credential_id", None)
+        or getattr(request.state, "api_token_id", None)
+        or get_current_auth_session_id(request)
+    )
 
 
 def get_authorization_context(request: Request) -> AuthorizationContext | None:
@@ -105,6 +157,10 @@ def is_cookie_session_auth(request: Request) -> bool:
 
 def is_api_token_auth(request: Request) -> bool:
     return get_auth_credential_kind(request) == AUTH_API_TOKEN
+
+
+def is_service_account_auth(request: Request) -> bool:
+    return get_auth_credential_kind(request) == AUTH_SERVICE_ACCOUNT_TOKEN
 
 
 def require_roles(*roles: str):
@@ -176,9 +232,9 @@ def require_permissions(
 ):
     def _checker(
         request: Request,
-        user: User = Depends(get_current_user),
+        principal: AuthenticatedPrincipal = Depends(get_current_principal),
         db: Session = Depends(get_db),
-    ) -> User:
+    ) -> AuthenticatedPrincipal:
         authorization = get_authorization_context(request)
         if authorization is None:
             raise HTTPException(
@@ -198,7 +254,7 @@ def require_permissions(
             _record_permission_denial(
                 db,
                 request=request,
-                user=user,
+                principal=principal,
                 required_permissions=required_permissions,
                 missing_permissions=missing_permissions,
                 policy_revision=authorization.policy_revision,
@@ -224,7 +280,7 @@ def require_permissions(
                     "policy_revision": authorization.policy_revision,
                 },
             )
-        return user
+        return principal
 
     _checker._threatlens_required_scopes = tuple(required_permissions)
     return _checker
@@ -299,7 +355,7 @@ def _record_permission_denial(
     db: Session,
     *,
     request: Request,
-    user: User,
+    principal: AuthenticatedPrincipal,
     required_permissions: tuple[str, ...],
     missing_permissions: list[str],
     policy_revision: int,
@@ -307,10 +363,23 @@ def _record_permission_denial(
 ) -> None:
     route = request.scope.get("route")
     route_path = getattr(route, "path", None)
+    authorization = get_authorization_context(request)
     try:
         record_audit(
             db,
-            actor_user_id=user.id,
+            actor_user_id=principal.id if isinstance(principal, User) else None,
+            actor_principal_type=(
+                authorization.principal_type
+                if authorization is not None
+                else "user"
+                if isinstance(principal, User)
+                else "service_account"
+            ),
+            actor_principal_id=principal.id,
+            credential_kind=get_auth_credential_kind(request),
+            credential_id=_current_credential_id(request),
+            request_id=getattr(request.state, "request_id", None),
+            source_ip=resolve_client_ip(request),
             action="authorization.permission_denied",
             resource_type="api_route",
             resource_id=request.url.path,
@@ -328,8 +397,9 @@ def _record_permission_denial(
     except Exception as exc:
         db.rollback()
         logger.error(
-            "permission_denial_audit_failed user_id=%s error_type=%s",
-            user.id,
+            "permission_denial_audit_failed principal_type=%s principal_id=%s error_type=%s",
+            type(principal).__name__,
+            principal.id,
             type(exc).__name__,
             exc_info=verbose_logging_enabled(get_settings()),
         )
@@ -373,15 +443,29 @@ def _record_role_denial(
 
 
 def _authorization_context_for_request(
-    request: Request, db: Session, user: User
+    request: Request, db: Session, principal: AuthenticatedPrincipal
 ) -> AuthorizationContext:
     credential_scopes = getattr(request.state, "token_scopes", None)
     if credential_scopes == [] and get_settings().allow_legacy_unscoped_tokens:
         credential_scopes = None
     try:
+        if isinstance(principal, ServiceAccount):
+            credential_id = getattr(
+                request.state, "service_account_credential_id", None
+            )
+            if not isinstance(credential_id, uuid.UUID):
+                raise AuthorizationStateUnavailable(
+                    "Service-account credential context is missing. Retry authentication."
+                )
+            return authorization_context_for_service_account(
+                db,
+                principal,
+                credential_id=credential_id,
+                credential_scopes=credential_scopes or (),
+            )
         return authorization_context_for_user(
             db,
-            user,
+            principal,
             credential_scopes=credential_scopes,
         )
     except AuthorizationStateUnavailable as exc:
@@ -392,15 +476,16 @@ def _authorization_context_for_request(
         ) from exc
 
 
-def _set_authenticated_log_context(request: Request, user: User) -> None:
-    credential_id = getattr(request.state, "api_token_id", None)
-    if credential_id is None:
-        credential_id = get_current_auth_session_id(request)
+def _set_authenticated_log_context(
+    request: Request, principal: AuthenticatedPrincipal
+) -> None:
     update_log_context(
-        actor_principal_type="user",
-        actor_principal_id=user.id,
+        actor_principal_type=(
+            "user" if isinstance(principal, User) else "service_account"
+        ),
+        actor_principal_id=principal.id,
         credential_kind=get_auth_credential_kind(request),
-        credential_id=credential_id,
+        credential_id=_current_credential_id(request),
         source_ip=resolve_client_ip(request),
     )
 
@@ -481,15 +566,147 @@ def _resolve_api_token_user(
     return user, scopes, api_token.id
 
 
-def _resolve_authenticated_user(
+def _resolve_service_account(
+    request: Request,
+    db: Session,
+    token: str,
+) -> tuple[ServiceAccount, list[str], uuid.UUID] | None:
+    prefix = extract_service_account_token_prefix(token)
+    if prefix is None:
+        _log_service_account_auth_rejection(request, reason="token_format_invalid")
+        return None
+    token_hash = hash_service_account_token(token)
+    now = datetime.now(timezone.utc)
+    credential = db.scalar(
+        select(ServiceAccountCredential).where(
+            ServiceAccountCredential.token_prefix == prefix,
+            ServiceAccountCredential.token_hash == token_hash,
+        )
+    )
+    if credential is None:
+        _log_service_account_auth_rejection(request, reason="credential_not_found")
+        return None
+    if credential.revoked_at is not None:
+        _log_service_account_auth_rejection(
+            request, reason="credential_revoked", credential=credential
+        )
+        return None
+    expires_at = credential.expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at <= now:
+        _log_service_account_auth_rejection(
+            request, reason="credential_expired", credential=credential
+        )
+        return None
+    account = db.get(ServiceAccount, credential.service_account_id)
+    if account is None:
+        _log_service_account_auth_rejection(
+            request, reason="account_missing", credential=credential
+        )
+        return None
+    if not account.is_active:
+        _log_service_account_auth_rejection(
+            request,
+            reason="account_disabled",
+            credential=credential,
+            account=account,
+        )
+        return None
+
+    if not isinstance(credential.scopes, list) or any(
+        not isinstance(scope, str) for scope in credential.scopes
+    ):
+        _log_service_account_auth_rejection(
+            request,
+            reason="credential_scopes_invalid",
+            credential=credential,
+            account=account,
+            error=True,
+        )
+        return None
+
+    if _should_update_last_used(credential.last_used_at, now):
+        credential.last_used_at = now
+        credential.last_used_ip = resolve_client_ip(request)
+        user_agent = request.headers.get("user-agent", "").strip()
+        credential.last_used_user_agent = user_agent[:512] or None
+        db.add(credential)
+        try:
+            db.commit()
+        except Exception as exc:
+            db.rollback()
+            logger.warning(
+                "service_account_last_used_update_failed credential_id=%s error_type=%s",
+                credential.id,
+                type(exc).__name__,
+                exc_info=verbose_logging_enabled(get_settings()),
+            )
+    return account, normalize_token_scopes(credential.scopes), credential.id
+
+
+def _log_service_account_auth_rejection(
+    request: Request,
+    *,
+    reason: str,
+    credential: ServiceAccountCredential | None = None,
+    account: ServiceAccount | None = None,
+    error: bool = False,
+) -> None:
+    if error:
+        log = logger.error
+    elif reason in {"token_format_invalid", "credential_not_found"}:
+        log = logger.debug
+    else:
+        log = logger.info
+    log(
+        "service_account_auth_rejected reason=%s credential_id=%s "
+        "service_account_id=%s source_ip=%s",
+        reason,
+        credential.id if credential is not None else None,
+        account.id
+        if account is not None
+        else credential.service_account_id
+        if credential is not None
+        else None,
+        resolve_client_ip(request),
+    )
+
+
+def _raise_auth_state_unavailable(
+    db: Session,
+    *,
+    request: Request,
+    exc: SQLAlchemyError,
+) -> None:
+    db.rollback()
+    logger.exception(
+        "authentication_state_lookup_failed credential_kind=%s source_ip=%s "
+        "error_type=%s",
+        getattr(request.state, "auth_credential_kind", None),
+        resolve_client_ip(request),
+        type(exc).__name__,
+        exc_info=verbose_logging_enabled(get_settings()),
+    )
+    raise ApiHTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="Authentication state is temporarily unavailable. Retry the request.",
+        error_code="authentication_state_unavailable",
+    ) from exc
+
+
+def _resolve_authenticated_principal(
     request: Request, db: Session, token: str | None
-) -> tuple[User | None, bool]:
+) -> tuple[AuthenticatedPrincipal | None, bool]:
     request.state.token_scopes = None
     request.state.auth_via_api_token = False
+    request.state.auth_via_service_account = False
     request.state.auth_credential_kind = None
     request.state.auth_session_id = None
     request.state.authorization_context = None
+    request.state.authenticated_principal = None
     request.state.api_token_id = None
+    request.state.service_account_credential_id = None
     token_source = "header"
 
     if not token:
@@ -499,6 +716,9 @@ def _resolve_authenticated_user(
         return None, False
 
     if token_source == "cookie":
+        if token.startswith(f"{SERVICE_ACCOUNT_TOKEN_MARKER}_"):
+            request.state.auth_credential_kind = AUTH_SERVICE_ACCOUNT_TOKEN
+            return None, True
         _enforce_csrf_if_needed(request)
         if token.startswith("tls_"):
             session_user = _resolve_opaque_session_user(request, db, token)
@@ -514,6 +734,17 @@ def _resolve_authenticated_user(
         _ensure_user_can_authenticate(user)
         request.state.auth_credential_kind = AUTH_SESSION_COOKIE
         return user, True
+
+    if token.startswith(f"{SERVICE_ACCOUNT_TOKEN_MARKER}_"):
+        request.state.auth_credential_kind = AUTH_SERVICE_ACCOUNT_TOKEN
+        service_account_result = _resolve_service_account(request, db, token)
+        if service_account_result is None:
+            return None, True
+        account, scopes, credential_id = service_account_result
+        request.state.token_scopes = scopes
+        request.state.auth_via_service_account = True
+        request.state.service_account_credential_id = credential_id
+        return account, True
 
     session_user = _resolve_jwt_user(db, token)
     if session_user is not None:

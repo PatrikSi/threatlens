@@ -5,7 +5,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ## Published Contract
 
 - Schema version: `1.8.0`
-- OpenAPI contract anchor: `openapi-sha256:b60cd728d2f2c6aed5b6d0061bccfbfea3ac0360115b787eb25d283e8c49f089`
+- OpenAPI contract anchor: `openapi-sha256:dd73eeb4562cad59335151fb5622bc60fb1ca4cbec21bfe1592f807315a2d096`
 - API service base path: `/v1`
 - Web proxy base path: `/api/v1`
 - Bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`.
@@ -15,7 +15,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 
 ## Security Schemes
 
-- `ApiTokenBearer`: `http` - Use a scoped personal API token in the `Authorization: Bearer <token>` header. Browser sign-in at `/v1/auth/login` creates a cookie session and returns only session-cookie metadata; bearer auth requires a dedicated API token.
+- `ApiTokenBearer`: `http` - Use a scoped personal API token or a `tlsa_` service-account token in the `Authorization: Bearer <token>` header. Service-account tokens are accepted only from this header and only on explicitly supported data-plane routes. Browser sign-in at `/v1/auth/login` creates a cookie session and returns only session-cookie metadata; bearer auth requires a dedicated API token.
 - `SessionCookieAuth`: `apiKey` - HttpOnly browser session cookie established by `/v1/auth/login`, mirrored through the web proxy at `/api/v1/auth/login`. Cookie-authenticated mutating requests must also send the CSRF header.
 
 ## Error Diagnostics
@@ -29,29 +29,29 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:ai`
 - Request body: `application/json` -> AIDailyBriefBackfillRequest
-- Responses: `200` `application/json` -> AIDailyBriefBackfillResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> AIDailyBriefBackfillResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/ai/daily-brief/generate`
 - Summary: Generate Daily Brief
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:ai`
-- Responses: `200` `application/json` -> AIDailyBriefResponse
+- Responses: `200` `application/json` -> AIDailyBriefResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/ai/daily-brief/latest`
 - Summary: Get Latest Daily Brief
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:items`
-- Responses: `200` `application/json` -> AIDailyBriefResponse
+- Responses: `200` `application/json` -> AIDailyBriefResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/ai/daily-brief/queue`
 - Summary: Queue Daily Brief
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:ai`
-- Responses: `200` `application/json` -> AIQueuedTaskResponse
+- Responses: `200` `application/json` -> AIQueuedTaskResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/ai/daily-briefs`
 - Summary: List Daily Briefs
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:items`
 - Parameters:
   - `limit` (query, optional): Limit
-- Responses: `200` `application/json` -> array[AIDailyBriefResponse], `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> array[AIDailyBriefResponse], `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/ai/daily-briefs/{brief_id}/sources`
 - Summary: List Daily Brief Sources
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -60,33 +60,33 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `brief_id` (path, required): string
   - `included` (query, optional): Included
   - `limit` (query, optional): integer
-- Responses: `200` `application/json` -> array[AIDailyBriefSourceItemResponse], `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> array[AIDailyBriefSourceItemResponse], `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/ai/ops/live`
 - Summary: Get Ai Ops Live
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:ai`
-- Responses: `200` `application/json` -> AILiveStatusResponse
+- Responses: `200` `application/json` -> AILiveStatusResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/ai/ops/manual-actions`
 - Summary: List Ai Ops Manual Actions
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:ai`
 - Parameters:
   - `limit` (query, optional): integer
-- Responses: `200` `application/json` -> array[AIAuditEntryResponse], `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> array[AIAuditEntryResponse], `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/ai/ops/overview`
 - Summary: Get Ai Ops Overview
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:ai`
 - Parameters:
   - `days` (query, optional): integer
-- Responses: `200` `application/json` -> AIOpsOverviewResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> AIOpsOverviewResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/ai/ops/prompt-history`
 - Summary: List Ai Ops Prompt History
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:ai`
 - Parameters:
   - `limit` (query, optional): integer
-- Responses: `200` `application/json` -> array[AIAuditEntryResponse], `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> array[AIAuditEntryResponse], `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/ai/ops/runs`
 - Summary: List Ai Ops Runs
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -101,48 +101,48 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `model` (query, optional): Model
   - `parent_run_id` (query, optional): Parent Run Id
   - `only_failures` (query, optional): boolean
-- Responses: `200` `application/json` -> AITaskRunListResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> AITaskRunListResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/ai/ops/runs/{run_id}`
 - Summary: Get Ai Ops Run Detail
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:ai`
 - Parameters:
   - `run_id` (path, required): string
-- Responses: `200` `application/json` -> AITaskRunDetailResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> AITaskRunDetailResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/ai/ops/runs/{run_id}/cancel`
 - Summary: Cancel Ai Ops Run
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:ai`
 - Parameters:
   - `run_id` (path, required): string
-- Responses: `200` `application/json` -> AITaskRunResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> AITaskRunResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/ai/reprocess`
 - Summary: Reprocess Ai For Recent Items
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:ai`
 - Request body: `application/json` -> AIReprocessRequest
-- Responses: `200` `application/json` -> AIReprocessResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> AIReprocessResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/ai/settings`
 - Summary: Get Ai Settings
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:ai`
-- Responses: `200` `application/json` -> AISettingsResponse
+- Responses: `200` `application/json` -> AISettingsResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `PUT /v1/ai/settings`
 - Summary: Update Ai Settings
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:ai`
 - Request body: `application/json` -> AISettingsUpdate
-- Responses: `200` `application/json` -> AISettingsResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> AISettingsResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/ai/test-connection`
 - Summary: Test Ai Connection
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:ai`
-- Responses: `200` `application/json` -> AITestConnectionResponse
+- Responses: `200` `application/json` -> AITestConnectionResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/ai/usage`
 - Summary: Get Ai Usage
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:ai`
-- Responses: `200` `application/json` -> AIUsageSummaryResponse
+- Responses: `200` `application/json` -> AIUsageSummaryResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 
 ## Alerts
 
@@ -152,13 +152,13 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Token scopes: `read:alerts`
 - Parameters:
   - `include_disabled` (query, optional): boolean
-- Responses: `200` `application/json` -> array[AlertInterestResponse], `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> array[AlertInterestResponse], `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/alerts`
 - Summary: Create Alert Interest
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:alerts`
 - Request body: `application/json` -> AlertInterestCreate
-- Responses: `201` `application/json` -> AlertInterestResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `201` `application/json` -> AlertInterestResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/alerts/matches`
 - Summary: List Alert Matches
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -175,7 +175,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `page` (query, optional): integer
   - `page_size` (query, optional): integer
   - `sort` (query, optional): string
-- Responses: `200` `application/json` -> AlertMatchListResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> AlertMatchListResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/alerts/occurrences`
 - Summary: Get Alert Occurrences
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -190,19 +190,19 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `until` (query, optional): Until
   - `page` (query, optional): integer
   - `page_size` (query, optional): integer
-- Responses: `200` `application/json` -> AlertOccurrenceListResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> AlertOccurrenceListResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/alerts/occurrences/bulk/acknowledge`
 - Summary: Bulk Acknowledge Alert Occurrences
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:alerts`, `read:items`
 - Request body: `application/json` -> AlertOccurrenceBulkUpdate
-- Responses: `200` `application/json` -> AlertOccurrenceBulkResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> AlertOccurrenceBulkResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/alerts/occurrences/bulk/close`
 - Summary: Bulk Close Alert Occurrences
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:alerts`, `read:items`
 - Request body: `application/json` -> AlertOccurrenceBulkUpdate
-- Responses: `200` `application/json` -> AlertOccurrenceBulkResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> AlertOccurrenceBulkResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/alerts/occurrences/evaluations`
 - Summary: Get Alert Evaluations
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -214,14 +214,14 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `needs_attention` (query, optional): boolean
   - `page` (query, optional): integer
   - `page_size` (query, optional): integer
-- Responses: `200` `application/json` -> AlertEvaluationRequestListResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> AlertEvaluationRequestListResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/alerts/occurrences/evaluations/{request_id}`
 - Summary: Get Alert Evaluation Detail
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:alerts`
 - Parameters:
   - `request_id` (path, required): string
-- Responses: `200` `application/json` -> AlertEvaluationRequestResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> AlertEvaluationRequestResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/alerts/occurrences/evaluations/{request_id}/activity`
 - Summary: Get Alert Evaluation Activity
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -230,7 +230,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `request_id` (path, required): string
   - `page` (query, optional): integer
   - `page_size` (query, optional): integer
-- Responses: `200` `application/json` -> AlertEvaluationActivityListResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> AlertEvaluationActivityListResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/alerts/occurrences/evaluations/{request_id}/replay`
 - Summary: Replay Alert Evaluation
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -238,7 +238,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `request_id` (path, required): string
 - Request body: `application/json` -> AlertEvaluationReplayRequest
-- Responses: `202` `application/json` -> AlertEvaluationReplayResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `202` `application/json` -> AlertEvaluationReplayResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/alerts/occurrences/metrics`
 - Summary: Get Alert Occurrence Metrics
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -250,26 +250,26 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `lifecycle_states` (query, optional): array[string]
   - `suppressed` (query, optional): Suppressed
   - `limit` (query, optional): integer
-- Responses: `200` `application/json` -> AlertOccurrenceMetricListResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> AlertOccurrenceMetricListResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/alerts/occurrences/reconciliation/apply`
 - Summary: Apply Alert Occurrence Backfill
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:alerts`, `read:items`
 - Request body: `application/json` -> AlertBackfillApplyRequest
-- Responses: `202` `application/json` -> AlertBackfillApplyResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `202` `application/json` -> AlertBackfillApplyResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/alerts/occurrences/reconciliation/preview`
 - Summary: Preview Alert Occurrence Backfill
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:alerts`, `read:items`
 - Request body: `application/json` -> AlertBackfillRequest
-- Responses: `200` `application/json` -> AlertBackfillPreviewResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> AlertBackfillPreviewResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/alerts/occurrences/{occurrence_id}`
 - Summary: Get Alert Occurrence Detail
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:alerts`, `read:items`
 - Parameters:
   - `occurrence_id` (path, required): string
-- Responses: `200` `application/json` -> AlertOccurrenceResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> AlertOccurrenceResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/alerts/occurrences/{occurrence_id}/activity`
 - Summary: Get Alert Occurrence Activity
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -278,7 +278,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `occurrence_id` (path, required): string
   - `page` (query, optional): integer
   - `page_size` (query, optional): integer
-- Responses: `200` `application/json` -> AlertOccurrenceActivityListResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> AlertOccurrenceActivityListResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `PATCH /v1/alerts/occurrences/{occurrence_id}/lifecycle`
 - Summary: Patch Alert Occurrence Lifecycle
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -286,7 +286,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `occurrence_id` (path, required): string
 - Request body: `application/json` -> AlertOccurrenceLifecycleUpdate
-- Responses: `200` `application/json` -> AlertOccurrenceResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> AlertOccurrenceResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `PATCH /v1/alerts/occurrences/{occurrence_id}/snooze`
 - Summary: Patch Alert Occurrence Snooze
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -294,13 +294,13 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `occurrence_id` (path, required): string
 - Request body: `application/json` -> AlertOccurrenceSnoozeUpdate
-- Responses: `200` `application/json` -> AlertOccurrenceResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> AlertOccurrenceResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/alerts/preview`
 - Summary: Preview Alert Interest
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:alerts`, `read:items`
 - Request body: `application/json` -> AlertInterestPreviewRequest
-- Responses: `200` `application/json` -> AlertMatchListResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> AlertMatchListResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `DELETE /v1/alerts/{alert_id}`
 - Summary: Delete Alert Interest
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -309,7 +309,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `alert_id` (path, required): string
   - `expected_revision` (query, optional): Expected Revision
   - `expected_row_version` (query, optional): Expected Row Version
-- Responses: `204`, `422` `application/json` -> ApiErrorResponse
+- Responses: `204`, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `PATCH /v1/alerts/{alert_id}`
 - Summary: Update Alert Interest
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -317,7 +317,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `alert_id` (path, required): string
 - Request body: `application/json` -> AlertInterestUpdate
-- Responses: `200` `application/json` -> AlertInterestResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> AlertInterestResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 
 ## Audit
 
@@ -341,7 +341,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `created_to` (query, optional): Created To
   - `page` (query, optional): integer
   - `page_size` (query, optional): integer
-- Responses: `200` `application/json` -> AuditLogListResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> AuditLogListResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/audit-logs/export`
 - Summary: Export Audit Logs
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -361,7 +361,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `created_from` (query, optional): Created From
   - `created_to` (query, optional): Created To
   - `limit` (query, optional): integer
-- Responses: `200` `application/json` -> AuditLogExportResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> AuditLogExportResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 
 ## Auth
 
@@ -369,7 +369,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Summary: Change Password
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Request body: `application/json` -> ChangePasswordRequest
-- Responses: `200` `application/json` -> ChangePasswordResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> ChangePasswordResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/auth/login`
 - Summary: Login
 - Auth: none
@@ -382,7 +382,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 ### `GET /v1/auth/me`
 - Summary: Me
 - Auth: ApiTokenBearer or SessionCookieAuth
-- Responses: `200` `application/json` -> CurrentUserResponse
+- Responses: `200` `application/json` -> CurrentUserResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/auth/mfa/verify`
 - Summary: Verify Mfa Login
 - Auth: none
@@ -392,11 +392,11 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Summary: Unlink Oidc Account
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Request body: `application/json` -> OIDCUnlinkRequest
-- Responses: `204`, `422` `application/json` -> ApiErrorResponse
+- Responses: `204`, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/auth/oidc/account`
 - Summary: Oidc Account Status
 - Auth: ApiTokenBearer or SessionCookieAuth
-- Responses: `200` `application/json` -> OIDCAccountStatusResponse
+- Responses: `200` `application/json` -> OIDCAccountStatusResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/auth/oidc/callback`
 - Summary: Oidc Callback
 - Auth: none
@@ -409,7 +409,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Summary: Start Oidc Link
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Request body: `application/json` -> Payload
-- Responses: `200` `application/json` -> OIDCStartResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> OIDCStartResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/auth/oidc/login`
 - Summary: Start Oidc Login
 - Auth: none
@@ -418,22 +418,22 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Summary: Get Oidc Provider
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:users`
-- Responses: `200` `application/json` -> OIDCProviderResponse
+- Responses: `200` `application/json` -> OIDCProviderResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `PUT /v1/auth/oidc/provider`
 - Summary: Update Oidc Provider
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:users`
 - Request body: `application/json` -> OIDCProviderUpdateRequest
-- Responses: `200` `application/json` -> OIDCProviderResponse, `403` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> OIDCProviderResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/auth/oidc/provider/test`
 - Summary: Test Configured Oidc Provider
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:users`
-- Responses: `200` `application/json` -> OIDCProviderTestResponse
+- Responses: `200` `application/json` -> OIDCProviderTestResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/auth/oidc/reauth`
 - Summary: Start Oidc Reauthentication
 - Auth: ApiTokenBearer or SessionCookieAuth
-- Responses: `200` `application/json` -> OIDCReauthenticationStartResponse, `403` `application/json` -> ApiErrorResponse, `404` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> OIDCReauthenticationStartResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `404` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/auth/oidc/settings`
 - Summary: Public Oidc Settings
 - Auth: none
@@ -451,49 +451,49 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Summary: Remove Totp
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Request body: `application/json` -> TOTPSensitiveActionRequest
-- Responses: `200` `application/json` -> TOTPDisableResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> TOTPDisableResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/auth/security/mfa`
 - Summary: Get Mfa Status
 - Auth: ApiTokenBearer or SessionCookieAuth
-- Responses: `200` `application/json` -> TOTPStatusResponse
+- Responses: `200` `application/json` -> TOTPStatusResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/auth/security/mfa/confirm`
 - Summary: Confirm Totp
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Request body: `application/json` -> TOTPConfirmRequest
-- Responses: `200` `application/json` -> TOTPRecoveryCodesResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> TOTPRecoveryCodesResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/auth/security/mfa/enroll`
 - Summary: Enroll Totp
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Request body: `application/json` -> TOTPEnrollmentStartRequest
-- Responses: `200` `application/json` -> TOTPEnrollmentStartResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> TOTPEnrollmentStartResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `DELETE /v1/auth/security/mfa/enrollment`
 - Summary: Cancel Totp Enrollment
 - Auth: ApiTokenBearer or SessionCookieAuth
-- Responses: `200` `application/json` -> TOTPEnrollmentCancelResponse
+- Responses: `200` `application/json` -> TOTPEnrollmentCancelResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/auth/security/mfa/recovery-codes`
 - Summary: Replace Recovery Codes
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Request body: `application/json` -> TOTPSensitiveActionRequest
-- Responses: `200` `application/json` -> TOTPRecoveryCodesResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> TOTPRecoveryCodesResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/auth/security/reauthenticate`
 - Summary: Reauthenticate Local Session
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Request body: `application/json` -> RecentAuthenticationRequest
-- Responses: `200` `application/json` -> RecentAuthenticationResponse, `403` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> RecentAuthenticationResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/auth/security/sessions`
 - Summary: List Sessions
 - Auth: ApiTokenBearer or SessionCookieAuth
-- Responses: `200` `application/json` -> AuthSessionListResponse
+- Responses: `200` `application/json` -> AuthSessionListResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/auth/security/sessions/revoke-others`
 - Summary: Revoke Other Sessions
 - Auth: ApiTokenBearer or SessionCookieAuth
-- Responses: `200` `application/json` -> SessionBulkRevocationResponse
+- Responses: `200` `application/json` -> SessionBulkRevocationResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `DELETE /v1/auth/security/sessions/{session_id}`
 - Summary: Revoke Session
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Parameters:
   - `session_id` (path, required): string
-- Responses: `200` `application/json` -> SessionRevocationResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> SessionRevocationResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 
 ## Exports
 
@@ -502,18 +502,18 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:items`
 - Request body: `application/json` -> ArticleExportRequest
-- Responses: `200`, `422` `application/json` -> ApiErrorResponse
+- Responses: `200`, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/exports/capabilities`
 - Summary: Get Export Capabilities
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:items`
-- Responses: `200` `application/json` -> ArticleExportCapabilitiesResponse
+- Responses: `200` `application/json` -> ArticleExportCapabilitiesResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/exports/preview`
 - Summary: Preview Export
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:items`
 - Request body: `application/json` -> ArticleExportPreviewRequest
-- Responses: `200` `application/json` -> ArticleExportPreviewResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> ArticleExportPreviewResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 
 ## Feeds
 
@@ -521,42 +521,42 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Summary: List Feeds
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:feeds`
-- Responses: `200` `application/json` -> array[FeedResponse]
+- Responses: `200` `application/json` -> array[FeedResponse], `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/feeds`
 - Summary: Create Feed
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:feeds`
 - Request body: `application/json` -> FeedCreate
-- Responses: `201` `application/json` -> FeedResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `201` `application/json` -> FeedResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/feeds/export`
 - Summary: Export Feeds Sanitized
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:feeds`
-- Responses: `200` `application/json` -> FeedExportResponse
+- Responses: `200` `application/json` -> FeedExportResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/feeds/export/backup`
 - Summary: Export Feeds Backup
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `admin:feeds`
-- Responses: `200` `application/json` -> FeedExportResponse
+- Responses: `200` `application/json` -> FeedExportResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/feeds/import`
 - Summary: Import Feeds
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:feeds`
 - Request body: `application/json` -> FeedImportRequest
-- Responses: `200` `application/json` -> FeedImportResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> FeedImportResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/feeds/metadata`
 - Summary: Get Feed Metadata
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:feeds`
 - Request body: `application/json` -> FeedMetadataRequest
-- Responses: `200` `application/json` -> FeedMetadataResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> FeedMetadataResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `DELETE /v1/feeds/{feed_id}`
 - Summary: Delete Feed
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `admin:feeds`
 - Parameters:
   - `feed_id` (path, required): string
-- Responses: `204`, `422` `application/json` -> ApiErrorResponse
+- Responses: `204`, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `PATCH /v1/feeds/{feed_id}`
 - Summary: Update Feed
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -564,31 +564,31 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `feed_id` (path, required): string
 - Request body: `application/json` -> FeedUpdate
-- Responses: `200` `application/json` -> FeedResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> FeedResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/feeds/{feed_id}/refresh`
 - Summary: Refresh Feed
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:feeds`
 - Parameters:
   - `feed_id` (path, required): string
-- Responses: `202` `application/json` -> unspecified, `404` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+- Responses: `202` `application/json` -> unspecified, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `404` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 
 ## Health
 
 ### `GET /v1/health`
 - Summary: Health
 - Auth: ApiTokenBearer or SessionCookieAuth
-- Responses: `200` `application/json` -> unspecified
+- Responses: `200` `application/json` -> unspecified, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/health/beat`
 - Summary: Beat
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:health`
-- Responses: `200` `application/json` -> unspecified
+- Responses: `200` `application/json` -> unspecified, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/health/encrypted-data`
 - Summary: Encrypted Data
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:health`
-- Responses: `200` `application/json` -> EncryptedDataInventoryResponse
+- Responses: `200` `application/json` -> EncryptedDataInventoryResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/health/live`
 - Summary: Live
 - Auth: none
@@ -597,47 +597,47 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Summary: Notifications
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:health`
-- Responses: `200` `application/json` -> unspecified
+- Responses: `200` `application/json` -> unspecified, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/health/ready`
 - Summary: Ready
 - Auth: ApiTokenBearer or SessionCookieAuth
-- Responses: `200` `application/json` -> unspecified
+- Responses: `200` `application/json` -> unspecified, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/health/worker`
 - Summary: Worker
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:health`
-- Responses: `200` `application/json` -> unspecified
+- Responses: `200` `application/json` -> unspecified, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 
 ## Iam
 
 ### `GET /v1/iam/effective`
 - Summary: Get My Effective Access
 - Auth: ApiTokenBearer or SessionCookieAuth
-- Responses: `200` `application/json` -> EffectiveAccessResponse
+- Responses: `200` `application/json` -> EffectiveAccessResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/iam/effective/explain`
 - Summary: Explain My Access
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Parameters:
   - `permission` (query, required): string
-- Responses: `200` `application/json` -> AccessExplanationResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> AccessExplanationResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/iam/groups`
 - Summary: Get Groups
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:iam`
-- Responses: `200` `application/json` -> array[GroupResponse]
+- Responses: `200` `application/json` -> array[GroupResponse], `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/iam/groups`
 - Summary: Post Group
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:iam`
 - Request body: `application/json` -> GroupWriteRequest
-- Responses: `201` `application/json` -> GroupResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `201` `application/json` -> GroupResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `DELETE /v1/iam/groups/{group_id}`
 - Summary: Remove Group
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:iam`
 - Parameters:
   - `group_id` (path, required): string
-- Responses: `204`, `404` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `204`, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `404` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `PATCH /v1/iam/groups/{group_id}`
 - Summary: Patch Group
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -645,14 +645,14 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `group_id` (path, required): string
 - Request body: `application/json` -> GroupUpdateRequest
-- Responses: `200` `application/json` -> GroupResponse, `404` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> GroupResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `404` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/iam/groups/{group_id}/members`
 - Summary: Get Group Members
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:iam`
 - Parameters:
   - `group_id` (path, required): string
-- Responses: `200` `application/json` -> array[GroupMemberResponse], `404` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> array[GroupMemberResponse], `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `404` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/iam/groups/{group_id}/members`
 - Summary: Post Group Member
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -660,7 +660,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `group_id` (path, required): string
 - Request body: `application/json` -> GroupMemberRequest
-- Responses: `201` `application/json` -> GroupMemberResponse, `404` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `201` `application/json` -> GroupMemberResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `404` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `DELETE /v1/iam/groups/{group_id}/members/{membership_id}`
 - Summary: Delete Group Member
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -668,14 +668,14 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `group_id` (path, required): string
   - `membership_id` (path, required): string
-- Responses: `204`, `404` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `204`, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `404` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/iam/groups/{group_id}/role-assignments`
 - Summary: Get Group Roles
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:iam`
 - Parameters:
   - `group_id` (path, required): string
-- Responses: `200` `application/json` -> array[GroupRoleAssignmentResponse], `404` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> array[GroupRoleAssignmentResponse], `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `404` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/iam/groups/{group_id}/role-assignments`
 - Summary: Post Group Role
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -683,7 +683,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `group_id` (path, required): string
 - Request body: `application/json` -> GroupRoleRequest
-- Responses: `201` `application/json` -> GroupResponse, `404` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `201` `application/json` -> GroupResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `404` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `DELETE /v1/iam/groups/{group_id}/role-assignments/{assignment_id}`
 - Summary: Delete Group Role
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -691,37 +691,37 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `group_id` (path, required): string
   - `assignment_id` (path, required): string
-- Responses: `204`, `404` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `204`, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `404` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/iam/permissions`
 - Summary: Get Permissions
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:iam`
-- Responses: `200` `application/json` -> array[PermissionResponse]
+- Responses: `200` `application/json` -> array[PermissionResponse], `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/iam/roles`
 - Summary: Get Roles
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:iam`
-- Responses: `200` `application/json` -> array[RoleResponse]
+- Responses: `200` `application/json` -> array[RoleResponse], `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/iam/roles`
 - Summary: Post Role
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:iam`
 - Request body: `application/json` -> RoleWriteRequest
-- Responses: `201` `application/json` -> RoleResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `201` `application/json` -> RoleResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `DELETE /v1/iam/roles/{role_id}`
 - Summary: Remove Role
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:iam`
 - Parameters:
   - `role_id` (path, required): string
-- Responses: `204`, `404` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `204`, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `404` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/iam/roles/{role_id}`
 - Summary: Get Role
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:iam`
 - Parameters:
   - `role_id` (path, required): string
-- Responses: `200` `application/json` -> RoleResponse, `404` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> RoleResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `404` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `PATCH /v1/iam/roles/{role_id}`
 - Summary: Patch Role
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -729,21 +729,21 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `role_id` (path, required): string
 - Request body: `application/json` -> RoleUpdateRequest
-- Responses: `200` `application/json` -> RoleResponse, `404` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> RoleResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `404` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/iam/users/{user_id}/effective`
 - Summary: Get User Effective Access
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:iam`
 - Parameters:
   - `user_id` (path, required): string
-- Responses: `200` `application/json` -> EffectiveAccessResponse, `404` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> EffectiveAccessResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `404` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/iam/users/{user_id}/role-assignments`
 - Summary: Get User Roles
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:iam`
 - Parameters:
   - `user_id` (path, required): string
-- Responses: `200` `application/json` -> array[UserRoleAssignmentResponse], `404` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> array[UserRoleAssignmentResponse], `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `404` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/iam/users/{user_id}/role-assignments`
 - Summary: Post User Role
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -751,7 +751,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `user_id` (path, required): string
 - Request body: `application/json` -> UserRoleAssignmentRequest
-- Responses: `201` `application/json` -> UserRoleAssignmentResponse, `404` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `201` `application/json` -> UserRoleAssignmentResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `404` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `DELETE /v1/iam/users/{user_id}/role-assignments/{assignment_id}`
 - Summary: Delete User Role
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -759,7 +759,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `user_id` (path, required): string
   - `assignment_id` (path, required): string
-- Responses: `204`, `404` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `204`, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `404` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 
 ## Integrations
 
@@ -767,48 +767,48 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Summary: List Integrations
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:integrations`
-- Responses: `200` `application/json` -> array[IntegrationSummaryResponse]
+- Responses: `200` `application/json` -> array[IntegrationSummaryResponse], `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/integrations/connectors`
 - Summary: Get Integration Connectors
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:integrations`
-- Responses: `200` `application/json` -> array[IntegrationConnectorResponse]
+- Responses: `200` `application/json` -> array[IntegrationConnectorResponse], `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/integrations/deliveries/{delivery_id}/replay`
 - Summary: Replay Integration Delivery
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:integrations`
 - Parameters:
   - `delivery_id` (path, required): string
-- Responses: `200` `application/json` -> IntegrationDeliveryReplayResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> IntegrationDeliveryReplayResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/integrations/smtp/analytics`
 - Summary: Get Smtp Analytics
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:integrations`
-- Responses: `200` `application/json` -> SMTPAnalyticsResponse
+- Responses: `200` `application/json` -> SMTPAnalyticsResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/integrations/smtp/hooks`
 - Summary: Get Smtp Hooks
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:integrations`
-- Responses: `200` `application/json` -> array[SMTPHookResponse]
+- Responses: `200` `application/json` -> array[SMTPHookResponse], `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/integrations/smtp/hooks`
 - Summary: Create Smtp Hook
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:integrations`
 - Request body: `application/json` -> SMTPHookWrite
-- Responses: `201` `application/json` -> SMTPHookResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `201` `application/json` -> SMTPHookResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/integrations/smtp/hooks/test`
 - Summary: Test Smtp Hook
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:integrations`
 - Request body: `application/json` -> SMTPHookTestRequest
-- Responses: `200` `application/json` -> SMTPTestResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> SMTPTestResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `DELETE /v1/integrations/smtp/hooks/{hook_id}`
 - Summary: Delete Smtp Hook
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:integrations`
 - Parameters:
   - `hook_id` (path, required): string
-- Responses: `204`, `422` `application/json` -> ApiErrorResponse
+- Responses: `204`, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `PATCH /v1/integrations/smtp/hooks/{hook_id}`
 - Summary: Update Smtp Hook
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -816,7 +816,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `hook_id` (path, required): string
 - Request body: `application/json` -> SMTPHookWrite
-- Responses: `200` `application/json` -> SMTPHookResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> SMTPHookResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/integrations/smtp/hooks/{hook_id}/deliveries`
 - Summary: Get Smtp Hook Deliveries
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -825,7 +825,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `hook_id` (path, required): string
   - `page` (query, optional): integer
   - `page_size` (query, optional): integer
-- Responses: `200` `application/json` -> SMTPDeliveryListResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> SMTPDeliveryListResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/integrations/smtp/hooks/{hook_id}/deliveries/{delivery_id}/replay`
 - Summary: Replay Smtp Hook Delivery
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -833,7 +833,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `hook_id` (path, required): string
   - `delivery_id` (path, required): string
-- Responses: `200` `application/json` -> IntegrationDeliveryReplayResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> IntegrationDeliveryReplayResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/integrations/smtp/hooks/{hook_id}/test-runs`
 - Summary: Get Smtp Hook Test Runs
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -842,29 +842,29 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `hook_id` (path, required): string
   - `page` (query, optional): integer
   - `page_size` (query, optional): integer
-- Responses: `200` `application/json` -> SMTPTestRunListResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> SMTPTestRunListResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/integrations/smtp/settings`
 - Summary: Get Smtp Settings
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:integrations`
-- Responses: `200` `application/json` -> SMTPSettingsResponse
+- Responses: `200` `application/json` -> SMTPSettingsResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `PUT /v1/integrations/smtp/settings`
 - Summary: Update Smtp Settings
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:integrations`
 - Request body: `application/json` -> SMTPSettingsUpdate
-- Responses: `200` `application/json` -> SMTPSettingsResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> SMTPSettingsResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/integrations/smtp/template-defaults`
 - Summary: Get Smtp Template Defaults
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:integrations`
-- Responses: `200` `application/json` -> array[SMTPTemplateDefaultResponse]
+- Responses: `200` `application/json` -> array[SMTPTemplateDefaultResponse], `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/integrations/smtp/test`
 - Summary: Test Smtp Settings
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:integrations`
 - Request body: `application/json` -> SMTPTestRequest
-- Responses: `200` `application/json` -> SMTPTestResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> SMTPTestResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 
 ## Investigations
 
@@ -880,13 +880,13 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `include_archived` (query, optional): boolean
   - `page` (query, optional): integer
   - `page_size` (query, optional): integer
-- Responses: `200` `application/json` -> InvestigationListResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> InvestigationListResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/investigations`
 - Summary: Post Investigation
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:investigations`
 - Request body: `application/json` -> InvestigationCreate
-- Responses: `201` `application/json` -> InvestigationDetailResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `201` `application/json` -> InvestigationDetailResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/investigations/member-candidates`
 - Summary: Get Investigation Member Candidates
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -895,14 +895,14 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `q` (query, optional): Q
   - `page` (query, optional): integer
   - `page_size` (query, optional): integer
-- Responses: `200` `application/json` -> InvestigationMemberCandidateListResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> InvestigationMemberCandidateListResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/investigations/{investigation_id}`
 - Summary: Get Investigation
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:investigations`
 - Parameters:
   - `investigation_id` (path, required): string
-- Responses: `200` `application/json` -> InvestigationDetailResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> InvestigationDetailResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `PATCH /v1/investigations/{investigation_id}`
 - Summary: Patch Investigation
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -910,7 +910,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `investigation_id` (path, required): string
 - Request body: `application/json` -> InvestigationUpdate
-- Responses: `200` `application/json` -> InvestigationDetailResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> InvestigationDetailResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/investigations/{investigation_id}/activity`
 - Summary: Get Investigation Activity
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -919,7 +919,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `investigation_id` (path, required): string
   - `page` (query, optional): integer
   - `page_size` (query, optional): integer
-- Responses: `200` `application/json` -> InvestigationActivityListResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> InvestigationActivityListResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/investigations/{investigation_id}/evidence`
 - Summary: Get Investigation Evidence
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -928,7 +928,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `investigation_id` (path, required): string
   - `page` (query, optional): integer
   - `page_size` (query, optional): integer
-- Responses: `200` `application/json` -> InvestigationEvidenceListResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> InvestigationEvidenceListResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/investigations/{investigation_id}/evidence`
 - Summary: Post Investigation Evidence
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -936,7 +936,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `investigation_id` (path, required): string
 - Request body: `application/json` -> InvestigationEvidenceAdd
-- Responses: `200` `application/json` -> InvestigationDetailResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> InvestigationDetailResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `DELETE /v1/investigations/{investigation_id}/evidence/{evidence_id}`
 - Summary: Delete Investigation Evidence
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -945,7 +945,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `investigation_id` (path, required): string
   - `evidence_id` (path, required): string
   - `expected_version` (query, required): integer
-- Responses: `200` `application/json` -> InvestigationDetailResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> InvestigationDetailResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/investigations/{investigation_id}/members`
 - Summary: Post Investigation Member
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -953,7 +953,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `investigation_id` (path, required): string
 - Request body: `application/json` -> InvestigationMemberAdd
-- Responses: `200` `application/json` -> InvestigationDetailResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> InvestigationDetailResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `DELETE /v1/investigations/{investigation_id}/members/{member_user_id}`
 - Summary: Delete Investigation Member
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -962,7 +962,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `investigation_id` (path, required): string
   - `member_user_id` (path, required): string
   - `expected_version` (query, required): integer
-- Responses: `200` `application/json` -> InvestigationDetailResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> InvestigationDetailResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `PATCH /v1/investigations/{investigation_id}/members/{member_user_id}`
 - Summary: Patch Investigation Member
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -971,7 +971,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `investigation_id` (path, required): string
   - `member_user_id` (path, required): string
 - Request body: `application/json` -> InvestigationMemberUpdate
-- Responses: `200` `application/json` -> InvestigationDetailResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> InvestigationDetailResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/investigations/{investigation_id}/notes`
 - Summary: Get Investigation Notes
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -980,7 +980,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `investigation_id` (path, required): string
   - `page` (query, optional): integer
   - `page_size` (query, optional): integer
-- Responses: `200` `application/json` -> InvestigationNoteListResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> InvestigationNoteListResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/investigations/{investigation_id}/notes`
 - Summary: Post Investigation Note
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -988,7 +988,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `investigation_id` (path, required): string
 - Request body: `application/json` -> InvestigationNoteCreate
-- Responses: `200` `application/json` -> InvestigationDetailResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> InvestigationDetailResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `DELETE /v1/investigations/{investigation_id}/notes/{note_id}`
 - Summary: Delete Investigation Note
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -998,7 +998,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `note_id` (path, required): string
   - `expected_note_version` (query, required): integer
   - `expected_investigation_version` (query, required): integer
-- Responses: `200` `application/json` -> InvestigationDetailResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> InvestigationDetailResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `PATCH /v1/investigations/{investigation_id}/notes/{note_id}`
 - Summary: Patch Investigation Note
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -1007,7 +1007,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `investigation_id` (path, required): string
   - `note_id` (path, required): string
 - Request body: `application/json` -> InvestigationNoteUpdate
-- Responses: `200` `application/json` -> InvestigationDetailResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> InvestigationDetailResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 
 ## Items
 
@@ -1032,21 +1032,21 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `page` (query, optional): integer
   - `page_size` (query, optional): integer
   - `sort` (query, optional): string
-- Responses: `200` `application/json` -> ItemListResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> ItemListResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/items/{item_id}`
 - Summary: Get Item
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:items`
 - Parameters:
   - `item_id` (path, required): string
-- Responses: `200` `application/json` -> ItemDetailResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> ItemDetailResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/items/{item_id}/article-preview`
 - Summary: Get Item Article Preview
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:items`
 - Parameters:
   - `item_id` (path, required): string
-- Responses: `200` `text/html` -> string, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `text/html` -> string, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/items/{item_id}/graph`
 - Summary: Get Item Graph
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -1057,7 +1057,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `related_item_limit` (query, optional): integer
   - `ioc_limit` (query, optional): integer
   - `since_days` (query, optional): integer
-- Responses: `200` `application/json` -> ItemGraphResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> ItemGraphResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/items/{item_id}/note`
 - Summary: Set Item Note
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -1065,7 +1065,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `item_id` (path, required): string
 - Request body: `application/json` -> NoteUpdateRequest
-- Responses: `200` `application/json` -> unspecified, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> unspecified, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/items/{item_id}/read`
 - Summary: Set Item Read
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -1073,14 +1073,14 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `item_id` (path, required): string
 - Request body: `application/json` -> ReadUpdateRequest
-- Responses: `200` `application/json` -> unspecified, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> unspecified, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/items/{item_id}/retry-article-fetch`
 - Summary: Retry Item Article Fetch
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:items`
 - Parameters:
   - `item_id` (path, required): string
-- Responses: `202` `application/json` -> unspecified, `422` `application/json` -> ApiErrorResponse
+- Responses: `202` `application/json` -> unspecified, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/items/{item_id}/star`
 - Summary: Set Item Star
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -1088,14 +1088,14 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `item_id` (path, required): string
 - Request body: `application/json` -> StarUpdateRequest
-- Responses: `200` `application/json` -> unspecified, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> unspecified, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/items/{item_id}/tag-suggestions`
 - Summary: Get Item Tag Suggestions
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:items`
 - Parameters:
   - `item_id` (path, required): string
-- Responses: `200` `application/json` -> ItemTagSuggestionListResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> ItemTagSuggestionListResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/items/{item_id}/tags`
 - Summary: Set Item Tags
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -1103,7 +1103,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `item_id` (path, required): string
 - Request body: `application/json` -> ItemTagsUpdateRequest
-- Responses: `200` `application/json` -> unspecified, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> unspecified, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 
 ## Notifications
 
@@ -1111,36 +1111,36 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Summary: Get Notifications Analytics
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:notifications`
-- Responses: `200` `application/json` -> NotificationAnalyticsResponse
+- Responses: `200` `application/json` -> NotificationAnalyticsResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/notifications/template-variables`
 - Summary: Get Notification Template Variables
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:notifications`
-- Responses: `200` `application/json` -> array[NotificationTemplateVariable]
+- Responses: `200` `application/json` -> array[NotificationTemplateVariable], `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/notifications/webhooks`
 - Summary: List Notification Webhooks
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:notifications`
-- Responses: `200` `application/json` -> array[NotificationWebhookResponse]
+- Responses: `200` `application/json` -> array[NotificationWebhookResponse], `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/notifications/webhooks`
 - Summary: Create Notification Webhook
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:notifications`
 - Request body: `application/json` -> NotificationWebhookWrite
-- Responses: `201` `application/json` -> NotificationWebhookResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `201` `application/json` -> NotificationWebhookResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/notifications/webhooks/test`
 - Summary: Test Notification Webhook
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:notifications`
 - Request body: `application/json` -> NotificationWebhookTestRequest
-- Responses: `200` `application/json` -> NotificationWebhookTestResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> NotificationWebhookTestResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `DELETE /v1/notifications/webhooks/{webhook_id}`
 - Summary: Delete Notification Webhook
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:notifications`
 - Parameters:
   - `webhook_id` (path, required): string
-- Responses: `204`, `422` `application/json` -> ApiErrorResponse
+- Responses: `204`, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `PATCH /v1/notifications/webhooks/{webhook_id}`
 - Summary: Update Notification Webhook
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -1148,7 +1148,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `webhook_id` (path, required): string
 - Request body: `application/json` -> NotificationWebhookWrite
-- Responses: `200` `application/json` -> NotificationWebhookResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> NotificationWebhookResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/notifications/webhooks/{webhook_id}/deliveries`
 - Summary: List Notification Webhook Deliveries
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -1157,7 +1157,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `webhook_id` (path, required): string
   - `page` (query, optional): integer
   - `page_size` (query, optional): integer
-- Responses: `200` `application/json` -> NotificationWebhookDeliveryListResponse, `404` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> NotificationWebhookDeliveryListResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `404` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/notifications/webhooks/{webhook_id}/deliveries/{delivery_id}/retry`
 - Summary: Retry Notification Webhook Delivery
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -1165,7 +1165,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `webhook_id` (path, required): string
   - `delivery_id` (path, required): string
-- Responses: `200` `application/json` -> NotificationWebhookDeliveryResponse, `404` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> NotificationWebhookDeliveryResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `404` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 
 ## Operations
 
@@ -1173,12 +1173,12 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Summary: Diagnostics
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:operations`
-- Responses: `200` `application/json` -> OperationsDiagnosticsResponse
+- Responses: `200` `application/json` -> OperationsDiagnosticsResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/operations/overview`
 - Summary: Overview
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:operations`
-- Responses: `200` `application/json` -> OperationsOverviewResponse
+- Responses: `200` `application/json` -> OperationsOverviewResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/operations/runs`
 - Summary: Runs
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -1188,7 +1188,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `status` (query, optional): Status
   - `page` (query, optional): integer
   - `page_size` (query, optional): integer
-- Responses: `200` `application/json` -> SystemOperationRunListResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> SystemOperationRunListResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 
 ## Reports
 
@@ -1200,7 +1200,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `status` (query, optional): Status
   - `limit` (query, optional): integer
   - `offset` (query, optional): integer
-- Responses: `200` `application/json` -> array[ReportListItem], `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> array[ReportListItem], `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/reports`
 - Summary: Create Report
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -1208,23 +1208,23 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `Idempotency-Key` (header, optional): Idempotency-Key
 - Request body: `application/json` -> ReportCreateRequest
-- Responses: `202` `application/json` -> ReportQueueResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `202` `application/json` -> ReportQueueResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/reports/capabilities`
 - Summary: Get Report Capabilities
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:reports`
-- Responses: `200` `application/json` -> ReportCapabilitiesResponse
+- Responses: `200` `application/json` -> ReportCapabilitiesResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/reports/preview`
 - Summary: Preview Report
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:reports`
 - Request body: `application/json` -> ReportPreviewRequest
-- Responses: `200` `application/json` -> ReportPreviewResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> ReportPreviewResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/reports/schedules`
 - Summary: List Schedules
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:reports`
-- Responses: `200` `application/json` -> array[ReportScheduleResponse]
+- Responses: `200` `application/json` -> array[ReportScheduleResponse], `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/reports/schedules`
 - Summary: Create Schedule
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -1232,7 +1232,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `Idempotency-Key` (header, optional): Idempotency-Key
 - Request body: `application/json` -> ReportScheduleCreate
-- Responses: `201` `application/json` -> ReportScheduleResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `201` `application/json` -> ReportScheduleResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `DELETE /v1/reports/schedules/{schedule_id}`
 - Summary: Remove Schedule
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -1240,7 +1240,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `schedule_id` (path, required): string
   - `If-Match` (header, optional): If-Match
-- Responses: `204`, `400` `application/json` -> ApiErrorResponse, `412` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `204`, `400` `application/json` -> ApiErrorResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `412` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `PUT /v1/reports/schedules/{schedule_id}`
 - Summary: Update Schedule
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -1249,7 +1249,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `schedule_id` (path, required): string
   - `If-Match` (header, optional): If-Match
 - Request body: `application/json` -> ReportScheduleUpdate
-- Responses: `200` `application/json` -> ReportScheduleResponse, `400` `application/json` -> ApiErrorResponse, `412` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> ReportScheduleResponse, `400` `application/json` -> ApiErrorResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `412` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/reports/schedules/{schedule_id}/run`
 - Summary: Run Schedule
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -1258,12 +1258,12 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `schedule_id` (path, required): string
   - `Idempotency-Key` (header, optional): Idempotency-Key
   - `If-Match` (header, optional): If-Match
-- Responses: `202` `application/json` -> array[ReportQueueResponse], `400` `application/json` -> ApiErrorResponse, `412` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `202` `application/json` -> array[ReportQueueResponse], `400` `application/json` -> ApiErrorResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `412` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/reports/templates`
 - Summary: List Report Templates
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:reports`
-- Responses: `200` `application/json` -> array[ReportTemplateResponse]
+- Responses: `200` `application/json` -> array[ReportTemplateResponse], `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/reports/templates`
 - Summary: Create Template
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -1271,7 +1271,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `Idempotency-Key` (header, optional): Idempotency-Key
 - Request body: `application/json` -> ReportTemplateCreate
-- Responses: `201` `application/json` -> ReportTemplateResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `201` `application/json` -> ReportTemplateResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `DELETE /v1/reports/templates/{template_id}`
 - Summary: Remove Template
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -1279,7 +1279,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `template_id` (path, required): string
   - `If-Match` (header, optional): If-Match
-- Responses: `204`, `400` `application/json` -> ApiErrorResponse, `412` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `204`, `400` `application/json` -> ApiErrorResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `412` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `PUT /v1/reports/templates/{template_id}`
 - Summary: Update Template
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -1288,7 +1288,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `template_id` (path, required): string
   - `If-Match` (header, optional): If-Match
 - Request body: `application/json` -> ReportTemplateUpdate
-- Responses: `200` `application/json` -> ReportTemplateResponse, `400` `application/json` -> ApiErrorResponse, `412` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> ReportTemplateResponse, `400` `application/json` -> ApiErrorResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `412` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/reports/templates/{template_id}/clone`
 - Summary: Clone Template
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -1296,33 +1296,142 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `template_id` (path, required): string
   - `Idempotency-Key` (header, optional): Idempotency-Key
-- Responses: `201` `application/json` -> ReportTemplateResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `201` `application/json` -> ReportTemplateResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `DELETE /v1/reports/{report_id}`
 - Summary: Remove Report
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Parameters:
   - `report_id` (path, required): string
-- Responses: `204`, `422` `application/json` -> ApiErrorResponse
+- Responses: `204`, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/reports/{report_id}`
 - Summary: Get Report
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Parameters:
   - `report_id` (path, required): string
-- Responses: `200` `application/json` -> ReportDetailResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> ReportDetailResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/reports/{report_id}/download`
 - Summary: Download Report
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Parameters:
   - `report_id` (path, required): string
   - `format` (query, optional): string
-- Responses: `200` `application/json` -> unspecified, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> unspecified, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/reports/{report_id}/retry`
 - Summary: Retry Report
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Parameters:
   - `report_id` (path, required): string
   - `Idempotency-Key` (header, optional): Idempotency-Key
-- Responses: `202` `application/json` -> ReportQueueResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `202` `application/json` -> ReportQueueResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+
+## Service-Accounts
+
+### `GET /v1/iam/service-accounts`
+- Summary: Get Service Accounts
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:service_accounts`
+- Parameters:
+  - `page` (query, optional): integer
+  - `page_size` (query, optional): integer
+- Responses: `200` `application/json` -> ServiceAccountListResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/iam/service-accounts`
+- Summary: Post Service Account
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:service_accounts`
+- Request body: `application/json` -> ServiceAccountCreateRequest
+- Responses: `201` `application/json` -> ServiceAccountResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `DELETE /v1/iam/service-accounts/{service_account_id}`
+- Summary: Delete Disabled Service Account
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:service_accounts`
+- Parameters:
+  - `service_account_id` (path, required): string
+  - `expected_revision` (query, required): integer
+- Responses: `204`, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `404` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `GET /v1/iam/service-accounts/{service_account_id}`
+- Summary: Get Service Account
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:service_accounts`
+- Parameters:
+  - `service_account_id` (path, required): string
+- Responses: `200` `application/json` -> ServiceAccountResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `404` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `PATCH /v1/iam/service-accounts/{service_account_id}`
+- Summary: Patch Service Account
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:service_accounts`
+- Parameters:
+  - `service_account_id` (path, required): string
+- Request body: `application/json` -> ServiceAccountUpdateRequest
+- Responses: `200` `application/json` -> ServiceAccountResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `404` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `GET /v1/iam/service-accounts/{service_account_id}/credentials`
+- Summary: Get Credentials
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:service_accounts`
+- Parameters:
+  - `service_account_id` (path, required): string
+  - `page` (query, optional): integer
+  - `page_size` (query, optional): integer
+- Responses: `200` `application/json` -> ServiceAccountCredentialListResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `404` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/iam/service-accounts/{service_account_id}/credentials`
+- Summary: Post Credential
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:service_accounts`
+- Parameters:
+  - `service_account_id` (path, required): string
+  - `Idempotency-Key` (header, required): string
+- Request body: `application/json` -> ServiceAccountCredentialIssueRequest
+- Responses: `201` `application/json` -> ServiceAccountCredentialIssueResponse, `400` `application/json` -> ApiErrorResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `404` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/iam/service-accounts/{service_account_id}/credentials/{credential_id}/revoke`
+- Summary: Post Revoke Credential
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:service_accounts`
+- Parameters:
+  - `service_account_id` (path, required): string
+  - `credential_id` (path, required): string
+- Request body: `application/json` -> ServiceAccountRevisionRequest
+- Responses: `200` `application/json` -> ServiceAccountCredentialResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `404` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/iam/service-accounts/{service_account_id}/credentials/{credential_id}/rotate`
+- Summary: Post Rotate Credential
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:service_accounts`
+- Parameters:
+  - `service_account_id` (path, required): string
+  - `credential_id` (path, required): string
+  - `Idempotency-Key` (header, required): string
+- Request body: `application/json` -> ServiceAccountCredentialIssueRequest
+- Responses: `201` `application/json` -> ServiceAccountCredentialRotateResponse, `400` `application/json` -> ApiErrorResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `404` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/iam/service-accounts/{service_account_id}/disable`
+- Summary: Post Disable Service Account
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:service_accounts`
+- Parameters:
+  - `service_account_id` (path, required): string
+- Request body: `application/json` -> ServiceAccountRevisionRequest
+- Responses: `200` `application/json` -> ServiceAccountResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `404` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `GET /v1/iam/service-accounts/{service_account_id}/role-assignments`
+- Summary: Get Role Assignments
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:service_accounts`
+- Parameters:
+  - `service_account_id` (path, required): string
+- Responses: `200` `application/json` -> array[ServiceAccountRoleAssignmentResponse], `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `404` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/iam/service-accounts/{service_account_id}/role-assignments`
+- Summary: Post Role Assignment
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:service_accounts`
+- Parameters:
+  - `service_account_id` (path, required): string
+- Request body: `application/json` -> ServiceAccountRoleAssignmentRequest
+- Responses: `201` `application/json` -> ServiceAccountRoleAssignmentResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `404` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `DELETE /v1/iam/service-accounts/{service_account_id}/role-assignments/{assignment_id}`
+- Summary: Delete Role Assignment
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:service_accounts`
+- Parameters:
+  - `service_account_id` (path, required): string
+  - `assignment_id` (path, required): string
+  - `expected_revision` (query, required): integer
+- Responses: `204`, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `404` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 
 ## Stats
 
@@ -1333,7 +1442,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `days` (query, optional): integer
   - `feed_ids` (query, optional): Feed Ids
-- Responses: `200` `application/json` -> ActivityHeatmapResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> ActivityHeatmapResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/stats/feed-timeseries`
 - Summary: Get Feed Timeseries
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -1342,7 +1451,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `days` (query, optional): integer
   - `feed_ids` (query, optional): Feed Ids
   - `top_feeds` (query, optional): Top Feeds
-- Responses: `200` `application/json` -> FeedTimeSeriesResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> FeedTimeSeriesResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/stats/overview`
 - Summary: Get Stats Overview
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -1350,7 +1459,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `days` (query, optional): integer
   - `feed_ids` (query, optional): Feed Ids
-- Responses: `200` `application/json` -> StatsOverviewResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> StatsOverviewResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/stats/signal-radar`
 - Summary: Get Signal Radar
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -1358,7 +1467,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `days` (query, optional): integer
   - `feed_ids` (query, optional): Feed Ids
-- Responses: `200` `application/json` -> SignalRadarResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> SignalRadarResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 
 ## Tagging
 
@@ -1367,26 +1476,26 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:tagging`
 - Request body: `application/json` -> TaggingReapplyRequest
-- Responses: `200` `application/json` -> TaggingReapplyResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> TaggingReapplyResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/tagging/rules`
 - Summary: Create Tagging Rule
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:tagging`
 - Request body: `application/json` -> TaggingRuleWrite
-- Responses: `201` `application/json` -> TaggingRuleResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `201` `application/json` -> TaggingRuleResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/tagging/rules/preview`
 - Summary: Preview Tagging Rule
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:tagging`
 - Request body: `application/json` -> TaggingRulePreviewRequest
-- Responses: `200` `application/json` -> TaggingRulePreviewResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> TaggingRulePreviewResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `DELETE /v1/tagging/rules/{rule_id}`
 - Summary: Delete Tagging Rule
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:tagging`
 - Parameters:
   - `rule_id` (path, required): string
-- Responses: `204`, `422` `application/json` -> ApiErrorResponse
+- Responses: `204`, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `PATCH /v1/tagging/rules/{rule_id}`
 - Summary: Update Tagging Rule
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -1394,18 +1503,18 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `rule_id` (path, required): string
 - Request body: `application/json` -> TaggingRuleWrite
-- Responses: `200` `application/json` -> TaggingRuleResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> TaggingRuleResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/tagging/settings`
 - Summary: Get Tagging Settings Bundle
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:tagging`
-- Responses: `200` `application/json` -> TaggingSettingsBundleResponse
+- Responses: `200` `application/json` -> TaggingSettingsBundleResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `PUT /v1/tagging/settings`
 - Summary: Update Tagging Settings
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:tagging`
 - Request body: `application/json` -> TaggingSettingsUpdate
-- Responses: `200` `application/json` -> TaggingSettingsResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> TaggingSettingsResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 
 ## Tags
 
@@ -1413,13 +1522,13 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Summary: List Tags
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:tags`
-- Responses: `200` `application/json` -> array[TagResponse]
+- Responses: `200` `application/json` -> array[TagResponse], `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/tags`
 - Summary: Create Tag
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:tags`
 - Request body: `application/json` -> TagCreate
-- Responses: `201` `application/json` -> TagResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `201` `application/json` -> TagResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 
 ## Tokens
 
@@ -1429,13 +1538,13 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Token scopes: `read:tokens`
 - Parameters:
   - `user_id` (query, optional): User Id
-- Responses: `200` `application/json` -> array[ApiTokenResponse], `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> array[ApiTokenResponse], `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/tokens`
 - Summary: Create Token
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:tokens`
 - Request body: `application/json` -> ApiTokenCreateRequest
-- Responses: `201` `application/json` -> ApiTokenCreateResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `201` `application/json` -> ApiTokenCreateResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/tokens/inventory`
 - Summary: List Token Inventory
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -1444,14 +1553,14 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `user_id` (query, optional): User Id
   - `page` (query, optional): integer
   - `page_size` (query, optional): integer
-- Responses: `200` `application/json` -> ApiTokenListResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> ApiTokenListResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `DELETE /v1/tokens/{token_id}`
 - Summary: Revoke Token
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:tokens`
 - Parameters:
   - `token_id` (path, required): string
-- Responses: `204`, `422` `application/json` -> ApiErrorResponse
+- Responses: `204`, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 
 ## Users
 
@@ -1459,13 +1568,13 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Summary: List Users
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:users`
-- Responses: `200` `application/json` -> array[UserAdminResponse]
+- Responses: `200` `application/json` -> array[UserAdminResponse], `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/users`
 - Summary: Create User
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:users`
 - Request body: `application/json` -> UserCreateRequest
-- Responses: `201` `application/json` -> UserAdminResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `201` `application/json` -> UserAdminResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/users/directory`
 - Summary: List User Directory
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -1476,14 +1585,14 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `provisioning_source` (query, optional): Provisioning Source
   - `limit` (query, optional): integer
   - `offset` (query, optional): integer
-- Responses: `200` `application/json` -> UserDirectoryResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> UserDirectoryResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/users/{user_id}`
 - Summary: Get User
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:users`
 - Parameters:
   - `user_id` (path, required): string
-- Responses: `200` `application/json` -> UserAdminResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> UserAdminResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `PATCH /v1/users/{user_id}`
 - Summary: Update User
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -1491,7 +1600,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `user_id` (path, required): string
 - Request body: `application/json` -> UserUpdateRequest
-- Responses: `200` `application/json` -> UserAdminResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> UserAdminResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/users/{user_id}/mfa/reset`
 - Summary: Reset User Mfa
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -1499,7 +1608,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `user_id` (path, required): string
 - Request body: `application/json` -> AdminMFAResetRequest
-- Responses: `200` `application/json` -> AdminMFAResetResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> AdminMFAResetResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 
 ## Views
 
@@ -1507,20 +1616,20 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Summary: List Views
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:views`
-- Responses: `200` `application/json` -> array[SavedViewResponse]
+- Responses: `200` `application/json` -> array[SavedViewResponse], `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/views`
 - Summary: Create View
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:views`
 - Request body: `application/json` -> SavedViewCreate
-- Responses: `201` `application/json` -> SavedViewResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `201` `application/json` -> SavedViewResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `DELETE /v1/views/{view_id}`
 - Summary: Delete View
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:views`
 - Parameters:
   - `view_id` (path, required): string
-- Responses: `204`, `422` `application/json` -> ApiErrorResponse
+- Responses: `204`, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `PATCH /v1/views/{view_id}`
 - Summary: Update View
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -1528,7 +1637,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `view_id` (path, required): string
 - Request body: `application/json` -> SavedViewUpdate
-- Responses: `200` `application/json` -> SavedViewResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> SavedViewResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 
 ## Workspace
 
@@ -1536,35 +1645,41 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Summary: Get My Effective Workspace
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:workspace`
-- Responses: `200` `application/json` -> WorkspaceEffectiveResponse
+- Responses: `200` `application/json` -> WorkspaceEffectiveResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/workspace/modules`
 - Summary: Get Workspace Modules
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:workspace`
-- Responses: `200` `application/json` -> WorkspaceRegistryResponse
+- Responses: `200` `application/json` -> WorkspaceRegistryResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/workspace/preferences`
 - Summary: Get My Workspace Preferences
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:workspace`
-- Responses: `200` `application/json` -> WorkspaceUserPreferenceResponse
+- Responses: `200` `application/json` -> WorkspaceUserPreferenceResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `PUT /v1/workspace/preferences`
 - Summary: Put My Workspace Preferences
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:workspace_preferences`
 - Request body: `application/json` -> WorkspaceUserPreferenceWriteRequest
-- Responses: `200` `application/json` -> WorkspaceUserPreferenceResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> WorkspaceUserPreferenceResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/workspace/preferences/reset`
+- Summary: Reset My Workspace Preferences
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:workspace_preferences`
+- Request body: `application/json` -> WorkspaceUserPreferenceResetRequest
+- Responses: `200` `application/json` -> WorkspaceUserPreferenceResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/workspace/role-policies`
 - Summary: Get Workspace Role Policies
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:workspace`
-- Responses: `200` `application/json` -> array[WorkspaceRolePolicyResponse]
+- Responses: `200` `application/json` -> array[WorkspaceRolePolicyResponse], `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/workspace/role-policies/{role}`
 - Summary: Get Workspace Role Policy
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:workspace`
 - Parameters:
   - `role` (path, required): string
-- Responses: `200` `application/json` -> WorkspaceRolePolicyResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> WorkspaceRolePolicyResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `PUT /v1/workspace/role-policies/{role}`
 - Summary: Put Workspace Role Policy
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -1572,4 +1687,12 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `role` (path, required): string
 - Request body: `application/json` -> WorkspaceRolePolicyWriteRequest
-- Responses: `200` `application/json` -> WorkspaceRolePolicyResponse, `422` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> WorkspaceRolePolicyResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/workspace/role-policies/{role}/reset`
+- Summary: Reset Workspace Role Policy
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:workspace`
+- Parameters:
+  - `role` (path, required): string
+- Request body: `application/json` -> WorkspaceRolePolicyResetRequest
+- Responses: `200` `application/json` -> WorkspaceRolePolicyResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse

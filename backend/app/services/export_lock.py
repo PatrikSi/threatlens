@@ -29,18 +29,49 @@ class ExportLockUnavailableError(RuntimeError):
 
 
 @contextmanager
-def acquire_export_lock(*, user_id: uuid.UUID, settings: Settings) -> Iterator[None]:
-    client = redis_client_from_url(settings.redis_url, decode_responses=True, settings=settings)
-    key = f"threatlens:export:user:{user_id}"
+def acquire_export_lock(
+    *,
+    settings: Settings,
+    user_id: uuid.UUID | None = None,
+    principal_type: str = "user",
+    principal_id: uuid.UUID | None = None,
+) -> Iterator[None]:
+    resolved_principal_id = principal_id or user_id
+    if resolved_principal_id is None:
+        raise ValueError("An export lock principal ID is required")
+    if principal_type not in {"user", "service_account"}:
+        raise ValueError("Unsupported export lock principal type")
+    yield from _acquire_export_lock(
+        principal_type=principal_type,
+        principal_id=resolved_principal_id,
+        settings=settings,
+    )
+
+
+def _acquire_export_lock(
+    *,
+    principal_type: str,
+    principal_id: uuid.UUID,
+    settings: Settings,
+) -> Iterator[None]:
+    client = redis_client_from_url(
+        settings.redis_url, decode_responses=True, settings=settings
+    )
+    key = f"threatlens:export:{principal_type}:{principal_id}"
+    user_id = principal_id
     token = str(uuid.uuid4())
     try:
         acquired = client.set(key, token, nx=True, ex=settings.export_lock_ttl_seconds)
     except RedisError as exc:
         _close_export_client(client, user_id=user_id)
-        raise ExportLockUnavailableError("Export concurrency service is unavailable") from exc
+        raise ExportLockUnavailableError(
+            "Export concurrency service is unavailable"
+        ) from exc
     if not acquired:
         _close_export_client(client, user_id=user_id)
-        raise ExportAlreadyRunningError("Another export is already running for this user")
+        raise ExportAlreadyRunningError(
+            "Another export is already running for this user"
+        )
 
     stop_renewal = threading.Event()
     renewal_thread = threading.Thread(
@@ -83,7 +114,9 @@ def acquire_export_lock(*, user_id: uuid.UUID, settings: Settings) -> Iterator[N
         try:
             client.eval(_RELEASE_LOCK_SCRIPT, 1, key, token)
         except RedisError:
-            logger.warning("export_lock_release_failed user_id=%s", user_id, exc_info=True)
+            logger.warning(
+                "export_lock_release_failed user_id=%s", user_id, exc_info=True
+            )
         _close_export_client(client, user_id=user_id)
 
 

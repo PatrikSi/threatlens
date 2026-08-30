@@ -7,12 +7,14 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.permissions import SERVICE_ACCOUNT_PERMISSION_IDS
 from app.models.iam import (
     IAMGroupRoleAssignment,
     IAMRole,
     IAMRolePermission,
     IAMUserRoleAssignment,
 )
+from app.models.service_account import ServiceAccountRoleAssignment
 from app.models.user import User
 from app.schemas.iam import (
     RoleResponse,
@@ -139,6 +141,24 @@ def update_role(
     if payload.description is not None:
         role.description = payload.description
     if payload.permissions is not None:
+        service_account_assignment_count = int(
+            db.scalar(
+                select(func.count(ServiceAccountRoleAssignment.id)).where(
+                    ServiceAccountRoleAssignment.role_id == role.id
+                )
+            )
+            or 0
+        )
+        unsafe_machine_permissions = sorted(
+            set(payload.permissions) - SERVICE_ACCOUNT_PERMISSION_IDS
+        )
+        if service_account_assignment_count and unsafe_machine_permissions:
+            raise IAMRoleConflict(
+                "This role is assigned to service accounts and cannot receive "
+                "permissions outside the machine allowlist. Remove those assignments "
+                "or keep the role data-plane only. Blocked permissions: "
+                + ", ".join(unsafe_machine_permissions)
+            )
         _replace_role_permissions(db, role.id, payload.permissions)
     role.revision += 1
     db.add(role)
@@ -169,9 +189,18 @@ def delete_role(db: Session, *, role_id: uuid.UUID) -> IAMRole:
         )
         or 0
     )
-    if assignment_count or group_count:
+    service_account_count = int(
+        db.scalar(
+            select(func.count(ServiceAccountRoleAssignment.id)).where(
+                ServiceAccountRoleAssignment.role_id == role.id
+            )
+        )
+        or 0
+    )
+    if assignment_count or group_count or service_account_count:
         raise IAMRoleConflict(
-            "Role is still assigned. Remove its user and group assignments before deleting it."
+            "Role is still assigned. Remove its user, group, and service-account "
+            "assignments before deleting it."
         )
     db.delete(role)
     bump_iam_policy_revision(db)
@@ -275,6 +304,14 @@ def _role_response(db: Session, role: IAMRole) -> RoleResponse:
             db.scalar(
                 select(func.count(IAMUserRoleAssignment.id)).where(
                     IAMUserRoleAssignment.role_id == role.id
+                )
+            )
+            or 0
+        )
+        assignment_count += int(
+            db.scalar(
+                select(func.count(ServiceAccountRoleAssignment.id)).where(
+                    ServiceAccountRoleAssignment.role_id == role.id
                 )
             )
             or 0
