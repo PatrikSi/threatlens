@@ -36,9 +36,7 @@ class WorkspaceRolePolicy(Base):
             "jsonb_typeof(dashboard_panel_ids_json) = 'array'",
             name="ck_workspace_role_policies_dashboard_panels_array",
         ),
-        CheckConstraint(
-            "revision >= 1", name="ck_workspace_role_policies_revision"
-        ),
+        CheckConstraint("revision >= 1", name="ck_workspace_role_policies_revision"),
     )
 
     role: Mapped[str] = mapped_column(String(32), primary_key=True)
@@ -86,9 +84,7 @@ class WorkspaceUserPreference(Base):
             "jsonb_typeof(dashboard_panel_ids_json) = 'array'",
             name="ck_workspace_user_preferences_dashboard_panels_array",
         ),
-        CheckConstraint(
-            "revision >= 1", name="ck_workspace_user_preferences_revision"
-        ),
+        CheckConstraint("revision >= 1", name="ck_workspace_user_preferences_revision"),
     )
 
     user_id: Mapped[uuid.UUID] = mapped_column(

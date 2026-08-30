@@ -130,7 +130,9 @@ class WorkspaceUserPreferenceWriteRequest(StrictWorkspaceModel):
         max_length=64,
         pattern=r"^[a-z][a-z0-9_.-]+$",
     )
-    modules: list[WorkspaceModulePreference] = Field(default_factory=list, max_length=128)
+    modules: list[WorkspaceModulePreference] = Field(
+        default_factory=list, max_length=128
+    )
     dashboard_panel_ids: list[str] | None = Field(default=None, max_length=32)
 
     @field_validator("landing_module_id", mode="before")
