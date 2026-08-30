@@ -1098,8 +1098,9 @@ def _lock_eligible_actor(db: Session, user_id: uuid.UUID) -> User:
         or not authorization_context_for_user(db, actor).has(SCOPE_WRITE_INVESTIGATIONS)
     ):
         raise InvestigationActorNotEligibleError(
-            "Your account is no longer active, approved, or permitted to change "
-            "investigations. Sign in again before retrying."
+            "Your account is no longer active, approved, authorized as an analyst or "
+            "administrator, or granted explicit investigation write access. Sign in "
+            "again before retrying."
         )
     return actor
 

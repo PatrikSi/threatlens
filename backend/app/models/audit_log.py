@@ -34,8 +34,8 @@ class AuditLog(Base):
         Index("ix_audit_logs_request_id", "request_id"),
         Index(
             "ix_audit_logs_credential_created",
-            "credential_kind",
             "credential_id",
+            "credential_kind",
             "created_at",
         ),
         Index(

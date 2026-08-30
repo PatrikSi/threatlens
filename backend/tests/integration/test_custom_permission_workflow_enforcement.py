@@ -3,8 +3,12 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, timezone
 
+from app.core.rbac import ROLE_VIEWER
 from app.core.security import generate_api_token
+from app.core.token_scopes import ROLE_API_TOKEN_SCOPE_GRANTS, SCOPE_READ_ITEMS
 from app.models.api_token import ApiToken
+from app.models.feed import Feed
+from app.models.item import Item
 
 
 def _grant_custom_role(
@@ -190,3 +194,73 @@ def test_custom_role_can_author_an_investigation_without_legacy_role_promotion(
     assert created.status_code == 201, created.text
     assert created.json()["current_user_role"] == "owner"
     assert seed_users["viewer"].role == "viewer"
+
+
+def test_evidence_attachment_requires_principal_source_permission(
+    client,
+    auth_headers,
+    db_session,
+    seed_users,
+    monkeypatch,
+):
+    _grant_custom_role(
+        client,
+        admin_headers=auth_headers["admin"],
+        user_id=seed_users["viewer"].id,
+        permissions=["write:investigations"],
+    )
+    viewer_grants = ROLE_API_TOKEN_SCOPE_GRANTS[ROLE_VIEWER]
+    monkeypatch.setitem(
+        ROLE_API_TOKEN_SCOPE_GRANTS,
+        ROLE_VIEWER,
+        frozenset(grant for grant in viewer_grants if grant != SCOPE_READ_ITEMS),
+    )
+
+    created = client.post(
+        "/investigations",
+        headers=auth_headers["viewer"],
+        json={
+            "title": f"Source permission {uuid.uuid4().hex}",
+            "description": "Principal-level evidence authorization coverage.",
+            "severity": "medium",
+            "visibility": "private",
+        },
+    )
+    assert created.status_code == 201, created.text
+
+    unique = uuid.uuid4().hex
+    feed = Feed(name="Permission source", url=f"https://example.com/{unique}.xml")
+    db_session.add(feed)
+    db_session.flush()
+    item = Item(
+        feed_id=feed.id,
+        source_guid=f"permission-{unique}",
+        url=f"https://example.com/articles/{unique}",
+        canonical_url=f"https://example.com/articles/{unique}",
+        title="Principal permission source",
+        summary="Must not be attachable without read:items.",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key=f"permission:{unique}",
+        content_hash="b" * 64,
+        status="content_fetched",
+    )
+    db_session.add(item)
+    db_session.commit()
+
+    denied = client.post(
+        f"/investigations/{created.json()['id']}/evidence",
+        headers=auth_headers["viewer"],
+        json={
+            "source_type": "item",
+            "source_id": str(item.id),
+            "expected_version": created.json()["version"],
+        },
+    )
+    assert denied.status_code == 403
+    assert denied.json()["error"]["code"] == "permission_denied"
+    assert denied.json()["error"]["context"]["missing_permissions"] == [
+        SCOPE_READ_ITEMS
+    ]
+    assert denied.json()["error"]["context"]["denial_reasons"] == {
+        SCOPE_READ_ITEMS: "permission_not_granted"
+    }

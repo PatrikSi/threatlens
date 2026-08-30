@@ -209,6 +209,28 @@ def apply_openapi_error_contract(schema: dict[str, Any]) -> dict[str, Any]:
             responses = operation.get("responses")
             if not isinstance(responses, dict):
                 continue
+            if operation.get("security"):
+                for status_code, description in (
+                    ("401", "Authentication is required or the credential is invalid"),
+                    (
+                        "403",
+                        "The authenticated principal is not allowed to perform this operation",
+                    ),
+                    ("503", "Authorization policy could not be evaluated safely"),
+                ):
+                    responses.setdefault(
+                        status_code,
+                        {
+                            "description": description,
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "$ref": "#/components/schemas/ApiErrorResponse"
+                                    }
+                                }
+                            },
+                        },
+                    )
             for status_code, response in responses.items():
                 if not str(status_code).isdigit() or int(status_code) < 400:
                     continue

@@ -6,16 +6,14 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_permissions
+from app.api.deps import get_authorization_context, require_permissions
 from app.core.api_errors import ApiHTTPException, error_code_for_status
-from app.core.config import get_settings
 from app.core.token_scopes import (
     SCOPE_READ_ALERTS,
     SCOPE_READ_INVESTIGATIONS,
     SCOPE_READ_ITEMS,
     SCOPE_READ_REPORTS,
     SCOPE_WRITE_INVESTIGATIONS,
-    has_required_scope,
 )
 from app.db.session import get_db
 from app.models.user import User
@@ -577,23 +575,40 @@ def _commit_investigation_detail(
 
 
 def _require_evidence_source_read_scope(request: Request, source_type: str) -> None:
-    token_scopes = getattr(request.state, "token_scopes", None)
-    if token_scopes is None:
-        return
-    granted_scopes = set(token_scopes)
-    if not granted_scopes and get_settings().allow_legacy_unscoped_tokens:
-        return
+    authorization = get_authorization_context(request)
+    if authorization is None:
+        raise ApiHTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Investigation evidence access could not be resolved. Retry the request.",
+            error_code="iam_policy_unavailable",
+        )
     required_scopes = EVIDENCE_SOURCE_READ_SCOPES[source_type]
     missing_scopes = [
-        scope
-        for scope in required_scopes
-        if not has_required_scope(granted_scopes, scope)
+        scope for scope in required_scopes if not authorization.has(scope)
     ]
     if missing_scopes:
         scope_label = ", ".join(missing_scopes)
-        raise HTTPException(
+        denial_reasons = {
+            scope: authorization.explanation(scope)["reason"]
+            for scope in missing_scopes
+        }
+        credential_scope_denial = all(
+            reason == "credential_scope_missing" for reason in denial_reasons.values()
+        )
+        raise ApiHTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Attaching {source_type} evidence requires these token scopes: {scope_label}.",
+            detail=(
+                f"Attaching {source_type} evidence requires these token scopes: {scope_label}."
+                if credential_scope_denial
+                else f"Attaching {source_type} evidence requires these permissions: {scope_label}."
+            ),
+            error_code="permission_denied",
+            error_context={
+                "required_permissions": list(required_scopes),
+                "missing_permissions": missing_scopes,
+                "denial_reasons": denial_reasons,
+                "policy_revision": authorization.policy_revision,
+            },
         )
 
 

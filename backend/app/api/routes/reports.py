@@ -7,13 +7,24 @@ from datetime import datetime, timezone
 from typing import Annotated
 from zoneinfo import ZoneInfoNotFoundError
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    Header,
+    HTTPException,
+    Query,
+    Response,
+    status,
+)
 from pydantic import ValidationError
 from sqlalchemy import exists, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_permissions
+from app.api.deps import (
+    require_permission_roles,
+    require_permissions,
+)
 from app.api.resource_preconditions import (
     InvalidResourceVersion,
     ResourceVersionMismatch,
@@ -111,11 +122,18 @@ require_report_write = require_permissions(
     SCOPE_WRITE_REPORTS,
     denial_detail="Report generation requires the analyst or administrator role.",
 )
-require_report_admin_write = require_permissions(
+_REPORT_ADMIN_DETAIL = (
+    "Report schedules and shared templates require the administrator role."
+)
+require_report_admin_read = require_permission_roles(
+    SCOPE_READ_REPORTS,
+    roles=(ROLE_ADMIN,),
+    detail=_REPORT_ADMIN_DETAIL,
+)
+require_report_admin_write = require_permission_roles(
     SCOPE_WRITE_REPORTS,
-    denial_detail=(
-        "Report schedules and shared templates require the administrator role."
-    ),
+    roles=(ROLE_ADMIN,),
+    detail=_REPORT_ADMIN_DETAIL,
 )
 REPORT_PREVIEW_LIMIT = 25
 RESOURCE_PRECONDITION_RESPONSES = {
@@ -740,9 +758,8 @@ def remove_report(
 @router.get("/schedules", response_model=list[ReportScheduleResponse])
 def list_schedules(
     db: Session = Depends(get_db),
-    user: User = Depends(require_permissions(SCOPE_READ_REPORTS)),
+    user: User = Depends(require_report_admin_read),
 ):
-    _require_admin(user)
     schedules = db.scalars(
         select(ReportSchedule).order_by(ReportSchedule.name.asc())
     ).all()
@@ -763,7 +780,6 @@ def create_schedule(
     db: Session = Depends(get_db),
     user: User = Depends(require_report_admin_write),
 ):
-    _require_admin(user)
     operation = "report:schedule:create"
     identity = operation_request_identity(
         idempotency_key,
@@ -825,7 +841,6 @@ def update_schedule(
     db: Session = Depends(get_db),
     user: User = Depends(require_report_admin_write),
 ):
-    _require_admin(user)
     schedule = db.scalar(
         select(ReportSchedule)
         .where(ReportSchedule.id == schedule_id)
@@ -877,7 +892,6 @@ def run_schedule(
     db: Session = Depends(get_db),
     user: User = Depends(require_report_admin_write),
 ):
-    _require_admin(user)
     identity = schedule_run_request_identity(
         idempotency_key,
         schedule_id=schedule_id,
@@ -1016,7 +1030,6 @@ def remove_schedule(
     db: Session = Depends(get_db),
     user: User = Depends(require_report_admin_write),
 ):
-    _require_admin(user)
     schedule = db.scalar(
         select(ReportSchedule)
         .where(ReportSchedule.id == schedule_id)
@@ -1099,14 +1112,6 @@ def _require_current_resource_version(
 def _integrity_constraint_name(exc: IntegrityError) -> str | None:
     diagnostic = getattr(exc.orig, "diag", None)
     return getattr(diagnostic, "constraint_name", None)
-
-
-def _require_admin(user: User) -> None:
-    if user.role != ROLE_ADMIN:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Report schedules and shared templates require the administrator role.",
-        )
 
 
 def _require_shared_template_admin(user: User, visibility: str) -> None:

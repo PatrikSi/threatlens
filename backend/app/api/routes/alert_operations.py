@@ -7,7 +7,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_permissions
+from app.api.deps import require_permission_roles, require_permissions
 from app.core.rbac import ROLE_ADMIN
 from app.core.api_errors import ApiHTTPException
 from app.core.token_scopes import SCOPE_READ_ALERTS, SCOPE_WRITE_ALERTS
@@ -43,6 +43,21 @@ from app.tasks.alert_tasks import enqueue_alert_evaluation_requests
 
 router = APIRouter(prefix="/occurrences")
 MAX_ALERT_PAGE = 1_000_000
+_ALERT_EVALUATION_ADMIN_DETAIL = (
+    "Alert evaluation operations require the administrator role."
+)
+require_alert_evaluation_read_admin = require_permission_roles(
+    SCOPE_READ_ALERTS,
+    roles=(ROLE_ADMIN,),
+    detail=_ALERT_EVALUATION_ADMIN_DETAIL,
+    error_code="alert_evaluation_admin_required",
+)
+require_alert_evaluation_write_admin = require_permission_roles(
+    SCOPE_WRITE_ALERTS,
+    roles=(ROLE_ADMIN,),
+    detail=_ALERT_EVALUATION_ADMIN_DETAIL,
+    error_code="alert_evaluation_admin_required",
+)
 AlertPage = Annotated[int, Query(ge=1, le=MAX_ALERT_PAGE)]
 
 
@@ -106,9 +121,8 @@ def get_alert_evaluations(
     page: AlertPage = 1,
     page_size: int = Query(default=25, ge=1, le=100),
     db: Session = Depends(get_db),
-    user: User = Depends(require_permissions(SCOPE_READ_ALERTS)),
+    user: User = Depends(require_alert_evaluation_read_admin),
 ):
-    _require_admin(user)
     _validate_values(states, ALERT_EVALUATION_STATES, "evaluation state")
     _validate_values(sources, ALERT_EVALUATION_SOURCES, "evaluation source")
     result = list_alert_evaluation_requests(
@@ -135,9 +149,8 @@ def get_alert_evaluations(
 def get_alert_evaluation_detail(
     request_id: uuid.UUID,
     db: Session = Depends(get_db),
-    user: User = Depends(require_permissions(SCOPE_READ_ALERTS)),
+    user: User = Depends(require_alert_evaluation_read_admin),
 ):
-    _require_admin(user)
     try:
         return get_alert_evaluation_request(db, request_id=request_id)
     except AlertEvaluationNotFoundError as exc:
@@ -157,9 +170,8 @@ def get_alert_evaluation_activity(
     page: AlertPage = 1,
     page_size: int = Query(default=50, ge=1, le=100),
     db: Session = Depends(get_db),
-    user: User = Depends(require_permissions(SCOPE_READ_ALERTS)),
+    user: User = Depends(require_alert_evaluation_read_admin),
 ):
-    _require_admin(user)
     try:
         result = list_alert_evaluation_activity(
             db,
@@ -190,9 +202,8 @@ def replay_alert_evaluation(
     request_id: uuid.UUID,
     payload: AlertEvaluationReplayRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(require_permissions(SCOPE_WRITE_ALERTS)),
+    user: User = Depends(require_alert_evaluation_write_admin),
 ):
-    _require_admin(user)
     try:
         request = replay_dead_letter_evaluation(
             db,
@@ -218,15 +229,6 @@ def replay_alert_evaluation(
         return _evaluation_error_response(db, exc)
     enqueue_ok = enqueue_alert_evaluation_requests([request.id])
     return {"request": request, "enqueue_failed": not enqueue_ok}
-
-
-def _require_admin(user: User) -> None:
-    if user.role != ROLE_ADMIN:
-        raise ApiHTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Alert evaluation operations require the administrator role.",
-            error_code="alert_evaluation_admin_required",
-        )
 
 
 def _validate_values(

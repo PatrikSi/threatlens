@@ -105,10 +105,8 @@ def test_access_roles_groups_migration_validates_legacy_roles_and_round_trips(
                 "request_id",
                 "source_ip",
             } <= audit_columns
-            audit_indexes = {
-                index["name"]
-                for index in inspector.get_indexes("audit_logs", schema=schema_name)
-            }
+            audit_index_rows = inspector.get_indexes("audit_logs", schema=schema_name)
+            audit_indexes = {index["name"] for index in audit_index_rows}
             assert {
                 "ix_audit_logs_actor_principal",
                 "ix_audit_logs_credential_created",
@@ -116,6 +114,16 @@ def test_access_roles_groups_migration_validates_legacy_roles_and_round_trips(
                 "ix_audit_logs_resource_created",
                 "ix_audit_logs_success_created",
             } <= audit_indexes
+            credential_index = next(
+                index
+                for index in audit_index_rows
+                if index["name"] == "ix_audit_logs_credential_created"
+            )
+            assert credential_index["column_names"] == [
+                "credential_id",
+                "credential_kind",
+                "created_at",
+            ]
             assignment_constraints = {
                 constraint["name"]
                 for constraint in inspector.get_check_constraints(
