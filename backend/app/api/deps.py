@@ -108,11 +108,18 @@ def is_api_token_auth(request: Request) -> bool:
 
 
 def require_roles(*roles: str):
-    def _checker(user: User = Depends(get_current_user)) -> User:
-        if user.role not in roles:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions"
-            )
+    def _checker(
+        request: Request,
+        user: User = Depends(get_current_user),
+        db: Session = Depends(get_db),
+    ) -> User:
+        enforce_required_roles(
+            request,
+            db,
+            user,
+            roles=roles,
+            detail="Insufficient permissions",
+        )
         return user
 
     return _checker
@@ -223,6 +230,71 @@ def require_permissions(
     return _checker
 
 
+def require_permission_roles(
+    *required_permissions: str,
+    roles: tuple[str, ...],
+    detail: str,
+    error_code: str = "permission_denied",
+):
+    permission_checker = require_permissions(
+        *required_permissions,
+        denial_detail=detail,
+    )
+
+    def _checker(
+        request: Request,
+        user: User = Depends(permission_checker),
+        db: Session = Depends(get_db),
+    ) -> User:
+        enforce_required_roles(
+            request,
+            db,
+            user,
+            roles=roles,
+            detail=detail,
+            error_code=error_code,
+        )
+        return user
+
+    _checker._threatlens_required_scopes = tuple(required_permissions)
+    _checker._threatlens_required_roles = tuple(roles)
+    return _checker
+
+
+def enforce_required_roles(
+    request: Request,
+    db: Session,
+    user: User,
+    *,
+    roles: tuple[str, ...],
+    detail: str,
+    error_code: str = "permission_denied",
+) -> None:
+    if user.role in roles:
+        return
+    authorization = get_authorization_context(request)
+    _record_role_denial(
+        db,
+        request=request,
+        user=user,
+        required_roles=roles,
+        policy_revision=(
+            authorization.policy_revision if authorization is not None else None
+        ),
+    )
+    raise ApiHTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail=detail,
+        error_code=error_code,
+        error_context={
+            "required_legacy_roles": list(roles),
+            "policy_revision": (
+                authorization.policy_revision if authorization is not None else None
+            ),
+        },
+    )
+
+
 def _record_permission_denial(
     db: Session,
     *,
@@ -241,10 +313,11 @@ def _record_permission_denial(
             actor_user_id=user.id,
             action="authorization.permission_denied",
             resource_type="api_route",
-            resource_id=route_path or request.url.path,
+            resource_id=request.url.path,
             success=False,
             metadata={
                 "method": request.method,
+                "route_template": route_path,
                 "required_permissions": list(required_permissions),
                 "missing_permissions": missing_permissions,
                 "denial_reasons": denial_reasons,
@@ -256,6 +329,43 @@ def _record_permission_denial(
         db.rollback()
         logger.error(
             "permission_denial_audit_failed user_id=%s error_type=%s",
+            user.id,
+            type(exc).__name__,
+            exc_info=verbose_logging_enabled(get_settings()),
+        )
+
+
+def _record_role_denial(
+    db: Session,
+    *,
+    request: Request,
+    user: User,
+    required_roles: tuple[str, ...],
+    policy_revision: int | None,
+) -> None:
+    route = request.scope.get("route")
+    route_path = getattr(route, "path", None)
+    try:
+        record_audit(
+            db,
+            actor_user_id=user.id,
+            action="authorization.role_denied",
+            resource_type="api_route",
+            resource_id=request.url.path,
+            success=False,
+            metadata={
+                "method": request.method,
+                "route_template": route_path,
+                "required_legacy_roles": list(required_roles),
+                "actual_legacy_role": user.role,
+                "policy_revision": policy_revision,
+            },
+        )
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.error(
+            "role_denial_audit_failed user_id=%s error_type=%s",
             user.id,
             type(exc).__name__,
             exc_info=verbose_logging_enabled(get_settings()),

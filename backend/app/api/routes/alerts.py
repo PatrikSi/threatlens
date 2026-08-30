@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_permissions
+from app.api.deps import require_permission_roles, require_permissions
 from app.api.routes.alert_operations import router as alert_operations_router
 from app.core.api_errors import ApiHTTPException
 from app.core.config import get_settings
@@ -70,6 +70,23 @@ from app.services.alert_rules import (
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
 logger = logging.getLogger(__name__)
+_ALERT_BACKFILL_ADMIN_DETAIL = (
+    "Alert reconciliation and backfill require the administrator role."
+)
+require_alert_backfill_preview_admin = require_permission_roles(
+    SCOPE_READ_ALERTS,
+    SCOPE_READ_ITEMS,
+    roles=(ROLE_ADMIN,),
+    detail=_ALERT_BACKFILL_ADMIN_DETAIL,
+    error_code="alert_backfill_admin_required",
+)
+require_alert_backfill_apply_admin = require_permission_roles(
+    SCOPE_WRITE_ALERTS,
+    SCOPE_READ_ITEMS,
+    roles=(ROLE_ADMIN,),
+    detail=_ALERT_BACKFILL_ADMIN_DETAIL,
+    error_code="alert_backfill_admin_required",
+)
 MAX_ALERT_PAGE = 1_000_000
 AlertPage = Annotated[int, Query(ge=1, le=MAX_ALERT_PAGE)]
 
@@ -352,9 +369,8 @@ def get_alert_occurrences(
 def preview_alert_occurrence_backfill(
     payload: AlertBackfillRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(require_permissions(SCOPE_READ_ALERTS, SCOPE_READ_ITEMS)),
+    user: User = Depends(require_alert_backfill_preview_admin),
 ):
-    _require_alert_admin(user)
     snapshot = create_alert_backfill_preview(
         db,
         actor_user_id=user.id,
@@ -397,9 +413,8 @@ def preview_alert_occurrence_backfill(
 def apply_alert_occurrence_backfill(
     payload: AlertBackfillApplyRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(require_permissions(SCOPE_WRITE_ALERTS, SCOPE_READ_ITEMS)),
+    user: User = Depends(require_alert_backfill_apply_admin),
 ):
-    _require_alert_admin(user)
     try:
         result = persist_alert_backfill_preview_intents(
             db,
@@ -851,15 +866,6 @@ def _bulk_mutate_occurrences(
         return {"items": occurrences, "updated": len(occurrences)}
     except Exception as exc:
         return _raise_occurrence_error(db, exc)
-
-
-def _require_alert_admin(user: User) -> None:
-    if user.role != ROLE_ADMIN:
-        raise ApiHTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Alert reconciliation and backfill require the administrator role.",
-            error_code="alert_backfill_admin_required",
-        )
 
 
 def _raise_occurrence_error(db: Session, exc: Exception):

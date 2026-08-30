@@ -326,7 +326,7 @@ def _add_audit_context_columns() -> None:
     op.create_index(
         "ix_audit_logs_credential_created",
         "audit_logs",
-        ["credential_kind", "credential_id", "created_at"],
+        ["credential_id", "credential_kind", "created_at"],
     )
     op.create_index(
         "ix_audit_logs_resource_created",

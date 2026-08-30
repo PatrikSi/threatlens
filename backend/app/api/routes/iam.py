@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -39,6 +40,7 @@ from app.schemas.iam import (
 )
 from app.services.audit import record_audit
 from app.services.authorization import (
+    AuthorizationContext,
     AuthorizationStateUnavailable,
     authorization_context_for_user,
     lock_iam_policy_for_mutation,
@@ -64,6 +66,12 @@ from app.services.iam_groups import (
     remove_group_role,
     update_group,
 )
+from app.services.iam_delegation import (
+    IAMDelegationDenied,
+    require_delegable_group,
+    require_delegable_permissions,
+    require_delegable_role,
+)
 from app.services.iam_roles import (
     IAMRoleConflict,
     IAMRoleError,
@@ -83,6 +91,7 @@ from app.services.iam_roles import (
 
 
 router = APIRouter(prefix="/iam", tags=["iam"])
+logger = logging.getLogger("threatlens.iam")
 IAM_NOT_FOUND_RESPONSE = {
     status.HTTP_404_NOT_FOUND: {"description": "Referenced IAM resource not found"}
 }
@@ -113,7 +122,12 @@ def require_iam_mutation_actor(
             or not locked_actor.is_active
             or not locked_actor.is_approved
         ):
-            db.rollback()
+            _record_actor_access_rejection(
+                db,
+                request=request,
+                actor=actor,
+                actor_exists=locked_actor is not None,
+            )
             raise ApiHTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Your account access changed while the IAM operation was being authorized. Sign in again and retry.",
@@ -245,6 +259,7 @@ def post_role(
     admin: User = Depends(require_iam_mutation_actor),
 ):
     try:
+        require_delegable_permissions(_delegation_context(request), payload.permissions)
         role = create_role(db, payload=payload, actor_user_id=admin.id)
         after = get_role_response(db, role.id).model_dump(mode="json")
         _record_request_audit(
@@ -258,7 +273,7 @@ def post_role(
         )
         db.commit()
         return get_role_response(db, role.id)
-    except IAMRoleError as exc:
+    except (IAMRoleError, IAMDelegationDenied) as exc:
         _record_rejected_mutation(
             db, request=request, actor=admin, action="iam.roles.create", exc=exc
         )
@@ -279,6 +294,12 @@ def patch_role(
 ):
     try:
         before = get_role_response(db, role_id).model_dump(mode="json")
+        require_delegable_permissions(
+            _delegation_context(request),
+            payload.permissions
+            if payload.permissions is not None
+            else before["permissions"],
+        )
         update_role(db, role_id=role_id, payload=payload)
         after = get_role_response(db, role_id).model_dump(mode="json")
         _record_request_audit(
@@ -292,7 +313,7 @@ def patch_role(
         )
         db.commit()
         return get_role_response(db, role_id)
-    except IAMRoleError as exc:
+    except (IAMRoleError, IAMDelegationDenied) as exc:
         _record_rejected_mutation(
             db,
             request=request,
@@ -369,6 +390,7 @@ def post_user_role(
     admin: User = Depends(require_iam_mutation_actor),
 ):
     try:
+        require_delegable_role(db, _delegation_context(request), payload.role_id)
         result = assign_role_to_user(
             db,
             user_id=user_id,
@@ -395,7 +417,7 @@ def post_user_role(
         )
         db.commit()
         return response
-    except IAMRoleError as exc:
+    except (IAMRoleError, IAMDelegationDenied) as exc:
         _record_rejected_mutation(
             db,
             request=request,
@@ -594,6 +616,7 @@ def post_group_member(
     admin: User = Depends(require_iam_mutation_actor),
 ):
     try:
+        require_delegable_group(db, _delegation_context(request), group_id)
         result = add_group_member(
             db,
             group_id=group_id,
@@ -619,7 +642,7 @@ def post_group_member(
         )
         db.commit()
         return response
-    except IAMGroupError as exc:
+    except (IAMGroupError, IAMDelegationDenied) as exc:
         _record_rejected_mutation(
             db,
             request=request,
@@ -686,6 +709,7 @@ def post_group_role(
     admin: User = Depends(require_iam_mutation_actor),
 ):
     try:
+        require_delegable_role(db, _delegation_context(request), payload.role_id)
         result = add_group_role(
             db,
             group_id=group_id,
@@ -709,7 +733,7 @@ def post_group_role(
         )
         db.commit()
         return response
-    except IAMGroupError as exc:
+    except (IAMGroupError, IAMDelegationDenied) as exc:
         _record_rejected_mutation(
             db,
             request=request,
@@ -778,6 +802,53 @@ def delete_group_role(
         raise _http_error(exc) from exc
 
 
+def _delegation_context(request: Request) -> AuthorizationContext:
+    authorization = get_authorization_context(request)
+    if authorization is None:
+        raise ApiHTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Effective IAM delegation access could not be resolved. Retry the request.",
+            error_code="iam_policy_unavailable",
+        )
+    return authorization
+
+
+def _record_actor_access_rejection(
+    db: Session,
+    *,
+    request: Request,
+    actor: User,
+    actor_exists: bool,
+) -> None:
+    db.rollback()
+    try:
+        credential_id = getattr(request.state, "api_token_id", None)
+        if credential_id is None:
+            credential_id = get_current_auth_session_id(request)
+        record_audit(
+            db,
+            actor_user_id=actor.id if actor_exists else None,
+            actor_principal_type="user",
+            actor_principal_id=actor.id,
+            credential_kind=get_auth_credential_kind(request),
+            credential_id=credential_id,
+            request_id=getattr(request.state, "request_id", None),
+            source_ip=resolve_client_ip(request),
+            action="iam.authorization.reject",
+            resource_type="iam_policy",
+            success=False,
+            metadata={"reason": "actor_missing_or_ineligible"},
+        )
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.error(
+            "iam_actor_rejection_audit_failed actor_id=%s error_type=%s",
+            actor.id,
+            type(exc).__name__,
+        )
+
+
 def _record_request_audit(
     db: Session,
     *,
@@ -816,7 +887,7 @@ def _record_rejected_mutation(
     request: Request,
     actor: User,
     action: str,
-    exc: IAMRoleError | IAMGroupError,
+    exc: IAMRoleError | IAMGroupError | IAMDelegationDenied,
     resource_id: str | None = None,
 ) -> None:
     db.rollback()
@@ -828,12 +899,17 @@ def _record_rejected_mutation(
         resource_type="iam_policy",
         resource_id=resource_id,
         success=False,
-        metadata={"reason": exc.code},
+        metadata={
+            "reason": exc.code,
+            "missing_permissions": list(getattr(exc, "missing_permissions", ())),
+        },
     )
     db.commit()
 
 
-def _http_error(exc: IAMRoleError | IAMGroupError) -> ApiHTTPException:
+def _http_error(
+    exc: IAMRoleError | IAMGroupError | IAMDelegationDenied,
+) -> ApiHTTPException:
     not_found = isinstance(
         exc,
         (
@@ -856,11 +932,21 @@ def _http_error(exc: IAMRoleError | IAMGroupError) -> ApiHTTPException:
             IAMSystemGroupImmutable,
         ),
     )
-    status_code = 404 if not_found else 409 if conflict else 400
+    status_code = (
+        403
+        if isinstance(exc, IAMDelegationDenied)
+        else 404
+        if not_found
+        else 409
+        if conflict
+        else 400
+    )
     context: dict[str, object] = {}
     current_revision = getattr(exc, "current_revision", None)
     if current_revision is not None:
         context["current_revision"] = current_revision
+    if isinstance(exc, IAMDelegationDenied):
+        context["missing_permissions"] = list(exc.missing_permissions)
     return ApiHTTPException(
         status_code=status_code,
         detail=str(exc),

@@ -80,6 +80,12 @@ def test_openapi_errors_match_the_runtime_envelope_and_declare_iam_conflicts():
     expected_ref = {"$ref": "#/components/schemas/ApiErrorResponse"}
     assert validation_response["content"]["application/json"]["schema"] == expected_ref
     assert conflict_response["content"]["application/json"]["schema"] == expected_ref
+    secured_responses = schema["paths"]["/v1/feeds"]["get"]["responses"]
+    for status_code in ("401", "403", "503"):
+        assert (
+            secured_responses[status_code]["content"]["application/json"]["schema"]
+            == expected_ref
+        )
 
 
 def test_openapi_marks_oidc_provider_mutation_auth_contract_accurately():
