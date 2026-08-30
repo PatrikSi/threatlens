@@ -22,6 +22,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import (
+    get_data_access_context,
     require_permission_roles,
     require_permissions,
 )
@@ -48,6 +49,7 @@ from app.core.token_scopes import SCOPE_READ_REPORTS, SCOPE_WRITE_REPORTS
 from app.db.session import get_db
 from app.models.ai_task_run import AITaskRun
 from app.models.feed import Feed
+from app.models.item import Item
 from app.models.item_classification import ItemClassification
 from app.models.report import Report
 from app.models.report_schedule import ReportSchedule
@@ -73,7 +75,18 @@ from app.schemas.reports import (
 from app.services.ai_config import load_active_ai_settings
 from app.services.ai_context_budget import AIContextBudgetError
 from app.services.audit import record_audit
-from app.services.export_query import ExportSnapshotChangedError
+from app.services.data_access_envelopes import (
+    DATA_ACCESS_RESOURCE_REPORT,
+    data_access_envelope_predicate,
+)
+from app.services.data_access_policy import (
+    DataAccessContext,
+    handling_label_access_predicate,
+)
+from app.services.export_query import (
+    ExportAuthorizationChangedError,
+    ExportSnapshotChangedError,
+)
 from app.services.report_schedules import (
     apply_schedule_payload,
     create_report_schedule,
@@ -149,16 +162,34 @@ logger = logging.getLogger(__name__)
 def get_report_capabilities(
     db: Session = Depends(get_db),
     _user: User = Depends(require_permissions(SCOPE_READ_REPORTS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     active = load_active_ai_settings(db)
-    feeds = db.execute(select(Feed.id, Feed.name).order_by(Feed.name.asc())).all()
+    feed_access = handling_label_access_predicate(
+        Feed.handling_label_id,
+        data_access,
+    )
+    feeds = db.execute(
+        select(Feed.id, Feed.name).where(feed_access).order_by(Feed.name.asc())
+    ).all()
     tags = db.execute(
         select(Tag.id, Tag.name)
-        .where(exists(select(1).where(ItemTag.tag_id == Tag.id)))
+        .where(
+            exists(
+                select(1)
+                .select_from(ItemTag)
+                .join(Item, Item.id == ItemTag.item_id)
+                .join(Feed, Feed.id == Item.feed_id)
+                .where(ItemTag.tag_id == Tag.id, feed_access)
+            )
+        )
         .order_by(Tag.name.asc())
     ).all()
     classifications = db.scalars(
         select(func.lower(ItemClassification.primary_category))
+        .join(Item, Item.id == ItemClassification.item_id)
+        .join(Feed, Feed.id == Item.feed_id)
+        .where(feed_access)
         .distinct()
         .order_by(func.lower(ItemClassification.primary_category))
     ).all()
@@ -183,6 +214,7 @@ def preview_report(
     payload: ReportPreviewRequest,
     db: Session = Depends(get_db),
     user: User = Depends(require_report_write),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     active = _active_reporting_settings(db)
     started_at = time.monotonic()
@@ -195,6 +227,7 @@ def preview_report(
             prompt=payload.prompt,
             sections=payload.sections,
             active=active,
+            data_access=data_access,
         )
     except AIContextBudgetError as exc:
         logger.info(
@@ -214,6 +247,16 @@ def preview_report(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Matching articles changed while report context was being prepared. Refresh the estimate and try again.",
+        ) from exc
+    except ExportAuthorizationChangedError as exc:
+        logger.info(
+            "report_preview_rejected user_id=%s reason=authorization_changed duration_ms=%d",
+            user.id,
+            round((time.monotonic() - started_at) * 1000),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Your data access changed while report context was being prepared. Refresh the estimate and try again.",
         ) from exc
     logger.info(
         "report_preview_planned user_id=%s total_matches=%d selected_sources=%d batches=%d duration_ms=%d",
@@ -469,8 +512,15 @@ def list_reports(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
     _user: User = Depends(require_permissions(SCOPE_READ_REPORTS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
-    query = select(Report)
+    query = select(Report).where(
+        data_access_envelope_predicate(
+            DATA_ACCESS_RESOURCE_REPORT,
+            Report.id,
+            data_access,
+        )
+    )
     if report_status:
         if report_status not in {"queued", "running", "ready", "error", "skipped"}:
             raise HTTPException(
@@ -495,6 +545,7 @@ def create_report(
     ] = None,
     db: Session = Depends(get_db),
     user: User = Depends(require_report_write),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     filters = filters_for_report_period(
         payload.filters,
@@ -527,6 +578,7 @@ def create_report(
             prompt=payload.prompt,
             sections=payload.sections,
             active=active,
+            data_access=data_access,
         )
         report = create_report_from_plan(
             db,
@@ -564,6 +616,11 @@ def create_report(
             status_code=status.HTTP_409_CONFLICT,
             detail="Matching articles changed while the report was being prepared. Try generating it again.",
         ) from exc
+    except ExportAuthorizationChangedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Your data access changed while the report was being prepared. Try generating it again.",
+        ) from exc
     except (AIContextBudgetError, ReportStorageError) as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
@@ -585,8 +642,13 @@ def get_report(
     report_id: uuid.UUID,
     db: Session = Depends(get_db),
     _user: User = Depends(require_permissions(SCOPE_READ_REPORTS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
-    report = db.get(Report, report_id)
+    report = _get_accessible_report(
+        db,
+        report_id=report_id,
+        data_access=data_access,
+    )
     if report is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Report not found"
@@ -600,8 +662,13 @@ def download_report(
     format: str = Query(default="markdown", pattern="^(markdown|html|pdf)$"),
     db: Session = Depends(get_db),
     _user: User = Depends(require_permissions(SCOPE_READ_REPORTS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
-    report = db.get(Report, report_id)
+    report = _get_accessible_report(
+        db,
+        report_id=report_id,
+        data_access=data_access,
+    )
     if report is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Report not found"
@@ -647,13 +714,14 @@ def retry_report(
     ] = None,
     db: Session = Depends(get_db),
     user: User = Depends(require_report_write),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     identity = retry_request_identity(idempotency_key, report_id=report_id)
-    report = db.scalar(
-        select(Report)
-        .where(Report.id == report_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
+    report = _get_accessible_report(
+        db,
+        report_id=report_id,
+        data_access=data_access,
+        for_update=True,
     )
     if report is None:
         raise HTTPException(
@@ -732,8 +800,13 @@ def remove_report(
     report_id: uuid.UUID,
     db: Session = Depends(get_db),
     user: User = Depends(require_report_write),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
-    report = db.get(Report, report_id)
+    report = _get_accessible_report(
+        db,
+        report_id=report_id,
+        data_access=data_access,
+    )
     if report is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Report not found"
@@ -960,6 +1033,11 @@ def run_schedule(
             status_code=status.HTTP_409_CONFLICT,
             detail="Matching articles changed while the scheduled report was being prepared. Try running the schedule again.",
         ) from exc
+    except ExportAuthorizationChangedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="The schedule owner's data access changed while the report was being prepared. Try running the schedule again.",
+        ) from exc
     if not reports:
         replay = find_schedule_run_replay(
             db,
@@ -1066,6 +1144,26 @@ def _active_reporting_settings(db: Session):
             detail=str(exc),
         ) from exc
     return active
+
+
+def _get_accessible_report(
+    db: Session,
+    *,
+    report_id: uuid.UUID,
+    data_access: DataAccessContext,
+    for_update: bool = False,
+) -> Report | None:
+    statement = select(Report).where(
+        Report.id == report_id,
+        data_access_envelope_predicate(
+            DATA_ACCESS_RESOURCE_REPORT,
+            Report.id,
+            data_access,
+        ),
+    )
+    if for_update:
+        statement = statement.with_for_update()
+    return db.scalar(statement.execution_options(populate_existing=True))
 
 
 def _queue_response(
