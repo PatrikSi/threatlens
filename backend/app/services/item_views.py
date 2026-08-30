@@ -84,6 +84,7 @@ def load_item_tag_suggestions(
     article: Article | None,
     feed: Feed | None,
     existing_tag_names: list[str],
+    data_access: DataAccessContext,
 ) -> list[ItemTagSuggestionResponse]:
     ioc_values_by_type = _load_item_ioc_values_by_type(db, item_id=item.id)
 
@@ -104,7 +105,9 @@ def load_item_tag_suggestions(
         feedback_adjustments={},
     )
     adjustments = load_feedback_adjustments(
-        db, tag_names=[candidate.name for candidate in base_candidates]
+        db,
+        tag_names=[candidate.name for candidate in base_candidates],
+        data_access=data_access,
     )
     candidates = build_tag_candidates(
         primary_category=classification.primary_category

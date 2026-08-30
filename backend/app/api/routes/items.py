@@ -383,6 +383,7 @@ def get_item(
         article=article,
         feed=feed,
         existing_tag_names=existing_tag_names,
+        data_access=data_access,
     )
 
     return ItemDetailResponse(
@@ -774,6 +775,7 @@ def get_item_tag_suggestions(
         article=article,
         feed=feed,
         existing_tag_names=tags_by_item.get(item_id, []),
+        data_access=data_access,
     )
     return ItemTagSuggestionListResponse(item_id=item_id, suggestions=suggestions)
 
