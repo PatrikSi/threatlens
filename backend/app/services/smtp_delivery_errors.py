@@ -11,6 +11,10 @@ class SMTPDeliveryIneligibleError(RuntimeError):
         self.code = code
 
 
+class SMTPDeliveryTemporarilyIneligibleError(SMTPDeliveryIneligibleError):
+    """A revoked delivery may become eligible again within its retry budget."""
+
+
 class SMTPDeliveryDatabasePreflightError(RuntimeError):
     code = "smtp_preflight_database_unavailable"
 

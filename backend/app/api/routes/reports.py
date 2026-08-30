@@ -27,11 +27,18 @@ from app.api.deps import (
     require_permissions,
 )
 from app.api.resource_preconditions import (
-    InvalidResourceVersion,
-    ResourceVersionMismatch,
     next_resource_version,
-    require_matching_resource_version,
     resource_version_tag,
+)
+from app.api.routes.report_route_helpers import (
+    active_reporting_settings as _active_reporting_settings,
+    get_accessible_report as _get_accessible_report,
+    integrity_constraint_name as _integrity_constraint_name,
+    queue_response as _queue_response,
+    require_current_resource_version as _require_current_resource_version,
+    require_report_owner_or_admin as _require_report_owner_or_admin,
+    require_shared_template_admin as _require_shared_template_admin,
+    require_template_owner_or_admin as _require_template_owner_or_admin,
 )
 from app.api.routes.report_request_idempotency import (
     commit_operation_resource,
@@ -47,7 +54,6 @@ from app.api.routes.report_request_idempotency import (
 from app.core.rbac import ROLE_ADMIN
 from app.core.token_scopes import SCOPE_READ_REPORTS, SCOPE_WRITE_REPORTS
 from app.db.session import get_db
-from app.models.ai_task_run import AITaskRun
 from app.models.feed import Feed
 from app.models.item import Item
 from app.models.item_classification import ItemClassification
@@ -92,10 +98,6 @@ from app.services.report_schedules import (
     create_report_schedule,
     report_schedule_response,
     reserve_schedule_runs,
-)
-from app.services.report_availability import (
-    ReportingUnavailableError,
-    ensure_reporting_available,
 )
 from app.services.report_rendering import (
     render_report_html,
@@ -1132,107 +1134,3 @@ def remove_schedule(
         resource_id=str(schedule_id),
     )
     db.commit()
-
-
-def _active_reporting_settings(db: Session):
-    active = load_active_ai_settings(db)
-    try:
-        ensure_reporting_available(active)
-    except ReportingUnavailableError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=str(exc),
-        ) from exc
-    return active
-
-
-def _get_accessible_report(
-    db: Session,
-    *,
-    report_id: uuid.UUID,
-    data_access: DataAccessContext,
-    for_update: bool = False,
-) -> Report | None:
-    statement = select(Report).where(
-        Report.id == report_id,
-        data_access_envelope_predicate(
-            DATA_ACCESS_RESOURCE_REPORT,
-            Report.id,
-            data_access,
-        ),
-    )
-    if for_update:
-        statement = statement.with_for_update()
-    return db.scalar(statement.execution_options(populate_existing=True))
-
-
-def _queue_response(
-    report: Report,
-    run: AITaskRun,
-    *,
-    celery_task_id: str | None = None,
-) -> ReportQueueResponse:
-    return ReportQueueResponse(
-        report_id=report.id,
-        task_run_id=run.id,
-        celery_task_id=celery_task_id or run.celery_task_id,
-        status=run.status,
-        schedule_id=report.schedule_id,
-    )
-
-
-def _require_current_resource_version(
-    *,
-    current_updated_at: datetime,
-    if_match: str | list[str] | None,
-    resource_label: str,
-) -> None:
-    try:
-        require_matching_resource_version(
-            current_updated_at=current_updated_at,
-            if_match=if_match,
-        )
-    except InvalidResourceVersion as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
-        ) from exc
-    except ResourceVersionMismatch as exc:
-        raise HTTPException(
-            status_code=status.HTTP_412_PRECONDITION_FAILED,
-            detail=(
-                f"The {resource_label} changed after you loaded it. Refresh the "
-                "latest version, review the changes, and try again."
-            ),
-        ) from exc
-
-
-def _integrity_constraint_name(exc: IntegrityError) -> str | None:
-    diagnostic = getattr(exc.orig, "diag", None)
-    return getattr(diagnostic, "constraint_name", None)
-
-
-def _require_shared_template_admin(user: User, visibility: str) -> None:
-    if visibility == "shared" and user.role != ROLE_ADMIN:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only administrators can create or update shared report templates.",
-        )
-
-
-def _require_template_owner_or_admin(
-    user: User, owner_user_id: uuid.UUID | None
-) -> None:
-    if user.role != ROLE_ADMIN and owner_user_id != user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You can only modify your own private report templates.",
-        )
-
-
-def _require_report_owner_or_admin(user: User, owner_user_id: uuid.UUID | None) -> None:
-    if user.role != ROLE_ADMIN and owner_user_id != user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You can only retry or delete reports that you generated.",
-        )

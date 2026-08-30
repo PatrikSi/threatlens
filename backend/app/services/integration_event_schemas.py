@@ -6,7 +6,7 @@ MAX_EVENT_SCHEMA_VERSION_BY_TYPE = {
     "feed_failing": 2,
     "webhook_failed": 1,
     "daily_digest": 1,
-    "report_ready": 1,
+    "report_ready": 2,
 }
 
 
