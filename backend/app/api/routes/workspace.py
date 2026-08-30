@@ -18,7 +18,11 @@ from app.api.deps import (
     resolve_client_ip,
 )
 from app.core.api_errors import ApiHTTPException
-from app.core.token_scopes import SCOPE_READ_WORKSPACE, SCOPE_WRITE_WORKSPACE
+from app.core.token_scopes import (
+    SCOPE_READ_WORKSPACE,
+    SCOPE_WRITE_WORKSPACE,
+    SCOPE_WRITE_WORKSPACE_PREFERENCES,
+)
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.workspace import (
@@ -51,9 +55,6 @@ from app.services.workspace_policy import (
 
 logger = logging.getLogger("threatlens.workspace")
 router = APIRouter(prefix="/workspace", tags=["workspace"])
-SCOPE_WRITE_WORKSPACE_PREFERENCES = "write:workspace_preferences"
-
-
 class _WorkspaceActorAccessChanged(WorkspacePolicyError):
     code = "workspace_actor_access_changed"
     status_code = 403

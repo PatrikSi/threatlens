@@ -263,6 +263,12 @@ PERMISSION_DEFINITIONS: tuple[PermissionDefinition, ...] = (
         "View effective module and workspace policy.",
     ),
     _permission(
+        "write:workspace_preferences",
+        "Workspace",
+        "Customize personal workspace",
+        "Change the caller's optional navigation and dashboard preferences.",
+    ),
+    _permission(
         "write:workspace",
         "Workspace",
         "Manage workspace policy",
