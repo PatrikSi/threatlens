@@ -23,6 +23,7 @@ from app.services.integration_processors import (
     process_smtp_integration_delivery,
 )
 from app.services.integration_storage import (
+    SMTP_SYSTEM_KEY,
     build_active_smtp_settings,
     get_smtp_credential_source,
 )
@@ -33,6 +34,7 @@ from app.services.smtp_delivery_eligibility import (
     ensure_smtp_delivery_schema_compatible,
     lock_smtp_delivery_external_io_eligibility,
 )
+from app.services.smtp_delivery_history import smtp_delivery_dedupe_key
 
 
 def test_smtp_delivery_uses_generic_claim_attempt_and_audit_history(
@@ -78,6 +80,79 @@ def test_smtp_delivery_uses_generic_claim_attempt_and_audit_history(
     assert audit.success is True
     assert audit.metadata_json["item_id"] == str(item.id)
     assert audit.metadata_json["feed_id"] == str(feed.id)
+
+
+def test_later_alert_event_does_not_adopt_historical_legacy_smtp_receipt(
+    db_session,
+    seed_users,
+    monkeypatch,
+):
+    owner = seed_users["viewer"]
+    feed, item, delivery = _persist_smtp_delivery(db_session)
+    instance = db_session.get(IntegrationInstance, delivery.integration_id)
+    assert instance is not None
+    instance.system_key = SMTP_SYSTEM_KEY
+    payload = _alert_snapshot_payload(feed=feed, item=item, owner_id=owner.id)
+    _configure_delivery_as_alert(db_session, delivery=delivery, payload=payload)
+    event_created_at = datetime.now(timezone.utc)
+    integration_event = IntegrationEvent(
+        id=uuid.uuid4(),
+        event_type="alert_match",
+        schema_version=2,
+        source_type="item",
+        source_id=str(item.id),
+        actor_user_id=owner.id,
+        idempotency_key=f"later-alert:{item.id}:{uuid.uuid4()}",
+        payload_json=payload,
+        created_at=event_created_at,
+        available_at=event_created_at,
+    )
+    db_session.add(integration_event)
+    db_session.flush()
+    delivery.event_id = integration_event.id
+    legacy_dedupe_key = smtp_delivery_dedupe_key(
+        instance_id=instance.id,
+        event_type="alert_match",
+        delivery_kind="live",
+        item_id=item.id,
+        feed_id=feed.id,
+        source_delivery_id=None,
+        scope_key=None,
+    )
+    db_session.add_all(
+        [
+            instance,
+            delivery,
+            AuditLog(
+                action="integrations.smtp.delivery",
+                resource_type="integration_instance",
+                resource_id=str(instance.id),
+                success=True,
+                metadata_json={
+                    "dedupe_key": legacy_dedupe_key,
+                    "delivery_outcome": "accepted",
+                },
+                created_at=event_created_at - timedelta(minutes=10),
+            ),
+        ]
+    )
+    db_session.commit()
+    sends: list[uuid.UUID] = []
+
+    def _send(_active, **kwargs):
+        sends.append(kwargs["delivery_id"])
+        return _successful_smtp_result(
+            kwargs["delivery_id"],
+            ["soc@example.com", "ir@example.com"],
+        )
+
+    monkeypatch.setattr("app.services.smtp_integration.send_smtp_notification", _send)
+
+    result = process_smtp_integration_delivery(db_session, delivery_id=delivery.id)
+
+    assert result.status == "succeeded"
+    assert result.reason is None
+    assert sends == [delivery.id]
 
 
 def test_smtp_delivery_with_missing_context_is_dead_lettered_with_clear_error(
@@ -331,7 +406,9 @@ def test_smtp_database_fence_timeout_retries_without_external_side_effect(
     def _send(active, **kwargs):
         kwargs["lease_heartbeat"](10, active)
         send_calls.append(True)
-        raise AssertionError("SMTP I/O must not start when the database fence times out")
+        raise AssertionError(
+            "SMTP I/O must not start when the database fence times out"
+        )
 
     monkeypatch.setattr("app.services.smtp_integration.send_smtp_notification", _send)
     monkeypatch.setattr(
@@ -1256,9 +1333,7 @@ def test_personal_legacy_v1_alert_delivery_rejects_multi_owner_evidence(
         name="Multi-owner personal SMTP alert",
     )
     first_occurrence = db_session.scalar(
-        select(AlertOccurrence).where(
-            AlertOccurrence.integration_event_id == event.id
-        )
+        select(AlertOccurrence).where(AlertOccurrence.integration_event_id == event.id)
     )
     assert first_occurrence is not None
     db_session.add(

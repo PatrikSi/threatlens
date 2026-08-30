@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.rbac import ROLE_ADMIN, ROLE_ANALYST
 from app.models.integration import (
     IntegrationDelivery,
+    IntegrationEvent,
     IntegrationInstance,
     IntegrationSubscription,
 )
@@ -16,6 +17,9 @@ from app.models.user import User
 from app.services.integration_compat import (
     ensure_webhook_config_schema_compatible,
     lock_notification_webhook,
+)
+from app.services.report_event_compatibility import (
+    validate_report_ready_delivery_owner,
 )
 
 _DELIVERY_SENDING = "sending"
@@ -27,6 +31,10 @@ class WebhookDeliveryIneligibleError(RuntimeError):
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
         self.code = code
+
+
+class WebhookDeliveryTemporarilyIneligibleError(WebhookDeliveryIneligibleError):
+    """A revoked owner may become eligible again within the retry budget."""
 
 
 def lock_webhook_delivery_external_io_eligibility(
@@ -64,10 +72,9 @@ def lock_webhook_delivery_external_io_eligibility(
             "webhook_delivery_missing",
             "Webhook delivery no longer exists or belongs to this webhook.",
         )
-    if (
-        legacy.delivery_state != _DELIVERY_SENDING
-        or int(legacy.attempt_count or 0) != int(expected_attempt_number)
-    ):
+    if legacy.delivery_state != _DELIVERY_SENDING or int(
+        legacy.attempt_count or 0
+    ) != int(expected_attempt_number):
         raise RuntimeError("Webhook delivery lease is no longer owned by this worker")
 
     generic = db.scalar(
@@ -140,7 +147,11 @@ def lock_webhook_delivery_external_io_eligibility(
         raise RuntimeError("Webhook delivery lease is no longer owned by this worker")
 
     if instance.owner_user_id is None:
-        if instance.system_key is not None and generic.owner_user_id is None:
+        if (
+            instance.system_key is not None
+            and generic.owner_user_id is None
+            and generic.event_type != "report_ready"
+        ):
             return
         raise WebhookDeliveryIneligibleError(
             "integration_owner_missing",
@@ -156,6 +167,9 @@ def lock_webhook_delivery_external_io_eligibility(
             "Webhook delivery owner no longer matches its integration owner.",
         )
 
+    if generic.event_type == "report_ready":
+        _validate_report_ready_delivery(db, delivery=generic)
+
     owner = db.scalar(
         select(User)
         .where(User.id == instance.owner_user_id)
@@ -163,7 +177,12 @@ def lock_webhook_delivery_external_io_eligibility(
         .execution_options(populate_existing=True)
     )
     if owner is None or not owner.is_active or not owner.is_approved:
-        raise WebhookDeliveryIneligibleError(
+        error_type = (
+            WebhookDeliveryTemporarilyIneligibleError
+            if generic.event_type == "report_ready"
+            else WebhookDeliveryIneligibleError
+        )
+        raise error_type(
             "webhook_owner_not_eligible",
             "Webhook owner is no longer active and approved for outbound delivery.",
         )
@@ -172,3 +191,39 @@ def lock_webhook_delivery_external_io_eligibility(
             "webhook_owner_not_authorized",
             "Webhook owner is no longer authorized to manage outbound deliveries.",
         )
+
+
+def _validate_report_ready_delivery(
+    db: Session,
+    *,
+    delivery: IntegrationDelivery,
+) -> None:
+    if delivery.event_id is None:
+        raise WebhookDeliveryIneligibleError(
+            "report_event_missing",
+            "Webhook report delivery is missing its source event.",
+        )
+    event = db.scalar(
+        select(IntegrationEvent)
+        .where(IntegrationEvent.id == delivery.event_id)
+        .with_for_update(read=True)
+        .execution_options(populate_existing=True)
+    )
+    if event is None or event.event_type != "report_ready":
+        raise WebhookDeliveryIneligibleError(
+            "report_event_missing",
+            "Webhook report delivery source event no longer exists.",
+        )
+    try:
+        validate_report_ready_delivery_owner(
+            db,
+            event=event,
+            delivery_payload=delivery.payload_json,
+            delivery_owner_user_id=delivery.owner_user_id,
+            require_eligible=False,
+        )
+    except ValueError as exc:
+        raise WebhookDeliveryIneligibleError(
+            "report_owner_context_invalid",
+            "Webhook report delivery has invalid owner context.",
+        ) from exc

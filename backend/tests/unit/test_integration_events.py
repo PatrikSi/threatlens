@@ -574,6 +574,30 @@ def test_future_smtp_alert_schema_remains_recoverable_past_attempt_limit(
     )
 
 
+def test_failed_event_is_not_routed_before_backoff_expires(db_session):
+    event = emit_integration_event(
+        db_session,
+        event_type="rss_item_new",
+        source_type="item",
+        source_id=uuid.uuid4(),
+        idempotency_key=f"backoff-fence:{uuid.uuid4()}",
+        payload={"item_id": str(uuid.uuid4()), "feed_id": str(uuid.uuid4())},
+    )
+    event.routing_state = "failed"
+    event.routing_attempt_count = 3
+    event.available_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+    event.last_error = "previous failure"
+    db_session.add(event)
+    db_session.flush()
+
+    result = route_integration_event(db_session, event_id=event.id)
+
+    assert result.status == "failed"
+    assert event.routing_attempt_count == 3
+    assert event.last_error == "previous failure"
+    assert db_session.scalar(select(IntegrationDelivery.id)) is None
+
+
 def test_future_resource_event_with_non_object_payload_waits_before_connectors(
     db_session,
 ):

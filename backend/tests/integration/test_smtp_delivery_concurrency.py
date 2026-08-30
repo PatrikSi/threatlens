@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
 from threading import Event
 
 from sqlalchemy import delete, select, text
@@ -29,11 +30,17 @@ from app.services.integration_storage import (
     apply_smtp_settings_update,
     build_active_smtp_settings,
 )
-from app.services.smtp_integration import dispatch_smtp_notification
+from app.services.smtp_integration import (
+    SMTPNotificationResult,
+    dispatch_smtp_notification,
+)
 from app.services.smtp_delivery_eligibility import (
     SMTP_SOURCE_OWNER_IDS_KEY,
     SMTPDeliveryIneligibleError,
     lock_smtp_delivery_external_io_eligibility,
+)
+from app.services.notification_webhook_history import (
+    try_acquire_notification_delivery_lock,
 )
 
 
@@ -510,9 +517,7 @@ def test_owner_deactivation_waits_for_end_to_end_blocking_smtp_send(
                     )
                 )
                 assert attempt is not None
-                assert (
-                    attempt.response_json["external_side_effect_possible"] is True
-                )
+                assert attempt.response_json["external_side_effect_possible"] is True
             writer = executor.submit(_deactivate_source_owner)
             assert writer_started.wait(timeout=5)
             time.sleep(0.1)
@@ -657,10 +662,85 @@ def test_legacy_smtp_dispatch_holds_configuration_fence_through_send(
             cleanup_db.commit()
 
 
+def test_generic_smtp_waits_for_legacy_delivery_lock_and_recovers(
+    database_engine,
+    monkeypatch,
+):
+    source_owner_id, instance_id, event_id, delivery_id = (
+        _persist_generic_alert_delivery(
+            database_engine,
+            system_key=SMTP_SYSTEM_KEY,
+        )
+    )
+    sends: list[uuid.UUID] = []
+
+    def _send(_active, **kwargs):
+        sends.append(kwargs["delivery_id"])
+        return SMTPNotificationResult(
+            success=True,
+            duration_ms=8,
+            recipient_count=1,
+            accepted_count=1,
+            error_code=None,
+            error=None,
+            server_message="250 accepted",
+            attempted_at=datetime.now(timezone.utc),
+            delivery_id=kwargs["delivery_id"],
+            delivery_outcome="accepted",
+            accepted_recipients=("soc@example.com",),
+        )
+
+    monkeypatch.setattr("app.services.smtp_integration.send_smtp_notification", _send)
+    try:
+        with Session(database_engine) as lock_db:
+            event = lock_db.get(IntegrationEvent, event_id)
+            assert event is not None
+            payload = event.payload_json
+            assert try_acquire_notification_delivery_lock(
+                lock_db,
+                webhook_id=instance_id,
+                event_type="alert_match",
+                item_id=uuid.UUID(payload["item_id"]),
+                feed_id=uuid.UUID(payload["feed_id"]),
+            )
+            with Session(database_engine) as worker_db:
+                deferred = process_smtp_integration_delivery(
+                    worker_db,
+                    delivery_id=delivery_id,
+                )
+
+            assert deferred.status == "retry_wait"
+            assert deferred.reason == "smtp_preflight_database_unavailable"
+            assert sends == []
+            lock_db.rollback()
+
+        with Session(database_engine) as retry_db:
+            delivery = retry_db.get(IntegrationDelivery, delivery_id)
+            assert delivery is not None
+            delivery.not_before = datetime.now(timezone.utc) - timedelta(seconds=1)
+            retry_db.add(delivery)
+            retry_db.commit()
+            recovered = process_smtp_integration_delivery(
+                retry_db,
+                delivery_id=delivery_id,
+            )
+
+        assert recovered.status == "succeeded"
+        assert sends == [delivery_id]
+    finally:
+        _cleanup_generic_alert_delivery(
+            database_engine,
+            source_owner_id=source_owner_id,
+            instance_id=instance_id,
+            event_id=event_id,
+        )
+
+
 def _persist_generic_alert_delivery(
     database_engine,
     *,
     timeout_seconds: int = 10,
+    system_key: str | None = None,
 ) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID]:
     source_owner_id = uuid.uuid4()
     instance_id = uuid.uuid4()
@@ -726,6 +806,7 @@ def _persist_generic_alert_delivery(
         )
         instance = IntegrationInstance(
             id=instance_id,
+            system_key=system_key,
             name="End-to-end alert SMTP",
             integration_type="smtp",
             direction="destination",
