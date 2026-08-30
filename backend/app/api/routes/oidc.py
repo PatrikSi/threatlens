@@ -714,7 +714,7 @@ def oidc_callback(
             },
         )
         db.commit()
-        response = _callback_redirect(provider, "/", {})
+        response = _callback_redirect(provider, "/start", {})
         set_auth_cookies(
             response,
             created_session.token,

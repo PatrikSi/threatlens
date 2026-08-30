@@ -12,6 +12,10 @@ Providers (outer to inner):
 2. `AuthProvider`
 3. `QueryClientProvider`
 
+The authenticated route branch additionally wraps `AppShell` in
+`WorkspaceProvider`, which resolves navigation and first-use dashboard defaults
+from the workspace APIs against a static trusted frontend registry.
+
 React Query defaults:
 
 - `staleTime: 30000`
@@ -23,6 +27,7 @@ Route tree:
 - `/login` -> `LoginPage`
 - `/` -> `ProtectedRoute` + `AppShell`
   - index -> `DashboardPage`
+  - `/start` -> effective trusted landing-page redirect
   - `/alerts` -> `AlertsPage`
   - `/investigations` -> `InvestigationsPage` list workspace
   - `/investigations/:investigationId` -> `InvestigationsPage` detail workspace
@@ -33,18 +38,19 @@ Route tree:
   - `/reporting/:reportId` -> `ReportingPage` report detail
   - `/ai` -> redirect to `/settings/ai`
   - `/settings` -> `SettingsLayout`
-    - index -> redirect to `/settings/account`
+    - index -> first visible trusted Settings child, falling back to `/settings/account`
     - `/settings/account` -> `AccountPage`
+    - `/settings/workspace` -> `WorkspaceSettingsPage`
     - `/settings/notifications` -> redirect to `/settings/integrations/webhooks`
-    - `/settings/integrations` -> redirect to `/settings/integrations/webhooks`
+    - `/settings/integrations` -> first visible trusted integration child
     - `/settings/integrations/webhooks` -> `NotificationWebhooksSettings`
-    - `/settings/integrations/smtp` -> admin-only `SMTPIntegrationSettingsPage`
-    - `/settings/ai` -> admin-only `AiSettingsPage` (shown only when `features.ai_enabled`)
-    - `/settings/tagging` -> admin-only `TaggingSettingsPage`
+    - `/settings/integrations/smtp` -> `read:integrations`-gated `SMTPIntegrationSettingsPage`
+    - `/settings/ai` -> `read:ai`-gated `AiSettingsPage` (shown only when `features.ai_enabled`)
+    - `/settings/tagging` -> `read:tagging`-gated `TaggingSettingsPage`
     - `/settings/tokens` -> `TokensPage`
-    - `/settings/operations` -> admin-only `OperationsPage`
-    - `/settings/users` -> admin-only `UsersPage`
-    - `/settings/audit-logs` -> admin-only `AuditLogsPage`
+    - `/settings/operations` -> `read:operations`-gated `OperationsPage`
+    - `/settings/users` -> `read:users`-gated `UsersPage`
+    - `/settings/audit-logs` -> `read:audit`-gated `AuditLogsPage`
 
 ## Shared Client Behavior
 
@@ -94,7 +100,7 @@ Root class behavior:
 
 ## App Shell (`AppShell.tsx`)
 
-Top navigation links:
+Default top navigation links:
 
 - `Dashboard`
 - `Alerts`
@@ -105,11 +111,49 @@ Top navigation links:
 - `Reporting`
 - `Settings`
 
+The effective workspace policy controls visibility and order while retaining the
+existing desktop and mobile shell styling. Desktop order uses module order;
+mobile order uses mobile priority. Only module IDs compiled into
+`workspace/moduleRegistry.ts` can provide labels, icon components, routes, or
+mobile behavior. Unknown server IDs are retained for compatibility diagnostics
+but are never rendered as links.
+
 Top-right controls:
 
 - Current user badge (`email (role)`)
 - Light/dark mode toggle
 - `Logout` button
+
+### Workspace client
+
+- `workspace/moduleRegistry.ts` is the frontend trust boundary for module IDs,
+  routes, Lucide icon components, permissions, feature dependencies, role
+  defaults, and mobile behavior.
+- `WorkspaceProvider` queries the registry, effective policy, and current-user
+  preferences, then applies local permission and feature checks as defense in
+  depth.
+- A workspace API failure falls back to trusted role defaults and surfaces a
+  degraded state instead of trusting partial server policy. A first-use
+  dashboard initializes once from safe local defaults and preserves that layout
+  if the workspace service later recovers.
+- Local password login enters through `/start`, and successful OIDC callbacks
+  return there as well. The resolver selects the configured available trusted
+  route while explicit safe deep links are still honored. `/` always remains the
+  literal Dashboard route.
+- Restricted Settings routes use canonical permissions from the current-user
+  access envelope. The backend remains authoritative and enforces the same
+  permissions on every API call.
+- Personal preference and role-policy writes include expected revisions and
+  invalidate the effective-workspace query after success.
+- Workspace API calls:
+  - `GET /workspace/modules`
+  - `GET /workspace/effective`
+  - `GET /workspace/preferences`
+  - `PUT /workspace/preferences`
+  - `POST /workspace/preferences/reset`
+  - `GET /workspace/role-policies`
+  - `PUT /workspace/role-policies/{role}`
+  - `POST /workspace/role-policies/{role}/reset`
 
 ## Page-Level Reference
 
@@ -446,14 +490,15 @@ API calls:
 
 UI elements:
 
-- Role-aware settings nav
+- Workspace-policy and permission-aware settings nav
 - Current role badge
 - Settings nav entries:
   - `Account`
   - `API Tokens`
+  - `Workspace`
   - `Integrations` with `Webhooks`
-  - admin-only `Integrations` -> `SMTP`
-  - admin-only `AI`, `Tagging`, `Users`, `Audit Logs`
+  - permission-gated `Integrations` -> `SMTP`
+  - permission-gated `AI`, `Tagging`, `Identity`, `Users`, `Operations`, and `Audit Logs`
 
 API calls:
 
@@ -656,12 +701,16 @@ API calls:
 
 ### `ProtectedRoute`
 
-- Resolves `/auth/me` and redirects to `/login` on `401/403`.
+- Resolves `/auth/me`, redirects to `/login` on `401`, and renders the backend's
+  account-access error on `403`.
 
-### `RoleRoute`
+### `PermissionRoute`
 
 - Waits for `/auth/me` resolution.
-- Redirects to `/` when user role is not in allowed role list.
+- Checks the current access envelope with the same wildcard and read-from-write
+  implication rules as the backend IAM model.
+- Fails closed with an actionable permission state when required grants are
+  absent; it never treats a legacy role label as authorization.
 
 ## Complete Frontend -> Backend Call Matrix
 

@@ -136,6 +136,14 @@ All API paths on this page are relative to the published `/api/v1` base. Dashboa
 - Local storage key: `threatlens.dashboard.window-seen.v1`
 - Local storage key: `threatlens.user-last-open.v1`
 - Session authentication itself remains cookie-based; dashboard storage does not contain the session JWT
+- Effective workspace dashboard-panel preferences seed the first local layout
+  only when the user has no existing dashboard window state. Existing local
+  layouts and saved views remain authoritative and are not rewritten when role
+  policy or personal defaults change.
+- The dashboard waits for workspace preference resolution before creating that
+  first layout. If workspace services are unavailable, trusted local defaults
+  initialize once, a degraded-state notice is shown, and subsequent recovery
+  does not replace the user's in-session or persisted layout.
 - Saved view payload includes:
   - per-window RSS filter state
   - per-window alerts filter state

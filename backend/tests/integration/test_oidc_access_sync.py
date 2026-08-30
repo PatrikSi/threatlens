@@ -841,7 +841,7 @@ def test_oidc_callback_materializes_custom_access_and_audits_without_claims(
         follow_redirects=False,
     )
     assert callback.status_code == 302
-    assert callback.headers["location"] == "http://testserver/"
+    assert callback.headers["location"] == "http://testserver/start"
     assert exchange_calls == ["authorization-code"]
     assert client.get("/auth/me").status_code == 200
     assert (

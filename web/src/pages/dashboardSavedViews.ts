@@ -18,7 +18,6 @@ import type {
   SavedViewWindowTimeFilter,
   SavedViewWindowType,
 } from '../types/api'
-import { safeLocalStorage } from '../utils/safeStorage'
 
 export type TimeRangeFilter = SavedViewTimeRange
 export type ReadStatusFilter = SavedViewReadStatus
@@ -531,11 +530,7 @@ export function parsePanelRectCandidate(value: unknown): PanelRect | null {
   }
 }
 
-function createDefaultDashboardWindow(containerWidth: number, containerHeight: number) {
-  return createWindowLayout('rss', 1, containerWidth, containerHeight, 'full')
-}
-
-function parseDashboardWindowCandidate(
+export function parseDashboardWindowCandidate(
   value: unknown,
   index: number,
   {
@@ -610,7 +605,7 @@ function parseDashboardWindowCandidate(
 
 export function parseDashboardSavedView(raw: unknown, containerWidth: number, containerHeight: number): DashboardSavedViewState {
   const source = isRecord(raw) ? raw : {}
-  const fallback = createDefaultDashboardWindow(containerWidth, containerHeight)
+  const fallback = createWindowLayout('rss', 1, containerWidth, containerHeight, 'full')
 
   const legacyFilters = isRecord(source.filters) ? source.filters : source
   const legacyLayout = isRecord(source.layout) ? source.layout : {}
@@ -887,37 +882,6 @@ function buildSavedViewWindowState(
     rss_filters: null,
     alert_filters: null,
     selected_daily_brief_id: null,
-  }
-}
-
-export function loadDashboardWindows(storageKey: string, containerWidth: number, containerHeight: number): DashboardWindow[] {
-  if (typeof window === 'undefined') {
-    return [createDefaultDashboardWindow(containerWidth, containerHeight)]
-  }
-
-  const raw = safeLocalStorage.getItem(storageKey)
-  if (!raw) {
-    return [createDefaultDashboardWindow(containerWidth, containerHeight)]
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as unknown
-    if (!Array.isArray(parsed)) {
-      return [createDefaultDashboardWindow(containerWidth, containerHeight)]
-    }
-
-    const windows = parsed
-      .slice(0, MAX_DASHBOARD_WINDOWS)
-      .map((entry, index) => parseDashboardWindowCandidate(entry, index + 1))
-      .filter((entry): entry is DashboardWindow => entry !== null)
-
-    if (!windows.length) {
-      return [createDefaultDashboardWindow(containerWidth, containerHeight)]
-    }
-
-    return normalizeDashboardWindows(windows, containerWidth, containerHeight)
-  } catch {
-    return [createDefaultDashboardWindow(containerWidth, containerHeight)]
   }
 }
 
