@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "1.8.0",
-    "x-threatlens-contract-sha256": "d9bb525af2166b2b609c7e1a8d949a68eb7f6e88d85592220b18f95e64a37d2a"
+    "x-threatlens-contract-sha256": "b60cd728d2f2c6aed5b6d0061bccfbfea3ac0360115b787eb25d283e8c49f089"
   },
   "servers": [
     {
@@ -12804,6 +12804,302 @@
         },
         "x-threatlens-required-token-scopes": [
           "write:iam"
+        ]
+      }
+    },
+    "/v1/workspace/modules": {
+      "get": {
+        "tags": [
+          "workspace"
+        ],
+        "summary": "Get Workspace Modules",
+        "operationId": "get_workspace_modules_v1_workspace_modules_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceRegistryResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "x-threatlens-required-token-scopes": [
+          "read:workspace"
+        ]
+      }
+    },
+    "/v1/workspace/role-policies": {
+      "get": {
+        "tags": [
+          "workspace"
+        ],
+        "summary": "Get Workspace Role Policies",
+        "operationId": "get_workspace_role_policies_v1_workspace_role_policies_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/WorkspaceRolePolicyResponse"
+                  },
+                  "type": "array",
+                  "title": "Response Get Workspace Role Policies V1 Workspace Role Policies Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "x-threatlens-required-token-scopes": [
+          "read:workspace"
+        ]
+      }
+    },
+    "/v1/workspace/role-policies/{role}": {
+      "get": {
+        "tags": [
+          "workspace"
+        ],
+        "summary": "Get Workspace Role Policy",
+        "operationId": "get_workspace_role_policy_v1_workspace_role_policies__role__get",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "role",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Role"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceRolePolicyResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "read:workspace"
+        ]
+      },
+      "put": {
+        "tags": [
+          "workspace"
+        ],
+        "summary": "Put Workspace Role Policy",
+        "operationId": "put_workspace_role_policy_v1_workspace_role_policies__role__put",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "role",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Role"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkspaceRolePolicyWriteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceRolePolicyResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "write:workspace"
+        ]
+      }
+    },
+    "/v1/workspace/preferences": {
+      "get": {
+        "tags": [
+          "workspace"
+        ],
+        "summary": "Get My Workspace Preferences",
+        "operationId": "get_my_workspace_preferences_v1_workspace_preferences_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceUserPreferenceResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "x-threatlens-required-token-scopes": [
+          "read:workspace"
+        ]
+      },
+      "put": {
+        "tags": [
+          "workspace"
+        ],
+        "summary": "Put My Workspace Preferences",
+        "operationId": "put_my_workspace_preferences_v1_workspace_preferences_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkspaceUserPreferenceWriteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceUserPreferenceResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "x-threatlens-required-token-scopes": [
+          "write:workspace_preferences"
+        ]
+      }
+    },
+    "/v1/workspace/effective": {
+      "get": {
+        "tags": [
+          "workspace"
+        ],
+        "summary": "Get My Effective Workspace",
+        "operationId": "get_my_effective_workspace_v1_workspace_effective_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceEffectiveResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "x-threatlens-required-token-scopes": [
+          "read:workspace"
         ]
       }
     }
@@ -31919,6 +32215,725 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "WorkspaceDashboardPanelDefinitionResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "required_permission": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Required Permission"
+          },
+          "feature_flag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feature Flag"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "label"
+        ],
+        "title": "WorkspaceDashboardPanelDefinitionResponse"
+      },
+      "WorkspaceEffectiveModuleResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "route": {
+            "type": "string",
+            "title": "Route"
+          },
+          "section": {
+            "type": "string",
+            "enum": [
+              "primary",
+              "settings"
+            ],
+            "title": "Section"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id"
+          },
+          "visible": {
+            "type": "boolean",
+            "title": "Visible"
+          },
+          "optional": {
+            "type": "boolean",
+            "title": "Optional"
+          },
+          "order": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Order"
+          },
+          "mobile_priority": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Mobile Priority"
+          },
+          "mobile_behavior": {
+            "type": "string",
+            "enum": [
+              "primary",
+              "secondary"
+            ],
+            "title": "Mobile Behavior"
+          },
+          "permission_allowed": {
+            "type": "boolean",
+            "title": "Permission Allowed"
+          },
+          "feature_available": {
+            "type": "boolean",
+            "title": "Feature Available"
+          },
+          "policy_visible": {
+            "type": "boolean",
+            "title": "Policy Visible"
+          },
+          "preference_visible": {
+            "type": "boolean",
+            "title": "Preference Visible"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Reasons"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "route",
+          "section",
+          "parent_id",
+          "visible",
+          "optional",
+          "order",
+          "mobile_priority",
+          "mobile_behavior",
+          "permission_allowed",
+          "feature_available",
+          "policy_visible",
+          "preference_visible",
+          "reasons"
+        ],
+        "title": "WorkspaceEffectiveModuleResponse"
+      },
+      "WorkspaceEffectiveResponse": {
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "analyst",
+              "viewer"
+            ],
+            "title": "Role"
+          },
+          "policy_revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Policy Revision"
+          },
+          "preference_revision": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Preference Revision"
+          },
+          "landing_module_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Landing Module Id"
+          },
+          "dashboard_panel_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Dashboard Panel Ids"
+          },
+          "modules": {
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceEffectiveModuleResponse"
+            },
+            "type": "array",
+            "title": "Modules"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "role",
+          "policy_revision",
+          "preference_revision",
+          "landing_module_id",
+          "dashboard_panel_ids",
+          "modules"
+        ],
+        "title": "WorkspaceEffectiveResponse"
+      },
+      "WorkspaceModuleDefinitionResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "route": {
+            "type": "string",
+            "title": "Route"
+          },
+          "section": {
+            "type": "string",
+            "enum": [
+              "primary",
+              "settings"
+            ],
+            "title": "Section"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id"
+          },
+          "required_permission": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Required Permission"
+          },
+          "feature_flag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feature Flag"
+          },
+          "default_optional": {
+            "type": "boolean",
+            "title": "Default Optional"
+          },
+          "default_order": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Default Order"
+          },
+          "default_mobile_priority": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Default Mobile Priority"
+          },
+          "mobile_behavior": {
+            "type": "string",
+            "enum": [
+              "primary",
+              "secondary"
+            ],
+            "title": "Mobile Behavior"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "route",
+          "section",
+          "default_optional",
+          "default_order",
+          "default_mobile_priority",
+          "mobile_behavior"
+        ],
+        "title": "WorkspaceModuleDefinitionResponse"
+      },
+      "WorkspaceModulePolicy": {
+        "properties": {
+          "module_id": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 2,
+            "pattern": "^[a-z][a-z0-9_.-]+$",
+            "title": "Module Id"
+          },
+          "visible": {
+            "type": "boolean",
+            "title": "Visible"
+          },
+          "optional": {
+            "type": "boolean",
+            "title": "Optional"
+          },
+          "order": {
+            "type": "integer",
+            "maximum": 10000.0,
+            "minimum": 0.0,
+            "title": "Order"
+          },
+          "mobile_priority": {
+            "type": "integer",
+            "maximum": 10000.0,
+            "minimum": 0.0,
+            "title": "Mobile Priority"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "module_id",
+          "visible",
+          "optional",
+          "order",
+          "mobile_priority"
+        ],
+        "title": "WorkspaceModulePolicy"
+      },
+      "WorkspaceModulePreference": {
+        "properties": {
+          "module_id": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 2,
+            "pattern": "^[a-z][a-z0-9_.-]+$",
+            "title": "Module Id"
+          },
+          "visible": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Visible"
+          },
+          "order": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 10000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "module_id"
+        ],
+        "title": "WorkspaceModulePreference"
+      },
+      "WorkspaceRegistryResponse": {
+        "properties": {
+          "modules": {
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceModuleDefinitionResponse"
+            },
+            "type": "array",
+            "title": "Modules"
+          },
+          "dashboard_panels": {
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceDashboardPanelDefinitionResponse"
+            },
+            "type": "array",
+            "title": "Dashboard Panels"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "modules",
+          "dashboard_panels"
+        ],
+        "title": "WorkspaceRegistryResponse"
+      },
+      "WorkspaceRolePolicyResponse": {
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "analyst",
+              "viewer"
+            ],
+            "title": "Role"
+          },
+          "landing_module_id": {
+            "type": "string",
+            "title": "Landing Module Id"
+          },
+          "modules": {
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceModulePolicy"
+            },
+            "type": "array",
+            "title": "Modules"
+          },
+          "dashboard_panel_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Dashboard Panel Ids"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Revision"
+          },
+          "updated_by_user_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated By User Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "unknown_module_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Unknown Module Ids"
+          },
+          "unknown_dashboard_panel_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Unknown Dashboard Panel Ids"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "role",
+          "landing_module_id",
+          "modules",
+          "dashboard_panel_ids",
+          "revision",
+          "updated_by_user_id",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "WorkspaceRolePolicyResponse"
+      },
+      "WorkspaceRolePolicyWriteRequest": {
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Revision"
+          },
+          "landing_module_id": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 2,
+            "pattern": "^[a-z][a-z0-9_.-]+$",
+            "title": "Landing Module Id"
+          },
+          "modules": {
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceModulePolicy"
+            },
+            "type": "array",
+            "maxItems": 128,
+            "minItems": 1,
+            "title": "Modules"
+          },
+          "dashboard_panel_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 32,
+            "title": "Dashboard Panel Ids"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_revision",
+          "landing_module_id",
+          "modules",
+          "dashboard_panel_ids"
+        ],
+        "title": "WorkspaceRolePolicyWriteRequest"
+      },
+      "WorkspaceUserPreferenceResponse": {
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "User Id"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "analyst",
+              "viewer"
+            ],
+            "title": "Role"
+          },
+          "landing_module_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Landing Module Id"
+          },
+          "modules": {
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceModulePreference"
+            },
+            "type": "array",
+            "title": "Modules"
+          },
+          "dashboard_panel_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dashboard Panel Ids"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Revision"
+          },
+          "updated_by_user_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated By User Id"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "unknown_module_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Unknown Module Ids"
+          },
+          "unknown_dashboard_panel_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Unknown Dashboard Panel Ids"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "user_id",
+          "role",
+          "landing_module_id",
+          "modules",
+          "dashboard_panel_ids",
+          "revision"
+        ],
+        "title": "WorkspaceUserPreferenceResponse"
+      },
+      "WorkspaceUserPreferenceWriteRequest": {
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Expected Revision"
+          },
+          "landing_module_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64,
+                "minLength": 2,
+                "pattern": "^[a-z][a-z0-9_.-]+$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Landing Module Id"
+          },
+          "modules": {
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceModulePreference"
+            },
+            "type": "array",
+            "maxItems": 128,
+            "title": "Modules"
+          },
+          "dashboard_panel_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "maxItems": 32
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dashboard Panel Ids"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_revision"
+        ],
+        "title": "WorkspaceUserPreferenceWriteRequest"
       },
       "SavedViewQueryPayload-Input": {
         "properties": {

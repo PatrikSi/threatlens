@@ -69,6 +69,7 @@ from app.models.tag import ItemTag, Tag, TagFeedbackEvent
 from app.models.tagging_rule import TaggingRule
 from app.models.tagging_settings import TaggingSettings
 from app.models.user import User
+from app.models.workspace import WorkspaceRolePolicy, WorkspaceUserPreference
 
 __all__ = [
     "AIDailyBrief",
@@ -138,4 +139,6 @@ __all__ = [
     "User",
     "UserRecoveryCode",
     "UserTOTPCredential",
+    "WorkspaceRolePolicy",
+    "WorkspaceUserPreference",
 ]

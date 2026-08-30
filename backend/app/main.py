@@ -47,6 +47,7 @@ from app.api.routes import (
     tokens,
     users,
     views,
+    workspace,
 )
 from app.services.encrypted_data_inventory import (
     record_startup_encrypted_data_inventory_error,
@@ -111,6 +112,7 @@ API_ROUTERS: tuple[APIRouter, ...] = (
     operations.router,
     health.router,
     iam.router,
+    workspace.router,
 )
 
 

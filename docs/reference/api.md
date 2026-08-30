@@ -5,7 +5,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ## Published Contract
 
 - Schema version: `1.8.0`
-- OpenAPI contract anchor: `openapi-sha256:d9bb525af2166b2b609c7e1a8d949a68eb7f6e88d85592220b18f95e64a37d2a`
+- OpenAPI contract anchor: `openapi-sha256:b60cd728d2f2c6aed5b6d0061bccfbfea3ac0360115b787eb25d283e8c49f089`
 - API service base path: `/v1`
 - Web proxy base path: `/api/v1`
 - Bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`.
@@ -1529,3 +1529,47 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `view_id` (path, required): string
 - Request body: `application/json` -> SavedViewUpdate
 - Responses: `200` `application/json` -> SavedViewResponse, `422` `application/json` -> ApiErrorResponse
+
+## Workspace
+
+### `GET /v1/workspace/effective`
+- Summary: Get My Effective Workspace
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:workspace`
+- Responses: `200` `application/json` -> WorkspaceEffectiveResponse
+### `GET /v1/workspace/modules`
+- Summary: Get Workspace Modules
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:workspace`
+- Responses: `200` `application/json` -> WorkspaceRegistryResponse
+### `GET /v1/workspace/preferences`
+- Summary: Get My Workspace Preferences
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:workspace`
+- Responses: `200` `application/json` -> WorkspaceUserPreferenceResponse
+### `PUT /v1/workspace/preferences`
+- Summary: Put My Workspace Preferences
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:workspace_preferences`
+- Request body: `application/json` -> WorkspaceUserPreferenceWriteRequest
+- Responses: `200` `application/json` -> WorkspaceUserPreferenceResponse, `422` `application/json` -> ApiErrorResponse
+### `GET /v1/workspace/role-policies`
+- Summary: Get Workspace Role Policies
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:workspace`
+- Responses: `200` `application/json` -> array[WorkspaceRolePolicyResponse]
+### `GET /v1/workspace/role-policies/{role}`
+- Summary: Get Workspace Role Policy
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:workspace`
+- Parameters:
+  - `role` (path, required): string
+- Responses: `200` `application/json` -> WorkspaceRolePolicyResponse, `422` `application/json` -> ApiErrorResponse
+### `PUT /v1/workspace/role-policies/{role}`
+- Summary: Put Workspace Role Policy
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:workspace`
+- Parameters:
+  - `role` (path, required): string
+- Request body: `application/json` -> WorkspaceRolePolicyWriteRequest
+- Responses: `200` `application/json` -> WorkspaceRolePolicyResponse, `422` `application/json` -> ApiErrorResponse

@@ -10,13 +10,13 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.routes.workspace import (
-    SCOPE_WRITE_WORKSPACE_PREFERENCES,
-    router as workspace_router,
-)
+from app.api.routes.workspace import router as workspace_router
 from app.core.api_errors import install_api_error_handlers
 from app.core.security import generate_api_token
-from app.core.token_scopes import SCOPE_READ_WORKSPACE
+from app.core.token_scopes import (
+    SCOPE_READ_WORKSPACE,
+    SCOPE_WRITE_WORKSPACE_PREFERENCES,
+)
 from app.db.session import get_db
 from app.models.api_token import ApiToken
 from app.models.audit_log import AuditLog
