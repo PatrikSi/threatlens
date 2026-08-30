@@ -30,6 +30,7 @@ from app.models.audit_log import AuditLog
 from app.models.data_policy import (
     DataAccessEnvelope,
     DataAccessEnvelopeLabel,
+    DataAccessEnvelopeSource,
     DataPolicyRoleGrant,
     DataPolicyState,
     HandlingLabel,
@@ -128,6 +129,7 @@ __all__ = [
     "AuditLog",
     "DataAccessEnvelope",
     "DataAccessEnvelopeLabel",
+    "DataAccessEnvelopeSource",
     "DataPolicyRoleGrant",
     "DataPolicyState",
     "Feed",

@@ -368,9 +368,7 @@ def update_handling_label(
 
     updates = payload.model_dump(exclude_unset=True, exclude={"expected_revision"})
     if label.is_system and updates:
-        raise DataPolicyConflict(
-            "Built-in handling labels cannot be changed."
-        )
+        raise DataPolicyConflict("Built-in handling labels cannot be changed.")
     if "name" in updates:
         updates["name"] = _required_text(updates["name"], field="name")
     if "description" in updates:
@@ -409,9 +407,7 @@ def replace_handling_label_role_grants(
         policy_revision=state.revision,
     )
     if label.is_system:
-        raise DataPolicyConflict(
-            "Built-in handling-label grants cannot be changed."
-        )
+        raise DataPolicyConflict("Built-in handling-label grants cannot be changed.")
     if not label.is_active:
         raise DataPolicyConflict(
             "Restore this handling label before changing its role grants."
@@ -473,9 +469,7 @@ def set_handling_label_status(
         policy_revision=state.revision,
     )
     if label.is_system:
-        raise DataPolicyConflict(
-            "Built-in handling labels cannot be archived."
-        )
+        raise DataPolicyConflict("Built-in handling labels cannot be archived.")
     if label.is_active == payload.active:
         return HandlingLabelMutationResponse(
             label=_label_response(db, label),
@@ -563,10 +557,20 @@ def assign_feed_handling_label(
     previous_handling_label_id = feed.handling_label_id
     changed = previous_handling_label_id != label.id
     if changed:
+        from app.services.data_access_envelopes import (
+            taint_data_access_envelopes_for_feed,
+        )
+
         feed.handling_label_id = label.id
         db.add(feed)
         _bump_policy_state(state, actor_user_id=actor_user_id)
         db.flush()
+        taint_data_access_envelopes_for_feed(
+            db,
+            feed_id=feed.id,
+            handling_label_id=label.id,
+            policy_revision=state.revision,
+        )
     return FeedHandlingLabelAssignmentResponse(
         feed_id=feed.id,
         previous_handling_label_id=previous_handling_label_id,
