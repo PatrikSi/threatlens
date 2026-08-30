@@ -6,7 +6,13 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.models.feed import Feed
+from app.models.item import Item
 from app.models.tag import TagFeedbackEvent
+from app.services.data_access_policy import (
+    DataAccessContext,
+    handling_label_access_predicate,
+)
 
 SIGNAL_WEIGHTS: dict[str, float] = {
     "manual_add": 1.0,
@@ -52,6 +58,7 @@ def load_feedback_adjustments(
     *,
     tag_names: list[str] | None = None,
     lookback_days: int = 120,
+    data_access: DataAccessContext | None = None,
 ) -> dict[str, float]:
     cutoff = datetime.now(timezone.utc) - timedelta(days=lookback_days)
     stmt = (
@@ -63,8 +70,16 @@ def load_feedback_adjustments(
         .where(TagFeedbackEvent.created_at >= cutoff)
         .group_by(TagFeedbackEvent.tag_name)
     )
+    if data_access is not None:
+        stmt = (
+            stmt.join(Item, Item.id == TagFeedbackEvent.item_id)
+            .join(Feed, Feed.id == Item.feed_id)
+            .where(handling_label_access_predicate(Feed.handling_label_id, data_access))
+        )
     if tag_names:
-        normalized = sorted({(tag_name or "").strip().lower() for tag_name in tag_names if tag_name})
+        normalized = sorted(
+            {(tag_name or "").strip().lower() for tag_name in tag_names if tag_name}
+        )
         if not normalized:
             return {}
         stmt = stmt.where(TagFeedbackEvent.tag_name.in_(normalized))
