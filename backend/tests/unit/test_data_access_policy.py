@@ -25,6 +25,7 @@ from app.schemas.iam import RoleWriteRequest
 from app.services import data_access_policy as policy_service
 from app.services.authorization import EffectiveRole, authorization_context_for_user
 from app.services.data_access_policy import (
+    DataAccessContext,
     DataPolicyActivationBlocked,
     DataPolicyConflict,
     DataPolicyRevisionConflict,
@@ -34,6 +35,7 @@ from app.services.data_access_policy import (
     create_handling_label,
     data_access_context_for_authorization,
     data_policy_overview,
+    fence_data_access_context,
     replace_handling_label_role_grants,
     set_handling_label_status,
     update_data_policy_mode,
@@ -69,6 +71,32 @@ def test_foundation_is_backward_compatible_and_activation_is_blocked(db_session)
             expected_revision=overview.state.revision,
             actor_user_id=SYSTEM_ROLE_IDS["admin"],
         )
+
+
+def test_data_access_context_fence_rejects_a_stale_policy_snapshot(
+    db_session,
+    seed_users,
+):
+    state = db_session.get(DataPolicyState, 1)
+    assert state is not None
+    context = DataAccessContext(
+        mode="disabled",
+        policy_revision=state.revision,
+        coverage_version=state.coverage_version,
+        principal_type="user",
+        principal_id=seed_users["viewer"].id,
+        principal_eligible=True,
+        allowed_label_ids=frozenset(),
+    )
+
+    fence_data_access_context(db_session, context)
+    state.revision += 1
+    db_session.flush()
+
+    with pytest.raises(DataPolicyRevisionConflict) as raised:
+        fence_data_access_context(db_session, context)
+
+    assert raised.value.current_revision == context.policy_revision + 1
 
 
 def test_label_grants_feed_assignment_and_archive_invariants(db_session, seed_users):

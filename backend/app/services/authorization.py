@@ -485,6 +485,28 @@ def bump_iam_policy_revision(db: Session) -> int:
     return state.revision
 
 
+def fence_authorization_context(
+    db: Session,
+    context: AuthorizationContext,
+) -> None:
+    """Hold the IAM revision stable for the caller's transaction."""
+
+    current_revision = db.scalar(
+        select(IAMPolicyState.revision)
+        .where(IAMPolicyState.id == 1)
+        .with_for_update(read=True)
+        .execution_options(populate_existing=True)
+    )
+    if current_revision is None:
+        raise AuthorizationStateUnavailable(
+            "Access policy state is unavailable. Restore the database or rerun migrations."
+        )
+    if int(current_revision) != context.policy_revision:
+        raise AuthorizationStateUnavailable(
+            "Access policy changed while data access was being authorized. Retry the request."
+        )
+
+
 def role_permissions(db: Session, role_id: uuid.UUID) -> frozenset[str]:
     return frozenset(
         db.scalars(
