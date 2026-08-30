@@ -26,6 +26,9 @@ from app.services.integration_connectors import (
 from app.services.integration_event_schemas import (
     max_supported_integration_event_schema,
 )
+from app.services.data_access_runtime import (
+    ensure_integration_event_data_access_envelope,
+)
 from app.services.integration_registry import (
     get_integration_connector,
     iter_integration_connectors_for_event,
@@ -105,6 +108,7 @@ def emit_integration_event(
         )
     )
     if existing is not None:
+        ensure_integration_event_data_access_envelope(db, event_id=existing.id)
         return existing
 
     resolved_schema_version, resolved_payload = _prepare_event_envelope(
@@ -138,7 +142,9 @@ def emit_integration_event(
         )
         if existing is None:
             raise
+        ensure_integration_event_data_access_envelope(db, event_id=existing.id)
         return existing
+    ensure_integration_event_data_access_envelope(db, event_id=event.id)
     return event
 
 
@@ -215,6 +221,7 @@ def route_integration_event(
     )
     if event is None:
         raise IntegrationEventContextError("Integration event not found")
+    ensure_integration_event_data_access_envelope(db, event_id=event.id)
     if event.routing_state == EVENT_ROUTED:
         return _routed_event_result(db, event)
     if event.routing_state == EVENT_DEAD_LETTER:

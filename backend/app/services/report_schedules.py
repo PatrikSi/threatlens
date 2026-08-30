@@ -35,6 +35,7 @@ from app.services.data_access_policy import (
     DataPolicyError,
     data_access_context_for_authorization,
 )
+from app.services.data_access_runtime import ensure_report_data_access_envelope
 from app.services.export_query import (
     ExportAuthorizationChangedError,
     ExportSnapshotChangedError,
@@ -51,6 +52,7 @@ from app.services.report_storage import (
     ReportStorageError,
     create_report_from_plan,
     report_plan_record_fields,
+    replace_report_sources_from_plan,
 )
 from app.services.resource_versions import next_resource_version, resource_version_value
 
@@ -440,8 +442,19 @@ def _create_one_scheduled_report(
             with db.begin_nested():
                 db.add(report)
                 db.flush()
-        except IntegrityError:
-            return None
+                replace_report_sources_from_plan(db, report=report, plan=plan)
+                ensure_report_data_access_envelope(
+                    db,
+                    report_id=report.id,
+                    expected_policy_revision=plan.data_policy_revision,
+                )
+        except IntegrityError as exc:
+            if _integrity_constraint_name(exc) in {
+                "reports_generation_key_key",
+                "uq_reports_owner_request_idempotency_key_hash",
+            }:
+                return None
+            raise
         return report
 
 

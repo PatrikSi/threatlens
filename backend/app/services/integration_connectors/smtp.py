@@ -14,6 +14,9 @@ from app.models.integration import (
     IntegrationSubscriptionFeed,
 )
 from app.models.user import User
+from app.services.data_access_runtime import (
+    ensure_integration_delivery_data_access_envelope,
+)
 from app.services.integration_connectors.base import (
     ConnectorDeliveryResult,
     ConnectorRoutingResult,
@@ -224,6 +227,9 @@ class SMTPIntegrationConnector:
                 )
             )
             if existing is not None:
+                ensure_integration_delivery_data_access_envelope(
+                    db, delivery_id=existing.id
+                )
                 delivery_ids.append(existing.id)
                 continue
             delivery = IntegrationDelivery(
@@ -243,6 +249,9 @@ class SMTPIntegrationConnector:
             )
             db.add(delivery)
             db.flush()
+            ensure_integration_delivery_data_access_envelope(
+                db, delivery_id=delivery.id
+            )
             delivery_ids.append(delivery.id)
         return ConnectorRoutingResult(delivery_ids=tuple(delivery_ids))
 
