@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "1.8.0",
-    "x-threatlens-contract-sha256": "208c3eb7fb3e53d3ed197069f1cc651bc368e38e0c4bc8d1f120778347665bdb"
+    "x-threatlens-contract-sha256": "8ebc88d3923e9cafb45522b639845e897800c01d3a4b49593f86ac3b162791c1"
   },
   "servers": [
     {
@@ -22904,6 +22904,1186 @@
           }
         }
       }
+    },
+    "/v1/iam/access-reviews": {
+      "get": {
+        "tags": [
+          "access reviews"
+        ],
+        "summary": "Get Access Review Campaigns",
+        "operationId": "get_access_review_campaigns_v1_iam_access_reviews_get",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 25,
+              "title": "Page Size"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "open",
+                    "closed",
+                    "applying",
+                    "applied",
+                    "cancelled",
+                    "quarantined"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessReviewCampaignListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "read:access_reviews"
+        ]
+      },
+      "post": {
+        "tags": [
+          "access reviews"
+        ],
+        "summary": "Post Access Review Campaign",
+        "operationId": "post_access_review_campaign_v1_iam_access_reviews_post",
+        "security": [
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 255,
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccessReviewCampaignCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessReviewCampaignResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/iam/access-reviews/{campaign_id}": {
+      "get": {
+        "tags": [
+          "access reviews"
+        ],
+        "summary": "Get Access Review Campaign Route",
+        "operationId": "get_access_review_campaign_route_v1_iam_access_reviews__campaign_id__get",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "campaign_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Campaign Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessReviewCampaignResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "read:access_reviews"
+        ]
+      }
+    },
+    "/v1/iam/access-reviews/{campaign_id}/items": {
+      "get": {
+        "tags": [
+          "access reviews"
+        ],
+        "summary": "Get Access Review Items",
+        "operationId": "get_access_review_items_v1_iam_access_reviews__campaign_id__items_get",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "campaign_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Campaign Id"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Page Size"
+            }
+          },
+          {
+            "name": "item_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 32
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Item Type"
+            }
+          },
+          {
+            "name": "principal_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 24
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Principal Type"
+            }
+          },
+          {
+            "name": "decision",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 16
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Decision"
+            }
+          },
+          {
+            "name": "apply_outcome",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 32
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Apply Outcome"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessReviewItemListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "read:access_reviews"
+        ]
+      }
+    },
+    "/v1/iam/access-reviews/{campaign_id}/decisions": {
+      "post": {
+        "tags": [
+          "access reviews"
+        ],
+        "summary": "Post Access Review Decisions",
+        "operationId": "post_access_review_decisions_v1_iam_access_reviews__campaign_id__decisions_post",
+        "security": [
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "campaign_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Campaign Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 255,
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccessReviewDecisionBatchRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessReviewCampaignResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/iam/access-reviews/{campaign_id}/close": {
+      "post": {
+        "tags": [
+          "access reviews"
+        ],
+        "summary": "Post Access Review Close",
+        "operationId": "post_access_review_close_v1_iam_access_reviews__campaign_id__close_post",
+        "security": [
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "campaign_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Campaign Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 255,
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccessReviewTransitionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessReviewCampaignResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/iam/access-reviews/{campaign_id}/apply/start": {
+      "post": {
+        "tags": [
+          "access reviews"
+        ],
+        "summary": "Post Access Review Apply Start",
+        "operationId": "post_access_review_apply_start_v1_iam_access_reviews__campaign_id__apply_start_post",
+        "security": [
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "campaign_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Campaign Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 255,
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccessReviewBeginApplyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessReviewCampaignResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/iam/access-reviews/{campaign_id}/apply/items/{item_id}": {
+      "post": {
+        "tags": [
+          "access reviews"
+        ],
+        "summary": "Post Access Review Apply Item",
+        "operationId": "post_access_review_apply_item_v1_iam_access_reviews__campaign_id__apply_items__item_id__post",
+        "security": [
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "campaign_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Campaign Id"
+            }
+          },
+          {
+            "name": "item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Item Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 255,
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccessReviewApplyItemRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessReviewApplyReceiptResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/iam/access-reviews/{campaign_id}/apply/items/{item_id}/resolve": {
+      "post": {
+        "tags": [
+          "access reviews"
+        ],
+        "summary": "Post Access Review Resolve Item",
+        "operationId": "post_access_review_resolve_item_v1_iam_access_reviews__campaign_id__apply_items__item_id__resolve_post",
+        "security": [
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "campaign_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Campaign Id"
+            }
+          },
+          {
+            "name": "item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Item Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 255,
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccessReviewResolveItemRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessReviewApplyReceiptResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/iam/access-reviews/{campaign_id}/apply/complete": {
+      "post": {
+        "tags": [
+          "access reviews"
+        ],
+        "summary": "Post Access Review Apply Complete",
+        "operationId": "post_access_review_apply_complete_v1_iam_access_reviews__campaign_id__apply_complete_post",
+        "security": [
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "campaign_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Campaign Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 255,
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccessReviewBeginApplyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessReviewCampaignResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/iam/access-reviews/{campaign_id}/cancel": {
+      "post": {
+        "tags": [
+          "access reviews"
+        ],
+        "summary": "Post Access Review Cancel",
+        "operationId": "post_access_review_cancel_v1_iam_access_reviews__campaign_id__cancel_post",
+        "security": [
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "campaign_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Campaign Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 255,
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccessReviewTransitionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessReviewCampaignResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -25939,6 +27119,1105 @@
           "reason"
         ],
         "title": "AccessExplanationResponse"
+      },
+      "AccessReviewApplyItemRequest": {
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Revision"
+          },
+          "expected_item_fingerprint": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Expected Item Fingerprint"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_revision",
+          "expected_item_fingerprint"
+        ],
+        "title": "AccessReviewApplyItemRequest"
+      },
+      "AccessReviewApplyReceiptResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "campaign_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Campaign Id"
+          },
+          "item_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Item Id"
+          },
+          "item_fingerprint": {
+            "type": "string",
+            "title": "Item Fingerprint"
+          },
+          "decision_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Decision Id"
+          },
+          "apply_run_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Apply Run Id"
+          },
+          "attempt": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Attempt"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "retained",
+              "revoked",
+              "already_absent",
+              "manual_action_required",
+              "superseded",
+              "drifted",
+              "failed"
+            ],
+            "title": "Outcome"
+          },
+          "expected_assignment_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Assignment Revision"
+          },
+          "observed_assignment_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observed Assignment Revision"
+          },
+          "expected_target_revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Target Revision"
+          },
+          "observed_target_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observed Target Revision"
+          },
+          "observed_fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observed Fingerprint"
+          },
+          "mutation_performed": {
+            "type": "boolean",
+            "title": "Mutation Performed"
+          },
+          "detail_code": {
+            "type": "string",
+            "title": "Detail Code"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          },
+          "result_snapshot": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Result Snapshot"
+          },
+          "applied_by_user_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applied By User Id"
+          },
+          "applied_by_email_snapshot": {
+            "type": "string",
+            "title": "Applied By Email Snapshot"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "campaign_id",
+          "item_id",
+          "item_fingerprint",
+          "decision_id",
+          "apply_run_id",
+          "attempt",
+          "outcome",
+          "expected_assignment_revision",
+          "observed_assignment_revision",
+          "expected_target_revision",
+          "observed_target_revision",
+          "observed_fingerprint",
+          "mutation_performed",
+          "detail_code",
+          "detail",
+          "result_snapshot",
+          "applied_by_user_id",
+          "applied_by_email_snapshot",
+          "created_at"
+        ],
+        "title": "AccessReviewApplyReceiptResponse"
+      },
+      "AccessReviewBeginApplyRequest": {
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Revision"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_revision"
+        ],
+        "title": "AccessReviewBeginApplyRequest"
+      },
+      "AccessReviewCampaignCreate": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 160,
+            "minLength": 3,
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000,
+            "title": "Description",
+            "default": ""
+          },
+          "user_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "maxItems": 500,
+            "title": "User Ids"
+          },
+          "service_account_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "maxItems": 500,
+            "title": "Service Account Ids"
+          },
+          "include_oidc_mappings": {
+            "type": "boolean",
+            "title": "Include Oidc Mappings",
+            "default": true
+          },
+          "include_live_elevations": {
+            "type": "boolean",
+            "title": "Include Live Elevations",
+            "default": true
+          },
+          "due_in_seconds": {
+            "type": "integer",
+            "maximum": 7776000.0,
+            "minimum": 3600.0,
+            "title": "Due In Seconds",
+            "default": 1209600
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "AccessReviewCampaignCreate"
+      },
+      "AccessReviewCampaignListResponse": {
+        "properties": {
+          "campaigns": {
+            "items": {
+              "$ref": "#/components/schemas/AccessReviewCampaignResponse"
+            },
+            "type": "array",
+            "title": "Campaigns"
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Page"
+          },
+          "page_size": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Page Size"
+          }
+        },
+        "type": "object",
+        "required": [
+          "campaigns",
+          "total",
+          "page",
+          "page_size"
+        ],
+        "title": "AccessReviewCampaignListResponse"
+      },
+      "AccessReviewCampaignResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "scope_snapshot": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Scope Snapshot"
+          },
+          "scope_digest": {
+            "type": "string",
+            "title": "Scope Digest"
+          },
+          "snapshot_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Snapshot At"
+          },
+          "review_due_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Review Due At"
+          },
+          "is_overdue": {
+            "type": "boolean",
+            "title": "Is Overdue"
+          },
+          "item_count": {
+            "type": "integer",
+            "maximum": 10000.0,
+            "minimum": 1.0,
+            "title": "Item Count"
+          },
+          "decided_item_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Decided Item Count"
+          },
+          "revoke_item_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Revoke Item Count"
+          },
+          "apply_terminal_item_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Apply Terminal Item Count"
+          },
+          "created_by_user_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By User Id"
+          },
+          "created_by_email_snapshot": {
+            "type": "string",
+            "title": "Created By Email Snapshot"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "closed",
+              "applying",
+              "applied",
+              "cancelled",
+              "quarantined"
+            ],
+            "title": "Status"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Revision"
+          },
+          "closed_by_user_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closed By User Id"
+          },
+          "closed_by_email_snapshot": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closed By Email Snapshot"
+          },
+          "closed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closed At"
+          },
+          "close_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Close Reason"
+          },
+          "apply_started_by_user_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Apply Started By User Id"
+          },
+          "apply_started_by_email_snapshot": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Apply Started By Email Snapshot"
+          },
+          "apply_started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Apply Started At"
+          },
+          "apply_run_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Apply Run Id"
+          },
+          "applied_by_user_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applied By User Id"
+          },
+          "applied_by_email_snapshot": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applied By Email Snapshot"
+          },
+          "applied_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applied At"
+          },
+          "cancelled_by_user_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cancelled By User Id"
+          },
+          "cancelled_by_principal_type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "user",
+                  "system"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cancelled By Principal Type"
+          },
+          "cancelled_by_email_snapshot": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cancelled By Email Snapshot"
+          },
+          "cancelled_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cancelled At"
+          },
+          "cancel_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cancel Reason"
+          },
+          "quarantined_by_user_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quarantined By User Id"
+          },
+          "quarantined_by_principal_type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "user",
+                  "system"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quarantined By Principal Type"
+          },
+          "quarantined_by_email_snapshot": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quarantined By Email Snapshot"
+          },
+          "quarantined_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quarantined At"
+          },
+          "quarantine_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quarantine Reason"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "description",
+          "scope_snapshot",
+          "scope_digest",
+          "snapshot_at",
+          "review_due_at",
+          "is_overdue",
+          "item_count",
+          "decided_item_count",
+          "revoke_item_count",
+          "apply_terminal_item_count",
+          "created_by_user_id",
+          "created_by_email_snapshot",
+          "status",
+          "revision",
+          "closed_by_user_id",
+          "closed_by_email_snapshot",
+          "closed_at",
+          "close_reason",
+          "apply_started_by_user_id",
+          "apply_started_by_email_snapshot",
+          "apply_started_at",
+          "apply_run_id",
+          "applied_by_user_id",
+          "applied_by_email_snapshot",
+          "applied_at",
+          "cancelled_by_user_id",
+          "cancelled_by_principal_type",
+          "cancelled_by_email_snapshot",
+          "cancelled_at",
+          "cancel_reason",
+          "quarantined_by_user_id",
+          "quarantined_by_principal_type",
+          "quarantined_by_email_snapshot",
+          "quarantined_at",
+          "quarantine_reason",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "AccessReviewCampaignResponse"
+      },
+      "AccessReviewDecisionBatchRequest": {
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Revision"
+          },
+          "decisions": {
+            "items": {
+              "$ref": "#/components/schemas/AccessReviewDecisionInput"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Decisions"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_revision",
+          "decisions"
+        ],
+        "title": "AccessReviewDecisionBatchRequest"
+      },
+      "AccessReviewDecisionInput": {
+        "properties": {
+          "item_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Item Id"
+          },
+          "decision": {
+            "type": "string",
+            "enum": [
+              "retain",
+              "revoke"
+            ],
+            "title": "Decision"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 3,
+            "title": "Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "item_id",
+          "decision",
+          "reason"
+        ],
+        "title": "AccessReviewDecisionInput"
+      },
+      "AccessReviewDecisionResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "campaign_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Campaign Id"
+          },
+          "item_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Item Id"
+          },
+          "item_fingerprint": {
+            "type": "string",
+            "title": "Item Fingerprint"
+          },
+          "sequence": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Sequence"
+          },
+          "decision": {
+            "type": "string",
+            "enum": [
+              "retain",
+              "revoke"
+            ],
+            "title": "Decision"
+          },
+          "decided_by_user_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided By User Id"
+          },
+          "decided_by_email_snapshot": {
+            "type": "string",
+            "title": "Decided By Email Snapshot"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "decided_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Decided At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "campaign_id",
+          "item_id",
+          "item_fingerprint",
+          "sequence",
+          "decision",
+          "decided_by_user_id",
+          "decided_by_email_snapshot",
+          "reason",
+          "decided_at"
+        ],
+        "title": "AccessReviewDecisionResponse"
+      },
+      "AccessReviewItemListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AccessReviewItemResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Page"
+          },
+          "page_size": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Page Size"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size"
+        ],
+        "title": "AccessReviewItemListResponse"
+      },
+      "AccessReviewItemResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "campaign_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Campaign Id"
+          },
+          "ordinal": {
+            "type": "integer",
+            "maximum": 10000.0,
+            "minimum": 1.0,
+            "title": "Ordinal"
+          },
+          "item_type": {
+            "type": "string",
+            "enum": [
+              "direct_user_role",
+              "legacy_user_role",
+              "group_membership",
+              "service_account_role",
+              "oidc_role_mapping",
+              "oidc_group_mapping",
+              "live_elevation"
+            ],
+            "title": "Item Type"
+          },
+          "assignment_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Assignment Id"
+          },
+          "assignment_source": {
+            "type": "string",
+            "enum": [
+              "local",
+              "legacy",
+              "oidc",
+              "temporary"
+            ],
+            "title": "Assignment Source"
+          },
+          "assignment_revision_snapshot": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assignment Revision Snapshot"
+          },
+          "assignment_fingerprint": {
+            "type": "string",
+            "title": "Assignment Fingerprint"
+          },
+          "principal_type": {
+            "type": "string",
+            "enum": [
+              "user",
+              "service_account",
+              "oidc_provider"
+            ],
+            "title": "Principal Type"
+          },
+          "principal_id_snapshot": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Principal Id Snapshot"
+          },
+          "principal_label_snapshot": {
+            "type": "string",
+            "title": "Principal Label Snapshot"
+          },
+          "target_type": {
+            "type": "string",
+            "enum": [
+              "role",
+              "group"
+            ],
+            "title": "Target Type"
+          },
+          "target_id_snapshot": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Target Id Snapshot"
+          },
+          "target_key_snapshot": {
+            "type": "string",
+            "title": "Target Key Snapshot"
+          },
+          "target_label_snapshot": {
+            "type": "string",
+            "title": "Target Label Snapshot"
+          },
+          "target_revision_snapshot": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Target Revision Snapshot"
+          },
+          "permissions_snapshot": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Permissions Snapshot"
+          },
+          "provenance_snapshot": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Provenance Snapshot"
+          },
+          "assignment_created_at_snapshot": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Assignment Created At Snapshot"
+          },
+          "access_expires_at_snapshot": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Access Expires At Snapshot"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "latest_decision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AccessReviewDecisionResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "latest_apply_receipt": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AccessReviewApplyReceiptResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "campaign_id",
+          "ordinal",
+          "item_type",
+          "assignment_id",
+          "assignment_source",
+          "assignment_revision_snapshot",
+          "assignment_fingerprint",
+          "principal_type",
+          "principal_id_snapshot",
+          "principal_label_snapshot",
+          "target_type",
+          "target_id_snapshot",
+          "target_key_snapshot",
+          "target_label_snapshot",
+          "target_revision_snapshot",
+          "permissions_snapshot",
+          "provenance_snapshot",
+          "assignment_created_at_snapshot",
+          "access_expires_at_snapshot",
+          "created_at"
+        ],
+        "title": "AccessReviewItemResponse"
+      },
+      "AccessReviewResolveItemRequest": {
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Revision"
+          },
+          "expected_item_fingerprint": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Expected Item Fingerprint"
+          },
+          "expected_receipt_attempt": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Receipt Attempt"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 3,
+            "title": "Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_revision",
+          "expected_item_fingerprint",
+          "expected_receipt_attempt",
+          "reason"
+        ],
+        "title": "AccessReviewResolveItemRequest"
+      },
+      "AccessReviewTransitionRequest": {
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Revision"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 3,
+            "title": "Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_revision",
+          "reason"
+        ],
+        "title": "AccessReviewTransitionRequest"
       },
       "ActionApprovalCancelRequest": {
         "properties": {

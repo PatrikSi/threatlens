@@ -5,7 +5,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ## Published Contract
 
 - Schema version: `1.8.0`
-- OpenAPI contract anchor: `openapi-sha256:208c3eb7fb3e53d3ed197069f1cc651bc368e38e0c4bc8d1f120778347665bdb`
+- OpenAPI contract anchor: `openapi-sha256:8ebc88d3923e9cafb45522b639845e897800c01d3a4b49593f86ac3b162791c1`
 - API service base path: `/v1`
 - Web proxy base path: `/api/v1`
 - Bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`.
@@ -21,6 +21,103 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ## Error Diagnostics
 
 Error responses retain FastAPI's top-level `detail` field for compatibility and also include an `error` object with a stable category in `code`, a display-safe `message`, the HTTP `status`, a `retryable` hint, and a correlation `request_id`. The same correlation value is returned in the `X-Request-ID` response header and can be used to locate the server-side log entry. Validation responses do not echo submitted input values.
+
+## Access Reviews
+
+### `GET /v1/iam/access-reviews`
+- Summary: Get Access Review Campaigns
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:access_reviews`
+- Parameters:
+  - `page` (query, optional): integer
+  - `page_size` (query, optional): integer
+  - `status` (query, optional): Status
+- Responses: `200` `application/json` -> AccessReviewCampaignListResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/iam/access-reviews`
+- Summary: Post Access Review Campaign
+- Auth: SessionCookieAuth
+- Parameters:
+  - `Idempotency-Key` (header, required): string
+- Request body: `application/json` -> AccessReviewCampaignCreate
+- Responses: `201` `application/json` -> AccessReviewCampaignResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `GET /v1/iam/access-reviews/{campaign_id}`
+- Summary: Get Access Review Campaign
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:access_reviews`
+- Parameters:
+  - `campaign_id` (path, required): string
+- Responses: `200` `application/json` -> AccessReviewCampaignResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/iam/access-reviews/{campaign_id}/apply/complete`
+- Summary: Post Access Review Apply Complete
+- Auth: SessionCookieAuth
+- Parameters:
+  - `campaign_id` (path, required): string
+  - `Idempotency-Key` (header, required): string
+- Request body: `application/json` -> AccessReviewBeginApplyRequest
+- Responses: `200` `application/json` -> AccessReviewCampaignResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/iam/access-reviews/{campaign_id}/apply/items/{item_id}`
+- Summary: Post Access Review Apply Item
+- Auth: SessionCookieAuth
+- Parameters:
+  - `campaign_id` (path, required): string
+  - `item_id` (path, required): string
+  - `Idempotency-Key` (header, required): string
+- Request body: `application/json` -> AccessReviewApplyItemRequest
+- Responses: `200` `application/json` -> AccessReviewApplyReceiptResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/iam/access-reviews/{campaign_id}/apply/items/{item_id}/resolve`
+- Summary: Post Access Review Resolve Item
+- Auth: SessionCookieAuth
+- Parameters:
+  - `campaign_id` (path, required): string
+  - `item_id` (path, required): string
+  - `Idempotency-Key` (header, required): string
+- Request body: `application/json` -> AccessReviewResolveItemRequest
+- Responses: `200` `application/json` -> AccessReviewApplyReceiptResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/iam/access-reviews/{campaign_id}/apply/start`
+- Summary: Post Access Review Apply Start
+- Auth: SessionCookieAuth
+- Parameters:
+  - `campaign_id` (path, required): string
+  - `Idempotency-Key` (header, required): string
+- Request body: `application/json` -> AccessReviewBeginApplyRequest
+- Responses: `200` `application/json` -> AccessReviewCampaignResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/iam/access-reviews/{campaign_id}/cancel`
+- Summary: Post Access Review Cancel
+- Auth: SessionCookieAuth
+- Parameters:
+  - `campaign_id` (path, required): string
+  - `Idempotency-Key` (header, required): string
+- Request body: `application/json` -> AccessReviewTransitionRequest
+- Responses: `200` `application/json` -> AccessReviewCampaignResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/iam/access-reviews/{campaign_id}/close`
+- Summary: Post Access Review Close
+- Auth: SessionCookieAuth
+- Parameters:
+  - `campaign_id` (path, required): string
+  - `Idempotency-Key` (header, required): string
+- Request body: `application/json` -> AccessReviewTransitionRequest
+- Responses: `200` `application/json` -> AccessReviewCampaignResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/iam/access-reviews/{campaign_id}/decisions`
+- Summary: Post Access Review Decisions
+- Auth: SessionCookieAuth
+- Parameters:
+  - `campaign_id` (path, required): string
+  - `Idempotency-Key` (header, required): string
+- Request body: `application/json` -> AccessReviewDecisionBatchRequest
+- Responses: `200` `application/json` -> AccessReviewCampaignResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `GET /v1/iam/access-reviews/{campaign_id}/items`
+- Summary: Get Access Review Items
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:access_reviews`
+- Parameters:
+  - `campaign_id` (path, required): string
+  - `page` (query, optional): integer
+  - `page_size` (query, optional): integer
+  - `item_type` (query, optional): Item Type
+  - `principal_type` (query, optional): Principal Type
+  - `decision` (query, optional): Decision
+  - `apply_outcome` (query, optional): Apply Outcome
+- Responses: `200` `application/json` -> AccessReviewItemListResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 
 ## Action Approvals
 

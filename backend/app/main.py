@@ -25,6 +25,7 @@ from app.core.logging_config import (
 )
 from app.db import session as db_session
 from app.api.routes import (
+    access_reviews,
     action_approvals,
     ai,
     alerts,
@@ -120,6 +121,7 @@ API_ROUTERS: tuple[APIRouter, ...] = (
     service_accounts.router,
     temporary_elevations.router,
     action_approvals.router,
+    access_reviews.router,
 )
 
 
