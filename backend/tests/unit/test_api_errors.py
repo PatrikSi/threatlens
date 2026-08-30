@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
 from app.core.api_errors import ApiHTTPException, install_api_error_handlers
+from app.services.data_access_policy import DataPolicyUnavailable
 
 
 class _Payload(BaseModel):
@@ -33,6 +34,14 @@ def _test_app() -> FastAPI:
     @application.get("/boom")
     def boom():
         raise RuntimeError("database_url=postgresql://user:super-secret@db/threatlens")
+
+    @application.get("/data-policy-unavailable")
+    def data_policy_unavailable():
+        raise DataPolicyUnavailable(
+            "Data-policy provenance is temporarily unavailable.",
+            context={"resource_type": "report"},
+            current_revision=9,
+        )
 
     return application
 
@@ -91,3 +100,18 @@ def test_unexpected_errors_return_safe_reference_without_exception_details():
     assert payload["error"]["retryable"] is True
     assert payload["error"]["request_id"] == response.headers["x-request-id"]
     assert "super-secret" not in response.text
+
+
+def test_data_policy_errors_keep_their_typed_retryable_contract():
+    with TestClient(_test_app()) as client:
+        response = client.get("/data-policy-unavailable")
+
+    payload = response.json()
+    assert response.status_code == 503
+    assert payload["detail"] == "Data-policy provenance is temporarily unavailable."
+    assert payload["error"]["code"] == "data_policy_unavailable"
+    assert payload["error"]["retryable"] is True
+    assert payload["error"]["context"] == {
+        "resource_type": "report",
+        "current_revision": 9,
+    }

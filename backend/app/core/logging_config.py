@@ -42,6 +42,9 @@ _SAFE_RECORD_FIELDS = (
     "credential_kind",
     "credential_id",
     "authorization_elevation_ids",
+    "data_policy_mode",
+    "data_policy_revision",
+    "data_policy_coverage_version",
 )
 
 

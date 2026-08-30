@@ -78,11 +78,45 @@ class ApiHTTPException(StarletteHTTPException):
 
 
 def install_api_error_handlers(application: FastAPI) -> None:
+    from app.services.data_access_policy import DataPolicyError
+
     application.add_exception_handler(StarletteHTTPException, http_exception_handler)
     application.add_exception_handler(
         RequestValidationError, validation_exception_handler
     )
+    application.add_exception_handler(DataPolicyError, data_policy_exception_handler)
     application.add_exception_handler(Exception, unexpected_exception_handler)
+
+
+async def data_policy_exception_handler(
+    request: Request, exc: Exception
+) -> JSONResponse:
+    request_id = request_id_for(request)
+    status_code = int(getattr(exc, "status_code", 503))
+    detail = str(getattr(exc, "detail", None) or exc)
+    error_code = str(getattr(exc, "code", "data_policy_error"))
+    error_context = dict(getattr(exc, "context", None) or {})
+    current_revision = getattr(exc, "current_revision", None)
+    if current_revision is not None:
+        error_context["current_revision"] = current_revision
+    logger.warning(
+        "data_policy_request_rejected error_code=%s context_keys=%s",
+        error_code,
+        sorted(error_context),
+        extra=_error_log_fields(
+            request,
+            request_id=request_id,
+            status=status_code,
+        ),
+    )
+    return error_response(
+        status_code=status_code,
+        detail=detail,
+        message=detail,
+        request_id=request_id,
+        code=error_code,
+        error_context=error_context or None,
+    )
 
 
 async def http_exception_handler(
@@ -291,6 +325,7 @@ def _error_log_fields(
 
 __all__ = [
     "ApiHTTPException",
+    "data_policy_exception_handler",
     "error_code_for_status",
     "error_response",
     "install_api_error_handlers",
