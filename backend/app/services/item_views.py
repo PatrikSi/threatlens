@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
-from sqlalchemy import and_, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from app.models.article import Article
@@ -20,6 +20,10 @@ from app.schemas.item import (
     ItemTagSuggestionResponse,
 )
 from app.services.algorithm_tags import build_tag_candidates
+from app.services.data_access_policy import (
+    DataAccessContext,
+    handling_label_access_predicate,
+)
 from app.services.tag_feedback import load_feedback_adjustments
 
 SUGGESTION_CONFIDENCE_MIN = 0.25
@@ -39,7 +43,9 @@ def load_tags_for_items(
     item_ids: list[uuid.UUID],
 ) -> tuple[dict[uuid.UUID, list[str]], dict[uuid.UUID, list[ItemTagDetailResponse]]]:
     names_by_item: dict[uuid.UUID, list[str]] = {item_id: [] for item_id in item_ids}
-    details_by_item: dict[uuid.UUID, list[ItemTagDetailResponse]] = {item_id: [] for item_id in item_ids}
+    details_by_item: dict[uuid.UUID, list[ItemTagDetailResponse]] = {
+        item_id: [] for item_id in item_ids
+    }
     if not item_ids:
         return names_by_item, details_by_item
 
@@ -82,8 +88,12 @@ def load_item_tag_suggestions(
     ioc_values_by_type = _load_item_ioc_values_by_type(db, item_id=item.id)
 
     base_candidates = build_tag_candidates(
-        primary_category=classification.primary_category if classification else "threat_intelligence_research",
-        secondary_categories=classification.secondary_categories if classification else [],
+        primary_category=classification.primary_category
+        if classification
+        else "threat_intelligence_research",
+        secondary_categories=classification.secondary_categories
+        if classification
+        else [],
         classification_confidence=classification.confidence if classification else 0.35,
         ioc_values_by_type=ioc_values_by_type,
         title=item.title,
@@ -93,10 +103,16 @@ def load_item_tag_suggestions(
         feed_url=feed.url if feed else "",
         feedback_adjustments={},
     )
-    adjustments = load_feedback_adjustments(db, tag_names=[candidate.name for candidate in base_candidates])
+    adjustments = load_feedback_adjustments(
+        db, tag_names=[candidate.name for candidate in base_candidates]
+    )
     candidates = build_tag_candidates(
-        primary_category=classification.primary_category if classification else "threat_intelligence_research",
-        secondary_categories=classification.secondary_categories if classification else [],
+        primary_category=classification.primary_category
+        if classification
+        else "threat_intelligence_research",
+        secondary_categories=classification.secondary_categories
+        if classification
+        else [],
         classification_confidence=classification.confidence if classification else 0.35,
         ioc_values_by_type=ioc_values_by_type,
         title=item.title,
@@ -135,10 +151,17 @@ def build_item_graph(
     related_item_limit: int,
     ioc_limit: int,
     since_days: int,
+    data_access: DataAccessContext,
 ) -> ItemGraphResponse:
-    base_row = _load_item_graph_row(db, item_id=item_id)
+    base_row = _load_item_graph_row(
+        db,
+        item_id=item_id,
+        data_access=data_access,
+    )
     if base_row is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Item not found"
+        )
 
     focus_kind = "item"
     focus_uuid = item_id
@@ -153,9 +176,19 @@ def build_item_graph(
     seen_edges: set[tuple[str, str, str]] = set()
 
     if focus_kind == "item":
-        focus_row = base_row if focus_uuid == item_id else _load_item_graph_row(db, item_id=focus_uuid)
+        focus_row = (
+            base_row
+            if focus_uuid == item_id
+            else _load_item_graph_row(
+                db,
+                item_id=focus_uuid,
+                data_access=data_access,
+            )
+        )
         if focus_row is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Focus item not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Focus item not found"
+            )
 
         focus_item = focus_row.item
         current_focus_node_id = f"item:{focus_item.id}"
@@ -174,11 +207,22 @@ def build_item_graph(
             .limit(ioc_limit)
         ).all()
 
-        selected_ioc_ids: list[uuid.UUID] = []
+        selected_ioc_ids = [ioc.id for _link, ioc in ioc_rows]
+        visible_ioc_last_seen = _load_visible_ioc_last_seen(
+            db,
+            ioc_ids=selected_ioc_ids,
+            data_access=data_access,
+        )
         for link, ioc in ioc_rows:
             ioc_node_id = f"ioc:{ioc.id}"
-            nodes[ioc_node_id] = _build_ioc_graph_node(ioc)
-            selected_ioc_ids.append(ioc.id)
+            nodes[ioc_node_id] = _build_ioc_graph_node(
+                ioc,
+                last_seen_at=_visible_ioc_timestamp(
+                    ioc,
+                    visible_ioc_last_seen,
+                    data_access=data_access,
+                ),
+            )
             _upsert_graph_edge(
                 edges=edges,
                 seen=seen_edges,
@@ -195,19 +239,33 @@ def build_item_graph(
 
         if selected_ioc_ids:
             related_rows = db.execute(
-                select(ItemIOC.item_id, ItemIOC.ioc_id, ItemIOC.occurrences, Item.first_seen_at)
+                select(
+                    ItemIOC.item_id,
+                    ItemIOC.ioc_id,
+                    ItemIOC.occurrences,
+                    Item.first_seen_at,
+                )
                 .join(Item, Item.id == ItemIOC.item_id)
+                .join(Feed, Feed.id == Item.feed_id)
                 .where(
                     and_(
                         ItemIOC.ioc_id.in_(selected_ioc_ids),
                         ItemIOC.item_id != focus_item.id,
                         Item.first_seen_at >= cutoff,
+                        handling_label_access_predicate(
+                            Feed.handling_label_id,
+                            data_access,
+                        ),
                     )
                 )
             ).all()
 
             for related_item_id, ioc_id, occurrences, first_seen_at in related_rows:
-                related_item_scores[related_item_id] = related_item_scores.get(related_item_id, 0.0) + float(occurrences) + 1.0
+                related_item_scores[related_item_id] = (
+                    related_item_scores.get(related_item_id, 0.0)
+                    + float(occurrences)
+                    + 1.0
+                )
                 related_item_iocs.setdefault(related_item_id, set()).add(ioc_id)
                 related_item_latest[related_item_id] = max(
                     related_item_latest.get(related_item_id, 0.0),
@@ -227,7 +285,11 @@ def build_item_graph(
             reverse=True,
         )[:related_item_limit]
 
-        item_rows = _load_item_graph_rows(db, item_ids=ranked_related_items)
+        item_rows = _load_item_graph_rows(
+            db,
+            item_ids=ranked_related_items,
+            data_access=data_access,
+        )
         for related_item_id in ranked_related_items:
             row = item_rows.get(related_item_id)
             if row is None:
@@ -251,26 +313,74 @@ def build_item_graph(
                     source=source_node,
                     target=node_id,
                     relation="observed_in",
-                    weight=max(1.0, edge_weights.get((related_item_id, shared_ioc_id), 1.0)),
+                    weight=max(
+                        1.0, edge_weights.get((related_item_id, shared_ioc_id), 1.0)
+                    ),
                 )
     else:
-        focus_ioc = db.scalar(select(IOC).where(IOC.id == focus_uuid))
+        accessible_observation = (
+            select(ItemIOC.item_id)
+            .join(Item, Item.id == ItemIOC.item_id)
+            .join(Feed, Feed.id == Item.feed_id)
+            .where(
+                ItemIOC.ioc_id == IOC.id,
+                handling_label_access_predicate(
+                    Feed.handling_label_id,
+                    data_access,
+                ),
+            )
+            .exists()
+        )
+        focus_ioc = db.scalar(
+            select(IOC).where(
+                IOC.id == focus_uuid,
+                accessible_observation,
+            )
+        )
         if focus_ioc is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Focus IOC not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Focus IOC not found"
+            )
 
         current_focus_node_id = f"ioc:{focus_ioc.id}"
-        nodes[current_focus_node_id] = _build_ioc_graph_node(focus_ioc)
+        focus_ioc_last_seen = _load_visible_ioc_last_seen(
+            db,
+            ioc_ids=[focus_ioc.id],
+            data_access=data_access,
+        )
+        nodes[current_focus_node_id] = _build_ioc_graph_node(
+            focus_ioc,
+            last_seen_at=_visible_ioc_timestamp(
+                focus_ioc,
+                focus_ioc_last_seen,
+                data_access=data_access,
+            ),
+        )
 
         item_link_rows = db.execute(
             select(ItemIOC.item_id, ItemIOC.occurrences, Item.first_seen_at)
             .join(Item, Item.id == ItemIOC.item_id)
-            .where(and_(ItemIOC.ioc_id == focus_ioc.id, Item.first_seen_at >= cutoff))
+            .join(Feed, Feed.id == Item.feed_id)
+            .where(
+                and_(
+                    ItemIOC.ioc_id == focus_ioc.id,
+                    Item.first_seen_at >= cutoff,
+                    handling_label_access_predicate(
+                        Feed.handling_label_id,
+                        data_access,
+                    ),
+                )
+            )
             .order_by(Item.first_seen_at.desc())
             .limit(related_item_limit)
         ).all()
 
         primary_item_ids = [row.item_id for row in item_link_rows]
-        item_rows = _load_item_graph_rows(db, item_ids=primary_item_ids)
+        item_rows = _load_item_graph_rows(
+            db,
+            item_ids=primary_item_ids,
+            data_access=data_access,
+        )
         for link in item_link_rows:
             row = item_rows.get(link.item_id)
             if row is None:
@@ -298,13 +408,20 @@ def build_item_graph(
             supporting_rows = db.execute(
                 select(ItemIOC.item_id, ItemIOC.occurrences, IOC)
                 .join(IOC, IOC.id == ItemIOC.ioc_id)
-                .where(and_(ItemIOC.item_id.in_(primary_item_ids), ItemIOC.ioc_id != focus_ioc.id))
+                .where(
+                    and_(
+                        ItemIOC.item_id.in_(primary_item_ids),
+                        ItemIOC.ioc_id != focus_ioc.id,
+                    )
+                )
                 .order_by(ItemIOC.occurrences.desc(), IOC.last_seen_at.desc())
                 .limit(ioc_limit * 6)
             ).all()
 
             for related_item_id, occurrences, related_ioc in supporting_rows:
-                secondary_ioc_scores[related_ioc.id] = secondary_ioc_scores.get(related_ioc.id, 0.0) + float(occurrences)
+                secondary_ioc_scores[related_ioc.id] = secondary_ioc_scores.get(
+                    related_ioc.id, 0.0
+                ) + float(occurrences)
                 secondary_ioc_rows[related_ioc.id] = related_ioc
                 secondary_links[(related_item_id, related_ioc.id)] = max(
                     secondary_links.get((related_item_id, related_ioc.id), 0.0),
@@ -317,11 +434,23 @@ def build_item_graph(
             reverse=True,
         )[:ioc_limit]
         selected_secondary_ioc_set = set(selected_secondary_ioc_ids)
+        visible_secondary_ioc_last_seen = _load_visible_ioc_last_seen(
+            db,
+            ioc_ids=selected_secondary_ioc_ids,
+            data_access=data_access,
+        )
 
         for related_ioc_id in selected_secondary_ioc_ids:
             related_ioc = secondary_ioc_rows[related_ioc_id]
             node_id = f"ioc:{related_ioc.id}"
-            nodes[node_id] = _build_ioc_graph_node(related_ioc)
+            nodes[node_id] = _build_ioc_graph_node(
+                related_ioc,
+                last_seen_at=_visible_ioc_timestamp(
+                    related_ioc,
+                    visible_secondary_ioc_last_seen,
+                    data_access=data_access,
+                ),
+            )
 
         for related_item_id in primary_item_ids:
             item_node_id = f"item:{related_item_id}"
@@ -340,7 +469,11 @@ def build_item_graph(
                     weight=max(1.0, weight),
                 )
 
-    if root_item_node_id not in nodes and item_id == base_row.item.id and not focus_node_id:
+    if (
+        root_item_node_id not in nodes
+        and item_id == base_row.item.id
+        and not focus_node_id
+    ):
         nodes[root_item_node_id] = _build_item_graph_node(
             item=base_row.item,
             feed_name=base_row.feed_name,
@@ -356,7 +489,9 @@ def build_item_graph(
     )
 
 
-def _load_item_ioc_values_by_type(db: Session, *, item_id: uuid.UUID) -> dict[str, list[str]]:
+def _load_item_ioc_values_by_type(
+    db: Session, *, item_id: uuid.UUID
+) -> dict[str, list[str]]:
     rows = db.execute(
         select(IOC.type, IOC.value_norm)
         .join(ItemIOC, ItemIOC.ioc_id == IOC.id)
@@ -370,21 +505,35 @@ def _load_item_ioc_values_by_type(db: Session, *, item_id: uuid.UUID) -> dict[st
 
 def _parse_graph_node_id(node_id: str) -> tuple[str, uuid.UUID]:
     if ":" not in node_id:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Invalid focus_node_id")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Invalid focus_node_id",
+        )
 
     kind, value = node_id.split(":", 1)
     if kind not in {"item", "ioc"}:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Unsupported focus node type")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Unsupported focus node type",
+        )
 
     try:
         parsed = uuid.UUID(value)
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Invalid focus node id") from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Invalid focus node id",
+        ) from exc
 
     return kind, parsed
 
 
-def _load_item_graph_row(db: Session, *, item_id: uuid.UUID) -> ItemGraphRow | None:
+def _load_item_graph_row(
+    db: Session,
+    *,
+    item_id: uuid.UUID,
+    data_access: DataAccessContext,
+) -> ItemGraphRow | None:
     row = db.execute(
         select(
             Item,
@@ -393,14 +542,27 @@ def _load_item_graph_row(db: Session, *, item_id: uuid.UUID) -> ItemGraphRow | N
         )
         .join(Feed, Feed.id == Item.feed_id)
         .outerjoin(ItemClassification, ItemClassification.item_id == Item.id)
-        .where(Item.id == item_id)
+        .where(
+            Item.id == item_id,
+            handling_label_access_predicate(
+                Feed.handling_label_id,
+                data_access,
+            ),
+        )
     ).first()
     if row is None:
         return None
-    return ItemGraphRow(item=row.Item, feed_name=row.feed_name, primary_category=row.primary_category)
+    return ItemGraphRow(
+        item=row.Item, feed_name=row.feed_name, primary_category=row.primary_category
+    )
 
 
-def _load_item_graph_rows(db: Session, *, item_ids: list[uuid.UUID]) -> dict[uuid.UUID, ItemGraphRow]:
+def _load_item_graph_rows(
+    db: Session,
+    *,
+    item_ids: list[uuid.UUID],
+    data_access: DataAccessContext,
+) -> dict[uuid.UUID, ItemGraphRow]:
     if not item_ids:
         return {}
     rows = db.execute(
@@ -411,10 +573,20 @@ def _load_item_graph_rows(db: Session, *, item_ids: list[uuid.UUID]) -> dict[uui
         )
         .join(Feed, Feed.id == Item.feed_id)
         .outerjoin(ItemClassification, ItemClassification.item_id == Item.id)
-        .where(Item.id.in_(item_ids))
+        .where(
+            Item.id.in_(item_ids),
+            handling_label_access_predicate(
+                Feed.handling_label_id,
+                data_access,
+            ),
+        )
     ).all()
     return {
-        row.Item.id: ItemGraphRow(item=row.Item, feed_name=row.feed_name, primary_category=row.primary_category)
+        row.Item.id: ItemGraphRow(
+            item=row.Item,
+            feed_name=row.feed_name,
+            primary_category=row.primary_category,
+        )
         for row in rows
     }
 
@@ -434,13 +606,60 @@ def _build_item_graph_node(
             "item_id": str(item.id),
             "feed_name": feed_name,
             "classification": classification,
-            "published_at": item.published_at.isoformat() if item.published_at else None,
+            "published_at": item.published_at.isoformat()
+            if item.published_at
+            else None,
             "is_root": is_root,
         },
     )
 
 
-def _build_ioc_graph_node(ioc: IOC) -> ItemGraphNodeResponse:
+def _load_visible_ioc_last_seen(
+    db: Session,
+    *,
+    ioc_ids: list[uuid.UUID],
+    data_access: DataAccessContext,
+) -> dict[uuid.UUID, datetime]:
+    if not data_access.enforced or not ioc_ids:
+        return {}
+    return {
+        ioc_id: last_seen_at
+        for ioc_id, last_seen_at in db.execute(
+            select(
+                ItemIOC.ioc_id,
+                func.max(Item.first_seen_at),
+            )
+            .join(Item, Item.id == ItemIOC.item_id)
+            .join(Feed, Feed.id == Item.feed_id)
+            .where(
+                ItemIOC.ioc_id.in_(ioc_ids),
+                handling_label_access_predicate(
+                    Feed.handling_label_id,
+                    data_access,
+                ),
+            )
+            .group_by(ItemIOC.ioc_id)
+        ).all()
+        if last_seen_at is not None
+    }
+
+
+def _visible_ioc_timestamp(
+    ioc: IOC,
+    visible_last_seen: dict[uuid.UUID, datetime],
+    *,
+    data_access: DataAccessContext,
+) -> datetime | None:
+    if data_access.enforced:
+        return visible_last_seen.get(ioc.id)
+    return ioc.last_seen_at
+
+
+def _build_ioc_graph_node(
+    ioc: IOC,
+    *,
+    last_seen_at: datetime | None,
+) -> ItemGraphNodeResponse:
     return ItemGraphNodeResponse(
         id=f"ioc:{ioc.id}",
         type=ioc.type,
@@ -449,7 +668,7 @@ def _build_ioc_graph_node(ioc: IOC) -> ItemGraphNodeResponse:
             "ioc_id": str(ioc.id),
             "ioc_type": ioc.type,
             "value_norm": ioc.value_norm,
-            "last_seen_at": ioc.last_seen_at.isoformat() if ioc.last_seen_at else None,
+            "last_seen_at": last_seen_at.isoformat() if last_seen_at else None,
         },
     )
 

@@ -8,7 +8,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import AuthenticatedPrincipal, require_permissions
+from app.api.deps import (
+    AuthenticatedPrincipal,
+    get_data_access_context,
+    require_permissions,
+)
 from app.core.config import get_settings
 from app.core.logging_config import verbose_logging_enabled
 from app.core.token_scopes import (
@@ -18,7 +22,6 @@ from app.core.token_scopes import (
 )
 from app.db.session import get_db
 from app.models.feed import Feed
-from app.models.user import User
 from app.schemas.feed import (
     FeedCreate,
     FeedExportResponse,
@@ -31,6 +34,10 @@ from app.schemas.feed import (
     FeedUpdate,
 )
 from app.services.audit import record_audit
+from app.services.data_access_policy import (
+    DataAccessContext,
+    handling_label_access_predicate,
+)
 from app.services.feed_fetch_ownership import (
     FEED_FETCH_CONFIGURATION_FIELDS,
     apply_feed_fetch_configuration,
@@ -58,8 +65,13 @@ logger = logging.getLogger(__name__)
 def list_feeds(
     db: Session = Depends(get_db),
     _principal: AuthenticatedPrincipal = Depends(require_permissions(SCOPE_READ_FEEDS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
-    feeds = db.scalars(select(Feed).order_by(Feed.created_at.desc())).all()
+    feeds = db.scalars(
+        select(Feed)
+        .where(handling_label_access_predicate(Feed.handling_label_id, data_access))
+        .order_by(Feed.created_at.desc())
+    ).all()
     return [_serialize_feed(feed) for feed in feeds]
 
 
@@ -103,8 +115,13 @@ def get_feed_metadata(
 def export_feeds_sanitized(
     db: Session = Depends(get_db),
     _principal: AuthenticatedPrincipal = Depends(require_permissions(SCOPE_READ_FEEDS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
-    exported, warnings = _build_feed_export(db, include_sensitive_urls=False)
+    exported, warnings = _build_feed_export(
+        db,
+        data_access=data_access,
+        include_sensitive_urls=False,
+    )
     return FeedExportResponse(
         exported_at=datetime.now(timezone.utc),
         export_type="sanitized",
@@ -117,9 +134,14 @@ def export_feeds_sanitized(
 @router.get("/export/backup", response_model=FeedExportResponse)
 def export_feeds_backup(
     db: Session = Depends(get_db),
-    _admin: User = Depends(require_permissions(SCOPE_ADMIN_FEEDS)),
+    _admin: AuthenticatedPrincipal = Depends(require_permissions(SCOPE_ADMIN_FEEDS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
-    exported, warnings = _build_feed_export(db, include_sensitive_urls=True)
+    exported, warnings = _build_feed_export(
+        db,
+        data_access=data_access,
+        include_sensitive_urls=True,
+    )
     return FeedExportResponse(
         exported_at=datetime.now(timezone.utc),
         export_type="backup",
@@ -130,9 +152,16 @@ def export_feeds_backup(
 
 
 def _build_feed_export(
-    db: Session, *, include_sensitive_urls: bool
+    db: Session,
+    *,
+    data_access: DataAccessContext,
+    include_sensitive_urls: bool,
 ) -> tuple[list[FeedImportEntry], list[str]]:
-    feeds = db.scalars(select(Feed).order_by(Feed.created_at.asc())).all()
+    feeds = db.scalars(
+        select(Feed)
+        .where(handling_label_access_predicate(Feed.handling_label_id, data_access))
+        .order_by(Feed.created_at.asc())
+    ).all()
     exported: list[FeedImportEntry] = []
     warnings: list[str] = []
     for feed in feeds:
@@ -168,6 +197,7 @@ def import_feeds(
     payload: FeedImportRequest,
     db: Session = Depends(get_db),
     principal: AuthenticatedPrincipal = Depends(require_permissions(SCOPE_WRITE_FEEDS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     settings = get_settings()
     created = 0
@@ -186,6 +216,7 @@ def import_feeds(
         existing = _get_feed_by_url(
             db,
             feed_url,
+            data_access=data_access,
             for_update=payload.overwrite_existing,
         )
         if existing is not None and not payload.overwrite_existing:
@@ -206,10 +237,11 @@ def import_feeds(
             existing = _get_feed_by_url(
                 db,
                 feed_url,
+                data_access=data_access,
                 for_update=payload.overwrite_existing,
             )
             if existing is None:
-                errors.append(f"entry {index}: feed URL already exists")
+                errors.append(f"entry {index}: feed could not be created or updated")
                 continue
             if not payload.overwrite_existing:
                 skipped += 1
@@ -258,6 +290,7 @@ def create_feed(
     payload: FeedCreate,
     db: Session = Depends(get_db),
     principal: AuthenticatedPrincipal = Depends(require_permissions(SCOPE_WRITE_FEEDS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     settings = get_settings()
     feed_url = normalize_feed_url(payload.url)
@@ -269,7 +302,7 @@ def create_feed(
             detail="Feed URL is not allowed",
         )
 
-    existing = _get_feed_by_url(db, feed_url)
+    existing = _get_feed_by_url(db, feed_url, data_access=data_access)
     if existing is not None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Feed URL already exists"
@@ -317,7 +350,8 @@ def create_feed(
     )
     if feed is None:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Feed URL already exists"
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Feed could not be created with this URL.",
         )
     record_audit(
         db,
@@ -341,8 +375,19 @@ def update_feed(
     payload: FeedUpdate,
     db: Session = Depends(get_db),
     principal: AuthenticatedPrincipal = Depends(require_permissions(SCOPE_WRITE_FEEDS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
-    feed = db.scalar(select(Feed).where(Feed.id == feed_id).with_for_update())
+    feed = db.scalar(
+        select(Feed)
+        .where(
+            Feed.id == feed_id,
+            handling_label_access_predicate(
+                Feed.handling_label_id,
+                data_access,
+            ),
+        )
+        .with_for_update()
+    )
     if feed is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Feed not found"
@@ -372,7 +417,7 @@ def update_feed(
                 detail="Feed URL is not allowed",
             )
 
-        existing = _get_feed_by_url(db, feed_url)
+        existing = _get_feed_by_url(db, feed_url, data_access=data_access)
         if existing is not None and existing.id != feed.id:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -432,7 +477,8 @@ def update_feed(
     except IntegrityError as exc:
         db.rollback()
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Feed URL already exists"
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Feed could not be updated with this URL.",
         ) from exc
     db.refresh(feed)
     return _serialize_feed(feed)
@@ -442,9 +488,18 @@ def update_feed(
 def delete_feed(
     feed_id: uuid.UUID,
     db: Session = Depends(get_db),
-    user: User = Depends(require_permissions(SCOPE_ADMIN_FEEDS)),
+    user: AuthenticatedPrincipal = Depends(require_permissions(SCOPE_ADMIN_FEEDS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
-    feed = db.scalar(select(Feed).where(Feed.id == feed_id))
+    feed = db.scalar(
+        select(Feed).where(
+            Feed.id == feed_id,
+            handling_label_access_predicate(
+                Feed.handling_label_id,
+                data_access,
+            ),
+        )
+    )
     if feed is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Feed not found"
@@ -473,8 +528,17 @@ def refresh_feed(
     feed_id: uuid.UUID,
     db: Session = Depends(get_db),
     principal: AuthenticatedPrincipal = Depends(require_permissions(SCOPE_WRITE_FEEDS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
-    feed = db.scalar(select(Feed.id).where(Feed.id == feed_id))
+    feed = db.scalar(
+        select(Feed.id).where(
+            Feed.id == feed_id,
+            handling_label_access_predicate(
+                Feed.handling_label_id,
+                data_access,
+            ),
+        )
+    )
     if feed is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Feed not found"
@@ -549,12 +613,19 @@ def _get_feed_by_url(
     db: Session,
     feed_url: str,
     *,
+    data_access: DataAccessContext,
     for_update: bool = False,
 ) -> Feed | None:
     digest = feed_url_digest(feed_url)
     if digest is None:
         return None
-    statement = select(Feed).where(Feed.url_digest == digest)
+    statement = select(Feed).where(
+        Feed.url_digest == digest,
+        handling_label_access_predicate(
+            Feed.handling_label_id,
+            data_access,
+        ),
+    )
     if for_update:
         statement = statement.with_for_update()
     return db.scalar(statement)
