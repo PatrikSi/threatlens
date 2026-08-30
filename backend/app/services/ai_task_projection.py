@@ -18,17 +18,35 @@ from app.schemas.ai import (
     AIDailyBriefSourceItemResponse,
     AITaskRunResponse,
 )
+from app.services.data_access_envelopes import (
+    DATA_ACCESS_RESOURCE_DAILY_BRIEF,
+    data_access_envelope_predicate,
+)
+from app.services.data_access_policy import DataAccessContext
 
 
 def list_daily_brief_source_items(
     db: Session,
     *,
     daily_brief_id: uuid.UUID,
+    data_access: DataAccessContext | None = None,
     included: bool | None = None,
     limit: int = 200,
 ) -> list[AIDailyBriefSourceItemResponse] | None:
+    access_predicate = (
+        data_access_envelope_predicate(
+            DATA_ACCESS_RESOURCE_DAILY_BRIEF,
+            AIDailyBrief.id,
+            data_access,
+        )
+        if data_access is not None
+        else True
+    )
     brief_exists = db.scalar(
-        select(AIDailyBrief.id).where(AIDailyBrief.id == daily_brief_id)
+        select(AIDailyBrief.id).where(
+            AIDailyBrief.id == daily_brief_id,
+            access_predicate,
+        )
     )
     if brief_exists is None:
         return None

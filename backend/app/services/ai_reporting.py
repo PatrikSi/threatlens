@@ -18,23 +18,58 @@ from app.schemas.ai import (
     AIUsageSummaryResponse,
 )
 from app.services.ai_normalization import normalize_string_list
+from app.services.data_access_envelopes import (
+    DATA_ACCESS_RESOURCE_DAILY_BRIEF,
+    data_access_envelope_predicate,
+)
+from app.services.data_access_policy import DataAccessContext
 from app.services.url_utils import normalize_url
 
 
-def get_latest_daily_brief(db: Session) -> AIDailyBrief | None:
+def get_latest_daily_brief(
+    db: Session, *, data_access: DataAccessContext | None = None
+) -> AIDailyBrief | None:
+    access_predicate = (
+        data_access_envelope_predicate(
+            DATA_ACCESS_RESOURCE_DAILY_BRIEF,
+            AIDailyBrief.id,
+            data_access,
+        )
+        if data_access is not None
+        else True
+    )
     return db.scalar(
         select(AIDailyBrief)
-        .where(AIDailyBrief.status == "ready")
-        .order_by(AIDailyBrief.brief_date.desc(), AIDailyBrief.generated_at.desc().nullslast())
+        .where(AIDailyBrief.status == "ready", access_predicate)
+        .order_by(
+            AIDailyBrief.brief_date.desc(), AIDailyBrief.generated_at.desc().nullslast()
+        )
     )
 
 
-def get_recent_daily_briefs(db: Session, *, limit: int) -> list[AIDailyBrief]:
+def get_recent_daily_briefs(
+    db: Session,
+    *,
+    limit: int,
+    data_access: DataAccessContext | None = None,
+) -> list[AIDailyBrief]:
+    access_predicate = (
+        data_access_envelope_predicate(
+            DATA_ACCESS_RESOURCE_DAILY_BRIEF,
+            AIDailyBrief.id,
+            data_access,
+        )
+        if data_access is not None
+        else True
+    )
     return list(
         db.scalars(
             select(AIDailyBrief)
-            .where(AIDailyBrief.status == "ready")
-            .order_by(AIDailyBrief.brief_date.desc(), AIDailyBrief.generated_at.desc().nullslast())
+            .where(AIDailyBrief.status == "ready", access_predicate)
+            .order_by(
+                AIDailyBrief.brief_date.desc(),
+                AIDailyBrief.generated_at.desc().nullslast(),
+            )
             .limit(limit)
         )
     )
@@ -58,7 +93,9 @@ def prune_daily_brief_history(db: Session, *, keep_limit: int) -> int:
     return len(stale_ids)
 
 
-def daily_brief_response_from_model(db: Session, brief: AIDailyBrief) -> AIDailyBriefResponse:
+def daily_brief_response_from_model(
+    db: Session, brief: AIDailyBrief
+) -> AIDailyBriefResponse:
     item_ids = [uuid.UUID(value) for value in (brief.top_item_ids_json or []) if value]
     rows = (
         db.execute(
@@ -103,7 +140,9 @@ def daily_brief_response_from_model(db: Session, brief: AIDailyBrief) -> AIDaily
         title=brief.title,
         brief_text=brief.brief_text,
         key_points=normalize_string_list(list(brief.key_points_json or [])),
-        recommended_actions=normalize_string_list(list(brief.recommended_actions_json or [])),
+        recommended_actions=normalize_string_list(
+            list(brief.recommended_actions_json or [])
+        ),
         item_count=int(brief.item_count or 0),
         items=items,
         model=brief.model,
@@ -119,23 +158,42 @@ def get_ai_usage_summary(db: Session) -> AIUsageSummaryResponse:
     totals_row = db.execute(
         select(
             func.count(AIUsageEvent.id).label("total_requests"),
-            func.sum(case((AIUsageEvent.success.is_(True), 1), else_=0)).label("successful_requests"),
-            func.sum(case((AIUsageEvent.success.is_(False), 1), else_=0)).label("failed_requests"),
-            func.sum(func.coalesce(AIUsageEvent.prompt_tokens, 0)).label("total_prompt_tokens"),
-            func.sum(func.coalesce(AIUsageEvent.completion_tokens, 0)).label("total_completion_tokens"),
+            func.sum(case((AIUsageEvent.success.is_(True), 1), else_=0)).label(
+                "successful_requests"
+            ),
+            func.sum(case((AIUsageEvent.success.is_(False), 1), else_=0)).label(
+                "failed_requests"
+            ),
+            func.sum(func.coalesce(AIUsageEvent.prompt_tokens, 0)).label(
+                "total_prompt_tokens"
+            ),
+            func.sum(func.coalesce(AIUsageEvent.completion_tokens, 0)).label(
+                "total_completion_tokens"
+            ),
             func.sum(func.coalesce(AIUsageEvent.total_tokens, 0)).label("total_tokens"),
             func.avg(AIUsageEvent.latency_ms).label("average_latency_ms"),
             func.max(AIUsageEvent.created_at).label("last_request_at"),
         )
     ).one()
-    requests_last_24h = db.scalar(select(func.count(AIUsageEvent.id)).where(AIUsageEvent.created_at >= window_start)) or 0
+    requests_last_24h = (
+        db.scalar(
+            select(func.count(AIUsageEvent.id)).where(
+                AIUsageEvent.created_at >= window_start
+            )
+        )
+        or 0
+    )
 
     feature_rows = db.execute(
         select(
             AIUsageEvent.feature_type,
             func.count(AIUsageEvent.id).label("total_requests"),
-            func.sum(case((AIUsageEvent.success.is_(True), 1), else_=0)).label("successful_requests"),
-            func.sum(case((AIUsageEvent.success.is_(False), 1), else_=0)).label("failed_requests"),
+            func.sum(case((AIUsageEvent.success.is_(True), 1), else_=0)).label(
+                "successful_requests"
+            ),
+            func.sum(case((AIUsageEvent.success.is_(False), 1), else_=0)).label(
+                "failed_requests"
+            ),
             func.sum(func.coalesce(AIUsageEvent.total_tokens, 0)).label("total_tokens"),
             func.avg(AIUsageEvent.latency_ms).label("average_latency_ms"),
             func.max(AIUsageEvent.created_at).label("last_request_at"),
@@ -160,7 +218,9 @@ def get_ai_usage_summary(db: Session) -> AIUsageSummaryResponse:
     total_requests = int(totals_row.total_requests or 0)
     successful_requests = int(totals_row.successful_requests or 0)
     failed_requests = int(totals_row.failed_requests or 0)
-    success_rate = (successful_requests / total_requests * 100.0) if total_requests else 0.0
+    success_rate = (
+        (successful_requests / total_requests * 100.0) if total_requests else 0.0
+    )
     return AIUsageSummaryResponse(
         total_requests=total_requests,
         successful_requests=successful_requests,

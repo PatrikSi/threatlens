@@ -23,6 +23,8 @@ from app.models.investigation import Investigation, InvestigationEvidence
 from app.models.item import Item
 from app.models.report import Report
 from app.models.report_source_item import ReportSourceItem
+from app.services.ai_reporting import get_latest_daily_brief, get_recent_daily_briefs
+from app.services.ai_task_projection import list_daily_brief_source_items
 from app.services.data_access_envelopes import (
     DATA_ACCESS_RESOURCE_DAILY_BRIEF,
     DATA_ACCESS_RESOURCE_INTEGRATION_DELIVERY,
@@ -39,7 +41,10 @@ from app.services.data_access_runtime import (
     ensure_report_data_access_envelope,
     merge_investigation_evidence_data_access,
 )
-from app.services.data_access_policy import DataPolicyRevisionConflict
+from app.services.data_access_policy import (
+    DataAccessContext,
+    DataPolicyRevisionConflict,
+)
 
 
 def _restricted_feed_and_item(db_session) -> tuple[HandlingLabel, Feed, Item]:
@@ -381,3 +386,111 @@ def test_daily_brief_captures_every_audited_source_item(db_session):
         resource_id=brief.id,
     )
     assert len(sources) == 1
+
+
+def test_daily_brief_reads_filter_normalized_lineage(db_session):
+    restricted_label, _restricted_feed, restricted_item = _restricted_feed_and_item(
+        db_session
+    )
+    unrestricted_feed = Feed(
+        name=f"Runtime unrestricted {uuid.uuid4()}",
+        handling_label_id=UNRESTRICTED_HANDLING_LABEL_ID,
+    )
+    unrestricted_feed.url = f"https://example.com/runtime/{uuid.uuid4()}.xml"
+    db_session.add(unrestricted_feed)
+    db_session.flush()
+    unrestricted_item = Item(
+        feed_id=unrestricted_feed.id,
+        url=f"https://example.com/runtime/{uuid.uuid4()}",
+        title="Unrestricted daily brief item",
+        dedupe_key=f"runtime-daily:{uuid.uuid4()}",
+        content_hash=uuid.uuid4().hex * 2,
+        first_seen_at=datetime.now(timezone.utc),
+    )
+    db_session.add(unrestricted_item)
+    db_session.flush()
+
+    now = datetime.now(timezone.utc)
+    unrestricted_brief = AIDailyBrief(
+        brief_date=date.today() - timedelta(days=1),
+        status="ready",
+        window_start=now - timedelta(days=2),
+        window_end=now - timedelta(days=1),
+        title="Unrestricted brief",
+        generated_at=now - timedelta(days=1),
+    )
+    restricted_brief = AIDailyBrief(
+        brief_date=date.today(),
+        status="ready",
+        window_start=now - timedelta(days=1),
+        window_end=now,
+        title="Restricted brief",
+        generated_at=now,
+    )
+    db_session.add_all([unrestricted_brief, restricted_brief])
+    db_session.flush()
+    db_session.add_all(
+        [
+            AIDailyBriefSourceItem(
+                daily_brief_id=unrestricted_brief.id,
+                item_id=unrestricted_item.id,
+                included=True,
+                rank=1,
+                title_snapshot=unrestricted_item.title,
+            ),
+            AIDailyBriefSourceItem(
+                daily_brief_id=restricted_brief.id,
+                item_id=restricted_item.id,
+                included=True,
+                rank=1,
+                title_snapshot=restricted_item.title,
+            ),
+        ]
+    )
+    db_session.flush()
+    ensure_daily_brief_data_access_envelope(db_session, brief_id=unrestricted_brief.id)
+    ensure_daily_brief_data_access_envelope(db_session, brief_id=restricted_brief.id)
+
+    restricted_context = DataAccessContext(
+        mode="enforced",
+        policy_revision=1,
+        coverage_version=1,
+        principal_type="user",
+        principal_id=uuid.uuid4(),
+        principal_eligible=True,
+        allowed_label_ids=frozenset({UNRESTRICTED_HANDLING_LABEL_ID}),
+    )
+    privileged_context = DataAccessContext(
+        mode="enforced",
+        policy_revision=1,
+        coverage_version=1,
+        principal_type="user",
+        principal_id=uuid.uuid4(),
+        principal_eligible=True,
+        allowed_label_ids=frozenset(
+            {UNRESTRICTED_HANDLING_LABEL_ID, restricted_label.id}
+        ),
+    )
+
+    assert (
+        get_latest_daily_brief(db_session, data_access=restricted_context).id
+        == unrestricted_brief.id
+    )
+    assert [
+        brief.id
+        for brief in get_recent_daily_briefs(
+            db_session, limit=10, data_access=restricted_context
+        )
+    ] == [unrestricted_brief.id]
+    assert (
+        list_daily_brief_source_items(
+            db_session,
+            daily_brief_id=restricted_brief.id,
+            data_access=restricted_context,
+        )
+        is None
+    )
+    assert (
+        get_latest_daily_brief(db_session, data_access=privileged_context).id
+        == restricted_brief.id
+    )
