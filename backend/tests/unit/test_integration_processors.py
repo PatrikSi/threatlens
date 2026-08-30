@@ -7,6 +7,7 @@ from sqlalchemy.exc import OperationalError
 
 from app.models.alert_occurrence import AlertOccurrence
 from app.models.audit_log import AuditLog
+from app.models.data_policy import QUARANTINE_HANDLING_LABEL_ID
 from app.models.feed import Feed
 from app.models.integration import (
     IntegrationAttempt,
@@ -18,6 +19,7 @@ from app.models.integration import (
 from app.models.item import Item
 from app.services.integration_connectors.smtp import SMTPIntegrationConnector
 from app.services.integration_delivery import claim_integration_delivery
+from app.services.integration_delivery_data_policy import IntegrationDeliveryPolicyAudit
 from app.services.integration_processors import (
     SMTP_OWNER_NOT_ELIGIBLE,
     process_smtp_integration_delivery,
@@ -30,10 +32,12 @@ from app.services.integration_storage import (
 from app.services.smtp_integration import SMTPNotificationResult
 from app.services.smtp_delivery_eligibility import (
     SMTP_SOURCE_OWNER_IDS_KEY,
+    SMTPDeliveryIneligibleError,
     SMTPDeliverySourceCompatibilityError,
     ensure_smtp_delivery_schema_compatible,
     lock_smtp_delivery_external_io_eligibility,
 )
+from app.services.data_access_policy import DataAccessContext
 from app.services.smtp_delivery_history import smtp_delivery_dedupe_key
 
 
@@ -393,6 +397,65 @@ def test_smtp_database_fence_failure_retries_without_external_side_effect(
         "delivery_outcome": "not_attempted",
         "external_side_effect_possible": False,
     }
+    assert send_calls == []
+
+
+def test_smtp_policy_denial_audit_survives_worker_rollback(
+    db_session,
+    monkeypatch,
+):
+    _feed, _item, delivery = _persist_smtp_delivery(db_session)
+    instance = db_session.get(IntegrationInstance, delivery.integration_id)
+    assert instance is not None
+    audit = IntegrationDeliveryPolicyAudit(
+        context=DataAccessContext(
+            mode="enforced",
+            policy_revision=7,
+            coverage_version=1,
+            principal_type="integration_instance",
+            principal_id=instance.id,
+            principal_eligible=True,
+            allowed_label_ids=frozenset(),
+        ),
+        decision="egress_denied",
+        delivery_id=delivery.id,
+        surface="smtp.external_io",
+        handling_label_ids=frozenset({QUARANTINE_HANDLING_LABEL_ID}),
+    )
+    send_calls: list[bool] = []
+
+    def _send(active, **kwargs):
+        kwargs["lease_heartbeat"](10, active)
+        send_calls.append(True)
+        raise AssertionError("SMTP I/O must not start after a policy denial")
+
+    monkeypatch.setattr("app.services.smtp_integration.send_smtp_notification", _send)
+    monkeypatch.setattr(
+        "app.services.integration_processors.lock_smtp_delivery_external_io_eligibility",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            SMTPDeliveryIneligibleError(
+                "smtp_data_policy_denied",
+                "Outbound delivery is not allowed by handling-label grants.",
+                data_policy_audit=audit,
+            )
+        ),
+    )
+
+    result = process_smtp_integration_delivery(db_session, delivery_id=delivery.id)
+
+    db_session.refresh(delivery)
+    policy_audit = db_session.scalar(
+        select(AuditLog).where(
+            AuditLog.action == "data_policy.egress.denied",
+            AuditLog.resource_type == "integration_delivery",
+            AuditLog.resource_id == str(delivery.id),
+        )
+    )
+    assert result.status == "succeeded"
+    assert result.reason == "smtp_data_policy_denied"
+    assert delivery.state == "succeeded"
+    assert policy_audit is not None
+    assert policy_audit.metadata_json["surface"] == "smtp.external_io"
     assert send_calls == []
 
 

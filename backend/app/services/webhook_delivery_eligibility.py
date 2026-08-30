@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -18,9 +19,21 @@ from app.services.integration_compat import (
     ensure_webhook_config_schema_compatible,
     lock_notification_webhook,
 )
+from app.services.integration_delivery_data_policy import (
+    IntegrationDeliveryDataPolicyDenied,
+    IntegrationDeliveryDataPolicyUnavailable,
+    IntegrationDeliveryPolicyFence,
+    enforce_integration_delivery_data_policy,
+    lock_integration_delivery_policy_fence,
+)
 from app.services.report_event_compatibility import (
     validate_report_ready_delivery_owner,
 )
+
+if TYPE_CHECKING:
+    from app.services.integration_delivery_data_policy import (
+        IntegrationDeliveryPolicyAudit,
+    )
 
 _DELIVERY_SENDING = "sending"
 
@@ -28,13 +41,32 @@ _DELIVERY_SENDING = "sending"
 class WebhookDeliveryIneligibleError(RuntimeError):
     """The webhook control plane was revoked before external I/O began."""
 
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        data_policy_audit: IntegrationDeliveryPolicyAudit | None = None,
+    ) -> None:
         super().__init__(message)
         self.code = code
+        self.data_policy_audit = data_policy_audit
 
 
 class WebhookDeliveryTemporarilyIneligibleError(WebhookDeliveryIneligibleError):
     """A revoked owner may become eligible again within the retry budget."""
+
+
+def _lock_webhook_delivery_data_policy_fence(
+    db: Session,
+) -> IntegrationDeliveryPolicyFence:
+    try:
+        return lock_integration_delivery_policy_fence(db)
+    except IntegrationDeliveryDataPolicyUnavailable as exc:
+        raise WebhookDeliveryTemporarilyIneligibleError(
+            "webhook_data_policy_unavailable",
+            str(exc),
+        ) from exc
 
 
 def lock_webhook_delivery_external_io_eligibility(
@@ -51,6 +83,7 @@ def lock_webhook_delivery_external_io_eligibility(
     between this check and the outbound request. Lease renewal may commit, but it
     must invoke this function again before the next request or redirect.
     """
+    policy_fence = _lock_webhook_delivery_data_policy_fence(db)
     webhook = lock_notification_webhook(
         db,
         webhook_id,
@@ -152,6 +185,12 @@ def lock_webhook_delivery_external_io_eligibility(
             and generic.owner_user_id is None
             and generic.event_type != "report_ready"
         ):
+            _enforce_webhook_delivery_data_policy(
+                db,
+                instance=instance,
+                delivery=generic,
+                policy_fence=policy_fence,
+            )
             return
         raise WebhookDeliveryIneligibleError(
             "integration_owner_missing",
@@ -191,6 +230,40 @@ def lock_webhook_delivery_external_io_eligibility(
             "webhook_owner_not_authorized",
             "Webhook owner is no longer authorized to manage outbound deliveries.",
         )
+    _enforce_webhook_delivery_data_policy(
+        db,
+        instance=instance,
+        delivery=generic,
+        policy_fence=policy_fence,
+    )
+
+
+def _enforce_webhook_delivery_data_policy(
+    db: Session,
+    *,
+    instance: IntegrationInstance,
+    delivery: IntegrationDelivery,
+    policy_fence: IntegrationDeliveryPolicyFence,
+) -> None:
+    try:
+        enforce_integration_delivery_data_policy(
+            db,
+            instance=instance,
+            delivery=delivery,
+            surface="webhook.external_io",
+            policy_fence=policy_fence,
+        )
+    except IntegrationDeliveryDataPolicyDenied as exc:
+        raise WebhookDeliveryIneligibleError(
+            "webhook_data_policy_denied",
+            str(exc),
+            data_policy_audit=exc.audit,
+        ) from exc
+    except IntegrationDeliveryDataPolicyUnavailable as exc:
+        raise WebhookDeliveryTemporarilyIneligibleError(
+            "webhook_data_policy_unavailable",
+            str(exc),
+        ) from exc
 
 
 def _validate_report_ready_delivery(
