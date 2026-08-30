@@ -334,6 +334,7 @@ class Settings(BaseSettings):
     integration_event_retention_days: int = 30
     integration_metrics_retention_days: int = 730
     audit_log_retention_days: int = 730
+    action_approval_retention_days: int = 730
     ai_task_history_retention_days: int = 180
     ai_usage_retention_days: int = 730
     tag_feedback_retention_days: int = 730

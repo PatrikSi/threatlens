@@ -5,7 +5,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ## Published Contract
 
 - Schema version: `1.8.0`
-- OpenAPI contract anchor: `openapi-sha256:dd73eeb4562cad59335151fb5622bc60fb1ca4cbec21bfe1592f807315a2d096`
+- OpenAPI contract anchor: `openapi-sha256:208c3eb7fb3e53d3ed197069f1cc651bc368e38e0c4bc8d1f120778347665bdb`
 - API service base path: `/v1`
 - Web proxy base path: `/api/v1`
 - Bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`.
@@ -21,6 +21,70 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ## Error Diagnostics
 
 Error responses retain FastAPI's top-level `detail` field for compatibility and also include an `error` object with a stable category in `code`, a display-safe `message`, the HTTP `status`, a `retryable` hint, and a correlation `request_id`. The same correlation value is returned in the `X-Request-ID` response header and can be used to locate the server-side log entry. Validation responses do not echo submitted input values.
+
+## Action Approvals
+
+### `GET /v1/iam/action-approvals`
+- Summary: Get Action Approvals
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:approvals`
+- Parameters:
+  - `page` (query, optional): integer
+  - `page_size` (query, optional): integer
+  - `action_type` (query, optional): Action Type
+  - `stored_status` (query, optional): Stored Status
+  - `requester_user_id` (query, optional): Requester User Id
+- Responses: `200` `application/json` -> ActionApprovalListResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/iam/action-approvals`
+- Summary: Post Action Approval
+- Auth: SessionCookieAuth
+- Parameters:
+  - `Idempotency-Key` (header, required): string
+- Request body: `application/json` -> ActionApprovalCreateRequest
+- Responses: `201` `application/json` -> ActionApprovalResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `GET /v1/iam/action-approvals/actions`
+- Summary: Get Action Catalog
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:approvals`
+- Responses: `200` `application/json` -> array[ActionDefinitionResponse], `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `GET /v1/iam/action-approvals/{approval_id}`
+- Summary: Get Action Approval
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:approvals`
+- Parameters:
+  - `approval_id` (path, required): string
+- Responses: `200` `application/json` -> ActionApprovalResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/iam/action-approvals/{approval_id}/cancel`
+- Summary: Post Action Approval Cancel
+- Auth: SessionCookieAuth
+- Parameters:
+  - `approval_id` (path, required): string
+  - `Idempotency-Key` (header, required): string
+- Request body: `application/json` -> ActionApprovalCancelRequest
+- Responses: `200` `application/json` -> ActionApprovalResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/iam/action-approvals/{approval_id}/decision`
+- Summary: Post Action Approval Decision
+- Auth: SessionCookieAuth
+- Parameters:
+  - `approval_id` (path, required): string
+  - `Idempotency-Key` (header, required): string
+- Request body: `application/json` -> ActionApprovalDecisionRequest
+- Responses: `200` `application/json` -> ActionApprovalResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/iam/action-approvals/{approval_id}/execute`
+- Summary: Post Action Approval Execute
+- Auth: SessionCookieAuth
+- Parameters:
+  - `approval_id` (path, required): string
+  - `Idempotency-Key` (header, required): string
+- Request body: `application/json` -> ActionApprovalExecuteRequest
+- Responses: `200` `application/json` -> ActionApprovalExecutionResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `GET /v1/iam/action-approvals/{approval_id}/receipt`
+- Summary: Get Action Receipt
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:approvals`
+- Parameters:
+  - `approval_id` (path, required): string
+- Responses: `200` `application/json` -> ActionExecutionReceiptResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 
 ## Ai
 
@@ -332,6 +396,9 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `actor_principal_id` (query, optional): Actor Principal Id
   - `credential_kind` (query, optional): Credential Kind
   - `credential_id` (query, optional): Credential Id
+  - `elevation_id` (query, optional): Elevation Id
+  - `approval_id` (query, optional): Approval Id
+  - `execution_receipt_id` (query, optional): Execution Receipt Id
   - `resource_type` (query, optional): Resource Type
   - `resource_id` (query, optional): Resource Id
   - `request_id` (query, optional): Request Id
@@ -353,6 +420,9 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `actor_principal_id` (query, optional): Actor Principal Id
   - `credential_kind` (query, optional): Credential Kind
   - `credential_id` (query, optional): Credential Id
+  - `elevation_id` (query, optional): Elevation Id
+  - `approval_id` (query, optional): Approval Id
+  - `execution_receipt_id` (query, optional): Execution Receipt Id
   - `resource_type` (query, optional): Resource Type
   - `resource_id` (query, optional): Resource Id
   - `request_id` (query, optional): Request Id
@@ -388,6 +458,52 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Auth: none
 - Request body: `application/json` -> MFALoginVerifyRequest
 - Responses: `200` `application/json` -> TokenResponse, `422` `application/json` -> ApiErrorResponse
+### `DELETE /v1/auth/oidc/access-policy`
+- Summary: Remove Oidc Access Policy
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:iam`
+- Parameters:
+  - `expected_revision` (query, required): integer
+- Responses: `200` `application/json` -> OIDCAccessPolicyStateResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `GET /v1/auth/oidc/access-policy`
+- Summary: Get Oidc Access Policy
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:iam`
+- Responses: `200` `application/json` -> OIDCAccessPolicyStateResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/auth/oidc/access-policy`
+- Summary: Post Oidc Access Policy
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:iam`
+- Request body: `application/json` -> OIDCAccessPolicyCreateRequest
+- Responses: `201` `application/json` -> OIDCAccessPolicyStateResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `PUT /v1/auth/oidc/access-policy`
+- Summary: Put Oidc Access Policy
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:iam`
+- Request body: `application/json` -> OIDCAccessPolicyUpdateRequest
+- Responses: `200` `application/json` -> OIDCAccessPolicyStateResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/auth/oidc/access-policy/mapping-sets`
+- Summary: Post Oidc Mapping Set
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:iam`
+- Request body: `application/json` -> OIDCClaimMappingSetCreateRequest
+- Responses: `201` `application/json` -> OIDCAccessPolicyStateResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `DELETE /v1/auth/oidc/access-policy/mapping-sets/{mapping_set_id}`
+- Summary: Remove Oidc Mapping Set
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:iam`
+- Parameters:
+  - `mapping_set_id` (path, required): string
+  - `expected_revision` (query, required): integer
+- Responses: `200` `application/json` -> OIDCAccessPolicyStateResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `PUT /v1/auth/oidc/access-policy/mapping-sets/{mapping_set_id}`
+- Summary: Put Oidc Mapping Set
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:iam`
+- Parameters:
+  - `mapping_set_id` (path, required): string
+- Request body: `application/json` -> OIDCClaimMappingSetUpdateRequest
+- Responses: `200` `application/json` -> OIDCAccessPolicyStateResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `DELETE /v1/auth/oidc/account`
 - Summary: Unlink Oidc Account
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -494,6 +610,51 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `session_id` (path, required): string
 - Responses: `200` `application/json` -> SessionRevocationResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+
+## Elevations
+
+### `GET /v1/iam/elevations`
+- Summary: Get Elevations
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:elevations`
+- Parameters:
+  - `page` (query, optional): integer
+  - `page_size` (query, optional): integer
+  - `target_user_id` (query, optional): Target User Id
+  - `stored_status` (query, optional): Stored Status
+- Responses: `200` `application/json` -> TemporaryElevationListResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/iam/elevations`
+- Summary: Post Elevation
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:elevations`
+- Parameters:
+  - `Idempotency-Key` (header, required): string
+- Request body: `application/json` -> ElevationRequestCreate
+- Responses: `201` `application/json` -> TemporaryElevationResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `GET /v1/iam/elevations/{elevation_id}`
+- Summary: Get Elevation
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:elevations`
+- Parameters:
+  - `elevation_id` (path, required): string
+- Responses: `200` `application/json` -> TemporaryElevationResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/iam/elevations/{elevation_id}/close`
+- Summary: Post Elevation Close
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Parameters:
+  - `elevation_id` (path, required): string
+  - `Idempotency-Key` (header, required): string
+- Request body: `application/json` -> ElevationCloseRequest
+- Responses: `200` `application/json` -> TemporaryElevationResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/iam/elevations/{elevation_id}/decision`
+- Summary: Post Elevation Decision
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `approve:elevations`
+- Parameters:
+  - `elevation_id` (path, required): string
+  - `Idempotency-Key` (header, required): string
+- Request body: `application/json` -> ElevationDecisionRequest
+- Responses: `200` `application/json` -> TemporaryElevationResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 
 ## Exports
 

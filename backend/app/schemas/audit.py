@@ -16,6 +16,8 @@ class AuditLogResponse(BaseModel):
     request_id: str | None
     source_ip: str | None
     authorization_elevation_ids: list[uuid.UUID]
+    authorization_approval_id: uuid.UUID | None
+    execution_receipt_id: uuid.UUID | None
     action: str
     resource_type: str
     resource_id: str | None

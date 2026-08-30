@@ -9,6 +9,7 @@ from app.core.logging_config import (
     ThreatLensTextFormatter,
     configure_logging,
     get_log_context,
+    remove_log_context,
     redact_log_text,
     reset_log_context,
     set_log_context,
@@ -95,6 +96,20 @@ def test_log_context_updates_cross_copied_sync_worker_contexts():
     assert current["request_id"] == "request-shared"
     assert current["credential_kind"] == "api_token"
     assert current["credential_id"] == "00000000-0000-4000-8000-000000000001"
+
+
+def test_log_context_can_remove_superseded_authorization_provenance():
+    token = set_log_context(
+        request_id="request-clear",
+        authorization_elevation_ids="elevation-1",
+    )
+    try:
+        remove_log_context("authorization_elevation_ids")
+        current = get_log_context()
+    finally:
+        reset_log_context(token)
+
+    assert current == {"request_id": "request-clear"}
 
 
 def test_per_logger_override_can_be_more_verbose_than_root(monkeypatch):

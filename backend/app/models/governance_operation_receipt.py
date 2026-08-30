@@ -30,7 +30,7 @@ class GovernanceOperationReceipt(Base):
             name="ck_governance_operation_receipts_fingerprint",
         ),
         CheckConstraint(
-            "http_status BETWEEN 200 AND 299",
+            "http_status BETWEEN 200 AND 499",
             name="ck_governance_operation_receipts_http_status",
         ),
         CheckConstraint(

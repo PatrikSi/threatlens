@@ -46,6 +46,16 @@ class AuditLog(Base):
             "created_at",
         ),
         Index("ix_audit_logs_success_created", "success", "created_at"),
+        Index(
+            "ix_audit_logs_authorization_approval",
+            "authorization_approval_id",
+            "created_at",
+        ),
+        Index(
+            "ix_audit_logs_execution_receipt",
+            "execution_receipt_id",
+            "created_at",
+        ),
         CheckConstraint(
             "jsonb_typeof(authorization_elevation_ids) = 'array' AND "
             "NOT jsonb_path_exists(authorization_elevation_ids, "
@@ -80,6 +90,12 @@ class AuditLog(Base):
         nullable=False,
         default=list,
         server_default="[]",
+    )
+    authorization_approval_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True), nullable=True
+    )
+    execution_receipt_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True), nullable=True
     )
     action: Mapped[str] = mapped_column(Text, nullable=False)
     resource_type: Mapped[str] = mapped_column(Text, nullable=False)

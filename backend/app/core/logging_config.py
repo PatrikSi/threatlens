@@ -73,6 +73,16 @@ def update_log_context(**values: object) -> None:
     )
 
 
+def remove_log_context(*keys: str) -> None:
+    """Remove fields that were superseded by a stricter authorization pass."""
+
+    current = _LOG_CONTEXT.get()
+    if current is None:
+        return
+    for key in keys:
+        current.pop(key, None)
+
+
 def reset_log_context(token: Token) -> None:
     _LOG_CONTEXT.reset(token)
 
@@ -233,6 +243,7 @@ __all__ = [
     "configure_logging",
     "get_log_context",
     "log_configuration_summary",
+    "remove_log_context",
     "redact_log_text",
     "reset_log_context",
     "set_log_context",

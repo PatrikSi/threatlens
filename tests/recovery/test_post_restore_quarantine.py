@@ -182,6 +182,8 @@ class PostRestoreQuarantineTests(unittest.TestCase):
         self.assertIn("UPDATE auth_sessions", sql)
         self.assertIn("UPDATE mfa_login_challenges", sql)
         self.assertIn("UPDATE temporary_elevations", sql)
+        self.assertIn("UPDATE action_approval_requests", sql)
+        self.assertIn("cancelled_action_approvals", sql)
         self.assertIn("closed_by_principal_type = 'system'", sql)
         self.assertIn("UPDATE integration_instances", sql)
         self.assertIn("UPDATE integration_subscriptions", sql)
