@@ -2,39 +2,18 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Mapping
-from dataclasses import dataclass
-from typing import Literal
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
-from app.core.token_scopes import (
-    SCOPE_READ_AI,
-    SCOPE_READ_ALERTS,
-    SCOPE_READ_AUDIT,
-    SCOPE_READ_FEEDS,
-    SCOPE_READ_INTEGRATIONS,
-    SCOPE_READ_INVESTIGATIONS,
-    SCOPE_READ_ITEMS,
-    SCOPE_READ_NOTIFICATIONS,
-    SCOPE_READ_OPERATIONS,
-    SCOPE_READ_REPORTS,
-    SCOPE_READ_STATS,
-    SCOPE_READ_TAGGING,
-    SCOPE_READ_USERS,
-    SCOPE_WRITE_TOKENS,
-)
 from app.models.user import User
 from app.models.workspace import WorkspaceRolePolicy, WorkspaceUserPreference
 from app.schemas.workspace import (
-    WorkspaceDashboardPanelDefinitionResponse,
+    WorkspaceEffectiveDashboardPanelResponse,
     WorkspaceEffectiveModuleResponse,
     WorkspaceEffectiveResponse,
-    WorkspaceModuleDefinitionResponse,
     WorkspaceModulePolicy,
     WorkspaceModulePreference,
-    WorkspaceRegistryResponse,
     WorkspaceRole,
     WorkspaceRolePolicyResponse,
     WorkspaceRolePolicyWriteRequest,
@@ -42,234 +21,21 @@ from app.schemas.workspace import (
     WorkspaceUserPreferenceWriteRequest,
 )
 from app.services.authorization import AuthorizationContext
-
-
-WORKSPACE_ROLES: tuple[WorkspaceRole, ...] = ("admin", "analyst", "viewer")
-_ALL_ROLES = frozenset(WORKSPACE_ROLES)
-_ADMIN_ONLY = frozenset({"admin"})
-
-
-@dataclass(frozen=True)
-class WorkspaceModuleDefinition:
-    id: str
-    label: str
-    route: str
-    section: Literal["primary", "settings"]
-    parent_id: str | None
-    required_permission: str | None
-    feature_flag: str | None
-    default_visible_roles: frozenset[str]
-    default_optional: bool
-    default_order: int
-    default_mobile_priority: int
-    mobile_behavior: Literal["primary", "secondary"]
-
-
-@dataclass(frozen=True)
-class WorkspaceDashboardPanelDefinition:
-    id: str
-    label: str
-    required_permission: str | None
-    feature_flag: str | None = None
-
-
-def _module(
-    module_id: str,
-    label: str,
-    route: str,
-    *,
-    order: int,
-    permission: str | None = None,
-    feature_flag: str | None = None,
-    roles: frozenset[str] = _ALL_ROLES,
-    optional: bool = True,
-    parent_id: str | None = None,
-    mobile_behavior: Literal["primary", "secondary"] = "secondary",
-) -> WorkspaceModuleDefinition:
-    section: Literal["primary", "settings"] = (
-        "settings" if module_id.startswith("settings.") else "primary"
-    )
-    if section == "settings" and parent_id is None:
-        parent_id = "primary.settings"
-    return WorkspaceModuleDefinition(
-        id=module_id,
-        label=label,
-        route=route,
-        section=section,
-        parent_id=parent_id,
-        required_permission=permission,
-        feature_flag=feature_flag,
-        default_visible_roles=roles,
-        default_optional=optional,
-        default_order=order,
-        default_mobile_priority=order,
-        mobile_behavior=mobile_behavior,
-    )
-
-
-WORKSPACE_MODULES: tuple[WorkspaceModuleDefinition, ...] = (
-    _module(
-        "primary.dashboard",
-        "Dashboard",
-        "/",
-        order=0,
-        permission=SCOPE_READ_ITEMS,
-        optional=False,
-        mobile_behavior="primary",
-    ),
-    _module(
-        "primary.alerts",
-        "Alerts",
-        "/alerts",
-        order=10,
-        permission=SCOPE_READ_ALERTS,
-        mobile_behavior="primary",
-    ),
-    _module(
-        "primary.investigations",
-        "Investigations",
-        "/investigations",
-        order=20,
-        permission=SCOPE_READ_INVESTIGATIONS,
-        mobile_behavior="primary",
-    ),
-    _module(
-        "primary.feeds",
-        "Feeds",
-        "/feeds",
-        order=30,
-        permission=SCOPE_READ_FEEDS,
-        mobile_behavior="primary",
-    ),
-    _module("primary.stats", "Stats", "/stats", order=40, permission=SCOPE_READ_STATS),
-    _module(
-        "primary.export",
-        "Export",
-        "/export",
-        order=50,
-        permission=SCOPE_READ_ITEMS,
-    ),
-    _module(
-        "primary.reporting",
-        "Reporting",
-        "/reporting",
-        order=60,
-        permission=SCOPE_READ_REPORTS,
-    ),
-    _module(
-        "primary.settings",
-        "Settings",
-        "/settings",
-        order=70,
-        optional=False,
-    ),
-    _module(
-        "settings.account",
-        "Account",
-        "/settings/account",
-        order=0,
-        optional=False,
-        mobile_behavior="primary",
-    ),
-    _module(
-        "settings.tokens",
-        "API Tokens",
-        "/settings/tokens",
-        order=10,
-        permission=SCOPE_WRITE_TOKENS,
-        mobile_behavior="primary",
-    ),
-    _module(
-        "settings.ai",
-        "AI",
-        "/settings/ai",
-        order=20,
-        permission=SCOPE_READ_AI,
-        feature_flag="ai_enabled",
-        roles=_ADMIN_ONLY,
-    ),
-    _module(
-        "settings.tagging",
-        "Tagging",
-        "/settings/tagging",
-        order=30,
-        permission=SCOPE_READ_TAGGING,
-        roles=_ADMIN_ONLY,
-    ),
-    _module(
-        "settings.identity",
-        "Identity",
-        "/settings/identity",
-        order=40,
-        permission=SCOPE_READ_USERS,
-        roles=_ADMIN_ONLY,
-    ),
-    _module(
-        "settings.users",
-        "Users",
-        "/settings/users",
-        order=50,
-        permission=SCOPE_READ_USERS,
-        roles=_ADMIN_ONLY,
-    ),
-    _module(
-        "settings.audit",
-        "Audit Logs",
-        "/settings/audit-logs",
-        order=60,
-        permission=SCOPE_READ_AUDIT,
-        roles=_ADMIN_ONLY,
-    ),
-    _module(
-        "settings.operations",
-        "Operations",
-        "/settings/operations",
-        order=70,
-        permission=SCOPE_READ_OPERATIONS,
-        roles=_ADMIN_ONLY,
-    ),
-    _module(
-        "settings.integrations",
-        "Integrations",
-        "/settings/integrations/webhooks",
-        order=80,
-        permission=SCOPE_READ_NOTIFICATIONS,
-    ),
-    _module(
-        "settings.integrations.webhooks",
-        "Webhooks",
-        "/settings/integrations/webhooks",
-        order=90,
-        permission=SCOPE_READ_NOTIFICATIONS,
-        parent_id="settings.integrations",
-    ),
-    _module(
-        "settings.integrations.smtp",
-        "SMTP",
-        "/settings/integrations/smtp",
-        order=100,
-        permission=SCOPE_READ_INTEGRATIONS,
-        roles=_ADMIN_ONLY,
-        parent_id="settings.integrations",
-    ),
+from app.services.workspace_policy_registry import (
+    WORKSPACE_DASHBOARD_PANEL_BY_ID,
+    WORKSPACE_DASHBOARD_PANELS,
+    WORKSPACE_MODULE_BY_ID,
+    WORKSPACE_MODULES,
+    WORKSPACE_ROLES,
+    default_role_modules,
+    runtime_workspace_feature_flags,
+    workspace_registry_response,
 )
 
-WORKSPACE_DASHBOARD_PANELS: tuple[WorkspaceDashboardPanelDefinition, ...] = (
-    WorkspaceDashboardPanelDefinition("rss", "RSS intelligence", SCOPE_READ_ITEMS),
-    WorkspaceDashboardPanelDefinition("alerts", "Alerts", SCOPE_READ_ALERTS),
-    WorkspaceDashboardPanelDefinition("notes", "Notes", None),
-    WorkspaceDashboardPanelDefinition(
-        "daily_brief",
-        "AI daily brief",
-        SCOPE_READ_REPORTS,
-        "ai_daily_brief_enabled",
-    ),
-)
 
-WORKSPACE_MODULE_BY_ID = {module.id: module for module in WORKSPACE_MODULES}
-WORKSPACE_DASHBOARD_PANEL_BY_ID = {
-    panel.id: panel for panel in WORKSPACE_DASHBOARD_PANELS
-}
+_WORKSPACE_SNAPSHOT_ATTEMPTS = 3
+_DEFAULT_LANDING_MODULE = "primary.dashboard"
+_DEFAULT_DASHBOARD_PANELS = ["rss"]
 
 
 class WorkspacePolicyError(RuntimeError):
@@ -296,6 +62,11 @@ class WorkspaceRoleInvalid(WorkspacePolicyError):
 
 class WorkspacePolicyUnavailable(WorkspacePolicyError):
     code = "workspace_policy_unavailable"
+    status_code = 503
+
+
+class WorkspaceSnapshotUnavailable(WorkspacePolicyError):
+    code = "workspace_snapshot_unavailable"
     status_code = 503
 
 
@@ -332,62 +103,6 @@ class WorkspaceModuleNotCustomizable(WorkspacePolicyError):
 class WorkspaceLandingModuleUnavailable(WorkspacePolicyError):
     code = "workspace_landing_module_unavailable"
     status_code = 422
-
-
-def workspace_registry_response() -> WorkspaceRegistryResponse:
-    return WorkspaceRegistryResponse(
-        modules=[
-            WorkspaceModuleDefinitionResponse(
-                id=module.id,
-                label=module.label,
-                route=module.route,
-                section=module.section,
-                parent_id=module.parent_id,
-                required_permission=module.required_permission,
-                feature_flag=module.feature_flag,
-                default_optional=module.default_optional,
-                default_order=module.default_order,
-                default_mobile_priority=module.default_mobile_priority,
-                mobile_behavior=module.mobile_behavior,
-            )
-            for module in WORKSPACE_MODULES
-        ],
-        dashboard_panels=[
-            WorkspaceDashboardPanelDefinitionResponse(
-                id=panel.id,
-                label=panel.label,
-                required_permission=panel.required_permission,
-                feature_flag=panel.feature_flag,
-            )
-            for panel in WORKSPACE_DASHBOARD_PANELS
-        ],
-    )
-
-
-def default_role_modules(role: WorkspaceRole) -> dict[str, dict[str, object]]:
-    return {
-        module.id: {
-            "visible": role in module.default_visible_roles,
-            "optional": module.default_optional,
-            "order": module.default_order,
-            "mobile_priority": module.default_mobile_priority,
-        }
-        for module in WORKSPACE_MODULES
-    }
-
-
-def runtime_workspace_feature_flags(db: Session | None = None) -> dict[str, bool]:
-    settings = get_settings()
-    flags = {
-        "ai_enabled": bool(settings.ai_enabled),
-        "ai_daily_brief_enabled": bool(settings.ai_enabled),
-    }
-    if db is not None and settings.ai_enabled:
-        from app.services.ai_config import load_public_ai_feature_flags
-
-        ai_flags = load_public_ai_feature_flags(db)
-        flags["ai_daily_brief_enabled"] = ai_flags.ai_daily_brief_enabled
-    return flags
 
 
 def list_role_policies(db: Session) -> list[WorkspaceRolePolicyResponse]:
@@ -491,6 +206,46 @@ def update_role_policy(
         *payload.dashboard_panel_ids,
         *unknown_stored_panels,
     ]
+    row.revision += 1
+    row.updated_by_user_id = actor_user_id
+    db.add(row)
+    db.flush()
+    db.refresh(row)
+    return role_policy_response(row)
+
+
+def reset_role_policy(
+    db: Session,
+    *,
+    role: str,
+    expected_revision: int,
+    actor_user_id: uuid.UUID,
+) -> WorkspaceRolePolicyResponse:
+    normalized_role = _workspace_role(role)
+    row = db.scalar(
+        select(WorkspaceRolePolicy)
+        .where(WorkspaceRolePolicy.role == normalized_role)
+        .with_for_update()
+    )
+    if row is None:
+        raise WorkspacePolicyUnavailable(
+            "The workspace policy for this built-in role is missing. Restore the database or rerun migrations.",
+            context={"role": normalized_role},
+        )
+    if row.revision != expected_revision:
+        raise WorkspacePolicyRevisionConflict(
+            "The workspace role policy changed after it was loaded. Reload it and retry.",
+            current_revision=row.revision,
+            context={
+                "role": normalized_role,
+                "expected_revision": expected_revision,
+                "current_revision": row.revision,
+            },
+        )
+
+    row.modules_json = default_role_modules(normalized_role)
+    row.landing_module_id = _DEFAULT_LANDING_MODULE
+    row.dashboard_panel_ids_json = list(_DEFAULT_DASHBOARD_PANELS)
     row.revision += 1
     row.updated_by_user_id = actor_user_id
     db.add(row)
@@ -625,6 +380,39 @@ def update_user_preferences(
     return user_preference_response(user.id, role, row)
 
 
+def reset_user_preferences(
+    db: Session,
+    *,
+    user: User,
+    expected_revision: int,
+) -> WorkspaceUserPreferenceResponse:
+    role = _workspace_role(user.role)
+    locked_user = db.scalar(select(User).where(User.id == user.id).with_for_update())
+    if locked_user is None:
+        raise WorkspacePolicyUnavailable(
+            "The account no longer exists. Sign in again before resetting workspace preferences."
+        )
+    row = db.scalar(
+        select(WorkspaceUserPreference)
+        .where(WorkspaceUserPreference.user_id == user.id)
+        .with_for_update()
+    )
+    current_revision = row.revision if row is not None else 0
+    if current_revision != expected_revision:
+        raise WorkspacePreferenceRevisionConflict(
+            "Workspace preferences changed after they were loaded. Reload them and retry.",
+            current_revision=current_revision,
+            context={
+                "expected_revision": expected_revision,
+                "current_revision": current_revision,
+            },
+        )
+    if row is not None:
+        db.delete(row)
+        db.flush()
+    return user_preference_response(user.id, role, None)
+
+
 def effective_workspace(
     db: Session,
     *,
@@ -633,8 +421,7 @@ def effective_workspace(
     feature_flags: Mapping[str, bool] | None = None,
 ) -> WorkspaceEffectiveResponse:
     role = _workspace_role(user.role)
-    policy = get_role_policy(db, role)
-    preferences = get_user_preferences(db, user)
+    policy, preferences = _coherent_workspace_state(db, user=user, role=role)
     features = dict(feature_flags or runtime_workspace_feature_flags())
     policy_by_id = {module.module_id: module for module in policy.modules}
     preference_by_id = {module.module_id: module for module in preferences.modules}
@@ -647,10 +434,12 @@ def effective_workspace(
         preference_applies = preference is not None and policy_module.optional
         if preference is not None and not policy_module.optional:
             warnings.append(f"ignored_non_optional_preference:{definition.id}")
-        permission_allowed = (
-            definition.required_permission is None
-            or authorization.has(definition.required_permission)
-        )
+        missing_permissions = [
+            permission
+            for permission in definition.required_permissions
+            if not authorization.has(permission)
+        ]
+        permission_allowed = not missing_permissions
         feature_available = definition.feature_flag is None or features.get(
             definition.feature_flag, False
         )
@@ -695,6 +484,7 @@ def effective_workspace(
             mobile_priority=policy_module.mobile_priority,
             mobile_behavior=definition.mobile_behavior,
             permission_allowed=permission_allowed,
+            missing_permissions=missing_permissions,
             feature_available=feature_available,
             policy_visible=policy_module.visible,
             preference_visible=preference_visible,
@@ -724,21 +514,23 @@ def effective_workspace(
         if preferences.dashboard_panel_ids is not None
         else policy.dashboard_panel_ids
     )
-    dashboard_panels = [
-        panel_id
-        for panel_id in configured_panels
-        if _dashboard_panel_available(
+    dashboard_panel_details = [
+        _dashboard_panel_resolution(
             panel_id,
             authorization=authorization,
             feature_flags=features,
         )
+        for panel_id in configured_panels
+        if panel_id in WORKSPACE_DASHBOARD_PANEL_BY_ID
     ]
+    dashboard_panels = [panel.id for panel in dashboard_panel_details if panel.visible]
     return WorkspaceEffectiveResponse(
         role=role,
         policy_revision=policy.revision,
         preference_revision=preferences.revision,
         landing_module_id=landing.id if landing is not None else None,
         dashboard_panel_ids=dashboard_panels,
+        dashboard_panels=dashboard_panel_details,
         modules=modules,
         warnings=sorted(set(warnings)),
     )
@@ -1037,22 +829,101 @@ def _unknown_string_entries(
     )
 
 
-def _dashboard_panel_available(
+def _coherent_workspace_state(
+    db: Session,
+    *,
+    user: User,
+    role: WorkspaceRole,
+) -> tuple[WorkspaceRolePolicyResponse, WorkspaceUserPreferenceResponse]:
+    for _attempt in range(_WORKSPACE_SNAPSHOT_ATTEMPTS):
+        policy_row = db.scalar(
+            select(WorkspaceRolePolicy)
+            .where(WorkspaceRolePolicy.role == role)
+            .execution_options(populate_existing=True)
+        )
+        if policy_row is None:
+            raise WorkspacePolicyUnavailable(
+                "The workspace policy for this account role is missing. Restore the database or rerun migrations.",
+                context={"role": role},
+            )
+        policy = role_policy_response(policy_row)
+
+        preference_row = db.scalar(
+            select(WorkspaceUserPreference)
+            .where(WorkspaceUserPreference.user_id == user.id)
+            .execution_options(populate_existing=True)
+        )
+        preferences = user_preference_response(user.id, role, preference_row)
+        if _workspace_revision_pair(db, role=role, user_id=user.id) == (
+            policy.revision,
+            preferences.revision,
+        ):
+            return policy, preferences
+        db.expire_all()
+    raise WorkspaceSnapshotUnavailable(
+        "Workspace policy changed repeatedly while the effective workspace was evaluated. Retry the request.",
+        context={"attempts": _WORKSPACE_SNAPSHOT_ATTEMPTS, "role": role},
+    )
+
+
+def _workspace_revision_pair(
+    db: Session,
+    *,
+    role: WorkspaceRole,
+    user_id: uuid.UUID,
+) -> tuple[int | None, int]:
+    role_revision = db.scalar(
+        select(WorkspaceRolePolicy.revision).where(WorkspaceRolePolicy.role == role)
+    )
+    preference_revision = db.scalar(
+        select(WorkspaceUserPreference.revision).where(
+            WorkspaceUserPreference.user_id == user_id
+        )
+    )
+    return role_revision, preference_revision or 0
+
+
+def _dashboard_panel_resolution(
     panel_id: str,
     *,
     authorization: AuthorizationContext,
     feature_flags: Mapping[str, bool],
-) -> bool:
+) -> WorkspaceEffectiveDashboardPanelResponse:
     panel = WORKSPACE_DASHBOARD_PANEL_BY_ID.get(panel_id)
     if panel is None:
-        return False
-    permission_allowed = panel.required_permission is None or authorization.has(
-        panel.required_permission
-    )
+        return WorkspaceEffectiveDashboardPanelResponse(
+            id=panel_id,
+            visible=False,
+            permission_allowed=False,
+            feature_available=False,
+            reasons=["unknown_panel"],
+        )
+    missing_permissions = [
+        permission
+        for permission in panel.required_permissions
+        if not authorization.has(permission)
+    ]
+    permission_allowed = not missing_permissions
     feature_available = panel.feature_flag is None or feature_flags.get(
         panel.feature_flag, False
     )
-    return authorization.account_eligible and permission_allowed and feature_available
+    reasons: list[str] = []
+    if not permission_allowed:
+        reasons.append("permission_missing")
+    if not feature_available:
+        reasons.append("feature_unavailable")
+    if not authorization.account_eligible:
+        reasons.append("account_ineligible")
+    return WorkspaceEffectiveDashboardPanelResponse(
+        id=panel.id,
+        visible=(
+            authorization.account_eligible and permission_allowed and feature_available
+        ),
+        permission_allowed=permission_allowed,
+        feature_available=feature_available,
+        missing_permissions=missing_permissions,
+        reasons=reasons,
+    )
 
 
 __all__ = [
@@ -1064,6 +935,7 @@ __all__ = [
     "WorkspacePolicyError",
     "WorkspacePolicyModuleSetIncomplete",
     "WorkspacePolicyRevisionConflict",
+    "WorkspaceSnapshotUnavailable",
     "WorkspacePolicyUnavailable",
     "WorkspacePreferenceRevisionConflict",
     "WorkspaceRoleInvalid",
@@ -1075,6 +947,8 @@ __all__ = [
     "get_user_preferences",
     "list_role_policies",
     "runtime_workspace_feature_flags",
+    "reset_role_policy",
+    "reset_user_preferences",
     "update_role_policy",
     "update_user_preferences",
     "workspace_registry_response",

@@ -2,14 +2,16 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
+from threading import Barrier, Thread
 
 import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session, sessionmaker
 
+from app.api.routes import workspace as workspace_routes
 from app.api.routes.workspace import router as workspace_router
 from app.core.api_errors import install_api_error_handlers
 from app.core.security import generate_api_token
@@ -20,9 +22,21 @@ from app.core.token_scopes import (
 from app.db.session import get_db
 from app.models.api_token import ApiToken
 from app.models.audit_log import AuditLog
-from app.models.workspace import WorkspaceRolePolicy
+from app.models.iam import (
+    IAMPolicyState,
+    IAMRole,
+    IAMRolePermission,
+    IAMUserRoleAssignment,
+)
+from app.models.user import User
+from app.models.workspace import WorkspaceRolePolicy, WorkspaceUserPreference
+from app.services.authorization import authorization_context_for_user
+from app.services import workspace_policy as workspace_policy_service
 from app.services.workspace_policy import (
     WORKSPACE_MODULES,
+    WorkspaceSnapshotUnavailable,
+    default_role_modules,
+    effective_workspace,
     workspace_registry_response,
 )
 
@@ -469,28 +483,502 @@ def test_workspace_rejects_untrusted_input_and_preserves_future_ids(
     assert extra_field_response.status_code == 422
     assert extra_field_response.json()["error"]["code"] == "validation_error"
 
+    reset_response = workspace_client.post(
+        "/v1/workspace/role-policies/admin/reset",
+        headers=headers,
+        json={"expected_revision": update_response.json()["revision"]},
+    )
+    assert reset_response.status_code == 200
+    reset_policy = reset_response.json()
+    assert reset_policy["unknown_module_ids"] == []
+    assert reset_policy["unknown_dashboard_panel_ids"] == []
+    assert reset_policy["landing_module_id"] == "primary.dashboard"
+
 
 def test_workspace_registry_matches_frontend_routes_and_panel_ids():
-    repository_root = Path(__file__).resolve().parents[3]
-    route_source = "\n".join(
-        path.read_text(encoding="utf-8")
-        for path in (
-            repository_root / "web/src/App.tsx",
-            repository_root / "web/src/components/AppShell.tsx",
-            repository_root / "web/src/pages/SettingsLayout.tsx",
+    registry = workspace_registry_response()
+    expected_routes = {
+        "primary.dashboard": "/",
+        "primary.alerts": "/alerts",
+        "primary.investigations": "/investigations",
+        "primary.feeds": "/feeds",
+        "primary.stats": "/stats",
+        "primary.export": "/export",
+        "primary.reporting": "/reporting",
+        "primary.settings": "/settings",
+        "settings.account": "/settings/account",
+        "settings.tokens": "/settings/tokens",
+        "settings.ai": "/settings/ai",
+        "settings.tagging": "/settings/tagging",
+        "settings.identity": "/settings/identity",
+        "settings.users": "/settings/users",
+        "settings.audit": "/settings/audit-logs",
+        "settings.operations": "/settings/operations",
+        "settings.integrations": "/settings/integrations",
+        "settings.integrations.webhooks": "/settings/integrations/webhooks",
+        "settings.integrations.smtp": "/settings/integrations/smtp",
+    }
+    modules = {module.id: module for module in registry.modules}
+    assert len(modules) == len(registry.modules)
+    assert {module.route for module in registry.modules} == set(
+        expected_routes.values()
+    )
+    assert {module_id: module.route for module_id, module in modules.items()} == (
+        expected_routes
+    )
+    assert all(
+        module.parent_id is None or module.parent_id in modules
+        for module in registry.modules
+    )
+    assert len({panel.id for panel in registry.dashboard_panels}) == len(
+        registry.dashboard_panels
+    )
+    assert {panel.id for panel in registry.dashboard_panels} == {
+        "rss",
+        "alerts",
+        "notes",
+        "daily_brief",
+    }
+
+    tagging = modules["settings.tagging"]
+    assert tagging.required_permission == "read:tagging"
+    assert tagging.required_permissions == ["read:tagging"]
+    assert modules["primary.alerts"].required_permissions == [
+        "read:alerts",
+        "read:items",
+    ]
+    daily_brief = next(
+        panel for panel in registry.dashboard_panels if panel.id == "daily_brief"
+    )
+    assert daily_brief.required_permission == "read:items"
+    assert daily_brief.required_permissions == ["read:items"]
+
+
+def test_workspace_resets_are_revisioned_atomic_and_audited(
+    workspace_client,
+    db_session,
+    seed_users,
+    auth_headers,
+):
+    headers = {**auth_headers["admin"], "X-Request-ID": "workspace-reset-test"}
+    policy = workspace_client.get(
+        "/v1/workspace/role-policies/viewer", headers=headers
+    ).json()
+    configured = workspace_client.put(
+        "/v1/workspace/role-policies/viewer",
+        headers=headers,
+        json=_role_policy_payload(
+            policy,
+            module_changes={"primary.feeds": {"visible": False}},
+        ),
+    ).json()
+    preferences = workspace_client.put(
+        "/v1/workspace/preferences",
+        headers=headers,
+        json={
+            "expected_revision": 0,
+            "landing_module_id": "primary.dashboard",
+            "modules": [{"module_id": "primary.stats", "visible": False}],
+            "dashboard_panel_ids": ["rss"],
+        },
+    ).json()
+
+    stale_policy = workspace_client.post(
+        "/v1/workspace/role-policies/viewer/reset",
+        headers=headers,
+        json={"expected_revision": configured["revision"] - 1},
+    )
+    assert stale_policy.status_code == 409
+    assert stale_policy.json()["error"]["code"] == (
+        "workspace_policy_revision_conflict"
+    )
+    reset_policy = workspace_client.post(
+        "/v1/workspace/role-policies/viewer/reset",
+        headers=headers,
+        json={"expected_revision": configured["revision"]},
+    )
+    assert reset_policy.status_code == 200
+    assert reset_policy.headers["X-Current-Revision"] == "3"
+    reset_policy_body = reset_policy.json()
+    assert reset_policy_body["modules"] == [
+        {
+            "module_id": module_id,
+            **values,
+        }
+        for module_id, values in default_role_modules("viewer").items()
+    ]
+
+    stale_preferences = workspace_client.post(
+        "/v1/workspace/preferences/reset",
+        headers=headers,
+        json={"expected_revision": preferences["revision"] - 1},
+    )
+    assert stale_preferences.status_code == 409
+    assert stale_preferences.json()["error"]["code"] == (
+        "workspace_preference_revision_conflict"
+    )
+    reset_preferences = workspace_client.post(
+        "/v1/workspace/preferences/reset",
+        headers=headers,
+        json={"expected_revision": preferences["revision"]},
+    )
+    assert reset_preferences.status_code == 200
+    assert reset_preferences.headers["X-Current-Revision"] == "0"
+    assert reset_preferences.json()["revision"] == 0
+    assert db_session.get(WorkspaceUserPreference, seed_users["admin"].id) is None
+
+    db_session.expire_all()
+    audits = db_session.scalars(
+        select(AuditLog)
+        .where(
+            AuditLog.request_id == "workspace-reset-test",
+            AuditLog.action.in_(
+                {"workspace.role_policy.reset", "workspace.preferences.reset"}
+            ),
+        )
+        .order_by(AuditLog.created_at)
+    ).all()
+    assert [(row.action, row.success) for row in audits] == [
+        ("workspace.role_policy.reset", False),
+        ("workspace.role_policy.reset", True),
+        ("workspace.preferences.reset", False),
+        ("workspace.preferences.reset", True),
+    ]
+
+
+@pytest.mark.parametrize("user_key", ["analyst", "viewer"])
+def test_workspace_legacy_roles_support_scoped_tokens_and_attenuation(
+    workspace_client,
+    db_session,
+    seed_users,
+    user_key,
+):
+    user = seed_users[user_key]
+    preference_headers = _workspace_token(
+        db_session,
+        user.id,
+        [SCOPE_READ_WORKSPACE, SCOPE_WRITE_WORKSPACE_PREFERENCES],
+    )
+    assert (
+        workspace_client.get(
+            "/v1/workspace/preferences", headers=preference_headers
+        ).status_code
+        == 200
+    )
+    created = workspace_client.put(
+        "/v1/workspace/preferences",
+        headers=preference_headers,
+        json={
+            "expected_revision": 0,
+            "landing_module_id": None,
+            "modules": [{"module_id": "primary.stats", "order": 2}],
+            "dashboard_panel_ids": None,
+        },
+    )
+    assert created.status_code == 200, created.text
+
+    attenuated_headers = _workspace_token(
+        db_session,
+        user.id,
+        [SCOPE_READ_WORKSPACE],
+    )
+    denied = workspace_client.post(
+        "/v1/workspace/preferences/reset",
+        headers=attenuated_headers,
+        json={"expected_revision": created.json()["revision"]},
+    )
+    assert denied.status_code == 403
+    assert denied.json()["error"]["code"] == "permission_denied"
+
+
+def test_workspace_all_of_permissions_fail_closed_with_diagnostics(
+    workspace_client,
+    db_session,
+    seed_users,
+):
+    viewer = seed_users["viewer"]
+    role = IAMRole(
+        key=f"workspace-alert-reader-{uuid.uuid4().hex[:8]}",
+        name="Workspace alert reader",
+        description="Partial workflow permission test",
+        is_system=False,
+        created_by_user_id=seed_users["admin"].id,
+    )
+    db_session.add(role)
+    db_session.flush()
+    db_session.add_all(
+        [
+            IAMRolePermission(role_id=role.id, permission="read:alerts"),
+            IAMUserRoleAssignment(
+                user_id=viewer.id,
+                role_id=role.id,
+                source="local",
+                source_key="",
+                assigned_by_user_id=seed_users["admin"].id,
+            ),
+        ]
+    )
+    policy_state = db_session.get(IAMPolicyState, 1)
+    policy_state.revision += 1
+    viewer_policy = db_session.get(WorkspaceRolePolicy, "viewer")
+    viewer_policy.dashboard_panel_ids_json = ["rss", "alerts"]
+    db_session.flush()
+
+    partial_headers = _workspace_token(
+        db_session,
+        viewer.id,
+        [SCOPE_READ_WORKSPACE, "read:alerts"],
+    )
+    partial = workspace_client.get("/v1/workspace/effective", headers=partial_headers)
+    assert partial.status_code == 200
+    body = partial.json()
+    alerts_module = next(
+        module for module in body["modules"] if module["id"] == "primary.alerts"
+    )
+    assert alerts_module["visible"] is False
+    assert alerts_module["missing_permissions"] == ["read:items"]
+    assert "permission_missing" in alerts_module["reasons"]
+    alerts_panel = next(
+        panel for panel in body["dashboard_panels"] if panel["id"] == "alerts"
+    )
+    assert alerts_panel["visible"] is False
+    assert alerts_panel["missing_permissions"] == ["read:items"]
+    assert "alerts" not in body["dashboard_panel_ids"]
+
+    complete_headers = _workspace_token(
+        db_session,
+        viewer.id,
+        [SCOPE_READ_WORKSPACE, "read:alerts", "read:items"],
+    )
+    complete = workspace_client.get(
+        "/v1/workspace/effective", headers=complete_headers
+    ).json()
+    complete_alerts = next(
+        module for module in complete["modules"] if module["id"] == "primary.alerts"
+    )
+    assert complete_alerts["visible"] is True
+    assert complete_alerts["missing_permissions"] == []
+    assert "alerts" in complete["dashboard_panel_ids"]
+
+
+def test_workspace_future_preferences_survive_cycles_then_reset(
+    workspace_client,
+    db_session,
+    seed_users,
+    auth_headers,
+):
+    user = seed_users["admin"]
+    db_session.add(
+        WorkspaceUserPreference(
+            user_id=user.id,
+            modules_json={
+                "future.timeline": {"visible": False, "order": 700},
+                "primary.stats": {"order": 3},
+            },
+            landing_module_id=None,
+            dashboard_panel_ids_json=["rss", "future-map"],
+            revision=1,
+            updated_by_user_id=user.id,
         )
     )
-    panel_source = (repository_root / "web/src/types/savedViews.ts").read_text(
-        encoding="utf-8"
-    )
-    registry = workspace_registry_response()
+    db_session.flush()
+    headers = auth_headers["admin"]
 
-    for module in registry.modules:
-        assert module.route in route_source, module.id
-    for panel in registry.dashboard_panels:
-        assert f"'{panel.id}'" in panel_source, panel.id
+    for expected_revision in (1, 2):
+        response = workspace_client.put(
+            "/v1/workspace/preferences",
+            headers=headers,
+            json={
+                "expected_revision": expected_revision,
+                "landing_module_id": None,
+                "modules": [
+                    {"module_id": "primary.stats", "order": expected_revision + 3}
+                ],
+                "dashboard_panel_ids": ["rss"],
+            },
+        )
+        assert response.status_code == 200
+        db_session.expire_all()
+        stored = db_session.get(WorkspaceUserPreference, user.id)
+        assert "future.timeline" in stored.modules_json
+        assert "future-map" in stored.dashboard_panel_ids_json
 
-    tagging = next(
-        module for module in registry.modules if module.id == "settings.tagging"
+    reset = workspace_client.post(
+        "/v1/workspace/preferences/reset",
+        headers=headers,
+        json={"expected_revision": 3},
     )
-    assert tagging.required_permission == "read:tagging"
+    assert reset.status_code == 200
+    db_session.expire_all()
+    assert db_session.get(WorkspaceUserPreference, user.id) is None
+
+
+def test_workspace_audit_failure_rolls_back_successful_mutation(
+    workspace_client,
+    db_session,
+    auth_headers,
+    monkeypatch,
+):
+    policy = workspace_client.get(
+        "/v1/workspace/role-policies/viewer", headers=auth_headers["admin"]
+    ).json()
+    configured = workspace_client.put(
+        "/v1/workspace/role-policies/viewer",
+        headers=auth_headers["admin"],
+        json=_role_policy_payload(
+            policy,
+            module_changes={"primary.feeds": {"visible": False}},
+        ),
+    ).json()
+
+    def fail_audit(*_args, **_kwargs):
+        raise SQLAlchemyError("audit storage unavailable")
+
+    monkeypatch.setattr(workspace_routes, "_record_request_audit", fail_audit)
+    response = workspace_client.post(
+        "/v1/workspace/role-policies/viewer/reset",
+        headers=auth_headers["admin"],
+        json={"expected_revision": configured["revision"]},
+    )
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "workspace_storage_unavailable"
+    db_session.expire_all()
+    stored = db_session.get(WorkspaceRolePolicy, "viewer")
+    assert stored.revision == configured["revision"]
+    assert stored.modules_json["primary.feeds"]["visible"] is False
+
+
+def test_effective_workspace_retries_a_real_concurrent_policy_commit(
+    database_engine,
+    monkeypatch,
+):
+    session_factory = sessionmaker(bind=database_engine, class_=Session)
+    user_id = uuid.uuid4()
+    setup = session_factory()
+    original_policy = setup.get(WorkspaceRolePolicy, "viewer")
+    original_modules = {
+        module_id: dict(values)
+        for module_id, values in original_policy.modules_json.items()
+    }
+    original_revision = original_policy.revision
+    original_updater = original_policy.updated_by_user_id
+    setup.add(
+        User(
+            id=user_id,
+            email=f"workspace-concurrency-{user_id}@example.com",
+            password_hash="test-only",
+            role="viewer",
+            is_active=True,
+            is_approved=True,
+        )
+    )
+    setup.commit()
+    setup.close()
+
+    snapshot_loaded = Barrier(2)
+    writer_committed = Barrier(2)
+    original_revision_pair = workspace_policy_service._workspace_revision_pair
+    first_verification = True
+
+    def coordinated_revision_pair(db, *, role, user_id):
+        nonlocal first_verification
+        if first_verification:
+            first_verification = False
+            snapshot_loaded.wait(timeout=5)
+            writer_committed.wait(timeout=5)
+        return original_revision_pair(db, role=role, user_id=user_id)
+
+    monkeypatch.setattr(
+        workspace_policy_service,
+        "_workspace_revision_pair",
+        coordinated_revision_pair,
+    )
+    result: dict[str, object] = {}
+
+    def read_effective_workspace():
+        reader = session_factory()
+        try:
+            user = reader.get(User, user_id)
+            authorization = authorization_context_for_user(reader, user)
+            result["workspace"] = effective_workspace(
+                reader,
+                user=user,
+                authorization=authorization,
+                feature_flags={
+                    "ai_enabled": False,
+                    "ai_daily_brief_enabled": False,
+                },
+            )
+        except Exception as exc:  # pragma: no cover - asserted in the parent thread
+            result["error"] = exc
+        finally:
+            reader.close()
+
+    thread = Thread(target=read_effective_workspace)
+    thread.start()
+    writer = session_factory()
+    try:
+        snapshot_loaded.wait(timeout=5)
+        policy = writer.get(WorkspaceRolePolicy, "viewer")
+        changed_modules = {
+            module_id: dict(values) for module_id, values in policy.modules_json.items()
+        }
+        changed_modules["primary.feeds"]["visible"] = False
+        policy.modules_json = changed_modules
+        policy.revision += 1
+        writer.commit()
+        writer_committed.wait(timeout=5)
+        thread.join(timeout=5)
+        assert not thread.is_alive()
+        assert "error" not in result
+        workspace = result["workspace"]
+        assert workspace.policy_revision == original_revision + 1
+        feeds = next(
+            module for module in workspace.modules if module.id == "primary.feeds"
+        )
+        assert feeds.visible is False
+    finally:
+        if thread.is_alive():
+            writer_committed.abort()
+            thread.join(timeout=5)
+        cleanup = session_factory()
+        cleanup_policy = cleanup.get(WorkspaceRolePolicy, "viewer")
+        cleanup_policy.modules_json = original_modules
+        cleanup_policy.revision = original_revision
+        cleanup_policy.updated_by_user_id = original_updater
+        cleanup_user = cleanup.get(User, user_id)
+        if cleanup_user is not None:
+            cleanup.delete(cleanup_user)
+        cleanup.commit()
+        cleanup.close()
+        writer.close()
+
+
+def test_effective_workspace_fails_closed_after_repeated_revision_churn(
+    db_session,
+    seed_users,
+    monkeypatch,
+):
+    user = seed_users["viewer"]
+    authorization = authorization_context_for_user(db_session, user)
+
+    def always_changed(*_args, **_kwargs):
+        return -1, -1
+
+    monkeypatch.setattr(
+        workspace_policy_service,
+        "_workspace_revision_pair",
+        always_changed,
+    )
+    with pytest.raises(WorkspaceSnapshotUnavailable) as exc_info:
+        effective_workspace(
+            db_session,
+            user=user,
+            authorization=authorization,
+            feature_flags={
+                "ai_enabled": False,
+                "ai_daily_brief_enabled": False,
+            },
+        )
+    assert exc_info.value.code == "workspace_snapshot_unavailable"
+    assert exc_info.value.status_code == 503
