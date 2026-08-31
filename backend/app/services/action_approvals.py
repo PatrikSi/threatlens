@@ -34,7 +34,16 @@ from app.services.action_registry import (
     execute_registered_action,
     get_registered_action,
     inspect_registered_action_target,
+    inspect_resolved_registered_action_target,
     normalize_registered_action_payload,
+    resolve_registered_action_target,
+)
+from app.services.action_approval_data_policy import (
+    ActionApprovalTargetDataSnapshot,
+    action_approval_access_decision,
+    action_approval_access_predicate,
+    initialize_action_approval_data_access,
+    resolve_registered_action_target_data_access,
 )
 from app.services.authorization import (
     AuthorizationContext,
@@ -42,6 +51,12 @@ from app.services.authorization import (
     database_clock,
     lock_iam_policy_for_mutation,
 )
+from app.services.data_access_policy import (
+    DataAccessContext,
+    data_access_context_for_authorization,
+    fence_data_access_context,
+)
+from app.services.data_policy_audit import record_data_policy_decision
 
 
 MAX_LIVE_APPROVALS_PER_REQUESTER = 25
@@ -103,6 +118,7 @@ class ActionApprovalInvalidated(ActionApprovalConflict):
 class ActionApprovalMutationResult:
     approval: ActionApprovalRequest
     previous_status: str | None = None
+    target_data_access: ActionApprovalTargetDataSnapshot | None = None
 
 
 def create_action_approval(
@@ -110,9 +126,11 @@ def create_action_approval(
     *,
     requester: User,
     requester_authorization: AuthorizationContext,
+    data_access: DataAccessContext,
     payload: ActionApprovalCreateRequest,
 ) -> ActionApprovalMutationResult:
     lock_iam_policy_for_mutation(db)
+    fence_data_access_context(db, data_access)
     now = _database_now(db)
     definition = get_registered_action(payload.action_type)
     _require_permission(
@@ -133,12 +151,27 @@ def create_action_approval(
     normalized_payload = normalize_registered_action_payload(
         definition, payload.payload
     )
-    target = inspect_registered_action_target(
+    resolved_target = resolve_registered_action_target(
         db,
         definition=definition,
         target_id=payload.target_id,
-        target_revision=payload.target_revision,
         lock=True,
+    )
+    if resolved_target is None:
+        raise ActionApprovalNotFound("Action target not found.")
+    target_data = resolve_registered_action_target_data_access(
+        db,
+        definition=definition,
+        target_resource=resolved_target.resource,
+        data_access=data_access,
+    )
+    if not target_data.decision.allowed:
+        raise ActionApprovalNotFound("Action target not found.")
+    target = inspect_resolved_registered_action_target(
+        db,
+        definition=definition,
+        target=resolved_target,
+        target_revision=payload.target_revision,
     )
     payload_digest = canonical_action_payload_digest(
         definition=definition,
@@ -172,12 +205,20 @@ def create_action_approval(
             "An equivalent pending or approved action already exists for this target."
         )
     approval = ActionApprovalRequest(
+        id=uuid.uuid4(),
         action_type=definition.key,
         action_label_snapshot=definition.label,
         audit_action_snapshot=definition.audit_action,
         requester_permission_snapshot=definition.requester_permission,
         approver_permission_snapshot=definition.approver_permission,
         action_definition_version=definition.version,
+        target_data_policy_version=target_data.target_data_policy_version,
+        data_access_scope=target_data.data_access_scope,
+        data_access_lineage_complete=(
+            target_data.data_access_scope == "system"
+        ),
+        data_access_source_type=target_data.data_access_source_type,
+        data_access_source_id=target_data.data_access_source_id,
         target_type=definition.target_type,
         target_id=target.target_id,
         target_revision=payload.target_revision,
@@ -193,9 +234,15 @@ def create_action_approval(
         created_at=now,
         updated_at=now,
     )
-    db.add(approval)
-    db.flush()
-    return ActionApprovalMutationResult(approval=approval)
+    initialize_action_approval_data_access(
+        db,
+        approval=approval,
+        snapshot=target_data,
+    )
+    return ActionApprovalMutationResult(
+        approval=approval,
+        target_data_access=target_data,
+    )
 
 
 def decide_action_approval(
@@ -204,13 +251,20 @@ def decide_action_approval(
     approval_id: uuid.UUID,
     approver: User,
     approver_authorization: AuthorizationContext,
+    data_access: DataAccessContext,
     approver_auth_method: str,
     approver_mfa_method: str | None,
     payload: ActionApprovalDecisionRequest,
 ) -> ActionApprovalMutationResult:
     lock_iam_policy_for_mutation(db)
+    fence_data_access_context(db, data_access)
     now = _database_now(db)
-    approval = lock_action_approval_for_mutation(db, approval_id)
+    approval = lock_action_approval_for_mutation(
+        db,
+        approval_id,
+        data_access=data_access,
+    )
+    _require_approval_data_access(db, approval.id, data_access)
     _require_revision(approval, payload.expected_revision)
     _require_live_status(approval, now, expected="pending")
     if approval.requested_by_user_id == approver.id:
@@ -259,11 +313,18 @@ def cancel_action_approval(
     approval_id: uuid.UUID,
     actor: User,
     actor_authorization: AuthorizationContext,
+    data_access: DataAccessContext,
     payload: ActionApprovalCancelRequest,
 ) -> ActionApprovalMutationResult:
     lock_iam_policy_for_mutation(db)
+    fence_data_access_context(db, data_access)
     now = _database_now(db)
-    approval = lock_action_approval_for_mutation(db, approval_id)
+    approval = lock_action_approval_for_mutation(
+        db,
+        approval_id,
+        data_access=data_access,
+    )
+    _require_approval_data_access(db, approval.id, data_access)
     _require_revision(approval, payload.expected_revision)
     if approval.status not in {"pending", "approved"}:
         raise ActionApprovalConflict(
@@ -304,11 +365,18 @@ def execute_action_approval(
     approval_id: uuid.UUID,
     requester: User,
     requester_authorization: AuthorizationContext,
+    data_access: DataAccessContext,
     expected_revision: int,
 ) -> tuple[ActionApprovalMutationResult, ActionExecutionReceipt]:
     lock_iam_policy_for_mutation(db)
+    fence_data_access_context(db, data_access)
     now = _database_now(db)
-    approval = lock_action_approval_for_mutation(db, approval_id)
+    approval = lock_action_approval_for_mutation(
+        db,
+        approval_id,
+        data_access=data_access,
+    )
+    _require_approval_data_access(db, approval.id, data_access)
     _require_revision(approval, expected_revision)
     _require_live_status(approval, now, expected="approved")
     if approval.requested_by_user_id != requester.id:
@@ -358,6 +426,33 @@ def execute_action_approval(
         durable=True,
         detail="The original approver no longer has durable action-approval authority.",
     )
+    approver_data_access = data_access_context_for_authorization(
+        db, approver_authorization
+    )
+    fence_data_access_context(db, data_access)
+    fence_data_access_context(db, approver_data_access)
+    approver_decision = action_approval_access_decision(
+        db,
+        approval_id=approval.id,
+        data_access=approver_data_access,
+    )
+    if not approver_decision.allowed:
+        raise ActionApprovalForbidden(
+            "The original approver no longer has data-policy access to this action target."
+        )
+    if approver_decision.would_deny:
+        record_data_policy_decision(
+            db,
+            context=approver_data_access,
+            decision="would_deny",
+            resource_type="action_approval",
+            surface="action_approval.execute.approver",
+            handling_label_ids=approver_decision.label_ids,
+            affected_count=1,
+            metadata_extra={"principal_role": "original_approver"},
+        )
+    fence_data_access_context(db, data_access)
+    fence_data_access_context(db, approver_data_access)
     _require_permission(
         approver_authorization,
         definition.approver_permission,
@@ -428,11 +523,17 @@ def execute_action_approval(
 
 
 def lock_action_approval_for_mutation(
-    db: Session, approval_id: uuid.UUID
+    db: Session,
+    approval_id: uuid.UUID,
+    *,
+    data_access: DataAccessContext,
 ) -> ActionApprovalRequest:
     approval = db.scalar(
         select(ActionApprovalRequest)
-        .where(ActionApprovalRequest.id == approval_id)
+        .where(
+            ActionApprovalRequest.id == approval_id,
+            action_approval_access_predicate(data_access),
+        )
         .with_for_update()
         .execution_options(populate_existing=True)
     )
@@ -442,10 +543,16 @@ def lock_action_approval_for_mutation(
 
 
 def get_action_approval_response(
-    db: Session, approval_id: uuid.UUID
+    db: Session,
+    approval_id: uuid.UUID,
+    *,
+    data_access: DataAccessContext,
 ) -> ActionApprovalResponse:
     row = db.execute(
-        _response_row_query().where(ActionApprovalRequest.id == approval_id)
+        _response_row_query().where(
+            ActionApprovalRequest.id == approval_id,
+            action_approval_access_predicate(data_access),
+        )
     ).one_or_none()
     if row is None:
         raise ActionApprovalNotFound("Action approval request not found.")
@@ -460,14 +567,16 @@ def list_action_approvals(
     action_type: str | None = None,
     stored_status: str | None = None,
     requester_user_id: uuid.UUID | None = None,
+    data_access: DataAccessContext,
 ) -> ActionApprovalListResponse:
-    filters = []
-    if action_type is not None:
-        filters.append(ActionApprovalRequest.action_type == action_type)
-    if stored_status is not None:
-        filters.append(ActionApprovalRequest.status == stored_status)
-    if requester_user_id is not None:
-        filters.append(ActionApprovalRequest.requested_by_user_id == requester_user_id)
+    filters = [
+        action_approval_access_predicate(data_access),
+        *action_approval_list_filters(
+            action_type=action_type,
+            stored_status=stored_status,
+            requester_user_id=requester_user_id,
+        ),
+    ]
     total = int(
         db.scalar(select(func.count(ActionApprovalRequest.id)).where(*filters)) or 0
     )
@@ -489,22 +598,51 @@ def list_action_approvals(
     )
 
 
+def action_approval_list_filters(
+    *,
+    action_type: str | None = None,
+    stored_status: str | None = None,
+    requester_user_id: uuid.UUID | None = None,
+) -> tuple[object, ...]:
+    filters: list[object] = []
+    if action_type is not None:
+        filters.append(ActionApprovalRequest.action_type == action_type)
+    if stored_status is not None:
+        filters.append(ActionApprovalRequest.status == stored_status)
+    if requester_user_id is not None:
+        filters.append(ActionApprovalRequest.requested_by_user_id == requester_user_id)
+    return tuple(filters)
+
+
 def get_action_execution_response(
     db: Session,
     *,
     approval_id: uuid.UUID,
     receipt: ActionExecutionReceipt,
+    data_access: DataAccessContext,
 ) -> ActionApprovalExecutionResponse:
     return ActionApprovalExecutionResponse(
-        approval=get_action_approval_response(db, approval_id),
+        approval=get_action_approval_response(
+            db,
+            approval_id,
+            data_access=data_access,
+        ),
         receipt=_receipt_response(receipt),
     )
 
 
 def get_action_execution_receipt_response(
-    db: Session, approval_id: uuid.UUID
+    db: Session,
+    approval_id: uuid.UUID,
+    *,
+    data_access: DataAccessContext,
 ) -> ActionExecutionReceiptResponse:
-    if db.get(ActionApprovalRequest, approval_id) is None:
+    if not db.scalar(
+        select(ActionApprovalRequest.id).where(
+            ActionApprovalRequest.id == approval_id,
+            action_approval_access_predicate(data_access),
+        )
+    ):
         raise ActionApprovalNotFound("Action approval request not found.")
     receipt = db.scalar(
         select(ActionExecutionReceipt).where(
@@ -566,6 +704,8 @@ def _require_exact_definition(
         or definition.audit_action != approval.audit_action_snapshot
         or definition.requester_permission != approval.requester_permission_snapshot
         or definition.approver_permission != approval.approver_permission_snapshot
+        or definition.target_data_policy.version
+        != approval.target_data_policy_version
     ):
         raise ActionApprovalDefinitionChanged(
             "The registered action contract changed without a version change."
@@ -624,6 +764,20 @@ def _require_permission(
     )
     if not allowed:
         raise ActionApprovalForbidden(detail)
+
+
+def _require_approval_data_access(
+    db: Session,
+    approval_id: uuid.UUID,
+    data_access: DataAccessContext,
+) -> None:
+    decision = action_approval_access_decision(
+        db,
+        approval_id=approval_id,
+        data_access=data_access,
+    )
+    if not decision.allowed:
+        raise ActionApprovalNotFound("Action approval request not found.")
 
 
 def _require_live_status(
@@ -796,6 +950,7 @@ __all__ = [
     "ActionApprovalNotFound",
     "ActionApprovalRevisionConflict",
     "canonical_action_payload_digest",
+    "action_approval_list_filters",
     "cancel_action_approval",
     "create_action_approval",
     "decide_action_approval",

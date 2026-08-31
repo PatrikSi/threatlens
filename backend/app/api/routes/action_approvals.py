@@ -8,7 +8,11 @@ from pydantic import BaseModel
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, require_permissions
+from app.api.deps import (
+    get_current_user,
+    get_data_access_context,
+    require_permissions,
+)
 from app.api.governance_support import (
     authorize_governance_actor,
     commit_governance_mutation,
@@ -18,6 +22,12 @@ from app.api.governance_support import (
     record_rejected_governance_mutation,
 )
 from app.api.sensitive_action_auth import require_sensitive_browser_session
+from app.api.routes.action_approval_policy_helpers import (
+    authorize_action_approval_data_access,
+    commit_policy_evidence_and_refence,
+    record_action_approval_would_deny,
+    refence_action_approval_context,
+)
 from app.core.api_errors import ApiHTTPException
 from app.core.token_scopes import (
     SCOPE_APPROVE_APPROVALS,
@@ -26,6 +36,7 @@ from app.core.token_scopes import (
 )
 from app.db.session import get_db
 from app.models.auth_session import AuthSession
+from app.models.action_approval import ActionApprovalRequest
 from app.models.governance_operation_receipt import GovernanceOperationReceipt
 from app.models.user import User
 from app.schemas.action_approval import (
@@ -45,6 +56,7 @@ from app.services.action_approvals import (
     ActionApprovalForbidden,
     ActionApprovalInvalidated,
     ActionApprovalNotFound,
+    action_approval_list_filters,
     cancel_action_approval,
     create_action_approval,
     decide_action_approval,
@@ -55,9 +67,18 @@ from app.services.action_approvals import (
     list_action_approvals,
     lock_action_approval_for_mutation,
 )
+from app.services.action_approval_data_policy import (
+    ActionApprovalWouldDenySummary,
+    action_approval_would_deny_summary,
+)
 from app.services.authorization import (
     AuthorizationContext,
     lock_iam_policy_for_mutation,
+)
+from app.services.data_access_policy import (
+    DataAccessContext,
+    DataPolicyError,
+    fence_data_access_context,
 )
 from app.services.action_registry import (
     ACTION_DEFINITIONS,
@@ -104,6 +125,7 @@ def get_action_catalog(
 
 @router.get("", response_model=ActionApprovalListResponse)
 def get_action_approvals(
+    request: Request,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=25, ge=1, le=100),
     action_type: str | None = Query(default=None, min_length=3, max_length=96),
@@ -114,17 +136,37 @@ def get_action_approvals(
     requester_user_id: uuid.UUID | None = None,
     db: Session = Depends(get_db),
     _reader: User = Depends(require_permissions(SCOPE_READ_APPROVALS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ) -> ActionApprovalListResponse:
     try:
-        return list_action_approvals(
+        rendered = list_action_approvals(
             db,
             page=page,
             page_size=page_size,
             action_type=action_type,
             stored_status=stored_status,
             requester_user_id=requester_user_id,
+            data_access=data_access,
         )
-    except ActionApprovalError as exc:
+        summary = action_approval_would_deny_summary(
+            db,
+            data_access=data_access,
+            filters=action_approval_list_filters(
+                action_type=action_type,
+                stored_status=stored_status,
+                requester_user_id=requester_user_id,
+            ),
+        )
+        _finalize_read_policy_evidence(
+            request,
+            db,
+            data_access=data_access,
+            summary=summary,
+            surface="action_approval.list",
+            history_scope="list",
+        )
+        return rendered
+    except (ActionApprovalError, DataPolicyError) as exc:
         raise _http_error(exc) from exc
     except SQLAlchemyError as exc:
         raise_governance_storage_error(
@@ -135,12 +177,31 @@ def get_action_approvals(
 @router.get("/{approval_id}", response_model=ActionApprovalResponse)
 def get_action_approval(
     approval_id: uuid.UUID,
+    request: Request,
     db: Session = Depends(get_db),
     _reader: User = Depends(require_permissions(SCOPE_READ_APPROVALS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ) -> ActionApprovalResponse:
     try:
-        return get_action_approval_response(db, approval_id)
-    except ActionApprovalError as exc:
+        rendered = get_action_approval_response(
+            db,
+            approval_id,
+            data_access=data_access,
+        )
+        _finalize_read_policy_evidence(
+            request,
+            db,
+            data_access=data_access,
+            summary=action_approval_would_deny_summary(
+                db,
+                data_access=data_access,
+                filters=(ActionApprovalRequest.id == approval_id,),
+            ),
+            surface="action_approval.detail",
+            history_scope="detail",
+        )
+        return rendered
+    except (ActionApprovalError, DataPolicyError) as exc:
         raise _http_error(exc) from exc
     except SQLAlchemyError as exc:
         raise_governance_storage_error(
@@ -154,12 +215,31 @@ def get_action_approval(
 )
 def get_action_receipt(
     approval_id: uuid.UUID,
+    request: Request,
     db: Session = Depends(get_db),
     _reader: User = Depends(require_permissions(SCOPE_READ_APPROVALS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ) -> ActionExecutionReceiptResponse:
     try:
-        return get_action_execution_receipt_response(db, approval_id)
-    except ActionApprovalError as exc:
+        rendered = get_action_execution_receipt_response(
+            db,
+            approval_id,
+            data_access=data_access,
+        )
+        _finalize_read_policy_evidence(
+            request,
+            db,
+            data_access=data_access,
+            summary=action_approval_would_deny_summary(
+                db,
+                data_access=data_access,
+                filters=(ActionApprovalRequest.id == approval_id,),
+            ),
+            surface="action_approval.receipt",
+            history_scope="receipt",
+        )
+        return rendered
+    except (ActionApprovalError, DataPolicyError) as exc:
         raise _http_error(exc) from exc
     except SQLAlchemyError as exc:
         raise_governance_storage_error(
@@ -182,6 +262,7 @@ def post_action_approval(
     ],
     db: Session = Depends(get_db),
     actor: User = Depends(require_permissions(SCOPE_WRITE_APPROVALS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ) -> ActionApprovalResponse:
     action = "approvals.action.request"
     try:
@@ -198,6 +279,7 @@ def post_action_approval(
             required_permission=SCOPE_WRITE_APPROVALS,
             operation_label="requesting a sensitive action",
             audit_action=action,
+            data_access=data_access,
         )
         definition = get_registered_action(payload.action_type)
         _require_durable_permission(
@@ -209,14 +291,34 @@ def post_action_approval(
             ),
         )
         if replay is not None:
+            _require_policy_access_for_mutation(
+                db,
+                approval_id=replay.resource_id,
+                data_access=data_access,
+                surface="action_approval.create.replay",
+            )
+            _refence_replay_policy(request, db, data_access=data_access)
             return _replay_response(response, replay, ActionApprovalResponse)
         result = create_action_approval(
             db,
             requester=locked_actor,
             requester_authorization=authorization,
+            data_access=data_access,
             payload=payload,
         )
-        rendered = get_action_approval_response(db, result.approval.id)
+        if result.target_data_access is not None:
+            _record_mutation_would_deny(
+                db,
+                data_access=data_access,
+                would_deny=result.target_data_access.decision.would_deny,
+                label_ids=result.target_data_access.decision.label_ids,
+                surface="action_approval.create",
+            )
+        rendered = get_action_approval_response(
+            db,
+            result.approval.id,
+            data_access=data_access,
+        )
         _record_success_receipt(
             db,
             actor=locked_actor,
@@ -243,6 +345,7 @@ def post_action_approval(
         RegisteredActionError,
         GovernanceAuthorizationDenied,
         GovernanceIdempotencyError,
+        DataPolicyError,
     ) as exc:
         _reject(db, request, actor, action, None, exc)
         raise _http_error(exc) from exc
@@ -267,6 +370,7 @@ def post_action_approval_decision(
     ],
     db: Session = Depends(get_db),
     actor: User = Depends(require_permissions(SCOPE_APPROVE_APPROVALS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ) -> ActionApprovalResponse:
     action = "approvals.action.approve" if payload.approve else "approvals.action.deny"
     try:
@@ -287,25 +391,42 @@ def post_action_approval_decision(
             operation_label="deciding a sensitive action request",
             audit_action=action,
             approval_id=approval_id,
+            data_access=data_access,
         )
-        approval = lock_action_approval_for_mutation(db, approval_id)
+        approval = lock_action_approval_for_mutation(
+            db,
+            approval_id,
+            data_access=data_access,
+        )
+        _require_policy_access_for_mutation(
+            db,
+            approval_id=approval_id,
+            data_access=data_access,
+            surface="action_approval.decision",
+        )
         _require_durable_permission(
             authorization,
             approval.approver_permission_snapshot,
             detail="Your durable authority for this action changed. Reload the request before retrying.",
         )
         if replay is not None:
+            _refence_replay_policy(request, db, data_access=data_access)
             return _replay_response(response, replay, ActionApprovalResponse)
         result = decide_action_approval(
             db,
             approval_id=approval_id,
             approver=locked_actor,
             approver_authorization=authorization,
+            data_access=data_access,
             approver_auth_method=session.auth_method,
             approver_mfa_method=session.mfa_method,
             payload=payload,
         )
-        rendered = get_action_approval_response(db, approval_id)
+        rendered = get_action_approval_response(
+            db,
+            approval_id,
+            data_access=data_access,
+        )
         _record_success_receipt(
             db,
             actor=locked_actor,
@@ -334,6 +455,7 @@ def post_action_approval_decision(
         RegisteredActionError,
         GovernanceAuthorizationDenied,
         GovernanceIdempotencyError,
+        DataPolicyError,
     ) as exc:
         _reject(db, request, actor, action, approval_id, exc)
         raise _http_error(exc) from exc
@@ -358,6 +480,7 @@ def post_action_approval_cancel(
     ],
     db: Session = Depends(get_db),
     actor: User = Depends(get_current_user),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ) -> ActionApprovalResponse:
     action = "approvals.action.cancel"
     try:
@@ -378,8 +501,19 @@ def post_action_approval_cancel(
             operation_label="cancelling a sensitive action request",
             audit_action=action,
             approval_id=approval_id,
+            data_access=data_access,
         )
-        approval = lock_action_approval_for_mutation(db, approval_id)
+        approval = lock_action_approval_for_mutation(
+            db,
+            approval_id,
+            data_access=data_access,
+        )
+        _require_policy_access_for_mutation(
+            db,
+            approval_id=approval_id,
+            data_access=data_access,
+            surface="action_approval.cancel",
+        )
         if approval.requested_by_user_id != locked_actor.id:
             _require_durable_permission(
                 authorization,
@@ -392,15 +526,21 @@ def post_action_approval_cancel(
                 detail="Your durable authority for this action changed. Reload the request before retrying.",
             )
         if replay is not None:
+            _refence_replay_policy(request, db, data_access=data_access)
             return _replay_response(response, replay, ActionApprovalResponse)
         result = cancel_action_approval(
             db,
             approval_id=approval_id,
             actor=locked_actor,
             actor_authorization=authorization,
+            data_access=data_access,
             payload=payload,
         )
-        rendered = get_action_approval_response(db, approval_id)
+        rendered = get_action_approval_response(
+            db,
+            approval_id,
+            data_access=data_access,
+        )
         _record_success_receipt(
             db,
             actor=locked_actor,
@@ -429,6 +569,7 @@ def post_action_approval_cancel(
         RegisteredActionError,
         GovernanceAuthorizationDenied,
         GovernanceIdempotencyError,
+        DataPolicyError,
     ) as exc:
         _reject(db, request, actor, action, approval_id, exc)
         raise _http_error(exc) from exc
@@ -453,6 +594,7 @@ def post_action_approval_execute(
     ],
     db: Session = Depends(get_db),
     actor: User = Depends(require_permissions(SCOPE_WRITE_APPROVALS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ) -> ActionApprovalExecutionResponse:
     action = "approvals.action.execute"
     identity: GovernanceOperationIdentity | None = None
@@ -475,24 +617,40 @@ def post_action_approval_execute(
             operation_label="executing an approved sensitive action",
             audit_action=action,
             approval_id=approval_id,
+            data_access=data_access,
         )
-        approval = lock_action_approval_for_mutation(db, approval_id)
+        approval = lock_action_approval_for_mutation(
+            db,
+            approval_id,
+            data_access=data_access,
+        )
+        _require_policy_access_for_mutation(
+            db,
+            approval_id=approval_id,
+            data_access=data_access,
+            surface="action_approval.execute",
+        )
         _require_durable_permission(
             authorization,
             approval.requester_permission_snapshot,
             detail="Your durable authority for this action changed. Reload the request before retrying.",
         )
         if replay is not None:
+            _refence_replay_policy(request, db, data_access=data_access)
             return _replay_response(response, replay, ActionApprovalExecutionResponse)
         mutation, receipt = execute_action_approval(
             db,
             approval_id=approval_id,
             requester=locked_actor,
             requester_authorization=authorization,
+            data_access=data_access,
             expected_revision=payload.expected_revision,
         )
         rendered = get_action_execution_response(
-            db, approval_id=approval_id, receipt=receipt
+            db,
+            approval_id=approval_id,
+            receipt=receipt,
+            data_access=data_access,
         )
         _record_success_receipt(
             db,
@@ -548,6 +706,7 @@ def post_action_approval_execute(
         RegisteredActionError,
         GovernanceAuthorizationDenied,
         GovernanceIdempotencyError,
+        DataPolicyError,
     ) as exc:
         _reject(db, request, actor, action, approval_id, exc)
         raise _http_error(exc) from exc
@@ -566,6 +725,7 @@ def _prepare_mutation(
     required_permission: str | None,
     operation_label: str,
     audit_action: str,
+    data_access: DataAccessContext,
     approval_id: uuid.UUID | None = None,
 ) -> tuple[
     User,
@@ -574,9 +734,14 @@ def _prepare_mutation(
     AuthSession,
 ]:
     lock_governance_operation_identity(db, actor_user_id=actor.id, identity=identity)
+    lock_iam_policy_for_mutation(db)
+    fence_data_access_context(db, data_access)
     if approval_id is not None:
-        lock_iam_policy_for_mutation(db)
-        lock_action_approval_for_mutation(db, approval_id)
+        lock_action_approval_for_mutation(
+            db,
+            approval_id,
+            data_access=data_access,
+        )
     locked_actor, authorization = authorize_governance_actor(
         db,
         request=request,
@@ -606,6 +771,7 @@ def _prepare_mutation(
     replay = find_governance_operation_replay(
         db, actor_user_id=locked_actor.id, identity=identity
     )
+    fence_data_access_context(db, data_access)
     return locked_actor, authorization, replay, session
 
 
@@ -741,6 +907,95 @@ def _approval_audit_metadata(
     }
 
 
+def _finalize_read_policy_evidence(
+    request: Request,
+    db: Session,
+    *,
+    data_access: DataAccessContext,
+    summary: ActionApprovalWouldDenySummary,
+    surface: str,
+    history_scope: str,
+) -> None:
+    recorded = record_action_approval_would_deny(
+        db,
+        data_access=data_access,
+        summary=summary,
+        surface=surface,
+        history_scope=history_scope,
+    )
+    if recorded:
+        commit_policy_evidence_and_refence(
+            request,
+            db,
+            data_access=data_access,
+        )
+    else:
+        refence_action_approval_context(
+            request,
+            db,
+            data_access=data_access,
+        )
+
+
+def _require_policy_access_for_mutation(
+    db: Session,
+    *,
+    approval_id: uuid.UUID,
+    data_access: DataAccessContext,
+    surface: str,
+) -> None:
+    decision = authorize_action_approval_data_access(
+        db,
+        approval_id=approval_id,
+        data_access=data_access,
+        surface=surface,
+    )
+    if not decision.allowed:
+        raise ActionApprovalNotFound("Action approval request not found.")
+
+
+def _record_mutation_would_deny(
+    db: Session,
+    *,
+    data_access: DataAccessContext,
+    would_deny: bool,
+    label_ids: frozenset[uuid.UUID],
+    surface: str,
+) -> None:
+    if not would_deny:
+        return
+    record_action_approval_would_deny(
+        db,
+        data_access=data_access,
+        summary=ActionApprovalWouldDenySummary(
+            affected_count=1,
+            handling_label_ids=label_ids,
+        ),
+        surface=surface,
+        history_scope="target_authorization",
+    )
+
+
+def _refence_replay_policy(
+    request: Request,
+    db: Session,
+    *,
+    data_access: DataAccessContext,
+) -> None:
+    if data_access.auditing:
+        commit_policy_evidence_and_refence(
+            request,
+            db,
+            data_access=data_access,
+        )
+        return
+    refence_action_approval_context(
+        request,
+        db,
+        data_access=data_access,
+    )
+
+
 def _require_durable_permission(
     authorization: AuthorizationContext,
     permission: str,
@@ -759,13 +1014,20 @@ def _reject(
     approval_id: uuid.UUID | None,
     exc: Exception,
 ) -> None:
+    visible_approval_id = (
+        None if isinstance(exc, ActionApprovalNotFound) else approval_id
+    )
     record_rejected_governance_mutation(
         db,
         request=request,
         actor=actor,
         action=action,
         resource_type="action_approval",
-        resource_id=str(approval_id) if approval_id is not None else None,
+        resource_id=(
+            str(visible_approval_id)
+            if visible_approval_id is not None
+            else None
+        ),
         reason=str(getattr(exc, "code", "action_approval_error")),
         context=getattr(exc, "context", None),
     )
@@ -780,7 +1042,7 @@ def _http_error(exc: Exception, *, changed: bool = False) -> ApiHTTPException:
         status_code = status.HTTP_403_FORBIDDEN
     elif isinstance(exc, GovernanceIdempotencyKeyInvalid):
         status_code = status.HTTP_400_BAD_REQUEST
-    elif isinstance(exc, RegisteredActionError):
+    elif isinstance(exc, (RegisteredActionError, DataPolicyError)):
         status_code = exc.status_code
     elif isinstance(exc, (ActionApprovalConflict, GovernanceIdempotencyError)):
         status_code = status.HTTP_409_CONFLICT

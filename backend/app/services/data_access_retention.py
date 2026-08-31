@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session, aliased
 from app.models.ai_daily_brief import AIDailyBrief
 from app.models.ai_task_run import AITaskRun
 from app.models.ai_usage_event import AIUsageEvent
+from app.models.action_approval import ActionApprovalRequest
 from app.models.alert_occurrence import AlertOccurrence
 from app.models.data_policy import DataAccessEnvelope, DataAccessEnvelopeSource
 from app.models.integration import IntegrationDelivery, IntegrationEvent
@@ -18,6 +19,7 @@ from app.models.investigation import Investigation
 from app.models.report import Report
 from app.services.data_access_envelopes import (
     DATA_ACCESS_RESOURCE_ALERT_OCCURRENCE,
+    DATA_ACCESS_RESOURCE_ACTION_APPROVAL,
     DATA_ACCESS_RESOURCE_AI_TASK_RUN,
     DATA_ACCESS_RESOURCE_AI_USAGE_EVENT,
     DATA_ACCESS_RESOURCE_DAILY_BRIEF,
@@ -33,6 +35,7 @@ logger = logging.getLogger(__name__)
 DataAccessResourceRef = tuple[str, uuid.UUID]
 
 _RESOURCE_MODELS = {
+    DATA_ACCESS_RESOURCE_ACTION_APPROVAL: ActionApprovalRequest,
     DATA_ACCESS_RESOURCE_ALERT_OCCURRENCE: AlertOccurrence,
     DATA_ACCESS_RESOURCE_DAILY_BRIEF: AIDailyBrief,
     DATA_ACCESS_RESOURCE_INTEGRATION_DELIVERY: IntegrationDelivery,
@@ -43,7 +46,7 @@ _RESOURCE_MODELS = {
     DATA_ACCESS_RESOURCE_AI_USAGE_EVENT: AIUsageEvent,
 }
 _TARGETED_QUERY_BATCH_SIZE = 100
-_MAX_TARGETED_RESOURCES = 1_000
+MAX_TARGETED_DATA_ACCESS_RESOURCES = 1_000
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,7 +67,7 @@ def prune_deleted_resource_envelopes(
     normalized = _normalize_resource_refs(resources)
     deleted_count = 0
     for offset in range(0, len(normalized), _TARGETED_QUERY_BATCH_SIZE):
-        remaining_budget = _MAX_TARGETED_RESOURCES - deleted_count
+        remaining_budget = MAX_TARGETED_DATA_ACCESS_RESOURCES - deleted_count
         if remaining_budget <= 0:
             break
         batch = normalized[offset : offset + _TARGETED_QUERY_BATCH_SIZE]
@@ -258,10 +261,10 @@ def _normalize_resource_refs(
         if not isinstance(resource_id, uuid.UUID):
             raise ValueError("Data access retention resource IDs must be UUID values.")
         normalized.add((resource_type, resource_id))
-        if len(normalized) > _MAX_TARGETED_RESOURCES:
+        if len(normalized) > MAX_TARGETED_DATA_ACCESS_RESOURCES:
             raise ValueError(
                 "Data access retention cleanup accepts at most "
-                f"{_MAX_TARGETED_RESOURCES} unique resources per transaction."
+                f"{MAX_TARGETED_DATA_ACCESS_RESOURCES} unique resources per transaction."
             )
     return sorted(normalized, key=lambda value: (value[0], str(value[1])))
 
@@ -301,6 +304,7 @@ def _orphan_envelope_ids(
 __all__ = [
     "DataAccessOrphanPruneResult",
     "DataAccessResourceRef",
+    "MAX_TARGETED_DATA_ACCESS_RESOURCES",
     "prune_deleted_resource_envelopes",
     "prune_orphan_data_access_envelopes",
 ]

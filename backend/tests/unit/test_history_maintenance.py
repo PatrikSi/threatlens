@@ -342,6 +342,48 @@ def test_ai_history_retention_pins_runs_with_unresolved_provider_receipts(
     assert db_session.get(AIProviderAttemptReceipt, ambiguous_receipt.id) is not None
 
 
+def test_action_approval_retention_clamps_large_cleanup_batches(
+    db_session,
+    monkeypatch,
+):
+    now = datetime(2026, 8, 11, 12, 0, tzinfo=timezone.utc)
+    old = now - timedelta(days=40)
+    monkeypatch.setattr(
+        "app.services.history_maintenance.settings.action_approval_retention_days",
+        30,
+    )
+    user = User(
+        id=uuid.uuid4(),
+        email="approval-retention-batch@example.com",
+        password_hash="unused",
+        role="viewer",
+        is_active=True,
+        is_approved=True,
+    )
+    db_session.add(user)
+    db_session.flush()
+    approvals = [
+        _approval_record(
+            created_at=old,
+            status="denied",
+            requester_id=user.id,
+        )
+        for _index in range(1_001)
+    ]
+    db_session.add_all(approvals)
+    db_session.commit()
+
+    first = prune_application_history(db_session, now=now, batch_size=2_000)
+
+    assert first.action_approval_requests_deleted == 1_000
+    assert db_session.query(ActionApprovalRequest).count() == 1
+
+    second = prune_application_history(db_session, now=now, batch_size=2_000)
+
+    assert second.action_approval_requests_deleted == 1
+    assert db_session.query(ActionApprovalRequest).count() == 0
+
+
 def test_ai_receipt_retention_prunes_only_whole_expired_safe_ledgers(
     db_session, monkeypatch
 ):
@@ -504,6 +546,11 @@ def _approval_record(
         requester_permission_snapshot="read:service_accounts",
         approver_permission_snapshot="write:service_accounts",
         action_definition_version=1,
+        target_data_policy_version=1,
+        data_access_scope="system",
+        data_access_lineage_complete=True,
+        data_access_source_type="system_control_plane",
+        data_access_source_id=None,
         target_type="service_account",
         target_id=str(uuid.uuid4()),
         target_revision=1,
