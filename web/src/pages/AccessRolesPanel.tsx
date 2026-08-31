@@ -82,7 +82,7 @@ export function AccessRolesPanel({
   const validation = roleValidation(draft, creating)
   const confirmDiscard = useUnsavedChangesWarning(
     dirty,
-    'Discard the unsaved role changes?',
+    'Discard the unsaved access-role changes?',
   )
 
   useEffect(() => {
@@ -144,9 +144,11 @@ export function AccessRolesPanel({
       <header className="border-b border-slate/15 px-4 py-4 dark:border-white/10 sm:px-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h2 id="roles-heading" className="font-display text-xl">Roles and permissions</h2>
+            <h2 id="roles-heading" className="font-display text-xl">Access roles</h2>
             <p className="mt-1 text-sm text-slate dark:text-slate-300">
-              Custom roles are additive. System roles are sealed and shown for reference.
+              A base role (Administrator, Analyst, or Viewer) sets built-in access for each user.
+              Access roles add permission bundles through governance assignments; system
+              roles are sealed.
             </p>
           </div>
           {canWrite && (
@@ -156,7 +158,7 @@ export function AccessRolesPanel({
               onClick={chooseNewRole}
             >
               <Plus className="h-4 w-4" aria-hidden="true" />
-              New role
+              New access role
             </button>
           )}
         </div>
@@ -165,17 +167,17 @@ export function AccessRolesPanel({
       <div className="grid min-h-[620px] lg:grid-cols-[320px_minmax(0,1fr)]">
         <aside className="border-b border-slate/15 p-3 dark:border-white/10 lg:border-b-0 lg:border-r">
           <label className="relative block">
-            <span className="sr-only">Search roles</span>
+            <span className="sr-only">Search access roles</span>
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate" aria-hidden="true" />
             <input
               type="search"
               className="min-h-11 w-full rounded border border-slate/25 bg-white py-2 pl-9 pr-3 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
-              placeholder="Search roles"
+              placeholder="Search access roles"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
           </label>
-          <ul className="mt-3 max-h-[560px] space-y-1 overflow-y-auto" aria-label="IAM roles">
+          <ul className="mt-3 max-h-[560px] space-y-1 overflow-y-auto" aria-label="Access roles">
             {filteredRoles.map((role) => {
               const selected = role.id === selectedRoleId
               return (
@@ -188,7 +190,7 @@ export function AccessRolesPanel({
                   >
                     <div className="flex items-start justify-between gap-2">
                       <span className="font-semibold text-ink dark:text-white">{role.name}</span>
-                      {role.is_system && <LockKeyhole className="mt-0.5 h-4 w-4 shrink-0 text-slate" aria-label="System role" />}
+                      {role.is_system && <LockKeyhole className="mt-0.5 h-4 w-4 shrink-0 text-slate" aria-label="System access role" />}
                     </div>
                     <p className="mt-0.5 font-mono text-xs text-slate dark:text-slate-400">{role.key}</p>
                     <p className="mt-1 text-xs text-slate dark:text-slate-400">
@@ -199,14 +201,14 @@ export function AccessRolesPanel({
               )
             })}
             {filteredRoles.length === 0 && (
-              <li className="px-3 py-6 text-center text-sm text-slate dark:text-slate-400">No roles match this search.</li>
+              <li className="px-3 py-6 text-center text-sm text-slate dark:text-slate-400">No access roles match this search.</li>
             )}
           </ul>
         </aside>
 
         <div className="min-w-0 p-4 sm:p-5">
           {selectedRoleId === null ? (
-            <p className="text-sm text-slate dark:text-slate-300">Select a role to inspect its effective permission bundle.</p>
+            <p className="text-sm text-slate dark:text-slate-300">Select an access role to inspect its effective permission bundle.</p>
           ) : (
             <form
               onSubmit={(event) => {
@@ -219,7 +221,7 @@ export function AccessRolesPanel({
               <fieldset disabled={!editable || saveRole.isPending || removeRole.isPending}>
                 <div className="grid gap-4 md:grid-cols-2">
                   <label className="text-sm font-semibold">
-                    Role name
+                    Access role name
                     <input
                       className="mt-1 min-h-11 w-full rounded border border-slate/25 bg-white px-3 py-2 font-normal dark:border-cyan-900/40 dark:bg-[#072019]"
                       value={draft.name}
@@ -248,7 +250,7 @@ export function AccessRolesPanel({
                 {selectedRole?.is_system && (
                   <div className="mt-4 flex items-start gap-2 rounded border border-slate/20 bg-slate/5 px-3 py-2 text-sm dark:border-white/10 dark:bg-white/[0.04]">
                     <LockKeyhole className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-                    System role definitions are sealed. Create a custom role for a narrower permission bundle.
+                    System access-role definitions are sealed. Create a custom access role for a narrower permission bundle.
                   </div>
                 )}
 
@@ -295,23 +297,23 @@ export function AccessRolesPanel({
               {validation && editable && <p role="alert" className="mt-4 rounded border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">{validation}</p>}
               {editable && !draftDelegable && (
                 <p className="mt-4 rounded border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
-                  Remove permissions outside your durable authority before saving this persistent role. You cannot add them again.
+                  Remove permissions outside your durable authority before saving this persistent access role. You cannot add them again.
                 </p>
               )}
               {!creating && !selectedRole && (
                 <p role="alert" className="mt-4 rounded border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
-                  This role changed or was removed while you were editing. Copy any draft details you need, then discard this draft and reload the catalog.
+                  This access role changed or was removed while you were editing. Copy any draft details you need, then discard this draft and reload the catalog.
                 </p>
               )}
               {mutationError && (
                 <div role="alert" className="mt-4 rounded border border-red-300/60 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-100">
                   <p className="flex items-start gap-2">
                     <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-                    {resolveApiErrorMessage(mutationError, 'Role mutation failed')}
+                    {resolveApiErrorMessage(mutationError, 'Access-role change failed')}
                   </p>
                   {saveOutcomeUnknown && (
                     <>
-                      <p className="mt-2">The outcome is unknown. The catalog was refreshed; review the matching server role before attempting another write.</p>
+                      <p className="mt-2">The outcome is unknown. The catalog was refreshed; review the matching server access role before attempting another write.</p>
                       <button
                         type="button"
                         className="mt-2 font-semibold underline"
@@ -338,7 +340,7 @@ export function AccessRolesPanel({
                       setDeleteRequest({ id: selectedRole.id, name: selectedRole.name, revision: draftRevision! })
                     }} disabled={dirty || saveRole.isPending || removeRole.isPending}>
                       <Trash2 className="h-4 w-4" aria-hidden="true" />
-                      Delete role
+                      Delete access role
                     </button>
                   )}
                 </div>
@@ -348,7 +350,7 @@ export function AccessRolesPanel({
                   disabled={!editable || !dirty || Boolean(validation) || !draftDelegable || saveRole.isPending || saveOutcomeUnknown}
                 >
                   <Save className="h-4 w-4" aria-hidden="true" />
-                  {saveRole.isPending ? 'Saving…' : creating ? 'Create role' : 'Save revision'}
+                  {saveRole.isPending ? 'Saving…' : creating ? 'Create access role' : 'Save revision'}
                 </button>
               </div>
             </form>
@@ -358,9 +360,9 @@ export function AccessRolesPanel({
 
       <ConfirmDialog
         open={deleteRequest !== null}
-        title={`Delete ${deleteRequest?.name ?? 'role'}?`}
-        description="Deletion is rejected while any user, group, service account, OIDC mapping, handling policy, or live elevation still references this role. This action cannot be undone."
-        confirmLabel="Delete role"
+        title={`Delete ${deleteRequest?.name ?? 'access role'}?`}
+        description="Deletion is rejected while any user, group, service account, OIDC mapping, handling policy, or live elevation still references this access role. This action cannot be undone."
+        confirmLabel="Delete access role"
         isConfirming={removeRole.isPending}
         confirmDisabled={removeRole.error != null}
         onConfirm={() => removeRole.mutate()}
@@ -371,7 +373,7 @@ export function AccessRolesPanel({
       >
         {removeRole.error && (
           <p role="alert" className="rounded border border-red-300/60 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-100">
-            {resolveApiErrorMessage(removeRole.error, 'Role deletion failed')}
+            {resolveApiErrorMessage(removeRole.error, 'Access-role deletion failed')}
           </p>
         )}
       </ConfirmDialog>
@@ -554,9 +556,9 @@ function normalizeDraft(draft: RoleDraft): RoleDraft {
 }
 
 function roleValidation(draft: RoleDraft, creating: boolean): string | null {
-  if (!draft.name.trim()) return 'Role name is required.'
+  if (!draft.name.trim()) return 'Access role name is required.'
   if (creating && !/^[a-z][a-z0-9-]{1,62}[a-z0-9]$/.test(draft.key.trim().toLowerCase())) {
-    return 'Role key must be 3–64 lowercase letters, numbers, or hyphens and start with a letter.'
+    return 'Access-role key must be 3–64 lowercase letters, numbers, or hyphens and start with a letter.'
   }
   return null
 }

@@ -4,6 +4,7 @@ import { useLocation } from 'react-router-dom'
 
 import { apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
+import { SettingsPageHeader } from '../components/SettingsPageHeader'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import {
@@ -92,7 +93,7 @@ export function IdentitySettingsPage() {
     Boolean(draft.clientSecret)
   const unsavedChanges = useUnsavedChangesWarning(
     hasUnsavedChanges,
-    'You have unsaved identity provider changes. Leave without saving them?',
+    'You have unsaved single sign-on changes. Leave without saving them?',
   )
 
   useEffect(() => {
@@ -280,7 +281,7 @@ export function IdentitySettingsPage() {
   const submit = () => {
     if (providerDataStale) {
       setFormError(
-        'Refresh the identity settings successfully before reviewing or saving changes.',
+        'Refresh the single sign-on settings successfully before reviewing or saving changes.',
       )
       return
     }
@@ -292,7 +293,7 @@ export function IdentitySettingsPage() {
     }
     if (!providerChangesAllowed) {
       setFormError(
-        'Verify the current administrator session before reviewing identity-provider changes.',
+        'Verify the current administrator session before reviewing single sign-on changes.',
       )
       return
     }
@@ -330,7 +331,7 @@ export function IdentitySettingsPage() {
         saveError: saveError ?? current?.saveError ?? null,
         refreshError: resolveApiErrorMessage(
           error,
-          'The latest identity settings could not be loaded',
+          'The latest single sign-on settings could not be loaded',
         ),
       }))
     }
@@ -367,13 +368,11 @@ export function IdentitySettingsPage() {
   return (
     <div className="space-y-4">
       {unsavedChanges.discardDialog}
-      <header className="tl-surface rounded-xl p-4">
-        <h2 className="font-display text-xl">Identity Provider</h2>
-        <p className="mt-1 text-sm text-slate dark:text-slate-300">
-          Configure OpenID Connect sign-in, account provisioning, and role
-          assignment.
-        </p>
-      </header>
+      <SettingsPageHeader
+        scope="Organization"
+        title="Single sign-on"
+        description="Configure the OpenID Connect (OIDC) provider used for sign-in, user provisioning, and role mapping."
+      />
 
       <ProviderQueryStatus
         loading={providerQuery.isLoading}
@@ -389,12 +388,12 @@ export function IdentitySettingsPage() {
             className="tl-surface rounded-xl p-4"
             aria-labelledby="oidc-session-verification-heading"
           >
-            <h3
+            <h2
               id="oidc-session-verification-heading"
               className="font-display text-lg"
             >
               Administrator verification
-            </h3>
+            </h2>
             <div className="mt-3">
               <OIDCProviderSecurityGate
                 authentication={providerAccess.gateAuthentication}
@@ -440,9 +439,11 @@ export function IdentitySettingsPage() {
             <section className="tl-surface rounded-xl p-4">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div>
-                  <h3 className="font-display text-lg">Connection</h3>
+                  <h2 className="font-display text-lg">
+                    Provider connection
+                  </h2>
                   <p className="mt-1 text-sm text-slate dark:text-slate-300">
-                    Register the callback URL exactly with the provider.
+                    Register the redirect URI exactly with the provider.
                   </p>
                 </div>
                 <label className="flex min-h-11 items-center gap-2 text-sm font-semibold sm:min-h-0">
@@ -457,12 +458,12 @@ export function IdentitySettingsPage() {
                       }))
                     }
                   />
-                  Enabled
+                  Enable single sign-on
                 </label>
               </div>
 
               <div className="mt-4 grid gap-4 lg:grid-cols-2">
-                <Field label="Display name" htmlFor="oidc-name">
+                <Field label="Provider name" htmlFor="oidc-name">
                   <input
                     id="oidc-name"
                     className={inputClass}
@@ -595,7 +596,7 @@ export function IdentitySettingsPage() {
                     )}
                   </Field>
                 )}
-                <Field label="Public ThreatLens URL" htmlFor="oidc-public-url">
+                <Field label="Application URL" htmlFor="oidc-public-url">
                   <input
                     id="oidc-public-url"
                     type="url"
@@ -636,7 +637,7 @@ export function IdentitySettingsPage() {
                   />
                 </Field>
                 <div className="lg:col-span-2">
-                  <p className="text-sm font-semibold">Callback URL</p>
+                  <p className="text-sm font-semibold">Redirect URI</p>
                   <code className="mt-1 block break-all rounded border border-slate/20 bg-slate/5 px-3 py-2 text-xs dark:border-white/10 dark:bg-white/[0.04]">
                     {resolveCallbackUrl(draft, providerQuery.data)}
                   </code>
@@ -655,9 +656,11 @@ export function IdentitySettingsPage() {
             </section>
 
             <section className="tl-surface rounded-xl p-4">
-              <h3 className="font-display text-lg">Provisioning and Roles</h3>
+              <h2 className="font-display text-lg">
+                Provisioning and role mapping
+              </h2>
               <div className="mt-4 grid gap-4 lg:grid-cols-2">
-                <Field label="Role claim" htmlFor="oidc-role-claim">
+                <Field label="Role claim name" htmlFor="oidc-role-claim">
                   <input
                     id="oidc-role-claim"
                     className={inputClass}
@@ -676,7 +679,7 @@ export function IdentitySettingsPage() {
                     }
                   />
                 </Field>
-                <Field label="Default role" htmlFor="oidc-default-role">
+                <Field label="Default base role" htmlFor="oidc-default-role">
                   <RoleSelect
                     id="oidc-default-role"
                     value={draft.defaultRole}
@@ -697,7 +700,7 @@ export function IdentitySettingsPage() {
                     className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_180px_auto] sm:items-end"
                   >
                     <Field
-                      label="Exact claim value"
+                      label="Provider claim value"
                       htmlFor={`oidc-mapping-${index}`}
                     >
                       <input
@@ -726,7 +729,7 @@ export function IdentitySettingsPage() {
                       />
                     </Field>
                     <Field
-                      label="ThreatLens role"
+                      label="Assigned base role"
                       htmlFor={`oidc-mapping-role-${index}`}
                     >
                       <RoleSelect
@@ -779,7 +782,7 @@ export function IdentitySettingsPage() {
 
               <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                 <Toggle
-                  label="JIT provisioning"
+                  label="Create users on first sign-in (JIT)"
                   checked={draft.jitProvisioningEnabled}
                   onChange={(checked) =>
                     updateDraft((current) => ({
@@ -792,7 +795,7 @@ export function IdentitySettingsPage() {
                   }
                 />
                 <Toggle
-                  label="Auto-approve JIT users"
+                  label="Approve new users automatically"
                   checked={draft.autoApproveUsers}
                   disabled={!draft.jitProvisioningEnabled}
                   onChange={(checked) =>
@@ -803,7 +806,7 @@ export function IdentitySettingsPage() {
                   }
                 />
                 <Toggle
-                  label="Sync roles on sign-in"
+                  label="Update base roles on sign-in"
                   checked={draft.syncRolesOnLogin}
                   onChange={(checked) =>
                     updateDraft((current) => ({
@@ -827,7 +830,7 @@ export function IdentitySettingsPage() {
                     role="alert"
                     className="rounded border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200 md:col-span-2 xl:col-span-4"
                   >
-                    JIT provisioning will trust unverified email identifiers,
+                    First-sign-in provisioning will trust unverified email identifiers,
                     including well-formed internal domains such as .local.
                     Missing or malformed email claims are still rejected. Use
                     this only when identity-provider access and email assignment
@@ -871,7 +874,7 @@ export function IdentitySettingsPage() {
               if (providerDataStale) {
                 setReviewOpen(false)
                 setFormError(
-                  'Refresh the identity settings successfully before saving changes.',
+                  'Refresh the single sign-on settings successfully before saving changes.',
                 )
                 return
               }
@@ -900,7 +903,7 @@ function ProviderQueryStatus({
   if (loading) {
     return (
       <section className="tl-surface rounded-xl p-4 text-sm">
-        Loading identity settings...
+        Loading single sign-on settings...
       </section>
     )
   }
@@ -914,8 +917,8 @@ function ProviderQueryStatus({
         {formatError(
           error,
           stale
-            ? 'Identity settings could not be refreshed.'
-            : 'Identity settings could not be loaded.',
+            ? 'Single sign-on settings could not be refreshed.'
+            : 'Single sign-on settings could not be loaded.',
         )}
       </p>
       {stale && (
@@ -929,7 +932,7 @@ function ProviderQueryStatus({
         onClick={onRetry}
         disabled={fetching}
       >
-        {fetching ? 'Retrying...' : 'Retry identity settings'}
+        {fetching ? 'Retrying...' : 'Retry single sign-on settings'}
       </button>
     </section>
   )
@@ -1018,7 +1021,7 @@ function RoleSelect({
     >
       <option value="viewer">Viewer</option>
       <option value="analyst">Analyst</option>
-      <option value="admin">Admin</option>
+      <option value="admin">Administrator</option>
     </select>
   )
 }
@@ -1104,10 +1107,10 @@ function isOIDCMfaAssuranceRequired(error: unknown): boolean {
 
 function resolveProviderSaveFailure(error: unknown): string | null {
   if (!error || isProviderRevisionConflict(error)) return null
-  return formatError(error, 'Identity settings could not be saved.')
+  return formatError(error, 'Single sign-on settings could not be saved.')
 }
 
 function resolveProviderTestFailure(error: unknown): string | null {
   if (!error) return null
-  return formatError(error, 'Identity provider test failed.')
+  return formatError(error, 'Single sign-on connection test failed.')
 }

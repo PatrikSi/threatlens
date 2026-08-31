@@ -197,6 +197,8 @@ describe('IdentitySettingsPage', () => {
       )
     })
 
+    expect(view.querySelectorAll('h1')).toHaveLength(1)
+    expect(view.querySelector('h1')?.textContent).toBe('Single sign-on')
     expect(view.querySelector<HTMLInputElement>('#oidc-issuer')?.value).toBe(
       'https://idp.example.com',
     )
@@ -204,11 +206,11 @@ describe('IdentitySettingsPage', () => {
       'soc-analysts',
     )
     expect(view.querySelector('label[for="oidc-mapping-0"]')?.textContent).toBe(
-      'Exact claim value',
+      'Provider claim value',
     )
     expect(
       view.querySelector('label[for="oidc-mapping-role-0"]')?.textContent,
-    ).toBe('ThreatLens role')
+    ).toBe('Assigned base role')
     expect(
       view.querySelector(
         'button[aria-label="Remove role mapping soc-analysts"]',
@@ -217,8 +219,8 @@ describe('IdentitySettingsPage', () => {
     expect(view.textContent).toContain(
       'https://threatlens.example.com/custom/oidc/callback',
     )
-    expect(view.textContent).toContain('JIT provisioning')
-    expect(view.textContent).toContain('Sync roles on sign-in')
+    expect(view.textContent).toContain('Create users on first sign-in (JIT)')
+    expect(view.textContent).toContain('Update base roles on sign-in')
     expect(view.textContent).toContain('Require verified email')
 
     act(() => {
@@ -327,11 +329,13 @@ describe('IdentitySettingsPage', () => {
       )
     })
 
-    expect(view.textContent).toContain('Identity settings could not be loaded')
+    expect(view.textContent).toContain(
+      'Single sign-on settings could not be loaded',
+    )
     expect(view.textContent).toContain('identity database unavailable')
     expect(view.querySelector('#oidc-name')).toBeNull()
     const retry = [...view.querySelectorAll<HTMLButtonElement>('button')].find(
-      (button) => button.textContent === 'Retry identity settings',
+      (button) => button.textContent === 'Retry single sign-on settings',
     )
     act(() => retry?.click())
     expect(
@@ -377,7 +381,7 @@ describe('IdentitySettingsPage', () => {
 
     failProviderRefresh = false
     const retry = Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find(
-      (button) => button.textContent === 'Retry identity settings',
+      (button) => button.textContent === 'Retry single sign-on settings',
     )
     await act(async () => {
       retry?.click()
@@ -462,14 +466,14 @@ describe('IdentitySettingsPage', () => {
         ?.click()
       await flushPromises()
       ;[...document.body.querySelectorAll<HTMLButtonElement>('button')]
-        .find((button) => button.textContent === 'Apply identity changes')
+        .find((button) => button.textContent === 'Save single sign-on changes')
         ?.click()
       await vi.waitFor(() => expect(updateAttempts).toBe(1))
       await flushPromises()
     })
     await vi.waitFor(() => {
       expect(view.textContent).toContain('Settings changed on the server')
-      expect(view.textContent).toContain('Display name')
+      expect(view.textContent).toContain('Provider name')
       expect(view.textContent).toContain('Server-side update')
       expect(view.textContent).toContain('your draft has Operator draft')
       expect(view.textContent).toContain('oidc-conflict-123')
@@ -497,7 +501,7 @@ describe('IdentitySettingsPage', () => {
         ?.click()
       await flushPromises()
       ;[...document.body.querySelectorAll<HTMLButtonElement>('button')]
-        .find((button) => button.textContent === 'Apply identity changes')
+        .find((button) => button.textContent === 'Save single sign-on changes')
         ?.click()
       await vi.waitFor(() => expect(updateAttempts).toBe(2))
       await flushPromises()
@@ -505,7 +509,7 @@ describe('IdentitySettingsPage', () => {
 
     expect(updateBodies[1].expected_config_revision).toBe(4)
     await vi.waitFor(() =>
-      expect(view.textContent).toContain('Identity provider settings saved'),
+      expect(view.textContent).toContain('Single sign-on settings saved'),
     )
     expect(view.textContent).not.toContain('Settings changed on the server')
   })
@@ -590,7 +594,7 @@ describe('IdentitySettingsPage', () => {
     })
     await act(async () => {
       ;[...document.body.querySelectorAll<HTMLButtonElement>('button')]
-        .find((button) => button.textContent === 'Apply identity changes')
+        .find((button) => button.textContent === 'Save single sign-on changes')
         ?.click()
       await flushPromises()
       await flushPromises()
@@ -622,7 +626,9 @@ describe('IdentitySettingsPage', () => {
         'admin',
       )
       const autoApprove = [...view.querySelectorAll('label')]
-        .find((label) => label.textContent?.includes('Auto-approve JIT users'))
+        .find((label) =>
+          label.textContent?.includes('Approve new users automatically'),
+        )
         ?.querySelector<HTMLInputElement>('input')
       const verifiedEmail = [...view.querySelectorAll('label')]
         .find((label) => label.textContent?.includes('Require verified email'))
@@ -640,7 +646,7 @@ describe('IdentitySettingsPage', () => {
     expect(dialog?.textContent).toContain('Critical combination')
     const apply = [
       ...(dialog?.querySelectorAll<HTMLButtonElement>('button') ?? []),
-    ].find((button) => button.textContent === 'Apply identity changes')
+    ].find((button) => button.textContent === 'Save single sign-on changes')
     expect(apply?.disabled).toBe(true)
     act(() =>
       dialog

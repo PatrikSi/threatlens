@@ -540,7 +540,7 @@ describe('UsersPage DOM workflows', () => {
     const view = renderPage()
     const createForm = view.querySelector<HTMLElement>('#create-user-form')
     const createToggle = Array.from(view.querySelectorAll('button')).find(
-      (button) => button.textContent?.trim() === 'New local user',
+      (button) => button.textContent?.trim() === 'Add local user',
     )
     const userSettings = view.querySelector<HTMLElement>(
       '#user-settings-user-1',
@@ -552,6 +552,8 @@ describe('UsersPage DOM workflows', () => {
       (button) => button.textContent?.trim() === 'Manage',
     )
 
+    expect(view.querySelectorAll('h1')).toHaveLength(1)
+    expect(view.querySelector('h1')?.textContent).toBe('Users')
     expect(createForm?.className).toContain('hidden')
     expect(createToggle?.getAttribute('aria-expanded')).toBe('false')
     expect(userManagement?.className).toContain('hidden')
@@ -571,7 +573,7 @@ describe('UsersPage DOM workflows', () => {
   it('labels and restores a create-user draft after the form is closed', () => {
     const view = renderPage()
     const createToggle = Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find(
-      (button) => button.textContent?.trim() === 'New local user',
+      (button) => button.textContent?.trim() === 'Add local user',
     )!
 
     act(() => createToggle.click())
@@ -1087,7 +1089,7 @@ describe('UsersPage DOM workflows', () => {
     expect(view.querySelector('#create-user-form')).toBeNull()
     expect(
       [...view.querySelectorAll('button')].some(
-        (button) => button.textContent === 'New local user',
+        (button) => button.textContent === 'Add local user',
       ),
     ).toBe(false)
     expect(pageText()).not.toContain('No users match')
@@ -1164,7 +1166,7 @@ describe('UsersPage DOM workflows', () => {
     expect(view.querySelector('#user-reset-password-user-1')).toBeNull()
   })
 
-  it('renders accessible admin controls and confirms a role change through the review dialog', () => {
+  it('renders accessible admin controls and confirms a base-role change through the review dialog', () => {
     const view = renderPage()
 
     expect(
@@ -1177,17 +1179,17 @@ describe('UsersPage DOM workflows', () => {
     ).toContain('password')
     expect(
       view.querySelector('label[for="create-user-role"]')?.textContent,
-    ).toContain('Role')
+    ).toContain('Base role')
     expect(
       view.querySelector('label[for="user-directory-search"]')?.textContent,
-    ).toContain('email, role, status, account type, or provider')
+    ).toContain('email, base role, status, account type, or provider')
     expect(
       view.querySelector<HTMLInputElement>('#user-directory-search')
         ?.placeholder,
     ).toBe('Search users...')
     expect(
       view.querySelector('label[for="user-role-user-1"]')?.textContent,
-    ).toContain('Role for analyst@example.com')
+    ).toContain('Base role for analyst@example.com')
     expect(
       view.querySelector('label[for="user-reset-password-user-1"]')
         ?.textContent,
@@ -1212,7 +1214,9 @@ describe('UsersPage DOM workflows', () => {
     })
 
     expect(pageText()).toContain('Apply privileged user changes?')
-    expect(pageText()).toContain('Role will change from analyst to admin.')
+    expect(pageText()).toContain(
+      'Base role will change from Analyst to Administrator.',
+    )
 
     const confirmButton = Array.from(document.querySelectorAll('button')).find(
       (button) => button.textContent?.includes('Apply user changes'),
@@ -1289,11 +1293,11 @@ describe('UsersPage DOM workflows', () => {
 
     expect(view.textContent).toContain('This account changed on the server')
     expect(view.textContent).toContain(
-      'server has viewer; your draft has admin',
+      'server has Viewer; your draft has Administrator',
     )
     expect(
       view.querySelector<HTMLInputElement>(
-        'input[aria-label="Active account for analyst@example.com"]',
+        'input[aria-label="Account enabled for analyst@example.com"]',
       )?.checked,
     ).toBe(false)
     const review = [...view.querySelectorAll<HTMLButtonElement>('button')].find(
@@ -1436,7 +1440,9 @@ describe('UsersPage DOM workflows', () => {
     })
 
     expect(pageText()).toContain('Self-access warning')
-    expect(pageText()).toContain('You are removing your own admin access.')
+    expect(pageText()).toContain(
+      'You are removing your own Administrator access.',
+    )
     expect(pageText()).toContain('You are disabling your own account.')
     expect(pageText()).toContain(
       'You are sending your own account back to pending approval.',
