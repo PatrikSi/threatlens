@@ -1,4 +1,5 @@
-import { RefreshCw, RotateCcw, Save } from 'lucide-react'
+import { ArrowDown, ArrowUp, RefreshCw, RotateCcw, Save } from 'lucide-react'
+import { useRef, useState } from 'react'
 
 import {
   TRUSTED_DASHBOARD_PANELS,
@@ -9,11 +10,17 @@ import {
 import { formatSettingsRoleLabel, settingsModulePresentation } from '../workspace/modulePresentation'
 import type { WorkspaceSettingsController } from './useWorkspaceSettingsController'
 import {
+  moveRolePolicyModule,
+  reorderRolePolicyModule,
   rolePolicyPreview,
   toggleStringValue,
   updateRolePolicyModule,
 } from './workspaceSettingsModel'
 import { WorkspaceCompatibilityWarnings } from './WorkspaceCompatibilityWarnings'
+import {
+  NavigationDragHandle,
+  NavigationOrderButton,
+} from './WorkspaceNavigationReorderControls'
 
 export function WorkspaceRolePolicyPanel({ controller }: { controller: WorkspaceSettingsController }) {
   const policy = controller.selectedPolicy
@@ -22,7 +29,7 @@ export function WorkspaceRolePolicyPanel({ controller }: { controller: Workspace
 
   return (
     <section className="tl-surface overflow-hidden rounded-xl" aria-labelledby="role-workspace-heading">
-      <header className="border-b border-slate/20 px-4 py-4 dark:border-white/10 sm:px-5">
+      <header className="border-b border-slate/20 px-4 py-3.5 dark:border-white/10">
         <h2 id="role-workspace-heading" className="font-display text-lg">Navigation defaults by role</h2>
         <p className="mt-1 text-sm text-slate dark:text-slate-300">
           Set the default navigation for each built-in role. These choices control presentation only and never grant permissions.
@@ -47,9 +54,9 @@ export function WorkspaceRolePolicyPanel({ controller }: { controller: Workspace
         </div>
       </header>
 
-      {controller.rolePoliciesLoading && <p className="px-4 py-6 text-sm text-slate dark:text-slate-300">Loading navigation defaults...</p>}
+      {controller.rolePoliciesLoading && <p className="px-4 py-4 text-sm text-slate dark:text-slate-300">Loading navigation defaults...</p>}
       {controller.roleError && (
-        <div role="alert" className="m-4 rounded border border-red-300/60 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200">
+        <div role="alert" className="m-3 rounded border border-red-300/60 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200">
           <p>{controller.roleError}</p>
           {controller.roleRevisionConflict && (
             <button
@@ -65,7 +72,7 @@ export function WorkspaceRolePolicyPanel({ controller }: { controller: Workspace
         </div>
       )}
       {policy && draft && (
-        <div className="space-y-5 px-4 py-4 sm:px-5">
+        <div className="space-y-4 px-4 py-3.5">
           <WorkspaceCompatibilityWarnings warnings={controller.selectedPolicyWarnings} />
           <RoleModuleEditor controller={controller} />
           <RolePolicyControls controller={controller} />
@@ -82,7 +89,7 @@ export function WorkspaceRolePolicyPanel({ controller }: { controller: Workspace
               {controller.roleFeedback}
             </p>
           )}
-          <div className="flex flex-col-reverse gap-2 border-t border-slate/15 pt-4 sm:flex-row sm:justify-end dark:border-white/10">
+          <div className="flex flex-col-reverse gap-2 border-t border-slate/15 pt-3 sm:flex-row sm:justify-end dark:border-white/10">
             <button
               type="button"
               className="inline-flex min-h-11 items-center justify-center gap-2 rounded border border-slate/30 px-3 py-2 text-sm font-semibold disabled:opacity-60 sm:min-h-0 dark:border-cyan-900/40"
@@ -109,16 +116,77 @@ export function WorkspaceRolePolicyPanel({ controller }: { controller: Workspace
 }
 
 function RoleModuleEditor({ controller }: { controller: WorkspaceSettingsController }) {
+  const instructionsId = 'role-navigation-reorder-instructions'
   const draft = controller.roleDraft!
+  const roleLabel = formatSettingsRoleLabel(controller.selectedRole)
+  const [draggedModuleId, setDraggedModuleId] = useState<TrustedWorkspaceModuleId | null>(null)
+  const [dropTargetModuleId, setDropTargetModuleId] = useState<TrustedWorkspaceModuleId | null>(null)
+  const [keyboardGrabbedModuleId, setKeyboardGrabbedModuleId] = useState<TrustedWorkspaceModuleId | null>(null)
+  const [reorderStatus, setReorderStatus] = useState(
+    `Order changes remain unsaved until you save ${roleLabel} navigation defaults.`,
+  )
+  const dropHandled = useRef(false)
   const modules = [...draft.modules.entries()].sort(([leftId, left], [rightId, right]) => {
     const leftSection = TRUSTED_WORKSPACE_MODULE_BY_ID.get(leftId)?.section ?? 'settings'
     const rightSection = TRUSTED_WORKSPACE_MODULE_BY_ID.get(rightId)?.section ?? 'settings'
     return leftSection.localeCompare(rightSection) || left.order - right.order || leftId.localeCompare(rightId)
   })
+
+  function moveModule(moduleId: TrustedWorkspaceModuleId, direction: -1 | 1) {
+    const definition = TRUSTED_WORKSPACE_MODULE_BY_ID.get(moduleId)
+    if (!definition) return
+    const siblings = modules.filter(
+      ([id]) => TRUSTED_WORKSPACE_MODULE_BY_ID.get(id)?.parentId === definition.parentId,
+    )
+    const currentIndex = siblings.findIndex(([id]) => id === moduleId)
+    const nextIndex = currentIndex + direction
+    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= siblings.length) return
+
+    controller.setRoleDraft((current) =>
+      current ? moveRolePolicyModule(current, moduleId, direction) : current,
+    )
+    setReorderStatus(
+      `Moved ${workspaceModuleDisplayLabel(definition)} to desktop position ${nextIndex + 1} of ${siblings.length} in ${workspaceModuleReorderGroupLabel(definition)}. Save ${roleLabel} navigation defaults to apply this order.`,
+    )
+  }
+
+  function dropModule(sourceId: TrustedWorkspaceModuleId, targetId: TrustedWorkspaceModuleId) {
+    const sourceDefinition = TRUSTED_WORKSPACE_MODULE_BY_ID.get(sourceId)
+    const targetDefinition = TRUSTED_WORKSPACE_MODULE_BY_ID.get(targetId)
+    if (!sourceDefinition || !targetDefinition) return
+    if (sourceDefinition.parentId !== targetDefinition.parentId) {
+      setReorderStatus(
+        `${workspaceModuleDisplayLabel(sourceDefinition)} can only be moved within ${workspaceModuleReorderGroupLabel(sourceDefinition)}.`,
+      )
+      return
+    }
+
+    const siblings = modules.filter(
+      ([id]) => TRUSTED_WORKSPACE_MODULE_BY_ID.get(id)?.parentId === sourceDefinition.parentId,
+    )
+    const targetIndex = siblings.findIndex(([id]) => id === targetId)
+    if (targetIndex < 0 || sourceId === targetId) {
+      setReorderStatus(`${workspaceModuleDisplayLabel(sourceDefinition)} stayed in its current position.`)
+      return
+    }
+    controller.setRoleDraft((current) =>
+      current ? reorderRolePolicyModule(current, sourceId, targetId) : current,
+    )
+    setReorderStatus(
+      `Moved ${workspaceModuleDisplayLabel(sourceDefinition)} to desktop position ${targetIndex + 1} of ${siblings.length} in ${workspaceModuleReorderGroupLabel(sourceDefinition)}. Save ${roleLabel} navigation defaults to apply this order.`,
+    )
+  }
+
   return (
     <fieldset disabled={controller.roleMutationPending}>
       <legend className="text-sm font-semibold">Navigation defaults</legend>
-      <div className="mt-3 rounded border border-slate/20 dark:border-white/10 sm:overflow-x-auto">
+      <p id={instructionsId} className="mt-1 text-xs text-slate dark:text-slate-400">
+        Drag a handle to change desktop position within a navigation group. Use the earlier and later buttons for keyboard or touch; edit mobile position separately.
+      </p>
+      <p role="status" aria-live="polite" aria-atomic="true" className="mt-1 min-h-4 text-xs text-slate dark:text-slate-400">
+        {reorderStatus}
+      </p>
+      <div className="mt-2 rounded-lg border border-slate/20 dark:border-white/10 sm:overflow-x-auto">
         <table className="w-full text-left text-sm sm:min-w-[760px]">
           <thead className="hidden bg-slate/5 text-xs text-slate dark:bg-white/[0.04] dark:text-slate-300 sm:table-header-group">
             <tr>
@@ -135,19 +203,113 @@ function RoleModuleEditor({ controller }: { controller: WorkspaceSettingsControl
               if (!definition?.policyManaged) return null
               const Icon = definition.icon
               const displayLabel = workspaceModuleDisplayLabel(definition)
-              const roleLabel = formatSettingsRoleLabel(controller.selectedRole)
+              const siblingItems = modules.filter(
+                ([id]) => TRUSTED_WORKSPACE_MODULE_BY_ID.get(id)?.parentId === definition.parentId,
+              )
+              const siblingIndex = siblingItems.findIndex(([id]) => id === moduleId)
+              const reorderDisabled = controller.roleMutationPending || siblingItems.length < 2
+              const keyboardGrabbed = keyboardGrabbedModuleId === moduleId
               return (
-                <tr key={moduleId} className="grid grid-cols-2 gap-x-4 gap-y-3 px-3 py-3 sm:table-row sm:p-0">
-                  <td className="col-span-2 p-0 sm:table-cell sm:px-3 sm:py-2.5">
-                    <div className="flex items-start gap-2">
-                      <Icon className="mt-0.5 h-4 w-4 shrink-0 text-cyan" aria-hidden="true" />
+                <tr
+                  key={moduleId}
+                  data-navigation-reorder-item={moduleId}
+                  className={`grid grid-cols-2 gap-x-3 gap-y-2 px-2 py-2 transition sm:table-row sm:p-0 ${
+                    draggedModuleId === moduleId ? 'opacity-50' : ''
+                  } ${dropTargetModuleId === moduleId ? 'bg-cyan/10 ring-1 ring-inset ring-cyan/40' : ''}`}
+                  onDragOver={(event) => {
+                    if (!draggedModuleId || draggedModuleId === moduleId) return
+                    const draggedDefinition = TRUSTED_WORKSPACE_MODULE_BY_ID.get(draggedModuleId)
+                    if (!draggedDefinition || draggedDefinition.parentId !== definition.parentId) {
+                      event.dataTransfer.dropEffect = 'none'
+                      setDropTargetModuleId(null)
+                      return
+                    }
+                    event.preventDefault()
+                    event.dataTransfer.dropEffect = 'move'
+                    setDropTargetModuleId(moduleId)
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault()
+                    const transferredId = event.dataTransfer.getData('text/plain')
+                    const sourceId = draggedModuleId ?? (
+                      isTrustedRoleModuleId(transferredId, draft.modules) ? transferredId : null
+                    )
+                    dropHandled.current = true
+                    setDraggedModuleId(null)
+                    setDropTargetModuleId(null)
+                    if (sourceId) dropModule(sourceId, moduleId)
+                  }}
+                >
+                  <td className="col-span-2 p-0 sm:table-cell sm:px-2 sm:py-2">
+                    <div className="flex items-center gap-1.5">
+                      <NavigationDragHandle
+                        active={keyboardGrabbed}
+                        count={siblingItems.length}
+                        describedBy={instructionsId}
+                        disabled={reorderDisabled}
+                        label={displayLabel}
+                        position={siblingIndex + 1}
+                        onToggle={() => {
+                          if (keyboardGrabbed) {
+                            setKeyboardGrabbedModuleId(null)
+                            setReorderStatus(
+                              `Finished reordering ${displayLabel}. Save ${roleLabel} navigation defaults to apply this order.`,
+                            )
+                          } else {
+                            setKeyboardGrabbedModuleId(moduleId)
+                            setReorderStatus(
+                              `Picked up ${displayLabel}, desktop position ${siblingIndex + 1} of ${siblingItems.length}. Use the Up and Down arrow keys, then press Enter to finish or Escape to stop reordering.`,
+                            )
+                          }
+                        }}
+                        onStop={() => {
+                          setKeyboardGrabbedModuleId(null)
+                          setReorderStatus(`Stopped reordering ${displayLabel}.`)
+                        }}
+                        onMove={(direction) => moveModule(moduleId, direction)}
+                        onDragStart={(event) => {
+                          dropHandled.current = false
+                          setKeyboardGrabbedModuleId(null)
+                          setDraggedModuleId(moduleId)
+                          event.dataTransfer.effectAllowed = 'move'
+                          event.dataTransfer.setData('text/plain', moduleId)
+                          setReorderStatus(
+                            `Dragging ${displayLabel}. Drop it on another item in ${workspaceModuleReorderGroupLabel(definition)}.`,
+                          )
+                        }}
+                        onDragEnd={() => {
+                          if (!dropHandled.current) {
+                            setReorderStatus(`Stopped reordering ${displayLabel}.`)
+                          }
+                          dropHandled.current = false
+                          setDraggedModuleId(null)
+                          setDropTargetModuleId(null)
+                        }}
+                      />
+                      <Icon className="h-4 w-4 shrink-0 text-cyan" aria-hidden="true" />
                       <div className="min-w-0">
                         <p className="font-semibold text-ink dark:text-slate-100">{displayLabel}</p>
                         <p className="text-xs text-slate dark:text-slate-400">{workspaceModuleSectionLabel(definition)}</p>
                       </div>
+                      <div className="ml-auto flex shrink-0 gap-1">
+                        <NavigationOrderButton
+                          label={`Move ${displayLabel} earlier for ${roleLabel}`}
+                          disabled={siblingIndex === 0 || reorderDisabled}
+                          onClick={() => moveModule(moduleId, -1)}
+                        >
+                          <ArrowUp className="h-4 w-4" aria-hidden="true" />
+                        </NavigationOrderButton>
+                        <NavigationOrderButton
+                          label={`Move ${displayLabel} later for ${roleLabel}`}
+                          disabled={siblingIndex === siblingItems.length - 1 || reorderDisabled}
+                          onClick={() => moveModule(moduleId, 1)}
+                        >
+                          <ArrowDown className="h-4 w-4" aria-hidden="true" />
+                        </NavigationOrderButton>
+                      </div>
                     </div>
                   </td>
-                  <td className="flex min-w-0 flex-col gap-1 p-0 sm:table-cell sm:px-3 sm:py-2.5">
+                  <td className="flex min-w-0 flex-col gap-1 p-0 sm:table-cell sm:px-2 sm:py-2">
                     <span className="text-xs font-semibold text-slate dark:text-slate-300 sm:hidden">Shown by default</span>
                     <label className="inline-flex min-h-11 items-center gap-2 sm:min-h-0">
                       <input
@@ -161,7 +323,7 @@ function RoleModuleEditor({ controller }: { controller: WorkspaceSettingsControl
                       <span className="text-sm sm:hidden">Show</span>
                     </label>
                   </td>
-                  <td className="flex min-w-0 flex-col gap-1 p-0 sm:table-cell sm:px-3 sm:py-2.5">
+                  <td className="flex min-w-0 flex-col gap-1 p-0 sm:table-cell sm:px-2 sm:py-2">
                     <span className="text-xs font-semibold text-slate dark:text-slate-300 sm:hidden">Users can customize</span>
                     <label className="inline-flex min-h-11 items-center gap-2 sm:min-h-0">
                       <input
@@ -175,7 +337,7 @@ function RoleModuleEditor({ controller }: { controller: WorkspaceSettingsControl
                       <span className="text-sm sm:hidden">Allow</span>
                     </label>
                   </td>
-                  <td className="flex min-w-0 flex-col gap-1 p-0 sm:table-cell sm:px-3 sm:py-2.5">
+                  <td className="flex min-w-0 flex-col gap-1 p-0 sm:table-cell sm:px-2 sm:py-2">
                     <span className="text-xs font-semibold text-slate dark:text-slate-300 sm:hidden">Desktop position</span>
                     <PolicyNumberInput
                       label={`Desktop position for ${displayLabel}`}
@@ -184,7 +346,7 @@ function RoleModuleEditor({ controller }: { controller: WorkspaceSettingsControl
                       onChange={(order) => updateModule(controller, moduleId, { order })}
                     />
                   </td>
-                  <td className="flex min-w-0 flex-col gap-1 p-0 sm:table-cell sm:px-3 sm:py-2.5">
+                  <td className="flex min-w-0 flex-col gap-1 p-0 sm:table-cell sm:px-2 sm:py-2">
                     <span className="text-xs font-semibold text-slate dark:text-slate-300 sm:hidden">Mobile position</span>
                     <PolicyNumberInput
                       label={`Mobile position for ${displayLabel}`}
@@ -243,7 +405,7 @@ function RolePolicyControls({ controller }: { controller: WorkspaceSettingsContr
   const landingOptions = [...preview.primary, ...preview.settings].filter((module) => module.policyManaged)
   const trustedLanding = landingOptions.some((module) => module.id === draft.landingModuleId)
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
+    <div className="grid gap-3 lg:grid-cols-2">
       <label className="block text-sm font-semibold">
         Default start page
         <select
@@ -344,4 +506,16 @@ function workspaceModuleSectionLabel(module: TrustedWorkspaceModule): string {
   if (module.section === 'primary') return 'Main navigation'
   if (module.parentId === 'settings.integrations') return 'Integration setting'
   return 'Settings navigation'
+}
+
+function workspaceModuleReorderGroupLabel(module: TrustedWorkspaceModule): string {
+  if (module.parentId === 'settings.integrations') return 'Integration settings'
+  return module.section === 'settings' ? 'Settings navigation' : 'Main navigation'
+}
+
+function isTrustedRoleModuleId(
+  value: string,
+  modules: ReadonlyMap<TrustedWorkspaceModuleId, unknown>,
+): value is TrustedWorkspaceModuleId {
+  return modules.has(value as TrustedWorkspaceModuleId)
 }

@@ -10,7 +10,10 @@ import {
   createPersonalWorkspaceDraft,
   createRolePolicyDraft,
   movePersonalModule,
+  moveRolePolicyModule,
   personalLandingOptions,
+  reorderPersonalModule,
+  reorderRolePolicyModule,
   rolePolicyPreview,
   rolePolicyDraftValidation,
   updateRolePolicyModule,
@@ -32,14 +35,64 @@ describe('workspace settings model', () => {
     }
     const moved = movePersonalModule(draft, 'primary.feeds', -1)
 
-    expect(moved.modules.get('primary.feeds')?.order).toBe(0)
-    expect(moved.modules.get('primary.alerts')?.order).toBe(10)
+    expect(moved.modules.get('primary.feeds')?.order).toBe(10)
+    expect(moved.modules.get('primary.alerts')?.order).toBe(20)
     expect(moved.modules.get('settings.tokens')?.order).toBe(5)
 
     const movedIntegration = movePersonalModule(moved, 'settings.integrations.smtp', -1)
-    expect(movedIntegration.modules.get('settings.integrations.smtp')?.order).toBe(0)
-    expect(movedIntegration.modules.get('settings.integrations.webhooks')?.order).toBe(10)
+    expect(movedIntegration.modules.get('settings.integrations.smtp')?.order).toBe(10)
+    expect(movedIntegration.modules.get('settings.integrations.webhooks')?.order).toBe(20)
     expect(movedIntegration.modules.get('settings.tokens')?.order).toBe(5)
+  })
+
+  it('drops personal modules into a sibling position without crossing navigation groups', () => {
+    const draft = {
+      landingModuleId: null,
+      modules: new Map([
+        ['primary.alerts' as const, { visible: true, order: 10 }],
+        ['primary.feeds' as const, { visible: true, order: 20 }],
+        ['settings.tokens' as const, { visible: true, order: 5 }],
+      ]),
+      inheritDashboardPanels: true,
+      dashboardPanelIds: ['rss'],
+    }
+
+    const moved = reorderPersonalModule(draft, 'primary.alerts', 'primary.feeds')
+    expect(moved.modules.get('primary.feeds')?.order).toBe(10)
+    expect(moved.modules.get('primary.alerts')?.order).toBe(20)
+
+    const crossGroup = reorderPersonalModule(moved, 'primary.alerts', 'settings.tokens')
+    expect(crossGroup).toBe(moved)
+
+    const tied = {
+      ...draft,
+      modules: new Map([
+        ['primary.alerts' as const, { visible: true, order: 10 }],
+        ['primary.feeds' as const, { visible: true, order: 10 }],
+      ]),
+    }
+    const untied = reorderPersonalModule(tied, 'primary.alerts', 'primary.feeds')
+    expect(untied.modules.get('primary.feeds')?.order).toBe(10)
+    expect(untied.modules.get('primary.alerts')?.order).toBe(20)
+  })
+
+  it('reorders role desktop positions without changing mobile priority or another section', () => {
+    const draft = createRolePolicyDraft(rolePolicy())
+    const feedsMobilePriority = draft.modules.get('primary.feeds')?.mobile_priority
+    const tokensOrder = draft.modules.get('settings.tokens')?.order
+
+    const moved = reorderRolePolicyModule(draft, 'primary.feeds', 'primary.dashboard')
+    expect(moved.modules.get('primary.feeds')?.order).toBe(0)
+    expect(moved.modules.get('primary.dashboard')?.order).toBe(10)
+    expect(moved.modules.get('primary.feeds')?.mobile_priority).toBe(feedsMobilePriority)
+    expect(moved.modules.get('settings.tokens')?.order).toBe(tokensOrder)
+
+    const movedAgain = moveRolePolicyModule(moved, 'primary.feeds', 1)
+    expect(movedAgain.modules.get('primary.dashboard')?.order).toBe(0)
+    expect(movedAgain.modules.get('primary.feeds')?.order).toBe(10)
+
+    const crossGroup = reorderRolePolicyModule(movedAgain, 'primary.feeds', 'settings.tokens')
+    expect(crossGroup).toBe(movedAgain)
   })
 
   it('keeps trusted navigation containers outside role-policy visibility edits', () => {

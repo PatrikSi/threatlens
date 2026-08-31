@@ -64,6 +64,24 @@ export function updateRolePolicyModule(
   return { ...draft, modules }
 }
 
+export function moveRolePolicyModule(
+  draft: RolePolicyDraft,
+  moduleId: TrustedWorkspaceModuleId,
+  direction: -1 | 1,
+): RolePolicyDraft {
+  const targetId = adjacentSiblingModuleId(draft.modules, moduleId, direction)
+  return targetId ? reorderRolePolicyModule(draft, moduleId, targetId) : draft
+}
+
+export function reorderRolePolicyModule(
+  draft: RolePolicyDraft,
+  moduleId: TrustedWorkspaceModuleId,
+  targetId: TrustedWorkspaceModuleId,
+): RolePolicyDraft {
+  const modules = reorderSiblingModules(draft.modules, moduleId, targetId)
+  return modules === draft.modules ? draft : { ...draft, modules }
+}
+
 export function buildRolePolicyPayload(
   policy: WorkspaceRolePolicyResponse,
   draft: RolePolicyDraft,
@@ -124,19 +142,17 @@ export function movePersonalModule(
   moduleId: TrustedWorkspaceModuleId,
   direction: -1 | 1,
 ): PersonalWorkspaceDraft {
-  const definition = TRUSTED_WORKSPACE_MODULES.find((module) => module.id === moduleId)
-  if (!definition) return draft
-  const ordered = [...draft.modules.entries()]
-    .filter(([id]) => TRUSTED_WORKSPACE_MODULES.find((module) => module.id === id)?.parentId === definition.parentId)
-    .sort(([leftId, left], [rightId, right]) => left.order - right.order || leftId.localeCompare(rightId))
-  const index = ordered.findIndex(([id]) => id === moduleId)
-  const target = index + direction
-  if (index < 0 || target < 0 || target >= ordered.length) return draft
-  const [moved] = ordered.splice(index, 1)
-  ordered.splice(target, 0, moved)
-  const modules = new Map(draft.modules)
-  ordered.forEach(([id, preference], order) => modules.set(id, { ...preference, order: order * 10 }))
-  return { ...draft, modules }
+  const targetId = adjacentSiblingModuleId(draft.modules, moduleId, direction)
+  return targetId ? reorderPersonalModule(draft, moduleId, targetId) : draft
+}
+
+export function reorderPersonalModule(
+  draft: PersonalWorkspaceDraft,
+  moduleId: TrustedWorkspaceModuleId,
+  targetId: TrustedWorkspaceModuleId,
+): PersonalWorkspaceDraft {
+  const modules = reorderSiblingModules(draft.modules, moduleId, targetId)
+  return modules === draft.modules ? draft : { ...draft, modules }
 }
 
 export function buildPersonalPreferencePayload(
@@ -266,6 +282,63 @@ export function rolePolicyDraftValidation(
     return 'Choose a landing module that remains visible with all of its parent navigation modules.'
   }
   return ''
+}
+
+function adjacentSiblingModuleId<T extends { order: number }>(
+  modules: Map<TrustedWorkspaceModuleId, T>,
+  moduleId: TrustedWorkspaceModuleId,
+  direction: -1 | 1,
+): TrustedWorkspaceModuleId | null {
+  const ordered = orderedSiblingModules(modules, moduleId)
+  const index = ordered.findIndex(([id]) => id === moduleId)
+  const targetIndex = index + direction
+  return index >= 0 && targetIndex >= 0 && targetIndex < ordered.length
+    ? ordered[targetIndex][0]
+    : null
+}
+
+function reorderSiblingModules<T extends { order: number }>(
+  modules: Map<TrustedWorkspaceModuleId, T>,
+  moduleId: TrustedWorkspaceModuleId,
+  targetId: TrustedWorkspaceModuleId,
+): Map<TrustedWorkspaceModuleId, T> {
+  if (moduleId === targetId) return modules
+  const sourceDefinition = TRUSTED_WORKSPACE_MODULES.find((module) => module.id === moduleId)
+  const targetDefinition = TRUSTED_WORKSPACE_MODULES.find((module) => module.id === targetId)
+  if (!sourceDefinition || !targetDefinition || sourceDefinition.parentId !== targetDefinition.parentId) {
+    return modules
+  }
+
+  const ordered = orderedSiblingModules(modules, moduleId)
+  const sourceIndex = ordered.findIndex(([id]) => id === moduleId)
+  const targetIndex = ordered.findIndex(([id]) => id === targetId)
+  if (sourceIndex < 0 || targetIndex < 0) return modules
+
+  const orderValues = ordered.map(([, value]) => value.order)
+  const assignedOrderValues = orderValues.every(
+    (value, index) => index === 0 || value > orderValues[index - 1]!,
+  )
+    ? orderValues
+    : orderValues.map((_, index) => (orderValues[0] ?? 0) + index * 10)
+  const [moved] = ordered.splice(sourceIndex, 1)
+  ordered.splice(targetIndex, 0, moved)
+
+  const next = new Map(modules)
+  ordered.forEach(([id, value], index) => {
+    next.set(id, { ...value, order: assignedOrderValues[index] })
+  })
+  return next
+}
+
+function orderedSiblingModules<T extends { order: number }>(
+  modules: Map<TrustedWorkspaceModuleId, T>,
+  moduleId: TrustedWorkspaceModuleId,
+): Array<[TrustedWorkspaceModuleId, T]> {
+  const definition = TRUSTED_WORKSPACE_MODULES.find((module) => module.id === moduleId)
+  if (!definition) return []
+  return [...modules.entries()]
+    .filter(([id]) => TRUSTED_WORKSPACE_MODULES.find((module) => module.id === id)?.parentId === definition.parentId)
+    .sort(([leftId, left], [rightId, right]) => left.order - right.order || leftId.localeCompare(rightId))
 }
 
 export function toggleStringValue(values: readonly string[], value: string, selected: boolean): string[] {
