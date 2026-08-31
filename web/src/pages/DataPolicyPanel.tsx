@@ -477,7 +477,17 @@ function HandlingLabelsPanel(props: HandlingLabelsPanelProps) {
             <h2 id="labels-heading" className="font-display text-xl">Handling labels</h2>
             <p className="mt-1 text-sm text-slate dark:text-slate-300">Feed labels propagate monotonically into derived intelligence and retained history.</p>
           </div>
-          {props.canWrite && <button type="button" className="inline-flex min-h-11 items-center justify-center gap-2 rounded bg-ink px-3 py-2 text-sm font-semibold text-white sm:min-h-0 dark:bg-cyan dark:text-[#053c2e]" onClick={() => props.onChooseLabel('new')} disabled={props.busy}><Plus className="h-4 w-4" aria-hidden="true" />New label</button>}
+          {props.canWrite && (
+            <button
+              type="button"
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded bg-ink px-3 py-2 text-sm font-semibold text-white sm:min-h-0 dark:bg-cyan dark:text-[#053c2e]"
+              onClick={() => props.onChooseLabel('new')}
+              disabled={props.busy}
+            >
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              New label
+            </button>
+          )}
         </div>
       </header>
       <div className="grid min-h-[600px] lg:grid-cols-[280px_minmax(0,1fr)]">
@@ -488,13 +498,42 @@ function HandlingLabelsPanel(props: HandlingLabelsPanelProps) {
   )
 }
 
-function HandlingLabelSidebar({ labels, selectedLabelId, busy, onChoose }: { labels: HandlingLabel[]; selectedLabelId: string | 'new' | null; busy: boolean; onChoose: (labelId: string) => void }) {
+function HandlingLabelSidebar({
+  labels,
+  selectedLabelId,
+  busy,
+  onChoose,
+}: {
+  labels: HandlingLabel[]
+  selectedLabelId: string | 'new' | null
+  busy: boolean
+  onChoose: (labelId: string) => void
+}) {
   return (
     <aside className="border-b border-slate/15 p-3 dark:border-white/10 lg:border-b-0 lg:border-r">
       <ul className="space-y-1" aria-label="Handling labels">
         {labels.map((label) => {
           const selected = label.id === selectedLabelId
-          return <li key={label.id}><button type="button" aria-current={selected ? 'true' : undefined} className={`w-full rounded-lg border px-3 py-2.5 text-left ${selected ? 'border-cyan/50 bg-cyan/10' : 'border-transparent hover:border-slate/20 hover:bg-slate/5 dark:hover:border-white/10 dark:hover:bg-white/[0.04]'}`} onClick={() => onChoose(label.id)} disabled={busy}><div className="flex items-center gap-2"><span className="h-3 w-3 shrink-0 rounded-full border border-black/10" style={{ backgroundColor: label.color }} aria-hidden="true" /><span className="min-w-0 truncate font-semibold">{label.name}</span></div><p className="mt-1 font-mono text-xs text-slate dark:text-slate-400">{label.key}</p><p className="mt-1 text-xs text-slate dark:text-slate-400">{label.is_active ? 'Active' : 'Archived'} · {label.assigned_feed_count} feeds</p></button></li>
+          return (
+            <li key={label.id}>
+              <button
+                type="button"
+                aria-current={selected ? 'true' : undefined}
+                className={`w-full rounded-lg border px-3 py-2.5 text-left ${selected ? 'border-cyan/50 bg-cyan/10' : 'border-transparent hover:border-slate/20 hover:bg-slate/5 dark:hover:border-white/10 dark:hover:bg-white/[0.04]'}`}
+                onClick={() => onChoose(label.id)}
+                disabled={busy}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="h-3 w-3 shrink-0 rounded-full border border-black/10" style={{ backgroundColor: label.color }} aria-hidden="true" />
+                  <span className="min-w-0 truncate font-semibold">{label.name}</span>
+                </div>
+                <p className="mt-1 font-mono text-xs text-slate dark:text-slate-400">{label.key}</p>
+                <p className="mt-1 text-xs text-slate dark:text-slate-400">
+                  {label.is_active ? 'Active' : 'Archived'} · {label.assigned_feed_count} feeds
+                </p>
+              </button>
+            </li>
+          )
         })}
       </ul>
     </aside>
@@ -506,7 +545,15 @@ function HandlingLabelEditor(props: HandlingLabelsPanelProps) {
     return <div className="min-w-0 p-4 text-sm text-slate sm:p-5 dark:text-slate-300">Select a label to inspect its role boundary.</div>
   }
   return (
-    <form className="min-w-0 p-4 sm:p-5" onSubmit={(event) => { event.preventDefault(); if (props.creating && props.editable && props.dirty && !props.validation) props.onCreate() }}>
+    <form
+      className="min-w-0 p-4 sm:p-5"
+      onSubmit={(event) => {
+        event.preventDefault()
+        if (props.creating && props.editable && props.dirty && !props.validation) {
+          props.onCreate()
+        }
+      }}
+    >
       <HandlingLabelFields {...props} />
       <HandlingLabelNotices label={props.selectedLabel} />
       {props.selectedLabel && <LabelRevisionSummary label={props.selectedLabel} draftRevision={props.draftRevision} />}
@@ -527,49 +574,194 @@ function HandlingLabelEditor(props: HandlingLabelsPanelProps) {
   )
 }
 
-function HandlingLabelFields({ draft, setDraft, normalizedDraft, creating, editable, roleGrantsEditable, busy, roles }: HandlingLabelsPanelProps) {
+function HandlingLabelFields({
+  draft,
+  setDraft,
+  normalizedDraft,
+  creating,
+  editable,
+  roleGrantsEditable,
+  busy,
+  roles,
+}: HandlingLabelsPanelProps) {
   return (
     <fieldset disabled={!editable || busy}>
       <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_130px]">
-        <label className="text-sm font-semibold">Label name<input className="mt-1 min-h-11 w-full rounded border border-slate/25 bg-white px-3 py-2 font-normal dark:border-cyan-900/40 dark:bg-[#072019]" value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} /></label>
-        <label className="text-sm font-semibold">Color<input type="color" className="mt-1 h-11 w-full rounded border border-slate/25 bg-white p-1 dark:border-cyan-900/40 dark:bg-[#072019]" value={draft.color} onChange={(event) => setDraft((current) => ({ ...current, color: event.target.value.toUpperCase() }))} /></label>
-        <label className="text-sm font-semibold sm:col-span-2">Stable key<input className="mt-1 min-h-11 w-full rounded border border-slate/25 bg-white px-3 py-2 font-mono font-normal dark:border-cyan-900/40 dark:bg-[#072019]" value={draft.key} readOnly={!creating} onChange={(event) => setDraft((current) => ({ ...current, key: event.target.value }))} /></label>
-        <label className="text-sm font-semibold sm:col-span-2">Description<textarea className="mt-1 min-h-24 w-full rounded border border-slate/25 bg-white px-3 py-2 font-normal dark:border-cyan-900/40 dark:bg-[#072019]" value={draft.description} onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} /></label>
+        <label className="text-sm font-semibold">
+          Label name
+          <input
+            className="mt-1 min-h-11 w-full rounded border border-slate/25 bg-white px-3 py-2 font-normal dark:border-cyan-900/40 dark:bg-[#072019]"
+            value={draft.name}
+            onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
+          />
+        </label>
+        <label className="text-sm font-semibold">
+          Color
+          <input
+            type="color"
+            className="mt-1 h-11 w-full rounded border border-slate/25 bg-white p-1 dark:border-cyan-900/40 dark:bg-[#072019]"
+            value={draft.color}
+            onChange={(event) => setDraft((current) => ({ ...current, color: event.target.value.toUpperCase() }))}
+          />
+        </label>
+        <label className="text-sm font-semibold sm:col-span-2">
+          Stable key
+          <input
+            className="mt-1 min-h-11 w-full rounded border border-slate/25 bg-white px-3 py-2 font-mono font-normal dark:border-cyan-900/40 dark:bg-[#072019]"
+            value={draft.key}
+            readOnly={!creating}
+            onChange={(event) => setDraft((current) => ({ ...current, key: event.target.value }))}
+          />
+        </label>
+        <label className="text-sm font-semibold sm:col-span-2">
+          Description
+          <textarea
+            className="mt-1 min-h-24 w-full rounded border border-slate/25 bg-white px-3 py-2 font-normal dark:border-cyan-900/40 dark:bg-[#072019]"
+            value={draft.description}
+            onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))}
+          />
+        </label>
       </div>
       <fieldset className="mt-5 rounded-lg border border-slate/20 p-3 dark:border-white/10">
         <legend className="px-1 text-sm font-semibold">Allowed roles</legend>
         <p className="mb-2 text-xs text-slate dark:text-slate-400">The built-in administrator role is required as a recovery path.</p>
-        <div className="grid gap-1 sm:grid-cols-2">{roles.map((role) => <label key={role.id} className="flex min-h-11 items-center gap-2 rounded px-2 py-1.5 hover:bg-slate/5 dark:hover:bg-white/[0.04]"><input type="checkbox" className="h-5 w-5" checked={normalizedDraft.roleIds.includes(role.id)} disabled={!roleGrantsEditable || role.key === 'admin'} onChange={(event) => setDraft((current) => ({ ...current, roleIds: event.target.checked ? [...new Set([...current.roleIds, role.id])] : current.roleIds.filter((value) => value !== role.id) }))} /><span><span className="block text-sm font-semibold">{role.name}</span><span className="block font-mono text-[11px] text-slate dark:text-slate-400">{role.key}</span></span></label>)}</div>
+        <div className="grid gap-1 sm:grid-cols-2">
+          {roles.map((role) => (
+            <label key={role.id} className="flex min-h-11 items-center gap-2 rounded px-2 py-1.5 hover:bg-slate/5 dark:hover:bg-white/[0.04]">
+              <input
+                type="checkbox"
+                className="h-5 w-5"
+                checked={normalizedDraft.roleIds.includes(role.id)}
+                disabled={!roleGrantsEditable || role.key === 'admin'}
+                onChange={(event) => setDraft((current) => ({
+                  ...current,
+                  roleIds: event.target.checked
+                    ? [...new Set([...current.roleIds, role.id])]
+                    : current.roleIds.filter((value) => value !== role.id),
+                }))}
+              />
+              <span>
+                <span className="block text-sm font-semibold">{role.name}</span>
+                <span className="block font-mono text-[11px] text-slate dark:text-slate-400">{role.key}</span>
+              </span>
+            </label>
+          ))}
+        </div>
       </fieldset>
     </fieldset>
   )
 }
 
 function HandlingLabelNotices({ label }: { label: HandlingLabel | null }) {
-  if (label?.is_system) return <p className="mt-4 flex items-start gap-2 rounded border border-slate/20 bg-slate/5 px-3 py-2 text-sm dark:border-white/10 dark:bg-white/[0.04]"><ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />Built-in handling labels and their role grants are sealed.</p>
-  if (label && !label.is_active) return <p className="mt-4 text-xs text-slate dark:text-slate-300">Restore this label before changing its role grants.</p>
-  if (label && label.assigned_feed_count > 0) return <p className="mt-4 rounded border border-amber-300/60 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">Reassign the {label.assigned_feed_count} feed(s) using this label before archiving it.</p>
+  if (label?.is_system) {
+    return (
+      <p className="mt-4 flex items-start gap-2 rounded border border-slate/20 bg-slate/5 px-3 py-2 text-sm dark:border-white/10 dark:bg-white/[0.04]">
+        <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+        Built-in handling labels and their role grants are sealed.
+      </p>
+    )
+  }
+  if (label && !label.is_active) {
+    return <p className="mt-4 text-xs text-slate dark:text-slate-300">Restore this label before changing its role grants.</p>
+  }
+  if (label && label.assigned_feed_count > 0) {
+    return (
+      <p className="mt-4 rounded border border-amber-300/60 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
+        Reassign the {label.assigned_feed_count} feed(s) using this label before archiving it.
+      </p>
+    )
+  }
   return null
 }
 
 function LabelRevisionSummary({ label, draftRevision }: { label: HandlingLabel; draftRevision: number | null }) {
-  return <dl className="mt-4 grid gap-2 rounded border border-slate/15 p-3 text-xs sm:grid-cols-3 dark:border-white/10"><div><dt className="text-slate dark:text-slate-400">Draft revision</dt><dd className="mt-1 font-mono font-semibold">{draftRevision ?? 'New'}</dd></div><div><dt className="text-slate dark:text-slate-400">Provenance</dt><dd className="mt-1 font-semibold">{label.is_system ? 'System' : 'Custom'}</dd></div><div><dt className="text-slate dark:text-slate-400">State</dt><dd className="mt-1 font-semibold">{label.is_active ? 'Active' : 'Archived'}</dd></div></dl>
+  return (
+    <dl className="mt-4 grid gap-2 rounded border border-slate/15 p-3 text-xs sm:grid-cols-3 dark:border-white/10">
+      <div>
+        <dt className="text-slate dark:text-slate-400">Draft revision</dt>
+        <dd className="mt-1 font-mono font-semibold">{draftRevision ?? 'New'}</dd>
+      </div>
+      <div>
+        <dt className="text-slate dark:text-slate-400">Provenance</dt>
+        <dd className="mt-1 font-semibold">{label.is_system ? 'System' : 'Custom'}</dd>
+      </div>
+      <div>
+        <dt className="text-slate dark:text-slate-400">State</dt>
+        <dd className="mt-1 font-semibold">{label.is_active ? 'Active' : 'Archived'}</dd>
+      </div>
+    </dl>
+  )
 }
 
-function LabelEditorActions({ selectedLabel, canWrite, busy, dirty, metadataDirty, roleGrantsDirty, editable, roleGrantsEditable, validation, creatingPending, metadataPending, roleGrantsPending, creating, onSaveMetadata, onSaveRoleGrants, onRequestStatus }: HandlingLabelsPanelProps) {
+function LabelEditorActions({
+  selectedLabel,
+  canWrite,
+  busy,
+  dirty,
+  metadataDirty,
+  roleGrantsDirty,
+  editable,
+  roleGrantsEditable,
+  validation,
+  creatingPending,
+  metadataPending,
+  roleGrantsPending,
+  creating,
+  onSaveMetadata,
+  onSaveRoleGrants,
+  onRequestStatus,
+}: HandlingLabelsPanelProps) {
   const canChangeStatus = Boolean(selectedLabel && canWrite && !selectedLabel.is_system)
   const archiveBlocked = Boolean(
     selectedLabel?.is_active && selectedLabel.assigned_feed_count > 0,
   )
   return (
     <div className="mt-5 flex flex-col-reverse gap-2 border-t border-slate/15 pt-4 sm:flex-row sm:justify-between dark:border-white/10">
-      <div>{canChangeStatus && selectedLabel && <button type="button" className="inline-flex min-h-11 items-center justify-center gap-2 rounded border border-slate/25 px-3 py-2 text-sm font-semibold disabled:opacity-60 sm:min-h-0 dark:border-cyan-900/40" onClick={() => onRequestStatus(!selectedLabel.is_active)} disabled={busy || dirty || archiveBlocked} title={archiveBlocked ? 'Reassign every feed using this label before archiving.' : undefined}>{selectedLabel.is_active ? <Archive className="h-4 w-4" aria-hidden="true" /> : <RotateCcw className="h-4 w-4" aria-hidden="true" />}{selectedLabel.is_active ? 'Archive label' : 'Restore label'}</button>}</div>
+      <div>
+        {canChangeStatus && selectedLabel && (
+          <button
+            type="button"
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded border border-slate/25 px-3 py-2 text-sm font-semibold disabled:opacity-60 sm:min-h-0 dark:border-cyan-900/40"
+            onClick={() => onRequestStatus(!selectedLabel.is_active)}
+            disabled={busy || dirty || archiveBlocked}
+            title={archiveBlocked ? 'Reassign every feed using this label before archiving.' : undefined}
+          >
+            {selectedLabel.is_active
+              ? <Archive className="h-4 w-4" aria-hidden="true" />
+              : <RotateCcw className="h-4 w-4" aria-hidden="true" />}
+            {selectedLabel.is_active ? 'Archive label' : 'Restore label'}
+          </button>
+        )}
+      </div>
       {creating ? (
-        <button type="submit" className="inline-flex min-h-11 items-center justify-center gap-2 rounded bg-ink px-3 py-2 text-sm font-semibold text-white disabled:opacity-60 sm:min-h-0 dark:bg-cyan dark:text-[#053c2e]" disabled={!editable || !dirty || Boolean(validation) || busy}><Save className="h-4 w-4" aria-hidden="true" />{creatingPending ? 'Creating…' : 'Create label'}</button>
+        <button
+          type="submit"
+          className="inline-flex min-h-11 items-center justify-center gap-2 rounded bg-ink px-3 py-2 text-sm font-semibold text-white disabled:opacity-60 sm:min-h-0 dark:bg-cyan dark:text-[#053c2e]"
+          disabled={!editable || !dirty || Boolean(validation) || busy}
+        >
+          <Save className="h-4 w-4" aria-hidden="true" />
+          {creatingPending ? 'Creating…' : 'Create label'}
+        </button>
       ) : (
         <div className="flex flex-col gap-2 sm:flex-row">
-          <button type="button" className="inline-flex min-h-11 items-center justify-center gap-2 rounded border border-slate/25 px-3 py-2 text-sm font-semibold disabled:opacity-60 sm:min-h-0 dark:border-cyan-900/40" disabled={!editable || !roleGrantsEditable || !roleGrantsDirty || busy} onClick={onSaveRoleGrants}><Save className="h-4 w-4" aria-hidden="true" />{roleGrantsPending ? 'Saving boundary…' : 'Save role boundary'}</button>
-          <button type="button" className="inline-flex min-h-11 items-center justify-center gap-2 rounded bg-ink px-3 py-2 text-sm font-semibold text-white disabled:opacity-60 sm:min-h-0 dark:bg-cyan dark:text-[#053c2e]" disabled={!editable || !metadataDirty || Boolean(validation) || busy} onClick={onSaveMetadata}><Save className="h-4 w-4" aria-hidden="true" />{metadataPending ? 'Saving metadata…' : 'Save metadata'}</button>
+          <button
+            type="button"
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded border border-slate/25 px-3 py-2 text-sm font-semibold disabled:opacity-60 sm:min-h-0 dark:border-cyan-900/40"
+            disabled={!editable || !roleGrantsEditable || !roleGrantsDirty || busy}
+            onClick={onSaveRoleGrants}
+          >
+            <Save className="h-4 w-4" aria-hidden="true" />
+            {roleGrantsPending ? 'Saving boundary…' : 'Save role boundary'}
+          </button>
+          <button
+            type="button"
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded bg-ink px-3 py-2 text-sm font-semibold text-white disabled:opacity-60 sm:min-h-0 dark:bg-cyan dark:text-[#053c2e]"
+            disabled={!editable || !metadataDirty || Boolean(validation) || busy}
+            onClick={onSaveMetadata}
+          >
+            <Save className="h-4 w-4" aria-hidden="true" />
+            {metadataPending ? 'Saving metadata…' : 'Save metadata'}
+          </button>
         </div>
       )}
     </div>
@@ -688,7 +880,12 @@ function PolicyModePanel({
       </div>
       <label className="mt-4 block text-sm font-semibold">
         Target mode
-        <select className="mt-1 min-h-11 w-full rounded border border-slate/25 bg-white px-3 py-2 font-normal dark:border-cyan-900/40 dark:bg-[#072019]" value={targetMode} onChange={(event) => onTargetModeChange(event.target.value as DataPolicyMode)} disabled={!canWrite || busy}>
+        <select
+          className="mt-1 min-h-11 w-full rounded border border-slate/25 bg-white px-3 py-2 font-normal dark:border-cyan-900/40 dark:bg-[#072019]"
+          value={targetMode}
+          onChange={(event) => onTargetModeChange(event.target.value as DataPolicyMode)}
+          disabled={!canWrite || busy}
+        >
           <option value="disabled">Disabled</option>
           <option value="audit">Audit</option>
           <option value="enforced">Enforced</option>
@@ -696,9 +893,20 @@ function PolicyModePanel({
       </label>
       <label className="mt-3 block text-sm font-semibold">
         Change reason
-        <textarea className="mt-1 min-h-24 w-full rounded border border-slate/25 bg-white px-3 py-2 font-normal dark:border-cyan-900/40 dark:bg-[#072019]" value={modeReason} onChange={(event) => onReasonChange(event.target.value)} disabled={!canWrite || busy} placeholder="Why is this mode appropriate now?" />
+        <textarea
+          className="mt-1 min-h-24 w-full rounded border border-slate/25 bg-white px-3 py-2 font-normal dark:border-cyan-900/40 dark:bg-[#072019]"
+          value={modeReason}
+          onChange={(event) => onReasonChange(event.target.value)}
+          disabled={!canWrite || busy}
+          placeholder="Why is this mode appropriate now?"
+        />
       </label>
-      {modeBlocked && <p className="mt-3 flex items-start gap-2 rounded border border-amber-300/60 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100"><ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />Resolve the preflight blockers before selecting this mode.</p>}
+      {modeBlocked && (
+        <p className="mt-3 flex items-start gap-2 rounded border border-amber-300/60 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
+          <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          Resolve the preflight blockers before selecting this mode.
+        </p>
+      )}
       <button type="button" className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded bg-ink px-3 py-2 text-sm font-semibold text-white disabled:opacity-60 dark:bg-cyan dark:text-[#053c2e]" disabled={cannotReview} onClick={onReview}>
         <ShieldAlert className="h-4 w-4" aria-hidden="true" />
         Review mode change
@@ -711,19 +919,30 @@ function PreflightPanel({ preflight }: { preflight: DataPolicyPreflight }) {
   return (
     <section className="tl-surface rounded-xl p-4" aria-labelledby="preflight-heading">
       <div className="flex items-start gap-2">
-        {preflight.ready_for_enforcement ? <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" aria-hidden="true" /> : <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" aria-hidden="true" />}
+        {preflight.ready_for_enforcement
+          ? <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" aria-hidden="true" />
+          : <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" aria-hidden="true" />}
         <div>
           <h2 id="preflight-heading" className="font-display text-lg">Activation preflight</h2>
-          <p className="mt-1 text-xs text-slate dark:text-slate-400">Coverage {preflight.current_coverage_version} / {preflight.required_coverage_version}</p>
+          <p className="mt-1 text-xs text-slate dark:text-slate-400">
+            Coverage {preflight.current_coverage_version} / {preflight.required_coverage_version}
+          </p>
         </div>
       </div>
       {preflight.blockers.length === 0 ? (
-        <p className="mt-3 rounded border border-emerald-300/60 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-100">All enforcement invariants are satisfied.</p>
+        <p className="mt-3 rounded border border-emerald-300/60 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-100">
+          All enforcement invariants are satisfied.
+        </p>
       ) : (
         <ul className="mt-3 space-y-2">
           {preflight.blockers.map((blocker) => (
             <li key={blocker.code} className="rounded border border-slate/20 px-3 py-2 text-sm dark:border-white/10">
-              <div className="flex items-start justify-between gap-2"><span className="font-semibold">{blocker.code.replaceAll('_', ' ')}</span>{blocker.count !== null && <span className="rounded bg-slate/10 px-1.5 py-0.5 text-xs font-semibold dark:bg-white/10 dark:text-slate-100">{blocker.count}</span>}</div>
+              <div className="flex items-start justify-between gap-2">
+                <span className="font-semibold">{blocker.code.replaceAll('_', ' ')}</span>
+                {blocker.count !== null && (
+                  <span className="rounded bg-slate/10 px-1.5 py-0.5 text-xs font-semibold dark:bg-white/10 dark:text-slate-100">{blocker.count}</span>
+                )}
+              </div>
               <p className="mt-1 text-xs text-slate dark:text-slate-300">{blocker.detail}</p>
             </li>
           ))}
@@ -734,16 +953,32 @@ function PreflightPanel({ preflight }: { preflight: DataPolicyPreflight }) {
 }
 
 function ModeBadge({ mode }: { mode: DataPolicyMode }) {
-  const className = mode === 'enforced' ? 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-100' : mode === 'audit' ? 'border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100' : 'border-slate/25 bg-slate/5 text-slate dark:border-white/10 dark:bg-white/[0.04] dark:text-slate-300'
+  const className = mode === 'enforced'
+    ? 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-100'
+    : mode === 'audit'
+      ? 'border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100'
+      : 'border-slate/25 bg-slate/5 text-slate dark:border-white/10 dark:bg-white/[0.04] dark:text-slate-300'
   return <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold capitalize ${className}`}>{mode}</span>
 }
 
 function labelDraft(label: HandlingLabel): LabelDraft {
-  return { key: label.key, name: label.name, description: label.description, color: label.color.toUpperCase(), roleIds: [...label.role_ids].sort() }
+  return {
+    key: label.key,
+    name: label.name,
+    description: label.description,
+    color: label.color.toUpperCase(),
+    roleIds: [...label.role_ids].sort(),
+  }
 }
 
 function normalizeLabelDraft(draft: LabelDraft): LabelDraft {
-  return { key: draft.key.trim().toLowerCase(), name: draft.name.trim(), description: draft.description.trim(), color: draft.color.toUpperCase(), roleIds: [...new Set(draft.roleIds)].sort() }
+  return {
+    key: draft.key.trim().toLowerCase(),
+    name: draft.name.trim(),
+    description: draft.description.trim(),
+    color: draft.color.toUpperCase(),
+    roleIds: [...new Set(draft.roleIds)].sort(),
+  }
 }
 
 function labelValidation(draft: LabelDraft, creating: boolean): string | null {

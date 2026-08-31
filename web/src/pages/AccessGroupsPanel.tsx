@@ -7,8 +7,6 @@ import {
   Save,
   Search,
   Trash2,
-  UserMinus,
-  UserPlus,
 } from 'lucide-react'
 
 import { resolveApiErrorMessage } from '../api/errors'
@@ -23,6 +21,11 @@ import type {
   IAMRole,
 } from '../types/api'
 import type { IAMCatalog } from './accessGovernanceApi'
+import {
+  GroupRolesSection,
+  MemberList,
+  MemberPicker,
+} from './AccessGroupAssignments'
 import {
   addIAMGroupMember,
   addIAMGroupRole,
@@ -566,9 +569,22 @@ function GroupsSidebar({
   )
 }
 
-function GroupOption({ group, selected, onChoose }: { group: IAMGroup; selected: boolean; onChoose: (groupId: string) => void }) {
+function GroupOption({
+  group,
+  selected,
+  onChoose,
+}: {
+  group: IAMGroup
+  selected: boolean
+  onChoose: (groupId: string) => void
+}) {
   return (
-    <button type="button" aria-current={selected ? 'true' : undefined} className={`w-full rounded-lg border px-3 py-2.5 text-left ${selected ? 'border-cyan/50 bg-cyan/10' : 'border-transparent hover:border-slate/20 hover:bg-slate/5 dark:hover:border-white/10 dark:hover:bg-white/[0.04]'}`} onClick={() => onChoose(group.id)}>
+    <button
+      type="button"
+      aria-current={selected ? 'true' : undefined}
+      className={`w-full rounded-lg border px-3 py-2.5 text-left ${selected ? 'border-cyan/50 bg-cyan/10' : 'border-transparent hover:border-slate/20 hover:bg-slate/5 dark:hover:border-white/10 dark:hover:bg-white/[0.04]'}`}
+      onClick={() => onChoose(group.id)}
+    >
       <div className="flex items-start justify-between gap-2">
         <span className="font-semibold text-ink dark:text-white">{group.name}</span>
         {(group.is_system || group.source === 'oidc') && <LockKeyhole className="mt-0.5 h-4 w-4 shrink-0 text-slate" aria-label="Externally managed group" />}
@@ -641,7 +657,12 @@ function GroupWorkspace(props: GroupWorkspaceProps) {
       {props.mutationError != null && (
         <div role="alert" className="mt-5 rounded border border-red-300/60 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-100">
           <p className="flex items-start gap-2"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />{resolveApiErrorMessage(props.mutationError, 'Group mutation failed')}</p>
-          {props.mutationOutcomeUnknown && <><p className="mt-2">The outcome is unknown. Group details and assignments were refreshed; review them before attempting another write.</p><button type="button" className="mt-2 font-semibold underline" onClick={props.onAcknowledgeUnknown}>Use refreshed state</button></>}
+          {props.mutationOutcomeUnknown && (
+            <>
+              <p className="mt-2">The outcome is unknown. Group details and assignments were refreshed; review them before attempting another write.</p>
+              <button type="button" className="mt-2 font-semibold underline" onClick={props.onAcknowledgeUnknown}>Use refreshed state</button>
+            </>
+          )}
         </div>
       )}
     </div>
@@ -664,12 +685,39 @@ function GroupDetailsEditor({
   targetUnavailable,
 }: GroupWorkspaceProps) {
   return (
-    <form onSubmit={(event) => { event.preventDefault(); if (mutableGroup && dirty && !validation && !saveBlocked) onSave() }}>
+    <form
+      onSubmit={(event) => {
+        event.preventDefault()
+        if (mutableGroup && dirty && !validation && !saveBlocked) onSave()
+      }}
+    >
       <fieldset disabled={!mutableGroup || busy}>
         <div className="grid gap-4 md:grid-cols-2">
-          <label className="text-sm font-semibold">Group name<input className="mt-1 min-h-11 w-full rounded border border-slate/25 bg-white px-3 py-2 font-normal dark:border-cyan-900/40 dark:bg-[#072019]" value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} /></label>
-          <label className="text-sm font-semibold">Stable key<input className="mt-1 min-h-11 w-full rounded border border-slate/25 bg-white px-3 py-2 font-mono font-normal dark:border-cyan-900/40 dark:bg-[#072019]" value={draft.key} readOnly={!creating} onChange={(event) => setDraft((current) => ({ ...current, key: event.target.value }))} /></label>
-          <label className="text-sm font-semibold md:col-span-2">Description<textarea className="mt-1 min-h-24 w-full rounded border border-slate/25 bg-white px-3 py-2 font-normal dark:border-cyan-900/40 dark:bg-[#072019]" value={draft.description} onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} /></label>
+          <label className="text-sm font-semibold">
+            Group name
+            <input
+              className="mt-1 min-h-11 w-full rounded border border-slate/25 bg-white px-3 py-2 font-normal dark:border-cyan-900/40 dark:bg-[#072019]"
+              value={draft.name}
+              onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
+            />
+          </label>
+          <label className="text-sm font-semibold">
+            Stable key
+            <input
+              className="mt-1 min-h-11 w-full rounded border border-slate/25 bg-white px-3 py-2 font-mono font-normal dark:border-cyan-900/40 dark:bg-[#072019]"
+              value={draft.key}
+              readOnly={!creating}
+              onChange={(event) => setDraft((current) => ({ ...current, key: event.target.value }))}
+            />
+          </label>
+          <label className="text-sm font-semibold md:col-span-2">
+            Description
+            <textarea
+              className="mt-1 min-h-24 w-full rounded border border-slate/25 bg-white px-3 py-2 font-normal dark:border-cyan-900/40 dark:bg-[#072019]"
+              value={draft.description}
+              onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))}
+            />
+          </label>
         </div>
       </fieldset>
       {selectedGroup && !mutableGroup && <ReadOnlyGroupNotice group={selectedGroup} />}
@@ -681,8 +729,22 @@ function GroupDetailsEditor({
       {dirty && !creating && <p className="mt-3 text-xs text-amber-800 dark:text-amber-200">Save or discard group-detail changes before editing members or role grants.</p>}
       {validation && mutableGroup && <p role="alert" className="mt-4 rounded border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">{validation}</p>}
       <div className="mt-4 flex flex-col-reverse gap-2 border-b border-slate/15 pb-5 sm:flex-row sm:justify-between dark:border-white/10">
-        <div>{selectedGroup && mutableGroup && <button type="button" className="tl-button-danger inline-flex min-h-11 items-center justify-center gap-2 rounded px-3 py-2 text-sm font-semibold sm:min-h-0" onClick={onDelete} disabled={busy || dirty}><Trash2 className="h-4 w-4" aria-hidden="true" />Delete group</button>}</div>
-        <button type="submit" className="inline-flex min-h-11 items-center justify-center gap-2 rounded bg-ink px-3 py-2 text-sm font-semibold text-white disabled:opacity-60 sm:min-h-0 dark:bg-cyan dark:text-[#053c2e]" disabled={!mutableGroup || !dirty || Boolean(validation) || busy || saveBlocked}><Save className="h-4 w-4" aria-hidden="true" />{saving ? 'Saving…' : creating ? 'Create group' : 'Save revision'}</button>
+        <div>
+          {selectedGroup && mutableGroup && (
+            <button type="button" className="tl-button-danger inline-flex min-h-11 items-center justify-center gap-2 rounded px-3 py-2 text-sm font-semibold sm:min-h-0" onClick={onDelete} disabled={busy || dirty}>
+              <Trash2 className="h-4 w-4" aria-hidden="true" />
+              Delete group
+            </button>
+          )}
+        </div>
+        <button
+          type="submit"
+          className="inline-flex min-h-11 items-center justify-center gap-2 rounded bg-ink px-3 py-2 text-sm font-semibold text-white disabled:opacity-60 sm:min-h-0 dark:bg-cyan dark:text-[#053c2e]"
+          disabled={!mutableGroup || !dirty || Boolean(validation) || busy || saveBlocked}
+        >
+          <Save className="h-4 w-4" aria-hidden="true" />
+          {saving ? 'Saving…' : creating ? 'Create group' : 'Save revision'}
+        </button>
       </div>
     </form>
   )
@@ -690,6 +752,16 @@ function GroupDetailsEditor({
 
 function ReadOnlyGroupNotice({ group }: { group: IAMGroup }) {
   return <div className="mt-4 flex items-start gap-2 rounded border border-slate/20 bg-slate/5 px-3 py-2 text-sm dark:border-white/10 dark:bg-white/[0.04]"><LockKeyhole className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />{readOnlyGroupReason(group)}</div>
+}
+
+function readOnlyGroupReason(group: IAMGroup): string {
+  if (group.is_system) {
+    return 'System group membership is derived automatically and cannot be edited.'
+  }
+  if (group.source === 'oidc') {
+    return 'This group is controlled by its identity-provider mapping.'
+  }
+  return 'Your current access is read-only.'
 }
 
 function GroupMembersSection({
@@ -718,12 +790,42 @@ function GroupMembersSection({
 }: GroupWorkspaceProps & { group: IAMGroup }) {
   return (
     <section aria-labelledby="group-members-heading">
-      <div className="flex items-end justify-between gap-3"><div><h3 id="group-members-heading" className="font-semibold">Members</h3><p className="mt-1 text-xs text-slate dark:text-slate-400">Direct and provider-derived membership origins remain visible.</p></div><span className="text-xs font-semibold text-slate dark:text-slate-300">{group.member_count} total</span></div>
-      {canAddMember && canReadUsers && <MemberPicker search={memberSearch} onSearch={onMemberSearch} selectedUserId={selectedUserId} onSelectUser={onSelectUser} candidates={memberCandidates} loading={memberCandidatesLoading} error={memberCandidatesError} disabled={busy || dirty} onAdd={onAddMember} onRetry={onRetryMemberCandidates} />}
+      <div className="flex items-end justify-between gap-3">
+        <div>
+          <h3 id="group-members-heading" className="font-semibold">Members</h3>
+          <p className="mt-1 text-xs text-slate dark:text-slate-400">Direct and provider-derived membership origins remain visible.</p>
+        </div>
+        <span className="text-xs font-semibold text-slate dark:text-slate-300">{group.member_count} total</span>
+      </div>
+      {canAddMember && canReadUsers && (
+        <MemberPicker
+          search={memberSearch}
+          onSearch={onMemberSearch}
+          selectedUserId={selectedUserId}
+          onSelectUser={onSelectUser}
+          candidates={memberCandidates}
+          loading={memberCandidatesLoading}
+          error={memberCandidatesError}
+          disabled={busy || dirty}
+          onAdd={onAddMember}
+          onRetry={onRetryMemberCandidates}
+        />
+      )}
       {mutableGroup && !canReadUsers && <p className="mt-3 rounded border border-slate/20 px-3 py-2 text-xs text-slate dark:border-white/10 dark:text-slate-300">User-directory permission is required to add members. Existing membership remains visible.</p>}
-      {membershipDelegationBlocked && <p className="mt-3 rounded border border-amber-300/60 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">Adding a member would delegate permissions outside your durable authority. You can still remove members or role grants to reduce access.</p>}
+      {membershipDelegationBlocked && (
+        <p className="mt-3 rounded border border-amber-300/60 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
+          Adding a member would delegate permissions outside your durable authority. You can still remove members or role grants to reduce access.
+        </p>
+      )}
       <div className="mt-3 max-h-72 overflow-y-auto rounded border border-slate/20 dark:border-white/10">
-        <MemberList members={members} loading={membersLoading} error={membersError} mutableGroup={mutableGroup} disabled={busy || dirty} onRemove={onRemoveMember} />
+        <MemberList
+          members={members}
+          loading={membersLoading}
+          error={membersError}
+          mutableGroup={mutableGroup}
+          disabled={busy || dirty}
+          onRemove={onRemoveMember}
+        />
       </div>
       {group.member_count > 100 && (
         <div className="mt-2 flex items-center justify-between gap-3 text-xs text-slate dark:text-slate-300">
@@ -731,90 +833,21 @@ function GroupMembersSection({
             Showing {members?.length ? memberOffset + 1 : 0}–{Math.min(memberOffset + (members?.length ?? 0), group.member_count)} of {group.member_count}
           </span>
           <div className="flex gap-2">
-            <button type="button" className="rounded border border-slate/20 px-2 py-1 font-semibold disabled:opacity-50 dark:border-white/10" disabled={memberOffset === 0 || busy} onClick={() => onMemberOffsetChange(Math.max(0, memberOffset - 100))}>Previous</button>
-            <button type="button" className="rounded border border-slate/20 px-2 py-1 font-semibold disabled:opacity-50 dark:border-white/10" disabled={memberOffset + (members?.length ?? 0) >= group.member_count || busy} onClick={() => onMemberOffsetChange(memberOffset + 100)}>Next</button>
+            <button type="button" className="rounded border border-slate/20 px-2 py-1 font-semibold disabled:opacity-50 dark:border-white/10" disabled={memberOffset === 0 || busy} onClick={() => onMemberOffsetChange(Math.max(0, memberOffset - 100))}>
+              Previous
+            </button>
+            <button
+              type="button"
+              className="rounded border border-slate/20 px-2 py-1 font-semibold disabled:opacity-50 dark:border-white/10"
+              disabled={memberOffset + (members?.length ?? 0) >= group.member_count || busy}
+              onClick={() => onMemberOffsetChange(memberOffset + 100)}
+            >
+              Next
+            </button>
           </div>
         </div>
       )}
     </section>
-  )
-}
-
-function MemberPicker({ search, onSearch, selectedUserId, onSelectUser, candidates, loading, error, disabled, onAdd, onRetry }: { search: string; onSearch: (value: string) => void; selectedUserId: string; onSelectUser: (userId: string) => void; candidates: AdminUser[]; loading: boolean; error: unknown; disabled: boolean; onAdd: () => void; onRetry: () => void }) {
-  return (
-    <div className="mt-3 rounded-lg border border-slate/20 p-3 dark:border-white/10">
-      <label className="block text-xs font-semibold">Find an active user<input type="search" className="mt-1 min-h-11 w-full rounded border border-slate/25 bg-white px-3 py-2 text-sm font-normal dark:border-cyan-900/40 dark:bg-[#072019]" value={search} placeholder="Search by email" disabled={disabled} onChange={(event) => onSearch(event.target.value)} /></label>
-      <div className="mt-2 flex flex-col gap-2 sm:flex-row">
-        <select aria-label="User to add" className="min-h-11 min-w-0 flex-1 rounded border border-slate/25 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]" value={selectedUserId} disabled={disabled || loading} onChange={(event) => onSelectUser(event.target.value)}><option value="">{loading ? 'Loading users…' : 'Select user'}</option>{candidates.map((user) => <option key={user.id} value={user.id}>{user.email}</option>)}</select>
-        <button type="button" className="inline-flex min-h-11 items-center justify-center gap-2 rounded border border-slate/25 px-3 py-2 text-sm font-semibold disabled:opacity-60 dark:border-cyan-900/40" disabled={!selectedUserId || disabled} onClick={onAdd}><UserPlus className="h-4 w-4" aria-hidden="true" />Add</button>
-      </div>
-      {error != null && (
-        <div role="alert" className="mt-2 flex items-center justify-between gap-3 rounded border border-red-300/60 bg-red-50 px-3 py-2 text-xs text-red-800 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-100">
-          <span>{resolveApiErrorMessage(error, 'User candidates could not be loaded')}</span>
-          <button type="button" className="shrink-0 font-semibold underline" onClick={onRetry} disabled={disabled}>Retry</button>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function MemberList({ members, loading, error, mutableGroup, disabled, onRemove }: { members: IAMGroupMember[] | undefined; loading: boolean; error: unknown; mutableGroup: boolean; disabled: boolean; onRemove: (membershipId: string) => void }) {
-  if (loading) return <p className="px-3 py-4 text-sm text-slate dark:text-slate-300">Loading members…</p>
-  if (error) return <InlineError error={error} fallback="Members could not be loaded" />
-  if (!members?.length) return <p className="px-3 py-4 text-sm text-slate dark:text-slate-300">No direct members.</p>
-  return <ul className="divide-y divide-slate/15 dark:divide-white/10">{members.map((member) => <li key={member.id} className="flex items-center justify-between gap-3 px-3 py-2.5"><div className="min-w-0"><p className="truncate text-sm font-semibold">{member.email}</p><p className="mt-0.5 text-[11px] uppercase text-slate dark:text-slate-400">{memberOrigin(member)}</p></div>{canRemoveMember(mutableGroup, member) && <button type="button" className="inline-flex min-h-11 min-w-11 items-center justify-center rounded border border-slate/20 text-red-700 disabled:opacity-60 sm:min-h-0 sm:min-w-0 sm:px-2 sm:py-1 dark:border-white/10 dark:text-red-200" aria-label={`Remove ${member.email} from group`} disabled={disabled} onClick={() => onRemove(member.id)}><UserMinus className="h-4 w-4" aria-hidden="true" /></button>}</li>)}</ul>
-}
-
-function GroupRolesSection({ group, mutableGroup, busy, dirty, groupRoles, groupRolesLoading, groupRolesError, roleCandidates, selectedRoleId, onSelectRole, onAddRole, onRemoveRole }: GroupWorkspaceProps & { group: IAMGroup }) {
-  return (
-    <section aria-labelledby="group-roles-heading">
-      <div className="flex items-end justify-between gap-3"><div><h3 id="group-roles-heading" className="font-semibold">Role grants</h3><p className="mt-1 text-xs text-slate dark:text-slate-400">Only custom, delegable role bundles can be granted through groups.</p></div><span className="text-xs font-semibold text-slate dark:text-slate-300">{groupRoles?.length ?? group.role_ids.length}</span></div>
-      {mutableGroup && <RolePicker roles={roleCandidates} selectedRoleId={selectedRoleId} onSelectRole={onSelectRole} disabled={busy || dirty} onAdd={onAddRole} />}
-      <div className="mt-3 max-h-72 overflow-y-auto rounded border border-slate/20 dark:border-white/10"><RoleGrantList assignments={groupRoles} loading={groupRolesLoading} error={groupRolesError} mutableGroup={mutableGroup} disabled={busy || dirty} onRemove={onRemoveRole} /></div>
-    </section>
-  )
-}
-
-function RolePicker({ roles, selectedRoleId, onSelectRole, disabled, onAdd }: { roles: IAMRole[]; selectedRoleId: string; onSelectRole: (roleId: string) => void; disabled: boolean; onAdd: () => void }) {
-  return <div className="mt-3 flex flex-col gap-2 rounded-lg border border-slate/20 p-3 sm:flex-row dark:border-white/10"><select aria-label="Role to grant" className="min-h-11 min-w-0 flex-1 rounded border border-slate/25 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]" value={selectedRoleId} disabled={disabled} onChange={(event) => onSelectRole(event.target.value)}><option value="">Select custom role</option>{roles.map((role) => <option key={role.id} value={role.id}>{role.name} ({role.key})</option>)}</select><button type="button" className="inline-flex min-h-11 items-center justify-center gap-2 rounded border border-slate/25 px-3 py-2 text-sm font-semibold disabled:opacity-60 dark:border-cyan-900/40" disabled={!selectedRoleId || disabled} onClick={onAdd}><Plus className="h-4 w-4" aria-hidden="true" />Grant</button></div>
-}
-
-function RoleGrantList({ assignments, loading, error, mutableGroup, disabled, onRemove }: { assignments: IAMGroupRoleAssignment[] | undefined; loading: boolean; error: unknown; mutableGroup: boolean; disabled: boolean; onRemove: (assignmentId: string) => void }) {
-  if (loading) return <p className="px-3 py-4 text-sm text-slate dark:text-slate-300">Loading role grants…</p>
-  if (error) return <InlineError error={error} fallback="Role grants could not be loaded" />
-  if (!assignments?.length) return <p className="px-3 py-4 text-sm text-slate dark:text-slate-300">No role grants.</p>
-  return <ul className="divide-y divide-slate/15 dark:divide-white/10">{assignments.map((assignment) => <li key={assignment.id} className="flex items-center justify-between gap-3 px-3 py-2.5"><div className="min-w-0"><p className="truncate text-sm font-semibold">{assignment.role_name}</p><p className="mt-0.5 font-mono text-[11px] text-slate dark:text-slate-400">{assignment.role_key} · revision {assignment.role_revision}</p></div>{mutableGroup && <button type="button" className="inline-flex min-h-11 min-w-11 items-center justify-center rounded border border-slate/20 text-red-700 disabled:opacity-60 sm:min-h-0 sm:min-w-0 sm:px-2 sm:py-1 dark:border-white/10 dark:text-red-200" aria-label={`Remove ${assignment.role_name} role from group`} disabled={disabled} onClick={() => onRemove(assignment.id)}><Trash2 className="h-4 w-4" aria-hidden="true" /></button>}</li>)}</ul>
-}
-
-function InlineError({ error, fallback }: { error: unknown; fallback: string }) {
-  return (
-    <p role="alert" className="px-3 py-4 text-sm text-red-700 dark:text-red-200">
-      {resolveApiErrorMessage(error, fallback)}
-    </p>
-  )
-}
-
-function readOnlyGroupReason(group: IAMGroup): string {
-  if (group.is_system) {
-    return 'System group membership is derived automatically and cannot be edited.'
-  }
-  if (group.source === 'oidc') {
-    return 'This group is controlled by its identity-provider mapping.'
-  }
-  return 'Your current access is read-only.'
-}
-
-function memberOrigin(member: IAMGroupMember): string {
-  if (member.source === 'oidc') return 'SSO derived'
-  if (member.source_key === '__derived_all_users__') return 'System derived'
-  return 'Local assignment'
-}
-
-function canRemoveMember(mutableGroup: boolean, member: IAMGroupMember): boolean {
-  return (
-    mutableGroup &&
-    member.source === 'local' &&
-    member.source_key !== '__derived_all_users__'
   )
 }
 
