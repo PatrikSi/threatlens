@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "1.8.0",
-    "x-threatlens-contract-sha256": "551f8a2eb0eda611c58ac797856ab700cb280272d0e5d4c57dbcd2b17cfc9e15"
+    "x-threatlens-contract-sha256": "a5572239b4ddc4924da073c979fa60577b462e74df81a1c7313fd0cb8e110ac0"
   },
   "servers": [
     {
@@ -17980,6 +17980,16 @@
               "format": "uuid",
               "title": "Role Id"
             }
+          },
+          {
+            "name": "expected_revision",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "title": "Expected Revision"
+            }
           }
         ],
         "responses": {
@@ -18662,6 +18672,16 @@
               "format": "uuid",
               "title": "Group Id"
             }
+          },
+          {
+            "name": "expected_revision",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "title": "Expected Revision"
+            }
           }
         ],
         "responses": {
@@ -18758,6 +18778,30 @@
               "type": "string",
               "format": "uuid",
               "title": "Group Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 250,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000000,
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
             }
           }
         ],
@@ -18978,6 +19022,16 @@
               "type": "string",
               "format": "uuid",
               "title": "Membership Id"
+            }
+          },
+          {
+            "name": "expected_group_revision",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "title": "Expected Group Revision"
             }
           }
         ],
@@ -19295,6 +19349,16 @@
               "type": "string",
               "format": "uuid",
               "title": "Assignment Id"
+            }
+          },
+          {
+            "name": "expected_group_revision",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "title": "Expected Group Revision"
             }
           }
         ],
@@ -33059,6 +33123,11 @@
             "type": "object",
             "title": "Metadata Json"
           },
+          "data_access_redacted": {
+            "type": "boolean",
+            "title": "Data Access Redacted",
+            "default": false
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -33390,6 +33459,22 @@
             "type": "boolean",
             "title": "Security Actions Supported",
             "default": false
+          },
+          "sensitive_actions_ready": {
+            "type": "boolean",
+            "title": "Sensitive Actions Ready",
+            "default": false
+          },
+          "sensitive_actions_blocker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sensitive Actions Blocker"
           }
         },
         "type": "object",
@@ -33625,6 +33710,29 @@
             },
             "type": "array",
             "title": "Blockers"
+          },
+          "evaluated_policy_revision": {
+            "type": "integer",
+            "title": "Evaluated Policy Revision"
+          },
+          "full": {
+            "type": "boolean",
+            "title": "Full"
+          },
+          "checked_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Checked At"
+          },
+          "route_manifest": {
+            "$ref": "#/components/schemas/DataPolicyRouteManifestEvidenceResponse"
+          },
+          "blocker_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Blocker Counts"
           }
         },
         "type": "object",
@@ -33633,9 +33741,65 @@
           "ready_for_enforcement",
           "current_coverage_version",
           "required_coverage_version",
-          "blockers"
+          "blockers",
+          "evaluated_policy_revision",
+          "full",
+          "checked_at",
+          "route_manifest",
+          "blocker_counts"
         ],
         "title": "DataPolicyPreflightResponse"
+      },
+      "DataPolicyRouteManifestEvidenceResponse": {
+        "properties": {
+          "installed": {
+            "type": "boolean",
+            "title": "Installed"
+          },
+          "valid": {
+            "type": "boolean",
+            "title": "Valid"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "digest": {
+            "type": "string",
+            "title": "Digest"
+          },
+          "declared_operation_count": {
+            "type": "integer",
+            "title": "Declared Operation Count"
+          },
+          "validated_operation_count": {
+            "type": "integer",
+            "title": "Validated Operation Count"
+          },
+          "request_context_operation_count": {
+            "type": "integer",
+            "title": "Request Context Operation Count"
+          },
+          "governance_class_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Governance Class Counts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "installed",
+          "valid",
+          "version",
+          "digest",
+          "declared_operation_count",
+          "validated_operation_count",
+          "request_context_operation_count",
+          "governance_class_counts"
+        ],
+        "title": "DataPolicyRouteManifestEvidenceResponse"
       },
       "DataPolicyStateResponse": {
         "properties": {
@@ -33812,6 +33976,13 @@
             "type": "array",
             "title": "Permissions"
           },
+          "durable_permissions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Durable Permissions"
+          },
           "policy_revision": {
             "type": "integer",
             "minimum": 1.0,
@@ -33834,6 +34005,7 @@
           "roles",
           "groups",
           "permissions",
+          "durable_permissions",
           "policy_revision"
         ],
         "title": "EffectiveAccessResponse"
@@ -35197,12 +35369,18 @@
             "type": "string",
             "format": "uuid",
             "title": "User Id"
+          },
+          "expected_group_revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Group Revision"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "user_id"
+          "user_id",
+          "expected_group_revision"
         ],
         "title": "GroupMemberRequest"
       },
@@ -35392,6 +35570,11 @@
             "format": "uuid",
             "title": "Role Id"
           },
+          "expected_group_revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Group Revision"
+          },
           "expected_role_revision": {
             "anyOf": [
               {
@@ -35408,7 +35591,8 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "role_id"
+          "role_id",
+          "expected_group_revision"
         ],
         "title": "GroupRoleRequest"
       },

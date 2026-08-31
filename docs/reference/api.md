@@ -5,7 +5,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ## Published Contract
 
 - Schema version: `1.8.0`
-- OpenAPI contract anchor: `openapi-sha256:551f8a2eb0eda611c58ac797856ab700cb280272d0e5d4c57dbcd2b17cfc9e15`
+- OpenAPI contract anchor: `openapi-sha256:a5572239b4ddc4924da073c979fa60577b462e74df81a1c7313fd0cb8e110ac0`
 - API service base path: `/v1`
 - Web proxy base path: `/api/v1`
 - Bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`.
@@ -954,6 +954,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Token scopes: `write:iam`
 - Parameters:
   - `group_id` (path, required): string
+  - `expected_revision` (query, required): integer
 - Responses: `204`, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `404` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `PATCH /v1/iam/groups/{group_id}`
 - Summary: Patch Group
@@ -969,6 +970,8 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Token scopes: `read:iam`
 - Parameters:
   - `group_id` (path, required): string
+  - `limit` (query, optional): integer
+  - `offset` (query, optional): integer
 - Responses: `200` `application/json` -> array[GroupMemberResponse], `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `404` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/iam/groups/{group_id}/members`
 - Summary: Post Group Member
@@ -985,6 +988,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `group_id` (path, required): string
   - `membership_id` (path, required): string
+  - `expected_group_revision` (query, required): integer
 - Responses: `204`, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `404` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/iam/groups/{group_id}/role-assignments`
 - Summary: Get Group Roles
@@ -1008,6 +1012,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `group_id` (path, required): string
   - `assignment_id` (path, required): string
+  - `expected_group_revision` (query, required): integer
 - Responses: `204`, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `404` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/iam/permissions`
 - Summary: Get Permissions
@@ -1031,6 +1036,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Token scopes: `write:iam`
 - Parameters:
   - `role_id` (path, required): string
+  - `expected_revision` (query, required): integer
 - Responses: `204`, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `404` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/iam/roles/{role_id}`
 - Summary: Get Role

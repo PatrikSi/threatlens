@@ -162,6 +162,29 @@ The classifier uses weighted regex/token rules for each category and applies fee
   - task events
   - request/response inspection data
   - usage and failure analytics
+- Content-derived task runs and usage records capture normalized handling-label
+  lineage. Only exact connection tests can use the envelope-free system scope.
+- Approval-backed reconciliation of an ambiguous provider attempt derives its
+  data-policy scope from the receipt's exact task run. Governed lineage is copied
+  into the approval; missing lineage is quarantined.
+
+## Application History Maintenance
+
+`app.tasks.history_maintenance_tasks.maintain_application_history` runs hourly on
+the maintenance queue. It prunes bounded batches of expired audit, AI, tag
+feedback, integration-run, session, MFA, and action-approval history according to
+the configured retention periods.
+
+Action approvals default to a longer retention window than AI task history. A
+retained approval therefore pins any AI task run referenced by its captured
+source or target receipt, and pins the provider-attempt receipt operation it
+targets. Approval records are pruned first; a source run or receipt that becomes
+unreferenced can then be pruned in the same pass.
+
+AI history candidates are locked and their cross-table eligibility is rechecked
+at deletion time. Data-access envelopes are removed only for IDs returned by the
+actual delete. This prevents a concurrent approval creator or another retention
+pin from leaving a retained record without its normalized provenance.
 
 ## Intelligence Report Generation
 

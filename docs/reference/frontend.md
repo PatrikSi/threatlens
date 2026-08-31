@@ -498,11 +498,52 @@ UI elements:
   - `Workspace`
   - `Integrations` with `Webhooks`
   - permission-gated `Integrations` -> `SMTP`
-  - permission-gated `AI`, `Tagging`, `Identity`, `Users`, `Operations`, and `Audit Logs`
+  - permission-gated `AI`, `Tagging`, `Access`, `Identity`, `Users`,
+    `Operations`, and `Audit Logs`
 
 API calls:
 
 - `GET /auth/me` (via `useCurrentUser`)
+
+### `AccessGovernancePage`
+
+UI elements:
+
+- Permission-aware Overview, Roles, Groups, and Handling labels tabs.
+- Current-posture cards for IAM, machine identities, access reviews, temporary
+  elevations, action approvals, and data-policy state. Optional inventory
+  failures remain visible instead of being rendered as zero counts.
+- Custom-role editor with grouped permission selection and revision-aware saves.
+- Local/federated group inventory, paginated member management, and group-role
+  assignments.
+- Handling-label metadata and durable-role grant editor, archive controls, and
+  revision-aware mode changes.
+- Activation-preflight evidence showing full-versus-runtime evaluation, checked
+  time, policy revision, coverage, blocker details, and the route-manifest
+  version, digest, operation counts, request-context count, and governance-class
+  counts.
+- Write gates distinguish missing authority, temporary-only authority, and a
+  browser session that needs recent local or OIDC MFA-backed authentication.
+- Unsaved-draft confirmation before switching governance tabs or refreshing.
+
+API calls:
+
+- `GET /iam/permissions`
+- `GET|POST /iam/roles`
+- `PATCH|DELETE /iam/roles/{role_id}`
+- `GET|POST /iam/groups`
+- `PATCH|DELETE /iam/groups/{group_id}`
+- group membership and role-assignment calls under `/iam/groups/{group_id}`
+- `GET /iam/data-policies`
+- handling-label, role-grant, status, and mode mutations under
+  `/iam/data-policies`
+- permission-gated `GET` inventory calls for `/iam/service-accounts`,
+  `/iam/access-reviews`, `/iam/elevations`, and `/iam/action-approvals`
+
+The Overview is an operational summary, not a workflow editor for service
+accounts, reviews, elevations, or approvals. See [Access Governance and Data
+Policy](./access-governance.md) for the backend activation and target-lineage
+contracts.
 
 ### `NotificationWebhooksSettings`
 
@@ -725,6 +766,10 @@ API calls:
 | `pages/OperationsPage.tsx` | `GET` | `/operations/overview` |
 | `pages/OperationsPage.tsx` | `GET` | `/operations/runs` |
 | `pages/OperationsPage.tsx` | `GET` | `/operations/diagnostics` |
+| `pages/accessGovernanceApi.ts` | `GET` | `/iam/permissions`, `/iam/roles`, and `/iam/groups` |
+| `pages/accessGovernanceApi.ts` | `POST`, `PATCH`, `DELETE` | custom IAM roles and groups, group members, and group-role assignments |
+| `pages/accessGovernanceApi.ts` | `GET` | `/iam/data-policies`, `/iam/service-accounts`, `/iam/access-reviews`, `/iam/elevations`, and `/iam/action-approvals` |
+| `pages/accessGovernanceApi.ts` | `POST`, `PATCH`, `PUT` | handling-label and data-policy mode mutations |
 | `pages/AccountPage.tsx` | `POST` | `/auth/change-password` |
 | `pages/ExportPage.tsx` | `GET` | `/exports/capabilities` |
 | `pages/ExportPage.tsx` | `POST` | `/exports/preview` |

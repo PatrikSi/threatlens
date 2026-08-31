@@ -24,6 +24,64 @@
 - `revoked_at: timestamptz?`
 - `created_at: timestamptz`
 
+### Access Governance and Data Policy
+
+IAM state is normalized across these models:
+
+- `IAMPolicyState` is a revisioned singleton used to fence authorization
+  mutations.
+- `IAMRole` stores sealed system roles and mutable custom roles. Permissions are
+  rows in `IAMRolePermission` and must come from the code-owned catalog.
+- `IAMUserRoleAssignment`, `IAMGroupMembership`, and
+  `IAMGroupRoleAssignment` preserve direct, local-group, and leased OIDC sources
+  independently so identity synchronization cannot erase local grants.
+- `IAMGroup` distinguishes local, OIDC, and sealed system groups and carries its
+  own optimistic revision.
+- Service accounts, temporary elevations, access reviews, workspace role policy,
+  and user workspace preferences use separate models rather than overloading
+  human users or the legacy fixed role.
+
+Handling policy is normalized across:
+
+- `DataPolicyState`: singleton mode (`disabled|audit|enforced`), policy revision,
+  application coverage version, and enforcement actor/time.
+- `HandlingLabel`: immutable key plus display metadata, active/system flags, and
+  optimistic revision. The fixed `unrestricted` and `quarantine` label IDs are
+  database invariants.
+- `DataPolicyRoleGrant`: durable IAM-role access to a label.
+- `DataAccessEnvelope`: unique `(resource_type, resource_id)` snapshot with the
+  derivation policy revision and aggregate source count.
+- `DataAccessEnvelopeSource`: immutable source type/ID/version, optional feed and
+  parent source, captured label and policy revision, optional source digest, and
+  capture time.
+- `DataAccessEnvelopeLabel`: per-envelope label counts derived from normalized
+  sources.
+
+`ActionApprovalRequest` snapshots the action and audit names, requester and
+approver permissions, action-definition and target-policy versions, target ID,
+target revision and body, canonical payload digest, requester/decision/execution
+evidence, expiry, status, and optimistic revision. Its data-policy fields are:
+
+- `data_access_scope: system|governed`
+- `data_access_lineage_complete: bool`
+- `data_access_source_type: system_control_plane|ai_task_run|unresolved`
+- `data_access_source_id: UUID?`
+
+A system-scoped approval must match an exact registered control-plane or AI
+connection-test contract and must not have an envelope. A governed approval must
+have a complete normalized `action_approval` envelope whose source is an exact
+copy of the target AI run or explicit quarantine lineage. PostgreSQL check
+constraints and the coverage-aware writer trigger enforce these shapes.
+
+`ActionExecutionReceipt` is one-to-one with an executed approval and freezes the
+target revision, payload digest, requester/approver/executor identities, result
+snapshot, result schema version, and execution time. Governance operation
+receipts separately provide idempotent replay for supported mutations.
+
+AI telemetry also carries explicit `system|governed` scope. Only exact
+connection-test task runs and usage can use system scope without envelopes;
+content-derived AI task runs and usage require governed envelopes.
+
 ### `Feed`
 
 - `id: UUID` (PK)
@@ -130,12 +188,20 @@ Composite PK `(user_id, item_id)`:
 
 - `id: UUID` (PK)
 - `actor_user_id: UUID?` (FK users, `SET NULL` on delete)
+- additive actor principal, credential, request, source-IP, elevation, approval,
+  and execution-receipt context
+- `data_access_governed: bool`
+- compatibility `data_access_label_ids: JSON string[]`
 - `action: text`
 - `resource_type: text`
 - `resource_id: text?`
 - `success: bool`
 - `metadata_json: JSON object`
 - `created_at: timestamptz`
+
+Governed audit evidence also uses normalized `AuditLogDataAccessLabel` and
+`AuditLogDataAccessFeed` rows. Full activation preflight checks those immutable
+snapshots against the compatibility label JSON and any linked resource envelope.
 
 ### `ItemClassification`
 
@@ -466,6 +532,13 @@ Report schedules use idempotent generation keys. Reports retain source, prompt, 
 - Stats family (`TotalsSummary`, `ActivitySummary`, `DerivedSummary`, `StatusPoint`, `DailyVolumePoint`, `FeedStats`, `DomainPoint`, and time-series schemas)
   - Includes activity heatmap contracts: `ActivityHeatmapDayRow`, `ActivityHeatmapResponse`
   - Includes signal radar contracts: `SignalRadarAxisPoint`, `SignalRadarResponse`
+- Access governance:
+  - IAM permission, effective-access, role, group, membership, and assignment
+    schemas
+  - service-account, temporary-elevation, action-approval, and access-review
+    schemas
+  - data-policy state, handling-label mutation, preflight blocker, route-manifest
+    evidence, and mode-transition schemas
 
 ## Frontend Type Mirrors (`web/src/types/api.ts`)
 
@@ -483,3 +556,5 @@ The frontend mirrors backend contracts for all major payloads:
 - Notifications: `NotificationTemplateVariable`, `NotificationWebhook`, `NotificationWebhookWriteRequest`, `NotificationWebhookTestResponse`, `NotificationWebhookDelivery`, `NotificationWebhookDeliveryListResponse`
 - Tagging: `TaggingSettings`, `TaggingRule`, `TaggingSettingsBundleResponse`, `TaggingRuleWriteRequest`, `TaggingRulePreviewResponse`, `TaggingReapplyResponse`
 - Reporting: `ReportCapabilities`, `ReportPreview`, `ReportTemplate`, `ReportListItem`, `ReportDetail`, `ReportSchedule`, `ReportQueueResponse`
+- Governance: IAM roles/groups, data-policy state and preflight evidence,
+  service-account/access-review/elevation summaries, and action-approval queues
