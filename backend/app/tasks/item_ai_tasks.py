@@ -456,6 +456,7 @@ def _record_selection(
         return
     run.target_count = len(item_ids)
     db.add(run)
+    db.flush()
     capture_ai_task_run_data_access(
         db,
         run_id=run_id,
