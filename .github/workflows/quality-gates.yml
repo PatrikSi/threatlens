@@ -151,6 +151,10 @@ jobs:
         working-directory: web
         run: timeout 10m npm run build
 
+      - name: Smoke test production frontend
+        working-directory: web
+        run: timeout 1m npm run test:dist
+
       - name: Audit frontend dependencies
         working-directory: web
         run: timeout 5m npm run audit
