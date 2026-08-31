@@ -98,6 +98,8 @@ def record_data_policy_decision(
         resource_id=str(resource_id) if resource_id is not None else None,
         success=decision in {"would_deny", "egress_would_deny"},
         metadata=metadata,
+        data_access_governed=True,
+        data_access_label_ids=label_ids,
     )
 
 

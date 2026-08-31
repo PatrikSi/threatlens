@@ -8,8 +8,11 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
 from app.api.deps import (
+    AuthenticatedPrincipal,
     get_auth_credential_kind,
+    get_authorization_context,
     get_current_auth_session_id,
+    get_data_access_context,
     require_permissions,
     resolve_client_ip,
 )
@@ -21,9 +24,22 @@ from app.models.user import User
 from app.schemas.audit import (
     AuditLogExportResponse,
     AuditLogListResponse,
-    AuditLogResponse,
 )
 from app.services.audit import record_audit
+from app.services.audit_data_access import (
+    AuditDataAccessProjection,
+    project_audit_logs,
+)
+from app.services.authorization import (
+    AuthorizationStateUnavailable,
+    fence_authorization_context,
+)
+from app.services.data_access_policy import (
+    DataAccessContext,
+    DataPolicyUnavailable,
+    fence_data_access_context,
+)
+from app.services.data_policy_audit import record_data_policy_decision
 
 router = APIRouter(prefix="/audit-logs", tags=["audit"])
 
@@ -133,6 +149,7 @@ def _validate_audit_window(
 
 @router.get("", response_model=AuditLogListResponse)
 def list_audit_logs(
+    request: Request,
     action: str | None = Query(default=None, max_length=255),
     actor_user_id: uuid.UUID | None = None,
     actor_principal_type: Literal["user", "service_account", "system"] | None = None,
@@ -152,7 +169,8 @@ def list_audit_logs(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
     db: Session = Depends(get_db),
-    _user: User = Depends(require_permissions(SCOPE_READ_AUDIT)),
+    _principal: AuthenticatedPrincipal = Depends(require_permissions(SCOPE_READ_AUDIT)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     _validate_audit_window(created_from, created_to)
     query = _build_audit_query(
@@ -183,8 +201,18 @@ def list_audit_logs(
         .limit(page_size)
     ).all()
 
+    projection = project_audit_logs(rows, context=data_access)
+    if _record_projection_decision(
+        db,
+        projection=projection,
+        context=data_access,
+        surface="audit.list",
+    ):
+        db.commit()
+        _refence_audit_response(db, request=request, data_access=data_access)
+
     return AuditLogListResponse(
-        logs=[AuditLogResponse.model_validate(row) for row in rows],
+        logs=list(projection.logs),
         total=total,
         page=page,
         page_size=page_size,
@@ -212,7 +240,8 @@ def export_audit_logs(
     created_to: datetime | None = None,
     limit: int = Query(default=5000, ge=1, le=20000),
     db: Session = Depends(get_db),
-    user: User = Depends(require_permissions(SCOPE_READ_AUDIT)),
+    principal: AuthenticatedPrincipal = Depends(require_permissions(SCOPE_READ_AUDIT)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     _validate_audit_window(created_from, created_to)
     query = _build_audit_query(
@@ -237,21 +266,24 @@ def export_audit_logs(
     count_stmt = select(func.count()).select_from(query.subquery())
     total = int(db.scalar(count_stmt) or 0)
     rows = db.scalars(query.order_by(AuditLog.created_at.desc()).limit(limit)).all()
+    projection = project_audit_logs(rows, context=data_access)
 
     response = AuditLogExportResponse(
         exported_at=datetime.now(timezone.utc),
         total=total,
         truncated=total > limit,
-        logs=[AuditLogResponse.model_validate(row) for row in rows],
+        logs=list(projection.logs),
     )
     audit_credential_id = getattr(request.state, "api_token_id", None)
     if audit_credential_id is None:
         audit_credential_id = get_current_auth_session_id(request)
     record_audit(
         db,
-        actor_user_id=user.id,
-        actor_principal_type="user",
-        actor_principal_id=user.id,
+        actor_user_id=(principal.id if isinstance(principal, User) else None),
+        actor_principal_type=(
+            "user" if isinstance(principal, User) else "service_account"
+        ),
+        actor_principal_id=principal.id,
         credential_kind=get_auth_credential_kind(request),
         credential_id=audit_credential_id,
         request_id=getattr(request.state, "request_id", None),
@@ -274,7 +306,7 @@ def export_audit_logs(
                     str(execution_receipt_id) if execution_receipt_id else None
                 ),
                 "resource_type": resource_type,
-                "resource_id": resource_id,
+                "resource_id_supplied": resource_id is not None,
                 "request_id": request_id,
                 "source_ip": source_ip,
                 "success": success,
@@ -286,5 +318,54 @@ def export_audit_logs(
             "truncated": response.truncated,
         },
     )
+    _record_projection_decision(
+        db,
+        projection=projection,
+        context=data_access,
+        surface="audit.export",
+    )
     db.commit()
+    _refence_audit_response(db, request=request, data_access=data_access)
     return response
+
+
+def _record_projection_decision(
+    db: Session,
+    *,
+    projection: AuditDataAccessProjection,
+    context: DataAccessContext,
+    surface: str,
+) -> bool:
+    if projection.affected_count <= 0:
+        return False
+    record_data_policy_decision(
+        db,
+        context=context,
+        decision="would_deny" if context.auditing else "not_served",
+        resource_type="audit_log",
+        surface=surface,
+        handling_label_ids=projection.handling_label_ids,
+        affected_count=projection.affected_count,
+        metadata_extra={"projection": "metadata_redaction"},
+    )
+    return True
+
+
+def _refence_audit_response(
+    db: Session,
+    *,
+    request: Request,
+    data_access: DataAccessContext,
+) -> None:
+    authorization = get_authorization_context(request)
+    if authorization is None:
+        raise DataPolicyUnavailable(
+            "Audit history authorization is unavailable. Retry the request."
+        )
+    try:
+        fence_authorization_context(db, authorization)
+    except AuthorizationStateUnavailable as exc:
+        raise DataPolicyUnavailable(
+            "Audit history authorization changed. Retry the request."
+        ) from exc
+    fence_data_access_context(db, data_access)
