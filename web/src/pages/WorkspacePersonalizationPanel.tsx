@@ -1,4 +1,5 @@
 import { ArrowDown, ArrowUp, RefreshCw, RotateCcw, Save } from 'lucide-react'
+import { useRef, useState } from 'react'
 
 import {
   TRUSTED_DASHBOARD_PANELS,
@@ -12,9 +13,14 @@ import type { WorkspaceSettingsController } from './useWorkspaceSettingsControll
 import {
   movePersonalModule,
   personalLandingOptions,
+  reorderPersonalModule,
   toggleStringValue,
   updatePersonalModule,
 } from './workspaceSettingsModel'
+import {
+  NavigationDragHandle,
+  NavigationOrderButton,
+} from './WorkspaceNavigationReorderControls'
 
 export function WorkspacePersonalizationPanel({ controller }: { controller: WorkspaceSettingsController }) {
   const { workspace, personalDraft } = controller
@@ -23,7 +29,7 @@ export function WorkspacePersonalizationPanel({ controller }: { controller: Work
 
   return (
     <section className="tl-surface overflow-hidden rounded-xl" aria-labelledby="personal-workspace-heading">
-      <header className="border-b border-slate/20 px-4 py-4 dark:border-white/10 sm:px-5">
+      <header className="border-b border-slate/20 px-4 py-3.5 dark:border-white/10">
         <h2 id="personal-workspace-heading" className="font-display text-lg">My navigation</h2>
         <p className="mt-1 text-sm text-slate dark:text-slate-300">
           Choose what appears in your navigation and where ThreatLens opens. These preferences cannot grant access or override organization policy.
@@ -31,11 +37,11 @@ export function WorkspacePersonalizationPanel({ controller }: { controller: Work
       </header>
 
       {!personalDraft || !effective || !preferences ? (
-        <div className="px-4 py-6 text-sm text-slate dark:text-slate-300">
+        <div className="px-4 py-4 text-sm text-slate dark:text-slate-300">
           {workspace.error ? 'Personal navigation settings are unavailable until the server can be reached.' : 'Loading personal navigation settings...'}
         </div>
       ) : (
-        <div className="space-y-5 px-4 py-4 sm:px-5">
+        <div className="space-y-4 px-4 py-3.5">
           <PersonalModuleList controller={controller} />
           <PersonalLandingControl controller={controller} />
           <PersonalDashboardControls controller={controller} />
@@ -62,7 +68,7 @@ export function WorkspacePersonalizationPanel({ controller }: { controller: Work
             </p>
           )}
 
-          <div className="flex flex-col-reverse gap-2 border-t border-slate/15 pt-4 sm:flex-row sm:justify-end dark:border-white/10">
+          <div className="flex flex-col-reverse gap-2 border-t border-slate/15 pt-3 sm:flex-row sm:justify-end dark:border-white/10">
             <button
               type="button"
               className="inline-flex min-h-11 items-center justify-center gap-2 rounded border border-slate/30 px-3 py-2 text-sm font-semibold disabled:opacity-60 sm:min-h-0 dark:border-cyan-900/40"
@@ -95,21 +101,80 @@ export function WorkspacePersonalizationPanel({ controller }: { controller: Work
 }
 
 function PersonalModuleList({ controller }: { controller: WorkspaceSettingsController }) {
+  const instructionsId = 'personal-navigation-reorder-instructions'
   const draft = controller.personalDraft!
   const effectiveById = new Map(controller.workspace.effective!.modules.map((module) => [module.id, module]))
+  const [draggedModuleId, setDraggedModuleId] = useState<TrustedWorkspaceModule['id'] | null>(null)
+  const [dropTargetModuleId, setDropTargetModuleId] = useState<TrustedWorkspaceModule['id'] | null>(null)
+  const [keyboardGrabbedModuleId, setKeyboardGrabbedModuleId] = useState<TrustedWorkspaceModule['id'] | null>(null)
+  const [reorderStatus, setReorderStatus] = useState(
+    'Order changes remain unsaved until you save navigation preferences.',
+  )
+  const dropHandled = useRef(false)
   const ordered = [...draft.modules.entries()].sort(([leftId, left], [rightId, right]) => {
     const leftSection = TRUSTED_WORKSPACE_MODULE_BY_ID.get(leftId)?.section ?? 'settings'
     const rightSection = TRUSTED_WORKSPACE_MODULE_BY_ID.get(rightId)?.section ?? 'settings'
     return leftSection.localeCompare(rightSection) || left.order - right.order || leftId.localeCompare(rightId)
   })
 
+  function moveModule(moduleId: TrustedWorkspaceModule['id'], direction: -1 | 1) {
+    const definition = TRUSTED_WORKSPACE_MODULE_BY_ID.get(moduleId)
+    if (!definition) return
+    const siblings = ordered.filter(
+      ([id]) => TRUSTED_WORKSPACE_MODULE_BY_ID.get(id)?.parentId === definition.parentId,
+    )
+    const currentIndex = siblings.findIndex(([id]) => id === moduleId)
+    const nextIndex = currentIndex + direction
+    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= siblings.length) return
+
+    controller.setPersonalDraft((current) =>
+      current ? movePersonalModule(current, moduleId, direction) : current,
+    )
+    setReorderStatus(
+      `Moved ${workspaceModuleDisplayLabel(definition)} to position ${nextIndex + 1} of ${siblings.length} in ${workspaceModuleReorderGroupLabel(definition)}. Save navigation preferences to apply this order.`,
+    )
+  }
+
+  function dropModule(
+    sourceId: TrustedWorkspaceModule['id'],
+    targetId: TrustedWorkspaceModule['id'],
+  ) {
+    const sourceDefinition = TRUSTED_WORKSPACE_MODULE_BY_ID.get(sourceId)
+    const targetDefinition = TRUSTED_WORKSPACE_MODULE_BY_ID.get(targetId)
+    if (!sourceDefinition || !targetDefinition) return
+    if (sourceDefinition.parentId !== targetDefinition.parentId) {
+      setReorderStatus(
+        `${workspaceModuleDisplayLabel(sourceDefinition)} can only be moved within ${workspaceModuleReorderGroupLabel(sourceDefinition)}.`,
+      )
+      return
+    }
+
+    const siblings = ordered.filter(
+      ([id]) => TRUSTED_WORKSPACE_MODULE_BY_ID.get(id)?.parentId === sourceDefinition.parentId,
+    )
+    const targetIndex = siblings.findIndex(([id]) => id === targetId)
+    if (targetIndex < 0 || sourceId === targetId) {
+      setReorderStatus(`${workspaceModuleDisplayLabel(sourceDefinition)} stayed in its current position.`)
+      return
+    }
+    controller.setPersonalDraft((current) =>
+      current ? reorderPersonalModule(current, sourceId, targetId) : current,
+    )
+    setReorderStatus(
+      `Moved ${workspaceModuleDisplayLabel(sourceDefinition)} to position ${targetIndex + 1} of ${siblings.length} in ${workspaceModuleReorderGroupLabel(sourceDefinition)}. Save navigation preferences to apply this order.`,
+    )
+  }
+
   return (
     <fieldset disabled={controller.personalMutationPending}>
       <legend className="text-sm font-semibold">Navigation items</legend>
-      <p className="mt-1 text-xs text-slate dark:text-slate-400">
-        Hide optional items or reorder them within their navigation section.
+      <p id={instructionsId} className="mt-1 text-xs text-slate dark:text-slate-400">
+        Drag a handle to reorder an item within its navigation group. Use the earlier and later buttons for keyboard or touch.
       </p>
-      <div className="mt-3 divide-y divide-slate/15 rounded border border-slate/20 dark:divide-white/10 dark:border-white/10">
+      <p role="status" aria-live="polite" aria-atomic="true" className="mt-1 min-h-4 text-xs text-slate dark:text-slate-400">
+        {reorderStatus}
+      </p>
+      <div className="mt-2 divide-y divide-slate/15 rounded-lg border border-slate/20 dark:divide-white/10 dark:border-white/10">
         {ordered.map(([moduleId, preference]) => {
           const definition = TRUSTED_WORKSPACE_MODULE_BY_ID.get(moduleId)
           const effective = effectiveById.get(moduleId)
@@ -121,8 +186,83 @@ function PersonalModuleList({ controller }: { controller: WorkspaceSettingsContr
             ([id]) => TRUSTED_WORKSPACE_MODULE_BY_ID.get(id)?.parentId === definition.parentId,
           )
           const siblingIndex = siblingItems.findIndex(([id]) => id === moduleId)
+          const reorderDisabled = controller.personalMutationPending || siblingItems.length < 2
+          const keyboardGrabbed = keyboardGrabbedModuleId === moduleId
           return (
-            <div key={moduleId} className="flex flex-wrap items-center gap-3 px-3 py-3">
+            <div
+              key={moduleId}
+              data-navigation-reorder-item={moduleId}
+              className={`flex flex-wrap items-center gap-2 px-2 py-2 transition ${
+                draggedModuleId === moduleId ? 'opacity-50' : ''
+              } ${dropTargetModuleId === moduleId ? 'bg-cyan/10 ring-1 ring-inset ring-cyan/40' : ''}`}
+              onDragOver={(event) => {
+                if (!draggedModuleId || draggedModuleId === moduleId) return
+                const draggedDefinition = TRUSTED_WORKSPACE_MODULE_BY_ID.get(draggedModuleId)
+                if (!draggedDefinition || draggedDefinition.parentId !== definition.parentId) {
+                  event.dataTransfer.dropEffect = 'none'
+                  setDropTargetModuleId(null)
+                  return
+                }
+                event.preventDefault()
+                event.dataTransfer.dropEffect = 'move'
+                setDropTargetModuleId(moduleId)
+              }}
+              onDrop={(event) => {
+                event.preventDefault()
+                const transferredId = event.dataTransfer.getData('text/plain')
+                const sourceId = draggedModuleId ?? (
+                  isTrustedWorkspaceModuleId(transferredId) ? transferredId : null
+                )
+                dropHandled.current = true
+                setDraggedModuleId(null)
+                setDropTargetModuleId(null)
+                if (sourceId) dropModule(sourceId, moduleId)
+              }}
+            >
+              <NavigationDragHandle
+                active={keyboardGrabbed}
+                count={siblingItems.length}
+                describedBy={instructionsId}
+                disabled={reorderDisabled}
+                label={displayLabel}
+                position={siblingIndex + 1}
+                onToggle={() => {
+                  if (keyboardGrabbed) {
+                    setKeyboardGrabbedModuleId(null)
+                    setReorderStatus(
+                      `Finished reordering ${displayLabel}. Save navigation preferences to apply this order.`,
+                    )
+                  } else {
+                    setKeyboardGrabbedModuleId(moduleId)
+                    setReorderStatus(
+                      `Picked up ${displayLabel}, position ${siblingIndex + 1} of ${siblingItems.length}. Use the Up and Down arrow keys, then press Enter to finish or Escape to stop reordering.`,
+                    )
+                  }
+                }}
+                onStop={() => {
+                  setKeyboardGrabbedModuleId(null)
+                  setReorderStatus(`Stopped reordering ${displayLabel}.`)
+                }}
+                onMove={(direction) => moveModule(moduleId, direction)}
+                onDragStart={(event) => {
+                  dropHandled.current = false
+                  setKeyboardGrabbedModuleId(null)
+                  setDraggedModuleId(moduleId)
+                  event.dataTransfer.effectAllowed = 'move'
+                  event.dataTransfer.setData('text/plain', moduleId)
+                  setReorderStatus(
+                    `Dragging ${displayLabel}. Drop it on another item in ${workspaceModuleReorderGroupLabel(definition)}.`,
+                  )
+                }}
+                onDragEnd={() => {
+                  if (!dropHandled.current) {
+                    setReorderStatus(`Stopped reordering ${displayLabel}.`)
+                  }
+                  dropHandled.current = false
+                  setDraggedModuleId(null)
+                  setDropTargetModuleId(null)
+                }}
+              />
               <Icon className="h-4 w-4 shrink-0 text-cyan" aria-hidden="true" />
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-semibold text-ink dark:text-slate-100">{displayLabel}</p>
@@ -154,51 +294,26 @@ function PersonalModuleList({ controller }: { controller: WorkspaceSettingsContr
                 Show
               </label>
               <div className="flex shrink-0 gap-1">
-                <OrderButton
+                <NavigationOrderButton
                   label={`Move ${displayLabel} earlier`}
-                  disabled={siblingIndex === 0 || controller.personalMutationPending}
-                  onClick={() => controller.setPersonalDraft((current) => current ? movePersonalModule(current, moduleId, -1) : current)}
+                  disabled={siblingIndex === 0 || reorderDisabled}
+                  onClick={() => moveModule(moduleId, -1)}
                 >
                   <ArrowUp className="h-4 w-4" aria-hidden="true" />
-                </OrderButton>
-                <OrderButton
+                </NavigationOrderButton>
+                <NavigationOrderButton
                   label={`Move ${displayLabel} later`}
-                  disabled={siblingIndex === siblingItems.length - 1 || controller.personalMutationPending}
-                  onClick={() => controller.setPersonalDraft((current) => current ? movePersonalModule(current, moduleId, 1) : current)}
+                  disabled={siblingIndex === siblingItems.length - 1 || reorderDisabled}
+                  onClick={() => moveModule(moduleId, 1)}
                 >
                   <ArrowDown className="h-4 w-4" aria-hidden="true" />
-                </OrderButton>
+                </NavigationOrderButton>
               </div>
             </div>
           )
         })}
       </div>
     </fieldset>
-  )
-}
-
-function OrderButton({
-  label,
-  disabled,
-  onClick,
-  children,
-}: {
-  label: string
-  disabled: boolean
-  onClick: () => void
-  children: React.ReactNode
-}) {
-  return (
-    <button
-      type="button"
-      className="inline-flex h-11 w-11 items-center justify-center rounded border border-slate/25 text-slate disabled:opacity-35 sm:h-10 sm:w-10 dark:border-white/10 dark:text-slate-200"
-      aria-label={label}
-      title={label}
-      disabled={disabled}
-      onClick={onClick}
-    >
-      {children}
-    </button>
   )
 }
 
@@ -291,5 +406,10 @@ function workspaceModuleDisplayLabel(module: TrustedWorkspaceModule): string {
 
 function workspaceModuleSectionLabel(module: TrustedWorkspaceModule): string {
   if (module.parentId === 'settings.integrations') return 'Integration setting'
+  return module.section === 'settings' ? 'Settings navigation' : 'Main navigation'
+}
+
+function workspaceModuleReorderGroupLabel(module: TrustedWorkspaceModule): string {
+  if (module.parentId === 'settings.integrations') return 'Integration settings'
   return module.section === 'settings' ? 'Settings navigation' : 'Main navigation'
 }

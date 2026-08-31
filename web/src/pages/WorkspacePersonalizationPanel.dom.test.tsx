@@ -98,6 +98,71 @@ describe('WorkspacePersonalizationPanel', () => {
     expect(container.textContent).not.toContain('settings.workspace')
   })
 
+  it('supports pointer drag reordering with named keyboard and touch fallbacks', () => {
+    const effective = effectiveWorkspace()
+    const userPreferences = preferences()
+    const draft = createPersonalWorkspaceDraft(effective, userPreferences)
+    const setPersonalDraft = vi.fn()
+    const controller = personalController(effective, userPreferences, draft, setPersonalDraft)
+
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+    act(() => root?.render(<WorkspacePersonalizationPanel controller={controller} />))
+
+    const handle = container.querySelector<HTMLButtonElement>('[aria-label^="Drag Feeds."]')
+    const target = container.querySelector<HTMLElement>(
+      '[data-navigation-reorder-item="primary.alerts"]',
+    )
+    const invalidTarget = container.querySelector<HTMLElement>(
+      '[data-navigation-reorder-item="settings.tokens"]',
+    )
+    const earlierButton = container.querySelector<HTMLButtonElement>(
+      '[aria-label="Move Feeds earlier"]',
+    )
+
+    expect(handle).not.toBeNull()
+    expect(handle?.draggable).toBe(true)
+    expect(handle?.getAttribute('aria-describedby')).toBe(
+      'personal-navigation-reorder-instructions',
+    )
+    expect(container.textContent).toContain(
+      'Use the earlier and later buttons for keyboard or touch.',
+    )
+    expect(earlierButton).not.toBeNull()
+
+    const transfer = createDataTransfer()
+    act(() => dispatchDragEvent(handle!, 'dragstart', transfer))
+    let invalidDragOver: Event
+    act(() => {
+      invalidDragOver = dispatchDragEvent(invalidTarget!, 'dragover', transfer)
+    })
+    expect(invalidDragOver!.defaultPrevented).toBe(false)
+    expect(invalidTarget?.className).not.toContain('bg-cyan/10')
+    act(() => dispatchDragEvent(target!, 'dragover', transfer))
+    act(() => dispatchDragEvent(target!, 'drop', transfer))
+    act(() => dispatchDragEvent(handle!, 'dragend', transfer))
+
+    const dropUpdate = setPersonalDraft.mock.calls[0]?.[0] as
+      | ((current: typeof draft) => typeof draft)
+      | undefined
+    expect(dropUpdate).toBeTypeOf('function')
+    const droppedDraft = dropUpdate!(draft)
+    expect(droppedDraft.modules.get('primary.feeds')?.order).toBeLessThan(
+      droppedDraft.modules.get('primary.alerts')?.order ?? Number.MAX_SAFE_INTEGER,
+    )
+    expect(container.querySelector('[role="status"]')?.textContent).toContain(
+      'Moved Feeds to position 1',
+    )
+
+    act(() => earlierButton!.click())
+    expect(setPersonalDraft).toHaveBeenCalledTimes(2)
+    expect(container.querySelector('[role="status"]')?.textContent).toContain(
+      'Save navigation preferences to apply this order.',
+    )
+    expect(target?.className).toContain('py-2')
+  })
+
   it('does not allow the final first-use dashboard panel to be removed', () => {
     const effective = effectiveWorkspace()
     const userPreferences = preferences()
@@ -211,4 +276,23 @@ function effectiveWorkspace(): WorkspaceEffectiveResponse {
     })),
     warnings: [],
   }
+}
+
+function createDataTransfer(): DataTransfer {
+  let value = ''
+  return {
+    dropEffect: 'none',
+    effectAllowed: 'uninitialized',
+    getData: () => value,
+    setData: (_format: string, nextValue: string) => {
+      value = nextValue
+    },
+  } as unknown as DataTransfer
+}
+
+function dispatchDragEvent(target: Element, type: string, dataTransfer: DataTransfer) {
+  const event = new Event(type, { bubbles: true, cancelable: true })
+  Object.defineProperty(event, 'dataTransfer', { value: dataTransfer })
+  target.dispatchEvent(event)
+  return event
 }
