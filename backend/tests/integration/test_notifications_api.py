@@ -465,7 +465,7 @@ def test_notification_webhook_test_blocks_replay_when_post_io_outcome_is_not_dur
         _fake_send,
     )
     monkeypatch.setattr(
-        "app.services.notification_webhooks.record_notification_webhook_test_outcome",
+        "app.services.notification_webhook_testing.record_notification_webhook_test_outcome",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             RuntimeError("simulated outcome persistence failure")
         ),
