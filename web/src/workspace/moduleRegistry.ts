@@ -43,6 +43,7 @@ export type TrustedWorkspaceModuleId =
   | 'settings.workspace'
   | 'settings.ai'
   | 'settings.tagging'
+  | 'settings.access'
   | 'settings.identity'
   | 'settings.users'
   | 'settings.audit'
@@ -193,6 +194,12 @@ export const TRUSTED_WORKSPACE_MODULES: readonly TrustedWorkspaceModule[] = [
     requiredPermissions: ['read:users'], featureDependency: null, serverFeatureFlag: null,
     defaultVisibleRoles: ADMIN_ONLY, defaultOptional: true, defaultOrder: 40,
     defaultMobilePriority: 40, mobileBehavior: 'secondary',
+  }),
+  moduleDefinition({
+    id: 'settings.access', label: 'Access', route: '/settings/access', icon: ShieldCheck,
+    requiredPermissions: ['read:iam'], featureDependency: null, serverFeatureFlag: null,
+    defaultVisibleRoles: ADMIN_ONLY, defaultOptional: true, defaultOrder: 45,
+    defaultMobilePriority: 45, mobileBehavior: 'secondary',
   }),
   moduleDefinition({
     id: 'settings.users', label: 'Users', route: '/settings/users', icon: Users,

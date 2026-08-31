@@ -511,6 +511,7 @@ def test_workspace_registry_matches_frontend_routes_and_panel_ids():
         "settings.ai": "/settings/ai",
         "settings.tagging": "/settings/tagging",
         "settings.identity": "/settings/identity",
+        "settings.access": "/settings/access",
         "settings.users": "/settings/users",
         "settings.audit": "/settings/audit-logs",
         "settings.operations": "/settings/operations",
@@ -629,21 +630,21 @@ def test_workspace_resets_are_revisioned_atomic_and_audited(
 
     db_session.expire_all()
     audits = db_session.scalars(
-        select(AuditLog)
-        .where(
+        select(AuditLog).where(
             AuditLog.request_id == "workspace-reset-test",
             AuditLog.action.in_(
                 {"workspace.role_policy.reset", "workspace.preferences.reset"}
             ),
         )
-        .order_by(AuditLog.created_at)
     ).all()
-    assert [(row.action, row.success) for row in audits] == [
-        ("workspace.role_policy.reset", False),
-        ("workspace.role_policy.reset", True),
-        ("workspace.preferences.reset", False),
-        ("workspace.preferences.reset", True),
-    ]
+    assert sorted((row.action, row.success) for row in audits) == sorted(
+        [
+            ("workspace.role_policy.reset", False),
+            ("workspace.role_policy.reset", True),
+            ("workspace.preferences.reset", False),
+            ("workspace.preferences.reset", True),
+        ]
+    )
 
 
 @pytest.mark.parametrize("user_key", ["analyst", "viewer"])

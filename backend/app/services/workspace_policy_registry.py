@@ -11,6 +11,7 @@ from app.core.token_scopes import (
     SCOPE_READ_ALERTS,
     SCOPE_READ_AUDIT,
     SCOPE_READ_FEEDS,
+    SCOPE_READ_IAM,
     SCOPE_READ_INTEGRATIONS,
     SCOPE_READ_INVESTIGATIONS,
     SCOPE_READ_ITEMS,
@@ -197,6 +198,14 @@ WORKSPACE_MODULES: tuple[WorkspaceModuleDefinition, ...] = (
         "/settings/identity",
         order=40,
         permissions=(SCOPE_READ_USERS,),
+        roles=_ADMIN_ONLY,
+    ),
+    _module(
+        "settings.access",
+        "Access",
+        "/settings/access",
+        order=45,
+        permissions=(SCOPE_READ_IAM,),
         roles=_ADMIN_ONLY,
     ),
     _module(
