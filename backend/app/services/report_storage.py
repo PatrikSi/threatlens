@@ -24,6 +24,8 @@ from app.schemas.reports import (
 )
 from app.services.ai_config import ActiveAISettings
 from app.services.ai_prompting import build_company_context
+from app.services.data_access_envelopes import DATA_ACCESS_RESOURCE_REPORT
+from app.services.data_access_retention import prune_deleted_resource_envelopes
 from app.services.data_access_runtime import ensure_report_data_access_envelope
 from app.services.report_prompt_budget import (
     CONTEXT_COMPACTION_WARNING,
@@ -307,7 +309,13 @@ def report_detail_response(db: Session, *, report: Report) -> ReportDetailRespon
 
 
 def delete_report(db: Session, *, report: Report) -> None:
+    report_id = report.id
     db.delete(report)
+    db.flush()
+    prune_deleted_resource_envelopes(
+        db,
+        resources=((DATA_ACCESS_RESOURCE_REPORT, report_id),),
+    )
 
 
 def replace_report_sources_from_plan(

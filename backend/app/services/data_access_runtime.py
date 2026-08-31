@@ -57,7 +57,7 @@ def ensure_report_data_access_envelope(
     report_id: uuid.UUID,
     expected_policy_revision: int | None = None,
 ) -> DataAccessEnvelopeSnapshot:
-    report = db.get(Report, report_id)
+    report = _lock_envelope_target(db, Report, report_id)
     if report is None:
         raise DataPolicyUnavailable(
             "The report disappeared before its data-policy provenance could be recorded.",
@@ -121,7 +121,7 @@ def ensure_daily_brief_data_access_envelope(
     brief_id: uuid.UUID,
     expected_policy_revision: int | None = None,
 ) -> DataAccessEnvelopeSnapshot:
-    brief = db.get(AIDailyBrief, brief_id)
+    brief = _lock_envelope_target(db, AIDailyBrief, brief_id)
     if brief is None:
         raise DataPolicyUnavailable(
             "The daily brief disappeared before its data-policy provenance could be recorded.",
@@ -207,7 +207,7 @@ def ensure_daily_brief_data_access_envelope(
 def ensure_investigation_data_access_envelope(
     db: Session, *, investigation_id: uuid.UUID
 ) -> DataAccessEnvelopeSnapshot:
-    investigation = db.get(Investigation, investigation_id)
+    investigation = _lock_envelope_target(db, Investigation, investigation_id)
     if investigation is None:
         raise DataPolicyUnavailable(
             "The investigation disappeared before its data-policy provenance could be recorded.",
@@ -261,7 +261,7 @@ def merge_investigation_evidence_data_access(
     source_item_ids: Sequence[uuid.UUID] | None = None,
     expected_policy_revision: int | None = None,
 ) -> DataAccessEnvelopeSnapshot:
-    investigation = db.get(Investigation, evidence.investigation_id)
+    investigation = _lock_envelope_target(db, Investigation, evidence.investigation_id)
     if investigation is None:
         raise DataPolicyUnavailable(
             "The investigation disappeared before evidence provenance could be recorded.",
@@ -290,7 +290,7 @@ def ensure_alert_occurrence_data_access_envelope(
     occurrence_id: uuid.UUID,
     expected_policy_revision: int | None = None,
 ) -> DataAccessEnvelopeSnapshot:
-    occurrence = db.get(AlertOccurrence, occurrence_id)
+    occurrence = _lock_envelope_target(db, AlertOccurrence, occurrence_id)
     if occurrence is None:
         raise DataPolicyUnavailable(
             "The alert occurrence disappeared before its data-policy provenance could be recorded.",
@@ -333,7 +333,7 @@ def ensure_alert_occurrence_data_access_envelope(
 def ensure_integration_event_data_access_envelope(
     db: Session, *, event_id: uuid.UUID
 ) -> DataAccessEnvelopeSnapshot:
-    event = db.get(IntegrationEvent, event_id)
+    event = _lock_envelope_target(db, IntegrationEvent, event_id)
     if event is None:
         raise DataPolicyUnavailable(
             "The integration event disappeared before its data-policy provenance could be recorded.",
@@ -677,7 +677,7 @@ def _ensure_delivery_envelope(
             "Integration delivery lineage contains a cycle or exceeds the supported replay depth.",
             context={"integration_delivery_id": str(delivery_id)},
         )
-    delivery = db.get(IntegrationDelivery, delivery_id)
+    delivery = _lock_envelope_target(db, IntegrationDelivery, delivery_id)
     if delivery is None:
         raise DataPolicyUnavailable(
             "The integration delivery disappeared before its data-policy provenance could be recorded.",
@@ -817,6 +817,15 @@ def _parent_resource_exists(
     }
     model = model_by_type.get(resource_type)
     return model is not None and db.get(model, resource_id) is not None
+
+
+def _lock_envelope_target(db: Session, model, resource_id: uuid.UUID):
+    return db.scalar(
+        select(model)
+        .where(model.id == resource_id)
+        .with_for_update(read=True, key_share=True)
+        .execution_options(populate_existing=True)
+    )
 
 
 def _feed_source(
