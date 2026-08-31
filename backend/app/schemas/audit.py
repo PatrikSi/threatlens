@@ -23,6 +23,7 @@ class AuditLogResponse(BaseModel):
     resource_id: str | None
     success: bool
     metadata_json: dict
+    data_access_redacted: bool = False
     created_at: datetime
 
 

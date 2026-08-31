@@ -62,9 +62,24 @@ class AuditLog(Base):
             "'$[*] ? (@.type() != \"string\")')",
             name="ck_audit_logs_authorization_elevation_ids",
         ),
+        CheckConstraint(
+            "jsonb_typeof(data_access_label_ids) = 'array' AND "
+            "NOT jsonb_path_exists(data_access_label_ids, "
+            "'$[*] ? (@.type() != \"string\")')",
+            name="ck_audit_logs_data_access_label_ids",
+        ),
+        CheckConstraint(
+            "data_access_governed OR jsonb_array_length(data_access_label_ids) = 0",
+            name="ck_audit_logs_ungoverned_labels_empty",
+        ),
         Index(
             "ix_audit_logs_authorization_elevation_ids",
             "authorization_elevation_ids",
+            postgresql_using="gin",
+        ),
+        Index(
+            "ix_audit_logs_data_access_label_ids",
+            "data_access_label_ids",
             postgresql_using="gin",
         ),
     )
@@ -96,6 +111,18 @@ class AuditLog(Base):
     )
     execution_receipt_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True), nullable=True
+    )
+    data_access_governed: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+    )
+    data_access_label_ids: Mapped[list[str]] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql"),
+        nullable=False,
+        default=list,
+        server_default="[]",
     )
     action: Mapped[str] = mapped_column(Text, nullable=False)
     resource_type: Mapped[str] = mapped_column(Text, nullable=False)

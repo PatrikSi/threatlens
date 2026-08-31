@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import Iterable
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -24,6 +25,8 @@ def record_audit(
     resource_id: str | None = None,
     success: bool = True,
     metadata: dict[str, Any] | None = None,
+    data_access_governed: bool | None = None,
+    data_access_label_ids: Iterable[uuid.UUID | str] | None = None,
 ) -> AuditLog:
     request_context = get_log_context()
     resolved_principal_type = actor_principal_type
@@ -56,6 +59,13 @@ def record_audit(
             "authorization_elevation_ids",
             elevation_ids,
         )
+    governed, label_ids = _resolve_data_access_snapshot(
+        db,
+        resource_type=resource_type,
+        resource_id=resource_id,
+        data_access_governed=data_access_governed,
+        data_access_label_ids=data_access_label_ids,
+    )
     log = AuditLog(
         actor_user_id=actor_user_id,
         actor_principal_type=resolved_principal_type,
@@ -67,6 +77,8 @@ def record_audit(
         authorization_elevation_ids=elevation_ids,
         authorization_approval_id=authorization_approval_id,
         execution_receipt_id=execution_receipt_id,
+        data_access_governed=governed,
+        data_access_label_ids=label_ids,
         action=action,
         resource_type=resource_type,
         resource_id=resource_id,
@@ -76,6 +88,52 @@ def record_audit(
     db.add(log)
     db.flush()
     return log
+
+
+def _resolve_data_access_snapshot(
+    db: Session,
+    *,
+    resource_type: str,
+    resource_id: str | None,
+    data_access_governed: bool | None,
+    data_access_label_ids: Iterable[uuid.UUID | str] | None,
+) -> tuple[bool, list[str]]:
+    explicit_labels = (
+        _normalize_label_ids(data_access_label_ids)
+        if data_access_label_ids is not None
+        else None
+    )
+    if data_access_governed is False and explicit_labels:
+        raise ValueError("Ungoverned audit records cannot carry handling labels.")
+    if data_access_governed is not None or explicit_labels is not None:
+        return bool(data_access_governed or explicit_labels is not None), (
+            explicit_labels or []
+        )
+
+    from app.services.audit_data_access import resolve_audit_data_access_labels
+
+    resolved = resolve_audit_data_access_labels(
+        db,
+        resource_type=resource_type,
+        resource_id=resource_id,
+    )
+    if resolved is None:
+        return False, []
+    return True, _normalize_label_ids(resolved)
+
+
+def _normalize_label_ids(
+    values: Iterable[uuid.UUID | str],
+) -> list[str]:
+    normalized: set[str] = set()
+    for value in values:
+        try:
+            normalized.add(str(uuid.UUID(str(value))))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "Audit handling-label snapshots require UUID values."
+            ) from exc
+    return sorted(normalized)
 
 
 def _uuid_or_none(value: object) -> uuid.UUID | None:
