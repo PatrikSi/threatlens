@@ -167,12 +167,15 @@ export function TokenInventory({
     <>
       <section
         aria-labelledby="token-inventory-heading"
-        className="min-w-0 rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90"
+        className="min-w-0 rounded-xl border border-slate/20 bg-white/80 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/90"
       >
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 id="token-inventory-heading" className="font-display text-xl">
-            Issued tokens
-          </h2>
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div className="flex min-h-7 items-center gap-2">
+            <h2 id="token-inventory-heading" className="font-display text-lg">
+              Issued tokens
+            </h2>
+            <TokenInventoryCount inventory={inventory} />
+          </div>
           {isAdmin && (
             <AdminTokenFilter
               draft={adminUserFilterDraft}
@@ -199,9 +202,9 @@ export function TokenInventory({
             aria-live="polite"
             aria-atomic="true"
             aria-label="Organization token administration scope"
-            className="mt-3 rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2 text-amber-950 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100"
+            className="mt-2 rounded-lg border border-amber-300/60 bg-amber-50 px-2.5 py-2 text-amber-950 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100"
           >
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
               <span className="tl-chip tl-chip-warning">
                 Organization administration
               </span>
@@ -209,7 +212,7 @@ export function TokenInventory({
                 Owner-scoped token inventory
               </span>
             </div>
-            <p className="mt-1 break-words text-sm">
+            <p className="mt-1 break-words text-xs">
               Viewing tokens for owner{' '}
               <span className="break-all font-mono text-xs">
                 {adminUserFilter}
@@ -222,7 +225,7 @@ export function TokenInventory({
 
         <TokenScopeMigrationWarning unscopedTotal={unscopedTotal} />
 
-        <div className="mt-3 space-y-2">
+        <div className="mt-2 space-y-2">
           {secretNotice && (
             <p
               role="status"
@@ -270,7 +273,10 @@ export function TokenInventory({
               </p>
             )}
           {inventory && tokens.length > 0 && (
-            <ul className="space-y-2" aria-label="API tokens">
+            <ul
+              className="divide-y divide-slate/20 overflow-hidden rounded-lg border border-slate/20 dark:divide-cyan-900/40 dark:border-cyan-900/40"
+              aria-label="API tokens"
+            >
               {tokens.map((token) => (
                 <TokenInventoryRow
                   key={token.id}
@@ -328,7 +334,7 @@ export function TokenInventory({
           {!tokensQuery.isLoading &&
             !tokensQuery.isError &&
             inventory?.tokens.length === 0 && (
-              <div className="rounded-lg border border-dashed border-slate/25 px-3 py-4 text-center text-sm text-slate dark:border-cyan-900/40 dark:text-slate-300">
+              <div className="rounded-lg border border-dashed border-slate/25 px-3 py-3 text-center text-sm text-slate dark:border-cyan-900/40 dark:text-slate-300">
                 {adminUserFilter
                   ? `No API tokens were found for user ${adminUserFilter}.`
                   : 'No API tokens were found for this account.'}
@@ -424,12 +430,21 @@ function TokenScopeMigrationWarning({
 }) {
   if (unscopedTotal < 1) return null
   return (
-    <div className="mt-3 rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+    <div className="mt-2 rounded-lg border border-amber-300/60 bg-amber-50 px-2.5 py-2 text-xs text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
       {unscopedTotal === 1 ? '1 token has' : `${unscopedTotal} tokens have`} no
       scopes. Scoped API routes now reject unscoped tokens, so rotate these
       credentials before they break automation.
     </div>
   )
+}
+
+function TokenInventoryCount({
+  inventory,
+}: {
+  inventory?: ApiTokenListResponse
+}) {
+  if (!inventory) return null
+  return <span className="tl-chip tl-chip-neutral">{inventory.total} total</span>
 }
 
 function TokenInventoryPagination({
@@ -449,14 +464,15 @@ function TokenInventoryPagination({
 }) {
   const first = total === 0 ? 0 : (page - 1) * TOKEN_PAGE_SIZE + 1
   const last = first === 0 ? 0 : first + itemCount - 1
+  if (pageCount <= 1) return null
   return (
     <nav
       aria-label="Token inventory pages"
-      className="grid grid-cols-[auto_1fr_auto] items-center gap-2 pt-2 text-sm sm:flex sm:justify-between"
+      className="grid grid-cols-[auto_1fr_auto] items-center gap-2 pt-1 text-xs text-slate sm:flex sm:justify-between dark:text-slate-300"
     >
       <button
         type="button"
-        className="min-h-11 rounded border border-slate/30 px-3 py-2 disabled:opacity-50 dark:border-cyan-900/40"
+        className="min-h-11 rounded border border-slate/30 px-2.5 py-1.5 font-semibold disabled:opacity-50 sm:min-h-0 dark:border-cyan-900/40"
         disabled={disabled || page <= 1}
         onClick={() => onPageChange(page - 1)}
       >
@@ -467,7 +483,7 @@ function TokenInventoryPagination({
       </span>
       <button
         type="button"
-        className="min-h-11 rounded border border-slate/30 px-3 py-2 disabled:opacity-50 dark:border-cyan-900/40"
+        className="min-h-11 rounded border border-slate/30 px-2.5 py-1.5 font-semibold disabled:opacity-50 sm:min-h-0 dark:border-cyan-900/40"
         disabled={disabled || page >= pageCount}
         onClick={() => onPageChange(page + 1)}
       >
@@ -498,7 +514,8 @@ function AdminTokenFilter({
     : 'Draft not applied. Results still include your own tokens.'
   return (
     <form
-      className="w-full max-w-full space-y-1 sm:w-auto"
+      aria-label="Filter token inventory by owner"
+      className="w-full max-w-full sm:w-auto"
       onSubmit={onApply}
     >
       <label
@@ -507,26 +524,26 @@ function AdminTokenFilter({
       >
         Owner user ID
       </label>
-      <input
-        id="token-admin-user-filter"
-        value={draft}
-        onChange={(event) => onDraftChange(event.target.value)}
-        placeholder="Paste a complete user ID"
-        aria-describedby={error ? 'token-admin-user-filter-error' : undefined}
-        aria-invalid={Boolean(error)}
-        className="w-full max-w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm sm:w-72 dark:border-cyan-900/40 dark:bg-[#072019]"
-      />
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="mt-1 flex min-w-0 items-stretch gap-1.5">
+        <input
+          id="token-admin-user-filter"
+          value={draft}
+          onChange={(event) => onDraftChange(event.target.value)}
+          placeholder="Paste a complete user ID"
+          aria-describedby={error ? 'token-admin-user-filter-error' : undefined}
+          aria-invalid={Boolean(error)}
+          className="min-h-11 min-w-0 max-w-full flex-1 rounded border border-slate/30 bg-white px-2.5 py-1.5 text-sm sm:min-h-0 sm:w-64 dark:border-cyan-900/40 dark:bg-[#072019]"
+        />
         <button
           type="submit"
-          className="min-h-11 rounded bg-ink px-3 py-2 text-sm font-semibold text-white dark:bg-cyan dark:text-[#053c2e]"
+          className="min-h-11 shrink-0 rounded bg-ink px-2.5 py-1.5 text-sm font-semibold text-white sm:min-h-0 dark:bg-cyan dark:text-[#053c2e]"
         >
-          Apply filter
+          Apply
         </button>
         {(applied || draft) && (
           <button
             type="button"
-            className="min-h-11 rounded border border-slate/30 px-3 py-2 text-sm font-semibold dark:border-cyan-900/40"
+            className="min-h-11 shrink-0 rounded border border-slate/30 px-2.5 py-1.5 text-sm font-semibold sm:min-h-0 dark:border-cyan-900/40"
             onClick={onClear}
           >
             Clear
@@ -537,7 +554,7 @@ function AdminTokenFilter({
         <p
           id="token-admin-user-filter-error"
           role="alert"
-          className="max-w-72 text-xs text-red-600 dark:text-red-300"
+          className="mt-1 max-w-full text-xs text-red-600 sm:max-w-[26rem] dark:text-red-300"
         >
           {error}
         </p>
@@ -546,7 +563,7 @@ function AdminTokenFilter({
         <p
           role="status"
           aria-live="polite"
-          className="max-w-72 break-all text-xs text-slate dark:text-slate-300"
+          className="mt-1 max-w-full break-all text-xs text-slate sm:max-w-[26rem] dark:text-slate-300"
         >
           {statusMessage}
         </p>
@@ -567,40 +584,53 @@ function TokenInventoryRow({
   onRevoke: () => void
 }) {
   return (
-    <li className="min-w-0 rounded border border-slate/20 p-3 dark:border-cyan-900/40">
+    <li className="min-w-0 px-3 py-2.5">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <p className="break-words font-semibold [overflow-wrap:anywhere]">
             {token.name}
           </p>
           <p className="break-all text-xs text-slate dark:text-slate-300">
-            {token.token_prefix}
+            Prefix: <span className="font-mono">{token.token_prefix}</span>
           </p>
         </div>
-        <button
-          type="button"
-          className="shrink-0 rounded border border-slate/30 px-2 py-1 text-xs text-red-600 max-sm:min-h-11 max-sm:min-w-11 dark:border-cyan-900/40"
-          onClick={onRevoke}
-          disabled={disabled}
-        >
-          {token.revoked_at ? 'Revoked' : 'Revoke'}
-        </button>
+        {token.revoked_at ? (
+          <span className="tl-chip tl-chip-neutral shrink-0">Revoked</span>
+        ) : (
+          <button
+            type="button"
+            className="shrink-0 rounded border border-slate/30 px-2 py-1 text-xs font-semibold text-red-600 disabled:cursor-not-allowed disabled:opacity-50 max-sm:min-h-11 max-sm:min-w-11 dark:border-cyan-900/40"
+            onClick={onRevoke}
+            disabled={disabled}
+          >
+            Revoke
+          </button>
+        )}
       </div>
-      <p className="mt-1 break-words text-xs text-slate dark:text-slate-300">
-        Permissions: {token.scopes.join(', ') || 'none'}
-      </p>
-      {isAdmin && (
-        <p className="mt-1 break-all text-xs text-slate dark:text-slate-300">
-          Owner user ID: {token.user_id}
-        </p>
-      )}
-      <p className="mt-1 text-xs text-slate dark:text-slate-300">
-        Expires: {token.expires_at ? formatDateTime(token.expires_at) : 'Never'}
-      </p>
-      <p className="mt-1 text-xs text-slate dark:text-slate-300">
-        Last used:{' '}
-        {token.last_used_at ? formatDateTime(token.last_used_at) : 'Never'}
-      </p>
+      <dl className="mt-1.5 grid gap-x-4 gap-y-1 text-xs text-slate sm:grid-cols-2 dark:text-slate-300">
+        <div className="min-w-0 break-words sm:col-span-2">
+          <dt className="inline font-semibold">Permissions: </dt>
+          <dd className="inline">{token.scopes.join(', ') || 'none'}</dd>
+        </div>
+        {isAdmin && (
+          <div className="min-w-0 break-all sm:col-span-2">
+            <dt className="block font-semibold sm:inline">Owner user ID:</dt>{' '}
+            <dd className="block font-mono sm:inline">{token.user_id}</dd>
+          </div>
+        )}
+        <div>
+          <dt className="inline font-semibold">Expires: </dt>
+          <dd className="inline">
+            {token.expires_at ? formatDateTime(token.expires_at) : 'Never'}
+          </dd>
+        </div>
+        <div>
+          <dt className="inline font-semibold">Last used: </dt>
+          <dd className="inline">
+            {token.last_used_at ? formatDateTime(token.last_used_at) : 'Never'}
+          </dd>
+        </div>
+      </dl>
     </li>
   )
 }

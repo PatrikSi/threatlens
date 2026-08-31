@@ -221,7 +221,7 @@ export function TokensPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {confirmDiscardTokenDraft.discardDialog}
       <SettingsPageHeader
         scope="Personal"
@@ -236,7 +236,7 @@ export function TokensPage() {
           </a>
         )}
       />
-      <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
+      <div className="grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1fr)_360px]">
         <TokenInventory isAdmin={isAdmin} secretNotice={secretNotice} />
         <div id="create-api-token" className="min-w-0 scroll-mt-4">
           <TokenCreatePanel

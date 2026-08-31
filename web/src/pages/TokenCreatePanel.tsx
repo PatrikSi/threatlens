@@ -94,15 +94,20 @@ export function TokenCreatePanel({
     }
   }
   return (
-    <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
-      <h2 className="font-display text-xl">Create API token</h2>
+    <section
+      aria-labelledby="create-api-token-heading"
+      className="rounded-xl border border-slate/20 bg-white/80 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/90"
+    >
+      <h2 id="create-api-token-heading" className="font-display text-lg">
+        Create API token
+      </h2>
       <p className="mt-1 text-sm text-slate dark:text-slate-300">
         Token value is only shown once after creation.
       </p>
       {!creationAvailable ? (
         <div
           role="status"
-          className="mt-3 rounded border border-amber-300/60 bg-amber-50 px-3 py-3 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200"
+          className="mt-2 rounded border border-amber-300/60 bg-amber-50 px-2.5 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200"
         >
           <p className="font-semibold">
             Browser token creation is unavailable for this account
@@ -116,7 +121,7 @@ export function TokenCreatePanel({
       ) : (
         <>
           {currentAuthMethod === 'oidc' ? (
-            <div className="mt-3 rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-3 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+            <div className="mt-2 rounded-lg border border-amber-300/60 bg-amber-50 px-2.5 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
               <p>
                 {oidcTokenCreationReady
                   ? 'This SSO session was recently verified with identity-provider MFA. Token issuance remains bound to this account and the selected scopes.'
@@ -127,7 +132,7 @@ export function TokenCreatePanel({
               {!oidcTokenCreationReady && (
                 <button
                   type="button"
-                  className="mt-3 min-h-11 rounded border border-current px-3 py-2 font-semibold"
+                  className="mt-2 min-h-11 rounded border border-current px-3 py-1.5 font-semibold sm:min-h-0"
                   onClick={onOIDCReauthenticate}
                   disabled={oidcReauthPending}
                 >
@@ -145,45 +150,47 @@ export function TokenCreatePanel({
               )}
             </div>
           ) : (
-            <div className="mt-3 rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+            <div className="mt-2 rounded-lg border border-amber-300/60 bg-amber-50 px-2.5 py-2 text-xs text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
               Browser sessions must confirm the current account password before
               creating a durable API token.
               {mfaStatus?.enabled &&
                 ' Local MFA also requires a current authenticator or recovery code.'}
             </div>
           )}
-          <form className="mt-3 space-y-3" onSubmit={handleSubmit} noValidate>
-            <div>
-              <label htmlFor="token-name" className="text-sm font-semibold">
-                Token name
-              </label>
-              <input
-                ref={nameInputRef}
-                id="token-name"
-                className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
-                value={state.name}
-                onChange={(event) => onNameChange(event.target.value)}
-                required
-              />
-            </div>
-            <div>
-              <label
-                htmlFor="token-expiry-days"
-                className="text-sm font-semibold"
-              >
-                Expires after (days)
-              </label>
-              <input
-                ref={expiryInputRef}
-                id="token-expiry-days"
-                className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
-                type="number"
-                min={1}
-                max={3650}
-                value={state.expiresInDays}
-                onChange={(event) => onExpiryChange(Number(event.target.value))}
-                required
-              />
+          <form className="mt-3 space-y-2.5" onSubmit={handleSubmit} noValidate>
+            <div className="grid gap-2.5 sm:grid-cols-[minmax(0,1fr)_8rem]">
+              <div>
+                <label htmlFor="token-name" className="text-sm font-semibold">
+                  Token name
+                </label>
+                <input
+                  ref={nameInputRef}
+                  id="token-name"
+                  className="mt-1 min-h-11 w-full rounded border border-slate/30 bg-white px-2.5 py-1.5 text-sm sm:min-h-0 dark:border-cyan-900/40 dark:bg-[#072019]"
+                  value={state.name}
+                  onChange={(event) => onNameChange(event.target.value)}
+                  required
+                />
+              </div>
+              <div>
+                <label
+                  htmlFor="token-expiry-days"
+                  className="text-sm font-semibold"
+                >
+                  Expiry (days)
+                </label>
+                <input
+                  ref={expiryInputRef}
+                  id="token-expiry-days"
+                  className="mt-1 min-h-11 w-full rounded border border-slate/30 bg-white px-2.5 py-1.5 text-sm sm:min-h-0 dark:border-cyan-900/40 dark:bg-[#072019]"
+                  type="number"
+                  min={1}
+                  max={3650}
+                  value={state.expiresInDays}
+                  onChange={(event) => onExpiryChange(Number(event.target.value))}
+                  required
+                />
+              </div>
             </div>
             <div>
               <label htmlFor="token-scopes" className="text-sm font-semibold">
@@ -191,14 +198,14 @@ export function TokenCreatePanel({
               </label>
               <input
                 id="token-scopes"
-                className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
+                className="mt-1 min-h-11 w-full rounded border border-slate/30 bg-white px-2.5 py-1.5 text-sm sm:min-h-0 dark:border-cyan-900/40 dark:bg-[#072019]"
                 value={state.scopesText}
                 onChange={(event) => onScopesChange(event.target.value)}
                 placeholder="read:feeds,write:items"
               />
               <p className="mt-1 text-xs text-slate dark:text-slate-400">
-                Leave blank to use the recommended read-only permissions. To
-                specify permissions, enter comma-separated API scope names.
+                Blank uses the recommended read-only permissions. Otherwise,
+                enter comma-separated API scope names.
               </p>
             </div>
             {currentAuthMethod !== 'oidc' && (
@@ -212,7 +219,7 @@ export function TokenCreatePanel({
                 <input
                   ref={passwordInputRef}
                   id="token-current-password"
-                  className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
+                  className="mt-1 min-h-11 w-full rounded border border-slate/30 bg-white px-2.5 py-1.5 text-sm sm:min-h-0 dark:border-cyan-900/40 dark:bg-[#072019]"
                   type="password"
                   autoComplete="current-password"
                   value={state.currentPassword}
@@ -242,7 +249,7 @@ export function TokenCreatePanel({
                 </p>
                 <button
                   type="button"
-                  className="mt-2 min-h-11 rounded border border-current px-3 py-2 font-semibold"
+                  className="mt-2 min-h-11 rounded border border-current px-3 py-1.5 font-semibold sm:min-h-0"
                   onClick={onRetryMfa}
                   disabled={mfaFetching}
                 >
@@ -269,7 +276,7 @@ export function TokenCreatePanel({
                   maxLength={128}
                   value={state.code}
                   onChange={(event) => onCodeChange(event.target.value)}
-                  className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 font-mono dark:border-cyan-900/40 dark:bg-[#072019]"
+                  className="mt-1 min-h-11 w-full rounded border border-slate/30 bg-white px-2.5 py-1.5 font-mono text-sm sm:min-h-0 dark:border-cyan-900/40 dark:bg-[#072019]"
                   aria-describedby="token-mfa-code-help"
                   required
                 />
@@ -284,7 +291,7 @@ export function TokenCreatePanel({
             )}
             <button
               type="submit"
-              className="rounded bg-ink px-3 py-2 text-white disabled:cursor-not-allowed disabled:opacity-60 dark:bg-cyan dark:text-[#053c2e]"
+              className="min-h-11 w-full rounded bg-ink px-3 py-1.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60 sm:min-h-0 sm:w-auto dark:bg-cyan dark:text-[#053c2e]"
               disabled={
                 createPending ||
                 (currentAuthMethod === 'oidc'
@@ -317,7 +324,7 @@ export function TokenCreatePanel({
           </form>
 
           {state.createdToken && (
-            <div className="mt-4 rounded border border-cyan/40 bg-cyan/10 p-3 text-sm dark:bg-cyan/15">
+            <div className="mt-3 rounded border border-cyan/40 bg-cyan/10 p-3 text-sm dark:bg-cyan/15">
               <p
                 id="new-token-created-announcement"
                 role="status"
@@ -349,14 +356,14 @@ export function TokenCreatePanel({
                 <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                   <button
                     type="button"
-                    className="min-h-11 rounded border border-current px-3 py-2 font-semibold"
+                    className="min-h-11 rounded border border-current px-3 py-1.5 font-semibold sm:min-h-0"
                     onClick={() => void copyAndClear()}
                   >
                     Copy and clear
                   </button>
                   <button
                     type="button"
-                    className="min-h-11 rounded border border-slate/30 px-3 py-2 font-semibold dark:border-white/20"
+                    className="min-h-11 rounded border border-slate/30 px-3 py-1.5 font-semibold sm:min-h-0 dark:border-white/20"
                     onClick={() => onCreatedTokenStored('acknowledged')}
                   >
                     I stored this token
