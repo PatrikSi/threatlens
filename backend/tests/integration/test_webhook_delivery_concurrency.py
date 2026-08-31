@@ -541,7 +541,7 @@ def test_first_webhook_heartbeat_schema_race_preserves_retry_budget(
 @pytest.mark.parametrize(
     ("configuration_change", "expected_generic_state", "expected_send_count"),
     [
-        ("schema", "dead_letter", 1),
+        ("schema", "failed", 1),
         ("disabled", "failed", 1),
         ("redirect", "failed", 1),
         ("redirect_validation", "failed", 1),

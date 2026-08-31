@@ -26,14 +26,11 @@ from app.services.data_access_envelopes import (
     evaluate_data_access_envelope,
     get_data_access_envelope,
     get_data_access_envelope_sources,
-    merge_data_access_envelope,
     merge_data_access_envelope_sources,
-    put_data_access_envelope,
     put_data_access_envelope_sources,
     replace_data_access_envelope_sources,
     require_data_access_for_egress,
     taint_data_access_envelopes_for_feed,
-    unrestricted_label_counts,
 )
 from app.services.data_access_policy import (
     DataAccessContext,
@@ -66,20 +63,23 @@ def _context(
 
 def test_envelope_is_idempotent_and_conflicting_rewrites_are_rejected(db_session):
     resource_id = uuid.uuid4()
+    revision = _policy_revision(db_session)
+    sources = [
+        _source(revision=revision),
+        _source(revision=revision),
+    ]
 
-    created = put_data_access_envelope(
+    created = put_data_access_envelope_sources(
         db_session,
         resource_type=DATA_ACCESS_RESOURCE_REPORT,
         resource_id=resource_id,
-        label_counts=unrestricted_label_counts(2),
-        source_count=2,
+        sources=sources,
     )
-    replay = put_data_access_envelope(
+    replay = put_data_access_envelope_sources(
         db_session,
         resource_type=DATA_ACCESS_RESOURCE_REPORT,
         resource_id=resource_id,
-        label_counts=unrestricted_label_counts(2),
-        source_count=2,
+        sources=sources,
     )
 
     assert replay == created
@@ -93,12 +93,11 @@ def test_envelope_is_idempotent_and_conflicting_rewrites_are_rejected(db_session
     )
 
     with pytest.raises(DataAccessEnvelopeConflict, match="different"):
-        put_data_access_envelope(
+        put_data_access_envelope_sources(
             db_session,
             resource_type=DATA_ACCESS_RESOURCE_REPORT,
             resource_id=resource_id,
-            label_counts={QUARANTINE_HANDLING_LABEL_ID: 1},
-            source_count=1,
+            sources=[sources[0]],
         )
 
 
@@ -113,20 +112,22 @@ def test_merge_preserves_all_source_labels_and_counts(db_session, seed_users):
         actor_user_id=seed_users["admin"].id,
     ).label
     resource_id = uuid.uuid4()
-    put_data_access_envelope(
+    revision = _policy_revision(db_session)
+    put_data_access_envelope_sources(
         db_session,
         resource_type=DATA_ACCESS_RESOURCE_REPORT,
         resource_id=resource_id,
-        label_counts=unrestricted_label_counts(),
-        source_count=1,
+        sources=[_source(revision=revision)],
     )
 
-    merged = merge_data_access_envelope(
+    merged = merge_data_access_envelope_sources(
         db_session,
         resource_type=DATA_ACCESS_RESOURCE_REPORT,
         resource_id=resource_id,
-        label_counts={restricted.id: 2},
-        source_count_increment=2,
+        sources=[
+            _source(revision=revision, label_id=restricted.id),
+            _source(revision=revision, label_id=restricted.id),
+        ],
     )
 
     assert merged.source_count == 3
@@ -151,19 +152,21 @@ def test_enforced_predicate_requires_an_envelope_and_every_label(
     allowed_id = uuid.uuid4()
     denied_id = uuid.uuid4()
     missing_id = uuid.uuid4()
-    put_data_access_envelope(
+    revision = _policy_revision(db_session)
+    put_data_access_envelope_sources(
         db_session,
         resource_type=DATA_ACCESS_RESOURCE_REPORT,
         resource_id=allowed_id,
-        label_counts=unrestricted_label_counts(),
-        source_count=1,
+        sources=[_source(revision=revision)],
     )
-    put_data_access_envelope(
+    put_data_access_envelope_sources(
         db_session,
         resource_type=DATA_ACCESS_RESOURCE_REPORT,
         resource_id=denied_id,
-        label_counts={UNRESTRICTED_HANDLING_LABEL_ID: 1, restricted.id: 1},
-        source_count=2,
+        sources=[
+            _source(revision=revision),
+            _source(revision=revision, label_id=restricted.id),
+        ],
     )
 
     visible = set(
@@ -174,7 +177,7 @@ def test_enforced_predicate_requires_an_envelope_and_every_label(
                 data_access_envelope_predicate(
                     DATA_ACCESS_RESOURCE_REPORT,
                     DataAccessEnvelope.resource_id,
-                    _context(coverage_version=0),
+                    _context(),
                 ),
             )
         ).all()
@@ -196,12 +199,16 @@ def test_audit_and_egress_distinguish_denial_from_missing_provenance(
         actor_user_id=seed_users["admin"].id,
     ).label
     resource_id = uuid.uuid4()
-    put_data_access_envelope(
+    put_data_access_envelope_sources(
         db_session,
         resource_type=DATA_ACCESS_RESOURCE_REPORT,
         resource_id=resource_id,
-        label_counts={restricted.id: 1},
-        source_count=1,
+        sources=[
+            _source(
+                revision=_policy_revision(db_session),
+                label_id=restricted.id,
+            )
+        ],
     )
 
     audit_decision = evaluate_data_access_envelope(
@@ -321,7 +328,11 @@ def test_normalized_source_merge_is_idempotent_and_never_double_counts(db_sessio
     assert replay.source_count == 1
     assert replay.label_counts == {UNRESTRICTED_HANDLING_LABEL_ID: 1}
     assert (
-        db_session.scalar(select(func.count()).select_from(DataAccessEnvelopeSource))
+        db_session.scalar(
+            select(func.count())
+            .select_from(DataAccessEnvelopeSource)
+            .where(DataAccessEnvelopeSource.envelope_id == replay.envelope_id)
+        )
         == 1
     )
 

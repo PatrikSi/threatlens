@@ -217,6 +217,38 @@ def test_retryable_policy_failure_recovers_without_consuming_provider_attempt(
     assert provider_calls == 1
 
 
+def test_retryable_final_policy_failure_retries_before_provider_io(db_session):
+    policy_calls = 0
+    provider_calls = 0
+    sleep_delays: list[float] = []
+
+    def enforce(_db, **lineage):
+        nonlocal policy_calls
+        policy_calls += 1
+        if policy_calls == 2:
+            raise AIEgressPolicyError("final policy lock timeout", retryable=True)
+        return _authorization(lineage["request_fingerprint"])
+
+    def call_provider(_active, **_kwargs):
+        nonlocal provider_calls
+        provider_calls += 1
+        return _completion()
+
+    result = _run_request(
+        db_session,
+        active=_active(retries=1),
+        enforce=enforce,
+        call_provider=call_provider,
+        retry_delay_seconds=0.25,
+        sleep=sleep_delays.append,
+    )
+
+    assert result.attempt_count == 1
+    assert policy_calls == 3
+    assert provider_calls == 1
+    assert sleep_delays == [0.25]
+
+
 def test_final_policy_failure_does_not_consume_provider_attempt(db_session):
     policy_calls = 0
     provider_calls = 0
@@ -346,6 +378,63 @@ def test_post_provider_custom_commit_failure_is_nonretryable_and_ambiguous(
     assert captured.value.attempt_count == 1
     assert provider_calls == 1
     assert commit_calls == 4
+
+
+def test_explicit_ambiguous_provider_outcome_is_settled_and_never_retried(
+    db_session,
+):
+    task_run = _task_run(db_session)
+    provider_calls = 0
+    usage_events: list[dict[str, object]] = []
+
+    def call_provider(_active, **_kwargs):
+        nonlocal provider_calls
+        provider_calls += 1
+        raise AIIntegrationError(
+            "provider connection closed after request upload",
+            retryable=True,
+            provider_io_outcome="ambiguous",
+        )
+
+    with pytest.raises(AIProviderAttemptAmbiguousError) as captured:
+        _run_request(
+            db_session,
+            active=_active(retries=1),
+            task_run_id=task_run.id,
+            call_provider=call_provider,
+            record_usage=lambda *_args, **kwargs: usage_events.append(kwargs),
+        )
+
+    receipt = db_session.scalar(
+        select(AIProviderAttemptReceipt).where(
+            AIProviderAttemptReceipt.task_run_id_snapshot == task_run.id
+        )
+    )
+    events = list(
+        db_session.scalars(
+            select(AITaskEvent)
+            .where(AITaskEvent.task_run_id == task_run.id)
+            .order_by(AITaskEvent.created_at.asc())
+        ).all()
+    )
+    assert receipt is not None
+    assert captured.value.retryable is False
+    assert captured.value.attempt_count == 1
+    assert provider_calls == 1
+    assert receipt.state == "ambiguous"
+    assert receipt.io_outcome == "ambiguous"
+    assert receipt.retryable is False
+    assert [event.event_type for event in events] == [
+        "provider_exchange_started",
+        "provider_exchange_settled",
+        "provider_exchange_ambiguous",
+    ]
+    assert events[-1].payload_json["provider_io_outcome"] == "ambiguous"
+    assert len(usage_events) == 1
+    assert usage_events[0]["success"] is False
+    assert usage_events[0]["error"] == (
+        "provider connection closed after request upload"
+    )
 
 
 @pytest.mark.parametrize(
