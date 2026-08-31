@@ -11,10 +11,10 @@ export function AiConfigurationAudit({
 }) {
   return (
     <div className="grid gap-4 lg:grid-cols-2">
-      <Panel title="Prompt History" subtitle="Recent AI configuration and prompt changes.">
+      <Panel title="Prompt history" subtitle="Recent AI configuration and prompt changes.">
         <AuditPreviewList entries={promptHistory} emptyLabel="No AI prompt changes yet." />
       </Panel>
-      <Panel title="Manual Actions" subtitle="Recent admin-triggered AI actions.">
+      <Panel title="Manual actions" subtitle="Recent admin-triggered AI actions.">
         <AuditPreviewList entries={manualActions} emptyLabel="No manual actions yet." />
       </Panel>
     </div>
@@ -38,10 +38,10 @@ export function AiConfigurationSidebar({
 }) {
   return (
     <div className="space-y-4">
-      <Panel title="Configuration Status" subtitle={readiness ?? 'Loading runtime state...'}>
+      <Panel title="Configuration status" subtitle={readiness ?? 'Loading runtime state...'}>
         <dl className="space-y-2 text-sm">
           <Metric label="Configured" value={settings?.ai_configured ? 'Yes' : 'No'} />
-          <Metric label="API Key In Env" value={settings?.api_key_configured ? 'Yes' : 'No / Optional'} />
+          <Metric label="API key in environment" value={settings?.api_key_configured ? 'Yes' : 'No (optional)'} />
           <Metric label="Model" value={settings?.model || 'Not configured'} />
           <Metric label="Retry attempts" value={settings?.request_max_retries ?? 0} />
           <Metric
@@ -54,7 +54,7 @@ export function AiConfigurationSidebar({
       </Panel>
 
       <div className="sticky top-4 rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
-        <h3 className="font-display text-lg">Save Changes</h3>
+        <h3 className="font-display text-lg">Save changes</h3>
         <p className="mt-1 text-sm text-slate dark:text-white/70">
           Provider, feature, company-context, and prompt changes affect future AI runs and are recorded in prompt history.
         </p>
@@ -65,7 +65,7 @@ export function AiConfigurationSidebar({
           disabled={savePending || saveDisabled}
           title={saveDisabledReason ?? undefined}
         >
-          {savePending ? 'Saving...' : 'Save Settings'}
+          {savePending ? 'Saving...' : 'Save changes'}
         </button>
         {saveDisabledReason && (
           <p role="status" aria-live="polite" aria-atomic="true" className="mt-2 text-xs text-amber-700 dark:text-amber-300">

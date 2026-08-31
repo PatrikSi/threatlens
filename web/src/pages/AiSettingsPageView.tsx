@@ -8,6 +8,7 @@ import {
 } from 'react'
 
 import { ConfirmDialog } from '../components/ConfirmDialog'
+import { SettingsPageHeader } from '../components/SettingsPageHeader'
 import { AISettings, AITaskRunResponse } from '../types/api'
 import { ActivityTab } from './AiSettingsActivityTab'
 import { ConfigurationTab } from './AiSettingsConfigurationTab'
@@ -52,7 +53,7 @@ type AiSettingsPageViewProps = {
 }
 
 const AI_TABS: Array<{ value: AiTab; label: string }> = [
-  { value: 'overview', label: 'Status' },
+  { value: 'overview', label: 'Overview' },
   { value: 'activity', label: 'Jobs' },
   { value: 'configuration', label: 'Configuration' },
 ]
@@ -84,25 +85,21 @@ function getAdjacentTab(currentTab: AiTab, key: string) {
 
 function AiSettingsHeader({ settings }: { settings: AISettings | undefined }) {
   return (
-    <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
-      <div className="flex flex-wrap items-start gap-3">
-        <div>
-          <p className="text-xs font-semibold uppercase text-slate dark:text-white/55">Automation</p>
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="font-display text-2xl">AI Settings</h2>
-            <StatusPill tone={settings?.ai_enabled ? 'info' : 'neutral'} label={settings?.ai_enabled ? 'Enabled' : 'Disabled'} />
-            {settings?.ai_configured ? (
-              <StatusPill tone="success" label="Configured" />
-            ) : (
-              <StatusPill tone="warning" label="Needs setup" />
-            )}
-          </div>
-          <p className="mt-1 text-sm text-slate dark:text-white/75">
-            Manage local AI configuration, monitor health, and operate brief and enrichment jobs without leaving Settings.
-          </p>
-        </div>
-      </div>
-    </section>
+    <SettingsPageHeader
+      scope="Organization"
+      title="AI automation"
+      description="Monitor AI health and jobs, and manage the provider configuration used across this organization."
+      badges={(
+        <>
+          <StatusPill tone={settings?.ai_enabled ? 'info' : 'neutral'} label={settings?.ai_enabled ? 'Enabled' : 'Disabled'} />
+          {settings?.ai_configured ? (
+            <StatusPill tone="success" label="Configured" />
+          ) : (
+            <StatusPill tone="warning" label="Needs setup" />
+          )}
+        </>
+      )}
+    />
   )
 }
 
@@ -148,11 +145,11 @@ function AiSettingsNavigation({
 
   return (
     <aside className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
-      <h3 className="font-display text-xl">Automation Console</h3>
+      <h2 className="font-display text-xl">Automation workspace</h2>
       <p className="mt-1 text-sm text-slate dark:text-white/70">
         Review status, work with queued jobs, and manage provider settings without leaving the settings area.
       </p>
-      <label htmlFor="mobile-ai-settings-section" className="mt-3 block text-xs font-semibold uppercase text-slate lg:hidden dark:text-slate-400">
+      <label htmlFor="mobile-ai-settings-section" className="mt-3 block text-xs font-semibold uppercase text-slate xl:hidden dark:text-slate-400">
         Section
         <select
           id="mobile-ai-settings-section"
@@ -165,7 +162,7 @@ function AiSettingsNavigation({
           ))}
         </select>
       </label>
-      <nav className="mt-3 hidden grid-cols-1 gap-1 lg:grid" role="tablist" aria-label="AI settings sections">
+      <nav className="mt-3 hidden grid-cols-1 gap-1 xl:grid" role="tablist" aria-label="AI automation sections">
         {AI_TABS.map((tab) => (
           <TabButton
             key={tab.value}
@@ -264,7 +261,7 @@ export function AiSettingsPageView(props: AiSettingsPageViewProps) {
     <div className="space-y-4">
       <AiSettingsHeader settings={props.settings} />
       <AiSettingsNoticeBanner notice={props.notice} />
-      <div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
+      <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
         <AiSettingsNavigation activeTab={props.activeTab} setActiveTab={props.setActiveTab} settings={props.settings} />
         <AiSettingsTabContent {...props} />
       </div>

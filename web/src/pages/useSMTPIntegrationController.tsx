@@ -19,6 +19,7 @@ import {
   SMTPTestResponse,
   SMTPTestRunListResponse,
 } from '../types/api'
+import { hasRequiredPermissions } from '../workspace/workspaceModel'
 import {
   applySMTPTemplateDefault,
   createSMTPHookDraft,
@@ -46,6 +47,14 @@ const DELIVERY_HISTORY_REFRESH_MS = 30_000
 export function useSMTPIntegrationController() {
   const queryClient = useQueryClient()
   const currentUserQuery = useCurrentUser()
+  const canManageEmailDelivery = hasRequiredPermissions(
+    currentUserQuery.data?.access?.permissions ?? [],
+    ['write:integrations'],
+  )
+  const isReadOnlyViewer = !currentUserQuery.isLoading && !canManageEmailDelivery
+  const accessNotice = isReadOnlyViewer
+    ? 'You can review email delivery, but changes require permission to manage integrations.'
+    : null
   const [selectedHookId, setSelectedHookId] = useState<string | null>(null)
   const [selectionInitialized, setSelectionInitialized] = useState(false)
   const [draft, setDraftState] = useState<SMTPHookDraft>(DEFAULT_SMTP_HOOK_DRAFT)
@@ -97,7 +106,7 @@ export function useSMTPIntegrationController() {
   const draftDirty = smtpHookDraftFingerprint(draft) !== smtpHookDraftFingerprint(baselineDraft)
   const confirmDiscardUnsavedChanges = useUnsavedChangesWarning(
     draftDirty,
-    'Discard unsaved SMTP hook changes?',
+    'Discard unsaved email destination changes?',
   )
   const credentialSources = hooks.filter(
     (hook) => hook.id !== selectedHookId && !hook.uses_shared_credentials && Boolean(hook.host),
@@ -110,6 +119,7 @@ export function useSMTPIntegrationController() {
   )
 
   const setDraft: Dispatch<SetStateAction<SMTPHookDraft>> = (value) => {
+    if (!canManageEmailDelivery) return
     setHasUserEdited(true)
     setTestResult(null)
     setDraftState(value)
@@ -153,7 +163,7 @@ export function useSMTPIntegrationController() {
       setDraftState(createSMTPHookDraft(saved))
       setHasUserEdited(false)
       setTestResult(null)
-      setNotice({ tone: 'success', message: variables.hookId ? 'SMTP hook updated.' : 'SMTP hook created.' })
+      setNotice({ tone: 'success', message: variables.hookId ? 'Email destination updated.' : 'Email destination created.' })
       void queryClient.invalidateQueries({ queryKey: ['integrations', 'smtp'] })
       void queryClient.invalidateQueries({ queryKey: ['integrations'] })
     },
@@ -169,11 +179,11 @@ export function useSMTPIntegrationController() {
       setDraftState(newHookDraft)
       setHasUserEdited(false)
       setTestResult(null)
-      setNotice({ tone: 'success', message: 'SMTP hook deleted.' })
+      setNotice({ tone: 'success', message: 'Email destination deleted.' })
       void queryClient.invalidateQueries({ queryKey: ['integrations', 'smtp'] })
       void queryClient.invalidateQueries({ queryKey: ['integrations'] })
     },
-    onError: (error) => setDeleteError(resolveApiErrorMessage(error, 'Failed to delete SMTP hook.')),
+    onError: (error) => setDeleteError(resolveApiErrorMessage(error, 'Failed to delete email destination.')),
   })
 
   const testHook = useMutation({
@@ -187,7 +197,7 @@ export function useSMTPIntegrationController() {
       setTestResult(result)
       setNotice({
         tone: result.success ? 'success' : 'error',
-        message: result.success ? 'SMTP test succeeded.' : result.error || 'SMTP test failed.',
+        message: result.success ? 'Email delivery test succeeded.' : result.error || 'Email delivery test failed.',
       })
       void queryClient.invalidateQueries({ queryKey: ['integrations', 'smtp', 'hooks'], exact: true })
       if (variables.hook_id) {
@@ -261,6 +271,7 @@ export function useSMTPIntegrationController() {
   }
 
   const onCreateHook = () => {
+    if (!canManageEmailDelivery) return
     confirmDiscardUnsavedChanges(() => {
       setSelectedHookId(null)
       setDraftState(newHookDraft)
@@ -270,6 +281,7 @@ export function useSMTPIntegrationController() {
   }
 
   const onSave = () => {
+    if (!canManageEmailDelivery) return
     if (firstValidationError) {
       setNotice({ tone: 'error', message: firstValidationError })
       return
@@ -279,6 +291,7 @@ export function useSMTPIntegrationController() {
   }
 
   const onTest = () => {
+    if (!canManageEmailDelivery) return
     const testError = resolveTestValidationError(draft, sendTestEmail, testRecipient, firstValidationError)
     if (testError) {
       setNotice({ tone: 'error', message: testError })
@@ -294,6 +307,7 @@ export function useSMTPIntegrationController() {
   }
 
   const onCredentialSourceChange = (sourceId: string) => {
+    if (!canManageEmailDelivery) return
     if (!sourceId) {
       setDraft((current) => ({
         ...current,
@@ -325,6 +339,7 @@ export function useSMTPIntegrationController() {
   }
 
   const onSendForChange = (sendFor: SendForValue) => {
+    if (!canManageEmailDelivery) return
     if (sendFor === 'custom') return
     const template = templateDefaults.find((entry) => entry.send_for === sendFor)
     if (!template) {
@@ -346,7 +361,9 @@ export function useSMTPIntegrationController() {
     ?? variablesQuery.error
 
   return {
+    accessNotice,
     analyticsQuery,
+    canManageEmailDelivery,
     credentialSources,
     deleteError,
     deleteHook,

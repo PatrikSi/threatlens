@@ -82,13 +82,13 @@ function DeliveryDetails({
         )}
         {delivery.rendered_body && (
           <div>
-            <p className="text-xs font-semibold uppercase text-slate dark:text-white/60">Rendered Body</p>
+            <p className="text-xs font-semibold uppercase text-slate dark:text-white/60">Rendered body</p>
             <pre className="mt-1 overflow-x-auto rounded bg-slate/10 px-3 py-2 text-xs dark:bg-white/5">{delivery.rendered_body}</pre>
           </div>
         )}
         {delivery.response_body_preview && (
           <div>
-            <p className="text-xs font-semibold uppercase text-slate dark:text-white/60">Response Preview</p>
+            <p className="text-xs font-semibold uppercase text-slate dark:text-white/60">Response preview</p>
             <pre className="mt-1 overflow-x-auto rounded bg-slate/10 px-3 py-2 text-xs dark:bg-white/5">
               {delivery.response_body_preview}
             </pre>
@@ -107,7 +107,7 @@ export function NotificationDeliveryHistory({ controller }: { controller: Notifi
     <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h3 className="font-display text-lg">Delivery History</h3>
+          <h2 className="font-display text-lg">Delivery history</h2>
           <p className="mt-1 text-sm text-slate dark:text-white/75">
             Review the last deliveries for this webhook, including the rendered request and response preview.
           </p>
@@ -140,12 +140,12 @@ export function NotificationDeliveryHistory({ controller }: { controller: Notifi
         <div className="mt-4 space-y-3">
           <div className="grid gap-3 md:grid-cols-4">
             <MetricCard label="Attempts" value={String(deliveriesQuery.data.total)} />
-            <MetricCard label="Last Code" value={firstDelivery?.status_code != null ? String(firstDelivery.status_code) : 'n/a'} />
+            <MetricCard label="Last code" value={firstDelivery?.status_code != null ? String(firstDelivery.status_code) : 'n/a'} />
             <MetricCard
-              label="Last Duration"
+              label="Last duration"
               value={firstDelivery?.duration_ms != null ? `${firstDelivery.duration_ms} ms` : 'n/a'}
             />
-            <MetricCard label="Last Attempt" value={firstDelivery ? formatTimestamp(firstDelivery.attempted_at) : 'n/a'} />
+            <MetricCard label="Last attempt" value={firstDelivery ? formatTimestamp(firstDelivery.attempted_at) : 'n/a'} />
           </div>
           {deliveriesQuery.data.deliveries.map((delivery) => (
             <DeliveryDetails key={delivery.id} controller={controller} delivery={delivery} />

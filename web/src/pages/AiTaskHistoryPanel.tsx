@@ -37,10 +37,10 @@ export function TaskHistoryPanel(props: TaskHistoryPanelProps) {
 
   return (
     <OverviewSection
-      title="Run History"
+      title="Run history"
       description="Review every AI task across enrichment, daily briefs, connection tests, and reprocess jobs."
     >
-      <Panel title="Task History" subtitle="Filter by type, status, trigger source, and model to find the runs you need.">
+      <Panel title="Task history" subtitle="Filter by type, status, trigger source, and model to find the runs you need.">
         <RunHistoryFilters {...props} />
         <div
           className="mt-3 flex min-h-5 items-center text-xs font-semibold uppercase text-slate dark:text-white/55"
@@ -293,7 +293,7 @@ function RunHistoryPagination({
         >
           Previous
         </button>
-        <span>Page {runPage + 1} / {history.totalPages}</span>
+        <span>Page {runPage + 1} of {history.totalPages}</span>
         <button
           type="button"
           className="rounded border border-slate/30 px-3 py-2 disabled:opacity-50 dark:border-cyan-900/40"

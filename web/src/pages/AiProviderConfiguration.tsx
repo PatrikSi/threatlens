@@ -14,7 +14,7 @@ type AiProviderConfigurationProps = AiConfigurationDraftProps & {
 
 function getProviderTestMessage(draftDirty: boolean, testDisabledReason: string | null, configured: boolean) {
   if (draftDirty) {
-    return 'Save your draft changes first. Test Saved Connection only checks the last saved provider settings.'
+    return 'Save your draft changes first. Test saved connection only checks the last saved provider settings.'
   }
   if (testDisabledReason) {
     return testDisabledReason
@@ -74,7 +74,7 @@ export function AiProviderConfiguration({
           onClick={onTestConnection}
           disabled={testSavedConnectionDisabled}
         >
-          {testPending ? 'Testing...' : 'Test Saved Connection'}
+          {testPending ? 'Testing...' : 'Test saved connection'}
         </button>
       </div>
       <div className="grid gap-3 md:grid-cols-2">
@@ -106,7 +106,7 @@ export function AiProviderConfiguration({
           />
           <FieldError message={validation.temperature} />
         </Field>
-        <Field label="Max Completion Tokens">
+        <Field label="Maximum completion tokens">
           <input
             className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
             value={draft.max_completion_tokens}
@@ -116,7 +116,7 @@ export function AiProviderConfiguration({
           />
           <FieldError message={validation.max_completion_tokens} />
         </Field>
-        <Field label="Request Timeout Seconds" className="md:col-span-2">
+        <Field label="Request timeout (seconds)" className="md:col-span-2">
           <input
             className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
             value={draft.request_timeout_seconds}
@@ -126,7 +126,7 @@ export function AiProviderConfiguration({
           />
           <FieldError message={validation.request_timeout_seconds} />
         </Field>
-        <Field label="Max Retry Attempts" className="md:col-span-2">
+        <Field label="Maximum retry attempts" className="md:col-span-2">
           <input
             className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
             value={draft.request_max_retries}

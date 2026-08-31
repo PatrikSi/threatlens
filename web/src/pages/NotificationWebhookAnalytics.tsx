@@ -16,7 +16,7 @@ export function NotificationWebhookAnalytics({ controller }: { controller: Notif
     <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h3 className="font-display text-lg">Notification Analytics</h3>
+          <h2 className="font-display text-lg">Delivery health</h2>
           <p className="mt-1 text-sm text-slate dark:text-white/75">
             Track delivery health across all of your notification webhooks.
           </p>
@@ -46,19 +46,19 @@ export function NotificationWebhookAnalytics({ controller }: { controller: Notif
           )}
 
           <div className="grid grid-cols-2 gap-2 sm:gap-3 md:grid-cols-5">
-            <MetricCard label="Total Deliveries" value={String(analytics.total_deliveries)} />
-            <MetricCard label="Success Rate" value={`${analytics.success_rate_pct.toFixed(1)}%`} />
+            <MetricCard label="Total deliveries" value={String(analytics.total_deliveries)} />
+            <MetricCard label="Success rate" value={`${analytics.success_rate_pct.toFixed(1)}%`} />
             <MetricCard label="Failures 24h" value={String(analytics.failures_last_24h)} />
-            <MetricCard label="Queue Status" value={describeQueueStatusLabel(analytics.queue)} />
+            <MetricCard label="Queue status" value={describeQueueStatusLabel(analytics.queue)} />
             <MetricCard
-              label="Most Failing Webhook"
+              label="Most failing webhook"
               value={analytics.most_failing_webhook ? analytics.most_failing_webhook.webhook_name : 'None'}
             />
           </div>
 
           <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
             <div className="rounded-lg border border-slate/20 p-4 dark:border-cyan-900/40">
-              <h4 className="font-semibold">Event Breakdown</h4>
+              <h3 className="font-semibold">Event breakdown</h3>
               <div className="mt-3 space-y-2">
                 {analytics.events.length ? (
                   analytics.events.map((eventSummary) => (
@@ -85,7 +85,7 @@ export function NotificationWebhookAnalytics({ controller }: { controller: Notif
 
             <div className="rounded-lg border border-slate/20 p-4 dark:border-cyan-900/40">
               <div className="flex items-center justify-between gap-3">
-                <h4 className="font-semibold">Delivery Queue</h4>
+                <h3 className="font-semibold">Delivery queue</h3>
                 <span className={`tl-chip ${queueStatusBadgeClass(analytics.queue)}`}>
                   {describeQueueStatusLabel(analytics.queue)}
                 </span>

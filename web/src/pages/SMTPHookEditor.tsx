@@ -12,12 +12,19 @@ import {
 import { SMTPIntegrationController } from './useSMTPIntegrationController'
 
 export function SMTPHookList({ controller }: { controller: SMTPIntegrationController }) {
-  const { hooks, hooksQuery, onCreateHook, onSelectHook, selectedHookId } = controller
+  const { canManageEmailDelivery, hooks, hooksQuery, onCreateHook, onSelectHook, selectedHookId } = controller
   return (
     <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
       <div className="flex items-center justify-between gap-3">
-        <h3 className="font-display text-lg">Saved SMTP Hooks</h3>
-        <button type="button" className="rounded border border-slate/30 px-3 py-1.5 text-sm font-semibold dark:border-cyan-900/40" onClick={onCreateHook}>New hook</button>
+        <h2 className="font-display text-lg">Email destinations</h2>
+        <button
+          type="button"
+          className="rounded border border-slate/30 px-3 py-1.5 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50 dark:border-cyan-900/40"
+          disabled={!canManageEmailDelivery}
+          onClick={onCreateHook}
+        >
+          New destination
+        </button>
       </div>
       <div className="mt-3 max-h-[34rem] overflow-auto rounded-lg border border-slate/20 dark:border-cyan-900/40">
         {hooks.map((hook) => (
@@ -29,15 +36,15 @@ export function SMTPHookList({ controller }: { controller: SMTPIntegrationContro
           />
         ))}
       </div>
-      {hooksQuery.isLoading && <p className="mt-3 text-sm text-slate dark:text-white/70">Loading SMTP hooks...</p>}
+      {hooksQuery.isLoading && <p className="mt-3 text-sm text-slate dark:text-white/70">Loading email destinations...</p>}
       {hooksQuery.isError && (
         <p className="mt-3 text-sm text-red-600">
-          {resolveApiErrorMessage(hooksQuery.error, 'Failed to load SMTP hooks.')}
+          {resolveApiErrorMessage(hooksQuery.error, 'Failed to load email destinations.')}
         </p>
       )}
       {!hooksQuery.isLoading && !hooks.length && (
         <p className="mt-3 rounded-lg border border-dashed border-slate/25 p-3 text-sm text-slate dark:border-cyan-900/40 dark:text-white/70">
-          No SMTP hooks are configured. Create one to route a notification event to email.
+          No email destinations are configured. Create one to route notification events by email.
         </p>
       )}
     </section>
@@ -72,7 +79,7 @@ function SMTPHookListItem({
         </p>
         <p className="mt-0.5 truncate text-xs text-slate dark:text-white/55">
           {hook.to_emails.length} recipient{hook.to_emails.length === 1 ? '' : 's'}
-          {hook.uses_shared_credentials ? ` · Auth from ${hook.credential_source_name || 'another hook'}` : ''}
+          {hook.uses_shared_credentials ? ` · Auth from ${hook.credential_source_name || 'another destination'}` : ''}
         </p>
       </div>
       <span className={`tl-chip ${hook.enabled ? 'tl-chip-success' : 'tl-chip-neutral'}`}>
@@ -85,19 +92,21 @@ function SMTPHookListItem({
 export function SMTPHookEditor({ controller }: { controller: SMTPIntegrationController }) {
   return (
     <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
-      <SMTPHookEditorHeading controller={controller} />
-      <UnreadableSecretNotice hook={controller.selectedHook} />
-      <SMTPEventFields controller={controller} />
-      <SMTPTransportFields controller={controller} />
-      <SMTPFeedScope controller={controller} />
-      <SMTPTemplateFields
-        draft={controller.draft}
-        validation={controller.validation}
-        variables={controller.variables}
-        setDraft={controller.setDraft}
-      />
-      <SMTPHookActions controller={controller} />
-      <SMTPHookStatus controller={controller} />
+      <fieldset disabled={!controller.canManageEmailDelivery} className="m-0 min-w-0 border-0 p-0">
+        <SMTPHookEditorHeading controller={controller} />
+        <UnreadableSecretNotice hook={controller.selectedHook} />
+        <SMTPEventFields controller={controller} />
+        <SMTPTransportFields controller={controller} />
+        <SMTPFeedScope controller={controller} />
+        <SMTPTemplateFields
+          draft={controller.draft}
+          validation={controller.validation}
+          variables={controller.variables}
+          setDraft={controller.setDraft}
+        />
+        <SMTPHookActions controller={controller} />
+        <SMTPHookStatus controller={controller} />
+      </fieldset>
     </section>
   )
 }
@@ -107,7 +116,7 @@ function SMTPHookEditorHeading({ controller }: { controller: SMTPIntegrationCont
   return (
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div>
-        <h3 className="font-display text-lg">{controller.selectedHook ? 'Edit SMTP Hook' : 'Create SMTP Hook'}</h3>
+        <h2 className="font-display text-lg">{controller.selectedHook ? 'Edit destination' : 'Create destination'}</h2>
         <p className="mt-1 text-sm text-slate dark:text-white/75">{describeEventDescription(currentSendFor)}</p>
       </div>
       <label className="flex items-center gap-2 rounded-full border border-slate/20 px-3 py-1 text-sm dark:border-cyan-900/40">
@@ -146,7 +155,7 @@ function SMTPEventFields({ controller }: { controller: SMTPIntegrationController
         onChange={(value) => controller.setDraft((current) => ({ ...current, name: value }))}
       />
       <div>
-        <label htmlFor="smtp-send-for" className="text-sm font-semibold">Send For</label>
+        <label htmlFor="smtp-send-for" className="text-sm font-semibold">Send for</label>
         <select
           id="smtp-send-for"
           className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
@@ -182,31 +191,31 @@ function SMTPTransportFields({ controller }: { controller: SMTPIntegrationContro
     <div className="mt-5 border-t border-slate/20 pt-5 dark:border-cyan-900/40">
       <div className="grid gap-4 md:grid-cols-2">
         <div className="md:col-span-2">
-          <label htmlFor="smtp-credential-source" className="text-sm font-semibold">SMTP Authentication</label>
+          <label htmlFor="smtp-credential-source" className="text-sm font-semibold">SMTP authentication</label>
           <select
             id="smtp-credential-source"
             className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
             value={draft.credential_source_id ?? ''}
             onChange={(event) => controller.onCredentialSourceChange(event.target.value)}
           >
-            <option value="">Use credentials configured on this hook</option>
+            <option value="">Use credentials configured on this destination</option>
             {credentialSources.map((source) => (
               <option key={source.id} value={source.id}>Reuse credentials from {source.name}</option>
             ))}
           </select>
           <p className="mt-1 text-xs text-slate dark:text-white/60">
-            Shared authentication follows password changes made on the source hook without copying the saved secret.
+            Shared authentication follows password changes made on the source destination without copying the saved secret.
           </p>
         </div>
         {draft.credential_source_id
           ? <SharedTransport draft={draft} sourceName={selectedCredentialSource?.name} />
           : <OwnedTransportFields controller={controller} />}
-        <TextInput id="smtp-from-email" label="Sender Email" type="email" value={draft.from_email} error={validation.from_email} placeholder="threatlens@example.com" onChange={(value) => setDraft((current) => ({ ...current, from_email: value }))} />
-        <TextInput id="smtp-from-name" label="Sender Name" value={draft.from_name} placeholder="ThreatLens" onChange={(value) => setDraft((current) => ({ ...current, from_name: value }))} />
+        <TextInput id="smtp-from-email" label="Sender email" type="email" value={draft.from_email} error={validation.from_email} placeholder="threatlens@example.com" onChange={(value) => setDraft((current) => ({ ...current, from_email: value }))} />
+        <TextInput id="smtp-from-name" label="Sender name" value={draft.from_name} placeholder="ThreatLens" onChange={(value) => setDraft((current) => ({ ...current, from_name: value }))} />
         <div className="md:col-span-2">
           <TextArea
             id="smtp-to-emails"
-            label="Recipient Emails"
+            label="Recipient emails"
             value={draft.to_emails}
             error={validation.to_emails}
             rows={3}
@@ -236,7 +245,7 @@ function SharedTransport({ draft, sourceName }: { draft: SMTPHookDraft; sourceNa
       </div>
       <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-3">
         <div><dt className="text-xs text-slate dark:text-white/55">Host</dt><dd className="mt-1 font-semibold">{draft.host || 'Not configured'}</dd></div>
-        <div><dt className="text-xs text-slate dark:text-white/55">Port / Security</dt><dd className="mt-1 font-semibold">{draft.port} · {describeSecurity(draft.security)}</dd></div>
+        <div><dt className="text-xs text-slate dark:text-white/55">Port / security</dt><dd className="mt-1 font-semibold">{draft.port} · {describeSecurity(draft.security)}</dd></div>
         <div><dt className="text-xs text-slate dark:text-white/55">Username</dt><dd className="mt-1 truncate font-semibold">{draft.username || 'No authentication'}</dd></div>
       </dl>
     </div>
@@ -279,10 +288,10 @@ function SMTPFeedScope({ controller }: { controller: SMTPIntegrationController }
     <div className="mt-5 border-t border-slate/20 pt-5 dark:border-cyan-900/40">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h4 className="font-semibold">Feed Scope</h4>
-          <p className="mt-1 text-xs text-slate dark:text-white/65">Limit this hook to all feeds or a selected set.</p>
+          <h3 className="font-semibold">Feed scope</h3>
+          <p className="mt-1 text-xs text-slate dark:text-white/65">Limit this destination to all feeds or a selected set.</p>
         </div>
-        <div role="group" aria-label="SMTP feed scope" className="flex rounded-lg border border-slate/20 p-1 dark:border-cyan-900/40">
+        <div role="group" aria-label="Email destination feed scope" className="flex rounded-lg border border-slate/20 p-1 dark:border-cyan-900/40">
           <button
             type="button"
             aria-pressed={draft.feed_scope === 'all'}
@@ -331,11 +340,11 @@ function SMTPTemplateFields({
   return (
     <div className="mt-5 border-t border-slate/20 pt-5 dark:border-cyan-900/40">
       <div className="grid gap-4">
-        <TextInput id="smtp-subject-template" label="Email Subject Template" value={draft.subject_template} error={validation.subject_template} onChange={(value) => setDraft((current) => ({ ...current, subject_template: value }))} />
-        <TextArea id="smtp-html-template" label="Email HTML Template" value={draft.html_template} error={validation.html_template} rows={10} onChange={(value) => setDraft((current) => ({ ...current, html_template: value }))} />
+        <TextInput id="smtp-subject-template" label="Email subject template" value={draft.subject_template} error={validation.subject_template} onChange={(value) => setDraft((current) => ({ ...current, subject_template: value }))} />
+        <TextArea id="smtp-html-template" label="Email HTML template" value={draft.html_template} error={validation.html_template} rows={10} onChange={(value) => setDraft((current) => ({ ...current, html_template: value }))} />
       </div>
       <details className="mt-4 rounded-lg border border-slate/20 px-3 py-2 dark:border-cyan-900/40">
-        <summary className="cursor-pointer text-sm font-semibold">Template Variables</summary>
+        <summary className="cursor-pointer text-sm font-semibold">Template variables</summary>
         <div className="mt-3 grid max-h-64 gap-2 overflow-auto md:grid-cols-2">
           {variables.map((variable) => (
             <div key={variable.key} className="min-w-0 text-xs">
@@ -358,22 +367,46 @@ function SMTPHookActions({ controller }: { controller: SMTPIntegrationController
           <button
             type="button"
             className="rounded bg-ink px-3 py-2 text-sm font-semibold text-white disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]"
-            disabled={controller.saveHook.isPending}
+            disabled={controller.saveHook.isPending || !controller.canManageEmailDelivery}
             onClick={controller.onSave}
           >
-            {controller.saveHook.isPending ? 'Saving...' : selectedHook ? 'Save hook' : 'Create hook'}
+            {controller.saveHook.isPending ? 'Saving...' : selectedHook ? 'Save destination' : 'Create destination'}
           </button>
-          <button type="button" className="rounded border border-slate/30 px-3 py-2 text-sm font-semibold disabled:opacity-50 dark:border-cyan-900/40" disabled={controller.testHook.isPending} onClick={controller.onTest}>{controller.testHook.isPending ? 'Testing...' : 'Test SMTP'}</button>
+          <button
+            type="button"
+            className="rounded border border-slate/30 px-3 py-2 text-sm font-semibold disabled:opacity-50 dark:border-cyan-900/40"
+            disabled={controller.testHook.isPending || !controller.canManageEmailDelivery}
+            onClick={controller.onTest}
+          >
+            {controller.testHook.isPending
+              ? 'Testing...'
+              : controller.sendTestEmail
+                ? 'Send test email'
+                : 'Test connection'}
+          </button>
           {selectedHook && !selectedHook.is_default && (
-            <button type="button" className="tl-button-danger rounded px-3 py-2 text-sm font-semibold" onClick={() => controller.confirmDiscardUnsavedChanges(() => { controller.setDeleteError(null); controller.setPendingDelete(selectedHook) })}>Delete hook</button>
+            <button
+              type="button"
+              className="tl-button-danger rounded px-3 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={!controller.canManageEmailDelivery}
+              onClick={() => {
+                if (!controller.canManageEmailDelivery) return
+                controller.confirmDiscardUnsavedChanges(() => {
+                  controller.setDeleteError(null)
+                  controller.setPendingDelete(selectedHook)
+                })
+              }}
+            >
+              Delete destination
+            </button>
           )}
         </div>
-        {selectedHook?.is_default && <p className="mt-2 text-xs text-slate dark:text-white/60">The default hook can be disabled but remains available to older clients.</p>}
+        {selectedHook?.is_default && <p className="mt-2 text-xs text-slate dark:text-white/60">The default destination can be disabled but remains available to older clients.</p>}
       </div>
       <div className="border-t border-slate/20 pt-4 dark:border-cyan-900/40 lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0">
-        <p className="text-sm font-semibold">Test Delivery</p>
+        <p className="text-sm font-semibold">Test delivery</p>
         <label className="mt-2 flex items-center gap-2 text-sm"><input type="checkbox" checked={controller.sendTestEmail} onChange={(event) => { controller.setSendTestEmail(event.target.checked); controller.setTestResult(null) }} />Send a test email</label>
-        {controller.sendTestEmail && <div className="mt-3"><TextInput id="smtp-test-recipient" label="Recipient Email" type="email" value={controller.testRecipient} placeholder="analyst@example.com" onChange={controller.setTestRecipient} /></div>}
+        {controller.sendTestEmail && <div className="mt-3"><TextInput id="smtp-test-recipient" label="Recipient email" type="email" value={controller.testRecipient} placeholder="analyst@example.com" onChange={controller.setTestRecipient} /></div>}
         <p className="mt-2 text-xs text-slate dark:text-white/60">{controller.sendTestEmail ? 'Uses the current template and unsaved form values.' : 'Checks connection and authentication only.'}</p>
       </div>
     </div>
@@ -384,11 +417,11 @@ function SMTPHookStatus({ controller }: { controller: SMTPIntegrationController 
   const { notice, replayDelivery, saveHook, testHook, testResult } = controller
   const hasError = notice?.tone === 'error' || saveHook.isError || testHook.isError || replayDelivery.isError
   const message = saveHook.isError
-    ? resolveApiErrorMessage(saveHook.error, 'Failed to save SMTP hook.')
+    ? resolveApiErrorMessage(saveHook.error, 'Failed to save email destination.')
     : testHook.isError
-      ? resolveApiErrorMessage(testHook.error, 'Failed to test SMTP hook.')
+      ? resolveApiErrorMessage(testHook.error, 'Failed to test email destination.')
       : replayDelivery.isError
-        ? resolveApiErrorMessage(replayDelivery.error, 'Failed to replay SMTP delivery.')
+        ? resolveApiErrorMessage(replayDelivery.error, 'Failed to replay email delivery.')
         : notice?.message
   return (
     <>
