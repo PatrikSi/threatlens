@@ -64,6 +64,7 @@ const tokensPageDomMocks = vi.hoisted(() => ({
   tokensError: null as unknown,
   tokensFetching: false,
   tokensPlaceholder: false,
+  inventoryTotal: 2,
   tokensRefetch: vi.fn(),
   tokenQueryKeys: [] as unknown[][],
   revokedDescendantCount: 0,
@@ -167,7 +168,7 @@ vi.mock('@tanstack/react-query', () => ({
         ? undefined
         : {
             tokens: tokenInventory,
-            total: tokenInventory.length,
+            total: tokensPageDomMocks.inventoryTotal,
             page: 1,
             page_size: 25,
           },
@@ -297,6 +298,7 @@ afterEach(() => {
   tokensPageDomMocks.tokensError = null
   tokensPageDomMocks.tokensFetching = false
   tokensPageDomMocks.tokensPlaceholder = false
+  tokensPageDomMocks.inventoryTotal = 2
   tokensPageDomMocks.tokensRefetch.mockReset()
   tokensPageDomMocks.tokenQueryKeys.splice(0)
   tokensPageDomMocks.revokedDescendantCount = 0
@@ -343,12 +345,37 @@ describe('TokensPage DOM workflows', () => {
     ).toContain('Current password')
     expect(pageText()).toContain('Scoped API routes now reject unscoped tokens')
     expect(pageText()).toContain('Owner user ID: viewer-2')
+    const inventoryList = view.querySelector('ul[aria-label="API tokens"]')
+    const inventoryRows = view.querySelectorAll(
+      'ul[aria-label="API tokens"] > li',
+    )
+    expect(inventoryRows).toHaveLength(2)
+    expect(inventoryList?.className).toContain('divide-y')
+    expect(inventoryRows[0]?.className).toContain('py-2.5')
+    expect(inventoryRows[0]?.querySelector('dl')).not.toBeNull()
+    const ownerValue = inventoryRows[0]?.querySelector('dd.font-mono')
+    expect(ownerValue?.previousElementSibling?.className).toContain('block')
+    expect(ownerValue?.className).toContain('block')
+    expect(ownerValue?.className).toContain('sm:inline')
+    expect(pageText()).toContain('2 total')
     expect(
-      view.querySelectorAll('ul[aria-label="API tokens"] > li'),
-    ).toHaveLength(2)
+      view.querySelector('nav[aria-label="Token inventory pages"]'),
+    ).toBeNull()
     expect(
       view.querySelector('ul[aria-label="API tokens"] > li p')?.className,
     ).toContain('[overflow-wrap:anywhere]')
+    const nameInput = view.querySelector<HTMLInputElement>('#token-name')
+    const expiryInput = view.querySelector<HTMLInputElement>(
+      '#token-expiry-days',
+    )
+    expect(
+      view.querySelector('section[aria-labelledby="create-api-token-heading"]'),
+    ).not.toBeNull()
+    expect(nameInput?.className).toContain('min-h-11')
+    expect(nameInput?.className).toContain('sm:min-h-0')
+    expect(expiryInput?.parentElement?.parentElement?.className).toContain(
+      'sm:grid-cols-[minmax(0,1fr)_8rem]',
+    )
 
     const revokeButton = Array.from(view.querySelectorAll('button')).find(
       (button) =>
@@ -391,6 +418,22 @@ describe('TokensPage DOM workflows', () => {
     expect(updated.tokens[1].revoked_at).not.toBeNull()
   })
 
+  it('shows pagination when the token inventory spans multiple pages', () => {
+    tokensPageDomMocks.inventoryTotal = 26
+    const view = renderPage()
+    const pagination = view.querySelector(
+      'nav[aria-label="Token inventory pages"]',
+    )
+
+    expect(pagination).not.toBeNull()
+    expect(pagination?.textContent).toContain('1-2 of 26 · Page 1 of 2')
+    expect(
+      Array.from(pagination?.querySelectorAll('button') ?? []).map(
+        (button) => button.textContent,
+      ),
+    ).toEqual(['Previous', 'Next'])
+  })
+
   it('marks an applied owner filter as organization administration scope', () => {
     const view = renderPage()
     const ownerId = '00000000-0000-4000-8000-000000000222'
@@ -399,6 +442,11 @@ describe('TokensPage DOM workflows', () => {
     )
 
     expect(ownerFilter).not.toBeNull()
+    expect(ownerFilter?.closest('form')?.getAttribute('aria-label')).toBe(
+      'Filter token inventory by owner',
+    )
+    expect(ownerFilter?.className).toContain('min-h-11')
+    expect(ownerFilter?.className).toContain('sm:min-h-0')
     act(() => {
       setInputValue(ownerFilter!, ownerId)
       ownerFilter
