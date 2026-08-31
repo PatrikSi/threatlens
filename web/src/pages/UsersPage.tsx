@@ -11,6 +11,7 @@ import { apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { useAuth } from '../components/AuthContext'
+import { SettingsPageHeader } from '../components/SettingsPageHeader'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { usePendingEntityActions } from '../hooks/usePendingEntityActions'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
@@ -594,7 +595,13 @@ export function UsersPage() {
 
   return (
     <>
-      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+      <div className="space-y-4">
+        <SettingsPageHeader
+          scope="Organization"
+          title="Users"
+          description="Manage user lifecycle, base roles, sign-in methods, and account security."
+        />
+        <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
         <UserDirectoryHeader
           data={usersQuery.data}
           filteredCount={filteredUsers.length}
@@ -690,8 +697,8 @@ export function UsersPage() {
             onSubmit={onCreateSubmit}
           >
             <div className="sm:col-span-2 lg:col-span-4">
-              <h3 className="text-sm font-semibold uppercase text-slate dark:text-slate-300">
-                Create Local User
+              <h3 className="text-sm font-semibold text-slate dark:text-slate-300">
+                Create local user
               </h3>
             </div>
             <div className="lg:col-span-2">
@@ -748,7 +755,7 @@ export function UsersPage() {
                 htmlFor="create-user-role"
                 className="text-sm font-semibold"
               >
-                Role
+                Base role
               </label>
               <select
                 id="create-user-role"
@@ -761,9 +768,9 @@ export function UsersPage() {
                 }
                 className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
               >
-                <option value="viewer">viewer</option>
-                <option value="analyst">analyst</option>
-                <option value="admin">admin</option>
+                <option value="viewer">Viewer</option>
+                <option value="analyst">Analyst</option>
+                <option value="admin">Administrator</option>
               </select>
             </div>
             <div className="flex flex-wrap items-center gap-x-5 gap-y-2 sm:col-span-2 lg:col-span-3">
@@ -779,7 +786,7 @@ export function UsersPage() {
                     }))
                   }
                 />
-                Active
+                Account enabled
               </label>
               <label className="flex min-h-11 items-center gap-2 text-sm sm:min-h-0">
                 <input
@@ -793,7 +800,7 @@ export function UsersPage() {
                     }))
                   }
                 />
-                Approved
+                Access approved
               </label>
               {createUserError && (
                 <p
@@ -923,7 +930,8 @@ export function UsersPage() {
             onOffsetChange={setDirectoryOffset}
           />
         </div>
-      </section>
+        </section>
+      </div>
 
       <HiddenDraftDiscardDialog
         target={pendingHiddenDraftDiscard}
@@ -1031,7 +1039,7 @@ function HiddenDraftDiscardDialog({
     <ConfirmDialog
       open={Boolean(target)}
       title="Discard hidden account draft?"
-      description="This removes the unsaved role, account-status, and password-reset changes for this account. Saved account data is not changed."
+      description="This removes the unsaved base-role, account-status, and password-reset changes for this account. Saved account data is not changed."
       confirmLabel="Discard hidden draft"
       onCancel={onCancel}
       onConfirm={() => {

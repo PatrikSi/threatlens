@@ -307,10 +307,15 @@ describe('AccessGovernancePage permission and policy workflows', () => {
   it('does not expose data-policy controls or approval data for lookalike permissions', () => {
     const view = renderPage(['read:iam', 'read:action_approvals'])
 
-    expect(findButton(view, 'Handling labels')).toBeUndefined()
+    expect(view.querySelectorAll('h1')).toHaveLength(1)
+    expect(view.querySelector('h1')?.textContent).toBe('Access control')
+    expect(findButton(view, 'Data handling')).toBeUndefined()
     expect(queryEnabled('data-policy')).toBe(false)
     expect(queryEnabled('action-approvals')).toBe(false)
     expect(view.textContent).toContain('Data-policy state is not available to this role.')
+    const attentionColumnHeaders = [...view.querySelectorAll('th')]
+    expect(attentionColumnHeaders).toHaveLength(4)
+    expect(attentionColumnHeaders.every((heading) => heading.getAttribute('scope') === 'col')).toBe(true)
   })
 
   it('uses read:approvals to enable the approval queue and read:data_policies for its tab', () => {
@@ -320,7 +325,7 @@ describe('AccessGovernancePage permission and policy workflows', () => {
       'read:data_policies',
     ])
 
-    expect(findButton(view, 'Handling labels')).toBeDefined()
+    expect(findButton(view, 'Data handling')).toBeDefined()
     expect(queryEnabled('data-policy')).toBe(true)
     expect(queryEnabled('action-approvals')).toBe(true)
   })
@@ -354,7 +359,7 @@ describe('AccessGovernancePage permission and policy workflows', () => {
       'write:data_policies',
     ])
 
-    click(findButton(view, 'Handling labels'))
+    click(findButton(view, 'Data handling'))
 
     expect(view.textContent).toContain('Activation preflight')
     expect(view.textContent).toContain('Coverage 7 / 8')
@@ -398,7 +403,7 @@ describe('AccessGovernancePage permission and policy workflows', () => {
 
   it('renders sealed wildcard authority explicitly', () => {
     const view = renderPage(['read:iam'])
-    click(findButton(view, 'Roles'))
+    click(findButton(view, 'Access roles'))
     click(findButtonContaining(view, 'Administrator'))
 
     expect(view.textContent).toContain(
@@ -412,12 +417,12 @@ describe('AccessGovernancePage permission and policy workflows', () => {
     governancePageDomMocks.elevationIds = ['elevation-1']
     const view = renderPage(['read:iam', 'write:iam'])
 
-    click(findButton(view, 'Roles'))
+    click(findButton(view, 'Access roles'))
 
     expect(view.textContent).toContain(
       'Temporary elevation can inspect access policy',
     )
-    expect(findButton(view, 'New role')).toBeUndefined()
+    expect(findButton(view, 'New access role')).toBeUndefined()
   })
 
   it('hides cached optional governance data as soon as permission is revoked', () => {

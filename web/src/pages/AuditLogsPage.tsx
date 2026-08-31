@@ -3,6 +3,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 
 import { apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
+import { SettingsPageHeader } from '../components/SettingsPageHeader'
 import { AuditLogExportResponse, AuditLogListResponse } from '../types/api'
 import { formatDateTime } from '../utils/datetime'
 
@@ -38,6 +39,7 @@ export function AuditLogsPage() {
   const auditQueryError = auditQuery.isError
     ? resolveApiErrorMessage(auditQuery.error, 'Audit logs could not be loaded')
     : ''
+  const hasActiveFilters = Boolean(action || actorUserId)
 
   const exportLogs = useMutation({
     mutationFn: () => {
@@ -73,71 +75,96 @@ export function AuditLogsPage() {
   })
 
   return (
-    <section className="min-w-0 overflow-hidden rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="font-display text-xl">Audit Logs</h2>
-        <div className="grid w-full gap-2 sm:flex sm:w-auto sm:flex-wrap">
-          <label htmlFor="audit-log-action-filter" className="sr-only">
-            Filter audit logs by action
-          </label>
-          <input
-            id="audit-log-action-filter"
-            value={action}
-            onChange={(event) => {
-              setPage(1)
-              setAction(event.target.value)
-            }}
-            placeholder="Action filter"
-            className="w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
-          />
-          <label htmlFor="audit-log-actor-filter" className="sr-only">
-            Filter audit logs by actor user ID
-          </label>
-          <input
-            id="audit-log-actor-filter"
-            value={actorUserId}
-            onChange={(event) => {
-              setPage(1)
-              setActorUserId(event.target.value)
-            }}
-            placeholder="Actor user ID"
-            aria-invalid={Boolean(actorUserIdError)}
-            aria-describedby={actorUserIdError ? 'audit-log-actor-filter-error' : undefined}
-            className="w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm sm:w-64 dark:border-cyan-900/40 dark:bg-[#072019]"
-          />
+    <div className="space-y-4">
+      <SettingsPageHeader
+        scope="Organization"
+        title="Audit log"
+        description="Review security and administrative events across this deployment."
+        actions={(
           <button
             type="button"
-            className="w-full rounded border border-slate/30 px-3 py-2 text-sm sm:w-auto dark:border-cyan-900/40"
+            className="w-full rounded border border-slate/30 px-3 py-2 text-sm font-semibold sm:w-auto dark:border-cyan-900/40"
             onClick={() => exportLogs.mutate()}
             disabled={exportLogs.isPending || Boolean(actorUserIdError)}
           >
             {exportLogs.isPending ? 'Exporting...' : 'Export JSON'}
           </button>
-        </div>
-      </div>
-      {actorUserIdError && (
-        <p
-          id="audit-log-actor-filter-error"
-          role="alert"
-          aria-live="assertive"
-          aria-atomic="true"
-          className="mt-2 text-sm text-red-600 dark:text-red-300"
-        >
-          {actorUserIdError}
-        </p>
-      )}
-      {exportError && (
-        <p role="alert" aria-live="assertive" aria-atomic="true" className="mt-2 text-sm text-red-600 dark:text-red-300">
-          {exportError}
-        </p>
-      )}
-      {exportMessage && (
-        <p role="status" aria-live="polite" aria-atomic="true" className="mt-2 text-sm text-slate dark:text-slate-300">
-          {exportMessage}
-        </p>
-      )}
+        )}
+      >
+        {(exportError || exportMessage) && (
+          <div className="py-3">
+            {exportError && (
+              <p role="alert" aria-live="assertive" aria-atomic="true" className="text-sm text-red-600 dark:text-red-300">
+                {exportError}
+              </p>
+            )}
+            {exportMessage && (
+              <p role="status" aria-live="polite" aria-atomic="true" className="text-sm text-slate dark:text-slate-300">
+                {exportMessage}
+              </p>
+            )}
+          </div>
+        )}
+      </SettingsPageHeader>
 
-      <div className="mt-3 space-y-2 sm:hidden" aria-label="Audit log entries">
+      <section className="min-w-0 overflow-hidden rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className="grid w-full gap-3 sm:grid-cols-2 lg:w-auto">
+            <label htmlFor="audit-log-action-filter" className="text-xs font-semibold text-slate dark:text-slate-300">
+              Event
+              <input
+                id="audit-log-action-filter"
+                value={action}
+                onChange={(event) => {
+                  setPage(1)
+                  setAction(event.target.value)
+                }}
+                placeholder="For example, item.updated"
+                className="mt-1 block w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm font-normal text-ink dark:border-cyan-900/40 dark:bg-[#072019] dark:text-slate-100"
+              />
+            </label>
+            <label htmlFor="audit-log-actor-filter" className="text-xs font-semibold text-slate dark:text-slate-300">
+              Actor user ID
+              <input
+                id="audit-log-actor-filter"
+                value={actorUserId}
+                onChange={(event) => {
+                  setPage(1)
+                  setActorUserId(event.target.value)
+                }}
+                placeholder="UUID"
+                aria-invalid={Boolean(actorUserIdError)}
+                aria-describedby={actorUserIdError ? 'audit-log-actor-filter-error' : undefined}
+                className="mt-1 block w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm font-normal text-ink sm:w-64 dark:border-cyan-900/40 dark:bg-[#072019] dark:text-slate-100"
+              />
+            </label>
+          </div>
+          <button
+            type="button"
+            className="rounded border border-slate/30 px-3 py-2 text-sm font-semibold disabled:opacity-50 dark:border-cyan-900/40"
+            disabled={!hasActiveFilters}
+            onClick={() => {
+              setAction('')
+              setActorUserId('')
+              setPage(1)
+            }}
+          >
+            Clear filters
+          </button>
+        </div>
+        {actorUserIdError && (
+          <p
+            id="audit-log-actor-filter-error"
+            role="alert"
+            aria-live="assertive"
+            aria-atomic="true"
+            className="mt-2 text-sm text-red-600 dark:text-red-300"
+          >
+            {actorUserIdError}
+          </p>
+        )}
+
+      <div className="mt-3 space-y-2 sm:hidden" aria-label="Audit events">
         {auditQueryEnabled && auditQuery.isLoading && (
           <p className="py-4 text-center text-sm text-slate dark:text-slate-300">Loading audit logs...</p>
         )}
@@ -148,7 +175,7 @@ export function AuditLogsPage() {
         )}
         {auditQueryEnabled && !auditQuery.isLoading && !auditQuery.isError && logs.length === 0 && (
           <div className="rounded-lg border border-dashed border-slate/25 px-3 py-4 text-center text-sm text-slate dark:border-cyan-900/40 dark:text-slate-300">
-            No audit logs match the current filters.
+            No events match the current filters.
           </div>
         )}
         {logs.map((log) => (
@@ -160,7 +187,7 @@ export function AuditLogsPage() {
                 <p className="mt-0.5 text-[11px] text-slate dark:text-slate-400">{formatDateTime(log.created_at)}</p>
               </div>
               <span className={log.success ? 'tl-chip tl-chip-neutral' : 'tl-chip tl-chip-danger'}>
-                {log.success ? 'success' : 'failed'}
+                {log.success ? 'Success' : 'Failed'}
               </span>
             </div>
             </summary>
@@ -184,11 +211,11 @@ export function AuditLogsPage() {
         <table className="min-w-[720px] text-left text-sm">
           <thead>
             <tr className="border-b border-slate/20 dark:border-cyan-900/40">
-              <th className="px-2 py-2">Time</th>
-              <th className="px-2 py-2">Action</th>
-              <th className="px-2 py-2">Resource</th>
-              <th className="px-2 py-2">Actor</th>
-              <th className="px-2 py-2">Status</th>
+              <th scope="col" className="px-2 py-2">Time</th>
+              <th scope="col" className="px-2 py-2">Event</th>
+              <th scope="col" className="px-2 py-2">Resource</th>
+              <th scope="col" className="px-2 py-2">Actor</th>
+              <th scope="col" className="px-2 py-2">Status</th>
             </tr>
           </thead>
           <tbody>
@@ -212,7 +239,7 @@ export function AuditLogsPage() {
               <tr>
                 <td colSpan={5} className="px-2 py-6">
                   <div className="rounded-lg border border-dashed border-slate/25 px-3 py-4 text-center text-sm text-slate dark:border-cyan-900/40 dark:text-slate-300">
-                    No audit logs match the current filters.
+                    No events match the current filters.
                   </div>
                 </td>
               </tr>
@@ -234,7 +261,7 @@ export function AuditLogsPage() {
                         : 'tl-chip tl-chip-danger'
                     }
                   >
-                    {log.success ? 'success' : 'failed'}
+                    {log.success ? 'Success' : 'Failed'}
                   </span>
                 </td>
               </tr>
@@ -245,10 +272,10 @@ export function AuditLogsPage() {
 
       <div className="mt-4 grid grid-cols-[auto_1fr_auto] items-center gap-2 text-sm sm:flex sm:flex-wrap sm:justify-between">
         <button className="rounded border border-slate/30 px-2 py-1 disabled:cursor-not-allowed disabled:opacity-60 dark:border-cyan-900/40" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-          Prev
+          Previous
         </button>
         <span className="text-center sm:w-auto">
-          Page {page} / {totalPages}
+          Page {page} of {totalPages}
         </span>
         <button
           className="rounded border border-slate/30 px-2 py-1 disabled:cursor-not-allowed disabled:opacity-60 dark:border-cyan-900/40"
@@ -258,6 +285,7 @@ export function AuditLogsPage() {
           Next
         </button>
       </div>
-    </section>
+      </section>
+    </div>
   )
 }

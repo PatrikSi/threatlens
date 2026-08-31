@@ -13,6 +13,7 @@ import {
 
 import { resolveApiErrorMessage } from '../api/errors'
 import { ConfirmDialog } from '../components/ConfirmDialog'
+import { SettingsPageHeader } from '../components/SettingsPageHeader'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import type { EffectiveAccess } from '../types/access'
 import type { CurrentAuthentication } from '../types/api'
@@ -40,11 +41,11 @@ const tabs: Array<{
   permission?: string
 }> = [
   { id: 'overview', label: 'Overview', icon: CircleGauge },
-  { id: 'roles', label: 'Roles', icon: ShieldCheck },
+  { id: 'roles', label: 'Access roles', icon: ShieldCheck },
   { id: 'groups', label: 'Groups', icon: UsersRound },
   {
     id: 'data-policy',
-    label: 'Handling labels',
+    label: 'Data handling',
     icon: Tags,
     permission: 'read:data_policies',
   },
@@ -207,39 +208,33 @@ export function AccessGovernancePage() {
 
   return (
     <div className="space-y-4">
-      <header className="tl-surface rounded-xl p-4 sm:p-5">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-          <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-700 dark:text-cyan-200">
-              Access governance
-            </p>
-            <h1 className="mt-1 font-display text-2xl text-ink dark:text-white sm:text-3xl">
-              Entitlements and handling policy
-            </h1>
-            <p className="mt-2 max-w-3xl text-sm text-slate dark:text-slate-300">
-              Manage durable roles, group membership, and classified-data boundaries.
-              Revisions shown here are concurrency controls; stale changes are rejected by
-              the server.
-            </p>
-          </div>
+      <SettingsPageHeader
+        scope="Organization"
+        title="Access control"
+        description="Manage access roles, group membership, and data-handling policy. Stale revisions are rejected before changes are applied."
+        actions={
           <button
             type="button"
             className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded border border-slate/25 px-3 py-2 text-sm font-semibold disabled:opacity-60 sm:min-h-0 dark:border-cyan-900/40"
             onClick={() => void refresh()}
             disabled={isRefreshing || activePanelDirty}
-            title={activePanelDirty ? 'Save or discard the current edits before refreshing.' : undefined}
+            title={
+              activePanelDirty
+                ? 'Save or discard the current edits before refreshing.'
+                : undefined
+            }
           >
             <RefreshCw
               className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`}
               aria-hidden="true"
             />
-            {isRefreshing ? 'Refreshing…' : activePanelDirty ? 'Edits pending' : 'Refresh state'}
+            {isRefreshing ? 'Refreshing…' : 'Refresh'}
           </button>
-        </div>
-
+        }
+      >
         <nav
-          className="mt-5 flex max-w-full gap-1 overflow-x-auto border-b border-slate/15 pb-px dark:border-white/10"
-          aria-label="Access governance sections"
+          className="flex max-w-full gap-1 overflow-x-auto"
+          aria-label="Access control sections"
         >
           {visibleTabs.map((tab) => {
             const Icon = tab.icon
@@ -262,12 +257,12 @@ export function AccessGovernancePage() {
             )
           })}
         </nav>
-      </header>
+      </SettingsPageHeader>
 
       {writeGate && <GovernanceWriteGate {...writeGate} />}
 
       {iamQuery.isLoading ? (
-        <LoadingState label="Loading IAM catalog…" />
+        <LoadingState label="Loading access catalog…" />
       ) : iamQuery.isError || !iamQuery.data ? (
         <ErrorState
           error={iamQuery.error}
@@ -493,7 +488,7 @@ function GovernanceOverview({
         </div>
 
         <dl className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          <Metric label="Roles" value={roleCount} detail="System and custom" />
+          <Metric label="Access roles" value={roleCount} detail="System and custom" />
           <Metric label="Groups" value={groupCount} detail="Local and federated" />
           <Metric
             label="Machine identities"
@@ -515,7 +510,7 @@ function GovernanceOverview({
 
       <section className="tl-surface rounded-xl p-4 sm:p-5" aria-labelledby="data-boundary-heading">
         <h2 id="data-boundary-heading" className="font-display text-xl">
-          Data boundary
+          Data handling
         </h2>
         {!dataPolicy ? (
           <p className="mt-3 text-sm text-slate dark:text-slate-300">
@@ -539,7 +534,7 @@ function GovernanceOverview({
               </span>
             </div>
             <div className="flex items-center justify-between gap-3">
-              <span className="text-slate dark:text-slate-300">Handling labels</span>
+              <span className="text-slate dark:text-slate-300">Data-handling labels</span>
               <span className="font-semibold">{dataPolicy.labels.length}</span>
             </div>
             <div className="flex items-start gap-2 border-t border-slate/15 pt-3 dark:border-white/10">
@@ -571,10 +566,10 @@ function GovernanceOverview({
           <table className="min-w-[760px] w-full text-left text-sm">
             <thead className="bg-slate/5 text-xs text-slate dark:bg-white/[0.04] dark:text-slate-300">
               <tr>
-                <th className="px-3 py-2 font-semibold">Queue</th>
-                <th className="px-3 py-2 font-semibold">Subject</th>
-                <th className="px-3 py-2 font-semibold">State</th>
-                <th className="px-3 py-2 font-semibold">Deadline</th>
+                <th scope="col" className="px-3 py-2 font-semibold">Queue</th>
+                <th scope="col" className="px-3 py-2 font-semibold">Subject</th>
+                <th scope="col" className="px-3 py-2 font-semibold">State</th>
+                <th scope="col" className="px-3 py-2 font-semibold">Deadline</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate/15 dark:divide-white/10">

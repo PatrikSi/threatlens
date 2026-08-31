@@ -107,15 +107,23 @@ afterEach(() => {
 })
 
 describe('AuditLogsPage DOM workflows', () => {
-  it('keeps the audit filters programmatically labeled', () => {
+  it('keeps audit filters visibly labeled and clears them together', () => {
     const view = renderPage()
 
-    expect(view.querySelector('label[for="audit-log-action-filter"]')?.textContent).toContain('Filter audit logs by action')
-    expect(view.querySelector('label[for="audit-log-actor-filter"]')?.textContent).toContain(
-      'Filter audit logs by actor user ID',
-    )
-    expect(view.querySelector<HTMLInputElement>('#audit-log-action-filter')).not.toBeNull()
+    expect(view.querySelector('h1')?.textContent).toBe('Audit log')
+    expect(view.querySelector('label[for="audit-log-action-filter"]')?.textContent).toContain('Event')
+    expect(view.querySelector('label[for="audit-log-actor-filter"]')?.textContent).toContain('Actor user ID')
+    const eventInput = view.querySelector<HTMLInputElement>('#audit-log-action-filter')
+    const clearFilters = Array.from(view.querySelectorAll<HTMLButtonElement>('button'))
+      .find((button) => button.textContent?.trim() === 'Clear filters')
+    expect(eventInput).not.toBeNull()
     expect(view.querySelector<HTMLInputElement>('#audit-log-actor-filter')).not.toBeNull()
+    expect(clearFilters?.disabled).toBe(true)
+
+    act(() => setInputValue(eventInput!, 'item.updated'))
+    expect(clearFilters?.disabled).toBe(false)
+    act(() => clearFilters?.click())
+    expect(eventInput?.value).toBe('')
   })
 
   it('renders labeled mobile records alongside the desktop audit table', () => {
@@ -133,7 +141,7 @@ describe('AuditLogsPage DOM workflows', () => {
     ]
 
     const view = renderPage()
-    const mobileRecords = view.querySelector('[aria-label="Audit log entries"]')
+    const mobileRecords = view.querySelector('[aria-label="Audit events"]')
     const mobileRecord = mobileRecords?.querySelector('details')
     const desktopTable = view.querySelector('table')?.parentElement
 
@@ -143,6 +151,7 @@ describe('AuditLogsPage DOM workflows', () => {
     expect(mobileRecords?.textContent).toContain('system')
     expect(desktopTable?.className).toContain('hidden')
     expect(desktopTable?.className).toContain('sm:block')
+    expect(Array.from(view.querySelectorAll('th')).every((heading) => heading.getAttribute('scope') === 'col')).toBe(true)
 
     act(() => {
       mobileRecord?.querySelector<HTMLElement>('summary')?.click()

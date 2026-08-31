@@ -1,4 +1,5 @@
 import type { AdminUser, User, UserDirectoryResponse } from '../types/api'
+import { formatSettingsRoleLabel } from '../workspace/modulePresentation'
 import {
   resolveUsersError,
   type UserProvisioningFilter,
@@ -15,7 +16,7 @@ const ROLE_DEFINITIONS: Array<{
     summary:
       'Full administrative access across user management, global settings, and operational oversight.',
     capabilities: [
-      'Manage users, approvals, and role changes',
+      'Manage users, approvals, and base-role changes',
       'Access audit logs and global administration surfaces',
       'Manage feeds, triage actions, tagging, and AI settings',
     ],
@@ -76,7 +77,7 @@ export function UserDirectoryHeader({
   return (
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div>
-        <h2 className="font-display text-xl">User Directory</h2>
+        <h2 className="font-display text-xl">User directory</h2>
         {isLoading && (
           <p role="status" className="text-xs text-slate dark:text-slate-300">
             Loading account inventory...
@@ -118,7 +119,7 @@ export function UserDirectoryHeader({
               ? 'Close form'
               : hasCreateUserDraft
                 ? 'Resume local user draft'
-                : 'New local user'}
+                : 'Add local user'}
           </button>
           <label htmlFor="user-account-filter" className="sr-only">
             Filter by provisioning source
@@ -138,7 +139,7 @@ export function UserDirectoryHeader({
             <option value="oidc">SSO-provisioned</option>
           </select>
           <label htmlFor="user-role-filter" className="sr-only">
-            Filter by role
+            Filter by base role
           </label>
           <select
             id="user-role-filter"
@@ -148,13 +149,13 @@ export function UserDirectoryHeader({
             }
             className="rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
           >
-            <option value="all">All roles</option>
-            <option value="admin">Admin</option>
+            <option value="all">All base roles</option>
+            <option value="admin">Administrator</option>
             <option value="analyst">Analyst</option>
             <option value="viewer">Viewer</option>
           </select>
           <label htmlFor="user-directory-search" className="sr-only">
-            Search users by email, role, status, account type, or provider
+            Search users by email, base role, status, account type, or provider
           </label>
           <input
             id="user-directory-search"
@@ -174,20 +175,24 @@ export function UserRoleDefinitions() {
     <details className="mt-3 rounded-lg border border-slate/20 bg-slate/5 p-2.5 sm:p-3 dark:border-cyan-900/40 dark:bg-white/[0.04]">
       <summary className="cursor-pointer list-none text-sm font-semibold text-slate-900 dark:text-white">
         <span className="inline-flex items-center gap-2">
-          <span>Role Definitions</span>
+          <span>Base role definitions</span>
           <span className="text-xs font-normal text-slate dark:text-slate-300">
-            Expand for admin, analyst, and viewer access boundaries
+            Review Administrator, Analyst, and Viewer access boundaries
           </span>
         </span>
       </summary>
+      <p className="mt-3 text-sm text-slate dark:text-slate-300">
+        Every user has one base role. Access roles can add additional
+        permissions through governance assignments.
+      </p>
       <div className="mt-3 grid gap-3 lg:grid-cols-3">
         {ROLE_DEFINITIONS.map((entry) => (
           <div
             key={entry.role}
             className="border-l-2 border-slate/20 pl-3 dark:border-cyan-900/50"
           >
-            <h3 className="text-sm font-semibold uppercase text-slate-900 dark:text-white">
-              {entry.role}
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
+              {formatSettingsRoleLabel(entry.role)}
             </h3>
             <p className="mt-1 text-sm text-slate dark:text-slate-300">
               {entry.summary}
