@@ -48,6 +48,7 @@ from app.services.data_access_policy import (
 
 _SHA256_PATTERN = re.compile(r"^[0-9a-fA-F]{64}$")
 _SYSTEM_EVENT_SOURCE_TYPES = frozenset({"digest_window", "system", "test"})
+_FEED_ONLY_LEGACY_EVENT_TYPES = frozenset({"feed_failing"})
 _MAX_DELIVERY_LINEAGE_DEPTH = 32
 
 
@@ -371,9 +372,24 @@ def ensure_integration_event_data_access_envelope(
 
 
 def ensure_integration_delivery_data_access_envelope(
-    db: Session, *, delivery_id: uuid.UUID
+    db: Session,
+    *,
+    delivery_id: uuid.UUID,
+    expected_policy_revision: int | None = None,
 ) -> DataAccessEnvelopeSnapshot:
-    return _ensure_delivery_envelope(db, delivery_id=delivery_id, seen=frozenset())
+    with db.no_autoflush:
+        revision = _locked_policy_revision(db)
+    _require_expected_policy_revision(
+        revision,
+        expected_policy_revision=expected_policy_revision,
+        operation="integration delivery provenance capture",
+    )
+    return _ensure_delivery_envelope(
+        db,
+        delivery_id=delivery_id,
+        seen=frozenset(),
+        policy_revision=revision,
+    )
 
 
 class _ItemSourceRef:
@@ -624,29 +640,16 @@ def _direct_event_sources(
         and parsed_source_id is not None
     ):
         legacy = db.get(NotificationWebhookDelivery, parsed_source_id)
-        if legacy is not None and legacy.item_id is not None:
-            return _item_sources(
+        if legacy is not None:
+            legacy_sources = _legacy_notification_sources(
                 db,
-                refs=(
-                    _ItemSourceRef(
-                        item_id=legacy.item_id,
-                        source_id=str(legacy.item_id),
-                        source_version=version,
-                        captured_at=event.created_at,
-                    ),
-                ),
+                legacy=legacy,
+                source_version=version,
                 policy_revision=policy_revision,
+                captured_at=event.created_at,
             )
-        if legacy is not None and legacy.feed_id is not None:
-            return (
-                _feed_source(
-                    db,
-                    feed_id=legacy.feed_id,
-                    source_version=version,
-                    policy_revision=policy_revision,
-                    captured_at=event.created_at,
-                ),
-            )
+            if legacy_sources:
+                return legacy_sources
     if event.source_type in _SYSTEM_EVENT_SOURCE_TYPES:
         return (
             _system_source(
@@ -671,6 +674,7 @@ def _ensure_delivery_envelope(
     *,
     delivery_id: uuid.UUID,
     seen: frozenset[uuid.UUID],
+    policy_revision: int,
 ) -> DataAccessEnvelopeSnapshot:
     if delivery_id in seen or len(seen) >= _MAX_DELIVERY_LINEAGE_DEPTH:
         raise DataPolicyUnavailable(
@@ -697,7 +701,10 @@ def _ensure_delivery_envelope(
     next_seen = seen | {delivery.id}
     if delivery.source_delivery_id is not None:
         _ensure_delivery_envelope(
-            db, delivery_id=delivery.source_delivery_id, seen=next_seen
+            db,
+            delivery_id=delivery.source_delivery_id,
+            seen=next_seen,
+            policy_revision=policy_revision,
         )
         return copy_data_access_envelope_lineage(
             db,
@@ -718,23 +725,24 @@ def _ensure_delivery_envelope(
             operation="merge",
         )
 
-    revision = _locked_policy_revision(db)
     legacy_sources = _legacy_delivery_sources(
-        db, delivery=delivery, policy_revision=revision
+        db,
+        delivery=delivery,
+        policy_revision=policy_revision,
     )
     sources = legacy_sources or (
         (
             _system_source(
                 source_id=str(delivery.id),
                 source_version=f"delivery:{delivery.id}",
-                policy_revision=revision,
+                policy_revision=policy_revision,
                 captured_at=delivery.created_at,
             )
             if delivery.delivery_kind == "test"
             else _unresolved_source(
                 source_id=str(delivery.id),
                 source_version=f"delivery:{delivery.id}",
-                policy_revision=revision,
+                policy_revision=policy_revision,
                 captured_at=delivery.created_at,
             )
         ),
@@ -758,28 +766,69 @@ def _legacy_delivery_sources(
     legacy = db.get(NotificationWebhookDelivery, legacy_id) if legacy_id else None
     if legacy is None:
         return ()
-    version = f"delivery:{delivery.id}"
+    return _legacy_notification_sources(
+        db,
+        legacy=legacy,
+        source_version=f"delivery:{delivery.id}",
+        policy_revision=policy_revision,
+        captured_at=delivery.created_at,
+    )
+
+
+def _legacy_notification_sources(
+    db: Session,
+    *,
+    legacy: NotificationWebhookDelivery,
+    source_version: str,
+    policy_revision: int,
+    captured_at: datetime | None,
+) -> tuple[DataAccessSourceInput, ...]:
     if legacy.item_id is not None:
+        item_feed_id = db.scalar(
+            select(Item.feed_id)
+            .where(Item.id == legacy.item_id)
+            .with_for_update(read=True)
+        )
+        if item_feed_id is None or (
+            legacy.feed_id is not None and legacy.feed_id != item_feed_id
+        ):
+            return (
+                _unresolved_source(
+                    source_id=str(legacy.item_id),
+                    source_version=source_version,
+                    policy_revision=policy_revision,
+                    captured_at=captured_at,
+                ),
+            )
         return _item_sources(
             db,
             refs=(
                 _ItemSourceRef(
                     item_id=legacy.item_id,
                     source_id=str(legacy.item_id),
-                    source_version=version,
-                    captured_at=delivery.created_at,
+                    source_version=source_version,
+                    captured_at=captured_at,
                 ),
             ),
             policy_revision=policy_revision,
+        )
+    if legacy.event_type_snapshot not in _FEED_ONLY_LEGACY_EVENT_TYPES:
+        return (
+            _unresolved_source(
+                source_id=str(legacy.id),
+                source_version=source_version,
+                policy_revision=policy_revision,
+                captured_at=captured_at,
+            ),
         )
     if legacy.feed_id is not None:
         return (
             _feed_source(
                 db,
                 feed_id=legacy.feed_id,
-                source_version=version,
+                source_version=source_version,
                 policy_revision=policy_revision,
-                captured_at=delivery.created_at,
+                captured_at=captured_at,
             ),
         )
     return ()

@@ -21,6 +21,8 @@ from app.models.integration import (
 )
 from app.models.investigation import Investigation, InvestigationEvidence
 from app.models.item import Item
+from app.models.notification_webhook import NotificationWebhook
+from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.report import Report
 from app.models.report_source_item import ReportSourceItem
 from app.services.ai_reporting import get_latest_daily_brief, get_recent_daily_briefs
@@ -252,6 +254,230 @@ def test_orphan_delivery_requires_explicit_test_kind_for_unrestricted_lineage(
     )
 
     assert snapshot.label_ids == frozenset({QUARANTINE_HANDLING_LABEL_ID})
+
+
+def test_conflicting_legacy_webhook_item_and_feed_lineage_is_quarantined(
+    db_session,
+    seed_users,
+):
+    _label, item_feed, item = _restricted_feed_and_item(db_session)
+    conflicting_feed = Feed(
+        name=f"Conflicting legacy feed {uuid.uuid4()}",
+        url=f"https://example.com/conflicting/{uuid.uuid4()}.xml",
+        handling_label_id=UNRESTRICTED_HANDLING_LABEL_ID,
+    )
+    webhook = NotificationWebhook(
+        user_id=seed_users["admin"].id,
+        name="Conflicting legacy lineage",
+        event_type="rss_item_new",
+        url_template="https://example.com/hook",
+        method="POST",
+        feed_scope="all",
+        feed_ids_json=[],
+        query_params_json=[],
+        headers_json=[],
+        body_mode="none",
+        body_fields_json=[],
+        timeout_seconds=10,
+    )
+    instance = IntegrationInstance(
+        name="Conflicting legacy integration",
+        integration_type="webhook",
+        direction="destination",
+    )
+    db_session.add_all([conflicting_feed, webhook, instance])
+    db_session.flush()
+    assert item.feed_id == item_feed.id
+    legacy = NotificationWebhookDelivery(
+        webhook_id=webhook.id,
+        user_id=seed_users["admin"].id,
+        event_type_snapshot="rss_item_new",
+        item_id=item.id,
+        feed_id=conflicting_feed.id,
+        delivery_state="failed",
+        success=False,
+        rendered_url="https://example.com/hook",
+        rendered_method="POST",
+        rendered_headers_json=[],
+        rendered_query_params_json=[],
+    )
+    db_session.add(legacy)
+    db_session.flush()
+    event = IntegrationEvent(
+        event_type="rss_item_new",
+        source_type="notification_webhook_delivery",
+        source_id=str(legacy.id),
+        idempotency_key=f"conflicting-legacy-event:{uuid.uuid4()}",
+        payload_json={},
+    )
+    delivery = IntegrationDelivery(
+        integration_id=instance.id,
+        connector_type="webhook",
+        event_type="rss_item_new",
+        delivery_kind="live",
+        state="dead_letter",
+        idempotency_key=f"conflicting-legacy-delivery:{uuid.uuid4()}",
+        payload_json={"legacy_webhook_delivery_id": str(legacy.id)},
+        max_attempts=3,
+    )
+    db_session.add_all([event, delivery])
+    db_session.flush()
+
+    event_snapshot = ensure_integration_event_data_access_envelope(
+        db_session, event_id=event.id
+    )
+    delivery_snapshot = ensure_integration_delivery_data_access_envelope(
+        db_session, delivery_id=delivery.id
+    )
+
+    assert event_snapshot.label_ids == frozenset({QUARANTINE_HANDLING_LABEL_ID})
+    assert delivery_snapshot.label_ids == frozenset({QUARANTINE_HANDLING_LABEL_ID})
+    for resource_type, resource_id in (
+        (DATA_ACCESS_RESOURCE_INTEGRATION_EVENT, event.id),
+        (DATA_ACCESS_RESOURCE_INTEGRATION_DELIVERY, delivery.id),
+    ):
+        sources = get_data_access_envelope_sources(
+            db_session,
+            resource_type=resource_type,
+            resource_id=resource_id,
+        )
+        assert len(sources) == 1
+        assert sources[0].source_type == "unresolved"
+
+
+def test_item_required_legacy_event_is_quarantined_after_item_deletion(
+    db_session,
+    seed_users,
+):
+    _label, item_feed, item = _restricted_feed_and_item(db_session)
+    misleading_feed = Feed(
+        name=f"Delayed legacy feed {uuid.uuid4()}",
+        url=f"https://example.com/delayed/{uuid.uuid4()}.xml",
+        handling_label_id=UNRESTRICTED_HANDLING_LABEL_ID,
+    )
+    webhook = NotificationWebhook(
+        user_id=seed_users["admin"].id,
+        name="Delayed legacy lineage",
+        event_type="rss_item_new",
+        url_template="https://example.com/hook",
+        method="POST",
+        feed_scope="all",
+        feed_ids_json=[],
+        query_params_json=[],
+        headers_json=[],
+        body_mode="none",
+        body_fields_json=[],
+        timeout_seconds=10,
+    )
+    db_session.add_all([misleading_feed, webhook])
+    db_session.flush()
+    assert item.feed_id == item_feed.id
+    legacy = NotificationWebhookDelivery(
+        webhook_id=webhook.id,
+        user_id=seed_users["admin"].id,
+        event_type_snapshot="rss_item_new",
+        item_id=item.id,
+        feed_id=misleading_feed.id,
+        delivery_state="failed",
+        success=False,
+        rendered_url="https://example.com/hook",
+        rendered_method="POST",
+        rendered_headers_json=[],
+        rendered_query_params_json=[],
+    )
+    db_session.add(legacy)
+    db_session.flush()
+    event = IntegrationEvent(
+        event_type="rss_item_new",
+        source_type="notification_webhook_delivery",
+        source_id=str(legacy.id),
+        idempotency_key=f"delayed-legacy-event:{uuid.uuid4()}",
+        payload_json={},
+    )
+    db_session.add(event)
+    db_session.flush()
+
+    db_session.delete(item)
+    db_session.flush()
+    db_session.expire(legacy)
+    assert legacy.item_id is None
+
+    snapshot = ensure_integration_event_data_access_envelope(
+        db_session,
+        event_id=event.id,
+    )
+    sources = get_data_access_envelope_sources(
+        db_session,
+        resource_type=DATA_ACCESS_RESOURCE_INTEGRATION_EVENT,
+        resource_id=event.id,
+    )
+
+    assert snapshot.label_ids == frozenset({QUARANTINE_HANDLING_LABEL_ID})
+    assert len(sources) == 1
+    assert sources[0].source_type == "unresolved"
+    assert sources[0].source_feed_id is None
+
+
+def test_feed_failing_legacy_event_retains_unambiguous_feed_lineage(
+    db_session,
+    seed_users,
+):
+    label, feed, _item = _restricted_feed_and_item(db_session)
+    webhook = NotificationWebhook(
+        user_id=seed_users["admin"].id,
+        name="Feed-only legacy lineage",
+        event_type="feed_failing",
+        url_template="https://example.com/hook",
+        method="POST",
+        feed_scope="all",
+        feed_ids_json=[],
+        query_params_json=[],
+        headers_json=[],
+        body_mode="none",
+        body_fields_json=[],
+        timeout_seconds=10,
+    )
+    db_session.add(webhook)
+    db_session.flush()
+    legacy = NotificationWebhookDelivery(
+        webhook_id=webhook.id,
+        user_id=seed_users["admin"].id,
+        event_type_snapshot="feed_failing",
+        item_id=None,
+        feed_id=feed.id,
+        delivery_state="failed",
+        success=False,
+        rendered_url="https://example.com/hook",
+        rendered_method="POST",
+        rendered_headers_json=[],
+        rendered_query_params_json=[],
+    )
+    db_session.add(legacy)
+    db_session.flush()
+    event = IntegrationEvent(
+        event_type="feed_failing",
+        source_type="notification_webhook_delivery",
+        source_id=str(legacy.id),
+        idempotency_key=f"feed-only-legacy-event:{uuid.uuid4()}",
+        payload_json={},
+    )
+    db_session.add(event)
+    db_session.flush()
+
+    snapshot = ensure_integration_event_data_access_envelope(
+        db_session,
+        event_id=event.id,
+    )
+    sources = get_data_access_envelope_sources(
+        db_session,
+        resource_type=DATA_ACCESS_RESOURCE_INTEGRATION_EVENT,
+        resource_id=event.id,
+    )
+
+    assert snapshot.label_ids == frozenset({label.id})
+    assert len(sources) == 1
+    assert sources[0].source_type == "feed"
+    assert sources[0].source_feed_id == feed.id
 
 
 def test_investigation_lineage_only_broadens_after_evidence_removal(db_session):
