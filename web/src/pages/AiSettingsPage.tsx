@@ -11,6 +11,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 
 import { apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
+import { SettingsPageHeader } from '../components/SettingsPageHeader'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import {
@@ -853,22 +854,31 @@ export function AiSettingsPage() {
 
   if (currentUserQuery.isLoading) {
     return (
-      <div className="rounded-xl border border-slate/20 bg-white/80 p-4 text-sm dark:border-cyan-900/40 dark:bg-[#041612]/90">
-        Loading AI settings...
+      <div className="space-y-4">
+        <SettingsPageHeader
+          scope="Organization"
+          title="AI automation"
+          description="Monitor AI health and jobs, and manage the provider configuration used across this organization."
+        />
+        <div role="status" className="rounded-xl border border-slate/20 bg-white/80 p-4 text-sm dark:border-cyan-900/40 dark:bg-[#041612]/90">
+          Loading AI automation settings...
+        </div>
       </div>
     )
   }
 
   if (!aiEnabled) {
     return (
-      <div className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
-        <p className="text-xs font-semibold uppercase text-slate dark:text-white/55">Automation</p>
-        <h2 className="mt-1 font-display text-xl">AI Settings</h2>
-        <p className="mt-2 text-sm text-slate dark:text-white/75">
+      <SettingsPageHeader
+        scope="Organization"
+        title="AI automation"
+        description="AI automation is unavailable because it is disabled for this deployment."
+      >
+        <p className="py-3 text-sm text-slate dark:text-white/75">
           AI features are disabled by the deployment configuration. Enable `AI_ENABLED=true` and restart ThreatLens to use
           this section.
         </p>
-      </div>
+      </SettingsPageHeader>
     )
   }
 

@@ -15,14 +15,15 @@ type TaggingPanelProps = {
 }
 
 export function TaggingRulesList({ controller }: TaggingPanelProps) {
-  const { bundleQuery, onCreateNewRule, onSelectRule, selectedRuleId } = controller
+  const { bundleQuery, canManageTagging, onCreateNewRule, onSelectRule, selectedRuleId } = controller
 
   return (
     <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
       <div className="flex items-center justify-between gap-3">
-        <h3 className="font-display text-lg">Custom Rules</h3>
+        <h2 className="font-display text-lg">Rules</h2>
         <button
-          className="rounded border border-slate/30 px-3 py-1.5 text-sm font-semibold dark:border-cyan-900/40"
+          className="rounded border border-slate/30 px-3 py-1.5 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50 dark:border-cyan-900/40"
+          disabled={!canManageTagging}
           onClick={onCreateNewRule}
         >
           New rule
@@ -93,79 +94,81 @@ export function TaggingRuleEditor({ controller }: TaggingPanelProps) {
 
   return (
     <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h3 className="font-display text-lg">{selectedRule ? 'Edit Custom Rule' : 'Create Custom Rule'}</h3>
-          <p className="mt-1 text-sm text-slate dark:text-white/75">
-            Add a new tag when article text, title, or feed context matches the conditions below.
-          </p>
+      <fieldset disabled={!controller.canManageTagging} className="m-0 min-w-0 border-0 p-0">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="font-display text-lg">{selectedRule ? 'Edit rule' : 'Create rule'}</h2>
+            <p className="mt-1 text-sm text-slate dark:text-white/75">
+              Add a new tag when article text, title, or feed context matches the conditions below.
+            </p>
+          </div>
+          <label className="flex items-center gap-2 rounded-full border border-slate/20 px-3 py-1 text-sm dark:border-cyan-900/40">
+            <input
+              type="checkbox"
+              checked={ruleDraft.enabled}
+              onChange={(event) => setRuleDraft((current) => ({ ...current, enabled: event.target.checked }))}
+            />
+            Enabled
+          </label>
         </div>
-        <label className="flex items-center gap-2 rounded-full border border-slate/20 px-3 py-1 text-sm dark:border-cyan-900/40">
-          <input
-            type="checkbox"
-            checked={ruleDraft.enabled}
-            onChange={(event) => setRuleDraft((current) => ({ ...current, enabled: event.target.checked }))}
-          />
-          Enabled
-        </label>
-      </div>
 
-      <RuleIdentityFields ruleDraft={ruleDraft} setRuleDraft={setRuleDraft} />
-      <RulePatternFields ruleDraft={ruleDraft} setRuleDraft={setRuleDraft} />
-      <RuleSelectionGroup
-        title="Look In"
-        description="Choose which fields the pattern should inspect."
-        entries={RULE_FIELDS}
-        selectedValues={ruleDraft.applies_to}
-        onToggle={(value) =>
-          setRuleDraft((current) => ({
-            ...current,
-            applies_to: toggleValue(current.applies_to, value),
-          }))
-        }
-      />
-      <RuleSelectionGroup
-        title="Only Apply For Categories"
-        description="Optional. If empty, the rule can match any classified item."
-        entries={BUILTIN_CATEGORIES.map((category) => ({ value: category, label: formatTaggingCategory(category) }))}
-        selectedValues={ruleDraft.required_categories}
-        onToggle={(value) =>
-          setRuleDraft((current) => ({
-            ...current,
-            required_categories: toggleValue(current.required_categories, value),
-          }))
-        }
-      />
-      <RuleFeedScope controller={controller} />
+        <RuleIdentityFields ruleDraft={ruleDraft} setRuleDraft={setRuleDraft} />
+        <RulePatternFields ruleDraft={ruleDraft} setRuleDraft={setRuleDraft} />
+        <RuleSelectionGroup
+          title="Fields to inspect"
+          description="Choose which fields the pattern should inspect."
+          entries={RULE_FIELDS}
+          selectedValues={ruleDraft.applies_to}
+          onToggle={(value) =>
+            setRuleDraft((current) => ({
+              ...current,
+              applies_to: toggleValue(current.applies_to, value),
+            }))
+          }
+        />
+        <RuleSelectionGroup
+          title="Required categories"
+          description="Optional. If empty, the rule can match any classified item."
+          entries={BUILTIN_CATEGORIES.map((category) => ({ value: category, label: formatTaggingCategory(category) }))}
+          selectedValues={ruleDraft.required_categories}
+          onToggle={(value) =>
+            setRuleDraft((current) => ({
+              ...current,
+              required_categories: toggleValue(current.required_categories, value),
+            }))
+          }
+        />
+        <RuleFeedScope controller={controller} />
 
-      <div className="mt-5 flex flex-wrap items-center gap-2">
-        <button
-          className="rounded bg-ink px-3 py-2 text-sm font-semibold text-white dark:bg-cyan dark:text-[#053c2e]"
-          disabled={saveRule.isPending || Boolean(ruleValidationError)}
-          onClick={onSaveRule}
-        >
-          {selectedRule ? 'Save rule' : 'Create rule'}
-        </button>
-        <button
-          className="rounded border border-slate/30 px-3 py-2 text-sm font-semibold dark:border-cyan-900/40"
-          disabled={previewRule.isPending || Boolean(ruleValidationError)}
-          onClick={onPreviewRule}
-        >
-          Preview rule
-        </button>
-        {selectedRule && (
+        <div className="mt-5 flex flex-wrap items-center gap-2">
           <button
-            className="rounded border border-red-300 px-3 py-2 text-sm font-semibold text-red-700 dark:border-red-900/60 dark:text-red-300"
-            disabled={deleteRule.isPending || Boolean(pendingRuleDelete)}
-            onClick={() => onRequestDeleteRule(selectedRule)}
+            className="rounded bg-ink px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]"
+            disabled={saveRule.isPending || Boolean(ruleValidationError) || !controller.canManageTagging}
+            onClick={onSaveRule}
           >
-            Delete rule
+            {selectedRule ? 'Save rule' : 'Create rule'}
           </button>
-        )}
-      </div>
+          <button
+            className="rounded border border-slate/30 px-3 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50 dark:border-cyan-900/40"
+            disabled={previewRule.isPending || Boolean(ruleValidationError) || !controller.canManageTagging}
+            onClick={onPreviewRule}
+          >
+            Preview rule
+          </button>
+          {selectedRule && (
+            <button
+              className="rounded border border-red-300 px-3 py-2 text-sm font-semibold text-red-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-900/60 dark:text-red-300"
+              disabled={deleteRule.isPending || Boolean(pendingRuleDelete) || !controller.canManageTagging}
+              onClick={() => onRequestDeleteRule(selectedRule)}
+            >
+              Delete rule
+            </button>
+          )}
+        </div>
 
-      {ruleValidationError && <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">{ruleValidationError}</p>}
-      <RuleMutationErrors controller={controller} />
+        {ruleValidationError && <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">{ruleValidationError}</p>}
+        <RuleMutationErrors controller={controller} />
+      </fieldset>
     </section>
   )
 }
@@ -177,7 +180,7 @@ function RuleIdentityFields({ ruleDraft, setRuleDraft }: RuleDraftFieldsProps) {
     <div className="mt-4 grid gap-4 md:grid-cols-2">
       <div>
         <label htmlFor="tagging-rule-name" className="text-sm font-semibold">
-          Rule Name
+          Rule name
         </label>
         <input
           id="tagging-rule-name"
@@ -188,7 +191,7 @@ function RuleIdentityFields({ ruleDraft, setRuleDraft }: RuleDraftFieldsProps) {
       </div>
       <div>
         <label htmlFor="tagging-rule-tag-name" className="text-sm font-semibold">
-          Tag Name
+          Tag name
         </label>
         <input
           id="tagging-rule-tag-name"
@@ -199,7 +202,7 @@ function RuleIdentityFields({ ruleDraft, setRuleDraft }: RuleDraftFieldsProps) {
       </div>
       <div>
         <label htmlFor="tagging-rule-match-type" className="text-sm font-semibold">
-          Match Type
+          Match type
         </label>
         <select
           id="tagging-rule-match-type"
@@ -215,7 +218,7 @@ function RuleIdentityFields({ ruleDraft, setRuleDraft }: RuleDraftFieldsProps) {
       </div>
       <div>
         <label htmlFor="tagging-rule-min-confidence" className="text-sm font-semibold">
-          Minimum Classification Confidence
+          Minimum classification confidence
         </label>
         <input
           id="tagging-rule-min-confidence"
@@ -273,7 +276,7 @@ function RuleSelectionGroup<T extends string>({
 }) {
   return (
     <div className="mt-5">
-      <h4 className="font-semibold">{title}</h4>
+      <h3 className="font-semibold">{title}</h3>
       <p className="mt-1 text-xs text-slate dark:text-white/65">{description}</p>
       <div role="group" aria-label={title} className="mt-2 flex flex-wrap gap-2">
         {entries.map((entry) => {
@@ -304,7 +307,7 @@ function RuleFeedScope({ controller }: TaggingPanelProps) {
     <div className="mt-5 rounded-lg border border-slate/20 p-4 dark:border-cyan-900/40">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h4 className="font-semibold">Feed Scope</h4>
+          <h3 className="font-semibold">Feed scope</h3>
           <p className="mt-1 text-xs text-slate dark:text-white/65">Target all feeds or limit this rule to selected feeds.</p>
         </div>
         <div role="group" aria-label="Rule feed scope" className="flex rounded-lg border border-slate/20 p-1 dark:border-cyan-900/40">
@@ -407,7 +410,7 @@ export function TaggingRulePreview({ controller }: TaggingPanelProps) {
     <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h3 className="font-display text-lg">Rule Preview</h3>
+          <h2 className="font-display text-lg">Rule preview</h2>
           <p className="mt-1 text-sm text-slate dark:text-white/75">
             See how this rule would match the current corpus before you save it.
           </p>

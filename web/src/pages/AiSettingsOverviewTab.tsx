@@ -59,7 +59,7 @@ export function OverviewTab({
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <MiniStat label="Model" value={settings?.model || 'Not configured'} />
             <MiniStat label="Requests" value={overview.kpis.total_requests.toLocaleString()} />
-            <MiniStat label="Success Rate" value={`${overview.kpis.success_rate_pct.toFixed(1)}%`} />
+            <MiniStat label="Success rate" value={`${overview.kpis.success_rate_pct.toFixed(1)}%`} />
             <MiniStat label="Queued" value={overview.live.queued_count} />
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -94,10 +94,10 @@ export function OverviewTab({
         description="Use this section to confirm the endpoint is configured, the queue is moving, and problems are visible quickly."
       >
         <div className="grid gap-4 xl:grid-cols-2">
-          <Panel title="AI Status" subtitle={readiness ?? 'Loading runtime state...'}>
+          <Panel title="AI status" subtitle={readiness ?? 'Loading runtime state...'}>
             <dl className="space-y-2 text-sm">
               <Metric label="Configured" value={settings?.ai_configured ? 'Yes' : 'No'} />
-              <Metric label="API Key In Env" value={settings?.api_key_configured ? 'Yes' : 'No / Optional'} />
+              <Metric label="API key in environment" value={settings?.api_key_configured ? 'Yes' : 'No (optional)'} />
               <Metric label="Model" value={settings?.model || 'Not configured'} />
               <Metric label="Retry attempts" value={settings?.request_max_retries ?? 0} />
               <Metric label="Last success" value={overview.endpoint_health.last_success_at ? formatTimestamp(overview.endpoint_health.last_success_at) : 'Never'} />
@@ -119,7 +119,7 @@ export function OverviewTab({
             </div>
           </Panel>
 
-          <Panel title="Queue Snapshot" subtitle="Database-backed snapshot of AI task runs.">
+          <Panel title="Queue snapshot" subtitle="Database-backed snapshot of AI task runs.">
             <dl className="space-y-2 text-sm">
               <Metric label="Known workers" value={overview.live.worker_count} />
               <Metric label="Running" value={overview.live.active_count} />
@@ -145,18 +145,18 @@ export function OverviewTab({
       >
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           <StatCard label="Requests" value={overview.kpis.total_requests.toLocaleString()} />
-          <StatCard label="Success Rate" value={`${overview.kpis.success_rate_pct.toFixed(1)}%`} />
-          <StatCard label="Total Tokens" value={overview.kpis.total_tokens.toLocaleString()} />
-          <StatCard label="Avg Latency" value={`${overview.kpis.average_latency_ms.toFixed(1)} ms`} />
-          <StatCard label="P95 Latency" value={`${overview.kpis.p95_latency_ms.toFixed(1)} ms`} />
+          <StatCard label="Success rate" value={`${overview.kpis.success_rate_pct.toFixed(1)}%`} />
+          <StatCard label="Total tokens" value={overview.kpis.total_tokens.toLocaleString()} />
+          <StatCard label="Average latency" value={`${overview.kpis.average_latency_ms.toFixed(1)} ms`} />
+          <StatCard label="P95 latency" value={`${overview.kpis.p95_latency_ms.toFixed(1)} ms`} />
           <StatCard
-            label="Last Success"
+            label="Last success"
             value={overview.kpis.last_successful_run_at ? formatTimestamp(overview.kpis.last_successful_run_at) : 'Never'}
           />
         </section>
 
         <div className="grid gap-4 xl:grid-cols-2">
-          <Panel title="Requests & Failures Over Time" subtitle="Recent request volume and failure pressure across the selected window.">
+          <Panel title="Requests and failures over time" subtitle="Recent request volume and failure pressure across the selected window.">
             <TimeSeriesBars
               points={overview.time_series}
               valueKey="requests"
@@ -166,7 +166,7 @@ export function OverviewTab({
             />
           </Panel>
 
-          <Panel title="Per-Model Usage" subtitle="Requests, success rate, latency, and token footprint by model.">
+          <Panel title="Per-model usage" subtitle="Requests, success rate, latency, and token footprint by model.">
             <div className="space-y-2 sm:hidden" aria-label="Per-model AI usage records">
               {overview.per_model.map((row) => (
                 <article key={row.model} className="rounded-lg border border-slate/15 bg-slate/5 p-3 dark:border-cyan-900/30 dark:bg-white/[0.03]">
@@ -195,11 +195,11 @@ export function OverviewTab({
               <table className="min-w-full text-sm">
                 <thead className="text-left text-xs uppercase text-slate dark:text-white/55">
                   <tr>
-                    <th className="pb-2">Model</th>
-                    <th className="pb-2">Requests</th>
-                    <th className="pb-2">Success</th>
-                    <th className="pb-2">Avg Latency</th>
-                    <th className="pb-2">Tokens</th>
+                    <th scope="col" className="pb-2">Model</th>
+                    <th scope="col" className="pb-2">Requests</th>
+                    <th scope="col" className="pb-2">Success</th>
+                    <th scope="col" className="pb-2">Average latency</th>
+                    <th scope="col" className="pb-2">Tokens</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -220,16 +220,16 @@ export function OverviewTab({
         </div>
 
         <div className="grid gap-4 xl:grid-cols-2">
-          <Panel title="Token Usage Over Time" subtitle="Total tokens by day.">
+          <Panel title="Token usage over time" subtitle="Total tokens by day.">
             <TimeSeriesBars points={overview.time_series} valueKey="total_tokens" accentClass="bg-emerald-500" />
           </Panel>
 
-          <Panel title="Token Efficiency" subtitle="Average AI cost profile across successful requests.">
+          <Panel title="Token efficiency" subtitle="Average AI cost profile across successful requests.">
             <div className="grid gap-3 sm:grid-cols-2">
-              <MiniStat label="Avg Prompt" value={overview.token_efficiency.average_prompt_tokens.toFixed(1)} />
-              <MiniStat label="Avg Completion" value={overview.token_efficiency.average_completion_tokens.toFixed(1)} />
-              <MiniStat label="Avg Total" value={overview.token_efficiency.average_total_tokens.toFixed(1)} />
-              <MiniStat label="Prompt/Completion" value={overview.token_efficiency.prompt_to_completion_ratio.toFixed(2)} />
+              <MiniStat label="Average prompt tokens" value={overview.token_efficiency.average_prompt_tokens.toFixed(1)} />
+              <MiniStat label="Average completion tokens" value={overview.token_efficiency.average_completion_tokens.toFixed(1)} />
+              <MiniStat label="Average total tokens" value={overview.token_efficiency.average_total_tokens.toFixed(1)} />
+              <MiniStat label="Prompt-to-completion ratio" value={overview.token_efficiency.prompt_to_completion_ratio.toFixed(2)} />
             </div>
             <p className="mt-4 text-sm text-slate dark:text-white/70">
               Top expensive feature: {formatTaskTypeLabel(overview.token_efficiency.top_expensive_feature || 'n/a')} (
@@ -240,11 +240,11 @@ export function OverviewTab({
       </OverviewSection>
 
       <OverviewSection
-        title="Quality & Coverage"
+        title="Quality and coverage"
         description="How complete the enrichment pipeline is, what the relevance output looks like, and how much data the AI subsystem retains."
       >
         <div className="grid gap-4 xl:grid-cols-2">
-          <Panel title="Coverage & Freshness" subtitle="How much content is enriched and whether the pipeline is keeping up.">
+          <Panel title="Coverage and freshness" subtitle="How much content is enriched and whether the pipeline is keeping up.">
             <dl className="space-y-2 text-sm">
               <Metric label="Eligible items" value={overview.coverage.eligible_items} />
               <Metric label="Enriched" value={overview.coverage.enriched_items} />
@@ -263,12 +263,12 @@ export function OverviewTab({
         </div>
 
         <div className="grid gap-4 xl:grid-cols-2">
-          <Panel title="Relevance Distribution" subtitle="Current relevance labels and the feeds producing them.">
+          <Panel title="Relevance distribution" subtitle="Current relevance labels and the feeds producing them.">
             <div className="grid gap-3 sm:grid-cols-4">
               <MiniStat label="High" value={overview.relevance_distribution.high_count} />
               <MiniStat label="Medium" value={overview.relevance_distribution.medium_count} />
               <MiniStat label="Low" value={overview.relevance_distribution.low_count} />
-              <MiniStat label="Avg Score" value={overview.relevance_distribution.average_score.toFixed(2)} />
+              <MiniStat label="Average score" value={overview.relevance_distribution.average_score.toFixed(2)} />
             </div>
             <div className="mt-4 space-y-2">
               {overview.relevance_distribution.by_feed.slice(0, 6).map((feed) => (
@@ -278,7 +278,7 @@ export function OverviewTab({
                     <span className="text-xs text-slate dark:text-white/60">{feed.total_items} items</span>
                   </div>
                   <p className="mt-1 text-xs text-slate dark:text-white/60">
-                    High {feed.high_count} · Medium {feed.medium_count} · Low {feed.low_count} · Avg {feed.average_score.toFixed(2)}
+                    High {feed.high_count} · Medium {feed.medium_count} · Low {feed.low_count} · Average {feed.average_score.toFixed(2)}
                   </p>
                 </div>
               ))}
@@ -287,7 +287,7 @@ export function OverviewTab({
         </div>
 
         <div className="grid gap-4 xl:grid-cols-2">
-          <Panel title="Cache / No-op">
+          <Panel title="Cache and no-op activity">
             <dl className="space-y-2 text-sm">
               <Metric label="Reused" value={overview.cache.reused_count} />
               <Metric label="Recomputed" value={overview.cache.recomputed_count} />
@@ -295,14 +295,14 @@ export function OverviewTab({
             </dl>
           </Panel>
 
-          <Panel title="Storage / Retention">
+          <Panel title="Storage and retention">
             <dl className="space-y-2 text-sm">
               <Metric label="Retained briefs" value={`${overview.storage.retained_daily_briefs}/${overview.storage.daily_brief_history_limit}`} />
               <Metric label="Enrichment rows" value={overview.storage.enrichment_rows} />
               <Metric label="Usage rows" value={overview.storage.usage_event_rows} />
               <Metric label="Task history rows" value={overview.storage.task_history_rows} />
-              <Metric label="Growth 7d" value={overview.storage.growth_last_7d} />
-              <Metric label="Growth 30d" value={overview.storage.growth_last_30d} />
+              <Metric label="Growth (7 days)" value={overview.storage.growth_last_7d} />
+              <Metric label="Growth (30 days)" value={overview.storage.growth_last_30d} />
             </dl>
           </Panel>
         </div>

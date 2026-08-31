@@ -184,6 +184,13 @@ describe('OperationsPage DOM workflows', () => {
     expect(view.textContent).toContain('Latest restore drill')
     expect(view.textContent).toContain('Restore drill')
     expect(view.querySelector('table')).not.toBeNull()
+    expect(view.querySelector('h1')?.textContent).toBe('System health')
+    expect(Array.from(view.querySelectorAll('th')).every((heading) => heading.getAttribute('scope') === 'col')).toBe(true)
+    const statusLabels = [...view.querySelectorAll('.tl-chip')].map((chip) => chip.textContent)
+    expect(statusLabels).toEqual(expect.arrayContaining(['Degraded', 'Healthy', 'Warning', 'Succeeded']))
+    for (const rawValue of ['degraded', 'healthy', 'warning', 'succeeded']) {
+      expect(statusLabels).not.toContain(rawValue)
+    }
   })
 
   it('keeps the last successful snapshot visible when refresh fails', () => {
@@ -208,7 +215,7 @@ describe('OperationsPage DOM workflows', () => {
 
     expect(view.textContent).toContain('Deployment health is unavailable.')
     const retry = Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find(
-      (button) => button.textContent === 'Retry operations status',
+      (button) => button.textContent === 'Retry system health',
     )
     expect(retry).not.toBeNull()
     act(() => retry?.click())

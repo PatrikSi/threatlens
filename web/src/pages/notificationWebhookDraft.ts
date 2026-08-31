@@ -15,12 +15,12 @@ export const EVENT_OPTIONS: Array<{
   label: string
   description: string
 }> = [
-  { value: 'rss_item_new', label: 'New RSS Item', description: 'Fire when a new RSS item is ingested from a feed.' },
-  { value: 'alert_match', label: 'Alert Match', description: 'Fire when an item matches one or more of your alert interests.' },
-  { value: 'feed_failing', label: 'Feed Failing', description: 'Fire when a feed hits repeated fetch failures.' },
-  { value: 'webhook_failed', label: 'Webhook Failed', description: 'Fire when one of your other webhook deliveries fails.' },
-  { value: 'daily_digest', label: 'AI Daily Brief', description: 'Send the generated AI Daily Brief as soon as it is ready.' },
-  { value: 'report_ready', label: 'Intelligence Report', description: 'Send a completed intelligence report when delivery is requested.' },
+  { value: 'rss_item_new', label: 'New RSS item', description: 'Fire when a new RSS item is ingested from a feed.' },
+  { value: 'alert_match', label: 'Alert match', description: 'Fire when an item matches one or more of your alert interests.' },
+  { value: 'feed_failing', label: 'Feed failing', description: 'Fire when a feed hits repeated fetch failures.' },
+  { value: 'webhook_failed', label: 'Webhook failed', description: 'Fire when one of your other webhook deliveries fails.' },
+  { value: 'daily_digest', label: 'AI daily brief', description: 'Send the generated AI daily brief as soon as it is ready.' },
+  { value: 'report_ready', label: 'Intelligence report', description: 'Send a completed intelligence report when delivery is requested.' },
 ]
 
 const EVENT_DEFAULT_JSON_FIELDS: Record<NotificationEventType, NotificationWebhookField[]> = {

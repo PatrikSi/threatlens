@@ -9,7 +9,7 @@ export function SavedWebhooksCard({ controller }: { controller: NotificationWebh
   return (
     <section className="min-w-0 rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
       <div className="flex items-center justify-between gap-3">
-        <h3 className="font-display text-lg">Saved Webhooks</h3>
+        <h2 className="font-display text-lg">Configured webhooks</h2>
         {canManageWebhooks && (
           <button
             className="rounded border border-slate/30 px-3 py-1.5 text-sm font-semibold dark:border-cyan-900/40"
@@ -74,7 +74,7 @@ export function TestResultAndVariables({ controller }: { controller: Notificatio
     <section className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
       <div className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
         <div className="flex items-center justify-between gap-3">
-          <h3 className="font-display text-lg">Test Result</h3>
+          <h2 className="font-display text-lg">Test result</h2>
           {testResult && (
             <span className={`tl-chip ${testResult.success ? 'tl-chip-success' : 'tl-chip-danger'}`}>
               {testResult.success ? 'Success' : 'Failed'}
@@ -109,13 +109,13 @@ export function TestResultAndVariables({ controller }: { controller: Notificatio
             )}
             {testResult.rendered_body && (
               <div>
-                <p className="text-xs font-semibold uppercase text-slate dark:text-white/60">Rendered Body</p>
+                <p className="text-xs font-semibold uppercase text-slate dark:text-white/60">Rendered body</p>
                 <pre className="mt-1 overflow-x-auto rounded bg-slate/10 px-3 py-2 text-xs dark:bg-white/5">{testResult.rendered_body}</pre>
               </div>
             )}
             {testResult.response_body_preview && (
               <div>
-                <p className="text-xs font-semibold uppercase text-slate dark:text-white/60">Response Preview</p>
+                <p className="text-xs font-semibold uppercase text-slate dark:text-white/60">Response preview</p>
                 <pre className="mt-1 overflow-x-auto rounded bg-slate/10 px-3 py-2 text-xs dark:bg-white/5">
                   {testResult.response_body_preview}
                 </pre>
@@ -133,7 +133,7 @@ export function TestResultAndVariables({ controller }: { controller: Notificatio
       <div className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h3 className="font-display text-lg">Available Variables</h3>
+            <h2 className="font-display text-lg">Available variables</h2>
             <p className="mt-1 text-sm text-slate dark:text-white/75">
               Use these placeholders anywhere in the URL, headers, query parameters, or body.
             </p>

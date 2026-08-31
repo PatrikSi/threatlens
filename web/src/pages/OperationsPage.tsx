@@ -3,6 +3,7 @@ import { useState } from 'react'
 
 import { apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
+import { SettingsPageHeader } from '../components/SettingsPageHeader'
 import {
   OperationsBacklogSnapshot,
   OperationsComponentCheck,
@@ -70,8 +71,8 @@ export function OperationsPage() {
     ? resolveApiErrorMessage(
         overviewQuery.error,
         overview
-          ? 'Operations status could not be refreshed'
-          : 'Operations status could not be loaded',
+          ? 'System health could not be refreshed'
+          : 'System health could not be loaded',
       )
     : ''
   const overviewActionLabel = overviewQuery.isLoading
@@ -83,26 +84,21 @@ export function OperationsPage() {
       : overview
         ? 'Refresh'
         : overviewQuery.isError
-          ? 'Retry operations status'
+          ? 'Retry system health'
           : 'Refresh'
 
   return (
-    <section className="tl-surface min-w-0 overflow-hidden rounded-xl">
-      <header className="border-b border-slate/20 px-4 py-4 dark:border-white/10 sm:px-5">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="font-display text-xl">Operations</h1>
-              {overview && <StatusChip status={overview.overall_status} />}
-            </div>
-            <p className="mt-1 text-sm text-slate dark:text-slate-300">
-              {overview
-                ? `ThreatLens ${overview.application.version} · schema ${overview.application.schema_revision ?? 'unavailable'}`
-                : overviewQuery.isError
-                  ? 'Deployment health is unavailable.'
-                  : 'Loading deployment health...'}
-            </p>
-          </div>
+    <div className="space-y-4">
+      <SettingsPageHeader
+        scope="System"
+        title="System health"
+        description={overview
+          ? `ThreatLens ${overview.application.version} · schema ${overview.application.schema_revision ?? 'unavailable'}`
+          : overviewQuery.isError
+            ? 'Deployment health is unavailable.'
+            : 'Loading deployment health...'}
+        badges={overview ? <StatusChip status={overview.overall_status} /> : undefined}
+        actions={(
           <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
             <button
               type="button"
@@ -121,58 +117,63 @@ export function OperationsPage() {
               {diagnostics.isPending ? 'Preparing...' : 'Download diagnostics'}
             </button>
           </div>
+        )}
+      >
+        <div className="py-3">
+          <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate dark:text-slate-400">
+            <span>Snapshot: {overview ? formatDateTime(overview.generated_at) : 'not available'}</span>
+            <span>Browser refresh: {lastUpdated ? formatDateTime(lastUpdated.toISOString()) : 'not yet'}</span>
+          </div>
+          {overviewError && (
+            <div
+              role="alert"
+              className="mt-3 rounded border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100"
+            >
+              {overview ? `${overviewError}. Displaying the last successful snapshot.` : overviewError}
+            </div>
+          )}
+          {downloadError && <InlineMessage tone="error">{downloadError}</InlineMessage>}
+          {downloadMessage && <InlineMessage tone="status">{downloadMessage}</InlineMessage>}
         </div>
-        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate dark:text-slate-400">
-          <span>Snapshot: {overview ? formatDateTime(overview.generated_at) : 'not available'}</span>
-          <span>Browser refresh: {lastUpdated ? formatDateTime(lastUpdated.toISOString()) : 'not yet'}</span>
-        </div>
-        {overviewError && (
-          <div
-            role="alert"
-            className="mt-3 rounded border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100"
-          >
-            {overview ? `${overviewError}. Displaying the last successful snapshot.` : overviewError}
+      </SettingsPageHeader>
+
+      <section className="tl-surface min-w-0 overflow-hidden rounded-xl">
+        {!overview && overviewQuery.isLoading && (
+          <p className="px-4 py-8 text-center text-sm text-slate dark:text-slate-300">Loading system health...</p>
+        )}
+
+        {overview && (
+          <div className="divide-y divide-slate/15 dark:divide-white/10">
+            <IssuesSection issues={overview.issues} />
+            <ComponentsSection components={overview.components} />
+            <BacklogsSection backlogs={overview.backlogs} />
+            <RecoverySection recovery={overview.recovery} />
+            <StorageSection storage={overview.storage} />
           </div>
         )}
-        {downloadError && <InlineMessage tone="error">{downloadError}</InlineMessage>}
-        {downloadMessage && <InlineMessage tone="status">{downloadMessage}</InlineMessage>}
-      </header>
 
-      {!overview && overviewQuery.isLoading && (
-        <p className="px-4 py-8 text-center text-sm text-slate dark:text-slate-300">Loading operations status...</p>
-      )}
-
-      {overview && (
-        <div className="divide-y divide-slate/15 dark:divide-white/10">
-          <IssuesSection issues={overview.issues} />
-          <ComponentsSection components={overview.components} />
-          <BacklogsSection backlogs={overview.backlogs} />
-          <RecoverySection recovery={overview.recovery} />
-          <StorageSection storage={overview.storage} />
-        </div>
-      )}
-
-      <RunsSection
-        runs={runsQuery.data?.runs ?? []}
-        loading={runsQuery.isLoading}
-        updating={runsQuery.isFetching && Boolean(runsQuery.data)}
-        error={runsQuery.isError ? resolveApiErrorMessage(runsQuery.error, 'Operation history could not be loaded') : ''}
-        page={runPage}
-        totalPages={totalRunPages}
-        operationType={operationType}
-        operationStatus={operationStatus}
-        onPageChange={setRunPage}
-        onRetry={() => void runsQuery.refetch()}
-        onTypeChange={(value) => {
-          setRunPage(1)
-          setOperationType(value)
-        }}
-        onStatusChange={(value) => {
-          setRunPage(1)
-          setOperationStatus(value)
-        }}
-      />
-    </section>
+        <RunsSection
+          runs={runsQuery.data?.runs ?? []}
+          loading={runsQuery.isLoading}
+          updating={runsQuery.isFetching && Boolean(runsQuery.data)}
+          error={runsQuery.isError ? resolveApiErrorMessage(runsQuery.error, 'Operation history could not be loaded') : ''}
+          page={runPage}
+          totalPages={totalRunPages}
+          operationType={operationType}
+          operationStatus={operationStatus}
+          onPageChange={setRunPage}
+          onRetry={() => void runsQuery.refetch()}
+          onTypeChange={(value) => {
+            setRunPage(1)
+            setOperationType(value)
+          }}
+          onStatusChange={(value) => {
+            setRunPage(1)
+            setOperationStatus(value)
+          }}
+        />
+      </section>
+    </div>
   )
 }
 
@@ -198,7 +199,7 @@ function IssuesSection({ issues }: { issues: OperationsOverviewResponse['issues'
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <span className={issue.severity === 'critical' ? 'tl-chip tl-chip-danger' : 'tl-chip tl-chip-warning'}>
-                  {issue.severity}
+                  {formatWireLabel(issue.severity)}
                 </span>
                 <h3 className="font-semibold text-ink dark:text-slate-100">{issue.summary}</h3>
               </div>
@@ -237,10 +238,10 @@ function ComponentsSection({ components }: { components: OperationsComponentChec
         <table className="min-w-[680px] w-full text-left text-sm">
           <thead>
             <tr className="border-b border-slate/20 dark:border-white/10">
-              <th className="px-2 py-2">Component</th>
-              <th className="px-2 py-2">Status</th>
-              <th className="px-2 py-2">Summary</th>
-              <th className="px-2 py-2">Checked</th>
+              <th scope="col" className="px-2 py-2">Component</th>
+              <th scope="col" className="px-2 py-2">Status</th>
+              <th scope="col" className="px-2 py-2">Summary</th>
+              <th scope="col" className="px-2 py-2">Checked</th>
             </tr>
           </thead>
           <tbody>
@@ -460,11 +461,11 @@ function RunsSection({
           <table className="min-w-[760px] w-full text-left text-sm">
             <thead>
               <tr className="border-b border-slate/20 dark:border-white/10">
-                <th className="px-2 py-2">Started</th>
-                <th className="px-2 py-2">Operation</th>
-                <th className="px-2 py-2">Status</th>
-                <th className="px-2 py-2">Source</th>
-                <th className="px-2 py-2">Result</th>
+                <th scope="col" className="px-2 py-2">Started</th>
+                <th scope="col" className="px-2 py-2">Operation</th>
+                <th scope="col" className="px-2 py-2">Status</th>
+                <th scope="col" className="px-2 py-2">Source</th>
+                <th scope="col" className="px-2 py-2">Result</th>
               </tr>
             </thead>
             <tbody>
@@ -492,7 +493,7 @@ function RunsSection({
         >
           Previous
         </button>
-        <span className="text-center">Page {page} / {totalPages}</span>
+        <span className="text-center">Page {page} of {totalPages}</span>
         <button
           type="button"
           className="min-h-11 rounded border border-slate/30 px-3 py-2 disabled:opacity-50 dark:border-cyan-900/40"
@@ -540,7 +541,7 @@ function StatusChip({ status }: { status: OperationsStatus }) {
       : status === 'critical' || status === 'unavailable'
         ? 'tl-chip tl-chip-danger'
         : 'tl-chip'
-  return <span className={className}>{status}</span>
+  return <span className={className}>{formatWireLabel(status)}</span>
 }
 
 function RunStatusChip({ status }: { status: SystemOperationStatus }) {
@@ -549,7 +550,7 @@ function RunStatusChip({ status }: { status: SystemOperationStatus }) {
     : status === 'failed'
       ? 'tl-chip tl-chip-danger'
       : 'tl-chip tl-chip-warning'
-  return <span className={className}>{status}</span>
+  return <span className={className}>{formatWireLabel(status)}</span>
 }
 
 function InlineMessage({ tone, children }: { tone: 'error' | 'status'; children: React.ReactNode }) {
@@ -594,4 +595,9 @@ function formatOperationType(value: SystemOperationType): string {
   return value === 'restore_drill'
     ? 'Restore drill'
     : value.charAt(0).toUpperCase() + value.slice(1)
+}
+
+function formatWireLabel(value: string): string {
+  const label = value.replaceAll('_', ' ')
+  return label.charAt(0).toUpperCase() + label.slice(1)
 }

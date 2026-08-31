@@ -15,6 +15,9 @@ const notificationsPageDomMocks = vi.hoisted(() => ({
       id: 'admin-1',
       email: 'admin@example.com',
       role: 'admin',
+      access: {
+        permissions: ['write:notifications'],
+      },
       is_active: true,
       is_approved: true,
       approved_at: '2026-04-21T10:00:00Z',
@@ -250,11 +253,12 @@ afterEach(() => {
   notificationsPageDomMocks.retryMutate.mockReset()
   notificationsPageDomMocks.retryReset.mockReset()
   notificationsPageDomMocks.currentUser.data.role = 'admin'
+  notificationsPageDomMocks.currentUser.data.access.permissions = ['write:notifications']
   notificationsPageDomMocks.currentUser.data.features.ai_daily_brief_enabled = true
 })
 
 describe('NotificationsPage DOM workflows', () => {
-  it('omits AI Daily Brief from webhook event choices when AI is unavailable', () => {
+  it('omits AI daily brief from webhook event choices when AI is unavailable', () => {
     notificationsPageDomMocks.currentUser.data.features.ai_daily_brief_enabled = false
     const view = renderPage()
     const eventType = view.querySelector<HTMLSelectElement>('#notification-webhook-event-type')
@@ -279,12 +283,13 @@ describe('NotificationsPage DOM workflows', () => {
     expect(toggle?.getAttribute('aria-expanded')).toBe('true')
   })
 
-  it('renders viewer access as read-only and hides mutation controls', () => {
-    notificationsPageDomMocks.currentUser.data.role = 'viewer'
+  it('renders access without write:notifications as read-only and hides mutation controls', () => {
+    notificationsPageDomMocks.currentUser.data.role = 'admin'
+    notificationsPageDomMocks.currentUser.data.access.permissions = ['read:notifications']
     const view = renderPage()
 
-    expect(pageText()).toContain('Viewer access is read-only')
-    expect(pageText()).toContain('Webhook writes unavailable')
+    expect(pageText()).toContain('Read-only access')
+    expect(pageText()).toContain('Changes unavailable')
     expect(Array.from(view.querySelectorAll('button')).some((button) => button.textContent?.includes('New webhook'))).toBe(false)
     expect(Array.from(view.querySelectorAll('button')).some((button) => button.textContent?.includes('Test webhook'))).toBe(false)
     expect(Array.from(view.querySelectorAll('button')).some((button) => button.textContent?.includes('Delete webhook'))).toBe(false)
@@ -292,11 +297,12 @@ describe('NotificationsPage DOM workflows', () => {
     expect(view.querySelector<HTMLButtonElement>('button[aria-label="Remove Headers row 1"]')).toBeNull()
   })
 
-  it('allows analysts to manage webhook settings', () => {
-    notificationsPageDomMocks.currentUser.data.role = 'analyst'
+  it('allows a custom-role user with write:notifications to manage webhook settings', () => {
+    notificationsPageDomMocks.currentUser.data.role = 'viewer'
+    notificationsPageDomMocks.currentUser.data.access.permissions = ['write:notifications']
     const view = renderPage()
 
-    expect(pageText()).not.toContain('Webhook writes unavailable')
+    expect(pageText()).not.toContain('Changes unavailable')
     expect(pageText()).not.toContain('read-only mode')
 
     const nameInput = view.querySelector<HTMLInputElement>('#notification-webhook-name')
@@ -329,7 +335,7 @@ describe('NotificationsPage DOM workflows', () => {
     expect(view.querySelector('label[for="headers-0-key"]')?.textContent).toContain('Headers row 1 key')
     expect(view.querySelector('label[for="headers-0-value"]')?.textContent).toContain('Headers row 1 value')
     expect(view.querySelector('label[for="query-parameters-0-key"]')?.textContent).toContain(
-      'Query Parameters row 1 key',
+      'Query parameters row 1 key',
     )
     expect(view.querySelector('button[aria-label="Remove Headers row 1"]')).not.toBeNull()
     expect(
