@@ -10,7 +10,7 @@ export function AiConfigurationAudit({
   manualActions: AIAuditEntryResponse[]
 }) {
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
+    <div className="grid gap-3 lg:grid-cols-2">
       <Panel title="Prompt history" subtitle="Recent AI configuration and prompt changes.">
         <AuditPreviewList entries={promptHistory} emptyLabel="No AI prompt changes yet." />
       </Panel>
@@ -37,7 +37,7 @@ export function AiConfigurationSidebar({
   onSave: () => void
 }) {
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <Panel title="Configuration status" subtitle={readiness ?? 'Loading runtime state...'}>
         <dl className="space-y-2 text-sm">
           <Metric label="Configured" value={settings?.ai_configured ? 'Yes' : 'No'} />
@@ -53,14 +53,14 @@ export function AiConfigurationSidebar({
         </dl>
       </Panel>
 
-      <div className="sticky top-4 rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+      <div className="sticky top-3 rounded-xl border border-slate/20 bg-white/80 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/90">
         <h3 className="font-display text-lg">Save changes</h3>
         <p className="mt-1 text-sm text-slate dark:text-white/70">
           Provider, feature, company-context, and prompt changes affect future AI runs and are recorded in prompt history.
         </p>
         <button
           type="button"
-          className="mt-4 w-full rounded bg-ink px-3 py-2 text-sm font-semibold text-white disabled:opacity-50 dark:bg-cyan dark:text-slate-950"
+          className="mt-3 w-full rounded bg-ink px-3 py-2 text-sm font-semibold text-white disabled:opacity-50 dark:bg-cyan dark:text-slate-950"
           onClick={onSave}
           disabled={savePending || saveDisabled}
           title={saveDisabledReason ?? undefined}

@@ -272,6 +272,10 @@ describe('NotificationsPage DOM workflows', () => {
     const variables = view.querySelector<HTMLElement>('#webhook-template-variables')
     const toggle = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Show 1')
 
+    expect(view.firstElementChild?.className).toContain('space-y-3')
+    expect(view.querySelector('h2')?.closest('section')?.className).toContain('p-3')
+    expect(Array.from(view.querySelectorAll('h2')).some((heading) => heading.textContent === 'Test result')).toBe(false)
+    expect(view.textContent?.match(/Fire when a new RSS item is ingested from a feed\./g)).toHaveLength(1)
     expect(variables?.className).toContain('hidden')
     expect(toggle?.getAttribute('aria-expanded')).toBe('false')
 

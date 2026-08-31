@@ -32,7 +32,7 @@ export function KeyValueEditor({
   const fieldIdPrefix = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 
   return (
-    <section className="rounded-lg border border-slate/20 p-4 dark:border-cyan-900/40">
+    <section className="rounded-lg border border-slate/20 p-3 dark:border-cyan-900/40">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h4 className="font-semibold">{title}</h4>

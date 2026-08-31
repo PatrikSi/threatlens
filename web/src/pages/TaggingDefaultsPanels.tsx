@@ -46,7 +46,7 @@ export function TaggingDefaultsPanel({ controller }: TaggingPanelProps) {
   const { canManageTagging, onSaveSettings, saveSettings, setSettingsDraft, settingsDraft } = controller
 
   return (
-    <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+    <section className="rounded-xl border border-slate/20 bg-white/80 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/90">
       <fieldset disabled={!canManageTagging} className="m-0 min-w-0 border-0 p-0">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -64,7 +64,7 @@ export function TaggingDefaultsPanel({ controller }: TaggingPanelProps) {
           </button>
         </div>
 
-        <div className="mt-4 grid gap-4 md:grid-cols-2">
+        <div className="mt-3 grid gap-3 md:grid-cols-2">
           <div>
             <label htmlFor="tagging-auto-confidence" className="text-sm font-semibold">
               Minimum tagging confidence
@@ -99,7 +99,7 @@ export function TaggingDefaultsPanel({ controller }: TaggingPanelProps) {
           </div>
         </div>
 
-        <div className="mt-4">
+        <div className="mt-3">
           <p className="text-sm font-semibold">Enabled built-in category tags</p>
           <div className="mt-2 flex flex-wrap gap-2">
             {BUILTIN_CATEGORIES.map((category) => {
@@ -148,14 +148,14 @@ export function TaggingReapplyPanel({ controller }: TaggingPanelProps) {
   } = controller
 
   return (
-    <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+    <section className="rounded-xl border border-slate/20 bg-white/80 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/90">
       <fieldset disabled={!controller.canManageTagging} className="m-0 min-w-0 border-0 p-0">
         <h2 className="font-display text-lg">Retag existing content</h2>
         <p className="mt-1 text-sm text-slate dark:text-white/70">
           Queue a background pass to re-tag recent items using the current settings and rules.
         </p>
 
-        <div className="mt-4 space-y-3">
+        <div className="mt-3 space-y-3">
           <div>
             <label htmlFor="tagging-reapply-days" className="text-sm font-semibold">
               Lookback period (days)

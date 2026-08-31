@@ -88,7 +88,7 @@ export function OperationsPage() {
           : 'Refresh'
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <SettingsPageHeader
         scope="System"
         title="System health"
@@ -180,7 +180,7 @@ export function OperationsPage() {
 function IssuesSection({ issues }: { issues: OperationsOverviewResponse['issues'] }) {
   if (issues.length === 0) {
     return (
-      <section className="px-4 py-4 sm:px-5" aria-labelledby="operations-issues-heading">
+      <section className="px-4 py-3 sm:px-5" aria-labelledby="operations-issues-heading">
         <h2 id="operations-issues-heading" className="text-sm font-semibold uppercase text-slate dark:text-slate-400">
           Attention
         </h2>
@@ -189,7 +189,7 @@ function IssuesSection({ issues }: { issues: OperationsOverviewResponse['issues'
     )
   }
   return (
-    <section className="px-4 py-4 sm:px-5" aria-labelledby="operations-issues-heading">
+    <section className="px-4 py-3 sm:px-5" aria-labelledby="operations-issues-heading">
       <h2 id="operations-issues-heading" className="text-sm font-semibold uppercase text-slate dark:text-slate-400">
         Attention ({issues.length})
       </h2>
@@ -218,7 +218,7 @@ function IssuesSection({ issues }: { issues: OperationsOverviewResponse['issues'
 
 function ComponentsSection({ components }: { components: OperationsComponentCheck[] }) {
   return (
-    <section className="px-4 py-4 sm:px-5" aria-labelledby="operations-components-heading">
+    <section className="px-4 py-3 sm:px-5" aria-labelledby="operations-components-heading">
       <h2 id="operations-components-heading" className="text-sm font-semibold uppercase text-slate dark:text-slate-400">
         Components
       </h2>
@@ -264,7 +264,7 @@ function ComponentsSection({ components }: { components: OperationsComponentChec
 
 function BacklogsSection({ backlogs }: { backlogs: OperationsBacklogSnapshot[] }) {
   return (
-    <section className="px-4 py-4 sm:px-5" aria-labelledby="operations-backlogs-heading">
+    <section className="px-4 py-3 sm:px-5" aria-labelledby="operations-backlogs-heading">
       <h2 id="operations-backlogs-heading" className="text-sm font-semibold uppercase text-slate dark:text-slate-400">
         Work queues
       </h2>
@@ -303,7 +303,7 @@ function RecoverySection({ recovery }: { recovery: OperationsRecoverySnapshot })
     ['Latest restore', recovery.latest_restore],
   ]
   return (
-    <section className="px-4 py-4 sm:px-5" aria-labelledby="operations-recovery-heading">
+    <section className="px-4 py-3 sm:px-5" aria-labelledby="operations-recovery-heading">
       <h2 id="operations-recovery-heading" className="text-sm font-semibold uppercase text-slate dark:text-slate-400">
         Recovery evidence
       </h2>
@@ -330,7 +330,7 @@ function RecoverySection({ recovery }: { recovery: OperationsRecoverySnapshot })
 function StorageSection({ storage }: { storage: OperationsOverviewResponse['storage'] }) {
   if (storage.length === 0) return null
   return (
-    <section className="px-4 py-4 sm:px-5" aria-labelledby="operations-storage-heading">
+    <section className="px-4 py-3 sm:px-5" aria-labelledby="operations-storage-heading">
       <h2 id="operations-storage-heading" className="text-sm font-semibold uppercase text-slate dark:text-slate-400">
         Storage indicators
       </h2>
@@ -381,7 +381,7 @@ function RunsSection({
   onStatusChange: (value: SystemOperationStatus | '') => void
 }) {
   return (
-    <section className="border-t border-slate/15 px-4 py-4 dark:border-white/10 sm:px-5" aria-labelledby="operations-runs-heading">
+    <section className="border-t border-slate/15 px-4 py-3 dark:border-white/10 sm:px-5" aria-labelledby="operations-runs-heading">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <h2 id="operations-runs-heading" className="text-sm font-semibold uppercase text-slate dark:text-slate-400">
           Operation history
@@ -436,14 +436,14 @@ function RunsSection({
           </button>
         </div>
       )}
-      {loading && <p className="py-6 text-center text-sm text-slate dark:text-slate-300">Loading operation history...</p>}
+      {loading && <p className="py-4 text-center text-sm text-slate dark:text-slate-300">Loading operation history...</p>}
       {updating && !loading && (
         <p role="status" className="mt-3 text-sm text-slate dark:text-slate-300">
           Updating operation history for the selected filters...
         </p>
       )}
       {!loading && !error && runs.length === 0 && (
-        <p className="mt-3 border-y border-dashed border-slate/20 py-5 text-center text-sm text-slate dark:border-white/10 dark:text-slate-300">
+        <p className="mt-3 border-y border-dashed border-slate/20 py-4 text-center text-sm text-slate dark:border-white/10 dark:text-slate-300">
           No operation runs match these filters.
         </p>
       )}
@@ -484,7 +484,7 @@ function RunsSection({
           </table>
         </div>
       )}
-      <div className="mt-4 grid grid-cols-[auto_1fr_auto] items-center gap-2 text-sm sm:flex sm:justify-between">
+      <div className="mt-3 grid grid-cols-[auto_1fr_auto] items-center gap-2 text-sm sm:flex sm:justify-between">
         <button
           type="button"
           className="min-h-11 rounded border border-slate/30 px-3 py-2 disabled:opacity-50 dark:border-cyan-900/40"

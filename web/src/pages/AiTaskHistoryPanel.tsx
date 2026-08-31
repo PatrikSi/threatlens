@@ -171,7 +171,7 @@ type TaskHistoryTableProps = {
 
 function TaskHistoryTable(props: TaskHistoryTableProps) {
   return (
-    <div className="mt-4 hidden overflow-x-auto sm:block">
+    <div className="mt-3 hidden overflow-x-auto sm:block">
       <table
         className={`min-w-full text-sm transition-opacity ${props.isPageLoading ? 'opacity-70' : ''}`}
         aria-busy={props.isBusy}
@@ -278,7 +278,7 @@ function RunHistoryPagination({
   history,
 }: Pick<TaskHistoryPanelProps, 'runPage' | 'setRunPage' | 'history'>) {
   return (
-    <div className="mt-4 flex items-center justify-between gap-3 text-sm">
+    <div className="mt-3 flex items-center justify-between gap-3 text-sm">
       <span className="text-slate dark:text-white/60">
         {history.runCount > 0
           ? `Showing ${history.visibleRunOffset + 1}-${history.visibleRunOffset + history.runCount} of ${history.runTotal}`

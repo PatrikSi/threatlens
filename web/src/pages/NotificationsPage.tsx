@@ -32,9 +32,9 @@ export function NotificationWebhooksSettings() {
   const controller = useNotificationWebhooksController()
   if (controller.currentUserQuery.isLoading) {
     return (
-      <div className="space-y-4">
+      <div className="space-y-3">
         <NotificationHeader controller={controller} />
-        <div role="status" className="rounded-xl border border-slate/20 bg-white/80 p-4 text-sm dark:border-cyan-900/40 dark:bg-[#041612]/90">
+        <div role="status" className="rounded-xl border border-slate/20 bg-white/80 p-3 text-sm dark:border-cyan-900/40 dark:bg-[#041612]/90">
           Loading webhook settings...
         </div>
       </div>
@@ -42,12 +42,12 @@ export function NotificationWebhooksSettings() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <NotificationHeader controller={controller} />
       <NotificationWebhookAnalytics controller={controller} />
-      <div className="grid min-w-0 gap-4 xl:grid-cols-[320px_1fr]">
+      <div className="grid min-w-0 gap-3 xl:grid-cols-[320px_1fr]">
         <SavedWebhooksCard controller={controller} />
-        <div className="min-w-0 space-y-4">
+        <div className="min-w-0 space-y-3">
           {controller.showWebhookEditor ? (
             <NotificationWebhookEditor controller={controller} />
           ) : (
