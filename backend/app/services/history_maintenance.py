@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import and_, delete, select
+from sqlalchemy import String, and_, cast, delete, or_, select
 from sqlalchemy.orm import Session, aliased
 
 from app.core.config import get_settings
@@ -19,10 +19,14 @@ from app.models.tag import TagFeedbackEvent
 from app.services.auth_sessions import cleanup_auth_sessions
 from app.services.audit import record_audit
 from app.services.data_access_envelopes import (
+    DATA_ACCESS_RESOURCE_ACTION_APPROVAL,
     DATA_ACCESS_RESOURCE_AI_TASK_RUN,
     DATA_ACCESS_RESOURCE_AI_USAGE_EVENT,
 )
-from app.services.data_access_retention import prune_deleted_resource_envelopes
+from app.services.data_access_retention import (
+    MAX_TARGETED_DATA_ACCESS_RESOURCES,
+    prune_deleted_resource_envelopes,
+)
 from app.services.data_access_runtime import (
     lock_data_policy_revision_for_derivation,
 )
@@ -103,6 +107,7 @@ def prune_application_history(
                 _unresolved_ai_provider_receipt(AIProviderAttemptReceipt),
             )
             .exists(),
+            ~_retained_action_approval_run_reference(AITaskRun.id),
         ),
     )
     ai_provider_attempt_receipts_deleted = _delete_expired_ai_provider_receipt_ledgers(
@@ -241,26 +246,56 @@ def _delete_ai_history_with_envelopes(
     query = select(model.id).where(timestamp_column < cutoff)
     if extra_predicate is not None:
         query = query.where(extra_predicate)
-    ids = list(
-        db.scalars(
-            query.order_by(timestamp_column.asc(), model.id.asc())
-            .limit(batch_size)
-            .with_for_update(skip_locked=True)
-        ).all()
+    ordered_query = query.order_by(timestamp_column.asc(), model.id.asc()).limit(
+        batch_size
     )
+    if model is AITaskRun:
+        # Match provider reservation and approval capture: lock the source run
+        # before any of its receipts. The delete predicate is rechecked below
+        # after both locks so a concurrent retained approval always wins.
+        ids = list(
+            db.scalars(ordered_query.with_for_update(skip_locked=True)).all()
+        )
+        if not ids:
+            return 0
+        receipt_locks = db.execute(
+            select(AIProviderAttemptReceipt.id)
+            .where(
+                AIProviderAttemptReceipt.task_run_id_snapshot.in_(ids)
+            )
+            .order_by(AIProviderAttemptReceipt.id)
+            .with_for_update()
+        )
+        receipt_locks.close()
+    else:
+        ids = list(
+            db.scalars(ordered_query.with_for_update(skip_locked=True)).all()
+        )
     if not ids:
         return 0
-    result = db.execute(
-        delete(model)
-        .where(model.id.in_(ids))
-        .execution_options(synchronize_session=False)
+    delete_query = delete(model).where(model.id.in_(ids))
+    if extra_predicate is not None:
+        # Re-evaluate cross-table retention pins after the row locks were
+        # acquired. A concurrent approval creator can commit while this
+        # maintenance worker waits for its source run.
+        delete_query = delete_query.where(extra_predicate)
+    deleted_ids = list(
+        db.scalars(
+            delete_query.returning(model.id).execution_options(
+                synchronize_session=False
+            )
+        ).all()
     )
+    if not deleted_ids:
+        return 0
     db.flush()
     prune_deleted_resource_envelopes(
         db,
-        resources=((resource_type, resource_id) for resource_id in ids),
+        resources=(
+            (resource_type, resource_id) for resource_id in deleted_ids
+        ),
     )
-    return int(result.rowcount or 0)
+    return len(deleted_ids)
 
 
 def _delete_expired_ai_provider_receipt_ledgers(
@@ -349,6 +384,9 @@ def _eligible_ai_provider_receipt_operation_ids(
             )
             .where(task_receipt.operation_id == receipt.operation_id)
             .exists(),
+            ~_retained_action_approval_operation_reference(
+                receipt.operation_id
+            ),
         )
         .distinct()
         .order_by(receipt.operation_id.asc())
@@ -364,6 +402,45 @@ def _unresolved_ai_provider_receipt(receipt):
     return and_(
         receipt.reconciliation_action.is_(None),
         receipt.state.in_(("reserved", "ambiguous")),
+    )
+
+
+def _retained_action_approval_run_reference(run_id_column):
+    target_receipt = aliased(AIProviderAttemptReceipt)
+    target_receipt_matches_run = select(target_receipt.id).where(
+        cast(target_receipt.id, String) == ActionApprovalRequest.target_id,
+        target_receipt.task_run_id_snapshot == run_id_column,
+    ).exists()
+    return select(ActionApprovalRequest.id).where(
+        or_(
+            and_(
+                ActionApprovalRequest.data_access_source_type == "ai_task_run",
+                ActionApprovalRequest.data_access_source_id == run_id_column,
+            ),
+            and_(
+                ActionApprovalRequest.target_type
+                == "ai_provider_attempt_receipt",
+                target_receipt_matches_run,
+            ),
+        )
+    ).exists()
+
+
+def _retained_action_approval_operation_reference(operation_id_column):
+    target_receipt = aliased(AIProviderAttemptReceipt)
+    return (
+        select(ActionApprovalRequest.id)
+        .join(
+            target_receipt,
+            cast(target_receipt.id, String)
+            == ActionApprovalRequest.target_id,
+        )
+        .where(
+            ActionApprovalRequest.target_type
+            == "ai_provider_attempt_receipt",
+            target_receipt.operation_id == operation_id_column,
+        )
+        .exists()
     )
 
 
@@ -390,7 +467,13 @@ def _delete_action_approval_history(
                 ActionApprovalRequest.created_at.asc(),
                 ActionApprovalRequest.id.asc(),
             )
-            .limit(batch_size)
+            .limit(
+                min(
+                    batch_size,
+                    MAX_TARGETED_DATA_ACCESS_RESOURCES,
+                )
+            )
+            .with_for_update(skip_locked=True)
         ).all()
     )
     if not approval_ids:
@@ -412,6 +495,14 @@ def _delete_action_approval_history(
         delete(ActionApprovalRequest)
         .where(ActionApprovalRequest.id.in_(approval_ids))
         .execution_options(synchronize_session=False)
+    )
+    db.flush()
+    prune_deleted_resource_envelopes(
+        db,
+        resources=(
+            (DATA_ACCESS_RESOURCE_ACTION_APPROVAL, approval_id)
+            for approval_id in approval_ids
+        ),
     )
     return (
         int(request_result.rowcount or 0),

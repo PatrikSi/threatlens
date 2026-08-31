@@ -17,6 +17,7 @@ from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.schemas.audit import AuditLogResponse
 from app.services.ai_ops_common import AI_TASK_TYPE_CONNECTION_TEST
 from app.services.data_access_envelopes import (
+    DATA_ACCESS_RESOURCE_ACTION_APPROVAL,
     DATA_ACCESS_RESOURCE_ALERT_OCCURRENCE,
     DATA_ACCESS_RESOURCE_DAILY_BRIEF,
     DATA_ACCESS_RESOURCE_INTEGRATION_DELIVERY,
@@ -36,6 +37,7 @@ _ENVELOPE_RESOURCE_TYPES = frozenset(
         DATA_ACCESS_RESOURCE_INTEGRATION_EVENT,
         DATA_ACCESS_RESOURCE_INVESTIGATION,
         DATA_ACCESS_RESOURCE_REPORT,
+        DATA_ACCESS_RESOURCE_ACTION_APPROVAL,
     }
 )
 _DIRECT_GOVERNED_RESOURCE_TYPES = frozenset(

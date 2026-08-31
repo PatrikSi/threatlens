@@ -41,6 +41,42 @@ class ActionApprovalRequest(Base):
             name="ck_action_approval_requests_definition_version",
         ),
         CheckConstraint(
+            "target_data_policy_version >= 1",
+            name="ck_action_approval_requests_target_policy_version",
+        ),
+        CheckConstraint(
+            "data_access_scope IN ('system', 'governed')",
+            name="ck_action_approval_requests_data_access_scope",
+        ),
+        CheckConstraint(
+            "data_access_source_type IN "
+            "('system_control_plane', 'ai_task_run', 'unresolved')",
+            name="ck_action_approval_requests_data_access_source_type",
+        ),
+        CheckConstraint(
+            "(data_access_source_type = 'ai_task_run' "
+            "AND data_access_source_id IS NOT NULL) OR "
+            "(data_access_source_type <> 'ai_task_run' "
+            "AND data_access_source_id IS NULL)",
+            name="ck_action_approval_requests_data_access_source",
+        ),
+        CheckConstraint(
+            "data_access_scope <> 'system' OR "
+            "(data_access_lineage_complete AND "
+            "action_definition_version = 1 AND "
+            "target_data_policy_version = 1 AND "
+            "((data_access_source_type = 'system_control_plane' "
+            "AND ((action_type = 'service_account.disable' "
+            "AND target_type = 'service_account') OR "
+            "(action_type = 'iam.role.delete' AND target_type = 'iam_role'))) "
+            "OR (data_access_source_type = 'ai_task_run' "
+            "AND action_type IN "
+            "('ai.provider_attempt.confirm_not_sent', "
+            "'ai.provider_attempt.acknowledge_may_have_sent') "
+            "AND target_type = 'ai_provider_attempt_receipt')))",
+            name="ck_action_approval_requests_system_scope",
+        ),
+        CheckConstraint(
             "revision >= 1",
             name="ck_action_approval_requests_revision",
         ),
@@ -218,6 +254,11 @@ class ActionApprovalRequest(Base):
         Index("ix_action_approval_requests_requester", "requested_by_user_id"),
         Index("ix_action_approval_requests_decider", "decided_by_user_id"),
         Index("ix_action_approval_requests_created", "created_at", "id"),
+        Index(
+            "ix_action_approval_requests_data_access_source",
+            "data_access_source_type",
+            "data_access_source_id",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -233,6 +274,21 @@ class ActionApprovalRequest(Base):
         String(96), nullable=False
     )
     action_definition_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    target_data_policy_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
+    data_access_scope: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="governed", server_default="governed"
+    )
+    data_access_lineage_complete: Mapped[bool] = mapped_column(
+        nullable=False, default=False, server_default="false"
+    )
+    data_access_source_type: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="unresolved", server_default="unresolved"
+    )
+    data_access_source_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True), nullable=True
+    )
     target_type: Mapped[str] = mapped_column(String(64), nullable=False)
     target_id: Mapped[str] = mapped_column(String(255), nullable=False)
     target_revision: Mapped[int] = mapped_column(Integer, nullable=False)

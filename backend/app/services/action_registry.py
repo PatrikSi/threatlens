@@ -5,7 +5,7 @@ import json
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 from sqlalchemy import select
@@ -21,6 +21,7 @@ from app.core.token_scopes import (
     SCOPE_WRITE_SERVICE_ACCOUNTS,
 )
 from app.models.ai_provider_attempt_receipt import AIProviderAttemptReceipt
+from app.models.ai_task_run import AITaskRun
 from app.models.iam import (
     IAMGroupRoleAssignment,
     IAMRole,
@@ -51,6 +52,12 @@ RegisteredTargetSnapshotter = Callable[[Session, object], dict[str, object]]
 RegisteredExecutor = Callable[[Session, object, uuid.UUID], dict[str, object]]
 
 
+@dataclass(frozen=True, slots=True)
+class RegisteredActionDataPolicy:
+    version: int
+    target_kind: Literal["system_control_plane", "ai_task_run"]
+
+
 @dataclass(frozen=True)
 class RegisteredActionDefinition:
     key: str
@@ -66,6 +73,7 @@ class RegisteredActionDefinition:
     resolve_target: RegisteredTargetResolver
     snapshot_target: RegisteredTargetSnapshotter
     execute: RegisteredExecutor
+    target_data_policy: RegisteredActionDataPolicy
 
     @property
     def payload_fields(self) -> tuple[str, ...]:
@@ -76,6 +84,12 @@ class RegisteredActionDefinition:
 class RegisteredActionTarget:
     target_id: str
     snapshot: dict[str, object]
+    resource: object
+
+
+@dataclass(frozen=True)
+class RegisteredActionResolvedTarget:
+    target_id: str
     resource: object
 
 
@@ -276,9 +290,32 @@ def _resolve_ai_provider_attempt_receipt(
     query = select(AIProviderAttemptReceipt).where(
         AIProviderAttemptReceipt.id == target_id
     )
-    if lock:
-        query = query.with_for_update()
-    return db.scalar(query.execution_options(populate_existing=True))
+    if not lock:
+        return db.scalar(query.execution_options(populate_existing=True))
+
+    # Provider reservation, approval capture, and history retention all use
+    # run -> receipt locking. Read the immutable binding optimistically, lock
+    # its run first, then lock and revalidate the receipt so a missing or
+    # replaced target fails closed without introducing an opposing lock order.
+    task_run_id = db.scalar(
+        select(AIProviderAttemptReceipt.task_run_id_snapshot).where(
+            AIProviderAttemptReceipt.id == target_id
+        )
+    )
+    if task_run_id is None:
+        return None
+    run_lock = db.execute(
+        select(AITaskRun.id)
+        .where(AITaskRun.id == task_run_id)
+        .with_for_update(read=True)
+    )
+    run_lock.close()
+    receipt = db.scalar(
+        query.with_for_update().execution_options(populate_existing=True)
+    )
+    if receipt is None or receipt.task_run_id_snapshot != task_run_id:
+        return None
+    return receipt
 
 
 def _snapshot_ai_provider_attempt_receipt(
@@ -397,6 +434,10 @@ ACTION_DEFINITIONS: tuple[RegisteredActionDefinition, ...] = (
         resolve_target=_resolve_ai_provider_attempt_receipt,
         snapshot_target=_snapshot_ai_provider_attempt_receipt,
         execute=_execute_ai_provider_attempt_confirm_not_sent,
+        target_data_policy=RegisteredActionDataPolicy(
+            version=1,
+            target_kind="ai_task_run",
+        ),
     ),
     RegisteredActionDefinition(
         key="ai.provider_attempt.acknowledge_may_have_sent",
@@ -415,6 +456,10 @@ ACTION_DEFINITIONS: tuple[RegisteredActionDefinition, ...] = (
         resolve_target=_resolve_ai_provider_attempt_receipt,
         snapshot_target=_snapshot_ai_provider_attempt_receipt,
         execute=_execute_ai_provider_attempt_acknowledge_may_have_sent,
+        target_data_policy=RegisteredActionDataPolicy(
+            version=1,
+            target_kind="ai_task_run",
+        ),
     ),
     RegisteredActionDefinition(
         key="service_account.disable",
@@ -430,6 +475,10 @@ ACTION_DEFINITIONS: tuple[RegisteredActionDefinition, ...] = (
         resolve_target=_resolve_service_account,
         snapshot_target=_snapshot_service_account,
         execute=_execute_service_account_disable,
+        target_data_policy=RegisteredActionDataPolicy(
+            version=1,
+            target_kind="system_control_plane",
+        ),
     ),
     RegisteredActionDefinition(
         key="iam.role.delete",
@@ -445,6 +494,10 @@ ACTION_DEFINITIONS: tuple[RegisteredActionDefinition, ...] = (
         resolve_target=_resolve_iam_role,
         snapshot_target=_snapshot_iam_role,
         execute=_execute_iam_role_delete,
+        target_data_policy=RegisteredActionDataPolicy(
+            version=1,
+            target_kind="system_control_plane",
+        ),
     ),
 )
 ACTION_DEFINITION_BY_KEY_VERSION = {
@@ -472,6 +525,29 @@ def validate_action_registry() -> None:
                 )
         if definition.version < 1:
             raise RuntimeError("Registered action versions must be positive integers.")
+        policy = definition.target_data_policy
+        if not isinstance(policy, RegisteredActionDataPolicy):
+            raise RuntimeError(
+                f"Registered action {definition.key}@{definition.version} is "
+                "missing its target data-policy declaration."
+            )
+        if policy.version < 1:
+            raise RuntimeError(
+                "Registered action target data-policy versions must be positive integers."
+            )
+        expected_target_types = {
+            "system_control_plane": {"service_account", "iam_role"},
+            "ai_task_run": {"ai_provider_attempt_receipt"},
+        }
+        expected_target_type = expected_target_types.get(policy.target_kind)
+        if (
+            expected_target_type is None
+            or definition.target_type not in expected_target_type
+        ):
+            raise RuntimeError(
+                f"Registered action {definition.key}@{definition.version} has an "
+                "incompatible target data-policy declaration."
+            )
 
 
 validate_action_registry()
@@ -528,9 +604,14 @@ def inspect_registered_action_target(
     target_revision: int,
     lock: bool = False,
 ) -> RegisteredActionTarget:
-    parsed_id = _parse_target_uuid(target_id, definition.target_type)
-    resource = definition.resolve_target(db, parsed_id, lock)
-    if resource is None:
+    target = resolve_registered_action_target(
+        db,
+        definition=definition,
+        target_id=target_id,
+        lock=lock,
+    )
+    if target is None:
+        parsed_id = _parse_target_uuid(target_id, definition.target_type)
         raise RegisteredActionTargetNotFound(
             f"The {definition.target_type.replace('_', ' ')} target was not found.",
             context={
@@ -538,6 +619,40 @@ def inspect_registered_action_target(
                 "target_id": str(parsed_id),
             },
         )
+    return inspect_resolved_registered_action_target(
+        db,
+        definition=definition,
+        target=target,
+        target_revision=target_revision,
+    )
+
+
+def resolve_registered_action_target(
+    db: Session,
+    *,
+    definition: RegisteredActionDefinition,
+    target_id: str,
+    lock: bool = False,
+) -> RegisteredActionResolvedTarget | None:
+    parsed_id = _parse_target_uuid(target_id, definition.target_type)
+    resource = definition.resolve_target(db, parsed_id, lock)
+    if resource is None:
+        return None
+    return RegisteredActionResolvedTarget(
+        target_id=str(parsed_id),
+        resource=resource,
+    )
+
+
+def inspect_resolved_registered_action_target(
+    db: Session,
+    *,
+    definition: RegisteredActionDefinition,
+    target: RegisteredActionResolvedTarget,
+    target_revision: int,
+) -> RegisteredActionTarget:
+    resource = target.resource
+    parsed_id = uuid.UUID(target.target_id)
     snapshot = definition.snapshot_target(db, resource)
     current_revision = int(snapshot["revision"])
     if current_revision != target_revision:
@@ -681,8 +796,10 @@ def _as_ai_provider_attempt_receipt(
 __all__ = [
     "ACTION_DEFINITIONS",
     "RegisteredActionDefinition",
+    "RegisteredActionDataPolicy",
     "RegisteredActionError",
     "RegisteredActionPayloadInvalid",
+    "RegisteredActionResolvedTarget",
     "RegisteredActionTarget",
     "RegisteredActionTargetConflict",
     "RegisteredActionTargetInvalid",
@@ -692,6 +809,8 @@ __all__ = [
     "execute_registered_action",
     "get_registered_action",
     "inspect_registered_action_target",
+    "inspect_resolved_registered_action_target",
     "normalize_registered_action_payload",
+    "resolve_registered_action_target",
     "validate_action_registry",
 ]
