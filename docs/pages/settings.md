@@ -20,8 +20,10 @@ Default administrator-role items (canonical permissions remain authoritative):
 - Integrations
   - SMTP
 - Tagging
+- Access
 - Identity
 - Users
+- Operations
 - Audit Logs
 
 The effective workspace policy may reorder or hide modules marked optional. The
@@ -212,6 +214,45 @@ Legacy route behavior:
   - `PUT /workspace/role-policies/{role}`
   - `POST /workspace/role-policies/{role}/reset`
 
+## Access Governance Page
+
+- Route: `/settings/access`
+- Requires `read:iam`; individual overview inventories and the Handling labels
+  tab are additionally permission-gated.
+- Overview cards show system/custom roles, local/federated groups, service
+  accounts, access-review campaigns, temporary elevations, action approvals,
+  current data-policy mode, coverage, and blocker status. A missing permission or
+  failed optional request is displayed explicitly and does not hide a failure by
+  rendering a zero count.
+- Roles and Groups tabs manage custom roles, code-owned permission selections,
+  group membership, and group role assignments with optimistic revision checks.
+- The Handling labels tab manages label metadata, durable role grants, archive
+  status, and `disabled`, `audit`, or `enforced` policy mode.
+- Persistent IAM and handling-policy writes reject authority obtained only by
+  temporary elevation. Handling-policy writes additionally require a recently
+  authenticated browser session with the applicable local or OIDC MFA assurance.
+- The activation preflight displays whether it was a full scan, its timestamp and
+  evaluated policy revision, coverage versions, stable blocker codes/counts, and
+  the installed canonical route-manifest version, digest, operation counts, and
+  governance-class counts.
+- The mode-change confirmation repeats the target mode and reason. Audit cannot
+  be selected while a non-grant preflight blocker remains; enforcement requires
+  the preflight to have no blockers.
+- API calls:
+  - `GET /iam/permissions`
+  - `GET|POST /iam/roles`
+  - `PATCH|DELETE /iam/roles/{role_id}`
+  - `GET|POST /iam/groups`
+  - `PATCH|DELETE /iam/groups/{group_id}`
+  - group membership and role-assignment endpoints under `/iam/groups/{group_id}`
+  - `GET /iam/data-policies`
+  - label, role-grant, status, and mode mutations under `/iam/data-policies`
+  - permission-gated summary reads for service accounts, access reviews,
+    elevations, and action approvals
+
+For the activation and target-lineage contracts, see [Access Governance and Data
+Policy](../reference/access-governance.md).
+
 ## Users Page (Admin)
 
 - Create user form
@@ -243,6 +284,10 @@ Legacy route behavior:
   direct routes and API requests remain protected by route and backend IAM.
 - The Workspace page is available with `read:workspace`; organization policy
   editing additionally requires durable `write:workspace` authority.
+- Access Governance is available with `read:iam`; the Handling labels tab
+  additionally requires `read:data_policies`. Persistent policy writes require
+  durable authority, and handling-policy writes also require a sensitive browser
+  session.
 - Webhook analytics/list/history are available to authenticated users for their own webhooks.
 - Webhook create/update/test/retry/delete additionally require operator access (`admin` or `analyst`) and write notification access.
 - Restricted settings pages use `PermissionRoute` with the same canonical read

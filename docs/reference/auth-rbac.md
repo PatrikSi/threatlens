@@ -203,6 +203,14 @@ Helper dependencies:
 - `get_operator_user`: `admin` or `analyst`
 - `get_admin_user`: `admin`
 
+The fixed role is now a compatibility and break-glass projection inside the
+larger access-governance model. Code-owned permissions can also come from sealed
+or custom IAM roles assigned directly or through groups. Personal API-token
+scopes attenuate that effective permission set; temporary elevation is excluded
+from durable-policy decisions and handling-label grants. See [Access Governance
+and Data Policy](./access-governance.md) for custom roles, groups, action
+approvals, route attestation, and activation behavior.
+
 ## Scope Model
 
 `backend/app/core/token_scopes.py`
@@ -223,6 +231,15 @@ Resource scopes:
 - `read:integrations`, `write:integrations`
 - `read:reports`, `write:reports`
 - `read:health`
+- `read:operations`, `write:operations`
+- `read:investigations`, `write:investigations`
+- `read:iam`, `write:iam`
+- `read:workspace`, `write:workspace_preferences`, `write:workspace`
+- `read:service_accounts`, `write:service_accounts`
+- `read:elevations`, `write:elevations`, `approve:elevations`
+- `read:approvals`, `write:approvals`, `approve:approvals`
+- `read:access_reviews`, `write:access_reviews`
+- `read:data_policies`, `write:data_policies`
 
 Wildcard/admin scopes:
 
@@ -282,6 +299,13 @@ Paths below are relative to the published `/api/v1` base.
 | `/audit-logs` | `admin` | `read:audit` |
 | `/audit-logs/export` | `admin` | `read:audit` |
 | `/stats/*` | authenticated user | `read:stats` |
+| `/iam/permissions`, `/iam/roles`, `/iam/groups`, `/iam/effective*` | effective permission | `read:iam` / durable `write:iam` |
+| `/iam/service-accounts` | effective permission | `read:service_accounts` / durable `write:service_accounts` |
+| `/iam/elevations` | effective permission | `read:elevations` / `write:elevations` / `approve:elevations` |
+| `/iam/action-approvals` | effective permission | `read:approvals`; lifecycle-specific durable requester/approver authority for mutations |
+| `/iam/access-reviews` | effective permission | `read:access_reviews` / durable `write:access_reviews` |
+| `/iam/data-policies` | effective permission | `read:data_policies` / durable `write:data_policies` |
+| `/workspace/*` | effective permission | `read:workspace`, `write:workspace_preferences`, or durable `write:workspace` |
 | `/health`, `/health/ready`, `/health/live` basic status | none | none |
 | `/health/worker`, `/health/beat`, `/health/notifications`, `/health/encrypted-data` | `admin` | `read:health` |
 
@@ -295,3 +319,10 @@ Paths below are relative to the published `/api/v1` base.
 - User updates are serialized around the active-admin invariant; concurrent demotions cannot remove the final active, approved admin.
 - Non-admin token revocation is owner-constrained and returns the same not-found response for foreign and nonexistent token IDs.
 - OIDC role synchronization and admin user edits share the same serialized final-admin invariant.
+- Navigation policy never grants access. `/settings/access` and its optional
+  inventories are permission-gated in the frontend, while every underlying API
+  independently evaluates current IAM, credential attenuation, handling policy,
+  and any object relationship.
+- Persistent IAM, data-policy, action-approval, and access-review mutations use
+  durable authority and sensitive-browser checks where declared. A scope on a
+  personal API token does not bypass a browser-only endpoint.

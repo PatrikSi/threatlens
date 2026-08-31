@@ -86,6 +86,21 @@ When a change affects the published API contract:
 ./backend/.venv/bin/python backend/scripts/generate_api_reference.py
 ```
 
+Any canonical `/v1` route addition, removal, method/path change, rename, endpoint
+move, or data-policy dependency change must also update
+`backend/app/core/data_policy_route_manifest.py` with its reviewed governance
+class. Validate the exact mounted-route attestation before regenerating the
+contract:
+
+```bash
+(cd backend && ./.venv/bin/python -m pytest \
+  tests/unit/test_data_policy_route_manifest.py)
+```
+
+Application startup rejects manifest drift, but keeping the manifest and its
+test in the same commit makes the security-sensitive route classification
+reviewable before deployment.
+
 That command refreshes both `docs/reference/api.md` and `docs/reference/openapi.json`. The generated schema now carries an immutable contract digest at `info.x-threatlens-contract-sha256`; public release notes should record that digest alongside the eventual `vX.Y.Z` tag.
 
 The generator always reads the checked-in `VERSION` file for source artifacts. An exported runtime `APP_VERSION` does not change the generated contract version.
