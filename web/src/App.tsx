@@ -28,6 +28,9 @@ import { useWorkspace } from './workspace/useWorkspace'
 import type { TrustedWorkspaceModuleId } from './workspace/moduleRegistry'
 
 const AccountPage = lazy(() => import('./pages/AccountPage').then((module) => ({ default: module.AccountPage })))
+const AccessGovernancePage = lazy(() =>
+  import('./pages/AccessGovernancePage').then((module) => ({ default: module.AccessGovernancePage })),
+)
 const AiSettingsPage = lazy(() => import('./pages/AiSettingsPage').then((module) => ({ default: module.AiSettingsPage })))
 const AlertsPage = lazy(() => import('./pages/AlertsPage').then((module) => ({ default: module.AlertsPage })))
 const AuditLogsPage = lazy(() => import('./pages/AuditLogsPage').then((module) => ({ default: module.AuditLogsPage })))
@@ -143,6 +146,14 @@ function createAppRouter() {
                 }
               />
             </Route>
+            <Route
+              path="access"
+              element={
+                <PermissionRoute permissions={['read:iam']}>
+                  {suspenseRoute(<AccessGovernancePage />, 'Loading access governance...')}
+                </PermissionRoute>
+              }
+            />
             <Route
               path="identity"
               element={
