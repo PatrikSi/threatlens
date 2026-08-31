@@ -1,27 +1,41 @@
 import csv
 import io
 import json
+import threading
 import uuid
 import zipfile
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
+import anyio
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import delete, select, text
+from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm import Session
+from starlette.background import BackgroundTask
 from stix2 import parse
 
 from app.api.routes import exports as exports_route
 from app.models.article import Article
 from app.models.audit_log import AuditLog
-from app.models.data_policy import DataPolicyState
+from app.models.data_policy import (
+    DataPolicyState,
+    UNRESTRICTED_HANDLING_LABEL_ID,
+)
 from app.models.feed import Feed
+from app.models.iam import IAMPolicyState
 from app.models.ioc import IOC, ItemIOC
 from app.models.item import Item
 from app.models.item_ai_enrichment import ItemAIEnrichment
 from app.models.item_classification import ItemClassification
 from app.models.item_state import ItemState
 from app.models.tag import ItemTag, Tag
+from app.models.user import User
+from app.schemas.exports import ArticleExportRequest
+from app.services.authorization import authorization_context_for_user
+from app.services.data_access_policy import data_access_context_for_authorization
 from app.services import export_query
 
 
@@ -168,6 +182,8 @@ def test_download_each_export_format(
     assert audit is not None
     assert audit.success is True
     assert audit.metadata_json["format"] == export_format
+    assert isinstance(audit.metadata_json["iam_policy_revision"], int)
+    assert isinstance(audit.metadata_json["data_policy_revision"], int)
 
 
 def test_export_rejects_empty_selection(client: TestClient, auth_headers):
@@ -250,6 +266,168 @@ def test_export_size_error_survives_audit_storage_failure(
     assert response.status_code == 413
     assert response.json()["error"]["code"] == "payload_too_large"
     assert "configured size limit" in response.json()["detail"]
+
+
+def test_download_holds_iam_and_data_policy_fences_through_file_stream(
+    database_engine,
+    request,
+):
+    run_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    feed_id = uuid.uuid4()
+    item_id = uuid.uuid4()
+    stream_started = threading.Event()
+    release_stream = threading.Event()
+    worker_done = threading.Event()
+    worker_errors: list[BaseException] = []
+    artifact_paths = []
+
+    with Session(database_engine) as setup_db:
+        user = User(
+            id=user_id,
+            email=f"export-stream-{run_id}@example.com",
+            password_hash="not-used",
+            role="viewer",
+            is_active=True,
+            is_approved=True,
+        )
+        feed = Feed(
+            id=feed_id,
+            name="Stream-fenced export",
+            url=f"https://example.com/export-stream-{run_id}.xml",
+            handling_label_id=UNRESTRICTED_HANDLING_LABEL_ID,
+        )
+        item = Item(
+            id=item_id,
+            feed_id=feed_id,
+            source_guid=f"stream-{run_id}",
+            url=f"https://example.com/export-stream-{run_id}",
+            title="Stream-fenced item",
+            dedupe_key=f"export-stream-{run_id}",
+            content_hash="e" * 64,
+            status="new",
+        )
+        setup_db.add_all([user, feed])
+        setup_db.flush()
+        setup_db.add(item)
+        setup_db.commit()
+
+    def cleanup() -> None:
+        release_stream.set()
+        worker.join(timeout=8)
+        with Session(database_engine) as cleanup_db:
+            cleanup_db.execute(
+                delete(AuditLog).where(
+                    AuditLog.actor_principal_type == "user",
+                    AuditLog.actor_principal_id == user_id,
+                )
+            )
+            cleanup_db.execute(delete(Item).where(Item.id == item_id))
+            cleanup_db.execute(delete(Feed).where(Feed.id == feed_id))
+            cleanup_db.execute(delete(User).where(User.id == user_id))
+            cleanup_db.commit()
+
+    request.addfinalizer(cleanup)
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message):
+        if message["type"] == "http.response.start":
+            stream_started.set()
+            if not release_stream.wait(timeout=8):
+                raise AssertionError("timed out waiting to finish the export stream")
+
+    def stream_export() -> None:
+        try:
+            with Session(database_engine) as route_db:
+                principal = route_db.get(User, user_id)
+                assert principal is not None
+                authorization = authorization_context_for_user(route_db, principal)
+                data_access = data_access_context_for_authorization(
+                    route_db, authorization
+                )
+                route_request = SimpleNamespace(
+                    state=SimpleNamespace(authorization_context=authorization)
+                )
+                response = exports_route.download_export(
+                    ArticleExportRequest.model_validate(
+                        {
+                            "format": "jsonl",
+                            "filters": {"feed_ids": [str(feed_id)]},
+                        }
+                    ),
+                    route_request,
+                    route_db,
+                    principal,
+                    data_access,
+                )
+                artifact_paths.append(response.path)
+                anyio.run(
+                    response,
+                    {
+                        "type": "http",
+                        "method": "POST",
+                        "headers": [],
+                    },
+                    receive,
+                    send,
+                )
+        except BaseException as exc:  # pragma: no cover - surfaced below
+            worker_errors.append(exc)
+        finally:
+            worker_done.set()
+
+    worker = threading.Thread(target=stream_export, daemon=True)
+    worker.start()
+    assert stream_started.wait(timeout=8)
+
+    for state_model in (IAMPolicyState, DataPolicyState):
+        with Session(database_engine) as writer_db:
+            writer_db.execute(text("SET LOCAL lock_timeout = '250ms'"))
+            with pytest.raises(OperationalError):
+                writer_db.execute(
+                    select(state_model).where(state_model.id == 1).with_for_update()
+                ).scalar_one()
+            writer_db.rollback()
+
+    assert not worker_done.is_set()
+    release_stream.set()
+    worker.join(timeout=8)
+
+    assert not worker.is_alive()
+    assert not worker_errors
+    assert artifact_paths
+    assert not artifact_paths[0].exists()
+
+
+def test_export_artifact_is_removed_when_streaming_disconnects(tmp_path):
+    artifact_path = tmp_path / "interrupted.jsonl"
+    artifact_path.write_bytes(b'{"sensitive": true}\n')
+    response = exports_route.DisconnectSafeFileResponse(
+        path=artifact_path,
+        background=BackgroundTask(
+            exports_route.remove_export_artifact,
+            artifact_path,
+        ),
+    )
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def disconnecting_send(message):
+        if message["type"] == "http.response.body":
+            raise RuntimeError("client disconnected")
+
+    with pytest.raises(RuntimeError, match="client disconnected"):
+        anyio.run(
+            response,
+            {"type": "http", "method": "POST", "headers": []},
+            receive,
+            disconnecting_send,
+        )
+
+    assert not artifact_path.exists()
 
 
 def _seed_export_records(db_session, *, user_id: uuid.UUID):

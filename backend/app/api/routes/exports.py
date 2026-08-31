@@ -1,14 +1,16 @@
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import FileResponse
 from sqlalchemy import exists, func, select
 from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
+from starlette.types import Receive, Scope, Send
 
 from app.api.deps import (
     AuthenticatedPrincipal,
+    get_authorization_context,
     get_data_access_context,
     require_permissions,
 )
@@ -31,9 +33,16 @@ from app.schemas.exports import (
     ExportOptionEntry,
 )
 from app.services.audit import record_audit
+from app.services.authorization import (
+    AuthorizationStateUnavailable,
+    fence_authorization_context,
+)
 from app.services.data_access_policy import (
     DataAccessContext,
+    DataPolicyRevisionConflict,
+    DataPolicyUnavailable,
     current_data_policy_revision,
+    fence_data_access_context,
     handling_label_access_predicate,
 )
 from app.services.export_artifacts import (
@@ -60,6 +69,25 @@ from app.services.export_query import (
 
 router = APIRouter(prefix="/exports", tags=["exports"])
 logger = logging.getLogger(__name__)
+
+
+class DisconnectSafeFileResponse(FileResponse):
+    """Run artifact cleanup even when response streaming is interrupted."""
+
+    async def __call__(
+        self,
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+    ) -> None:
+        background = self.background
+        self.background = None
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            if background is not None:
+                await background()
+
 
 FORMAT_CAPABILITIES = (
     ExportFormatCapability(
@@ -219,9 +247,10 @@ def preview_export(
     )
 
 
-@router.post("", response_class=FileResponse)
+@router.post("", response_class=DisconnectSafeFileResponse)
 def download_export(
     payload: ArticleExportRequest,
+    request: Request,
     db: Session = Depends(get_db),
     principal: AuthenticatedPrincipal = Depends(require_permissions(SCOPE_READ_ITEMS)),
     data_access: DataAccessContext = Depends(get_data_access_context),
@@ -338,6 +367,11 @@ def download_export(
         )
     try:
         assert_export_authorization_unchanged(db, context=context)
+        authorization = get_authorization_context(request)
+        if authorization is None:
+            raise AuthorizationStateUnavailable(
+                "Effective access is unavailable before the export is served"
+            )
         record_audit(
             db,
             actor_user_id=_human_user_id(principal),
@@ -350,12 +384,21 @@ def download_export(
                 "item_count": artifact.item_count,
                 "file_size": artifact.file_size,
                 "uncompressed_bytes": artifact.uncompressed_bytes,
+                "iam_policy_revision": authorization.policy_revision,
+                "data_policy_revision": data_access.policy_revision,
                 "filters": _filter_audit_summary(payload),
             },
         )
         db.commit()
         assert_export_authorization_unchanged(db, context=context)
-    except ExportAuthorizationChangedError as exc:
+        fence_authorization_context(db, authorization)
+        fence_data_access_context(db, data_access)
+    except (
+        AuthorizationStateUnavailable,
+        DataPolicyRevisionConflict,
+        DataPolicyUnavailable,
+        ExportAuthorizationChangedError,
+    ) as exc:
         remove_export_artifact(artifact.path)
         _record_failed_export(
             db, principal=principal, payload=payload, reason="authorization_changed"
@@ -365,7 +408,7 @@ def download_export(
         remove_export_artifact(artifact.path)
         raise
 
-    return FileResponse(
+    return DisconnectSafeFileResponse(
         path=artifact.path,
         media_type=artifact.media_type,
         filename=artifact.filename,
