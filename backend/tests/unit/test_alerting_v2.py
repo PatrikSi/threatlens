@@ -8,6 +8,7 @@ from time import monotonic, sleep
 
 import pytest
 from sqlalchemy import delete, func, select, text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.routes.alerts import update_alert_interest
@@ -38,6 +39,7 @@ from app.services.alert_evaluation import (
 )
 from app.services.alert_evaluation_admin import list_alert_evaluation_requests
 from app.services.alert_maintenance import maintain_alert_history
+from app.services.data_access_policy import DataAccessContext
 from app.tasks.alert_tasks import (
     dispatch_pending_alert_evaluations,
     maintain_alert_history_task,
@@ -48,6 +50,17 @@ from app.tasks.celery_app import (
     QUEUE_PROCESSING,
     TASK_ROUTES,
     celery_app,
+)
+
+
+_DISABLED_DATA_ACCESS = DataAccessContext(
+    mode="disabled",
+    policy_revision=0,
+    coverage_version=0,
+    principal_type="user",
+    principal_id=uuid.UUID(int=0),
+    principal_eligible=True,
+    allowed_label_ids=frozenset(),
 )
 
 
@@ -130,6 +143,11 @@ def test_alert_tasks_are_recoverable_and_routed_to_existing_worker_queues():
     assert process_alert_evaluation.reject_on_worker_lost is True
     assert dispatch_pending_alert_evaluations.acks_late is True
     assert maintain_alert_history_task.acks_late is True
+    assert maintain_alert_history_task.autoretry_for == (OperationalError,)
+    assert maintain_alert_history_task.retry_backoff is True
+    assert maintain_alert_history_task.retry_backoff_max == 300
+    assert maintain_alert_history_task.retry_jitter is True
+    assert maintain_alert_history_task.max_retries == 5
     assert (
         TASK_ROUTES["app.tasks.alert_tasks.process_alert_evaluation"]["queue"]
         == QUEUE_PROCESSING
@@ -195,6 +213,7 @@ def test_reconciliation_releases_database_claim_when_publication_fails(
     assert request.last_error_code == "evaluation_dispatch_failed"
     attention = list_alert_evaluation_requests(
         db_session,
+        data_access=_DISABLED_DATA_ACCESS,
         states=[],
         sources=[],
         item_id=None,
@@ -257,6 +276,7 @@ def test_attention_includes_only_failed_processing_rows_with_expired_leases(
 
     attention = list_alert_evaluation_requests(
         db_session,
+        data_access=_DISABLED_DATA_ACCESS,
         states=[],
         sources=[],
         item_id=None,
@@ -1190,6 +1210,7 @@ def test_rule_revision_and_explicit_backfill_create_distinct_non_notifying_histo
 
     backfill = persist_alert_backfill_intents(
         db_session,
+        data_access=_DISABLED_DATA_ACCESS,
         since=item.first_seen_at - timedelta(seconds=1),
         until=item.first_seen_at + timedelta(seconds=1),
         limit=10,

@@ -7,7 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import delete, exists, select
+from sqlalchemy import delete, exists, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -17,6 +17,19 @@ from app.models.alert_occurrence import (
     AlertOccurrence,
     AlertOccurrenceActivity,
     AlertOccurrenceMetric,
+    AlertOccurrenceMetricCohort,
+    AlertOccurrenceMetricCohortLabel,
+)
+from app.models.data_policy import QUARANTINE_HANDLING_LABEL_ID
+from app.services.data_access_envelopes import (
+    DATA_ACCESS_RESOURCE_ALERT_OCCURRENCE,
+    get_data_access_envelope_sources,
+)
+from app.services.alert_metric_data_policy import alert_metric_policy_cohort_key
+from app.services.data_access_retention import prune_deleted_resource_envelopes
+from app.services.data_access_runtime import (
+    ensure_alert_occurrence_data_access_envelope,
+    lock_data_policy_revision_for_derivation,
 )
 
 
@@ -27,6 +40,7 @@ ALERT_METRIC_RETENTION_DAYS = 730
 ALERT_MAINTENANCE_BATCH_SIZE = 1_000
 ALERT_MAINTENANCE_MAX_BATCHES = 20
 ALERT_MAINTENANCE_MAX_RUNTIME_SECONDS = 30.0
+UNRESOLVED_ALERT_METRIC_FEED_ID = uuid.UUID(int=0)
 
 
 @dataclass(frozen=True)
@@ -173,6 +187,7 @@ def _maintain_alert_history_batch(
     )
     previews_deleted = _delete_ids(db, AlertBackfillPreview, preview_ids)
 
+    policy_revision = lock_data_policy_revision_for_derivation(db)
     aggregate_rows = list(
         db.scalars(
             select(AlertOccurrence)
@@ -187,20 +202,66 @@ def _maintain_alert_history_batch(
             .with_for_update(skip_locked=True)
         ).all()
     )
-    counts: Counter[tuple[datetime, uuid.UUID, str, str, bool]] = Counter()
+    public_counts: Counter[tuple[datetime, uuid.UUID, str, str, bool]] = Counter()
+    cohort_counts: Counter[
+        tuple[datetime, uuid.UUID, str, str, bool, uuid.UUID, str]
+    ] = Counter()
+    labels_by_key: dict[
+        tuple[datetime, uuid.UUID, str, str, bool, uuid.UUID, str],
+        set[uuid.UUID],
+    ] = {}
     for occurrence in aggregate_rows:
+        envelope = ensure_alert_occurrence_data_access_envelope(
+            db,
+            occurrence_id=occurrence.id,
+            expected_policy_revision=policy_revision,
+        )
+        sources = get_data_access_envelope_sources(
+            db,
+            resource_type=DATA_ACCESS_RESOURCE_ALERT_OCCURRENCE,
+            resource_id=occurrence.id,
+        )
+        source_feed_ids = {
+            source.source_feed_id
+            for source in sources
+            if source.source_feed_id is not None
+        }
+        source_feed_id = (
+            next(iter(source_feed_ids))
+            if len(source_feed_ids) == 1
+            else UNRESOLVED_ALERT_METRIC_FEED_ID
+        )
+        label_ids = set(envelope.label_ids)
+        if source_feed_id == UNRESOLVED_ALERT_METRIC_FEED_ID:
+            label_ids.add(QUARANTINE_HANDLING_LABEL_ID)
+        policy_cohort_key = alert_metric_policy_cohort_key(
+            policy_revision=envelope.policy_revision,
+            label_ids=label_ids,
+        )
         created_at = _as_utc(occurrence.created_at)
         bucket = created_at.replace(hour=0, minute=0, second=0, microsecond=0)
-        counts[
-            (
-                bucket,
-                occurrence.owner_user_id,
-                occurrence.severity_snapshot,
-                occurrence.lifecycle_state,
-                occurrence.suppressed_at is not None,
+        public_key = (
+            bucket,
+            occurrence.owner_user_id,
+            occurrence.severity_snapshot,
+            occurrence.lifecycle_state,
+            occurrence.suppressed_at is not None,
+        )
+        cohort_key = (*public_key, source_feed_id, policy_cohort_key)
+        public_counts[public_key] += 1
+        cohort_counts[cohort_key] += 1
+        labels_by_key.setdefault(cohort_key, set()).update(label_ids)
+
+    metric_ids: dict[tuple[datetime, uuid.UUID, str, str, bool], uuid.UUID] = {}
+    if public_counts:
+        db.execute(
+            text(
+                "SELECT set_config('threatlens.alert_metric_cohort_write', 'on', true)"
             )
-        ] += 1
-    for (bucket, owner_id, severity, state, suppressed), count in counts.items():
+        )
+    for key in sorted(public_counts, key=_alert_metric_public_key_sort):
+        bucket, owner_id, severity, state, suppressed = key
+        count = public_counts[key]
         statement = insert(AlertOccurrenceMetric).values(
             id=uuid.uuid4(),
             bucket_start=bucket,
@@ -210,7 +271,7 @@ def _maintain_alert_history_batch(
             suppressed=suppressed,
             occurrence_count=count,
         )
-        db.execute(
+        metric_id = db.scalar(
             statement.on_conflict_do_update(
                 constraint="uq_alert_occurrence_metrics_bucket_dimensions",
                 set_={
@@ -218,8 +279,49 @@ def _maintain_alert_history_batch(
                     + statement.excluded.occurrence_count,
                     "updated_at": current_time,
                 },
-            )
+            ).returning(AlertOccurrenceMetric.id)
         )
+        if metric_id is None:
+            raise RuntimeError("Alert occurrence metric rollup did not return a row.")
+        metric_ids[key] = metric_id
+
+    for key in sorted(cohort_counts, key=_alert_metric_cohort_key_sort):
+        (
+            bucket,
+            owner_id,
+            severity,
+            state,
+            suppressed,
+            source_feed_id,
+            policy_cohort_key,
+        ) = key
+        count = cohort_counts[key]
+        metric_id = metric_ids[(bucket, owner_id, severity, state, suppressed)]
+        statement = insert(AlertOccurrenceMetricCohort).values(
+            id=uuid.uuid4(),
+            metric_id=metric_id,
+            source_feed_id_snapshot=source_feed_id,
+            policy_cohort_key=policy_cohort_key,
+            occurrence_count=count,
+        )
+        cohort_id = db.scalar(
+            statement.on_conflict_do_update(
+                constraint="uq_alert_occurrence_metric_cohorts_dimensions",
+                set_={
+                    "occurrence_count": AlertOccurrenceMetricCohort.occurrence_count
+                    + statement.excluded.occurrence_count,
+                    "updated_at": current_time,
+                },
+            ).returning(AlertOccurrenceMetricCohort.id)
+        )
+        if cohort_id is None:
+            raise RuntimeError("Alert occurrence metric cohort did not return a row.")
+        for label_id in sorted(labels_by_key[key], key=str):
+            db.execute(
+                insert(AlertOccurrenceMetricCohortLabel)
+                .values(cohort_id=cohort_id, label_id=label_id)
+                .on_conflict_do_nothing()
+            )
     for occurrence in aggregate_rows:
         occurrence.metrics_aggregated_at = current_time
         db.add(occurrence)
@@ -240,6 +342,14 @@ def _maintain_alert_history_batch(
         ).all()
     )
     occurrences_deleted = _delete_ids(db, AlertOccurrence, occurrence_ids)
+    if occurrences_deleted:
+        prune_deleted_resource_envelopes(
+            db,
+            resources=(
+                (DATA_ACCESS_RESOURCE_ALERT_OCCURRENCE, occurrence_id)
+                for occurrence_id in occurrence_ids
+            ),
+        )
 
     activity_ids = list(
         db.scalars(
@@ -394,3 +504,25 @@ def _as_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
+
+
+def _alert_metric_public_key_sort(
+    key: tuple[datetime, uuid.UUID, str, str, bool],
+) -> tuple[datetime, str, str, str, bool]:
+    bucket, owner_id, severity, state, suppressed = key
+    return bucket, str(owner_id), severity, state, suppressed
+
+
+def _alert_metric_cohort_key_sort(
+    key: tuple[datetime, uuid.UUID, str, str, bool, uuid.UUID, str],
+) -> tuple[datetime, str, str, str, bool, str, str]:
+    bucket, owner_id, severity, state, suppressed, source_feed_id, cohort_key = key
+    return (
+        bucket,
+        str(owner_id),
+        severity,
+        state,
+        suppressed,
+        str(source_feed_id),
+        cohort_key,
+    )

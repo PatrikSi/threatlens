@@ -21,6 +21,19 @@ from app.models.user import User
 from app.services.alert_evaluation import persist_alert_evaluation_intent
 from app.services.alert_evaluation_admin import list_alert_occurrence_metrics
 from app.services.alert_maintenance import maintain_alert_history
+from app.services.data_access_policy import DataAccessContext
+
+
+def _disabled_data_access(user: User) -> DataAccessContext:
+    return DataAccessContext(
+        mode="disabled",
+        policy_revision=1,
+        coverage_version=0,
+        principal_type="user",
+        principal_id=user.id,
+        principal_eligible=True,
+        allowed_label_ids=frozenset(),
+    )
 
 
 def _seed_alert_context(db, user: User, *, suffix: str):
@@ -522,6 +535,9 @@ def test_occurrence_metrics_are_exposed_only_to_their_owner(
         second=0,
         microsecond=0,
     )
+    db_session.execute(
+        text("SELECT set_config('threatlens.alert_metric_cohort_write', 'on', true)")
+    )
     db_session.add_all(
         [
             AlertOccurrenceMetric(
@@ -617,6 +633,7 @@ def test_metric_partial_day_window_is_utc_stable_before_and_after_rollup(
         before = list_alert_occurrence_metrics(
             db_session,
             owner_user_id=seed_users["viewer"].id,
+            data_access=_disabled_data_access(seed_users["viewer"]),
             since=query_since,
             until=query_until,
             severities=[],
@@ -641,6 +658,7 @@ def test_metric_partial_day_window_is_utc_stable_before_and_after_rollup(
         after = list_alert_occurrence_metrics(
             db_session,
             owner_user_id=seed_users["viewer"].id,
+            data_access=_disabled_data_access(seed_users["viewer"]),
             since=query_since,
             until=query_until,
             severities=[],
