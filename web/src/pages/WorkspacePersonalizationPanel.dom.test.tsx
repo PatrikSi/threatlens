@@ -90,7 +90,12 @@ describe('WorkspacePersonalizationPanel', () => {
     const update = setPersonalDraft.mock.calls[0][0] as (current: typeof draft) => typeof draft
 
     expect(update(draft).landingModuleId).toBe('future.timeline')
-    expect(container.textContent).toContain('Unavailable in this frontend (preserved)')
+    expect(container.textContent).toContain('Unavailable in this version (kept)')
+    expect(container.textContent).toContain('My account')
+    expect(container.textContent).toContain('API tokens')
+    expect(container.textContent).toContain('Access control')
+    expect(container.textContent).not.toContain('settings.account')
+    expect(container.textContent).not.toContain('settings.workspace')
   })
 
   it('does not allow the final first-use dashboard panel to be removed', () => {
@@ -108,6 +113,8 @@ describe('WorkspacePersonalizationPanel', () => {
       label.textContent?.includes('RSS intelligence'),
     )
     expect(rssLabel?.querySelector<HTMLInputElement>('input')?.disabled).toBe(true)
+    expect(container.textContent).toContain('Initial dashboard panels')
+    expect(container.textContent).toContain('Start page')
     expect(container.textContent).toContain('Existing saved layouts are not replaced')
   })
 })

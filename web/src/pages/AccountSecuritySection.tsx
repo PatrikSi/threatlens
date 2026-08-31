@@ -502,13 +502,13 @@ export function AccountSecuritySection({
 
   return (
     <section
-      className="space-y-4 lg:col-span-2"
+      className="space-y-4"
       aria-labelledby="account-security-heading"
     >
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h2 id="account-security-heading" className="font-display text-xl">
-            Account Security
+            Account security
           </h2>
           <p className="mt-1 text-sm text-slate dark:text-slate-300">
             Protect local sign-in and review browsers that can access this
