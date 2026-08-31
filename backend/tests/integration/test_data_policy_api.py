@@ -48,7 +48,27 @@ def test_data_policy_read_permissions_and_idempotent_audited_mutations(
     assert overview_response.status_code == 200, overview_response.text
     overview = overview_response.json()
     assert overview["state"]["mode"] == "disabled"
-    assert overview["preflight"]["ready_for_enforcement"] is False
+    assert overview["preflight"]["ready_for_enforcement"] is True
+    assert overview["preflight"]["full"] is True
+    assert (
+        overview["preflight"]["evaluated_policy_revision"]
+        == overview["state"]["revision"]
+    )
+    assert overview["preflight"]["route_manifest"]["installed"] is True
+    assert overview["preflight"]["route_manifest"]["valid"] is True
+    assert (
+        overview["preflight"]["route_manifest"]["declared_operation_count"]
+        == overview["preflight"]["route_manifest"]["validated_operation_count"]
+    )
+    assert len(overview["preflight"]["route_manifest"]["digest"]) == 64
+    assert overview["preflight"]["blocker_counts"] == {}
+
+    explicit_preflight = client.get(
+        "/iam/data-policies/preflight",
+        headers=auth_headers["admin"],
+    )
+    assert explicit_preflight.status_code == 200, explicit_preflight.text
+    assert explicit_preflight.json()["full"] is True
 
     token_attempt = client.post(
         "/iam/data-policies/labels",

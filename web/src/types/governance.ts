@@ -76,12 +76,28 @@ export interface DataPolicyBlocker {
   count: number | null
 }
 
+export interface DataPolicyRouteManifestEvidence {
+  installed: boolean
+  valid: boolean
+  version: number
+  digest: string
+  declared_operation_count: number
+  validated_operation_count: number
+  request_context_operation_count: number
+  governance_class_counts: Record<string, number>
+}
+
 export interface DataPolicyPreflight {
   ready_for_audit: boolean
   ready_for_enforcement: boolean
   current_coverage_version: number
   required_coverage_version: number
   blockers: DataPolicyBlocker[]
+  evaluated_policy_revision: number
+  full: boolean
+  checked_at: string
+  route_manifest: DataPolicyRouteManifestEvidence
+  blocker_counts: Record<string, number>
 }
 
 export interface HandlingLabel {

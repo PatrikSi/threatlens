@@ -13,13 +13,11 @@ from app.models.data_policy import (
     DataPolicyRoleGrant,
     DataPolicyState,
     HandlingLabel,
-    QUARANTINE_HANDLING_LABEL_ID,
     UNRESTRICTED_HANDLING_LABEL_ID,
 )
 from app.models.feed import Feed
 from app.models.iam import IAMRole
 from app.schemas.data_policy import (
-    DataPolicyBlockerResponse,
     DataPolicyMode,
     DataPolicyModeUpdateResponse,
     DataPolicyOverviewResponse,
@@ -36,9 +34,7 @@ from app.schemas.data_policy import (
 from app.services.authorization import AuthorizationContext
 
 
-# Migration 0070 raises both values after every read and egress surface has been
-# wired. Keeping this at zero makes the foundation safe to ship incrementally.
-APPLICATION_DATA_POLICY_COVERAGE_VERSION = 0
+APPLICATION_DATA_POLICY_COVERAGE_VERSION = 1
 REQUIRED_ENFORCEMENT_COVERAGE_VERSION = 1
 _DATA_POLICY_SNAPSHOT_ATTEMPTS = 3
 
@@ -155,144 +151,10 @@ def current_data_policy_revision(db: Session) -> int:
 def data_policy_preflight(
     db: Session, *, state: DataPolicyState | None = None
 ) -> DataPolicyPreflightResponse:
+    from app.services.data_policy_preflight import full_data_policy_preflight
+
     current_state = state or _policy_state(db)
-    blockers: list[DataPolicyBlockerResponse] = []
-
-    effective_coverage = min(
-        current_state.coverage_version,
-        APPLICATION_DATA_POLICY_COVERAGE_VERSION,
-    )
-    if effective_coverage < REQUIRED_ENFORCEMENT_COVERAGE_VERSION:
-        blockers.append(
-            DataPolicyBlockerResponse(
-                code="coverage_incomplete",
-                detail=(
-                    "The installed application has not yet declared complete data-policy "
-                    "coverage across reads, derived artifacts, and outbound delivery."
-                ),
-            )
-        )
-
-    unrestricted = db.get(HandlingLabel, UNRESTRICTED_HANDLING_LABEL_ID)
-    unrestricted_valid = bool(
-        unrestricted is not None
-        and unrestricted.key == "unrestricted"
-        and unrestricted.is_unrestricted
-        and unrestricted.is_system
-        and unrestricted.is_active
-    )
-    if not unrestricted_valid:
-        blockers.append(
-            DataPolicyBlockerResponse(
-                code="unrestricted_label_invalid",
-                detail=(
-                    "The required unrestricted handling label is missing or invalid. "
-                    "Restore it from a known-good backup before enabling policy."
-                ),
-            )
-        )
-
-    quarantine = db.get(HandlingLabel, QUARANTINE_HANDLING_LABEL_ID)
-    quarantine_valid = bool(
-        quarantine is not None
-        and quarantine.key == "quarantine"
-        and not quarantine.is_unrestricted
-        and quarantine.is_system
-        and quarantine.is_active
-    )
-    if not quarantine_valid:
-        blockers.append(
-            DataPolicyBlockerResponse(
-                code="quarantine_label_invalid",
-                detail=(
-                    "The required quarantine handling label is missing or invalid. "
-                    "Restore it from a known-good backup before enabling policy."
-                ),
-            )
-        )
-
-    inactive_feed_count = int(
-        db.scalar(
-            select(func.count(Feed.id))
-            .join(HandlingLabel, HandlingLabel.id == Feed.handling_label_id)
-            .where(HandlingLabel.is_active.is_(False))
-        )
-        or 0
-    )
-    if inactive_feed_count:
-        blockers.append(
-            DataPolicyBlockerResponse(
-                code="feeds_use_inactive_labels",
-                detail="One or more feeds use archived handling labels.",
-                count=inactive_feed_count,
-            )
-        )
-
-    admin_role_id = SYSTEM_ROLE_IDS["admin"]
-    missing_admin_grant_count = int(
-        db.scalar(
-            select(func.count(HandlingLabel.id)).where(
-                HandlingLabel.is_active.is_(True),
-                HandlingLabel.is_unrestricted.is_(False),
-                ~select(DataPolicyRoleGrant.label_id)
-                .where(
-                    DataPolicyRoleGrant.label_id == HandlingLabel.id,
-                    DataPolicyRoleGrant.role_id == admin_role_id,
-                )
-                .exists(),
-            )
-        )
-        or 0
-    )
-    if missing_admin_grant_count:
-        blockers.append(
-            DataPolicyBlockerResponse(
-                code="restricted_labels_missing_admin_grant",
-                detail=(
-                    "Every active restricted label must explicitly grant the built-in "
-                    "administrator role to preserve a recovery path."
-                ),
-                count=missing_admin_grant_count,
-            )
-        )
-
-    labels_without_grants_count = int(
-        db.scalar(
-            select(func.count(HandlingLabel.id)).where(
-                HandlingLabel.is_active.is_(True),
-                HandlingLabel.is_unrestricted.is_(False),
-                ~select(DataPolicyRoleGrant.label_id)
-                .where(DataPolicyRoleGrant.label_id == HandlingLabel.id)
-                .exists(),
-            )
-        )
-        or 0
-    )
-    if labels_without_grants_count:
-        blockers.append(
-            DataPolicyBlockerResponse(
-                code="restricted_labels_without_roles",
-                detail="Every active restricted label must grant at least one role.",
-                count=labels_without_grants_count,
-            )
-        )
-
-    audit_blocker_codes = {
-        "coverage_incomplete",
-        "unrestricted_label_invalid",
-        "quarantine_label_invalid",
-        "feeds_use_inactive_labels",
-    }
-    ready_for_audit = not any(
-        blocker.code in audit_blocker_codes for blocker in blockers
-    )
-    return DataPolicyPreflightResponse(
-        ready_for_audit=ready_for_audit,
-        ready_for_enforcement=not blockers,
-        current_coverage_version=effective_coverage,
-        required_coverage_version=REQUIRED_ENFORCEMENT_COVERAGE_VERSION,
-        blockers=blockers,
-    )
+    return full_data_policy_preflight(db, state=current_state)
 
 
 def create_handling_label(
@@ -513,9 +375,7 @@ def set_handling_label_status(
             db.scalar(
                 select(
                     func.count(IntegrationDeliveryMetricCohortLabel.cohort_id)
-                ).where(
-                    IntegrationDeliveryMetricCohortLabel.label_id == label.id
-                )
+                ).where(IntegrationDeliveryMetricCohortLabel.label_id == label.id)
             )
             or 0
         )
@@ -644,9 +504,18 @@ def update_data_policy_mode(
     expected_revision: int,
     actor_user_id: uuid.UUID,
 ) -> DataPolicyModeUpdateResponse:
+    from app.services.data_policy_preflight import (
+        full_data_policy_preflight,
+        runtime_data_policy_preflight,
+    )
+
     state = _lock_policy_state(db)
     _assert_policy_revision(state, expected_revision)
-    preflight = data_policy_preflight(db, state=state)
+    preflight = (
+        full_data_policy_preflight(db, state=state)
+        if mode in {"audit", "enforced"}
+        else runtime_data_policy_preflight(db, state=state)
+    )
     if mode == "audit" and not preflight.ready_for_audit:
         raise DataPolicyActivationBlocked(
             "Data-policy audit mode cannot be enabled until the preflight blockers are resolved.",
@@ -698,19 +567,22 @@ def data_access_context_for_authorization(
             )
 
         if mode in {"audit", "enforced"}:
-            preflight = data_policy_preflight(db, state=state_before)
-            ready = (
-                preflight.ready_for_enforcement
-                if mode == "enforced"
-                else preflight.ready_for_audit
+            from app.services.data_policy_preflight import (
+                runtime_data_policy_preflight,
             )
-            if not ready:
+
+            runtime_preflight = runtime_data_policy_preflight(
+                db,
+                state=state_before,
+            )
+            if runtime_preflight.blockers:
                 raise DataPolicyUnavailable(
                     "Data access policy invariants are invalid. Policy evaluation is disabled until an administrator repairs or disables the policy.",
                     context={
                         "mode": mode,
                         "blockers": [
-                            blocker.model_dump() for blocker in preflight.blockers
+                            blocker.model_dump()
+                            for blocker in runtime_preflight.blockers
                         ],
                     },
                 )

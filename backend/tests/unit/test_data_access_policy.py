@@ -26,10 +26,8 @@ from app.services import data_access_policy as policy_service
 from app.services.authorization import EffectiveRole, authorization_context_for_user
 from app.services.data_access_policy import (
     DataAccessContext,
-    DataPolicyActivationBlocked,
     DataPolicyConflict,
     DataPolicyRevisionConflict,
-    DataPolicyUnavailable,
     HandlingLabelRevisionConflict,
     assign_feed_handling_label,
     create_handling_label,
@@ -50,27 +48,31 @@ def _feed(name: str, url: str) -> Feed:
     return feed
 
 
-def test_foundation_is_backward_compatible_and_activation_is_blocked(db_session):
+def test_complete_coverage_is_ready_for_activation(db_session, seed_users):
     overview = data_policy_overview(db_session)
 
     assert overview.state.mode == "disabled"
     assert overview.state.revision == 1
-    assert overview.state.coverage_version == 0
+    assert overview.state.coverage_version == 1
     assert overview.labels[0].id == UNRESTRICTED_HANDLING_LABEL_ID
     assert overview.labels[0].is_unrestricted is True
-    assert overview.preflight.ready_for_audit is False
-    assert overview.preflight.ready_for_enforcement is False
-    assert {blocker.code for blocker in overview.preflight.blockers} == {
-        "coverage_incomplete"
-    }
+    assert overview.preflight.full is True
+    assert overview.preflight.evaluated_policy_revision == overview.state.revision
+    assert overview.preflight.route_manifest.installed is True
+    assert overview.preflight.route_manifest.valid is True
+    assert overview.preflight.ready_for_audit is True
+    assert overview.preflight.ready_for_enforcement is True
+    assert overview.preflight.blockers == []
 
-    with pytest.raises(DataPolicyActivationBlocked, match="cannot be enabled"):
-        update_data_policy_mode(
-            db_session,
-            mode="enforced",
-            expected_revision=overview.state.revision,
-            actor_user_id=SYSTEM_ROLE_IDS["admin"],
-        )
+    activated = update_data_policy_mode(
+        db_session,
+        mode="enforced",
+        expected_revision=overview.state.revision,
+        actor_user_id=seed_users["admin"].id,
+    )
+    assert activated.changed is True
+    assert activated.state.mode == "enforced"
+    assert activated.preflight.full is True
 
 
 def test_data_access_context_fence_rejects_a_stale_policy_snapshot(
@@ -202,7 +204,7 @@ def test_label_grants_feed_assignment_and_archive_invariants(db_session, seed_us
 
 
 def test_effective_label_access_uses_canonical_roles_and_fails_closed(
-    db_session, seed_users, monkeypatch
+    db_session, seed_users
 ):
     created = create_handling_label(
         db_session,
@@ -228,14 +230,6 @@ def test_effective_label_access_uses_canonical_roles_and_fails_closed(
     state.enforced_by_user_id = seed_users["admin"].id
     db_session.flush()
 
-    with pytest.raises(DataPolicyUnavailable, match="incompatible"):
-        data_access_context_for_authorization(db_session, analyst_authorization)
-
-    monkeypatch.setattr(
-        policy_service,
-        "APPLICATION_DATA_POLICY_COVERAGE_VERSION",
-        1,
-    )
     analyst_context = data_access_context_for_authorization(
         db_session, analyst_authorization
     )
@@ -259,8 +253,14 @@ def test_effective_label_access_uses_canonical_roles_and_fails_closed(
         )
     )
     db_session.flush()
-    with pytest.raises(DataPolicyUnavailable, match="invariants are invalid"):
-        data_access_context_for_authorization(db_session, analyst_authorization)
+    runtime_context = data_access_context_for_authorization(
+        db_session,
+        analyst_authorization,
+    )
+    assert runtime_context.allows(created.label.id) is True
+    assert {
+        blocker.code for blocker in data_policy_overview(db_session).preflight.blockers
+    } >= {"restricted_labels_missing_admin_grant"}
 
 
 def test_temporary_elevation_role_does_not_expand_label_clearance(
