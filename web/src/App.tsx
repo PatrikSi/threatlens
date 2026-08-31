@@ -136,7 +136,14 @@ function createAppRouter() {
                 index
                 element={<WorkspaceChildRedirect parentId="settings.integrations" fallback="/settings" />}
               />
-              <Route path="webhooks" element={suspenseRoute(<NotificationWebhooksSettingsPage />, 'Loading webhook integration settings...')} />
+              <Route
+                path="webhooks"
+                element={
+                  <PermissionRoute permissions={['read:notifications']}>
+                    {suspenseRoute(<NotificationWebhooksSettingsPage />, 'Loading webhook integration settings...')}
+                  </PermissionRoute>
+                }
+              />
               <Route
                 path="smtp"
                 element={
@@ -178,10 +185,21 @@ function createAppRouter() {
                 </PermissionRoute>
               }
             />
-            <Route path="tokens" element={suspenseRoute(<TokensPage />, 'Loading token inventory...')} />
+            <Route
+              path="tokens"
+              element={
+                <PermissionRoute permissions={['write:tokens']}>
+                  {suspenseRoute(<TokensPage />, 'Loading token inventory...')}
+                </PermissionRoute>
+              }
+            />
             <Route
               path="workspace"
-              element={suspenseRoute(<WorkspaceSettingsPage />, 'Loading workspace settings...')}
+              element={
+                <PermissionRoute permissions={['read:workspace']}>
+                  {suspenseRoute(<WorkspaceSettingsPage />, 'Loading workspace settings...')}
+                </PermissionRoute>
+              }
             />
             <Route
               path="operations"

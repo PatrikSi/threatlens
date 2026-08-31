@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act } from 'react'
+import { act, type SVGProps } from 'react'
 import { createRoot, Root } from 'react-dom/client'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -38,28 +38,57 @@ vi.mock('../hooks/useCurrentUser', () => ({
 
 vi.mock('../workspace/useWorkspace', () => ({
   useWorkspace: () => {
-    const account = { id: 'settings.account', route: '/settings/account', label: 'Account', parentId: 'primary.settings' }
-    const tokens = { id: 'settings.tokens', route: '/settings/tokens', label: 'API Tokens', parentId: 'primary.settings' }
-    const workspace = { id: 'settings.workspace', route: '/settings/workspace', label: 'Workspace', parentId: 'primary.settings' }
-    const integrations = { id: 'settings.integrations', route: '/settings/integrations', label: 'Integrations', parentId: 'primary.settings' }
-    const webhooks = { id: 'settings.integrations.webhooks', route: '/settings/integrations/webhooks', label: 'Webhooks', parentId: 'settings.integrations' }
-    const smtp = { id: 'settings.integrations.smtp', route: '/settings/integrations/smtp', label: 'SMTP', parentId: 'settings.integrations' }
-    const adminModules = [
-      { id: 'settings.ai', route: '/settings/ai', label: 'AI', parentId: 'primary.settings' },
-      { id: 'settings.tagging', route: '/settings/tagging', label: 'Tagging', parentId: 'primary.settings' },
-      { id: 'settings.identity', route: '/settings/identity', label: 'Identity', parentId: 'primary.settings' },
-      { id: 'settings.users', route: '/settings/users', label: 'Users', parentId: 'primary.settings' },
-      { id: 'settings.audit', route: '/settings/audit-logs', label: 'Audit Logs', parentId: 'primary.settings' },
-      { id: 'settings.operations', route: '/settings/operations', label: 'Operations', parentId: 'primary.settings' },
+    const TestIcon = (props: SVGProps<SVGSVGElement>) => (
+      <svg {...props} data-testid="settings-module-icon" />
+    )
+    const module = (
+      id: string,
+      route: string,
+      label: string,
+      parentId = 'primary.settings',
+    ) => ({ id, route, label, parentId, icon: TestIcon })
+    const account = module('settings.account', '/settings/account', 'Account')
+    const tokens = module('settings.tokens', '/settings/tokens', 'API Tokens')
+    const workspace = module('settings.workspace', '/settings/workspace', 'Workspace')
+    const integrations = module('settings.integrations', '/settings/integrations', 'Integrations')
+    const webhooks = module(
+      'settings.integrations.webhooks',
+      '/settings/integrations/webhooks',
+      'Webhooks',
+      'settings.integrations',
+    )
+    const smtp = module(
+      'settings.integrations.smtp',
+      '/settings/integrations/smtp',
+      'SMTP',
+      'settings.integrations',
+    )
+    const organizationModules = [
+      module('settings.identity', '/settings/identity', 'Identity'),
+      module('settings.access', '/settings/access', 'Access'),
+      module('settings.users', '/settings/users', 'Users'),
+      module('settings.audit', '/settings/audit-logs', 'Audit Logs'),
     ]
+    const ai = module('settings.ai', '/settings/ai', 'AI')
+    const tagging = module('settings.tagging', '/settings/tagging', 'Tagging')
+    const operations = module('settings.operations', '/settings/operations', 'Operations')
     const children = settingsLayoutMocks.integrationChildrenVisible
       ? settingsLayoutMocks.currentUserError ? [webhooks] : [webhooks, smtp]
       : []
-    const common = settingsLayoutMocks.currentUserError ? [] : adminModules
+    const policyOrderedModules = settingsLayoutMocks.currentUserError
+      ? [integrations]
+      : [
+          ...organizationModules,
+          ai,
+          tagging,
+          integrations,
+          operations,
+        ]
     return {
       model: {
-        settingsNavigation: [account, integrations, tokens, workspace, ...common, ...children],
-        mobileSettingsNavigation: [workspace, tokens, integrations, account, ...common, ...children],
+        settingsNavigation: [account, tokens, workspace, ...policyOrderedModules, ...children],
+        // Deliberately different: the shell must use one stable order at every breakpoint.
+        mobileSettingsNavigation: [workspace, tokens, account, ...policyOrderedModules, ...children],
       },
     }
   },
@@ -105,103 +134,173 @@ afterEach(() => {
 })
 
 describe('SettingsLayout navigation', () => {
-  it('keeps the mobile settings navigation compact until requested', () => {
+  it('keeps the mobile navigation compact and names its current section', () => {
     const view = renderLayout('/settings/account')
-    const menuButton = view.querySelector<HTMLButtonElement>('[aria-controls="mobile-settings-navigation"]')
+    const menuButton = view.querySelector<HTMLButtonElement>(
+      '[aria-controls="mobile-settings-navigation"]',
+    )
 
     expect(menuButton).not.toBeNull()
-    expect(menuButton?.textContent).toContain('Account')
+    expect(menuButton?.textContent).toContain('My account')
+    expect(menuButton?.getAttribute('aria-label')).toBe(
+      'Open settings navigation. Current section: My account',
+    )
     expect(view.querySelector('#mobile-settings-navigation')).toBeNull()
 
     act(() => {
-      menuButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      menuButton!.click()
     })
 
-    const mobileNavigation = view.querySelector('#mobile-settings-navigation nav')
-    expect(mobileNavigation).not.toBeNull()
-    expect(mobileNavigation?.className).toContain('divide-y')
-    expect(mobileNavigation?.className).not.toContain('grid-cols-2')
+    expect(menuButton?.getAttribute('aria-expanded')).toBe('true')
+    expect(menuButton?.getAttribute('aria-label')).toBe(
+      'Close settings navigation. Current section: My account',
+    )
+    expect(view.querySelector('#mobile-settings-navigation nav')).not.toBeNull()
   })
 
-  it('expands the integrations section when clicked', () => {
-    renderLayout('/settings/account')
+  it('uses enterprise groups, compact icon-led rows, and presentation-only labels', () => {
+    const view = renderLayout('/settings/account')
+    const desktopNavigation = view.querySelector('#desktop-settings-navigation')
 
-    const integrationsButton = Array.from(document.querySelectorAll('button')).find(
-      (button) => button.textContent?.trim() === 'Integrations',
+    expect(navigationGroupHeadings(desktopNavigation)).toEqual([
+      'Personal',
+      'Organization',
+      'Automation',
+      'System',
+    ])
+    expect(groupNavigationLabels(desktopNavigation, 'desktop', 'personal')).toEqual([
+      'My account',
+      'API tokens',
+      'Navigation',
+    ])
+    expect(groupNavigationLabels(desktopNavigation, 'desktop', 'organization')).toEqual([
+      'Single sign-on',
+      'Access control',
+      'Users',
+      'Audit log',
+    ])
+    expect(groupNavigationLabels(desktopNavigation, 'desktop', 'automation')).toEqual([
+      'AI automation',
+      'Content tagging',
+      'Integrations',
+    ])
+    expect(groupNavigationLabels(desktopNavigation, 'desktop', 'system')).toEqual([
+      'System health',
+    ])
+    expect(desktopNavigation?.querySelectorAll('[data-testid="settings-module-icon"]')).toHaveLength(11)
+    expect(desktopNavigation?.textContent).not.toContain('API Tokens')
+    expect(desktopNavigation?.textContent).not.toContain('Audit Logs')
+  })
+
+  it('expands Integrations with an accessible control and friendly child names', () => {
+    const view = renderLayout('/settings/account')
+    const integrationsButton = view.querySelector<HTMLButtonElement>(
+      '#desktop-settings-navigation [aria-label="Expand Integrations settings"]',
     )
+
     expect(integrationsButton).not.toBeNull()
     expect(integrationsButton?.getAttribute('aria-expanded')).toBe('false')
-    expect(document.body.textContent ?? '').not.toContain('Notifications')
-    expect(document.body.textContent ?? '').not.toContain('Webhooks')
-    expect(document.body.textContent ?? '').not.toContain('SMTP')
+    expect(view.textContent).not.toContain('My webhooks')
+    expect(view.textContent).not.toContain('Email delivery')
 
     act(() => {
-      integrationsButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      integrationsButton!.click()
     })
 
     expect(integrationsButton?.getAttribute('aria-expanded')).toBe('true')
-    expect(document.body.textContent ?? '').toContain('Webhooks')
-    expect(document.body.textContent ?? '').toContain('SMTP')
+    expect(integrationsButton?.getAttribute('aria-label')).toBe(
+      'Collapse Integrations settings',
+    )
+    expect(view.textContent).toContain('My webhooks')
+    expect(view.textContent).toContain('Email delivery')
   })
 
-  it('keeps integrations expanded while an integration route is active', () => {
-    renderLayout('/settings/integrations/smtp')
-
-    const integrationsButton = Array.from(document.querySelectorAll('button')).find(
-      (button) => button.textContent?.trim() === 'Integrations',
+  it('keeps Integrations expanded while an integration route is active', () => {
+    const view = renderLayout('/settings/integrations/smtp')
+    const integrationsButton = view.querySelector<HTMLButtonElement>(
+      '#desktop-settings-navigation [aria-label="Collapse Integrations settings"]',
     )
+
     expect(integrationsButton).not.toBeNull()
     expect(integrationsButton?.getAttribute('aria-expanded')).toBe('true')
-    expect(document.body.textContent ?? '').toContain('Webhooks')
-    expect(document.body.textContent ?? '').toContain('SMTP')
-    expect(document.body.textContent ?? '').toContain('SMTP body')
+    expect(view.textContent).toContain('My webhooks')
+    expect(view.textContent).toContain('Email delivery')
+    expect(view.textContent).toContain('SMTP body')
   })
 
-  it('places Integrations by desktop order and honors a separate mobile priority order', () => {
+  it('keeps the same grouped policy order on desktop and mobile', () => {
     const view = renderLayout('/settings/account')
-    const desktopItems = topLevelNavigationLabels(
-      view.querySelector('#desktop-settings-navigation > div'),
-    )
-    expect(desktopItems.slice(0, 4)).toEqual(['Account', 'Integrations', 'API Tokens', 'Workspace'])
+    const desktopNavigation = view.querySelector('#desktop-settings-navigation')
 
     act(() => {
-      view.querySelector<HTMLButtonElement>('[aria-controls="mobile-settings-navigation"]')?.click()
+      view.querySelector<HTMLButtonElement>(
+        '[aria-controls="mobile-settings-navigation"]',
+      )?.click()
     })
-    const mobileItems = topLevelNavigationLabels(
-      view.querySelector('#mobile-settings-navigation nav'),
+    const mobileNavigation = view.querySelector('#mobile-settings-navigation nav')
+
+    expect(navigationGroupHeadings(mobileNavigation)).toEqual(
+      navigationGroupHeadings(desktopNavigation),
     )
-    expect(mobileItems.slice(0, 4)).toEqual(['Workspace', 'API Tokens', 'Integrations', 'Account'])
+    for (const group of ['personal', 'organization', 'automation', 'system']) {
+      expect(groupNavigationLabels(mobileNavigation, 'mobile', group)).toEqual(
+        groupNavigationLabels(desktopNavigation, 'desktop', group),
+      )
+    }
   })
 
-  it('does not render an empty Integrations container when no child route is available', () => {
-    settingsLayoutMocks.integrationChildrenVisible = false
+  it('uses a sticky 248px desktop shell without a duplicate role card', () => {
     const view = renderLayout('/settings/account')
+    const desktopSidebar = view.querySelector('#desktop-settings-navigation')?.closest('aside')
+    const layout = desktopSidebar?.parentElement
 
-    expect(
-      Array.from(view.querySelectorAll('button')).some((button) => button.textContent?.trim() === 'Integrations'),
-    ).toBe(false)
+    expect(layout?.className).toContain('lg:grid-cols-[248px_minmax(0,1fr)]')
+    expect(desktopSidebar?.className).toContain('sticky')
+    expect(desktopSidebar?.className).toContain('overflow-y-auto')
+    expect(desktopSidebar?.textContent).toContain('Administrator')
+    expect(desktopSidebar?.textContent).not.toContain('Current role')
+    expect(desktopSidebar?.querySelector('.tl-surface-muted')).toBeNull()
+  })
+
+  it('omits empty settings groups and an Integrations container without children', () => {
+    settingsLayoutMocks.integrationChildrenVisible = false
+    settingsLayoutMocks.currentUserError = true
+    const view = renderLayout('/settings/account')
+    const desktopNavigation = view.querySelector('#desktop-settings-navigation')
+
+    expect(navigationGroupHeadings(desktopNavigation)).toEqual(['Personal'])
+    expect(desktopNavigation?.querySelector('[aria-label*="Integrations settings"]')).toBeNull()
   })
 
   it('fails closed and labels the role unavailable when identity refresh fails', () => {
     settingsLayoutMocks.currentUserError = true
     const view = renderLayout('/settings/account')
 
-    expect(view.textContent).toContain('Current role')
-    expect(view.textContent).toContain('unavailable')
-    expect(view.textContent).not.toContain('Tagging')
-    expect(view.textContent).not.toContain('Identity')
+    expect(view.textContent).toContain('Unavailable')
+    expect(view.textContent).not.toContain('Content tagging')
+    expect(view.textContent).not.toContain('Single sign-on')
     expect(view.textContent).not.toContain('Users')
-    expect(view.textContent).not.toContain('Audit Logs')
-    expect(view.textContent).not.toContain('Operations')
-    expect(view.textContent).not.toContain('SMTP')
+    expect(view.textContent).not.toContain('Audit log')
+    expect(view.textContent).not.toContain('System health')
+    expect(view.textContent).not.toContain('Email delivery')
   })
 })
 
-function topLevelNavigationLabels(container: Element | null) {
-  return Array.from(container?.children ?? []).map((element) => {
-    const control = element.matches('a, button')
-      ? element
-      : element.querySelector(':scope > a, :scope > button')
-    return control?.textContent?.trim() ?? ''
-  })
+function navigationGroupHeadings(container: Element | null) {
+  return Array.from(container?.querySelectorAll('h3') ?? []).map(
+    (heading) => heading.textContent?.trim() ?? '',
+  )
+}
+
+function groupNavigationLabels(
+  container: Element | null,
+  variant: 'desktop' | 'mobile',
+  groupId: string,
+) {
+  const group = container
+    ?.querySelector(`#${variant}-settings-group-${groupId}`)
+    ?.closest('section')
+  return Array.from(
+    group?.querySelectorAll(':scope > div > a, :scope > div > div > button') ?? [],
+  ).map((control) => control.textContent?.trim() ?? '')
 }

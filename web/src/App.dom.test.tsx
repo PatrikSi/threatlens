@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const appWorkspaceMocks = vi.hoisted(() => ({
   landingPath: '/',
+  permissions: ['*:*'] as string[],
   settingsNavigation: [] as Array<{
     id: string
     label: string
@@ -61,7 +62,7 @@ vi.mock('./hooks/useCurrentUser', () => ({
         ai_relevance_enabled: false,
         ai_daily_brief_enabled: false,
       },
-      access: { permissions: ['*:*'] },
+      access: { permissions: appWorkspaceMocks.permissions },
     },
     isLoading: false,
     isError: false,
@@ -100,6 +101,19 @@ vi.mock('./pages/AlertsPage', async () => {
 
 vi.mock('./pages/StatsPage', () => ({
   StatsPage: () => <div>Stats Test Page</div>,
+}))
+
+vi.mock('./pages/TokensPage', () => ({
+  TokensPage: () => <div>Token settings test page</div>,
+}))
+
+vi.mock('./pages/WorkspaceSettingsPage', () => ({
+  WorkspaceSettingsPage: () => <div>Workspace settings test page</div>,
+}))
+
+vi.mock('./pages/NotificationsPage', () => ({
+  NotificationWebhooksSettings: () => <div>Webhook settings test page</div>,
+  NotificationsPage: () => <div>Notification settings test page</div>,
 }))
 
 vi.mock('./pages/DashboardPage', () => ({
@@ -192,6 +206,7 @@ afterEach(async () => {
   window.history.replaceState({}, '', '/')
   window.sessionStorage.clear()
   appWorkspaceMocks.landingPath = '/'
+  appWorkspaceMocks.permissions = ['*:*']
   appWorkspaceMocks.settingsNavigation = []
 })
 
@@ -264,6 +279,32 @@ describe('App router integration', () => {
     await renderApp('/settings/integrations')
 
     expect(await waitForPath('/settings/account')).toBe(true)
+  })
+
+  it.each([
+    ['/settings/tokens', 'write:tokens', 'Token settings test page'],
+    ['/settings/workspace', 'read:workspace', 'Workspace settings test page'],
+    ['/settings/integrations/webhooks', 'read:notifications', 'Webhook settings test page'],
+  ])('allows %s with its exact required permission', async (path, permission, pageText) => {
+    appWorkspaceMocks.permissions = [permission]
+
+    await renderApp(path)
+
+    expect(await waitForText(pageText)).toBe(true)
+    expect(document.body.textContent ?? '').not.toContain('Permission required')
+  })
+
+  it.each([
+    ['/settings/tokens', 'Token settings test page'],
+    ['/settings/workspace', 'Workspace settings test page'],
+    ['/settings/integrations/webhooks', 'Webhook settings test page'],
+  ])('blocks %s when its required permission is missing', async (path, pageText) => {
+    appWorkspaceMocks.permissions = []
+
+    await renderApp(path)
+
+    expect(await waitForText('Permission required')).toBe(true)
+    expect(document.body.textContent ?? '').not.toContain(pageText)
   })
 
 
