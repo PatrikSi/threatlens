@@ -496,12 +496,12 @@ def set_handling_label_status(
             )
             or 0
         )
-        from app.models.alert_occurrence import AlertOccurrenceMetricLabel
+        from app.models.alert_occurrence import AlertOccurrenceMetricCohortLabel
 
         metric_reference_count = int(
             db.scalar(
-                select(func.count(AlertOccurrenceMetricLabel.metric_id)).where(
-                    AlertOccurrenceMetricLabel.label_id == label.id
+                select(func.count(AlertOccurrenceMetricCohortLabel.cohort_id)).where(
+                    AlertOccurrenceMetricCohortLabel.label_id == label.id
                 )
             )
             or 0

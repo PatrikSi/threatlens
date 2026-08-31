@@ -7,7 +7,11 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_permission_roles, require_permissions
+from app.api.deps import (
+    get_data_access_context,
+    require_permission_roles,
+    require_permissions,
+)
 from app.core.rbac import ROLE_ADMIN
 from app.core.api_errors import ApiHTTPException
 from app.core.token_scopes import SCOPE_READ_ALERTS, SCOPE_WRITE_ALERTS
@@ -38,6 +42,7 @@ from app.services.alert_occurrences import (
     ALERT_OCCURRENCE_STATES,
 )
 from app.services.audit import record_audit
+from app.services.data_access_policy import DataAccessContext
 from app.tasks.alert_tasks import enqueue_alert_evaluation_requests
 
 
@@ -71,6 +76,7 @@ def get_alert_occurrence_metrics(
     limit: int = Query(default=500, ge=1, le=1_000),
     db: Session = Depends(get_db),
     user: User = Depends(require_permissions(SCOPE_READ_ALERTS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     current_time = datetime.now(timezone.utc)
     normalized_until = _as_utc(until) or current_time
@@ -102,6 +108,7 @@ def get_alert_occurrence_metrics(
     result = list_alert_occurrence_metrics(
         db,
         owner_user_id=user.id,
+        data_access=data_access,
         since=normalized_since,
         until=normalized_until,
         severities=list(dict.fromkeys(severities)),
@@ -122,11 +129,13 @@ def get_alert_evaluations(
     page_size: int = Query(default=25, ge=1, le=100),
     db: Session = Depends(get_db),
     user: User = Depends(require_alert_evaluation_read_admin),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     _validate_values(states, ALERT_EVALUATION_STATES, "evaluation state")
     _validate_values(sources, ALERT_EVALUATION_SOURCES, "evaluation source")
     result = list_alert_evaluation_requests(
         db,
+        data_access=data_access,
         states=list(dict.fromkeys(states)),
         sources=list(dict.fromkeys(sources)),
         item_id=item_id,
@@ -150,9 +159,14 @@ def get_alert_evaluation_detail(
     request_id: uuid.UUID,
     db: Session = Depends(get_db),
     user: User = Depends(require_alert_evaluation_read_admin),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     try:
-        return get_alert_evaluation_request(db, request_id=request_id)
+        return get_alert_evaluation_request(
+            db,
+            request_id=request_id,
+            data_access=data_access,
+        )
     except AlertEvaluationNotFoundError as exc:
         raise ApiHTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -171,11 +185,13 @@ def get_alert_evaluation_activity(
     page_size: int = Query(default=50, ge=1, le=100),
     db: Session = Depends(get_db),
     user: User = Depends(require_alert_evaluation_read_admin),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     try:
         result = list_alert_evaluation_activity(
             db,
             request_id=request_id,
+            data_access=data_access,
             page=page,
             page_size=page_size,
         )
@@ -203,11 +219,13 @@ def replay_alert_evaluation(
     payload: AlertEvaluationReplayRequest,
     db: Session = Depends(get_db),
     user: User = Depends(require_alert_evaluation_write_admin),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     try:
         request = replay_dead_letter_evaluation(
             db,
             request_id=request_id,
+            data_access=data_access,
             expected_version=payload.expected_version,
             actor_user_id=user.id,
         )

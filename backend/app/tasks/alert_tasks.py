@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 import uuid
 
+from sqlalchemy.exc import OperationalError
+
 from app.services.alert_evaluation import (
     AlertEvaluationLeaseLost,
     claim_alert_evaluation_request,
@@ -186,6 +188,11 @@ def dispatch_pending_alert_evaluations():
     name="app.tasks.alert_tasks.maintain_alert_history",
     acks_late=True,
     reject_on_worker_lost=True,
+    autoretry_for=(OperationalError,),
+    retry_backoff=True,
+    retry_backoff_max=300,
+    retry_jitter=True,
+    max_retries=5,
 )
 def maintain_alert_history_task():
     with db_session() as db:

@@ -14,6 +14,7 @@ from app.models.alert_evaluation_request import (
     AlertEvaluationRequestActivity,
 )
 from app.models.alert_backfill_preview import AlertBackfillPreview
+from app.models.feed import Feed
 from app.models.item import Item
 from app.services.alert_acceptance import (
     AlertEvaluationIntent,
@@ -39,6 +40,10 @@ from app.services.alert_evaluation_execution import (
     evaluate_alert_request,
 )
 from app.services.alert_evaluation_history import record_alert_evaluation_activity
+from app.services.data_access_policy import (
+    DataAccessContext,
+    handling_label_access_predicate,
+)
 
 
 ALERT_EVALUATION_MAX_ATTEMPTS = 5
@@ -498,6 +503,7 @@ def _record_dispatch_failure_activity(
 def list_alert_backfill_candidates(
     db: Session,
     *,
+    data_access: DataAccessContext,
     since: datetime,
     until: datetime,
     limit: int,
@@ -521,7 +527,11 @@ def list_alert_backfill_candidates(
         )
     rows = db.execute(
         select(Item, func.count(Item.id).over().label("matched_count"))
-        .where(*predicates)
+        .join(Feed, Feed.id == Item.feed_id)
+        .where(
+            *predicates,
+            handling_label_access_predicate(Feed.handling_label_id, data_access),
+        )
         .order_by(Item.first_seen_at.asc(), Item.id.asc())
         .limit(bounded_limit + 1)
     ).all()
@@ -546,6 +556,7 @@ def list_alert_backfill_candidates(
 def persist_alert_backfill_intents(
     db: Session,
     *,
+    data_access: DataAccessContext,
     since: datetime,
     until: datetime,
     limit: int,
@@ -555,6 +566,7 @@ def persist_alert_backfill_intents(
 ) -> AlertBackfillPersistenceResult:
     page = list_alert_backfill_candidates(
         db,
+        data_access=data_access,
         since=since,
         until=until,
         limit=limit,
@@ -565,7 +577,11 @@ def persist_alert_backfill_intents(
     existing_count = 0
     skipped_count = 0
     for candidate in page.candidates:
-        item = db.get(Item, candidate.item_id)
+        item = _get_accessible_backfill_item_for_update(
+            db,
+            item_id=candidate.item_id,
+            data_access=data_access,
+        )
         if item is None or item.content_hash != candidate.content_hash:
             skipped_count += 1
             continue
@@ -593,6 +609,7 @@ def create_alert_backfill_preview(
     db: Session,
     *,
     actor_user_id: uuid.UUID,
+    data_access: DataAccessContext,
     since: datetime,
     until: datetime,
     limit: int,
@@ -603,6 +620,7 @@ def create_alert_backfill_preview(
     current_time = _as_utc(now or datetime.now(timezone.utc))
     page = list_alert_backfill_candidates(
         db,
+        data_access=data_access,
         since=since,
         until=until,
         limit=limit,
@@ -641,6 +659,7 @@ def persist_alert_backfill_preview_intents(
     *,
     preview_id: uuid.UUID,
     actor_user_id: uuid.UUID,
+    data_access: DataAccessContext,
     now: datetime | None = None,
 ) -> AlertBackfillPersistenceResult:
     current_time = _as_utc(now or datetime.now(timezone.utc))
@@ -683,8 +702,10 @@ def persist_alert_backfill_preview_intents(
             "item_id": str(candidate.item_id),
             "content_hash": candidate.content_hash,
         }
-        item = db.scalar(
-            select(Item).where(Item.id == candidate.item_id).with_for_update()
+        item = _get_accessible_backfill_item_for_update(
+            db,
+            item_id=candidate.item_id,
+            data_access=data_access,
         )
         if item is None or item.content_hash != candidate.content_hash:
             outcome["status"] = "skipped"
@@ -824,6 +845,27 @@ def _persist_explicit_backfill_intent(
         item=item,
         actor_user_id=actor_user_id,
         now=now,
+    )
+
+
+def _get_accessible_backfill_item_for_update(
+    db: Session,
+    *,
+    item_id: uuid.UUID,
+    data_access: DataAccessContext,
+) -> Item | None:
+    return db.scalar(
+        select(Item)
+        .join(Feed, Feed.id == Item.feed_id)
+        .where(
+            Item.id == item_id,
+            handling_label_access_predicate(
+                Feed.handling_label_id,
+                data_access,
+            ),
+        )
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
 
 

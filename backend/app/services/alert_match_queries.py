@@ -28,6 +28,10 @@ from app.services.alert_matching import (
     escape_like,
     match_alert_keywords,
 )
+from app.services.data_access_policy import (
+    DataAccessContext,
+    handling_label_access_predicate,
+)
 
 
 ALERT_SORT_OPTIONS = {
@@ -51,6 +55,7 @@ def list_matches_for_alerts(
     *,
     user: User,
     alerts: list[AlertInterest | AlertMatchDefinition],
+    data_access: DataAccessContext,
     q: str | None = None,
     is_starred: bool | None = None,
     is_read: bool | None = None,
@@ -104,7 +109,9 @@ def list_matches_for_alerts(
         .outerjoin(state_subquery, state_subquery.c.item_id == Item.id)
     )
 
-    filters = []
+    filters = [
+        handling_label_access_predicate(Feed.handling_label_id, data_access),
+    ]
     if q:
         pattern = f"%{escape_like(q.strip().lower())}%"
         filters.append(
