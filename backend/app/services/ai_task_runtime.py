@@ -17,23 +17,34 @@ from app.services.ai_ops_common import (
     _coerce_utc,
     _extract_uuid,
 )
+from app.services.ai_telemetry_data_policy import ai_task_run_access_predicate
+from app.services.data_access_policy import DataAccessContext
 from app.tasks.celery_app import celery_app
 
 
 def get_ai_db_live_status(
-    db: Session, *, active_task_limit: int = 4
+    db: Session,
+    *,
+    active_task_limit: int = 4,
+    data_access: DataAccessContext | None = None,
 ) -> AILiveStatusResponse:
+    access_predicate = (
+        ai_task_run_access_predicate(data_access) if data_access is not None else True
+    )
     status_counts = {
         status: int(count)
         for status, count in db.execute(
             select(AITaskRun.status, func.count(AITaskRun.id))
-            .where(AITaskRun.status.in_([AI_STATUS_QUEUED, AI_STATUS_RUNNING]))
+            .where(
+                AITaskRun.status.in_([AI_STATUS_QUEUED, AI_STATUS_RUNNING]),
+                access_predicate,
+            )
             .group_by(AITaskRun.status)
         ).all()
     }
     oldest_queued = db.scalar(
         select(AITaskRun.queued_at)
-        .where(AITaskRun.status == AI_STATUS_QUEUED)
+        .where(AITaskRun.status == AI_STATUS_QUEUED, access_predicate)
         .order_by(AITaskRun.queued_at.asc())
     )
     oldest_age = None
@@ -50,7 +61,7 @@ def get_ai_db_live_status(
     active_runs = list(
         db.scalars(
             select(AITaskRun)
-            .where(AITaskRun.status == AI_STATUS_RUNNING)
+            .where(AITaskRun.status == AI_STATUS_RUNNING, access_predicate)
             .order_by(
                 AITaskRun.started_at.desc().nullslast(), AITaskRun.updated_at.desc()
             )
@@ -83,6 +94,119 @@ def get_ai_db_live_status(
         reserved_count=0,
         scheduled_count=0,
         queued_count=status_counts.get(AI_STATUS_QUEUED, 0),
+        oldest_queued_age_seconds=oldest_age,
+    )
+
+
+def filter_ai_live_tasks(
+    db: Session,
+    *,
+    tasks: list[AILiveTaskResponse],
+    data_access: DataAccessContext,
+) -> list[AILiveTaskResponse]:
+    """Hide broker metadata that cannot be tied to an accessible durable run."""
+
+    if data_access.principal_eligible and not data_access.enforced:
+        return tasks
+    if not data_access.principal_eligible:
+        return []
+    run_ids = {task.run_id for task in tasks if task.run_id is not None}
+    if not run_ids:
+        return []
+    accessible_runs = list(
+        db.scalars(
+            select(AITaskRun).where(
+                AITaskRun.id.in_(run_ids),
+                ai_task_run_access_predicate(data_access),
+            )
+        ).all()
+    )
+    runs_by_id = {run.id: run for run in accessible_runs}
+    return [
+        task
+        for task in tasks
+        if task.run_id is not None
+        and (run := runs_by_id.get(task.run_id)) is not None
+        and _live_task_matches_run(task, run)
+    ]
+
+
+def _live_task_matches_run(task: AILiveTaskResponse, run: AITaskRun) -> bool:
+    if task.task_name != run.task_type:
+        return False
+    if task.item_id is not None and task.item_id != run.item_id:
+        return False
+    if task.parent_run_id is not None and task.parent_run_id != run.parent_run_id:
+        return False
+    return bool(
+        task.celery_task_id is None
+        or (
+            run.celery_task_id is not None
+            and task.celery_task_id == run.celery_task_id
+        )
+    )
+
+
+def get_ai_live_status_for_data_access(
+    db: Session,
+    *,
+    data_access: DataAccessContext,
+) -> AILiveStatusResponse:
+    if data_access.principal_eligible and not data_access.enforced:
+        from app.services.ai_ops import get_ai_live_status
+
+        return get_ai_live_status(db)
+    if not data_access.principal_eligible:
+        return get_ai_db_live_status(db, data_access=data_access)
+
+    _snapshot_available, _workers, active, reserved, scheduled = (
+        _normalize_live_task_snapshot(_load_live_task_snapshot())
+    )
+    active = filter_ai_live_tasks(db, tasks=active, data_access=data_access)
+    reserved = filter_ai_live_tasks(db, tasks=reserved, data_access=data_access)
+    scheduled = filter_ai_live_tasks(db, tasks=scheduled, data_access=data_access)
+    workers = sorted(
+        {
+            task.worker_name
+            for task in [*active, *reserved, *scheduled]
+            if task.worker_name
+        }
+    )
+    access = ai_task_run_access_predicate(data_access)
+    oldest_queued = db.scalar(
+        select(AITaskRun.queued_at)
+        .where(AITaskRun.status == AI_STATUS_QUEUED, access)
+        .order_by(AITaskRun.queued_at.asc())
+    )
+    oldest_age = None
+    if oldest_queued is not None:
+        oldest_age = max(
+            0,
+            int(
+                (
+                    datetime.now(timezone.utc) - _coerce_utc(oldest_queued)
+                ).total_seconds()
+            ),
+        )
+    queued_count = int(
+        db.scalar(
+            select(func.count(AITaskRun.id)).where(
+                AITaskRun.status == AI_STATUS_QUEUED,
+                access,
+            )
+        )
+        or 0
+    )
+    return AILiveStatusResponse(
+        worker_count=len(workers),
+        workers=workers,
+        active_tasks=active,
+        reserved_tasks=reserved,
+        scheduled_tasks=scheduled,
+        active_count=len(active),
+        reserved_count=len(reserved),
+        scheduled_count=len(scheduled),
+        queued_count=queued_count,
         oldest_queued_age_seconds=oldest_age,
     )
 

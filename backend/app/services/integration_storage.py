@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Collection
 from dataclasses import dataclass
 from typing import get_args
 
@@ -284,8 +285,13 @@ def smtp_settings_response_from_model(
     instance: IntegrationInstance,
     *,
     credential_source: IntegrationInstance | None = None,
+    accessible_feed_ids: Collection[uuid.UUID] | None = None,
 ) -> SMTPSettingsResponse:
     config = _normalize_smtp_config(instance.config_json)
+    feed_ids = config["feed_ids"]
+    if accessible_feed_ids is not None:
+        visible_feed_ids = frozenset(accessible_feed_ids)
+        feed_ids = [feed_id for feed_id in feed_ids if feed_id in visible_feed_ids]
     credential_instance = credential_source or instance
     credential_config = _normalize_smtp_config(credential_instance.config_json)
     secrets, secret_error = read_smtp_secret_config(credential_instance)
@@ -321,7 +327,7 @@ def smtp_settings_response_from_model(
         timeout_seconds=config["timeout_seconds"],
         event_types=config["event_types"],
         feed_scope=config["feed_scope"],
-        feed_ids=config["feed_ids"],
+        feed_ids=feed_ids,
         subject_template=config["subject_template"],
         html_template=config["html_template"],
         health_status=health_status,

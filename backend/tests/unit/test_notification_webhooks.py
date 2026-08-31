@@ -7,9 +7,15 @@ import httpx
 import pytest
 from sqlalchemy import select
 
+from app.models.alert_evaluation_request import AlertEvaluationRequest
+from app.models.alert_evaluation_match import AlertEvaluationMatch
 from app.models.alert_interest import AlertInterest
 from app.models.feed import Feed
-from app.models.integration import IntegrationInstance
+from app.models.integration import (
+    IntegrationDelivery,
+    IntegrationEvent,
+    IntegrationInstance,
+)
 from app.models.item import Item
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
@@ -23,8 +29,14 @@ from app.services.integration_compat import (
     WebhookConfigurationCompatibilityError,
     ensure_webhook_integration,
 )
+from app.services.integration_events import (
+    build_alert_match_snapshot_payload,
+    emit_integration_event,
+    route_integration_event,
+)
 from app.services.notification_webhook_http import (
     RedirectError,
+    WebhookAmbiguousResponseError,
     notification_delivery_external_io_marker,
     notification_delivery_lease_heartbeat,
     read_response_preview,
@@ -65,7 +77,11 @@ def _persist_rows(db_session, *rows):
 @pytest.fixture
 def stub_smtp_enqueue(monkeypatch):
     monkeypatch.setattr(
-        "app.tasks.notification_tasks._safe_enqueue_smtp_task",
+        "app.tasks.notification_tasks.enqueue_integration_event_routing",
+        lambda *_args, **_kwargs: True,
+    )
+    monkeypatch.setattr(
+        "app.tasks.notification_tasks.enqueue_alert_evaluation_requests",
         lambda *_args, **_kwargs: True,
     )
 
@@ -748,6 +764,55 @@ def test_send_rendered_notification_request_reads_preview_before_client_closes(
     assert lease_seconds == [35, 35]
 
 
+def test_webhook_timeout_after_request_starts_is_not_returned_as_retryable_result(
+    monkeypatch,
+):
+    class _TimeoutClient:
+        timeout = SimpleNamespace(read=10)
+
+        def build_request(self, method, url, **kwargs):
+            return httpx.Request(method, url, **kwargs)
+
+        def send(self, request, **_kwargs):
+            raise httpx.ReadTimeout("response timed out", request=request)
+
+    @contextmanager
+    def _fake_client(**_kwargs):
+        yield _TimeoutClient()
+
+    monkeypatch.setattr(
+        "app.services.notification_webhook_http.build_safe_http_client",
+        _fake_client,
+    )
+    monkeypatch.setattr(
+        "app.services.notification_webhook_http.ensure_runtime_fetchable_url",
+        lambda *_args, **_kwargs: None,
+    )
+    marker_calls: list[bool] = []
+
+    with (
+        notification_delivery_external_io_marker(lambda: marker_calls.append(True)),
+        pytest.raises(WebhookAmbiguousResponseError, match="after it began"),
+    ):
+        send_rendered_notification_request(
+            SimpleNamespace(
+                timeout_seconds=10,
+                url="https://hooks.example.com/notify",
+                method="POST",
+                headers=[],
+                query_params=[],
+                body=None,
+                headers_dict={},
+                query_param_pairs=[],
+                json_body=None,
+                form_body=None,
+                raw_body=None,
+            )
+        )
+
+    assert marker_calls == [True]
+
+
 def test_render_notification_request_defaults_raw_json_to_application_json():
     payload = NotificationWebhookWrite(
         name="Gotify",
@@ -899,9 +964,7 @@ def test_send_request_with_redirects_does_not_replay_original_query_params_after
         return httpx.Response(204, request=request)
 
     transport = httpx.MockTransport(_handler)
-    with notification_delivery_external_io_marker(
-        lambda: marker_calls.append(True)
-    ):
+    with notification_delivery_external_io_marker(lambda: marker_calls.append(True)):
         with httpx.Client(transport=transport) as client:
             response = send_request_with_redirects(
                 client,
@@ -2134,47 +2197,32 @@ def test_dispatch_new_item_notification_webhooks_matches_feed_scope_and_active_u
     )
     db_session.commit()
 
-    delivered_ids: list[uuid.UUID] = []
-    reserved_webhook_ids: dict[uuid.UUID, uuid.UUID] = {}
-
-    def _reserve(_db, *, webhook, user, event_type, item, feed, **_kwargs):
-        assert event_type == "rss_item_new"
-        delivery_id = uuid.uuid4()
-        reserved_webhook_ids[delivery_id] = webhook.id
-        return SimpleNamespace(id=delivery_id)
-
-    def _process(_db, *, delivery_id, commit_outcome=True):
-        assert commit_outcome is False
-        delivered_ids.append(reserved_webhook_ids[delivery_id])
-        return SimpleNamespace(
-            result=SimpleNamespace(success=True, status_code=204, error=None),
-            delivery=SimpleNamespace(
-                id=delivery_id,
-                event_type_snapshot="rss_item_new",
-                webhook_id=reserved_webhook_ids[delivery_id],
-            ),
-        )
-
     @contextmanager
     def _db_session_override():
         yield db_session
 
-    monkeypatch.setattr(
-        "app.services.notification_webhooks.reserve_notification_webhook_delivery",
-        _reserve,
-    )
-    monkeypatch.setattr(
-        "app.tasks.notification_tasks.process_notification_webhook_delivery", _process
-    )
     monkeypatch.setattr("app.tasks.notification_tasks.db_session", _db_session_override)
 
     result = dispatch_new_item_notification_webhooks(str(item.id))
+    routed = route_integration_event(
+        db_session,
+        event_id=uuid.UUID(result["integration_event_id"]),
+    )
+    webhook_deliveries = db_session.scalars(
+        select(NotificationWebhookDelivery).where(
+            NotificationWebhookDelivery.integration_delivery_id.in_(
+                routed.integration_delivery_ids
+            )
+        )
+    ).all()
 
-    assert set(delivered_ids) == {deliver_all.id, deliver_selected.id}
-    assert result["matched_webhooks"] == 3
-    assert result["delivered"] == 2
-    assert result["skipped"] == 1
+    assert result["status"] == "ok"
+    assert result["delivery_status"] == "queued"
     assert result["smtp_enqueue_failed"] is False
+    assert {delivery.webhook_id for delivery in webhook_deliveries} == {
+        deliver_all.id,
+        deliver_selected.id,
+    }
 
 
 def test_dispatch_new_item_notification_webhooks_skips_duplicate_successful_delivery(
@@ -2265,14 +2313,18 @@ def test_dispatch_new_item_notification_webhooks_skips_duplicate_successful_deli
     monkeypatch.setattr("app.tasks.notification_tasks.db_session", _db_session_override)
 
     result = dispatch_new_item_notification_webhooks(str(item.id))
+    routed = route_integration_event(
+        db_session,
+        event_id=uuid.UUID(result["integration_event_id"]),
+    )
 
-    assert result["matched_webhooks"] == 1
-    assert result["delivered"] == 0
-    assert result["failed"] == 0
-    assert result["skipped"] == 1
+    assert result["status"] == "ok"
+    assert result["delivery_status"] == "queued"
+    assert routed.status == "routed"
+    assert db_session.query(NotificationWebhookDelivery).count() == 1
 
 
-def test_dispatch_new_item_notification_webhooks_skips_when_delivery_lock_is_unavailable(
+def test_dispatch_new_item_notification_webhooks_stages_without_synchronous_io(
     db_session,
     monkeypatch,
     stub_smtp_enqueue,
@@ -2326,23 +2378,19 @@ def test_dispatch_new_item_notification_webhooks_skips_when_delivery_lock_is_una
         yield db_session
 
     monkeypatch.setattr("app.tasks.notification_tasks.db_session", _db_session_override)
-    monkeypatch.setattr(
-        "app.services.notification_webhooks.try_acquire_notification_delivery_lock",
-        lambda *_args, **_kwargs: False,
-    )
-    monkeypatch.setattr(
-        "app.services.notification_webhooks.reserve_notification_webhook_delivery",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("reserve should not run when lock is unavailable")
-        ),
-    )
-
     result = dispatch_new_item_notification_webhooks(str(item.id))
+    routed = route_integration_event(
+        db_session,
+        event_id=uuid.UUID(result["integration_event_id"]),
+    )
+    delivery = db_session.scalar(select(NotificationWebhookDelivery))
 
-    assert result["matched_webhooks"] == 1
-    assert result["delivered"] == 0
-    assert result["failed"] == 0
-    assert result["skipped"] == 1
+    assert result["status"] == "ok"
+    assert result["delivery_status"] == "queued"
+    assert routed.status == "routed"
+    assert delivery is not None
+    assert delivery.delivery_state == "pending"
+    assert delivery.attempt_count == 0
 
 
 def test_build_alert_match_context_for_item_collects_matching_alerts(db_session):
@@ -2410,7 +2458,7 @@ def test_build_alert_match_context_for_item_collects_matching_alerts(db_session)
     assert context.matched_keywords == ["lockbit", "credential theft"]
 
 
-def test_dispatch_alert_match_notification_webhooks_only_delivers_for_matching_users(
+def test_dispatch_alert_match_notification_webhooks_queues_matching_owner_snapshot(
     db_session,
     monkeypatch,
     stub_smtp_enqueue,
@@ -2482,7 +2530,6 @@ def test_dispatch_alert_match_notification_webhooks_only_delivers_for_matching_u
     _persist_rows(db_session, feed, matching_user, non_matching_user)
     _persist_rows(
         db_session,
-        item,
         matching_webhook,
         ignored_webhook,
         AlertInterest(
@@ -2492,6 +2539,7 @@ def test_dispatch_alert_match_notification_webhooks_only_delivers_for_matching_u
             category="malware",
             keywords=["lockbit"],
             enabled=True,
+            durable_since=datetime.now(timezone.utc) - timedelta(minutes=1),
         ),
         AlertInterest(
             id=uuid.uuid4(),
@@ -2500,53 +2548,232 @@ def test_dispatch_alert_match_notification_webhooks_only_delivers_for_matching_u
             category="cloud",
             keywords=["aws"],
             enabled=True,
+            durable_since=datetime.now(timezone.utc) - timedelta(minutes=1),
         ),
     )
     db_session.commit()
-
-    delivered_ids: list[uuid.UUID] = []
-    reserved_webhook_ids: dict[uuid.UUID, uuid.UUID] = {}
-
-    def _reserve(
-        _db, *, webhook, user, event_type, feed, item, alert_context=None, **_kwargs
-    ):
-        assert event_type == "alert_match"
-        assert alert_context is not None
-        delivery_id = uuid.uuid4()
-        reserved_webhook_ids[delivery_id] = webhook.id
-        return SimpleNamespace(id=delivery_id)
-
-    def _process(_db, *, delivery_id, commit_outcome=True):
-        assert commit_outcome is False
-        delivered_ids.append(reserved_webhook_ids[delivery_id])
-        return SimpleNamespace(
-            result=SimpleNamespace(success=True, status_code=204, error=None),
-            delivery=SimpleNamespace(
-                id=delivery_id,
-                event_type_snapshot="alert_match",
-                webhook_id=reserved_webhook_ids[delivery_id],
-            ),
-        )
+    _persist_rows(db_session, item)
+    db_session.commit()
 
     @contextmanager
     def _db_session_override():
         yield db_session
 
-    monkeypatch.setattr(
-        "app.services.notification_webhooks.reserve_notification_webhook_delivery",
-        _reserve,
-    )
-    monkeypatch.setattr(
-        "app.tasks.notification_tasks.process_notification_webhook_delivery", _process
-    )
     monkeypatch.setattr("app.tasks.notification_tasks.db_session", _db_session_override)
 
     result = dispatch_alert_match_notification_webhooks(str(item.id))
+    evaluation = db_session.get(
+        AlertEvaluationRequest,
+        uuid.UUID(result["evaluation_request_id"]),
+    )
+    assert evaluation is not None
+    match_owner_ids = set(
+        db_session.scalars(
+            select(AlertEvaluationMatch.owner_user_id).where(
+                AlertEvaluationMatch.request_id == evaluation.id
+            )
+        ).all()
+    )
 
-    assert delivered_ids == [matching_webhook.id]
-    assert result["matched_webhooks"] == 2
-    assert result["delivered"] == 1
-    assert result["skipped"] == 1
+    assert result["status"] == "ok"
+    assert result["delivery_status"] == "queued"
+    assert evaluation.notify is True
+    assert match_owner_ids == {matching_user.id}
+    assert db_session.scalar(select(IntegrationEvent.id)) is None
+
+
+def test_snapshot_alert_routing_adopts_legacy_unscoped_delivery(
+    db_session, monkeypatch
+):
+    user = User(
+        id=uuid.uuid4(),
+        email="legacy-alert-owner@example.com",
+        password_hash="x",
+        role="analyst",
+        is_active=True,
+        is_approved=True,
+    )
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Legacy alert feed",
+        url="https://example.com/legacy-alert.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        url="https://example.com/legacy-alert",
+        title="LockBit activity",
+        summary="LockBit infrastructure changed.",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key=f"legacy-alert:{uuid.uuid4()}",
+        content_hash="f" * 64,
+        status="content_fetched",
+    )
+    webhook = NotificationWebhook(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        name="Legacy alert webhook",
+        event_type="alert_match",
+        url_template="https://example.com/legacy-alert-hook",
+        method="POST",
+        feed_scope="all",
+        feed_ids_json=[],
+        query_params_json=[],
+        headers_json=[],
+        body_mode="none",
+        body_fields_json=[],
+        timeout_seconds=10,
+    )
+    interest = AlertInterest(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        name="Ransomware watch",
+        category="malware",
+        keywords=["lockbit"],
+        enabled=True,
+        durable_since=datetime.now(timezone.utc) - timedelta(minutes=1),
+    )
+    _persist_rows(db_session, user, feed, item, webhook, interest)
+    context = build_alert_match_context_for_item(
+        db_session,
+        user_id=user.id,
+        item=item,
+    )
+    assert context is not None
+    payload = build_alert_match_snapshot_payload(
+        item=item,
+        feed=feed,
+        contexts_by_owner={user.id: context},
+        occurrence_ids=[],
+        occurrence_count=context.count,
+        occurrence_ids_truncated=True,
+        evaluation_request_id=uuid.uuid4(),
+        owner_user_id=user.id,
+    )
+    event = emit_integration_event(
+        db_session,
+        event_type="alert_match",
+        source_type="item",
+        source_id=item.id,
+        idempotency_key=f"legacy-alert-event:{item.id}",
+        payload=payload,
+        schema_version=3,
+        actor_user_id=user.id,
+    )
+    legacy = reserve_notification_webhook_delivery(
+        db_session,
+        webhook=webhook,
+        user=user,
+        event_type="alert_match",
+        feed=feed,
+        item=item,
+        alert_context=context,
+    )
+    assert legacy.integration_delivery_id is not None
+    generic = db_session.get(IntegrationDelivery, legacy.integration_delivery_id)
+    assert generic is not None
+    legacy.delivery_state = "succeeded"
+    legacy.success = True
+    legacy.status_code = 204
+    legacy.attempt_count = 1
+    generic.state = "succeeded"
+    generic.attempt_count = 1
+    generic.completed_at = datetime.now(timezone.utc)
+    db_session.add_all([legacy, generic])
+    db_session.commit()
+
+    routed = route_integration_event(db_session, event_id=event.id)
+
+    db_session.refresh(legacy)
+    db_session.refresh(generic)
+    assert routed.status == "routed"
+    assert db_session.query(NotificationWebhookDelivery).count() == 1
+    assert db_session.query(IntegrationDelivery).count() == 1
+    assert legacy.scope_key == f"alert_event:{event.id}"
+    assert generic.event_id == event.id
+    assert generic.state == "succeeded"
+    assert generic.idempotency_key.startswith(f"event:{event.id}:subscription:")
+
+    later_payload = build_alert_match_snapshot_payload(
+        item=item,
+        feed=feed,
+        contexts_by_owner={user.id: context},
+        occurrence_ids=[],
+        occurrence_count=context.count,
+        occurrence_ids_truncated=True,
+        evaluation_request_id=uuid.uuid4(),
+        owner_user_id=user.id,
+    )
+    later_event = emit_integration_event(
+        db_session,
+        event_type="alert_match",
+        source_type="item",
+        source_id=item.id,
+        idempotency_key=f"later-alert-event:{item.id}",
+        payload=later_payload,
+        schema_version=3,
+        actor_user_id=user.id,
+    )
+    later_event.created_at = legacy.attempted_at + timedelta(minutes=10)
+    db_session.add(later_event)
+    db_session.flush()
+
+    later_routed = route_integration_event(db_session, event_id=later_event.id)
+
+    later_generic = db_session.scalar(
+        select(IntegrationDelivery).where(
+            IntegrationDelivery.event_id == later_event.id,
+            IntegrationDelivery.connector_type == "webhook",
+        )
+    )
+    assert later_routed.status == "routed"
+    assert later_generic is not None
+    assert later_generic.id != generic.id
+    assert db_session.query(NotificationWebhookDelivery).count() == 2
+    assert db_session.query(IntegrationDelivery).count() == 2
+
+    contention_event = emit_integration_event(
+        db_session,
+        event_type="alert_match",
+        source_type="item",
+        source_id=item.id,
+        idempotency_key=f"contended-alert-event:{item.id}",
+        payload=build_alert_match_snapshot_payload(
+            item=item,
+            feed=feed,
+            contexts_by_owner={user.id: context},
+            occurrence_ids=[],
+            occurrence_count=context.count,
+            occurrence_ids_truncated=True,
+            evaluation_request_id=uuid.uuid4(),
+            owner_user_id=user.id,
+        ),
+        schema_version=3,
+        actor_user_id=user.id,
+    )
+    lock_results = iter((True, False))
+    monkeypatch.setattr(
+        "app.services.integration_connectors.webhook.try_acquire_notification_delivery_lock",
+        lambda *_args, **_kwargs: next(lock_results),
+    )
+
+    contention_result = route_integration_event(
+        db_session,
+        event_id=contention_event.id,
+    )
+
+    assert contention_result.status == "failed"
+    assert "rolling-upgrade compatibility lock" in (contention_event.last_error or "")
+    assert (
+        db_session.scalar(
+            select(IntegrationDelivery.id).where(
+                IntegrationDelivery.event_id == contention_event.id
+            )
+        )
+        is None
+    )
 
 
 def test_dispatch_feed_failing_notification_webhooks_respects_recent_cooldown(
@@ -2621,14 +2848,19 @@ def test_dispatch_feed_failing_notification_webhooks_respects_recent_cooldown(
     monkeypatch.setattr("app.tasks.notification_tasks.db_session", _db_session_override)
 
     result = dispatch_feed_failing_notification_webhooks(str(feed.id))
+    routed = route_integration_event(
+        db_session,
+        event_id=uuid.UUID(result["integration_event_id"]),
+    )
 
-    assert result["matched_webhooks"] == 1
-    assert result["delivered"] == 0
-    assert result["skipped"] == 1
+    assert result["status"] == "ok"
+    assert result["delivery_status"] == "queued"
+    assert routed.status == "routed"
+    assert db_session.query(NotificationWebhookDelivery).count() == 1
 
 
 def test_dispatch_webhook_failed_notification_webhooks_skips_duplicate_successful_source_delivery(
-    db_session, monkeypatch
+    db_session, monkeypatch, stub_smtp_enqueue
 ):
     user = User(
         id=uuid.uuid4(),
@@ -2740,11 +2972,15 @@ def test_dispatch_webhook_failed_notification_webhooks_skips_duplicate_successfu
     )
 
     result = dispatch_webhook_failed_notification_webhooks(str(failed_delivery.id))
+    routed = route_integration_event(
+        db_session,
+        event_id=uuid.UUID(result["integration_event_id"]),
+    )
 
-    assert result["matched_webhooks"] == 1
-    assert result["delivered"] == 0
-    assert result["failed"] == 0
-    assert result["skipped"] == 1
+    assert result["status"] == "ok"
+    assert result["delivery_status"] == "queued"
+    assert routed.status == "routed"
+    assert db_session.query(NotificationWebhookDelivery).count() == 2
 
 
 def test_dispatch_pending_notification_webhook_deliveries_recovers_reserved_rows(

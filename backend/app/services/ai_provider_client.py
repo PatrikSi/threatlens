@@ -4,7 +4,7 @@ import json
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
@@ -14,6 +14,12 @@ from app.services.ai_config import ActiveAISettings, is_shared_ai_base_url_allow
 from app.services.ai_normalization import coerce_optional_int, normalize_optional_text
 from app.services.ai_provider_exchange import sanitize_provider_exchange
 from app.services.safe_fetch import SafeFetchError
+
+
+AIProviderIOOutcome = Literal["not_sent", "response_received", "ambiguous"]
+AI_PROVIDER_IO_NOT_SENT: AIProviderIOOutcome = "not_sent"
+AI_PROVIDER_IO_RESPONSE_RECEIVED: AIProviderIOOutcome = "response_received"
+AI_PROVIDER_IO_AMBIGUOUS: AIProviderIOOutcome = "ambiguous"
 
 
 class AIIntegrationError(ValueError):
@@ -28,6 +34,7 @@ class AIIntegrationError(ValueError):
         status_code: int | None = None,
         retry_hint: str | None = None,
         retryable: bool = False,
+        provider_io_outcome: AIProviderIOOutcome = AI_PROVIDER_IO_AMBIGUOUS,
     ):
         super().__init__(message)
         self.request_url = request_url
@@ -37,6 +44,7 @@ class AIIntegrationError(ValueError):
         self.status_code = status_code
         self.retry_hint = retry_hint
         self.retryable = retryable
+        self.provider_io_outcome = provider_io_outcome
         self.attempt_count = 1
 
     def debug_payload(self) -> dict[str, object]:
@@ -51,6 +59,7 @@ class AIIntegrationError(ValueError):
         if self.retry_hint:
             payload["retry_hint"] = self.retry_hint
         payload["retryable"] = self.retryable
+        payload["provider_io_outcome"] = self.provider_io_outcome
         return payload
 
 
@@ -82,11 +91,23 @@ def call_ai_json(
     max_completion_tokens: int | None = None,
 ) -> AICompletionResult:
     if not active.ai_enabled:
-        raise AIIntegrationError("AI features are disabled", retryable=False)
+        raise AIIntegrationError(
+            "AI features are disabled",
+            retryable=False,
+            provider_io_outcome=AI_PROVIDER_IO_NOT_SENT,
+        )
     if not is_shared_ai_base_url_allowed(active.base_url, api_key=active.api_key):
-        raise AIIntegrationError("AI base URL is not allowed when the server AI_API_KEY is configured", retryable=False)
+        raise AIIntegrationError(
+            "AI base URL is not allowed when the server AI_API_KEY is configured",
+            retryable=False,
+            provider_io_outcome=AI_PROVIDER_IO_NOT_SENT,
+        )
     if not active.ai_configured or not active.base_url or not active.model:
-        raise AIIntegrationError("AI settings are incomplete", retryable=False)
+        raise AIIntegrationError(
+            "AI settings are incomplete",
+            retryable=False,
+            provider_io_outcome=AI_PROVIDER_IO_NOT_SENT,
+        )
 
     request_url = build_chat_completion_url(active.base_url)
     request_payload = {
@@ -133,13 +154,30 @@ def call_ai_json(
             retryable=False
             if looks_like_provider_auth_error(provider_error_message)
             else ai_status_code_is_retryable(exc.response.status_code),
+            provider_io_outcome=AI_PROVIDER_IO_RESPONSE_RECEIVED,
         ) from exc
-    except (httpx.HTTPError, SafeFetchError, ValueError) as exc:
+    except (
+        httpx.ConnectError,
+        httpx.ConnectTimeout,
+        httpx.PoolTimeout,
+        httpx.InvalidURL,
+        httpx.UnsupportedProtocol,
+        SafeFetchError,
+    ) as exc:
         raise AIIntegrationError(
             f"AI request failed: {exc}",
             request_url=request_url,
             request_payload=request_payload,
             retryable=True,
+            provider_io_outcome=AI_PROVIDER_IO_NOT_SENT,
+        ) from exc
+    except (httpx.HTTPError, ValueError) as exc:
+        raise AIIntegrationError(
+            f"AI request outcome is unknown: {exc}",
+            request_url=request_url,
+            request_payload=request_payload,
+            retryable=False,
+            provider_io_outcome=AI_PROVIDER_IO_AMBIGUOUS,
         ) from exc
 
     latency_ms = int((time.perf_counter() - started_at) * 1000)
@@ -154,6 +192,7 @@ def call_ai_json(
             response_body=response_body,
             status_code=response.status_code,
             retryable=True,
+            provider_io_outcome=AI_PROVIDER_IO_RESPONSE_RECEIVED,
         ) from exc
     provider_error_message = extract_provider_error_message(payload)
     if provider_error_message:
@@ -165,6 +204,7 @@ def call_ai_json(
             response_json=payload,
             status_code=response.status_code,
             retryable=not looks_like_provider_auth_error(provider_error_message),
+            provider_io_outcome=AI_PROVIDER_IO_RESPONSE_RECEIVED,
         )
 
     try:
@@ -179,6 +219,7 @@ def call_ai_json(
             response_json=payload,
             status_code=response.status_code,
             retryable=True,
+            provider_io_outcome=AI_PROVIDER_IO_RESPONSE_RECEIVED,
         ) from exc
 
     finish_reason = choice.get("finish_reason") if isinstance(choice, dict) else None
@@ -193,6 +234,7 @@ def call_ai_json(
             response_json=payload,
             status_code=response.status_code,
             retryable=True,
+            provider_io_outcome=AI_PROVIDER_IO_RESPONSE_RECEIVED,
         ) from exc
     try:
         parsed = parse_ai_json_content(content)
@@ -211,6 +253,7 @@ def call_ai_json(
             status_code=response.status_code,
             retry_hint=retry_hint,
             retryable=True,
+            provider_io_outcome=AI_PROVIDER_IO_RESPONSE_RECEIVED,
         ) from exc
     usage = payload.get("usage") or {}
     prompt_char_count = sum(len(entry.get("content") or "") for entry in messages)

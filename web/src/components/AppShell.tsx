@@ -6,24 +6,16 @@ import packageMetadata from '../../package.json'
 import { ApiError, apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
 import { useCurrentUser } from '../hooks/useCurrentUser'
+import { useWorkspace } from '../workspace/useWorkspace'
 import { useAuth } from './AuthContext'
 import { useTheme } from './ThemeContext'
 
-const NAV_LINKS = [
-  { to: '/', label: 'Dashboard' },
-  { to: '/alerts', label: 'Alerts' },
-  { to: '/investigations', label: 'Investigations' },
-  { to: '/feeds', label: 'Feeds' },
-  { to: '/stats', label: 'Stats' },
-  { to: '/export', label: 'Export' },
-  { to: '/reporting', label: 'Reporting' },
-  { to: '/settings', label: 'Settings' },
-]
 const APP_VERSION = import.meta.env.VITE_APP_VERSION || packageMetadata.version
 
 export function AppShell() {
   const { markLoggedOut } = useAuth()
   const { setMode, isDark } = useTheme()
+  const workspace = useWorkspace()
   const meQuery = useCurrentUser()
   const navigate = useNavigate()
   const location = useLocation()
@@ -31,7 +23,8 @@ export function AppShell() {
   const [logoutNotice, setLogoutNotice] = useState<string | null>(null)
 
   const isDashboardRoute = location.pathname === '/'
-  const navLinks = NAV_LINKS
+  const desktopNavLinks = workspace.model.primaryNavigation
+  const mobileNavLinks = workspace.model.mobileNavigation
 
   const logout = useMutation({
     mutationFn: async () => {
@@ -95,12 +88,12 @@ export function AppShell() {
           {mobileNavOpen && (
             <div id="mobile-primary-navigation" className="mt-3 border-t border-slate/20 pt-2 dark:border-white/10">
               <nav className="divide-y divide-slate/15 text-sm font-semibold text-slate dark:divide-white/10 dark:text-slate-200">
-                {navLinks.map((link) => {
-                  const active = isNavLinkActive(location.pathname, link.to)
+                {mobileNavLinks.map((link) => {
+                  const active = isNavLinkActive(location.pathname, link.route)
                   return (
                     <Link
-                      key={link.to}
-                      to={link.to}
+                      key={link.id}
+                      to={link.route}
                       aria-current={active ? 'page' : undefined}
                       className={`block border-l-2 px-3 py-3 text-left transition ${
                         active
@@ -148,12 +141,12 @@ export function AppShell() {
           <div className="flex items-center gap-6">
             <h1 className="font-display text-2xl font-bold">ThreatLens</h1>
             <nav className="flex flex-wrap gap-2 text-sm font-semibold text-slate dark:text-slate-200">
-              {navLinks.map((link) => {
-                const active = isNavLinkActive(location.pathname, link.to)
+              {desktopNavLinks.map((link) => {
+                const active = isNavLinkActive(location.pathname, link.route)
                 return (
                   <Link
-                    key={link.to}
-                    to={link.to}
+                    key={link.id}
+                    to={link.route}
                     aria-current={active ? 'page' : undefined}
                     className={`rounded border px-3 py-1.5 transition ${
                       active

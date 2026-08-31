@@ -24,6 +24,8 @@ from app.main import app
 from app.models.api_token import ApiToken
 from app.models.audit_log import AuditLog
 from app.models.auth_session import AuthSession
+from app.models.iam import IAMRole, IAMRolePermission, IAMUserRoleAssignment
+from app.models.investigation import Investigation, InvestigationMember
 from app.models.mfa import UserTOTPCredential
 from app.models.oidc import ExternalIdentity, OIDCProvider
 from app.models.user import User
@@ -912,6 +914,218 @@ def test_oidc_cannot_be_disabled_without_a_local_break_glass_admin(
     )
 
 
+def test_disabling_oidc_provider_revokes_all_linked_credentials(
+    client,
+    auth_headers,
+    db_session,
+    seed_users,
+):
+    provider = _configured_provider(db_session)
+    viewer = seed_users["viewer"]
+    identity = ExternalIdentity(
+        provider_id=provider.id,
+        user_id=viewer.id,
+        issuer=provider.issuer_url,
+        subject="provider-disable-viewer",
+        email_at_link=viewer.email,
+        role_sync_provenance="legacy",
+        role_sync_applied_role=viewer.role,
+        role_sync_updated_at=datetime.now(timezone.utc),
+    )
+    db_session.add(identity)
+    oidc_session = create_auth_session(
+        db_session,
+        user_id=viewer.id,
+        auth_token_version=int(viewer.auth_token_version or 0),
+        auth_method="oidc",
+        mfa_method=None,
+        client_ip="testclient",
+        user_agent="pytest provider disable oidc",
+    ).session
+    local_session = create_auth_session(
+        db_session,
+        user_id=viewer.id,
+        auth_token_version=int(viewer.auth_token_version or 0),
+        auth_method="local",
+        mfa_method=None,
+        client_ip="testclient",
+        user_agent="pytest provider disable local",
+    ).session
+    db_session.commit()
+
+    response = client.put(
+        "/auth/oidc/provider",
+        headers=auth_headers["admin"],
+        json=_provider_payload(
+            enabled=False,
+            expected_config_revision=provider.config_revision,
+            client_auth_method="none",
+            client_secret=None,
+        ),
+    )
+    assert response.status_code == 200, response.text
+    db_session.expire_all()
+    assert db_session.get(AuthSession, oidc_session.id).revoked_at is not None
+    assert db_session.get(AuthSession, local_session.id).revoked_at is not None
+    audit = db_session.scalar(
+        select(AuditLog)
+        .where(AuditLog.action == "oidc.provider.update", AuditLog.success.is_(True))
+        .order_by(AuditLog.created_at.desc())
+    )
+    assert audit is not None
+    assert audit.metadata_json["purge_trigger"] == "provider_disabled"
+    assert audit.metadata_json["linked_user_count"] == 1
+    assert audit.metadata_json["revoked_oidc_sessions"] == 1
+    assert audit.metadata_json["legacy_role_retained"] is True
+
+    db_session.refresh(viewer)
+    confirmed = client.patch(
+        f"/users/{viewer.id}",
+        headers=auth_headers["admin"],
+        json={
+            "role": viewer.role,
+            "expected_security_version": viewer.auth_token_version,
+        },
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    db_session.refresh(identity)
+    assert identity.role_sync_provenance is None
+
+
+def test_disabling_oidc_provider_restores_tracked_fixed_role(
+    client,
+    auth_headers,
+    db_session,
+    seed_users,
+):
+    provider = _configured_provider(db_session)
+    viewer = seed_users["viewer"]
+    viewer.role = "analyst"
+    identity = ExternalIdentity(
+        provider_id=provider.id,
+        user_id=viewer.id,
+        issuer=provider.issuer_url,
+        subject="provider-disable-tracked-role",
+        email_at_link=viewer.email,
+        role_sync_provenance="tracked",
+        role_sync_previous_role="viewer",
+        role_sync_applied_role="analyst",
+        role_sync_updated_at=datetime.now(timezone.utc),
+    )
+    db_session.add_all([viewer, identity])
+    db_session.commit()
+
+    response = client.put(
+        "/auth/oidc/provider",
+        headers=auth_headers["admin"],
+        json=_provider_payload(
+            enabled=False,
+            expected_config_revision=provider.config_revision,
+            client_auth_method="none",
+            client_secret=None,
+        ),
+    )
+
+    assert response.status_code == 200, response.text
+    db_session.expire_all()
+    assert db_session.get(User, viewer.id).role == "viewer"
+    restored_identity = db_session.get(ExternalIdentity, identity.id)
+    assert restored_identity.role_sync_provenance is None
+    audit = db_session.scalar(
+        select(AuditLog)
+        .where(AuditLog.action == "oidc.provider.update", AuditLog.success.is_(True))
+        .order_by(AuditLog.created_at.desc())
+    )
+    assert audit.metadata_json["fixed_roles_reverted"] == 1
+    assert audit.metadata_json["fixed_roles_with_legacy_provenance"] == 0
+
+
+def test_fixed_role_reversion_preserves_owner_with_durable_local_custom_access(
+    client,
+    auth_headers,
+    db_session,
+    seed_users,
+):
+    provider = _configured_provider(db_session)
+    viewer = seed_users["viewer"]
+    viewer.role = "analyst"
+    local_role = IAMRole(
+        key=f"durable-investigation-owner-{uuid.uuid4().hex[:8]}",
+        name="Durable investigation owner",
+        description="Keeps ownership valid after fixed-role reversion.",
+        is_system=False,
+        revision=1,
+        created_by_user_id=seed_users["admin"].id,
+    )
+    identity = ExternalIdentity(
+        provider_id=provider.id,
+        user_id=viewer.id,
+        issuer=provider.issuer_url,
+        subject="provider-disable-durable-owner",
+        email_at_link=viewer.email,
+        role_sync_provenance="tracked",
+        role_sync_previous_role="viewer",
+        role_sync_applied_role="analyst",
+        role_sync_updated_at=datetime.now(timezone.utc),
+    )
+    db_session.add_all([viewer, local_role, identity])
+    db_session.flush()
+    db_session.add_all(
+        [
+            IAMRolePermission(
+                role_id=local_role.id,
+                permission="write:investigations",
+            ),
+            IAMUserRoleAssignment(
+                user_id=viewer.id,
+                role_id=local_role.id,
+                source="local",
+                source_key="",
+                assigned_by_user_id=seed_users["admin"].id,
+            ),
+        ]
+    )
+    investigation = Investigation(
+        title="Durably owned investigation",
+        description="Local custom access survives provider disable.",
+        severity="medium",
+        visibility="private",
+        created_by_user_id=viewer.id,
+    )
+    db_session.add(investigation)
+    db_session.flush()
+    db_session.add(
+        InvestigationMember(
+            investigation_id=investigation.id,
+            user_id=viewer.id,
+            role="owner",
+            added_by_user_id=viewer.id,
+        )
+    )
+    db_session.commit()
+
+    response = client.put(
+        "/auth/oidc/provider",
+        headers=auth_headers["admin"],
+        json=_provider_payload(
+            enabled=False,
+            expected_config_revision=provider.config_revision,
+            client_auth_method="none",
+            client_secret=None,
+        ),
+    )
+
+    assert response.status_code == 200, response.text
+    db_session.expire_all()
+    assert db_session.get(User, viewer.id).role == "viewer"
+    owner = db_session.get(
+        InvestigationMember,
+        {"investigation_id": investigation.id, "user_id": viewer.id},
+    )
+    assert owner is not None
+    assert owner.role == "owner"
+
+
 def test_rate_limited_valid_reauthentication_callback_uses_reauth_contract(
     client,
     db_session,
@@ -1070,7 +1284,7 @@ def test_oidc_jit_login_provisions_verified_user_and_maps_role(
     callback = _start_and_complete(client)
 
     assert callback.status_code == 302
-    assert callback.headers["location"] == "http://testserver/"
+    assert callback.headers["location"] == "http://testserver/start"
     user = db_session.scalar(select(User).where(User.email == "new-user@example.com"))
     assert user is not None
     assert user.role == "analyst"
@@ -1163,7 +1377,7 @@ def test_oidc_jit_can_accept_unverified_email_only_when_provider_policy_allows_i
     callback = _start_and_complete(client)
 
     assert callback.status_code == 302
-    assert callback.headers["location"] == "http://testserver/"
+    assert callback.headers["location"] == "http://testserver/start"
     user = db_session.scalar(select(User).where(User.email == "trusted@example.com"))
     assert user is not None
     assert user.is_approved is True
@@ -1194,7 +1408,7 @@ def test_oidc_jit_accepts_internal_email_identifier_when_verification_is_optiona
     callback = _start_and_complete(client)
 
     assert callback.status_code == 302
-    assert callback.headers["location"] == "http://testserver/"
+    assert callback.headers["location"] == "http://testserver/start"
     user = db_session.scalar(select(User).where(User.email == "admin@admin.local"))
     assert user is not None
     identity = db_session.scalar(
@@ -1612,7 +1826,7 @@ def test_oidc_login_remains_compatible_when_provider_omits_auth_time(
 
     callback = _start_and_complete(client)
 
-    assert callback.headers["location"] == "http://testserver/"
+    assert callback.headers["location"] == "http://testserver/start"
     assert client.get("/auth/me").status_code == 200
 
 
@@ -2030,6 +2244,44 @@ def test_oidc_role_sync_revokes_existing_sessions_and_api_tokens(
     assert sync_audit.metadata_json["revoked_api_tokens"] == 1
 
 
+def test_oidc_role_sync_never_promotes_legacy_provenance_automatically(
+    client,
+    db_session,
+    seed_users,
+    monkeypatch,
+):
+    provider = _configured_provider(
+        db_session,
+        role_mappings_json=[],
+        default_role="viewer",
+        jit_provisioning_enabled=False,
+    )
+    analyst = seed_users["analyst"]
+    identity = ExternalIdentity(
+        provider_id=provider.id,
+        user_id=analyst.id,
+        issuer=provider.issuer_url,
+        subject="legacy-role-provenance",
+        email_at_link=analyst.email,
+        role_sync_provenance="legacy",
+        role_sync_applied_role="analyst",
+        role_sync_updated_at=datetime.now(timezone.utc),
+    )
+    db_session.add(identity)
+    db_session.commit()
+    _mock_oidc_flow(monkeypatch, {"sub": identity.subject, "groups": []})
+
+    callback = _start_and_complete(client)
+
+    assert callback.status_code == 302
+    db_session.refresh(identity)
+    db_session.refresh(analyst)
+    assert analyst.role == "viewer"
+    assert identity.role_sync_provenance == "legacy"
+    assert identity.role_sync_previous_role is None
+    assert identity.role_sync_applied_role == "viewer"
+
+
 def test_oidc_only_account_cannot_use_local_login_or_unlink(
     client, db_session, monkeypatch
 ):
@@ -2044,7 +2296,7 @@ def test_oidc_only_account_cannot_use_local_login_or_unlink(
         },
     )
     callback = _start_and_complete(client)
-    assert callback.headers["location"] == "http://testserver/"
+    assert callback.headers["location"] == "http://testserver/start"
 
     local_login = client.post(
         "/auth/login",
@@ -2301,7 +2553,7 @@ def test_sso_provisioned_account_rejects_locally_managed_identity_changes(
         },
     )
     callback = _start_and_complete(client)
-    assert callback.headers["location"] == "http://testserver/"
+    assert callback.headers["location"] == "http://testserver/start"
     user = db_session.scalar(select(User).where(User.email == "recovery@example.com"))
     assert user is not None
     assert user.password_login_enabled is False
@@ -2392,7 +2644,7 @@ def test_user_directory_describes_sso_account_management_boundaries(
         },
     )
     callback = _start_and_complete(client)
-    assert callback.headers["location"] == "http://testserver/"
+    assert callback.headers["location"] == "http://testserver/start"
 
     response = client.get("/users", headers=auth_headers["admin"])
 

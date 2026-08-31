@@ -24,6 +24,8 @@ type LoginStep = 'credentials' | 'mfa'
 const LOGIN_MUTATION_KEY = ['auth', 'login'] as const
 const REGISTER_MUTATION_KEY = ['auth', 'register'] as const
 const MFA_VERIFY_MUTATION_KEY = ['auth', 'mfa', 'verify'] as const
+const OIDC_RETURN_STORAGE_KEY = 'threatlens.auth.oidc-return.v1'
+const OIDC_RETURN_TTL_MS = 10 * 60 * 1000
 
 function forgetCredentialMutation(
   queryClient: QueryClient,
@@ -115,6 +117,7 @@ export function LoginPage() {
         return
       }
       setPassword('')
+      clearPendingOidcReturnDestination()
       markAuthenticated()
       navigate(resolvePostLoginDestination(location.state), { replace: true })
     },
@@ -138,6 +141,7 @@ export function LoginPage() {
     onMutate: () => setMfaErrorState(null),
     onSuccess: () => {
       setMfaCode('')
+      clearPendingOidcReturnDestination()
       markAuthenticated()
       navigate(resolvePostLoginDestination(location.state), { replace: true })
     },
@@ -313,6 +317,7 @@ export function LoginPage() {
           isFetching={oidcSettingsQuery.isFetching}
           error={oidcSettingsQuery.error}
           onRetry={() => void oidcSettingsQuery.refetch()}
+          onContinue={() => beginOidcLogin(location.state)}
         />
 
         {loginStep === 'credentials' ? (
@@ -467,6 +472,7 @@ function LoginIdentityOptions({
   isFetching,
   error,
   onRetry,
+  onContinue,
 }: {
   step: LoginStep
   mode: AuthMode
@@ -475,6 +481,7 @@ function LoginIdentityOptions({
   isFetching: boolean
   error: unknown
   onRetry: () => void
+  onContinue: () => void
 }) {
   return step === 'credentials' ? (
     <OIDCLoginOption
@@ -484,6 +491,7 @@ function LoginIdentityOptions({
       isFetching={isFetching}
       error={error}
       onRetry={onRetry}
+      onContinue={onContinue}
     />
   ) : null
 }
@@ -666,6 +674,7 @@ function OIDCLoginOption({
   isFetching,
   error,
   onRetry,
+  onContinue,
 }: {
   mode: AuthMode
   settings: OIDCPublicSettings | undefined
@@ -673,6 +682,7 @@ function OIDCLoginOption({
   isFetching: boolean
   error: unknown
   onRetry: () => void
+  onContinue: () => void
 }) {
   if (mode !== 'login') {
     return null
@@ -723,7 +733,7 @@ function OIDCLoginOption({
       <button
         type="button"
         className="mt-5 w-full rounded border border-cyan/40 bg-cyan/10 px-3 py-2 font-semibold text-cyan-900 hover:bg-cyan/15 dark:border-cyan/40 dark:text-cyan-100"
-        onClick={() => window.location.assign(buildApiUrl('/auth/oidc/login'))}
+        onClick={onContinue}
       >
         Continue with {settings.provider_name || 'SSO'}
       </button>
@@ -760,22 +770,117 @@ function resolveOidcError(errorCode: string): string {
   return resolveOIDCLoginError(errorCode)
 }
 
-function resolvePostLoginDestination(state: unknown): string {
+// eslint-disable-next-line react-refresh/only-export-components -- Routing tests exercise this security boundary directly.
+export function resolvePostLoginDestination(state: unknown): string {
   if (!state || typeof state !== 'object' || !('from' in state)) {
-    return '/'
+    return '/start'
   }
 
   const from = state.from
   if (!from || typeof from !== 'object') {
-    return '/'
+    return '/start'
   }
 
   const pathname =
     'pathname' in from && typeof from.pathname === 'string'
       ? from.pathname
       : '/'
+  if (!isSafeInternalPathname(pathname) || pathname === '/' || pathname === '/start' || pathname === '/login') {
+    return '/start'
+  }
   const search =
-    'search' in from && typeof from.search === 'string' ? from.search : ''
+    'search' in from && typeof from.search === 'string' && (!from.search || from.search.startsWith('?'))
+      ? from.search
+      : ''
   const hash = 'hash' in from && typeof from.hash === 'string' ? from.hash : ''
-  return `${pathname}${search}${hash}` || '/'
+  return `${pathname}${search}${hash.startsWith('#') || !hash ? hash : ''}`
+}
+
+// eslint-disable-next-line react-refresh/only-export-components -- The authenticated root reads this one-time OIDC state.
+export function readPendingOidcReturnDestination(): string | null {
+  const raw = readSessionStorage(OIDC_RETURN_STORAGE_KEY)
+  if (!raw) return null
+
+  try {
+    const parsed = JSON.parse(raw) as { destination?: unknown; createdAt?: unknown }
+    if (
+      typeof parsed.destination !== 'string' ||
+      typeof parsed.createdAt !== 'number' ||
+      !Number.isFinite(parsed.createdAt) ||
+      parsed.createdAt > Date.now() + 60_000 ||
+      Date.now() - parsed.createdAt > OIDC_RETURN_TTL_MS ||
+      !isSafeStoredDestination(parsed.destination)
+    ) {
+      return null
+    }
+    return parsed.destination
+  } catch {
+    return null
+  }
+}
+
+function beginOidcLogin(state: unknown) {
+  stagePendingOidcReturnDestination(state)
+  window.location.assign(buildApiUrl('/auth/oidc/login'))
+}
+
+// eslint-disable-next-line react-refresh/only-export-components -- Routing tests verify OIDC deep-link persistence without navigation.
+export function stagePendingOidcReturnDestination(state: unknown) {
+  const destination = resolvePostLoginDestination(state)
+  if (destination === '/start') {
+    clearPendingOidcReturnDestination()
+  } else {
+    writeSessionStorage(
+      OIDC_RETURN_STORAGE_KEY,
+      JSON.stringify({ destination, createdAt: Date.now() }),
+    )
+  }
+}
+
+// eslint-disable-next-line react-refresh/only-export-components -- The authenticated root clears OIDC state after commit.
+export function clearPendingOidcReturnDestination() {
+  removeSessionStorage(OIDC_RETURN_STORAGE_KEY)
+}
+
+function isSafeInternalPathname(pathname: string) {
+  return pathname.startsWith('/') && !pathname.startsWith('//') && !pathname.includes('\0')
+}
+
+function isSafeStoredDestination(destination: string) {
+  try {
+    const url = new URL(destination, 'https://threatlens.local')
+    return (
+      isSafeInternalPathname(destination) &&
+      url.origin === 'https://threatlens.local' &&
+      url.pathname !== '/' &&
+      url.pathname !== '/start' &&
+      url.pathname !== '/login'
+    )
+  } catch {
+    return false
+  }
+}
+
+function readSessionStorage(key: string) {
+  try {
+    return typeof window === 'undefined' ? null : window.sessionStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+function writeSessionStorage(key: string, value: string) {
+  try {
+    window.sessionStorage.setItem(key, value)
+  } catch {
+    // OIDC still works; only explicit deep-link restoration is unavailable.
+  }
+}
+
+function removeSessionStorage(key: string) {
+  try {
+    if (typeof window !== 'undefined') window.sessionStorage.removeItem(key)
+  } catch {
+    // Storage may be unavailable in privacy-restricted browsers.
+  }
 }

@@ -11,10 +11,15 @@ from threading import Event
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import event, select
+from sqlalchemy import delete, event, select
 from sqlalchemy.orm import Session
 
 from app.api.routes.notifications import delete_notification_webhook
+from app.models.audit_log import AuditLog
+from app.models.data_policy import (
+    DataPolicyState,
+    UNRESTRICTED_HANDLING_LABEL_ID,
+)
 from app.models.feed import Feed
 from app.models.integration import (
     IntegrationAttempt,
@@ -26,6 +31,13 @@ from app.models.item import Item
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.user import User
+from app.schemas.notification import (
+    NotificationWebhookTestResponse,
+    NotificationWebhookWrite,
+)
+from app.services import notification_webhook_http
+from app.services.authorization import authorization_context_for_user
+from app.services.data_access_policy import DataAccessContext
 from app.services.integration_compat import (
     delete_webhook_integration,
     ensure_webhook_integration,
@@ -55,7 +67,139 @@ from app.services.webhook_delivery_locking import WebhookDeliveryBusyError
 from app.services.notification_webhooks import (
     process_notification_webhook_delivery,
     reserve_retryable_notification_webhook_delivery,
+    test_notification_webhook as execute_notification_webhook_test,
 )
+from app.services.notification_webhook_test_policy import (
+    NotificationWebhookTestReplayUnsafe,
+)
+
+
+def test_webhook_test_concurrent_replay_never_sends_twice(
+    database_engine,
+    monkeypatch,
+):
+    owner_id = uuid.uuid4()
+    feed_id = uuid.uuid4()
+    item_id = uuid.uuid4()
+    operation_id = f"concurrent-notification-test-{uuid.uuid4()}"
+    with Session(database_engine) as setup_db:
+        owner = User(
+            id=owner_id,
+            email=f"notification-test-race-{uuid.uuid4().hex}@example.com",
+            password_hash="x",
+            role="admin",
+            is_active=True,
+            is_approved=True,
+        )
+        feed = Feed(
+            id=feed_id,
+            name="Concurrent webhook test feed",
+            url=f"https://example.com/concurrent-test-{feed_id}.xml",
+            handling_label_id=UNRESTRICTED_HANDLING_LABEL_ID,
+        )
+        item = Item(
+            id=item_id,
+            feed_id=feed_id,
+            source_guid=str(item_id),
+            url=f"https://example.com/articles/{item_id}",
+            canonical_url=f"https://example.com/articles/{item_id}",
+            title="Concurrent webhook test item",
+            dedupe_key=f"concurrent-webhook-test:{item_id}",
+            content_hash=uuid.uuid4().hex,
+            status="content_fetched",
+        )
+        setup_db.add_all([owner, feed])
+        setup_db.flush()
+        setup_db.add(item)
+        setup_db.flush()
+        authorization = authorization_context_for_user(setup_db, owner)
+        policy_state = setup_db.get(DataPolicyState, 1)
+        assert policy_state is not None
+        data_access = DataAccessContext(
+            mode=policy_state.mode,  # type: ignore[arg-type]
+            policy_revision=policy_state.revision,
+            coverage_version=policy_state.coverage_version,
+            principal_type="user",
+            principal_id=owner_id,
+            principal_eligible=True,
+            allowed_label_ids=frozenset({UNRESTRICTED_HANDLING_LABEL_ID}),
+        )
+        setup_db.commit()
+
+    payload = NotificationWebhookWrite(
+        name="Concurrent synthetic test",
+        event_type="rss_item_new",
+        url_template="https://hooks.example.com/concurrent-test",
+        method="POST",
+        feed_scope="all",
+        body_mode="none",
+        timeout_seconds=10,
+    )
+    send_started = Event()
+    allow_send_to_finish = Event()
+    send_calls: list[bool] = []
+
+    def _blocking_send(rendered):
+        notification_webhook_http._mark_notification_external_io_started()
+        send_calls.append(True)
+        send_started.set()
+        assert allow_send_to_finish.wait(timeout=5)
+        return NotificationWebhookTestResponse(
+            success=True,
+            status_code=204,
+            duration_ms=1,
+            rendered_url=rendered.url,
+            rendered_method=rendered.method,
+            rendered_headers=rendered.headers,
+            rendered_query_params=rendered.query_params,
+            rendered_body=rendered.body,
+            response_body_preview="",
+            error=None,
+        )
+
+    monkeypatch.setattr(
+        "app.services.notification_webhook_http.send_rendered_notification_request",
+        _blocking_send,
+    )
+
+    def _execute():
+        with Session(database_engine) as worker_db:
+            owner = worker_db.get(User, owner_id)
+            assert owner is not None
+            return execute_notification_webhook_test(
+                worker_db,
+                user=owner,
+                payload=payload,
+                sample_item_id=item_id,
+                data_access=data_access,
+                authorization=authorization,
+                operation_id=operation_id,
+            )
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            first = executor.submit(_execute)
+            assert send_started.wait(timeout=5)
+            concurrent_replay = executor.submit(_execute)
+            try:
+                with pytest.raises(NotificationWebhookTestReplayUnsafe):
+                    concurrent_replay.result(timeout=5)
+            finally:
+                allow_send_to_finish.set()
+            first_result = first.result(timeout=5)
+
+        assert first_result.success is True
+        assert first_result.status_code == 204
+        assert send_calls == [True]
+    finally:
+        allow_send_to_finish.set()
+        with Session(database_engine) as cleanup_db:
+            cleanup_db.execute(
+                delete(AuditLog).where(AuditLog.actor_user_id == owner_id)
+            )
+            cleanup_db.execute(delete(Feed).where(Feed.id == feed_id))
+            cleanup_db.execute(delete(User).where(User.id == owner_id))
+            cleanup_db.commit()
 
 
 @pytest.mark.parametrize(
@@ -397,7 +541,7 @@ def test_first_webhook_heartbeat_schema_race_preserves_retry_budget(
 @pytest.mark.parametrize(
     ("configuration_change", "expected_generic_state", "expected_send_count"),
     [
-        ("schema", "dead_letter", 1),
+        ("schema", "failed", 1),
         ("disabled", "failed", 1),
         ("redirect", "failed", 1),
         ("redirect_validation", "failed", 1),

@@ -1,10 +1,48 @@
 // @vitest-environment jsdom
 
-import { act } from 'react'
+import { StrictMode, act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+
+const appWorkspaceMocks = vi.hoisted(() => ({
+  landingPath: '/',
+  settingsNavigation: [] as Array<{
+    id: string
+    label: string
+    route: string
+    parentId: string
+    landingEligible: boolean
+  }>,
+}))
+
+vi.mock('./components/WorkspaceProvider', () => ({
+  WorkspaceProvider: ({ children }: { children: React.ReactNode }) => children,
+}))
+
+vi.mock('./workspace/useWorkspace', () => ({
+  useWorkspace: () => ({
+    isLoading: false,
+    model: {
+      landingPath: appWorkspaceMocks.landingPath,
+      primaryNavigation: [
+        { id: 'primary.dashboard', label: 'Dashboard', route: '/' },
+        { id: 'primary.alerts', label: 'Alerts', route: '/alerts' },
+        { id: 'primary.feeds', label: 'Feeds', route: '/feeds' },
+        { id: 'primary.stats', label: 'Stats', route: '/stats' },
+      ],
+      mobileNavigation: [
+        { id: 'primary.dashboard', label: 'Dashboard', route: '/' },
+        { id: 'primary.alerts', label: 'Alerts', route: '/alerts' },
+        { id: 'primary.feeds', label: 'Feeds', route: '/feeds' },
+        { id: 'primary.stats', label: 'Stats', route: '/stats' },
+      ],
+      settingsNavigation: appWorkspaceMocks.settingsNavigation,
+      mobileSettingsNavigation: appWorkspaceMocks.settingsNavigation,
+    },
+  }),
+}))
 
 vi.mock('./hooks/useCurrentUser', () => ({
   useCurrentUser: () => ({
@@ -23,6 +61,7 @@ vi.mock('./hooks/useCurrentUser', () => ({
         ai_relevance_enabled: false,
         ai_daily_brief_enabled: false,
       },
+      access: { permissions: ['*:*'] },
     },
     isLoading: false,
     isError: false,
@@ -63,6 +102,10 @@ vi.mock('./pages/StatsPage', () => ({
   StatsPage: () => <div>Stats Test Page</div>,
 }))
 
+vi.mock('./pages/DashboardPage', () => ({
+  DashboardPage: () => <div>Dashboard Test Page</div>,
+}))
+
 vi.mock('./pages/FeedsPage', () => ({
   FeedsPage: () => {
     throw new Error('Lazy feed route exploded')
@@ -84,13 +127,13 @@ function flushPromises() {
   return new Promise((resolve) => window.setTimeout(resolve, 0))
 }
 
-async function renderApp(pathname: string) {
+async function renderApp(pathname: string, strict = false) {
   window.history.replaceState({}, '', pathname)
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
   await act(async () => {
-    root?.render(<App />)
+    root?.render(strict ? <StrictMode><App /></StrictMode> : <App />)
     await flushPromises()
     await flushPromises()
   })
@@ -124,6 +167,19 @@ async function waitForText(text: string) {
   return false
 }
 
+async function waitForPath(pathname: string) {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    if (window.location.pathname === pathname) {
+      return true
+    }
+    await act(async () => {
+      await flushPromises()
+    })
+  }
+
+  return false
+}
+
 afterEach(async () => {
   await act(async () => {
     root?.unmount()
@@ -134,9 +190,83 @@ afterEach(async () => {
   container = null
   document.body.innerHTML = ''
   window.history.replaceState({}, '', '/')
+  window.sessionStorage.clear()
+  appWorkspaceMocks.landingPath = '/'
+  appWorkspaceMocks.settingsNavigation = []
 })
 
 describe('App router integration', () => {
+  it('keeps the authenticated root as the dashboard regardless of the configured landing', async () => {
+    appWorkspaceMocks.landingPath = '/stats'
+
+    await renderApp('/')
+
+    expect(await waitForText('Dashboard Test Page')).toBe(true)
+    expect(window.location.pathname).toBe('/')
+  })
+
+  it('restores an explicit OIDC deep link before applying the workspace landing', async () => {
+    appWorkspaceMocks.landingPath = '/stats'
+    window.sessionStorage.setItem(
+      'threatlens.auth.oidc-return.v1',
+      JSON.stringify({ destination: '/alerts', createdAt: Date.now() }),
+    )
+
+    await renderApp('/start', true)
+
+    expect(await waitForText('Alerts Test Page')).toBe(true)
+    expect(window.location.pathname).toBe('/alerts')
+    expect(window.sessionStorage.getItem('threatlens.auth.oidc-return.v1')).toBeNull()
+  })
+
+  it('redirects an Integrations container to its first visible child instead of Webhooks unconditionally', async () => {
+    appWorkspaceMocks.settingsNavigation = [
+      {
+        id: 'settings.integrations',
+        label: 'Integrations',
+        route: '/settings/integrations',
+        parentId: 'primary.settings',
+        landingEligible: false,
+      },
+      {
+        id: 'settings.integrations.smtp',
+        label: 'SMTP',
+        route: '/settings/integrations/smtp',
+        parentId: 'settings.integrations',
+        landingEligible: true,
+      },
+    ]
+
+    await renderApp('/settings/integrations')
+    expect(await waitForPath('/settings/integrations/smtp')).toBe(true)
+
+    expect(window.location.pathname).not.toBe('/settings/integrations/webhooks')
+  })
+
+  it('leaves an empty Integrations container through a non-container Settings fallback', async () => {
+    appWorkspaceMocks.settingsNavigation = [
+      {
+        id: 'settings.account',
+        label: 'Account',
+        route: '/settings/account',
+        parentId: 'primary.settings',
+        landingEligible: true,
+      },
+      {
+        id: 'settings.integrations',
+        label: 'Integrations',
+        route: '/settings/integrations',
+        parentId: 'primary.settings',
+        landingEligible: false,
+      },
+    ]
+
+    await renderApp('/settings/integrations')
+
+    expect(await waitForPath('/settings/account')).toBe(true)
+  })
+
+
   it('blocks in-app navigation when a dirty page uses useUnsavedChangesWarning', async () => {
     await renderApp('/alerts')
     const draftInput = await waitForSelector<HTMLInputElement>('#alerts-test-draft')

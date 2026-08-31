@@ -12,6 +12,15 @@ from sqlalchemy.orm import Session
 from app.models.ai_task_run import AITaskRun
 from app.models.report import Report
 from app.models.report_operation_receipt import ReportOperationReceipt
+from app.services.ai_telemetry_data_policy import ai_task_run_access_predicate
+from app.services.data_access_envelopes import (
+    DATA_ACCESS_RESOURCE_REPORT,
+    data_access_envelope_predicate,
+)
+from app.services.data_access_policy import (
+    DataAccessContext,
+    fence_data_access_context,
+)
 from app.services.report_task_lineage import (
     ReportTaskLineageError,
     find_report_request_task_run,
@@ -174,9 +183,11 @@ def find_report_create_replay(
     *,
     user_id: uuid.UUID,
     identity: ReportRequestIdentity | None,
+    data_access: DataAccessContext,
 ) -> tuple[Report, AITaskRun] | None:
     if identity is None:
         return None
+    fence_data_access_context(db, data_access)
     report = db.scalar(
         select(Report).where(
             Report.owner_user_id == user_id,
@@ -189,11 +200,37 @@ def find_report_create_replay(
     if report is None:
         return None
     _ensure_matching_fingerprint(report.request_fingerprint, identity.fingerprint)
+    report_accessible = db.scalar(
+        select(Report.id).where(
+            Report.id == report.id,
+            data_access_envelope_predicate(
+                DATA_ACCESS_RESOURCE_REPORT,
+                Report.id,
+                data_access,
+            ),
+        )
+    )
+    if report_accessible is None:
+        raise ReportIdempotencyConflictError(
+            "The original report request is no longer accessible. Use a new "
+            "Idempotency-Key after reviewing your current data access."
+        )
     run = _request_report_task_run(db, report=report)
     if run is None:
         raise ReportIdempotencyConflictError(
             "The original report request exists, but its task record is unavailable. "
             "Use a new Idempotency-Key to create another report."
+        )
+    run_accessible = db.scalar(
+        select(AITaskRun.id).where(
+            AITaskRun.id == run.id,
+            ai_task_run_access_predicate(data_access),
+        )
+    )
+    if run_accessible is None:
+        raise ReportIdempotencyConflictError(
+            "The original report request is no longer accessible. Use a new "
+            "Idempotency-Key after reviewing your current data access."
         )
     return report, run
 
@@ -204,9 +241,11 @@ def find_report_retry_replay(
     user_id: uuid.UUID,
     report_id: uuid.UUID,
     identity: ReportRequestIdentity | None,
+    data_access: DataAccessContext,
 ) -> AITaskRun | None:
     if identity is None:
         return None
+    fence_data_access_context(db, data_access)
     run = db.scalar(
         select(AITaskRun).where(
             AITaskRun.actor_user_id == user_id,
@@ -220,7 +259,21 @@ def find_report_retry_replay(
             "The Idempotency-Key is already associated with another report retry."
         )
     _ensure_matching_fingerprint(run.request_fingerprint, identity.fingerprint)
-    return _canonical_report_task_run(db, run=run)
+    run = _canonical_report_task_run(db, run=run)
+    if (
+        db.scalar(
+            select(AITaskRun.id).where(
+                AITaskRun.id == run.id,
+                ai_task_run_access_predicate(data_access),
+            )
+        )
+        is None
+    ):
+        raise ReportIdempotencyConflictError(
+            "The original report retry is no longer accessible. Use a new "
+            "Idempotency-Key after reviewing your current data access."
+        )
+    return run
 
 
 def find_report_schedule_run_replay(

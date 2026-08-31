@@ -1,7 +1,21 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Integer, JSON, String, Text, Uuid, func, text
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    JSON,
+    String,
+    Text,
+    Uuid,
+    func,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -31,6 +45,17 @@ class AITaskRun(Base):
             "actor_user_id",
             "request_idempotency_key_hash",
             unique=True,
+        ),
+        CheckConstraint(
+            "data_access_scope IN ('system', 'governed')",
+            name="ck_ai_task_runs_data_access_scope",
+        ),
+        CheckConstraint(
+            "data_access_scope <> 'system' OR "
+            "(task_type = 'connection_test' AND data_access_lineage_complete "
+            "AND item_id IS NULL AND daily_brief_id IS NULL "
+            "AND report_id IS NULL AND parent_run_id IS NULL)",
+            name="ck_ai_task_runs_system_scope",
         ),
     )
 
@@ -108,6 +133,12 @@ class AITaskRun(Base):
     request_idempotency_key_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     request_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
     metadata_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    data_access_scope: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="governed", server_default="governed"
+    )
+    data_access_lineage_complete: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     target_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     processed_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     success_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")

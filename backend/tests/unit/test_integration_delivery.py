@@ -293,9 +293,10 @@ def test_webhook_preflight_failure_preserves_prior_external_io_marker(db_session
     db_session.refresh(generic)
     db_session.refresh(attempt)
     assert deferred.claimed is False
-    assert generic.state == "retry_wait"
+    assert generic.state == "failed"
     assert attempt.response_json["delivery_outcome"] == "unknown"
     assert attempt.response_json["external_side_effect_possible"] is True
+    assert attempt.response_json["automatic_retry_suppressed"] is True
     assert "retry_budget_consumed" not in attempt.response_json
 
 

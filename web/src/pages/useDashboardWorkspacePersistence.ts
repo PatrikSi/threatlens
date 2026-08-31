@@ -15,17 +15,18 @@ import {
 } from './dashboardPageUtils'
 import {
   createWindowLayout,
-  loadDashboardWindows,
   normalizeDashboardWindows,
   serializeDashboardWindowLayouts,
   type DashboardWindow,
 } from './dashboardSavedViews'
+import { loadDashboardWindows, loadStoredDashboardWindows } from './dashboardWindowStorage'
 import { getDashboardStorageKeys, migrateLegacyDashboardStorage } from './dashboardStorage'
 
 type FeedbackByItemId = Record<string, { tone: 'success' | 'error'; message: string }>
 
 type WorkspacePersistenceOptions = {
   aiDailyBriefEnabled: boolean
+  defaultPanelIds: readonly DashboardWindow['type'][]
   expandedItemIdsByWindowId: Record<string, string>
   isWideLayout: boolean
   rootRef: RefObject<HTMLDivElement | null>
@@ -43,10 +44,12 @@ type WorkspacePersistenceOptions = {
   userId: string | null
   windowSeenAt: Record<string, string>
   windows: DashboardWindow[]
+  workspaceDefaultsSettled: boolean
 }
 
 export function useDashboardWorkspacePersistence({
   aiDailyBriefEnabled,
+  defaultPanelIds,
   expandedItemIdsByWindowId,
   isWideLayout,
   rootRef,
@@ -64,6 +67,7 @@ export function useDashboardWorkspacePersistence({
   userId,
   windowSeenAt,
   windows,
+  workspaceDefaultsSettled,
 }: WorkspacePersistenceOptions) {
   const initializedDashboardUserRef = useRef<string | null>(null)
   const windowPersistenceTimeoutRef = useRef<number | null>(null)
@@ -214,13 +218,19 @@ export function useDashboardWorkspacePersistence({
 
     const storageKeys = getDashboardStorageKeys(userId)
     const { width, height } = getWindowContainerDimensions(rootRef.current)
-    setWindows(loadDashboardWindows(storageKeys.windows, width, height))
+    const storedWindows = loadStoredDashboardWindows(storageKeys.windows, width, height)
+    // Organization panel choices seed only a missing local layout; they never replace an established workspace.
+    if (!workspaceDefaultsSettled && !storedWindows) {
+      return
+    }
+    setWindows(storedWindows ?? loadDashboardWindows(storageKeys.windows, width, height, defaultPanelIds))
     setWindowSeenAt(loadWindowSeenState(storageKeys.windowSeenAt))
     setRssLastOpenedAt(loadStoredTimestamp(storageKeys.lastOpenedAt))
     safeLocalStorage.setItem(storageKeys.lastOpenedAt, new Date().toISOString())
     initializedDashboardUserRef.current = userId
   }, [
     rootRef,
+    defaultPanelIds,
     savedNoteValuesByItemIdRef,
     setExpandedItemIdsByWindowId,
     setItemActionFeedbackByItemId,
@@ -229,6 +239,7 @@ export function useDashboardWorkspacePersistence({
     setWindowSeenAt,
     setWindows,
     userId,
+    workspaceDefaultsSettled,
   ])
 
   useEffect(() => {

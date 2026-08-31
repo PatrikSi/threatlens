@@ -64,6 +64,7 @@ import { useDashboardItemActions } from './useDashboardItemActions'
 import { useDashboardWindowActions } from './useDashboardWindowActions'
 import { useDashboardWindowFilters } from './useDashboardWindowFilters'
 import { useDashboardWorkspacePersistence } from './useDashboardWorkspacePersistence'
+import { useWorkspace } from '../workspace/useWorkspace'
 
 type DashboardEditSessionSnapshot = {
   activeSavedViewId: string | null
@@ -78,6 +79,8 @@ const RSS_WINDOW_REFETCH_INTERVAL_MS = 60_000
 export function useDashboardPageController() {
   const queryClient = useQueryClient()
   const meQuery = useCurrentUser()
+  const workspace = useWorkspace()
+  const workspaceDefaultsReady = workspace.effective?.role === workspace.userContext.role
   const rootRef = useRef<HTMLDivElement | null>(null)
   const addWindowMenuId = useId()
   const aiFeatures = meQuery.data?.features
@@ -183,6 +186,7 @@ export function useDashboardPageController() {
 
   useDashboardWorkspacePersistence({
     aiDailyBriefEnabled,
+    defaultPanelIds: workspace.model.dashboardPanelIds,
     expandedItemIdsByWindowId,
     isWideLayout,
     rootRef,
@@ -200,6 +204,7 @@ export function useDashboardPageController() {
     userId: meQuery.data?.id ?? null,
     windowSeenAt,
     windows,
+    workspaceDefaultsSettled: workspaceDefaultsReady || (!workspace.isLoading && workspace.isDegraded),
   })
 
   const deferredWindows = useDeferredValue(windows)
@@ -1106,6 +1111,7 @@ export function useDashboardPageController() {
     updateStar, updateWindowAlertFilters, updateWindowCustomTimeDate, updateWindowDailyBriefSelection, updateWindowRollingDays,
     updateWindowRssFilters, updateWindowScratchNote, updateWindowTimeRange, viewDeleteError, viewSaveError,
     viewSavePending, viewsQuery, windowSeenAt, windows,
+    workspaceDefaultsDegraded: !workspaceDefaultsReady && workspace.isDegraded,
   }
 }
 

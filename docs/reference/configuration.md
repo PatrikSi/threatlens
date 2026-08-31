@@ -87,6 +87,7 @@
 | `API_TOKEN_LAST_USED_UPDATE_INTERVAL_SECONDS` (`api_token_last_used_update_interval_seconds`) | `300` | Minimum interval between `last_used_at` writes per API token. |
 | `OIDC_TRANSACTION_COOKIE_NAME` (`oidc_transaction_cookie_name`) | `threatlens_oidc_transaction` | HttpOnly cookie used for the short-lived OIDC state, nonce, and PKCE transaction. |
 | `OIDC_TRANSACTION_TTL_SECONDS` (`oidc_transaction_ttl_seconds`) | `600` | Maximum age of an OIDC sign-in, account-link, or explicit reauthentication transaction. Transactions are fenced to the provider configuration revision and, for account-bound flows, the exact opaque session and account security generation. |
+| `OIDC_ACCESS_GRANT_TTL_SECONDS` (`oidc_access_grant_ttl_seconds`) | `86400` | Lease lifetime for custom role and group assignments materialized from OIDC claims. Active, eligible users renew leases during sign-in; expired leases are ignored by authorization even before cleanup. Reducing the value also shortens existing leases at the next synchronization. |
 | `OIDC_CALLBACK_PATH` (`oidc_callback_path`) | `/api/v1/auth/oidc/callback` | Public callback path appended to the configured ThreatLens origin. Use `/v1/auth/oidc/callback` only when exposing the API directly without the bundled web proxy. |
 | `OIDC_METADATA_CACHE_SECONDS` (`oidc_metadata_cache_seconds`) | `300` | In-process cache lifetime for validated provider discovery metadata. |
 | `OIDC_CONNECT_TIMEOUT_SECONDS` (`oidc_connect_timeout_seconds`) | `5` | Connect timeout for discovery, token, JWKS, and UserInfo requests. |
@@ -182,6 +183,7 @@
 | `INTEGRATION_EVENT_RETENTION_DAYS` (`integration_event_retention_days`) | `30` | Routed/dead outbox event retention after all deliveries are removed. |
 | `INTEGRATION_METRICS_RETENTION_DAYS` (`integration_metrics_retention_days`) | `730` | Hourly delivery rollup retention. |
 | `AUDIT_LOG_RETENTION_DAYS` (`audit_log_retention_days`) | `730` | Audit log retention before maintenance removes expired records. |
+| `ACTION_APPROVAL_RETENTION_DAYS` (`action_approval_retention_days`) | `730` | Terminal or expired action-approval, execution-receipt, and idempotency-receipt retention. Referenced AI runs and provider-attempt receipt operations remain pinned until the approval is eligible for deletion. |
 | `AI_TASK_HISTORY_RETENTION_DAYS` (`ai_task_history_retention_days`) | `180` | Terminal AI task and task-event history retention. |
 | `AI_USAGE_RETENTION_DAYS` (`ai_usage_retention_days`) | `730` | AI usage aggregate retention. |
 | `TAG_FEEDBACK_RETENTION_DAYS` (`tag_feedback_retention_days`) | `730` | User tag-feedback retention for quality analysis. |

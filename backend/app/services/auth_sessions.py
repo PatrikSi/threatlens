@@ -381,7 +381,9 @@ def rotate_exact_auth_session(
             "The current browser session changed before it could be rotated."
         )
 
-    _mark_revoked(current_session, now=current_time, reason=_bounded(reason, 64) or reason)
+    _mark_revoked(
+        current_session, now=current_time, reason=_bounded(reason, 64) or reason
+    )
     db.add(current_session)
     created = create_auth_session(
         db,
@@ -432,12 +434,15 @@ def revoke_all_auth_sessions(
     user_id: uuid.UUID,
     reason: str,
     except_session_id: uuid.UUID | None = None,
+    auth_method: str | None = None,
     now: datetime | None = None,
 ) -> int:
     current_time = _as_utc(now or datetime.now(timezone.utc))
     filters = [AuthSession.user_id == user_id, AuthSession.revoked_at.is_(None)]
     if except_session_id is not None:
         filters.append(AuthSession.id != except_session_id)
+    if auth_method is not None:
+        filters.append(AuthSession.auth_method == auth_method)
     result = db.execute(
         update(AuthSession)
         .where(*filters)

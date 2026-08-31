@@ -10,6 +10,11 @@ from app.models.ai_daily_brief import AIDailyBrief
 from app.models.ai_daily_brief_source_item import AIDailyBriefSourceItem
 from app.models.integration import IntegrationEvent
 from app.services.notification_webhook_templates import DailyDigestContext
+from app.services.data_access_envelopes import (
+    DATA_ACCESS_RESOURCE_DAILY_BRIEF,
+    data_access_envelope_predicate,
+)
+from app.services.data_access_policy import DataAccessContext
 
 
 DAILY_BRIEF_EVENT_TYPE = "daily_digest"
@@ -122,13 +127,32 @@ def daily_brief_context_from_payload(payload: object) -> DailyDigestContext:
     )
 
 
-def get_latest_daily_brief_notification_context(db: Session) -> DailyDigestContext | None:
-    brief = db.scalar(
+def get_latest_daily_brief_notification_context(
+    db: Session,
+    *,
+    data_access: DataAccessContext | None = None,
+) -> DailyDigestContext | None:
+    access_predicate = (
+        data_access_envelope_predicate(
+            DATA_ACCESS_RESOURCE_DAILY_BRIEF,
+            AIDailyBrief.id,
+            data_access,
+        )
+        if data_access is not None
+        else True
+    )
+    query = (
         select(AIDailyBrief)
-        .where(AIDailyBrief.status == "ready")
+        .where(AIDailyBrief.status == "ready", access_predicate)
         .order_by(AIDailyBrief.brief_date.desc(), AIDailyBrief.generated_at.desc().nullslast())
         .limit(1)
     )
+    if data_access is not None:
+        # Provenance capture locks the brief before extending its envelope.
+        # Holding a matching read lock keeps the selected preview stable until
+        # the caller completes its fenced outbound request.
+        query = query.with_for_update(read=True, of=AIDailyBrief)
+    brief = db.scalar(query)
     if brief is None:
         return None
     return daily_brief_context_from_payload(build_daily_brief_event_payload(db, brief=brief))

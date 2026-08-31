@@ -15,7 +15,12 @@ from app.core.rbac import ALL_ROLES, ROLE_ADMIN, ROLE_ANALYST, ROLE_VIEWER
 from app.core.security import get_password_hash
 from app.models.oidc import ExternalIdentity, OIDCProvider
 from app.models.user import PROVISIONING_SOURCE_OIDC, User
+from app.services.authorization import (
+    bump_iam_policy_revision,
+    lock_iam_policy_for_mutation,
+)
 from app.services.oidc_client import OIDCClaims
+from app.services.oidc_role_provenance import mark_oidc_role_synchronized
 from app.services.user_access import (
     LastActiveAdminError,
     acquire_active_admin_invariant_lock,
@@ -31,6 +36,9 @@ from app.services.investigation_ownership import (
 ROLE_PRECEDENCE = {ROLE_VIEWER: 1, ROLE_ANALYST: 2, ROLE_ADMIN: 3}
 EMAIL_MAX_OCTETS = 254
 INTERNAL_DOMAIN_VALIDATION_SUFFIX = ".x"
+MAX_ROLE_CLAIM_VALUES = 256
+MAX_ROLE_CLAIM_VALUE_LENGTH = 1024
+MAX_ROLE_CLAIM_VALUE_BYTES = 64 * 1024
 
 
 class OIDCIdentityError(RuntimeError):
@@ -61,13 +69,11 @@ class OIDCAuthenticationResult:
 
 
 def resolve_oidc_role(provider: OIDCProvider, claims: dict[str, Any]) -> str:
-    claim_value = _nested_claim_value(claims, provider.role_claim)
-    values = (
-        {claim_value}
-        if isinstance(claim_value, str)
-        else {value for value in claim_value if isinstance(value, str)}
-        if isinstance(claim_value, list)
-        else set()
+    claim_present, claim_value = _nested_claim(claims, provider.role_claim)
+    values = _validated_role_claim_values(
+        claim_value,
+        claim_present=claim_present,
+        claim_path=provider.role_claim,
     )
 
     mapped_roles = {
@@ -94,6 +100,7 @@ def authenticate_oidc_identity(
 ) -> OIDCAuthenticationResult:
     if provider.sync_roles_on_login and not active_admin_invariant_locked:
         # Role synchronization must take the invariant before any user row.
+        lock_iam_policy_for_mutation(db)
         acquire_active_admin_invariant_lock(db)
     identity = db.scalar(
         select(ExternalIdentity).where(
@@ -110,6 +117,7 @@ def authenticate_oidc_identity(
             )
         user, identity = _provision_identity(db, provider, oidc_claims)
         provisioned = True
+        bump_iam_policy_revision(db)
     else:
         if identity.provider_id != provider.id:
             raise OIDCIdentityError(
@@ -126,8 +134,12 @@ def authenticate_oidc_identity(
     revoked_api_tokens = 0
     revoked_auth_sessions = 0
     cleared_investigation_assignments = 0
-    mapped_role = resolve_oidc_role(provider, oidc_claims.claims)
-    if provider.sync_roles_on_login and user.role != mapped_role:
+    mapped_role = (
+        resolve_oidc_role(provider, oidc_claims.claims)
+        if provider.sync_roles_on_login
+        else None
+    )
+    if mapped_role is not None and user.role != mapped_role:
         (
             previous_role,
             role_sync_skipped,
@@ -138,6 +150,13 @@ def authenticate_oidc_identity(
             db,
             user,
             mapped_role,
+        )
+    if mapped_role is not None and role_sync_skipped is None:
+        mark_oidc_role_synchronized(
+            identity,
+            user=user,
+            applied_role=mapped_role,
+            previous_role=previous_role,
         )
 
     now = datetime.now(timezone.utc)
@@ -274,6 +293,9 @@ def _provision_identity(
         subject=oidc_claims.subject,
         email_at_link=email,
         last_login_at=now,
+        role_sync_provenance="tracked",
+        role_sync_applied_role=user.role,
+        role_sync_updated_at=now,
     )
     try:
         with db.begin_nested():
@@ -363,6 +385,7 @@ def _synchronize_role(
         ) from exc
 
     locked_user.role = mapped_role
+    bump_iam_policy_revision(db)
     revoked = revoke_user_credentials_with_counts(db, locked_user)
     return (
         previous_role,
@@ -462,9 +485,55 @@ def _normalize_email_identifier(email: str, *, allow_internal_domain: bool) -> s
 
 
 def _nested_claim_value(claims: dict[str, Any], path: str) -> Any:
+    return _nested_claim(claims, path)[1]
+
+
+def _nested_claim(claims: dict[str, Any], path: str) -> tuple[bool, Any]:
     current: Any = claims
     for part in path.split("."):
-        if not isinstance(current, dict):
-            return None
-        current = current.get(part)
-    return current
+        if not isinstance(current, dict) or part not in current:
+            return False, None
+        current = current[part]
+    return True, current
+
+
+def _validated_role_claim_values(
+    value: Any,
+    *,
+    claim_present: bool,
+    claim_path: str,
+) -> set[str]:
+    if not claim_present:
+        return set()
+    if isinstance(value, str):
+        raw_values = [value]
+    elif isinstance(value, list):
+        if len(value) > MAX_ROLE_CLAIM_VALUES or not all(
+            isinstance(item, str) for item in value
+        ):
+            raise _invalid_role_claim(claim_path)
+        raw_values = value
+    else:
+        raise _invalid_role_claim(claim_path)
+    if any(
+        not item
+        or item != item.strip()
+        or len(item) > MAX_ROLE_CLAIM_VALUE_LENGTH
+        or any(ord(character) < 32 or ord(character) == 127 for character in item)
+        for item in raw_values
+    ):
+        raise _invalid_role_claim(claim_path)
+    if (
+        sum(len(item.encode("utf-8")) for item in raw_values)
+        > MAX_ROLE_CLAIM_VALUE_BYTES
+    ):
+        raise _invalid_role_claim(claim_path)
+    return set(raw_values)
+
+
+def _invalid_role_claim(claim_path: str) -> OIDCIdentityError:
+    return OIDCIdentityError(
+        "role_claim_invalid",
+        "The identity provider returned an invalid role claim",
+        details={"claim_path": claim_path},
+    )

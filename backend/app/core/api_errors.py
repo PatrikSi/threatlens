@@ -38,6 +38,27 @@ _ERROR_CODE_BY_STATUS = {
     504: "upstream_timeout",
 }
 
+_API_ERROR_DETAIL_SCHEMA = {
+    "type": "object",
+    "required": ["code", "message", "request_id", "status", "retryable"],
+    "properties": {
+        "code": {"type": "string"},
+        "message": {"type": "string"},
+        "request_id": {"type": "string"},
+        "status": {"type": "integer"},
+        "retryable": {"type": "boolean"},
+        "context": {"type": "object", "additionalProperties": True},
+    },
+}
+_API_ERROR_RESPONSE_SCHEMA = {
+    "type": "object",
+    "required": ["detail", "error"],
+    "properties": {
+        "detail": {},
+        "error": {"$ref": "#/components/schemas/ApiErrorDetail"},
+    },
+}
+
 
 class ApiHTTPException(StarletteHTTPException):
     """HTTP error with a stable machine-readable code and legacy-safe detail."""
@@ -57,11 +78,45 @@ class ApiHTTPException(StarletteHTTPException):
 
 
 def install_api_error_handlers(application: FastAPI) -> None:
+    from app.services.data_access_policy import DataPolicyError
+
     application.add_exception_handler(StarletteHTTPException, http_exception_handler)
     application.add_exception_handler(
         RequestValidationError, validation_exception_handler
     )
+    application.add_exception_handler(DataPolicyError, data_policy_exception_handler)
     application.add_exception_handler(Exception, unexpected_exception_handler)
+
+
+async def data_policy_exception_handler(
+    request: Request, exc: Exception
+) -> JSONResponse:
+    request_id = request_id_for(request)
+    status_code = int(getattr(exc, "status_code", 503))
+    detail = str(getattr(exc, "detail", None) or exc)
+    error_code = str(getattr(exc, "code", "data_policy_error"))
+    error_context = dict(getattr(exc, "context", None) or {})
+    current_revision = getattr(exc, "current_revision", None)
+    if current_revision is not None:
+        error_context["current_revision"] = current_revision
+    logger.warning(
+        "data_policy_request_rejected error_code=%s context_keys=%s",
+        error_code,
+        sorted(error_context),
+        extra=_error_log_fields(
+            request,
+            request_id=request_id,
+            status=status_code,
+        ),
+    )
+    return error_response(
+        status_code=status_code,
+        detail=detail,
+        message=detail,
+        request_id=request_id,
+        code=error_code,
+        error_context=error_context or None,
+    )
 
 
 async def http_exception_handler(
@@ -172,6 +227,54 @@ def error_code_for_status(status_code: int) -> str:
     return _ERROR_CODE_BY_STATUS.get(status_code, "request_failed")
 
 
+def apply_openapi_error_contract(schema: dict[str, Any]) -> dict[str, Any]:
+    """Align declared API errors with the envelope emitted by our handlers."""
+
+    schemas = schema.setdefault("components", {}).setdefault("schemas", {})
+    schemas["ApiErrorDetail"] = _API_ERROR_DETAIL_SCHEMA
+    schemas["ApiErrorResponse"] = _API_ERROR_RESPONSE_SCHEMA
+    error_ref = {"$ref": "#/components/schemas/ApiErrorResponse"}
+    for path_item in schema.get("paths", {}).values():
+        if not isinstance(path_item, dict):
+            continue
+        for operation in path_item.values():
+            if not isinstance(operation, dict):
+                continue
+            responses = operation.get("responses")
+            if not isinstance(responses, dict):
+                continue
+            if operation.get("security"):
+                for status_code, description in (
+                    ("401", "Authentication is required or the credential is invalid"),
+                    (
+                        "403",
+                        "The authenticated principal is not allowed to perform this operation",
+                    ),
+                    ("503", "Authorization policy could not be evaluated safely"),
+                ):
+                    responses.setdefault(
+                        status_code,
+                        {
+                            "description": description,
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "$ref": "#/components/schemas/ApiErrorResponse"
+                                    }
+                                }
+                            },
+                        },
+                    )
+            for status_code, response in responses.items():
+                if not str(status_code).isdigit() or int(status_code) < 400:
+                    continue
+                if not isinstance(response, dict) or "$ref" in response:
+                    continue
+                content = response.setdefault("content", {})
+                content.setdefault("application/json", {})["schema"] = error_ref
+    return schema
+
+
 def _detail_message(detail: Any, status_code: int) -> str:
     if isinstance(detail, str) and detail.strip():
         return detail.strip()
@@ -222,6 +325,7 @@ def _error_log_fields(
 
 __all__ = [
     "ApiHTTPException",
+    "data_policy_exception_handler",
     "error_code_for_status",
     "error_response",
     "install_api_error_handlers",

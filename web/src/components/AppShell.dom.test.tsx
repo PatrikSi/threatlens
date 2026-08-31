@@ -14,6 +14,28 @@ import { ThemeProvider } from './ThemeContext'
 const appShellDomMocks = vi.hoisted(() => ({
   apiFetch: vi.fn(),
   markLoggedOut: vi.fn(),
+  workspaceModel: {
+    primaryNavigation: [
+      { id: 'primary.dashboard', route: '/', label: 'Dashboard' },
+      { id: 'primary.alerts', route: '/alerts', label: 'Alerts' },
+      { id: 'primary.investigations', route: '/investigations', label: 'Investigations' },
+      { id: 'primary.feeds', route: '/feeds', label: 'Feeds' },
+      { id: 'primary.stats', route: '/stats', label: 'Stats' },
+      { id: 'primary.export', route: '/export', label: 'Export' },
+      { id: 'primary.reporting', route: '/reporting', label: 'Reporting' },
+      { id: 'primary.settings', route: '/settings', label: 'Settings' },
+    ],
+    mobileNavigation: [
+      { id: 'primary.dashboard', route: '/', label: 'Dashboard' },
+      { id: 'primary.alerts', route: '/alerts', label: 'Alerts' },
+      { id: 'primary.investigations', route: '/investigations', label: 'Investigations' },
+      { id: 'primary.feeds', route: '/feeds', label: 'Feeds' },
+      { id: 'primary.stats', route: '/stats', label: 'Stats' },
+      { id: 'primary.export', route: '/export', label: 'Export' },
+      { id: 'primary.reporting', route: '/reporting', label: 'Reporting' },
+      { id: 'primary.settings', route: '/settings', label: 'Settings' },
+    ],
+  },
 }))
 
 vi.mock('../api/client', () => ({
@@ -56,6 +78,10 @@ vi.mock('../hooks/useCurrentUser', () => ({
     error: null,
     refetch: vi.fn(),
   }),
+}))
+
+vi.mock('../workspace/useWorkspace', () => ({
+  useWorkspace: () => ({ model: appShellDomMocks.workspaceModel }),
 }))
 
 vi.mock('./AuthContext', () => ({
@@ -133,6 +159,7 @@ afterEach(async () => {
   window.localStorage.clear()
   document.documentElement.className = ''
   document.documentElement.removeAttribute('data-color-mode')
+  resetWorkspaceNavigation()
 })
 
 describe('AppShell logout', () => {
@@ -161,6 +188,43 @@ describe('AppShell logout', () => {
     const view = renderShell()
 
     expect(view.textContent).toContain(`v${packageMetadata.version}`)
+  })
+
+  it('renders the effective desktop navigation in policy order', () => {
+    appShellDomMocks.workspaceModel.primaryNavigation = [
+      { id: 'primary.dashboard', route: '/', label: 'Dashboard' },
+      { id: 'primary.feeds', route: '/feeds', label: 'Feeds' },
+      { id: 'primary.settings', route: '/settings', label: 'Settings' },
+    ]
+    const view = renderShell()
+    const desktopNavigation = view.querySelector('header .hidden nav')!
+
+    expect(Array.from(desktopNavigation.querySelectorAll('a')).map((link) => link.textContent?.trim())).toEqual([
+      'Dashboard',
+      'Feeds',
+      'Settings',
+    ])
+    expect(desktopNavigation.textContent).not.toContain('Alerts')
+  })
+
+  it('keeps mobile navigation vertical while applying mobile policy order', () => {
+    appShellDomMocks.workspaceModel.mobileNavigation = [
+      { id: 'primary.feeds', route: '/feeds', label: 'Feeds' },
+      { id: 'primary.dashboard', route: '/', label: 'Dashboard' },
+      { id: 'primary.settings', route: '/settings', label: 'Settings' },
+    ]
+    const view = renderShell()
+    const menuButton = view.querySelector<HTMLButtonElement>('[aria-controls="mobile-primary-navigation"]')!
+    act(() => menuButton.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+
+    const mobileNavigation = view.querySelector('#mobile-primary-navigation nav')!
+    expect(Array.from(mobileNavigation.querySelectorAll('a')).map((link) => link.textContent?.trim())).toEqual([
+      'Feeds',
+      'Dashboard',
+      'Settings',
+    ])
+    expect(mobileNavigation.className).toContain('divide-y')
+    expect(mobileNavigation.className).not.toContain('grid')
   })
 
   it('does not mark the browser logged out when the logout request fails over the network', async () => {
@@ -198,3 +262,18 @@ describe('AppShell logout', () => {
     expect(view.textContent).toContain('Dashboard body')
   })
 })
+
+function resetWorkspaceNavigation() {
+  const navigation = [
+    { id: 'primary.dashboard', route: '/', label: 'Dashboard' },
+    { id: 'primary.alerts', route: '/alerts', label: 'Alerts' },
+    { id: 'primary.investigations', route: '/investigations', label: 'Investigations' },
+    { id: 'primary.feeds', route: '/feeds', label: 'Feeds' },
+    { id: 'primary.stats', route: '/stats', label: 'Stats' },
+    { id: 'primary.export', route: '/export', label: 'Export' },
+    { id: 'primary.reporting', route: '/reporting', label: 'Reporting' },
+    { id: 'primary.settings', route: '/settings', label: 'Settings' },
+  ]
+  appShellDomMocks.workspaceModel.primaryNavigation = navigation.map((entry) => ({ ...entry }))
+  appShellDomMocks.workspaceModel.mobileNavigation = navigation.map((entry) => ({ ...entry }))
+}

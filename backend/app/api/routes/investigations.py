@@ -6,17 +6,18 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_token_scopes
+from app.api.deps import (
+    get_authorization_context,
+    get_data_access_context,
+    require_permissions,
+)
 from app.core.api_errors import ApiHTTPException, error_code_for_status
-from app.core.config import get_settings
-from app.core.rbac import ROLE_ADMIN, ROLE_ANALYST
 from app.core.token_scopes import (
     SCOPE_READ_ALERTS,
     SCOPE_READ_INVESTIGATIONS,
     SCOPE_READ_ITEMS,
     SCOPE_READ_REPORTS,
     SCOPE_WRITE_INVESTIGATIONS,
-    has_required_scope,
 )
 from app.db.session import get_db
 from app.models.user import User
@@ -36,6 +37,7 @@ from app.schemas.investigation import (
     InvestigationUpdate,
 )
 from app.services.audit import record_audit
+from app.services.data_access_policy import DataAccessContext
 from app.services.investigations import (
     InvestigationConflictError,
     InvestigationNotFoundError,
@@ -70,6 +72,10 @@ EVIDENCE_SOURCE_READ_SCOPES = {
     "report": (SCOPE_READ_REPORTS,),
     "alert_occurrence": (SCOPE_READ_ALERTS, SCOPE_READ_ITEMS),
 }
+require_investigation_write = require_permissions(
+    SCOPE_WRITE_INVESTIGATIONS,
+    denial_detail="Investigation changes require the analyst or administrator role.",
+)
 
 
 InvestigationPage = Annotated[
@@ -88,7 +94,8 @@ def get_investigations(
     page: InvestigationPage = 1,
     page_size: int = Query(default=25, ge=1, le=100),
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_READ_INVESTIGATIONS)),
+    user: User = Depends(require_permissions(SCOPE_READ_INVESTIGATIONS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     invalid_statuses = sorted(set(statuses) - VALID_STATUSES)
     invalid_severities = sorted(set(severities) - VALID_SEVERITIES)
@@ -105,6 +112,7 @@ def get_investigations(
     return list_investigations(
         db,
         user=user,
+        data_access=data_access,
         q=q,
         statuses=list(dict.fromkeys(statuses)),
         severities=list(dict.fromkeys(severities)),
@@ -121,9 +129,9 @@ def get_investigations(
 def post_investigation(
     payload: InvestigationCreate,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_INVESTIGATIONS)),
+    user: User = Depends(require_investigation_write),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
-    _require_investigation_author(user)
     try:
         investigation = create_investigation(
             db,
@@ -146,7 +154,10 @@ def post_investigation(
             },
         )
         return _commit_investigation_detail(
-            db, investigation_id=investigation.id, user=user
+            db,
+            investigation_id=investigation.id,
+            user=user,
+            data_access=data_access,
         )
     except Exception as exc:
         _raise_service_error(db, exc)
@@ -160,9 +171,8 @@ def get_investigation_member_candidates(
     page: InvestigationPage = 1,
     page_size: int = Query(default=20, ge=1, le=50),
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_INVESTIGATIONS)),
+    user: User = Depends(require_investigation_write),
 ):
-    _require_investigation_author(user)
     return list_member_candidates(
         db,
         q=q,
@@ -175,11 +185,15 @@ def get_investigation_member_candidates(
 def get_investigation(
     investigation_id: uuid.UUID,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_READ_INVESTIGATIONS)),
+    user: User = Depends(require_permissions(SCOPE_READ_INVESTIGATIONS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     try:
         return get_investigation_detail(
-            db, investigation_id=investigation_id, user=user
+            db,
+            investigation_id=investigation_id,
+            user=user,
+            data_access=data_access,
         )
     except Exception as exc:
         _raise_service_error(db, exc)
@@ -190,15 +204,16 @@ def patch_investigation(
     investigation_id: uuid.UUID,
     payload: InvestigationUpdate,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_INVESTIGATIONS)),
+    user: User = Depends(require_investigation_write),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
-    _require_investigation_author(user)
     try:
         changes = payload.model_dump(exclude={"expected_version"}, exclude_unset=True)
         investigation, changed_fields = update_investigation(
             db,
             investigation_id=investigation_id,
             user=user,
+            data_access=data_access,
             expected_version=payload.expected_version,
             changes=changes,
         )
@@ -215,7 +230,10 @@ def patch_investigation(
                 },
             )
         return _commit_investigation_detail(
-            db, investigation_id=investigation.id, user=user
+            db,
+            investigation_id=investigation.id,
+            user=user,
+            data_access=data_access,
         )
     except Exception as exc:
         _raise_service_error(db, exc)
@@ -226,14 +244,15 @@ def post_investigation_member(
     investigation_id: uuid.UUID,
     payload: InvestigationMemberAdd,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_INVESTIGATIONS)),
+    user: User = Depends(require_investigation_write),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
-    _require_investigation_author(user)
     try:
         add_member(
             db,
             investigation_id=investigation_id,
             user=user,
+            data_access=data_access,
             member_user_id=payload.user_id,
             role=payload.role,
             expected_version=payload.expected_version,
@@ -247,7 +266,10 @@ def post_investigation_member(
             metadata={"member_user_id": str(payload.user_id), "role": payload.role},
         )
         return _commit_investigation_detail(
-            db, investigation_id=investigation_id, user=user
+            db,
+            investigation_id=investigation_id,
+            user=user,
+            data_access=data_access,
         )
     except Exception as exc:
         _raise_service_error(db, exc)
@@ -262,14 +284,15 @@ def patch_investigation_member(
     member_user_id: uuid.UUID,
     payload: InvestigationMemberUpdate,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_INVESTIGATIONS)),
+    user: User = Depends(require_investigation_write),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
-    _require_investigation_author(user)
     try:
         member, changed = update_member(
             db,
             investigation_id=investigation_id,
             user=user,
+            data_access=data_access,
             member_user_id=member_user_id,
             role=payload.role,
             expected_version=payload.expected_version,
@@ -284,7 +307,10 @@ def patch_investigation_member(
                 metadata={"member_user_id": str(member.user_id), "role": payload.role},
             )
         return _commit_investigation_detail(
-            db, investigation_id=investigation_id, user=user
+            db,
+            investigation_id=investigation_id,
+            user=user,
+            data_access=data_access,
         )
     except Exception as exc:
         _raise_service_error(db, exc)
@@ -299,14 +325,15 @@ def delete_investigation_member(
     member_user_id: uuid.UUID,
     expected_version: int = Query(ge=1),
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_INVESTIGATIONS)),
+    user: User = Depends(require_investigation_write),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
-    _require_investigation_author(user)
     try:
         remove_member(
             db,
             investigation_id=investigation_id,
             user=user,
+            data_access=data_access,
             member_user_id=member_user_id,
             expected_version=expected_version,
         )
@@ -319,7 +346,10 @@ def delete_investigation_member(
             metadata={"member_user_id": str(member_user_id)},
         )
         return _commit_investigation_detail(
-            db, investigation_id=investigation_id, user=user
+            db,
+            investigation_id=investigation_id,
+            user=user,
+            data_access=data_access,
         )
     except Exception as exc:
         _raise_service_error(db, exc)
@@ -334,13 +364,15 @@ def get_investigation_evidence(
     page: int = Query(default=1, ge=1, le=1_000_000),
     page_size: int = Query(default=50, ge=1, le=100),
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_READ_INVESTIGATIONS)),
+    user: User = Depends(require_permissions(SCOPE_READ_INVESTIGATIONS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     try:
         return list_evidence(
             db,
             investigation_id=investigation_id,
             user=user,
+            data_access=data_access,
             page=page,
             page_size=page_size,
         )
@@ -354,15 +386,16 @@ def post_investigation_evidence(
     payload: InvestigationEvidenceAdd,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_INVESTIGATIONS)),
+    user: User = Depends(require_investigation_write),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
-    _require_investigation_author(user)
     _require_evidence_source_read_scope(request, payload.source_type)
     try:
         evidence = add_evidence(
             db,
             investigation_id=investigation_id,
             user=user,
+            data_access=data_access,
             source_type=payload.source_type,
             source_id=payload.source_id,
             note=payload.note,
@@ -381,7 +414,10 @@ def post_investigation_evidence(
             },
         )
         return _commit_investigation_detail(
-            db, investigation_id=investigation_id, user=user
+            db,
+            investigation_id=investigation_id,
+            user=user,
+            data_access=data_access,
         )
     except Exception as exc:
         _raise_service_error(db, exc)
@@ -396,15 +432,16 @@ def delete_investigation_evidence(
     evidence_id: uuid.UUID,
     expected_version: int = Query(ge=1),
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_INVESTIGATIONS)),
+    user: User = Depends(require_investigation_write),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
-    _require_investigation_author(user)
     try:
         remove_evidence(
             db,
             investigation_id=investigation_id,
             evidence_id=evidence_id,
             user=user,
+            data_access=data_access,
             expected_version=expected_version,
         )
         record_audit(
@@ -416,7 +453,10 @@ def delete_investigation_evidence(
             metadata={"evidence_id": str(evidence_id)},
         )
         return _commit_investigation_detail(
-            db, investigation_id=investigation_id, user=user
+            db,
+            investigation_id=investigation_id,
+            user=user,
+            data_access=data_access,
         )
     except Exception as exc:
         _raise_service_error(db, exc)
@@ -431,13 +471,15 @@ def get_investigation_notes(
     page: int = Query(default=1, ge=1, le=1_000_000),
     page_size: int = Query(default=50, ge=1, le=100),
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_READ_INVESTIGATIONS)),
+    user: User = Depends(require_permissions(SCOPE_READ_INVESTIGATIONS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     try:
         return list_notes(
             db,
             investigation_id=investigation_id,
             user=user,
+            data_access=data_access,
             page=page,
             page_size=page_size,
         )
@@ -450,14 +492,15 @@ def post_investigation_note(
     investigation_id: uuid.UUID,
     payload: InvestigationNoteCreate,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_INVESTIGATIONS)),
+    user: User = Depends(require_investigation_write),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
-    _require_investigation_author(user)
     try:
         note = add_note(
             db,
             investigation_id=investigation_id,
             user=user,
+            data_access=data_access,
             body=payload.body,
             expected_version=payload.expected_version,
         )
@@ -470,7 +513,10 @@ def post_investigation_note(
             metadata={"note_id": str(note.id)},
         )
         return _commit_investigation_detail(
-            db, investigation_id=investigation_id, user=user
+            db,
+            investigation_id=investigation_id,
+            user=user,
+            data_access=data_access,
         )
     except Exception as exc:
         _raise_service_error(db, exc)
@@ -484,15 +530,16 @@ def patch_investigation_note(
     note_id: uuid.UUID,
     payload: InvestigationNoteUpdate,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_INVESTIGATIONS)),
+    user: User = Depends(require_investigation_write),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
-    _require_investigation_author(user)
     try:
         note, changed = update_note(
             db,
             investigation_id=investigation_id,
             note_id=note_id,
             user=user,
+            data_access=data_access,
             body=payload.body,
             expected_note_version=payload.expected_note_version,
             expected_investigation_version=payload.expected_investigation_version,
@@ -507,7 +554,10 @@ def patch_investigation_note(
                 metadata={"note_id": str(note.id), "note_version": note.version},
             )
         return _commit_investigation_detail(
-            db, investigation_id=investigation_id, user=user
+            db,
+            investigation_id=investigation_id,
+            user=user,
+            data_access=data_access,
         )
     except Exception as exc:
         _raise_service_error(db, exc)
@@ -522,15 +572,16 @@ def delete_investigation_note(
     expected_note_version: int = Query(ge=1),
     expected_investigation_version: int = Query(ge=1),
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_INVESTIGATIONS)),
+    user: User = Depends(require_investigation_write),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
-    _require_investigation_author(user)
     try:
         delete_note(
             db,
             investigation_id=investigation_id,
             note_id=note_id,
             user=user,
+            data_access=data_access,
             expected_note_version=expected_note_version,
             expected_investigation_version=expected_investigation_version,
         )
@@ -543,7 +594,10 @@ def delete_investigation_note(
             metadata={"note_id": str(note_id)},
         )
         return _commit_investigation_detail(
-            db, investigation_id=investigation_id, user=user
+            db,
+            investigation_id=investigation_id,
+            user=user,
+            data_access=data_access,
         )
     except Exception as exc:
         _raise_service_error(db, exc)
@@ -557,13 +611,15 @@ def get_investigation_activity(
     page: InvestigationPage = 1,
     page_size: int = Query(default=50, ge=1, le=100),
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_READ_INVESTIGATIONS)),
+    user: User = Depends(require_permissions(SCOPE_READ_INVESTIGATIONS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     try:
         return list_activity(
             db,
             investigation_id=investigation_id,
             user=user,
+            data_access=data_access,
             page=page,
             page_size=page_size,
         )
@@ -571,45 +627,58 @@ def get_investigation_activity(
         _raise_service_error(db, exc)
 
 
-def _require_investigation_author(user: User) -> None:
-    if user.role not in {ROLE_ADMIN, ROLE_ANALYST}:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Investigation changes require the analyst or administrator role.",
-        )
-
-
 def _commit_investigation_detail(
     db: Session,
     *,
     investigation_id: uuid.UUID,
     user: User,
+    data_access: DataAccessContext,
 ) -> InvestigationDetailResponse:
     response = get_investigation_detail(
-        db, investigation_id=investigation_id, user=user
+        db,
+        investigation_id=investigation_id,
+        user=user,
+        data_access=data_access,
     )
     db.commit()
     return response
 
 
 def _require_evidence_source_read_scope(request: Request, source_type: str) -> None:
-    token_scopes = getattr(request.state, "token_scopes", None)
-    if token_scopes is None:
-        return
-    granted_scopes = set(token_scopes)
-    if not granted_scopes and get_settings().allow_legacy_unscoped_tokens:
-        return
+    authorization = get_authorization_context(request)
+    if authorization is None:
+        raise ApiHTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Investigation evidence access could not be resolved. Retry the request.",
+            error_code="iam_policy_unavailable",
+        )
     required_scopes = EVIDENCE_SOURCE_READ_SCOPES[source_type]
     missing_scopes = [
-        scope
-        for scope in required_scopes
-        if not has_required_scope(granted_scopes, scope)
+        scope for scope in required_scopes if not authorization.has(scope)
     ]
     if missing_scopes:
         scope_label = ", ".join(missing_scopes)
-        raise HTTPException(
+        denial_reasons = {
+            scope: authorization.explanation(scope)["reason"]
+            for scope in missing_scopes
+        }
+        credential_scope_denial = all(
+            reason == "credential_scope_missing" for reason in denial_reasons.values()
+        )
+        raise ApiHTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Attaching {source_type} evidence requires these token scopes: {scope_label}.",
+            detail=(
+                f"Attaching {source_type} evidence requires these token scopes: {scope_label}."
+                if credential_scope_denial
+                else f"Attaching {source_type} evidence requires these permissions: {scope_label}."
+            ),
+            error_code="permission_denied",
+            error_context={
+                "required_permissions": list(required_scopes),
+                "missing_permissions": missing_scopes,
+                "denial_reasons": denial_reasons,
+                "policy_revision": authorization.policy_revision,
+            },
         )
 
 

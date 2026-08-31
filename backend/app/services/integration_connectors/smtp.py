@@ -14,6 +14,9 @@ from app.models.integration import (
     IntegrationSubscriptionFeed,
 )
 from app.models.user import User
+from app.services.data_access_runtime import (
+    ensure_integration_delivery_data_access_envelope,
+)
 from app.services.integration_connectors.base import (
     ConnectorDeliveryResult,
     ConnectorRoutingResult,
@@ -26,6 +29,7 @@ from app.services.integration_delivery_compatibility import (
 )
 from app.services.integration_processors import process_smtp_integration_delivery
 from app.services.integration_registry_constants import SMTP_CONFIG_SCHEMA_VERSION
+from app.services.report_event_compatibility import report_ready_event_owner_id
 from app.services.smtp_delivery_eligibility import (
     SMTP_SOURCE_OWNER_IDS_KEY,
     SMTPDeliverySourceCompatibilityError,
@@ -69,11 +73,13 @@ class SMTPIntegrationConnector:
     def prepare_routing(self, db: Session, *, event: IntegrationEvent) -> None:
         acquire_smtp_configuration_read_lock(db)
         instances = db.scalars(
-            select(IntegrationInstance).where(
+            select(IntegrationInstance)
+            .where(
                 IntegrationInstance.integration_type
                 == self.definition.integration_type,
                 IntegrationInstance.enabled.is_(True),
-            ).execution_options(populate_existing=True)
+            )
+            .execution_options(populate_existing=True)
         ).all()
         future_schema_instance = next(
             (
@@ -97,6 +103,11 @@ class SMTPIntegrationConnector:
     def route_event(
         self, db: Session, *, event: IntegrationEvent
     ) -> ConnectorRoutingResult:
+        report_owner_id = (
+            report_ready_event_owner_id(db, event=event)
+            if event.event_type == "report_ready"
+            else None
+        )
         eligible_owner_ids: frozenset[uuid.UUID] | None = None
         if event.event_type == "alert_match":
             try:
@@ -132,7 +143,20 @@ class SMTPIntegrationConnector:
                 IntegrationSubscription.event_type == event.event_type,
             )
         )
-        if event.event_type == "alert_match":
+        if report_owner_id is not None:
+            query = query.outerjoin(
+                User, User.id == IntegrationInstance.owner_user_id
+            ).where(
+                or_(
+                    IntegrationInstance.owner_user_id.is_(None),
+                    and_(
+                        IntegrationInstance.owner_user_id == report_owner_id,
+                        User.is_active.is_(True),
+                        User.is_approved.is_(True),
+                    ),
+                )
+            )
+        elif event.event_type == "alert_match":
             assert eligible_owner_ids is not None
             query = query.outerjoin(
                 User, User.id == IntegrationInstance.owner_user_id
@@ -165,8 +189,8 @@ class SMTPIntegrationConnector:
 
         delivery_ids: list[uuid.UUID] = []
         for subscription, instance in db.execute(query).unique().all():
-            delivery_owner_id = instance.owner_user_id
-            payload_owner_id = delivery_owner_id
+            delivery_owner_id = report_owner_id or instance.owner_user_id
+            payload_owner_id = report_owner_id or delivery_owner_id
             if (
                 event.event_type == "alert_match"
                 and payload_owner_id is None
@@ -203,6 +227,9 @@ class SMTPIntegrationConnector:
                 )
             )
             if existing is not None:
+                ensure_integration_delivery_data_access_envelope(
+                    db, delivery_id=existing.id
+                )
                 delivery_ids.append(existing.id)
                 continue
             delivery = IntegrationDelivery(
@@ -222,6 +249,9 @@ class SMTPIntegrationConnector:
             )
             db.add(delivery)
             db.flush()
+            ensure_integration_delivery_data_access_envelope(
+                db, delivery_id=delivery.id
+            )
             delivery_ids.append(delivery.id)
         return ConnectorRoutingResult(delivery_ids=tuple(delivery_ids))
 

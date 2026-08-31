@@ -1,6 +1,6 @@
 import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from datetime import datetime, timedelta, timezone
 from threading import Event
 
@@ -33,6 +33,7 @@ from app.models.investigation import (
 from app.models.item import Item
 from app.models.report import Report
 from app.models.user import User
+from app.services.data_access_policy import DataAccessContext
 from app.services.investigation_collections import INVESTIGATION_DETAIL_COLLECTION_LIMIT
 from app.services.investigations import (
     InvestigationActorNotEligibleError,
@@ -112,6 +113,18 @@ def _create_api_token(db_session, user, *, name: str, scopes: list[str]) -> str:
     return token_value
 
 
+def _disabled_data_access(user: User) -> DataAccessContext:
+    return DataAccessContext(
+        mode="disabled",
+        policy_revision=1,
+        coverage_version=0,
+        principal_type="user",
+        principal_id=user.id,
+        principal_eligible=True,
+        allowed_label_ids=frozenset(),
+    )
+
+
 def test_inflight_write_revalidates_actor_after_access_reduction(database_engine):
     owner_id = uuid.uuid4()
     editor_id = uuid.uuid4()
@@ -176,6 +189,7 @@ def test_inflight_write_revalidates_actor_after_access_reduction(database_engine
                     writer_db,
                     investigation_id=investigation_id,
                     user=stale_actor,
+                    data_access=_disabled_data_access(stale_actor),
                     body="This note must not commit after deactivation.",
                     expected_version=1,
                 )
@@ -305,6 +319,7 @@ def test_mutation_response_is_materialized_before_membership_revocation(
                 writer_db,
                 investigation_id=investigation_id,
                 user=editor,
+                data_access=_disabled_data_access(editor),
                 expected_version=1,
                 changes={"title": "Committed response title"},
             )
@@ -312,6 +327,7 @@ def test_mutation_response_is_materialized_before_membership_revocation(
                 writer_db,
                 investigation_id=investigation.id,
                 user=editor,
+                data_access=_disabled_data_access(editor),
             )
 
     def _revoke_editor() -> str:
@@ -324,6 +340,7 @@ def test_mutation_response_is_materialized_before_membership_revocation(
                 revoke_db,
                 investigation_id=investigation_id,
                 user=owner,
+                data_access=_disabled_data_access(owner),
                 member_user_id=editor_id,
                 expected_version=2,
             )
@@ -372,14 +389,21 @@ def _run_private_composed_read(
     user: User,
     read_kind: str,
 ) -> None:
+    data_access = _disabled_data_access(user)
     if read_kind == "detail":
-        get_investigation_detail(db, investigation_id=investigation_id, user=user)
+        get_investigation_detail(
+            db,
+            investigation_id=investigation_id,
+            user=user,
+            data_access=data_access,
+        )
         return
     if read_kind == "evidence":
         list_evidence(
             db,
             investigation_id=investigation_id,
             user=user,
+            data_access=data_access,
             page=1,
             page_size=50,
         )
@@ -389,6 +413,7 @@ def _run_private_composed_read(
             db,
             investigation_id=investigation_id,
             user=user,
+            data_access=data_access,
             page=1,
             page_size=50,
         )
@@ -398,6 +423,7 @@ def _run_private_composed_read(
             db,
             investigation_id=investigation_id,
             user=user,
+            data_access=data_access,
             page=1,
             page_size=50,
         )
@@ -560,6 +586,7 @@ def test_private_composed_reads_fence_concurrent_access_revocation(
                     revoke_db,
                     investigation_id=investigation_id,
                     user=owner,
+                    data_access=_disabled_data_access(owner),
                     member_user_id=reader_id,
                     expected_version=1,
                 )
@@ -606,7 +633,7 @@ def test_private_composed_reads_fence_concurrent_access_revocation(
             cleanup_db.commit()
 
 
-def test_team_composed_reads_remain_lock_free(database_engine):
+def test_team_composed_reads_hold_investigation_stable(database_engine):
     reader_id = uuid.uuid4()
     investigation_id = uuid.uuid4()
     with Session(database_engine) as setup_db:
@@ -653,6 +680,7 @@ def test_team_composed_reads_remain_lock_free(database_engine):
                 read_db,
                 investigation_id=investigation_id,
                 user=reader,
+                data_access=_disabled_data_access(reader),
                 page=1,
                 page_size=50,
             )
@@ -666,6 +694,9 @@ def test_team_composed_reads_remain_lock_free(database_engine):
             .with_for_update()
         )
         future = executor.submit(_read_team_evidence)
+        with pytest.raises(FutureTimeoutError):
+            future.result(timeout=0.2)
+        blocker_db.rollback()
         assert future.result(timeout=2) == 1
     finally:
         blocker_db.rollback()

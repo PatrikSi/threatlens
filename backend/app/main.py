@@ -11,10 +11,14 @@ from fastapi import APIRouter, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.openapi.utils import get_openapi
-from fastapi.routing import APIRoute
 
-from app.core.api_errors import install_api_error_handlers
+from app.core.api_errors import apply_openapi_error_contract, install_api_error_handlers
 from app.core.config import Settings, get_settings
+from app.core.data_policy_route_attestation import (
+    install_route_governance_attestation,
+    iter_effective_api_routes as _iter_effective_api_routes,
+    validate_route_governance_manifest,
+)
 from app.core.logging_config import (
     configure_logging,
     log_configuration_summary,
@@ -25,14 +29,18 @@ from app.core.logging_config import (
 )
 from app.db import session as db_session
 from app.api.routes import (
+    access_reviews,
+    action_approvals,
     ai,
     alerts,
     audit,
     auth,
     auth_security,
+    data_policies,
     exports,
     feeds,
     health,
+    iam,
     integrations,
     investigations,
     items,
@@ -40,20 +48,28 @@ from app.api.routes import (
     oidc,
     operations,
     reports,
+    service_accounts,
     stats,
     tagging,
     tags,
+    temporary_elevations,
     tokens,
     users,
     views,
+    workspace,
 )
-from app.services.encrypted_data_inventory import record_startup_encrypted_data_inventory_error, refresh_startup_encrypted_data_inventory
+from app.services.encrypted_data_inventory import (
+    record_startup_encrypted_data_inventory_error,
+    refresh_startup_encrypted_data_inventory,
+)
 from app.version import get_app_version
 
 settings = get_settings()
 configure_logging(settings)
 logger = logging.getLogger("threatlens.api")
-_REQUEST_ID_ALLOWED_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._")
+_REQUEST_ID_ALLOWED_CHARS = frozenset(
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._"
+)
 API_VERSION = "v1"
 API_SERVICE_PREFIX = f"/{API_VERSION}"
 WEB_PROXY_API_PREFIX = f"/api/{API_VERSION}"
@@ -78,6 +94,7 @@ PUBLIC_BROWSER_RESPONSE_HEADERS = (
     "X-ThreatLens-Revoked-Descendant-Count",
     "X-ThreatLens-Revoked-Token-Count",
     "X-ThreatLens-Root-Token-Revoked",
+    "X-ThreatLens-Mutation-Changed",
 )
 SAVED_VIEW_QUERY_SCHEMA = "SavedViewQueryPayload"
 SAVED_VIEW_QUERY_INPUT_SCHEMA = "SavedViewQueryPayload-Input"
@@ -104,10 +121,19 @@ API_ROUTERS: tuple[APIRouter, ...] = (
     stats.router,
     operations.router,
     health.router,
+    iam.router,
+    workspace.router,
+    service_accounts.router,
+    temporary_elevations.router,
+    action_approvals.router,
+    access_reviews.router,
+    data_policies.router,
 )
 
 
-def _build_openapi_visibility_kwargs(active_settings: Settings) -> dict[str, str | None]:
+def _build_openapi_visibility_kwargs(
+    active_settings: Settings,
+) -> dict[str, str | None]:
     is_production = active_settings.app_env.lower() in {"production", "prod"}
     kwargs: dict[str, str | None] = {}
     if is_production and not active_settings.expose_api_docs_in_production:
@@ -138,8 +164,12 @@ async def app_lifespan(_application: FastAPI):
                 snapshot.summary.unreadable_fields,
             )
         except Exception as exc:
-            record_startup_encrypted_data_inventory_error(redact_log_text(exc, max_chars=4000))
-            logger.warning("startup_encrypted_data_inventory_failed error=%s", exc, exc_info=True)
+            record_startup_encrypted_data_inventory_error(
+                redact_log_text(exc, max_chars=4000)
+            )
+            logger.warning(
+                "startup_encrypted_data_inventory_failed error=%s", exc, exc_info=True
+            )
     yield
 
 
@@ -182,11 +212,15 @@ app.add_middleware(
 if settings.allowed_hosts:
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_hosts)
 
+
 @app.middleware("http")
 async def request_logging_middleware(request: Request, call_next):
     request_id = _normalize_request_id(request.headers.get("x-request-id"))
     request.state.request_id = request_id
-    context_token = set_log_context(request_id=request_id)
+    context_token = set_log_context(
+        request_id=request_id,
+        source_ip=request.client.host if request.client else None,
+    )
     started_at = time.perf_counter()
     try:
         if verbose_logging_enabled(settings):
@@ -201,11 +235,15 @@ async def request_logging_middleware(request: Request, call_next):
 
         duration_ms = (time.perf_counter() - started_at) * 1000
         response.headers["X-Request-ID"] = request_id
-        completion_level = _request_completion_log_level(response.status_code, duration_ms)
+        completion_level = _request_completion_log_level(
+            response.status_code, duration_ms
+        )
         logger.log(
             completion_level,
             "request_complete",
-            extra=_request_log_fields(request, status=response.status_code, duration_ms=duration_ms),
+            extra=_request_log_fields(
+                request, status=response.status_code, duration_ms=duration_ms
+            ),
         )
         return response
     finally:
@@ -262,7 +300,11 @@ def _mount_api_routers(application: FastAPI, *, include_legacy_aliases: bool) ->
             application.include_router(router, include_in_schema=False)
 
 
-_mount_api_routers(app, include_legacy_aliases=_should_mount_legacy_api_aliases(settings))
+_mount_api_routers(
+    app, include_legacy_aliases=_should_mount_legacy_api_aliases(settings)
+)
+DATA_POLICY_ROUTE_GOVERNANCE_ATTESTATION = validate_route_governance_manifest(app)
+install_route_governance_attestation(DATA_POLICY_ROUTE_GOVERNANCE_ATTESTATION)
 
 
 def _collect_route_token_scopes(route: Any) -> tuple[str, ...]:
@@ -279,21 +321,9 @@ def _collect_route_token_scopes(route: Any) -> tuple[str, ...]:
     return tuple(scopes)
 
 
-def _iter_effective_api_routes(application: FastAPI):
-    for route in application.routes:
-        if isinstance(route, APIRoute):
-            yield route
-            continue
-
-        route_contexts = getattr(route, "effective_route_contexts", None)
-        if not callable(route_contexts):
-            continue
-        for route_context in route_contexts():
-            if isinstance(getattr(route_context, "original_route", None), APIRoute):
-                yield route_context
-
-
-def _route_required_token_scopes_by_operation(application: FastAPI) -> dict[tuple[str, str], tuple[str, ...]]:
+def _route_required_token_scopes_by_operation(
+    application: FastAPI,
+) -> dict[tuple[str, str], tuple[str, ...]]:
     required_by_operation: dict[tuple[str, str], tuple[str, ...]] = {}
     for route in _iter_effective_api_routes(application):
         scopes = _collect_route_token_scopes(route)
@@ -318,9 +348,11 @@ def _apply_published_security_contract(
     security_schemes[API_TOKEN_SECURITY_SCHEME_NAME] = {
         "type": "http",
         "scheme": "bearer",
-        "bearerFormat": "API token",
+        "bearerFormat": "API or service-account token",
         "description": (
-            "Use a scoped personal API token in the `Authorization: Bearer <token>` header. "
+            "Use a scoped personal API token or a `tlsa_` service-account token in "
+            "the `Authorization: Bearer <token>` header. Service-account tokens are "
+            "accepted only from this header and only on explicitly supported data-plane routes. "
             "Browser sign-in at `/v1/auth/login` creates a cookie session and returns only session-cookie metadata; "
             "bearer auth requires a dedicated API token."
         ),
@@ -356,7 +388,8 @@ def _apply_published_security_contract(
             if not security:
                 continue
             if not any(
-                isinstance(requirement, dict) and "OAuth2PasswordBearer" in requirement for requirement in security
+                isinstance(requirement, dict) and "OAuth2PasswordBearer" in requirement
+                for requirement in security
             ):
                 continue
             operation["security"] = [
@@ -408,7 +441,9 @@ def _apply_contract_anchor(schema: dict[str, Any]) -> dict[str, Any]:
     info = schema.setdefault("info", {})
     info.pop(OPENAPI_CONTRACT_ANCHOR_FIELD, None)
     digest = hashlib.sha256(
-        json.dumps(schema, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+        json.dumps(
+            schema, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+        ).encode("utf-8")
     ).hexdigest()
     info[OPENAPI_CONTRACT_ANCHOR_FIELD] = digest
     return schema
@@ -433,6 +468,7 @@ def custom_openapi() -> dict[str, Any]:
         schema,
         required_scopes_by_operation=_route_required_token_scopes_by_operation(app),
     )
+    schema = apply_openapi_error_contract(schema)
     app.openapi_schema = _apply_contract_anchor(schema)
     return app.openapi_schema
 

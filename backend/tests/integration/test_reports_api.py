@@ -8,9 +8,17 @@ from zoneinfo import ZoneInfoNotFoundError
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.api.routes import reports as reports_routes
+from app.api.deps import get_data_access_context
+from app.api.routes import report_route_helpers, reports as reports_routes
+from app.main import app
 from app.models.audit_log import AuditLog
 from app.models.ai_task_run import AITaskRun
+from app.models.data_policy import (
+    DataPolicyState,
+    HandlingLabel,
+    UNRESTRICTED_HANDLING_LABEL_ID,
+)
+from app.models.feed import Feed
 from app.models.report import Report
 from app.models.report_operation_receipt import ReportOperationReceipt
 from app.models.report_schedule import ReportSchedule
@@ -18,6 +26,16 @@ from app.models.report_template import ReportTemplate
 from app.models.user import User
 from app.schemas.reports import ReportTemplateCreate
 from app.services.ai_context_budget import AIContextBudgetError
+from app.services.ai_telemetry_data_policy import capture_ai_task_run_data_access
+from app.services.authorization import AuthorizationStateUnavailable
+from app.services.data_access_envelopes import (
+    DATA_ACCESS_RESOURCE_AI_TASK_RUN,
+    DATA_ACCESS_RESOURCE_REPORT,
+    DataAccessSourceInput,
+    merge_data_access_envelope_sources,
+)
+from app.services.data_access_policy import DataAccessContext
+from app.services.data_access_retention import prune_deleted_resource_envelopes
 from app.services.export_query import ExportSnapshotChangedError
 
 
@@ -264,6 +282,154 @@ def test_report_creation_idempotency_replays_without_replanning(
     assert report.request_idempotency_key_hash != raw_key
     assert len(report.request_idempotency_key_hash or "") == 64
     assert len(report.request_fingerprint or "") == 64
+
+
+def test_report_creation_replay_hides_inaccessible_report_and_run_identifiers(
+    client,
+    db_session,
+    auth_headers,
+    monkeypatch,
+):
+    calls = _install_report_creation_stubs(monkeypatch)
+    payload = _report_payload()
+    headers = {
+        **auth_headers["analyst"],
+        "Idempotency-Key": "report-create-access-loss",
+    }
+    first = client.post("/reports", json=payload, headers=headers)
+    assert first.status_code == 202, first.text
+
+    report_id = uuid.UUID(first.json()["report_id"])
+    run_id = uuid.UUID(first.json()["task_run_id"])
+    report = db_session.get(Report, report_id)
+    run = db_session.get(AITaskRun, run_id)
+    state = db_session.get(DataPolicyState, 1)
+    assert report is not None
+    assert run is not None
+    assert state is not None
+    restricted = HandlingLabel(
+        key=f"report-replay-{uuid.uuid4().hex[:12]}",
+        name="Report replay restricted",
+        description="Restricted report replay source.",
+        color="#991B1B",
+        is_unrestricted=False,
+        is_system=False,
+        is_active=True,
+        revision=1,
+    )
+    db_session.add(restricted)
+    db_session.flush()
+    feed = Feed(
+        name="Report replay restricted feed",
+        url=f"https://report-replay-{uuid.uuid4()}.example/feed.xml",
+        handling_label_id=restricted.id,
+    )
+    db_session.add(feed)
+    db_session.flush()
+    merge_data_access_envelope_sources(
+        db_session,
+        resource_type=DATA_ACCESS_RESOURCE_REPORT,
+        resource_id=report.id,
+        sources=(
+            DataAccessSourceInput(
+                source_type="feed",
+                source_id=str(feed.id),
+                source_version="report-replay-access-loss",
+                source_feed_id=feed.id,
+                handling_label_id=restricted.id,
+                captured_policy_revision=state.revision,
+                captured_at=report.created_at,
+            ),
+        ),
+    )
+    db_session.commit()
+
+    def replay_context(*, allowed_label_ids):
+        return DataAccessContext(
+            mode="enforced",
+            policy_revision=state.revision,
+            coverage_version=1,
+            principal_type="user",
+            principal_id=report.owner_user_id,
+            principal_eligible=True,
+            allowed_label_ids=frozenset(allowed_label_ids),
+        )
+
+    previous = app.dependency_overrides.get(get_data_access_context)
+    try:
+        app.dependency_overrides[get_data_access_context] = lambda: replay_context(
+            allowed_label_ids={restricted.id}
+        )
+        incomplete_run = client.post("/reports", json=payload, headers=headers)
+        assert incomplete_run.status_code == 409, incomplete_run.text
+        assert "no longer accessible" in incomplete_run.json()["detail"]
+        assert str(report_id) not in incomplete_run.text
+        assert str(run_id) not in incomplete_run.text
+
+        capture_ai_task_run_data_access(
+            db_session,
+            run_id=run.id,
+            report_id=report.id,
+            complete=True,
+        )
+        db_session.commit()
+        app.dependency_overrides[get_data_access_context] = lambda: replay_context(
+            allowed_label_ids={UNRESTRICTED_HANDLING_LABEL_ID}
+        )
+        inaccessible_report = client.post("/reports", json=payload, headers=headers)
+        assert inaccessible_report.status_code == 409, inaccessible_report.text
+        assert "no longer accessible" in inaccessible_report.json()["detail"]
+        assert str(report_id) not in inaccessible_report.text
+        assert str(run_id) not in inaccessible_report.text
+    finally:
+        if previous is None:
+            app.dependency_overrides.pop(get_data_access_context, None)
+        else:
+            app.dependency_overrides[get_data_access_context] = previous
+    assert calls["count"] == 1
+
+
+def test_report_creation_refences_authorization_after_commit_before_enqueue(
+    client,
+    db_session,
+    auth_headers,
+    monkeypatch,
+):
+    _install_report_creation_stubs(monkeypatch)
+    original_fence = report_route_helpers.fence_authorization_context
+    fence_calls = 0
+
+    def change_authorization_after_commit(db, context):
+        nonlocal fence_calls
+        fence_calls += 1
+        if fence_calls == 2:
+            raise AuthorizationStateUnavailable("authorization changed")
+        return original_fence(db, context)
+
+    def unexpected_enqueue(**_kwargs):
+        raise AssertionError("report was enqueued after authorization changed")
+
+    monkeypatch.setattr(
+        report_route_helpers,
+        "fence_authorization_context",
+        change_authorization_after_commit,
+    )
+    monkeypatch.setattr(
+        reports_routes,
+        "enqueue_report_task",
+        unexpected_enqueue,
+    )
+
+    response = client.post(
+        "/reports",
+        json=_report_payload(),
+        headers=auth_headers["analyst"],
+    )
+
+    assert response.status_code == 409, response.text
+    assert "authorization changed" in response.json()["detail"]
+    assert fence_calls == 2
+    assert db_session.query(Report).count() == 1
 
 
 def test_report_creation_idempotency_rejects_changed_payload(
@@ -1112,8 +1278,27 @@ def test_concurrent_manual_schedule_replay_wins_after_schedule_lock(
         assert reserve_calls["count"] == 1
     finally:
         with session_factory.begin() as db:
-            report_ids = select(Report.id).where(Report.schedule_id == schedule_id)
-            db.execute(delete(AITaskRun).where(AITaskRun.report_id.in_(report_ids)))
+            report_ids = list(
+                db.scalars(
+                    select(Report.id).where(Report.schedule_id == schedule_id)
+                )
+            )
+            task_run_ids = list(
+                db.scalars(
+                    select(AITaskRun.id).where(
+                        AITaskRun.report_id.in_(report_ids)
+                    )
+                )
+            )
+            db.execute(delete(AITaskRun).where(AITaskRun.id.in_(task_run_ids)))
+            db.flush()
+            prune_deleted_resource_envelopes(
+                db,
+                resources=(
+                    (DATA_ACCESS_RESOURCE_AI_TASK_RUN, task_run_id)
+                    for task_run_id in task_run_ids
+                ),
+            )
             db.execute(delete(Report).where(Report.schedule_id == schedule_id))
             db.execute(delete(ReportSchedule).where(ReportSchedule.id == schedule_id))
             db.execute(delete(ReportTemplate).where(ReportTemplate.id == template_id))

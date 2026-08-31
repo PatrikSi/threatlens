@@ -18,7 +18,9 @@ _LOG_CONTEXT: ContextVar[dict[str, str] | None] = ContextVar(
     default=None,
 )
 _BEARER_PATTERN = re.compile(r"(?i)\b(Bearer\s+)[A-Za-z0-9._~+\-/]+=*")
-_URL_CREDENTIAL_PATTERN = re.compile(r"(?P<scheme>[a-z][a-z0-9+.-]*://)(?P<credentials>[^/@\s]+)@", re.IGNORECASE)
+_URL_CREDENTIAL_PATTERN = re.compile(
+    r"(?P<scheme>[a-z][a-z0-9+.-]*://)(?P<credentials>[^/@\s]+)@", re.IGNORECASE
+)
 _SENSITIVE_VALUE_PATTERN = re.compile(
     r"(?i)([\"']?\b(?:password|passwd|secret|token|access[_-]?token|refresh[_-]?token|id[_-]?token|"
     r"api[_-]?key|authorization|cookie|csrf|smtp[_-]?password|client[_-]?secret|authorization[_-]?code)\b[\"']?"
@@ -35,13 +37,53 @@ _SAFE_RECORD_FIELDS = (
     "status",
     "duration_ms",
     "client_ip",
+    "actor_principal_type",
+    "actor_principal_id",
+    "credential_kind",
+    "credential_id",
+    "authorization_elevation_ids",
+    "data_policy_mode",
+    "data_policy_revision",
+    "data_policy_coverage_version",
 )
 
 
 def set_log_context(**values: object) -> Token:
     current = dict(_LOG_CONTEXT.get() or {})
-    current.update({key: str(value) for key, value in values.items() if value is not None and str(value)})
+    current.update(
+        {
+            key: str(value)
+            for key, value in values.items()
+            if value is not None and str(value)
+        }
+    )
     return _LOG_CONTEXT.set(current)
+
+
+def update_log_context(**values: object) -> None:
+    """Update the current request/task context across copied worker contexts."""
+
+    current = _LOG_CONTEXT.get()
+    if current is None:
+        current = {}
+        _LOG_CONTEXT.set(current)
+    current.update(
+        {
+            key: str(value)
+            for key, value in values.items()
+            if value is not None and str(value)
+        }
+    )
+
+
+def remove_log_context(*keys: str) -> None:
+    """Remove fields that were superseded by a stricter authorization pass."""
+
+    current = _LOG_CONTEXT.get()
+    if current is None:
+        return
+    for key in keys:
+        current.pop(key, None)
 
 
 def reset_log_context(token: Token) -> None:
@@ -76,7 +118,9 @@ class ThreatLensTextFormatter(logging.Formatter):
         self.max_chars = max_chars
 
     def format(self, record: logging.LogRecord) -> str:
-        timestamp = datetime.fromtimestamp(record.created, timezone.utc).isoformat(timespec="milliseconds")
+        timestamp = datetime.fromtimestamp(record.created, timezone.utc).isoformat(
+            timespec="milliseconds"
+        )
         context = " ".join(
             f"{field}={redact_log_text(getattr(record, field), max_chars=512)}"
             for field in _SAFE_RECORD_FIELDS
@@ -100,7 +144,9 @@ class ThreatLensJsonFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         payload: dict[str, Any] = {
-            "timestamp": datetime.fromtimestamp(record.created, timezone.utc).isoformat(timespec="milliseconds"),
+            "timestamp": datetime.fromtimestamp(record.created, timezone.utc).isoformat(
+                timespec="milliseconds"
+            ),
             "level": record.levelname,
             "logger": record.name,
             "message": redact_log_text(record.getMessage(), max_chars=self.max_chars),
@@ -111,8 +157,12 @@ class ThreatLensJsonFormatter(logging.Formatter):
                 payload[field] = value
         if record.exc_info:
             exception_text = "".join(traceback.format_exception(*record.exc_info))
-            payload["exception"] = redact_log_text(exception_text, max_chars=self.max_chars)
-        return json.dumps(payload, ensure_ascii=True, separators=(",", ":"), default=str)
+            payload["exception"] = redact_log_text(
+                exception_text, max_chars=self.max_chars
+            )
+        return json.dumps(
+            payload, ensure_ascii=True, separators=(",", ":"), default=str
+        )
 
 
 def configure_logging(settings: Settings, *, force: bool = True) -> None:
@@ -125,7 +175,11 @@ def configure_logging(settings: Settings, *, force: bool = True) -> None:
         {
             "version": 1,
             "disable_existing_loggers": False,
-            "filters": {"diagnostic_context": {"()": "app.core.logging_config.DiagnosticContextFilter"}},
+            "filters": {
+                "diagnostic_context": {
+                    "()": "app.core.logging_config.DiagnosticContextFilter"
+                }
+            },
             "formatters": {
                 "threatlens": {
                     "()": formatter_class,
@@ -146,14 +200,22 @@ def configure_logging(settings: Settings, *, force: bool = True) -> None:
     )
     if force:
         _route_framework_loggers_to_root(settings.log_level)
-    logging.getLogger("sqlalchemy.engine").setLevel(logging.INFO if settings.log_sql else logging.WARNING)
+    logging.getLogger("sqlalchemy.engine").setLevel(
+        logging.INFO if settings.log_sql else logging.WARNING
+    )
     for override in settings.log_level_overrides:
         logger_name, level = override.rsplit("=", 1)
         logging.getLogger(logger_name).setLevel(level)
 
 
 def _route_framework_loggers_to_root(level: str) -> None:
-    for logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access", "celery", "celery.task"):
+    for logger_name in (
+        "uvicorn",
+        "uvicorn.error",
+        "uvicorn.access",
+        "celery",
+        "celery.task",
+    ):
         framework_logger = logging.getLogger(logger_name)
         framework_logger.handlers.clear()
         framework_logger.propagate = True
@@ -164,7 +226,9 @@ def verbose_logging_enabled(settings: Settings) -> bool:
     return settings.log_detail == "verbose"
 
 
-def log_configuration_summary(settings: Settings, *, logger: logging.Logger | None = None) -> None:
+def log_configuration_summary(
+    settings: Settings, *, logger: logging.Logger | None = None
+) -> None:
     target = logger or logging.getLogger("threatlens.logging")
     target.info(
         "logging_configured level=%s overrides=%s format=%s detail=%s include_client_ip=%s slow_request_ms=%s sql=%s",
@@ -182,8 +246,10 @@ __all__ = [
     "configure_logging",
     "get_log_context",
     "log_configuration_summary",
+    "remove_log_context",
     "redact_log_text",
     "reset_log_context",
     "set_log_context",
+    "update_log_context",
     "verbose_logging_enabled",
 ]

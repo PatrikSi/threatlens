@@ -259,6 +259,11 @@ def send_rendered_notification_request(
             raise RedirectError(
                 f"Redirect chain failed after the initial request: {exc}"
             ) from exc
+        if _delivery_external_io_started.get() is True:
+            raise WebhookAmbiguousResponseError(
+                f"Webhook request failed after it began: {exc}",
+                duration_ms=int((time.perf_counter() - started_at) * 1000),
+            ) from exc
         return _failed_request_result(rendered, started_at=started_at, error=exc)
 
     if status_code is None:
@@ -319,7 +324,9 @@ def _preview_or_unavailable(
 def _observed_response_is_final(status_code: int | None) -> bool:
     if status_code is None:
         return False
-    return 200 <= status_code < 400 or _delivery_redirect_chain_started.get() is not True
+    return (
+        200 <= status_code < 400 or _delivery_redirect_chain_started.get() is not True
+    )
 
 
 def _failed_request_result(

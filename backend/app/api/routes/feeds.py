@@ -8,13 +8,20 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_admin_user, get_operator_user, require_token_scopes
+from app.api.deps import (
+    AuthenticatedPrincipal,
+    get_data_access_context,
+    require_permissions,
+)
 from app.core.config import get_settings
 from app.core.logging_config import verbose_logging_enabled
-from app.core.token_scopes import SCOPE_READ_FEEDS, SCOPE_WRITE_FEEDS
+from app.core.token_scopes import (
+    SCOPE_ADMIN_FEEDS,
+    SCOPE_READ_FEEDS,
+    SCOPE_WRITE_FEEDS,
+)
 from app.db.session import get_db
 from app.models.feed import Feed
-from app.models.user import User
 from app.schemas.feed import (
     FeedCreate,
     FeedExportResponse,
@@ -27,6 +34,10 @@ from app.schemas.feed import (
     FeedUpdate,
 )
 from app.services.audit import record_audit
+from app.services.data_access_policy import (
+    DataAccessContext,
+    handling_label_access_predicate,
+)
 from app.services.feed_fetch_ownership import (
     FEED_FETCH_CONFIGURATION_FIELDS,
     apply_feed_fetch_configuration,
@@ -53,17 +64,23 @@ logger = logging.getLogger(__name__)
 @router.get("", response_model=list[FeedResponse])
 def list_feeds(
     db: Session = Depends(get_db),
-    _user: User = Depends(require_token_scopes(SCOPE_READ_FEEDS)),
+    _principal: AuthenticatedPrincipal = Depends(require_permissions(SCOPE_READ_FEEDS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
-    feeds = db.scalars(select(Feed).order_by(Feed.created_at.desc())).all()
+    feeds = db.scalars(
+        select(Feed)
+        .where(handling_label_access_predicate(Feed.handling_label_id, data_access))
+        .order_by(Feed.created_at.desc())
+    ).all()
     return [_serialize_feed(feed) for feed in feeds]
 
 
 @router.post("/metadata", response_model=FeedMetadataResponse)
 def get_feed_metadata(
     payload: FeedMetadataRequest,
-    _operator: User = Depends(get_operator_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_READ_FEEDS)),
+    _principal: AuthenticatedPrincipal = Depends(
+        require_permissions(SCOPE_WRITE_FEEDS)
+    ),
 ):
     try:
         metadata = _probe_feed_metadata(payload.url)
@@ -74,7 +91,9 @@ def get_feed_metadata(
             headers={"Retry-After": "5"},
         ) from exc
     except FeedProbeError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
 
     return FeedMetadataResponse(
         name=metadata.name,
@@ -88,12 +107,21 @@ def get_feed_metadata(
     )
 
 
-@router.get("/export", response_model=FeedExportResponse, operation_id="export_feeds_v1_feeds_export_get")
+@router.get(
+    "/export",
+    response_model=FeedExportResponse,
+    operation_id="export_feeds_v1_feeds_export_get",
+)
 def export_feeds_sanitized(
     db: Session = Depends(get_db),
-    _user: User = Depends(require_token_scopes(SCOPE_READ_FEEDS)),
+    _principal: AuthenticatedPrincipal = Depends(require_permissions(SCOPE_READ_FEEDS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
-    exported, warnings = _build_feed_export(db, include_sensitive_urls=False)
+    exported, warnings = _build_feed_export(
+        db,
+        data_access=data_access,
+        include_sensitive_urls=False,
+    )
     return FeedExportResponse(
         exported_at=datetime.now(timezone.utc),
         export_type="sanitized",
@@ -106,10 +134,14 @@ def export_feeds_sanitized(
 @router.get("/export/backup", response_model=FeedExportResponse)
 def export_feeds_backup(
     db: Session = Depends(get_db),
-    _admin: User = Depends(get_admin_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_FEEDS)),
+    _admin: AuthenticatedPrincipal = Depends(require_permissions(SCOPE_ADMIN_FEEDS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
-    exported, warnings = _build_feed_export(db, include_sensitive_urls=True)
+    exported, warnings = _build_feed_export(
+        db,
+        data_access=data_access,
+        include_sensitive_urls=True,
+    )
     return FeedExportResponse(
         exported_at=datetime.now(timezone.utc),
         export_type="backup",
@@ -119,22 +151,37 @@ def export_feeds_backup(
     )
 
 
-def _build_feed_export(db: Session, *, include_sensitive_urls: bool) -> tuple[list[FeedImportEntry], list[str]]:
-    feeds = db.scalars(select(Feed).order_by(Feed.created_at.asc())).all()
+def _build_feed_export(
+    db: Session,
+    *,
+    data_access: DataAccessContext,
+    include_sensitive_urls: bool,
+) -> tuple[list[FeedImportEntry], list[str]]:
+    feeds = db.scalars(
+        select(Feed)
+        .where(handling_label_access_predicate(Feed.handling_label_id, data_access))
+        .order_by(Feed.created_at.asc())
+    ).all()
     exported: list[FeedImportEntry] = []
     warnings: list[str] = []
     for feed in feeds:
         has_unreadable_url = bool(feed.url_decryption_error)
         if has_unreadable_url:
-            warnings.append(f"feed {feed.id}: URL could not be decrypted and was omitted from export")
+            warnings.append(
+                f"feed {feed.id}: URL could not be decrypted and was omitted from export"
+            )
             continue
         feed_url = feed.url
         exported.append(
             FeedImportEntry(
-                name=feed.name if include_sensitive_urls else redact_feed_url(feed.name),
+                name=feed.name
+                if include_sensitive_urls
+                else redact_feed_url(feed.name),
                 url=feed_url if include_sensitive_urls else redact_feed_url(feed_url),
                 description=feed.description,
-                site_url=feed.site_url if include_sensitive_urls else redact_feed_url(feed.site_url),
+                site_url=feed.site_url
+                if include_sensitive_urls
+                else redact_feed_url(feed.site_url),
                 language=feed.language,
                 enabled=feed.enabled,
                 fetch_mode=feed.fetch_mode,
@@ -149,8 +196,8 @@ def _build_feed_export(db: Session, *, include_sensitive_urls: bool) -> tuple[li
 def import_feeds(
     payload: FeedImportRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(get_operator_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_FEEDS)),
+    principal: AuthenticatedPrincipal = Depends(require_permissions(SCOPE_WRITE_FEEDS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     settings = get_settings()
     created = 0
@@ -160,20 +207,25 @@ def import_feeds(
     metadata_backfill_ids: list[str] = []
 
     for index, entry, feed_url in _ordered_import_entries(payload):
-        if not is_fetchable_url(feed_url, allow_private_network=settings.allow_private_network_fetch):
+        if not is_fetchable_url(
+            feed_url, allow_private_network=settings.allow_private_network_fetch
+        ):
             errors.append(f"entry {index}: feed URL is not allowed")
             continue
 
         existing = _get_feed_by_url(
             db,
             feed_url,
+            data_access=data_access,
             for_update=payload.overwrite_existing,
         )
         if existing is not None and not payload.overwrite_existing:
             skipped += 1
             continue
 
-        feed_values = _resolve_import_feed_values(entry, existing=existing, settings=settings, feed_url=feed_url)
+        feed_values = _resolve_import_feed_values(
+            entry, existing=existing, settings=settings, feed_url=feed_url
+        )
 
         if existing is None:
             created_feed = _create_feed_record(db, url=feed_url, **feed_values)
@@ -185,15 +237,18 @@ def import_feeds(
             existing = _get_feed_by_url(
                 db,
                 feed_url,
+                data_access=data_access,
                 for_update=payload.overwrite_existing,
             )
             if existing is None:
-                errors.append(f"entry {index}: feed URL already exists")
+                errors.append(f"entry {index}: feed could not be created or updated")
                 continue
             if not payload.overwrite_existing:
                 skipped += 1
                 continue
-            feed_values = _resolve_import_feed_values(entry, existing=existing, settings=settings, feed_url=feed_url)
+            feed_values = _resolve_import_feed_values(
+                entry, existing=existing, settings=settings, feed_url=feed_url
+            )
 
         _apply_feed_values(existing, feed_values)
         db.add(existing)
@@ -202,7 +257,7 @@ def import_feeds(
 
     record_audit(
         db,
-        actor_user_id=user.id,
+        actor_user_id=principal.id,
         action="feeds.import",
         resource_type="feed",
         metadata={
@@ -219,28 +274,39 @@ def import_feeds(
         settings.max_metadata_backfill_tasks_per_request,
         errors=errors,
     )
-    if min(len(metadata_backfill_ids), settings.max_metadata_backfill_tasks_per_request) < len(metadata_backfill_ids):
+    if min(
+        len(metadata_backfill_ids), settings.max_metadata_backfill_tasks_per_request
+    ) < len(metadata_backfill_ids):
         errors.append(
             f"metadata backfill queue capped at {settings.max_metadata_backfill_tasks_per_request}; remaining feeds will backfill via scheduler"
         )
-    return FeedImportResponse(created=created, updated=updated, skipped=skipped, errors=errors)
+    return FeedImportResponse(
+        created=created, updated=updated, skipped=skipped, errors=errors
+    )
 
 
 @router.post("", response_model=FeedResponse, status_code=status.HTTP_201_CREATED)
 def create_feed(
     payload: FeedCreate,
     db: Session = Depends(get_db),
-    user: User = Depends(get_operator_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_FEEDS)),
+    principal: AuthenticatedPrincipal = Depends(require_permissions(SCOPE_WRITE_FEEDS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     settings = get_settings()
     feed_url = normalize_feed_url(payload.url)
-    if not is_fetchable_url(feed_url, allow_private_network=settings.allow_private_network_fetch):
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Feed URL is not allowed")
+    if not is_fetchable_url(
+        feed_url, allow_private_network=settings.allow_private_network_fetch
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Feed URL is not allowed",
+        )
 
-    existing = _get_feed_by_url(db, feed_url)
+    existing = _get_feed_by_url(db, feed_url, data_access=data_access)
     if existing is not None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Feed URL already exists")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Feed URL already exists"
+        )
 
     resolved_name = (payload.name or "").strip()
     description = payload.description
@@ -283,10 +349,13 @@ def create_feed(
         last_modified=last_modified,
     )
     if feed is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Feed URL already exists")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Feed could not be created with this URL.",
+        )
     record_audit(
         db,
-        actor_user_id=user.id,
+        actor_user_id=principal.id,
         action="feeds.create",
         resource_type="feed",
         resource_id=str(feed.id),
@@ -294,7 +363,9 @@ def create_feed(
     )
     db.commit()
     db.refresh(feed)
-    _enqueue_metadata_backfills([str(feed.id)], settings.max_metadata_backfill_tasks_per_request)
+    _enqueue_metadata_backfills(
+        [str(feed.id)], settings.max_metadata_backfill_tasks_per_request
+    )
     return _serialize_feed(feed)
 
 
@@ -303,29 +374,55 @@ def update_feed(
     feed_id: uuid.UUID,
     payload: FeedUpdate,
     db: Session = Depends(get_db),
-    user: User = Depends(get_operator_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_FEEDS)),
+    principal: AuthenticatedPrincipal = Depends(require_permissions(SCOPE_WRITE_FEEDS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
-    feed = db.scalar(select(Feed).where(Feed.id == feed_id).with_for_update())
+    feed = db.scalar(
+        select(Feed)
+        .where(
+            Feed.id == feed_id,
+            handling_label_access_predicate(
+                Feed.handling_label_id,
+                data_access,
+            ),
+        )
+        .with_for_update()
+    )
     if feed is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Feed not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Feed not found"
+        )
 
     updates = payload.model_dump(exclude_unset=True)
     if "name" in updates and not updates["name"]:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Feed name cannot be empty")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Feed name cannot be empty",
+        )
 
     settings = get_settings()
     audit_updates = dict(updates)
     if "url" in updates:
         feed_url = normalize_feed_url(updates.pop("url"))
         if not feed_url:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Feed URL cannot be empty")
-        if not is_fetchable_url(feed_url, allow_private_network=settings.allow_private_network_fetch):
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Feed URL is not allowed")
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Feed URL cannot be empty",
+            )
+        if not is_fetchable_url(
+            feed_url, allow_private_network=settings.allow_private_network_fetch
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Feed URL is not allowed",
+            )
 
-        existing = _get_feed_by_url(db, feed_url)
+        existing = _get_feed_by_url(db, feed_url, data_access=data_access)
         if existing is not None and existing.id != feed.id:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Feed URL already exists")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Feed URL already exists",
+            )
         updates["url"] = feed_url
         audit_updates["url"] = redact_feed_url(feed_url)
 
@@ -337,7 +434,10 @@ def update_feed(
     elif target_mode == "schedule":
         schedule_cron = updates.get("schedule_cron", feed.schedule_cron)
         if not schedule_cron:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="schedule_cron is required for schedule mode")
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="schedule_cron is required for schedule mode",
+            )
         updates["schedule_cron"] = schedule_cron
 
     fetch_configuration_updates = {
@@ -366,7 +466,7 @@ def update_feed(
     db.add(feed)
     record_audit(
         db,
-        actor_user_id=user.id,
+        actor_user_id=principal.id,
         action="feeds.update",
         resource_type="feed",
         resource_id=str(feed.id),
@@ -376,7 +476,10 @@ def update_feed(
         db.commit()
     except IntegrityError as exc:
         db.rollback()
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Feed URL already exists") from exc
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Feed could not be updated with this URL.",
+        ) from exc
     db.refresh(feed)
     return _serialize_feed(feed)
 
@@ -385,12 +488,22 @@ def update_feed(
 def delete_feed(
     feed_id: uuid.UUID,
     db: Session = Depends(get_db),
-    user: User = Depends(get_admin_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_FEEDS)),
+    user: AuthenticatedPrincipal = Depends(require_permissions(SCOPE_ADMIN_FEEDS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
-    feed = db.scalar(select(Feed).where(Feed.id == feed_id))
+    feed = db.scalar(
+        select(Feed).where(
+            Feed.id == feed_id,
+            handling_label_access_predicate(
+                Feed.handling_label_id,
+                data_access,
+            ),
+        )
+    )
     if feed is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Feed not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Feed not found"
+        )
 
     db.delete(feed)
     record_audit(
@@ -414,15 +527,29 @@ def delete_feed(
 def refresh_feed(
     feed_id: uuid.UUID,
     db: Session = Depends(get_db),
-    user: User = Depends(get_operator_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_FEEDS)),
+    principal: AuthenticatedPrincipal = Depends(require_permissions(SCOPE_WRITE_FEEDS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
-    feed = db.scalar(select(Feed.id).where(Feed.id == feed_id))
+    feed = db.scalar(
+        select(Feed.id).where(
+            Feed.id == feed_id,
+            handling_label_access_predicate(
+                Feed.handling_label_id,
+                data_access,
+            ),
+        )
+    )
     if feed is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Feed not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Feed not found"
+        )
 
     try:
-        celery_app.send_task("app.tasks.feed_tasks.fetch_feed", args=[str(feed_id)], kwargs={"force": True})
+        celery_app.send_task(
+            "app.tasks.feed_tasks.fetch_feed",
+            args=[str(feed_id)],
+            kwargs={"force": True},
+        )
     except Exception as exc:
         logger.warning(
             "feed_refresh_enqueue_failed feed_id=%s error_type=%s",
@@ -432,7 +559,7 @@ def refresh_feed(
         )
         record_audit(
             db,
-            actor_user_id=user.id,
+            actor_user_id=principal.id,
             action="feeds.refresh",
             resource_type="feed",
             resource_id=str(feed_id),
@@ -446,7 +573,7 @@ def refresh_feed(
         ) from exc
     record_audit(
         db,
-        actor_user_id=user.id,
+        actor_user_id=principal.id,
         action="feeds.refresh",
         resource_type="feed",
         resource_id=str(feed_id),
@@ -486,28 +613,45 @@ def _get_feed_by_url(
     db: Session,
     feed_url: str,
     *,
+    data_access: DataAccessContext,
     for_update: bool = False,
 ) -> Feed | None:
     digest = feed_url_digest(feed_url)
     if digest is None:
         return None
-    statement = select(Feed).where(Feed.url_digest == digest)
+    statement = select(Feed).where(
+        Feed.url_digest == digest,
+        handling_label_access_predicate(
+            Feed.handling_label_id,
+            data_access,
+        ),
+    )
     if for_update:
         statement = statement.with_for_update()
     return db.scalar(statement)
 
 
-def _enqueue_metadata_backfills(feed_ids: list[str], max_tasks: int, *, errors: list[str] | None = None) -> int:
+def _enqueue_metadata_backfills(
+    feed_ids: list[str], max_tasks: int, *, errors: list[str] | None = None
+) -> int:
     if max_tasks <= 0:
         return 0
     enqueued = 0
     for target_id in feed_ids[:max_tasks]:
         try:
-            celery_app.send_task("app.tasks.feed_tasks.backfill_feed_metadata", args=[target_id])
+            celery_app.send_task(
+                "app.tasks.feed_tasks.backfill_feed_metadata", args=[target_id]
+            )
         except Exception:
-            logger.warning("feed_metadata_backfill_enqueue_failed feed_id=%s", target_id, exc_info=True)
+            logger.warning(
+                "feed_metadata_backfill_enqueue_failed feed_id=%s",
+                target_id,
+                exc_info=True,
+            )
             if errors is not None:
-                errors.append(f"metadata backfill enqueue failed for feed {target_id}; scheduler will retry later")
+                errors.append(
+                    f"metadata backfill enqueue failed for feed {target_id}; scheduler will retry later"
+                )
             continue
         enqueued += 1
     return enqueued
@@ -537,13 +681,17 @@ def _probe_feed_metadata(url: str) -> FeedProbeResult:
         ) from exc
 
 
-def _resolve_import_text(entry: FeedImportEntry, field_name: str, existing_value: str | None) -> str | None:
+def _resolve_import_text(
+    entry: FeedImportEntry, field_name: str, existing_value: str | None
+) -> str | None:
     if not _import_field_provided(entry, field_name):
         return _clean_optional_text(existing_value)
     return _clean_optional_text(getattr(entry, field_name))
 
 
-def _resolve_import_fetch_settings(entry: FeedImportEntry, existing: Feed | None) -> tuple[str, int, str | None]:
+def _resolve_import_fetch_settings(
+    entry: FeedImportEntry, existing: Feed | None
+) -> tuple[str, int, str | None]:
     if existing is None:
         return (
             entry.fetch_mode,
@@ -551,18 +699,28 @@ def _resolve_import_fetch_settings(entry: FeedImportEntry, existing: Feed | None
             entry.schedule_cron,
         )
 
-    fetch_mode = entry.fetch_mode if _import_field_provided(entry, "fetch_mode") else existing.fetch_mode
+    fetch_mode = (
+        entry.fetch_mode
+        if _import_field_provided(entry, "fetch_mode")
+        else existing.fetch_mode
+    )
     fetch_interval_seconds = (
-        entry.fetch_interval_seconds
-        if _import_field_provided(entry, "fetch_interval_seconds") or _import_field_provided(entry, "fetch_mode")
-        else existing.fetch_interval_seconds
-    ) or existing.fetch_interval_seconds or 1800
+        (
+            entry.fetch_interval_seconds
+            if _import_field_provided(entry, "fetch_interval_seconds")
+            or _import_field_provided(entry, "fetch_mode")
+            else existing.fetch_interval_seconds
+        )
+        or existing.fetch_interval_seconds
+        or 1800
+    )
     if fetch_mode == "interval":
         return (fetch_mode, fetch_interval_seconds, None)
 
     schedule_cron = (
         entry.schedule_cron
-        if _import_field_provided(entry, "schedule_cron") or _import_field_provided(entry, "fetch_mode")
+        if _import_field_provided(entry, "schedule_cron")
+        or _import_field_provided(entry, "fetch_mode")
         else existing.schedule_cron
     )
     return (fetch_mode, fetch_interval_seconds, schedule_cron)
@@ -575,14 +733,28 @@ def _resolve_import_feed_values(
     settings,
     feed_url: str,
 ) -> dict[str, str | bool | int | None]:
-    resolved_name = _resolve_import_text(entry, "name", existing.name if existing else None)
-    description = _resolve_import_text(entry, "description", existing.description if existing else None)
-    site_url = _resolve_import_text(entry, "site_url", existing.site_url if existing else None)
-    language = _resolve_import_text(entry, "language", existing.language if existing else None)
+    resolved_name = _resolve_import_text(
+        entry, "name", existing.name if existing else None
+    )
+    description = _resolve_import_text(
+        entry, "description", existing.description if existing else None
+    )
+    site_url = _resolve_import_text(
+        entry, "site_url", existing.site_url if existing else None
+    )
+    language = _resolve_import_text(
+        entry, "language", existing.language if existing else None
+    )
     etag = existing.etag if existing else None
     last_modified = existing.last_modified if existing else None
-    enabled = entry.enabled if existing is None or _import_field_provided(entry, "enabled") else existing.enabled
-    fetch_mode, fetch_interval_seconds, schedule_cron = _resolve_import_fetch_settings(entry, existing)
+    enabled = (
+        entry.enabled
+        if existing is None or _import_field_provided(entry, "enabled")
+        else existing.enabled
+    )
+    fetch_mode, fetch_interval_seconds, schedule_cron = _resolve_import_fetch_settings(
+        entry, existing
+    )
 
     if not resolved_name:
         if settings.probe_feed_metadata_on_import:

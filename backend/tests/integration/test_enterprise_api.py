@@ -21,6 +21,7 @@ from app.core.security import generate_api_token
 from app.core.token_scopes import DEFAULT_API_TOKEN_SCOPES
 from app.models.api_token import ApiToken
 from app.models.article import Article
+from app.models.audit_log import AuditLog
 from app.models.feed import Feed
 from app.models.ioc import IOC, ItemIOC
 from app.models.item import Item
@@ -3597,9 +3598,12 @@ def test_api_token_can_delegate_subset_of_parent_scopes(
     grandchild_row = db_session.get(ApiToken, grandchild_row.id)
     assert child_row is not None and child_row.revoked_at is not None
     assert grandchild_row is not None and grandchild_row.revoked_at is not None
-    assert client.get(
-        "/feeds", headers={"Authorization": f"Bearer {child_token}"}
-    ).status_code == 401
+    assert (
+        client.get(
+            "/feeds", headers={"Authorization": f"Bearer {child_token}"}
+        ).status_code
+        == 401
+    )
 
 
 def test_parent_token_ownership_is_revalidated_against_locked_user(
@@ -3617,9 +3621,7 @@ def test_parent_token_ownership_is_revalidated_against_locked_user(
             "type": "http",
             "method": "POST",
             "path": "/tokens",
-            "headers": [
-                (b"authorization", f"Bearer {parent_token}".encode("ascii"))
-            ],
+            "headers": [(b"authorization", f"Bearer {parent_token}".encode("ascii"))],
         }
     )
     request.state.auth_via_api_token = True
@@ -3651,7 +3653,10 @@ def test_api_token_child_rejects_semantic_write_token_wildcards(
     )
 
     assert response.status_code == 403
-    assert response.json()["detail"] == "API tokens cannot mint child tokens with write:tokens scope"
+    assert (
+        response.json()["detail"]
+        == "API tokens cannot mint child tokens with write:tokens scope"
+    )
 
 
 def test_api_token_auth_rejects_unapproved_user(
@@ -3683,6 +3688,8 @@ def test_api_token_auth_rejects_unapproved_user(
         "identity_provider_mfa_asserted": False,
         "reauthentication_endpoint": None,
         "security_actions_supported": False,
+        "sensitive_actions_ready": False,
+        "sensitive_actions_blocker": "browser_session_required",
     }
 
     update_response = client.patch(
@@ -3839,9 +3846,9 @@ def test_token_inventory_paginates_without_changing_legacy_list_contract(
     assert first.json()["page_size"] == 2
     assert len(first.json()["tokens"]) == 2
     assert len(second.json()["tokens"]) == min(2, expected_total - 2)
-    assert {
-        token["id"] for token in first.json()["tokens"]
-    }.isdisjoint({token["id"] for token in second.json()["tokens"]})
+    assert {token["id"] for token in first.json()["tokens"]}.isdisjoint(
+        {token["id"] for token in second.json()["tokens"]}
+    )
     assert legacy.status_code == 200
     assert isinstance(legacy.json(), list)
     assert len(legacy.json()) == expected_total
@@ -3873,10 +3880,40 @@ def test_audit_log_endpoint(client: TestClient, auth_headers):
     logs_response = client.get("/audit-logs", headers=auth_headers["admin"])
     assert logs_response.status_code == 200
     logs = logs_response.json()["logs"]
-    assert any(log["action"] == "feeds.create" for log in logs)
+    feed_log = next(log for log in logs if log["action"] == "feeds.create")
+    assert feed_log["actor_principal_type"] == "user"
+    assert feed_log["actor_principal_id"] == feed_log["actor_user_id"]
+    assert feed_log["credential_kind"] == "api_token"
+    assert feed_log["credential_id"]
+    assert feed_log["request_id"]
+    assert feed_log["source_ip"]
+
+    credential_filter = client.get(
+        f"/audit-logs?credential_id={feed_log['credential_id']}&resource_type=feed",
+        headers=auth_headers["admin"],
+    )
+    assert credential_filter.status_code == 200
+    assert credential_filter.json()["total"] >= 1
+    assert all(
+        log["credential_id"] == feed_log["credential_id"]
+        for log in credential_filter.json()["logs"]
+    )
+
+    missing_zone = client.get(
+        "/audit-logs?created_from=2026-08-30T12:00:00",
+        headers=auth_headers["admin"],
+    )
+    assert missing_zone.status_code == 422
+    assert missing_zone.json()["error"]["code"] == "audit_time_zone_required"
+    reversed_window = client.get(
+        "/audit-logs?created_from=2026-08-31T00:00:00Z&created_to=2026-08-30T00:00:00Z",
+        headers=auth_headers["admin"],
+    )
+    assert reversed_window.status_code == 422
+    assert reversed_window.json()["error"]["code"] == "audit_time_range_invalid"
 
 
-def test_audit_log_export_endpoint(client: TestClient, auth_headers):
+def test_audit_log_export_endpoint(client: TestClient, auth_headers, db_session):
     create_feed = client.post(
         "/feeds",
         json={
@@ -3902,7 +3939,8 @@ def test_audit_log_export_endpoint(client: TestClient, auth_headers):
     assert create_feed_two.status_code == 201
 
     export_response = client.get(
-        "/audit-logs/export?action=feeds.create&limit=1", headers=auth_headers["admin"]
+        "/audit-logs/export?action=feeds.create&limit=1",
+        headers={**auth_headers["admin"], "X-Request-ID": "audit-export-test"},
     )
     assert export_response.status_code == 200
     payload = export_response.json()
@@ -3911,6 +3949,22 @@ def test_audit_log_export_endpoint(client: TestClient, auth_headers):
     assert payload["truncated"] is True
     assert len(payload["logs"]) == 1
     assert payload["logs"][0]["action"] == "feeds.create"
+    assert all(log["action"] != "audit.export" for log in payload["logs"])
+
+    export_entry = db_session.scalar(
+        select(AuditLog).where(
+            AuditLog.action == "audit.export",
+            AuditLog.request_id == "audit-export-test",
+        )
+    )
+    assert export_entry is not None
+    assert export_entry.actor_principal_type == "user"
+    assert export_entry.actor_principal_id == export_entry.actor_user_id
+    assert export_entry.credential_kind == "api_token"
+    assert export_entry.credential_id is not None
+    assert export_entry.metadata_json["filters"]["action"] == "feeds.create"
+    assert export_entry.metadata_json["exported_count"] == 1
+    assert export_entry.metadata_json["truncated"] is True
 
 
 def test_stats_overview_endpoint(client: TestClient, auth_headers):

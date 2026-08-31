@@ -101,6 +101,17 @@ All API paths on this page are relative to the published `/api/v1` base.
 - The AI endpoint base URL and model are stored in ThreatLens settings; the bearer credential comes from the server-side `AI_API_KEY` environment variable and is never sent to the browser.
 - Provider-exchange inspection stores sanitized request/response metadata and token counts, while generated summaries, relevance results, and daily briefs are stored in the application database.
 - Private-network AI egress is disabled by default unless `ALLOW_PRIVATE_NETWORK_AI=true`.
+- Content-derived AI task runs, usage events, and downstream artifacts retain
+  handling-label envelopes; provider-attempt receipts retain the exact task-run
+  link. Connection tests are the only envelope-free system-scoped AI telemetry.
+- Resolving an ambiguous provider attempt through an approval preserves the
+  receipt's exact task-run scope. Governed lineage is copied to the approval;
+  missing or unverifiable lineage is assigned to quarantine.
+- Data-policy audit records would-deny evidence for AI operations, while enforced
+  mode hides inaccessible task history and prevents restricted provider egress.
+
+See [Access Governance and Data Policy](../reference/access-governance.md) for
+the activation preflight and approval target contract.
 
 ## API Calls
 

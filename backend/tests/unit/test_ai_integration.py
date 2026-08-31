@@ -33,6 +33,7 @@ from app.services.ai_config import (
 from app.services.ai_integration import (
     AICompletionResult,
     AIIntegrationError,
+    FEATURE_CONNECTION_TEST,
     FEATURE_DAILY_BRIEF,
     FEATURE_REPORT,
     _call_ai_json,
@@ -45,7 +46,12 @@ from app.services.ai_integration import (
     run_item_ai_enrichment,
     request_ai_json_with_usage,
 )
-from app.services.ai_ops import AI_TASK_TYPE_DAILY_BRIEF, AI_TASK_TYPE_ITEM_ENRICHMENT, AI_TRIGGER_MANUAL, queue_ai_task_run
+from app.services.ai_ops import (
+    AI_TASK_TYPE_DAILY_BRIEF,
+    AI_TASK_TYPE_ITEM_ENRICHMENT,
+    AI_TRIGGER_MANUAL,
+    queue_ai_task_run as _queue_ai_task_run,
+)
 from app.schemas.ai import AISettingsUpdate
 
 
@@ -59,6 +65,16 @@ def ai_enabled_env(monkeypatch: pytest.MonkeyPatch):
         yield
     finally:
         get_settings.cache_clear()
+
+
+def queue_ai_task_run(db_session, **kwargs) -> AITaskRun:
+    """Create the running task state expected by direct worker-service tests."""
+
+    run = _queue_ai_task_run(db_session, **kwargs)
+    run.status = "running"
+    run.started_at = datetime.now(timezone.utc)
+    db_session.add(run)
+    return run
 
 
 def _fake_httpx_client_factory(response_payload: dict[str, object]):
@@ -127,7 +143,9 @@ def _fake_httpx_client_sequence_factory(response_payloads: list[dict[str, object
     return _FakeClient
 
 
-def _ai_chat_response(content: str, *, model: str = "local-threat-model") -> dict[str, object]:
+def _ai_chat_response(
+    content: str, *, model: str = "local-threat-model"
+) -> dict[str, object]:
     return {
         "id": "chatcmpl-test",
         "object": "chat.completion",
@@ -153,8 +171,14 @@ def test_build_chat_completion_url_accepts_bare_openai_compatible_origins():
         _build_chat_completion_url("http://192.168.0.113:11434")
         == "http://192.168.0.113:11434/v1/chat/completions"
     )
-    assert _build_chat_completion_url("http://localhost:11434/") == "http://localhost:11434/v1/chat/completions"
-    assert _build_chat_completion_url("http://localhost:11434/v1") == "http://localhost:11434/v1/chat/completions"
+    assert (
+        _build_chat_completion_url("http://localhost:11434/")
+        == "http://localhost:11434/v1/chat/completions"
+    )
+    assert (
+        _build_chat_completion_url("http://localhost:11434/v1")
+        == "http://localhost:11434/v1/chat/completions"
+    )
     assert (
         _build_chat_completion_url("http://localhost:11434/v1/chat/completions")
         == "http://localhost:11434/v1/chat/completions"
@@ -203,9 +227,14 @@ def test_call_ai_json_omits_authorization_for_local_unauthenticated_endpoint(
             captured["body"] = dict(json)
             return _FakeResponse()
 
-    monkeypatch.setattr("app.services.ai_integration.build_safe_http_client", lambda *args, **kwargs: _FakeClient())
+    monkeypatch.setattr(
+        "app.services.ai_integration.build_safe_http_client",
+        lambda *args, **kwargs: _FakeClient(),
+    )
 
-    result = _call_ai_json(active, messages=[{"role": "user", "content": '{"task":"connection_test"}'}])
+    result = _call_ai_json(
+        active, messages=[{"role": "user", "content": '{"task":"connection_test"}'}]
+    )
 
     assert result.payload == {"ok": True}
     assert captured["url"] == "http://localhost:11434/v1/chat/completions"
@@ -255,9 +284,14 @@ def test_call_ai_json_sends_authorization_for_shared_openai_endpoint(
             captured["headers"] = dict(headers)
             return _FakeResponse()
 
-    monkeypatch.setattr("app.services.ai_integration.build_safe_http_client", lambda *args, **kwargs: _FakeClient())
+    monkeypatch.setattr(
+        "app.services.ai_integration.build_safe_http_client",
+        lambda *args, **kwargs: _FakeClient(),
+    )
 
-    result = _call_ai_json(active, messages=[{"role": "user", "content": '{"task":"connection_test"}'}])
+    result = _call_ai_json(
+        active, messages=[{"role": "user", "content": '{"task":"connection_test"}'}]
+    )
 
     assert result.payload == {"ok": True}
     assert captured["headers"]["Authorization"] == "Bearer shared-provider-secret"
@@ -302,10 +336,15 @@ def test_call_ai_json_surfaces_nonstandard_provider_auth_error_without_retry_fla
             _ = (url, headers, json)
             return _FakeResponse()
 
-    monkeypatch.setattr("app.services.ai_integration.build_safe_http_client", lambda *args, **kwargs: _FakeClient())
+    monkeypatch.setattr(
+        "app.services.ai_integration.build_safe_http_client",
+        lambda *args, **kwargs: _FakeClient(),
+    )
 
     with pytest.raises(AIIntegrationError) as exc_info:
-        _call_ai_json(active, messages=[{"role": "user", "content": '{"task":"connection_test"}'}])
+        _call_ai_json(
+            active, messages=[{"role": "user", "content": '{"task":"connection_test"}'}]
+        )
 
     assert str(exc_info.value) == "Authentication required."
     assert exc_info.value.retryable is False
@@ -329,7 +368,9 @@ def test_get_or_create_ai_settings_uses_updated_runtime_defaults(db_session):
     assert settings.request_max_retries == 3
 
 
-def test_run_daily_brief_generation_returns_skipped_result_when_window_is_empty(db_session, ai_enabled_env):
+def test_run_daily_brief_generation_returns_skipped_result_when_window_is_empty(
+    db_session, ai_enabled_env
+):
     settings = get_or_create_ai_settings(db_session)
     apply_ai_settings_update(
         settings,
@@ -351,7 +392,9 @@ def test_run_daily_brief_generation_returns_skipped_result_when_window_is_empty(
     assert result.items_selected == 0
 
 
-def test_run_daily_brief_generation_caps_source_rows_before_model_call(db_session, ai_enabled_env, monkeypatch):
+def test_run_daily_brief_generation_caps_source_rows_before_model_call(
+    db_session, ai_enabled_env, monkeypatch
+):
     feed = Feed(
         id=uuid.uuid4(),
         name="CISA",
@@ -412,8 +455,11 @@ def test_run_daily_brief_generation_caps_source_rows_before_model_call(db_sessio
 
     def _fake_call(active, *, messages):
         _ = active
-        assert not db_session.in_transaction()
-        captured["prompt_item_mentions"] = sum(str(message.get("content", "")).count("Daily brief cap item") for message in messages)
+        assert db_session.in_transaction()
+        captured["prompt_item_mentions"] = sum(
+            str(message.get("content", "")).count("Daily brief cap item")
+            for message in messages
+        )
         return AICompletionResult(
             payload={
                 "title": "Daily Brief",
@@ -434,7 +480,11 @@ def test_run_daily_brief_generation_caps_source_rows_before_model_call(db_sessio
     result = run_daily_brief_generation(db_session, force=True)
     db_session.commit()
 
-    source_rows = db_session.scalars(select(AIDailyBriefSourceItem).where(AIDailyBriefSourceItem.daily_brief_id == result.brief.id)).all()
+    source_rows = db_session.scalars(
+        select(AIDailyBriefSourceItem).where(
+            AIDailyBriefSourceItem.daily_brief_id == result.brief.id
+        )
+    ).all()
     assert result.items_considered == 6
     assert result.items_selected == 5
     assert result.brief.item_count == 8
@@ -576,9 +626,7 @@ def test_first_daily_brief_claim_is_single_winner_across_postgresql_sessions(
                 AIDailyBrief.brief_date == reference_time.date()
             )
             cleanup.execute(
-                delete(AIUsageEvent).where(
-                    AIUsageEvent.daily_brief_id.in_(brief_ids)
-                )
+                delete(AIUsageEvent).where(AIUsageEvent.daily_brief_id.in_(brief_ids))
             )
             cleanup.execute(
                 delete(AIDailyBrief).where(
@@ -591,7 +639,9 @@ def test_first_daily_brief_claim_is_single_winner_across_postgresql_sessions(
             cleanup.commit()
 
 
-def test_run_daily_brief_generation_uses_published_at_before_first_seen(db_session, ai_enabled_env, monkeypatch):
+def test_run_daily_brief_generation_uses_published_at_before_first_seen(
+    db_session, ai_enabled_env, monkeypatch
+):
     reference_time = datetime(2026, 4, 15, 12, 0, tzinfo=timezone.utc)
     feed = Feed(
         id=uuid.uuid4(),
@@ -603,7 +653,13 @@ def test_run_daily_brief_generation_uses_published_at_before_first_seen(db_sessi
     db_session.add(feed)
     db_session.flush()
 
-    def add_item(title: str, *, published_at: datetime | None, first_seen_at: datetime, suffix: str) -> None:
+    def add_item(
+        title: str,
+        *,
+        published_at: datetime | None,
+        first_seen_at: datetime,
+        suffix: str,
+    ) -> None:
         item = Item(
             id=uuid.uuid4(),
             feed_id=feed.id,
@@ -690,7 +746,9 @@ def test_run_daily_brief_generation_uses_published_at_before_first_seen(db_sessi
 
     monkeypatch.setattr("app.services.ai_integration._call_ai_json", _fake_call)
 
-    result = run_daily_brief_generation(db_session, force=True, reference_time=reference_time)
+    result = run_daily_brief_generation(
+        db_session, force=True, reference_time=reference_time
+    )
     db_session.commit()
 
     assert result.status == "ready"
@@ -704,7 +762,9 @@ def test_run_daily_brief_generation_uses_published_at_before_first_seen(db_sessi
     ]
 
     source_rows = db_session.scalars(
-        select(AIDailyBriefSourceItem).where(AIDailyBriefSourceItem.daily_brief_id == result.brief.id)
+        select(AIDailyBriefSourceItem).where(
+            AIDailyBriefSourceItem.daily_brief_id == result.brief.id
+        )
     ).all()
     assert {row.title_snapshot for row in source_rows} == set(captured_titles)
 
@@ -746,9 +806,12 @@ def test_report_retry_expands_only_to_exact_context_headroom(
         _ = (active, messages)
         requested.append(max_completion_tokens)
         if len(requested) < 3:
-            raise AIIntegrationError(
-                "truncated", retry_hint="expand_completion_budget", retryable=True
-            )
+                raise AIIntegrationError(
+                    "truncated",
+                    retry_hint="expand_completion_budget",
+                    retryable=True,
+                    provider_io_outcome="response_received",
+                )
         return AICompletionResult(
             payload={"ok": True},
             provider="openai_compatible",
@@ -767,6 +830,7 @@ def test_report_retry_expands_only_to_exact_context_headroom(
         db_session,
         active,
         feature_type=FEATURE_REPORT,
+        provider_operation_scope="section:test",
         messages=[{"role": "user", "content": "report"}],
         max_completion_tokens=256,
         max_retry_completion_tokens=700,
@@ -777,6 +841,31 @@ def test_report_retry_expands_only_to_exact_context_headroom(
     assert requested == [256, 512, 700]
     assert result.attempt_count == 3
     assert checkpoints == [0, 1, 1, 2, 2, 3]
+
+
+def test_public_provider_wrapper_rejects_connection_test_bypass(
+    db_session,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(
+        ai_integration_module,
+        "_request_json_with_usage",
+        lambda *_args, **_kwargs: pytest.fail(
+            "the privileged connection-test workflow must not be reached"
+        ),
+    )
+
+    with pytest.raises(
+        AIIntegrationError, match="dedicated AI connection-test"
+    ) as captured:
+        request_ai_json_with_usage(
+            db_session,
+            object(),  # type: ignore[arg-type]
+            feature_type=FEATURE_CONNECTION_TEST,
+            messages=[{"role": "user", "content": "test"}],
+        )
+
+    assert captured.value.retryable is False
 
 
 def test_report_retry_respects_provider_attempt_budget(
@@ -803,18 +892,20 @@ def test_report_retry_respects_provider_attempt_budget(
         _ = (active, messages)
         requested.append(max_completion_tokens)
         raise AIIntegrationError(
-            "truncated", retry_hint="expand_completion_budget", retryable=True
+            "truncated",
+            retry_hint="expand_completion_budget",
+            retryable=True,
+            provider_io_outcome="response_received",
         )
 
-    monkeypatch.setattr(
-        "app.services.ai_integration._call_ai_json", _always_truncated
-    )
+    monkeypatch.setattr("app.services.ai_integration._call_ai_json", _always_truncated)
 
     with pytest.raises(AIIntegrationError, match="truncated") as exc_info:
         request_ai_json_with_usage(
             db_session,
             active,
             feature_type=FEATURE_REPORT,
+            provider_operation_scope="section:test",
             messages=[{"role": "user", "content": "report"}],
             max_completion_tokens=256,
             max_retry_completion_tokens=1000,
@@ -825,7 +916,9 @@ def test_report_retry_respects_provider_attempt_budget(
     assert exc_info.value.attempt_count == 2
 
 
-def test_generate_item_ai_enrichment_stores_summary_relevance_and_usage(db_session, ai_enabled_env, monkeypatch: pytest.MonkeyPatch):
+def test_generate_item_ai_enrichment_stores_summary_relevance_and_usage(
+    db_session, ai_enabled_env, monkeypatch: pytest.MonkeyPatch
+):
     feed = Feed(
         id=uuid.uuid4(),
         name="Unit42",
@@ -883,12 +976,15 @@ def test_generate_item_ai_enrichment_stores_summary_relevance_and_usage(db_sessi
 
     def _fake_call(active, *, messages):
         _ = (active, messages)
-        assert not db_session.in_transaction()
+        assert db_session.in_transaction()
         return AICompletionResult(
             payload={
                 "summary_text": "AI summary of the exploitation activity.",
                 "relevance_score": 0.91,
-                "relevance_reasons": ["Mentions Fortinet", "Targets exposed edge systems"],
+                "relevance_reasons": [
+                    "Mentions Fortinet",
+                    "Targets exposed edge systems",
+                ],
             },
             provider="openai_compatible",
             model="local-threat-model",
@@ -908,7 +1004,9 @@ def test_generate_item_ai_enrichment_stores_summary_relevance_and_usage(db_sessi
     assert enrichment.summary_text == "AI summary of the exploitation activity."
     assert enrichment.relevance_label == "high"
 
-    stored = db_session.scalar(select(ItemAIEnrichment).where(ItemAIEnrichment.item_id == item.id))
+    stored = db_session.scalar(
+        select(ItemAIEnrichment).where(ItemAIEnrichment.item_id == item.id)
+    )
     assert stored is not None
     assert stored.total_tokens == 100
 
@@ -983,7 +1081,10 @@ def test_run_item_ai_enrichment_skips_when_matching_enrichment_is_already_pendin
             payload={
                 "summary_text": "AI summary of the exploitation activity.",
                 "relevance_score": 0.91,
-                "relevance_reasons": ["Mentions Fortinet", "Targets exposed edge systems"],
+                "relevance_reasons": [
+                    "Mentions Fortinet",
+                    "Targets exposed edge systems",
+                ],
             },
             provider="openai_compatible",
             model="local-threat-model",
@@ -1009,7 +1110,9 @@ def test_run_item_ai_enrichment_skips_when_matching_enrichment_is_already_pendin
 
     def _unexpected_call(active, *, messages):
         _ = (active, messages)
-        raise AssertionError("AI request should not run while matching enrichment is already pending")
+        raise AssertionError(
+            "AI request should not run while matching enrichment is already pending"
+        )
 
     monkeypatch.setattr("app.services.ai_integration._call_ai_json", _unexpected_call)
 
@@ -1110,7 +1213,10 @@ def test_run_item_ai_enrichment_recovers_matching_pending_row_for_task_redeliver
             payload={
                 "summary_text": "Recovered AI summary of the exploitation activity.",
                 "relevance_score": 0.93,
-                "relevance_reasons": ["Mentions Fortinet", "Recovered after redelivery"],
+                "relevance_reasons": [
+                    "Mentions Fortinet",
+                    "Recovered after redelivery",
+                ],
             },
             provider="openai_compatible",
             model=active.model,
@@ -1121,14 +1227,18 @@ def test_run_item_ai_enrichment_recovers_matching_pending_row_for_task_redeliver
         ),
     )
 
-    result = run_item_ai_enrichment(db_session, item_id=item.id, force=False, task_run_id=run.id)
+    result = run_item_ai_enrichment(
+        db_session, item_id=item.id, force=False, task_run_id=run.id
+    )
     db_session.commit()
 
     db_session.refresh(enrichment)
     assert result.status == "ready"
     assert result.reason is None
     assert enrichment.status == "ready"
-    assert enrichment.summary_text == "Recovered AI summary of the exploitation activity."
+    assert (
+        enrichment.summary_text == "Recovered AI summary of the exploitation activity."
+    )
 
 
 def test_run_item_ai_enrichment_force_updates_existing_row_in_place(
@@ -1224,14 +1334,18 @@ def test_run_item_ai_enrichment_force_updates_existing_row_in_place(
     db_session.commit()
 
     assert result.status == "ready"
-    rows = db_session.scalars(select(ItemAIEnrichment).where(ItemAIEnrichment.item_id == item.id)).all()
+    rows = db_session.scalars(
+        select(ItemAIEnrichment).where(ItemAIEnrichment.item_id == item.id)
+    ).all()
     assert len(rows) == 1
     assert rows[0].summary_text == "New AI summary."
     assert rows[0].model == "local-threat-model"
     assert rows[0].status == "ready"
 
 
-def test_generate_daily_brief_persists_latest_brief_and_usage(db_session, ai_enabled_env, monkeypatch: pytest.MonkeyPatch):
+def test_generate_daily_brief_persists_latest_brief_and_usage(
+    db_session, ai_enabled_env, monkeypatch: pytest.MonkeyPatch
+):
     feed = Feed(
         id=uuid.uuid4(),
         name="CISA",
@@ -1308,11 +1422,21 @@ def test_generate_daily_brief_persists_latest_brief_and_usage(db_session, ai_ena
     stored = db_session.scalar(select(AIDailyBrief).where(AIDailyBrief.id == brief.id))
     assert stored is not None
     assert stored.item_count == 1
-    assert "Use only the provided company context and items." in captured_messages[0]["content"]
+    assert (
+        "Use only the provided company context and items."
+        in captured_messages[0]["content"]
+    )
     request_payload = json.loads(captured_messages[1]["content"])
-    assert request_payload["audience"] == "security leads and analysts preparing a daily triage and prioritization handoff"
-    assert request_payload["requested_output"]["recommended_actions"].startswith("3-5 short, practical")
-    assert request_payload["briefing_priorities"][2].startswith("Synthesis of overlapping stories")
+    assert (
+        request_payload["audience"]
+        == "security leads and analysts preparing a daily triage and prioritization handoff"
+    )
+    assert request_payload["requested_output"]["recommended_actions"].startswith(
+        "3-5 short, practical"
+    )
+    assert request_payload["briefing_priorities"][2].startswith(
+        "Synthesis of overlapping stories"
+    )
 
     usage_events = db_session.scalars(select(AIUsageEvent)).all()
     assert len(usage_events) == 1
@@ -1323,13 +1447,18 @@ def test_generate_daily_brief_persists_latest_brief_and_usage(db_session, ai_ena
     assert notification_event is not None
     assert notification_event.event_type == "daily_digest"
     assert notification_event.source_type == "ai_daily_brief"
-    assert notification_event.payload_json["daily_brief"]["title"] == "ThreatLens Daily Brief"
+    assert (
+        notification_event.payload_json["daily_brief"]["title"]
+        == "ThreatLens Daily Brief"
+    )
     assert notification_event.payload_json["daily_brief"]["key_points"] == [
         "Exposed edge systems were mentioned."
     ]
 
 
-def test_generate_daily_brief_extracts_text_from_object_lists(db_session, ai_enabled_env, monkeypatch: pytest.MonkeyPatch):
+def test_generate_daily_brief_extracts_text_from_object_lists(
+    db_session, ai_enabled_env, monkeypatch: pytest.MonkeyPatch
+):
     feed = Feed(
         id=uuid.uuid4(),
         name="CISA",
@@ -1402,7 +1531,10 @@ def test_generate_daily_brief_extracts_text_from_object_lists(db_session, ai_ena
     db_session.commit()
 
     assert brief is not None
-    assert brief.key_points_json == ["Patch exposed edge systems.", "Review remote access exposure."]
+    assert brief.key_points_json == [
+        "Patch exposed edge systems.",
+        "Review remote access exposure.",
+    ]
     assert brief.recommended_actions_json == [
         "Rotate exposed credentials.",
         "Harden public-facing access flows.",
@@ -1410,7 +1542,9 @@ def test_generate_daily_brief_extracts_text_from_object_lists(db_session, ai_ena
     ]
 
 
-def test_run_item_ai_enrichment_records_provider_exchange_event(db_session, ai_enabled_env, monkeypatch: pytest.MonkeyPatch):
+def test_run_item_ai_enrichment_records_provider_exchange_event(
+    db_session, ai_enabled_env, monkeypatch: pytest.MonkeyPatch
+):
     feed = Feed(
         id=uuid.uuid4(),
         name="Unit42",
@@ -1463,7 +1597,11 @@ def test_run_item_ai_enrichment_records_provider_exchange_event(db_session, ai_e
     monkeypatch.setattr(
         "app.services.ai_integration._call_ai_json",
         lambda active, *, messages: AICompletionResult(
-            payload={"summary_text": "summary", "relevance_score": 0.8, "relevance_reasons": ["edge systems"]},
+            payload={
+                "summary_text": "summary",
+                "relevance_score": 0.8,
+                "relevance_reasons": ["edge systems"],
+            },
             provider="openai_compatible",
             model=active.model,
             latency_ms=30,
@@ -1473,22 +1611,32 @@ def test_run_item_ai_enrichment_records_provider_exchange_event(db_session, ai_e
             request_url="http://localhost:11434/v1/chat/completions",
             request_payload={"model": active.model, "messages": messages},
             response_body='{"choices":[{"message":{"content":"{\\"summary_text\\":\\"summary\\"}"}}]}',
-            response_json={"choices": [{"message": {"content": '{"summary_text":"summary"}'}}]},
+            response_json={
+                "choices": [{"message": {"content": '{"summary_text":"summary"}'}}]
+            },
             status_code=200,
         ),
     )
 
-    result = run_item_ai_enrichment(db_session, item_id=item.id, force=True, task_run_id=run.id)
+    result = run_item_ai_enrichment(
+        db_session, item_id=item.id, force=True, task_run_id=run.id
+    )
     db_session.commit()
 
     assert result.status == "ready"
     event = db_session.scalar(
         select(AITaskEvent)
-        .where(AITaskEvent.task_run_id == run.id, AITaskEvent.event_type == "provider_exchange")
+        .where(
+            AITaskEvent.task_run_id == run.id,
+            AITaskEvent.event_type == "provider_exchange",
+        )
         .order_by(AITaskEvent.created_at.desc())
     )
     assert event is not None
-    assert event.payload_json["request_url"] == "http://localhost:11434/v1/chat/completions"
+    assert (
+        event.payload_json["request_url"]
+        == "http://localhost:11434/v1/chat/completions"
+    )
     assert event.payload_json["status_code"] == 200
     assert event.payload_json["request_model"] == "local-threat-model"
     assert event.payload_json["request_message_count"] == 2
@@ -1497,7 +1645,9 @@ def test_run_item_ai_enrichment_records_provider_exchange_event(db_session, ai_e
     assert event.payload_json["response_json_summary"]["top_level_keys"] == ["choices"]
 
 
-def test_run_item_ai_enrichment_records_failed_provider_exchange_event(db_session, ai_enabled_env, monkeypatch: pytest.MonkeyPatch):
+def test_run_item_ai_enrichment_records_failed_provider_exchange_event(
+    db_session, ai_enabled_env, monkeypatch: pytest.MonkeyPatch
+):
     feed = Feed(
         id=uuid.uuid4(),
         name="Unit42",
@@ -1556,24 +1706,32 @@ def test_run_item_ai_enrichment_records_failed_provider_exchange_event(db_sessio
             response_body='{"error":"provider failed"}',
             response_json={"error": "provider failed"},
             status_code=500,
+            provider_io_outcome="response_received",
         )
 
     monkeypatch.setattr("app.services.ai_integration._call_ai_json", _raise_failure)
 
-    result = run_item_ai_enrichment(db_session, item_id=item.id, force=True, task_run_id=run.id)
+    result = run_item_ai_enrichment(
+        db_session, item_id=item.id, force=True, task_run_id=run.id
+    )
     db_session.commit()
 
     assert result.status == "error"
     event = db_session.scalar(
         select(AITaskEvent)
-        .where(AITaskEvent.task_run_id == run.id, AITaskEvent.event_type == "provider_exchange_failed")
+        .where(
+            AITaskEvent.task_run_id == run.id,
+            AITaskEvent.event_type == "provider_exchange_failed",
+        )
         .order_by(AITaskEvent.created_at.desc())
     )
     assert event is not None
     assert event.message == "AI request failed: provider 500"
     assert event.payload_json["status_code"] == 500
     assert event.payload_json["request_message_count"] == 2
-    assert event.payload_json["response_body_chars"] == len('{"error":"provider failed"}')
+    assert event.payload_json["response_body_chars"] == len(
+        '{"error":"provider failed"}'
+    )
     assert event.payload_json["response_json_summary"]["top_level_keys"] == ["error"]
 
 
@@ -1638,15 +1796,24 @@ def test_run_item_ai_enrichment_skips_before_provider_call_when_cancel_requested
         _ = (active, messages)
         raise AssertionError("provider should not be called after cancellation")
 
-    monkeypatch.setattr("app.services.ai_integration._call_ai_json", _unexpected_provider_call)
+    monkeypatch.setattr(
+        "app.services.ai_integration._call_ai_json", _unexpected_provider_call
+    )
 
-    result = run_item_ai_enrichment(db_session, item_id=item.id, force=True, task_run_id=run.id)
+    result = run_item_ai_enrichment(
+        db_session, item_id=item.id, force=True, task_run_id=run.id
+    )
     db_session.commit()
 
-    enrichment = db_session.scalar(select(ItemAIEnrichment).where(ItemAIEnrichment.item_id == item.id))
+    enrichment = db_session.scalar(
+        select(ItemAIEnrichment).where(ItemAIEnrichment.item_id == item.id)
+    )
     event = db_session.scalar(
         select(AITaskEvent)
-        .where(AITaskEvent.task_run_id == run.id, AITaskEvent.event_type == "cancel_observed")
+        .where(
+            AITaskEvent.task_run_id == run.id,
+            AITaskEvent.event_type == "cancel_observed",
+        )
         .order_by(AITaskEvent.created_at.desc())
     )
 
@@ -1716,11 +1883,17 @@ def test_run_item_ai_enrichment_discards_provider_result_when_cancel_requested_m
         task_run = db_session.get(AITaskRun, run.id)
         assert task_run is not None
         task_run.reason = "cancel_requested"
-        task_run.metadata_json = {"cancel_requested_at": datetime.now(timezone.utc).isoformat()}
+        task_run.metadata_json = {
+            "cancel_requested_at": datetime.now(timezone.utc).isoformat()
+        }
         db_session.add(task_run)
         db_session.flush()
         return AICompletionResult(
-            payload={"summary_text": "summary", "relevance_score": 0.8, "relevance_reasons": ["edge systems"]},
+            payload={
+                "summary_text": "summary",
+                "relevance_score": 0.8,
+                "relevance_reasons": ["edge systems"],
+            },
             provider="openai_compatible",
             model="local-threat-model",
             latency_ms=30,
@@ -1729,15 +1902,24 @@ def test_run_item_ai_enrichment_discards_provider_result_when_cancel_requested_m
             total_tokens=50,
         )
 
-    monkeypatch.setattr("app.services.ai_integration._call_ai_json", _cancel_during_provider_call)
+    monkeypatch.setattr(
+        "app.services.ai_integration._call_ai_json", _cancel_during_provider_call
+    )
 
-    result = run_item_ai_enrichment(db_session, item_id=item.id, force=True, task_run_id=run.id)
+    result = run_item_ai_enrichment(
+        db_session, item_id=item.id, force=True, task_run_id=run.id
+    )
     db_session.commit()
 
-    enrichment = db_session.scalar(select(ItemAIEnrichment).where(ItemAIEnrichment.item_id == item.id))
+    enrichment = db_session.scalar(
+        select(ItemAIEnrichment).where(ItemAIEnrichment.item_id == item.id)
+    )
     event = db_session.scalar(
         select(AITaskEvent)
-        .where(AITaskEvent.task_run_id == run.id, AITaskEvent.event_type == "cancel_observed")
+        .where(
+            AITaskEvent.task_run_id == run.id,
+            AITaskEvent.event_type == "cancel_observed",
+        )
         .order_by(AITaskEvent.created_at.desc())
     )
 
@@ -1789,7 +1971,9 @@ def test_run_item_ai_enrichment_discards_result_after_claim_is_superseded(
     settings = get_or_create_ai_settings(db_session)
     apply_ai_settings_update(
         settings,
-        AISettingsUpdate(base_url="http://localhost:11434/v1", model="local-threat-model"),
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1", model="local-threat-model"
+        ),
     )
     db_session.add(settings)
     db_session.commit()
@@ -1802,22 +1986,15 @@ def test_run_item_ai_enrichment_discards_result_after_claim_is_superseded(
     )
     db_session.commit()
 
-    def _supersede_claim_during_provider_call(active, *, messages):
+    def _provider_call_under_final_fence(active, *, messages):
         _ = (active, messages)
-        assert not db_session.in_transaction()
-        claim = db_session.scalar(select(ItemAIEnrichment).where(ItemAIEnrichment.item_id == item.id))
-        assert claim is not None
-        db_session.execute(
-            update(ItemAIEnrichment)
-            .where(ItemAIEnrichment.item_id == item.id)
-            .values(
-                source_hash="newer-source-claim",
-                updated_at=claim.updated_at + timedelta(seconds=1),
-            )
-        )
-        db_session.commit()
+        assert db_session.in_transaction()
         return AICompletionResult(
-            payload={"summary_text": "stale summary", "relevance_score": 0.8, "relevance_reasons": ["stale"]},
+            payload={
+                "summary_text": "stale summary",
+                "relevance_score": 0.8,
+                "relevance_reasons": ["stale"],
+            },
             provider="openai_compatible",
             model="local-threat-model",
             latency_ms=30,
@@ -1826,12 +2003,44 @@ def test_run_item_ai_enrichment_discards_result_after_claim_is_superseded(
             total_tokens=50,
         )
 
-    monkeypatch.setattr("app.services.ai_integration._call_ai_json", _supersede_claim_during_provider_call)
+    monkeypatch.setattr(
+        "app.services.ai_integration._call_ai_json",
+        _provider_call_under_final_fence,
+    )
+    original_stop_observer = ai_integration_module._record_task_run_stop_observed
+    claim_superseded = False
 
-    result = run_item_ai_enrichment(db_session, item_id=item.id, force=True, task_run_id=run.id)
+    def _supersede_claim_after_provider_settlement(db, **kwargs):
+        nonlocal claim_superseded
+        if kwargs.get("stage") == "after_provider_response" and not claim_superseded:
+            claim = db.scalar(
+                select(ItemAIEnrichment).where(ItemAIEnrichment.item_id == item.id)
+            )
+            assert claim is not None
+            db.execute(
+                update(ItemAIEnrichment)
+                .where(ItemAIEnrichment.item_id == item.id)
+                .values(
+                    source_hash="newer-source-claim",
+                    updated_at=claim.updated_at + timedelta(seconds=1),
+                )
+            )
+            claim_superseded = True
+        return original_stop_observer(db, **kwargs)
+
+    monkeypatch.setattr(
+        "app.services.ai_integration._record_task_run_stop_observed",
+        _supersede_claim_after_provider_settlement,
+    )
+
+    result = run_item_ai_enrichment(
+        db_session, item_id=item.id, force=True, task_run_id=run.id
+    )
     db_session.commit()
 
-    enrichment = db_session.scalar(select(ItemAIEnrichment).where(ItemAIEnrichment.item_id == item.id))
+    enrichment = db_session.scalar(
+        select(ItemAIEnrichment).where(ItemAIEnrichment.item_id == item.id)
+    )
     discarded_event = db_session.scalar(
         select(AITaskEvent).where(
             AITaskEvent.task_run_id == run.id,
@@ -1908,12 +2117,18 @@ def test_run_item_ai_enrichment_discards_provider_result_when_run_terminalizes_m
         assert task_run is not None
         task_run.status = "error"
         task_run.reason = "stale_task_lost"
-        task_run.error = "Task no longer appears in Celery and did not report completion"
+        task_run.error = (
+            "Task no longer appears in Celery and did not report completion"
+        )
         task_run.finished_at = datetime.now(timezone.utc)
         db_session.add(task_run)
         db_session.flush()
         return AICompletionResult(
-            payload={"summary_text": "summary", "relevance_score": 0.8, "relevance_reasons": ["edge systems"]},
+            payload={
+                "summary_text": "summary",
+                "relevance_score": 0.8,
+                "relevance_reasons": ["edge systems"],
+            },
             provider="openai_compatible",
             model="local-threat-model",
             latency_ms=30,
@@ -1922,15 +2137,24 @@ def test_run_item_ai_enrichment_discards_provider_result_when_run_terminalizes_m
             total_tokens=50,
         )
 
-    monkeypatch.setattr("app.services.ai_integration._call_ai_json", _terminalize_during_provider_call)
+    monkeypatch.setattr(
+        "app.services.ai_integration._call_ai_json", _terminalize_during_provider_call
+    )
 
-    result = run_item_ai_enrichment(db_session, item_id=item.id, force=True, task_run_id=run.id)
+    result = run_item_ai_enrichment(
+        db_session, item_id=item.id, force=True, task_run_id=run.id
+    )
     db_session.commit()
 
-    enrichment = db_session.scalar(select(ItemAIEnrichment).where(ItemAIEnrichment.item_id == item.id))
+    enrichment = db_session.scalar(
+        select(ItemAIEnrichment).where(ItemAIEnrichment.item_id == item.id)
+    )
     event = db_session.scalar(
         select(AITaskEvent)
-        .where(AITaskEvent.task_run_id == run.id, AITaskEvent.event_type == "terminal_run_observed")
+        .where(
+            AITaskEvent.task_run_id == run.id,
+            AITaskEvent.event_type == "terminal_run_observed",
+        )
         .order_by(AITaskEvent.created_at.desc())
     )
 
@@ -2028,11 +2252,15 @@ def test_run_item_ai_enrichment_recovers_from_extra_closing_brace_in_model_json(
         lambda *args, **kwargs: _fake_httpx_client_factory(payload)(*args, **kwargs),
     )
 
-    result = run_item_ai_enrichment(db_session, item_id=item.id, force=True, task_run_id=run.id)
+    result = run_item_ai_enrichment(
+        db_session, item_id=item.id, force=True, task_run_id=run.id
+    )
     db_session.commit()
 
     assert result.status == "ready"
-    stored = db_session.scalar(select(ItemAIEnrichment).where(ItemAIEnrichment.item_id == item.id))
+    stored = db_session.scalar(
+        select(ItemAIEnrichment).where(ItemAIEnrichment.item_id == item.id)
+    )
     assert stored is not None
     assert stored.status == "ready"
     assert stored.summary_text == "AI summary of the campaign."
@@ -2122,11 +2350,15 @@ def test_run_item_ai_enrichment_recovers_from_missing_closing_brace_in_model_jso
         lambda *args, **kwargs: _fake_httpx_client_factory(payload)(*args, **kwargs),
     )
 
-    result = run_item_ai_enrichment(db_session, item_id=item.id, force=True, task_run_id=run.id)
+    result = run_item_ai_enrichment(
+        db_session, item_id=item.id, force=True, task_run_id=run.id
+    )
     db_session.commit()
 
     assert result.status == "ready"
-    stored = db_session.scalar(select(ItemAIEnrichment).where(ItemAIEnrichment.item_id == item.id))
+    stored = db_session.scalar(
+        select(ItemAIEnrichment).where(ItemAIEnrichment.item_id == item.id)
+    )
     assert stored is not None
     assert stored.status == "ready"
     assert stored.summary_text == "AI summary of the malware."
@@ -2193,14 +2425,14 @@ def test_run_item_ai_enrichment_records_parse_failure_context(
         "created": 1774613335,
         "model": "local-threat-model",
         "choices": [
-                {
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": "summary_text: malformed response",
-                    },
-                    "finish_reason": "stop",
-                }
+            {
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": "summary_text: malformed response",
+                },
+                "finish_reason": "stop",
+            }
         ],
         "usage": {
             "prompt_tokens": 100,
@@ -2213,21 +2445,36 @@ def test_run_item_ai_enrichment_records_parse_failure_context(
         lambda *args, **kwargs: _fake_httpx_client_factory(payload)(*args, **kwargs),
     )
 
-    result = run_item_ai_enrichment(db_session, item_id=item.id, force=True, task_run_id=run.id)
+    result = run_item_ai_enrichment(
+        db_session, item_id=item.id, force=True, task_run_id=run.id
+    )
     db_session.commit()
 
     assert result.status == "error"
     event = db_session.scalar(
         select(AITaskEvent)
-        .where(AITaskEvent.task_run_id == run.id, AITaskEvent.event_type == "provider_exchange_failed")
+        .where(
+            AITaskEvent.task_run_id == run.id,
+            AITaskEvent.event_type == "provider_exchange_failed",
+        )
         .order_by(AITaskEvent.created_at.desc())
     )
     assert event is not None
     assert event.message == "AI response did not contain valid JSON"
-    assert event.payload_json["request_url"] == "http://localhost:11434/v1/chat/completions"
+    assert (
+        event.payload_json["request_url"]
+        == "http://localhost:11434/v1/chat/completions"
+    )
     assert event.payload_json["request_model"] == "local-threat-model"
     assert event.payload_json["status_code"] == 200
-    assert event.payload_json["response_json_summary"]["top_level_keys"] == ["choices", "created", "id", "model", "object", "usage"]
+    assert event.payload_json["response_json_summary"]["top_level_keys"] == [
+        "choices",
+        "created",
+        "id",
+        "model",
+        "object",
+        "usage",
+    ]
     assert event.payload_json["response_json_summary"]["choices_count"] == 1
 
 
@@ -2292,14 +2539,14 @@ def test_run_item_ai_enrichment_retries_after_malformed_model_output(
         "created": 1774613335,
         "model": "local-threat-model",
         "choices": [
-                {
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": "summary_text: malformed response",
-                    },
-                    "finish_reason": "stop",
-                }
+            {
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": "summary_text: malformed response",
+                },
+                "finish_reason": "stop",
+            }
         ],
         "usage": {
             "prompt_tokens": 100,
@@ -2331,19 +2578,26 @@ def test_run_item_ai_enrichment_retries_after_malformed_model_output(
             "total_tokens": 134,
         },
     }
-    fake_client_factory = _fake_httpx_client_sequence_factory([invalid_payload, valid_payload])
+    fake_client_factory = _fake_httpx_client_sequence_factory(
+        [invalid_payload, valid_payload]
+    )
     monkeypatch.setattr(
         "app.services.ai_integration.build_safe_http_client",
         lambda *args, **kwargs: fake_client_factory(*args, **kwargs),
     )
 
-    result = run_item_ai_enrichment(db_session, item_id=item.id, force=True, task_run_id=run.id)
+    result = run_item_ai_enrichment(
+        db_session, item_id=item.id, force=True, task_run_id=run.id
+    )
     db_session.commit()
 
     assert result.status == "ready"
     retry_event = db_session.scalar(
         select(AITaskEvent)
-        .where(AITaskEvent.task_run_id == run.id, AITaskEvent.event_type == "provider_exchange_retry")
+        .where(
+            AITaskEvent.task_run_id == run.id,
+            AITaskEvent.event_type == "provider_exchange_retry",
+        )
         .order_by(AITaskEvent.created_at.asc())
     )
     assert retry_event is not None
@@ -2420,7 +2674,11 @@ def test_run_item_ai_enrichment_applies_backoff_and_jitter_between_provider_retr
         _ = (active, messages)
         attempts["count"] += 1
         if attempts["count"] == 1:
-            raise AIIntegrationError("provider timeout", retryable=True)
+            raise AIIntegrationError(
+                "provider timeout",
+                retryable=True,
+                provider_io_outcome="not_sent",
+            )
         return AICompletionResult(
             payload={
                 "summary_text": "Retry succeeded.",
@@ -2435,16 +2693,28 @@ def test_run_item_ai_enrichment_applies_backoff_and_jitter_between_provider_retr
             total_tokens=42,
         )
 
-    monkeypatch.setattr("app.services.ai_integration._call_ai_json", _fail_once_then_succeed)
-    monkeypatch.setattr("app.services.ai_integration.random.uniform", lambda _start, _end: 0.25)
-    monkeypatch.setattr("app.services.ai_integration.time.sleep", lambda delay: sleep_calls.append(delay))
+    monkeypatch.setattr(
+        "app.services.ai_integration._call_ai_json", _fail_once_then_succeed
+    )
+    monkeypatch.setattr(
+        "app.services.ai_integration.random.uniform", lambda _start, _end: 0.25
+    )
+    monkeypatch.setattr(
+        "app.services.ai_integration.time.sleep",
+        lambda delay: sleep_calls.append(delay),
+    )
 
-    result = run_item_ai_enrichment(db_session, item_id=item.id, force=True, task_run_id=run.id)
+    result = run_item_ai_enrichment(
+        db_session, item_id=item.id, force=True, task_run_id=run.id
+    )
     db_session.commit()
 
     retry_event = db_session.scalar(
         select(AITaskEvent)
-        .where(AITaskEvent.task_run_id == run.id, AITaskEvent.event_type == "provider_exchange_retry")
+        .where(
+            AITaskEvent.task_run_id == run.id,
+            AITaskEvent.event_type == "provider_exchange_retry",
+        )
         .order_by(AITaskEvent.created_at.asc())
     )
 
@@ -2452,7 +2722,9 @@ def test_run_item_ai_enrichment_applies_backoff_and_jitter_between_provider_retr
     assert result.status == "ready"
     assert sleep_calls == [pytest.approx(0.75)]
     assert retry_event is not None
-    assert retry_event.payload_json["retry_delay_seconds"] == pytest.approx(0.75, rel=1e-3)
+    assert retry_event.payload_json["retry_delay_seconds"] == pytest.approx(
+        0.75, rel=1e-3
+    )
 
 
 def test_run_item_ai_enrichment_does_not_retry_terminal_provider_auth_errors(
@@ -2515,19 +2787,32 @@ def test_run_item_ai_enrichment_does_not_retry_terminal_provider_auth_errors(
     def _always_auth_error(active, *, messages):
         _ = (active, messages)
         attempts["count"] += 1
-        raise AIIntegrationError("provider rejected credentials", status_code=401, retryable=False)
+        raise AIIntegrationError(
+            "provider rejected credentials",
+            status_code=401,
+            retryable=False,
+            provider_io_outcome="response_received",
+        )
 
     monkeypatch.setattr("app.services.ai_integration._call_ai_json", _always_auth_error)
 
-    result = run_item_ai_enrichment(db_session, item_id=item.id, force=True, task_run_id=run.id)
+    result = run_item_ai_enrichment(
+        db_session, item_id=item.id, force=True, task_run_id=run.id
+    )
     db_session.commit()
 
     retry_events = db_session.scalars(
-        select(AITaskEvent).where(AITaskEvent.task_run_id == run.id, AITaskEvent.event_type == "provider_exchange_retry")
+        select(AITaskEvent).where(
+            AITaskEvent.task_run_id == run.id,
+            AITaskEvent.event_type == "provider_exchange_retry",
+        )
     ).all()
     failure_event = db_session.scalar(
         select(AITaskEvent)
-        .where(AITaskEvent.task_run_id == run.id, AITaskEvent.event_type == "provider_exchange_failed")
+        .where(
+            AITaskEvent.task_run_id == run.id,
+            AITaskEvent.event_type == "provider_exchange_failed",
+        )
         .order_by(AITaskEvent.created_at.asc())
     )
 
@@ -2604,20 +2889,33 @@ def test_run_item_ai_enrichment_stops_before_retry_when_cancel_requested_after_f
         task_run = db_session.get(AITaskRun, run.id)
         assert task_run is not None
         task_run.reason = "cancel_requested"
-        task_run.metadata_json = {"cancel_requested_at": datetime.now(timezone.utc).isoformat()}
+        task_run.metadata_json = {
+            "cancel_requested_at": datetime.now(timezone.utc).isoformat()
+        }
         db_session.add(task_run)
         db_session.flush()
-        raise AIIntegrationError("provider timeout", retryable=True)
+        raise AIIntegrationError(
+            "provider timeout",
+            retryable=True,
+            provider_io_outcome="not_sent",
+        )
 
     monkeypatch.setattr("app.services.ai_integration._call_ai_json", _fail_then_cancel)
 
-    result = run_item_ai_enrichment(db_session, item_id=item.id, force=True, task_run_id=run.id)
+    result = run_item_ai_enrichment(
+        db_session, item_id=item.id, force=True, task_run_id=run.id
+    )
     db_session.commit()
 
-    enrichment = db_session.scalar(select(ItemAIEnrichment).where(ItemAIEnrichment.item_id == item.id))
+    enrichment = db_session.scalar(
+        select(ItemAIEnrichment).where(ItemAIEnrichment.item_id == item.id)
+    )
     event = db_session.scalar(
         select(AITaskEvent)
-        .where(AITaskEvent.task_run_id == run.id, AITaskEvent.event_type == "cancel_observed")
+        .where(
+            AITaskEvent.task_run_id == run.id,
+            AITaskEvent.event_type == "cancel_observed",
+        )
         .order_by(AITaskEvent.created_at.desc())
     )
 
@@ -2698,7 +2996,7 @@ def test_run_daily_brief_generation_retries_after_truncated_model_output(
                 "message": {
                     "role": "assistant",
                     "content": (
-                        '{'
+                        "{"
                         '"title":"Daily Security Brief – March 28, 2026",'
                         '"brief_text":"Critical vulnerabilities require immediate action.",'
                         '"key_points":["Citrix NetScaler is under active recon.","F5 BIG-IP APM is in KEV.","TeamPCP pushed malicious telnyx versions (4'
@@ -2739,7 +3037,9 @@ def test_run_daily_brief_generation_retries_after_truncated_model_output(
             "total_tokens": 2820,
         },
     }
-    fake_client_factory = _fake_httpx_client_sequence_factory([invalid_payload, valid_payload])
+    fake_client_factory = _fake_httpx_client_sequence_factory(
+        [invalid_payload, valid_payload]
+    )
     monkeypatch.setattr(
         "app.services.ai_integration.build_safe_http_client",
         lambda *args, **kwargs: fake_client_factory(*args, **kwargs),
@@ -2757,7 +3057,10 @@ def test_run_daily_brief_generation_retries_after_truncated_model_output(
 
     retry_event = db_session.scalar(
         select(AITaskEvent)
-        .where(AITaskEvent.task_run_id == run.id, AITaskEvent.event_type == "provider_exchange_retry")
+        .where(
+            AITaskEvent.task_run_id == run.id,
+            AITaskEvent.event_type == "provider_exchange_retry",
+        )
         .order_by(AITaskEvent.created_at.asc())
     )
     assert retry_event is not None
@@ -2841,10 +3144,16 @@ def test_run_daily_brief_generation_stops_before_retry_when_cancel_requested_aft
         task_run = db_session.get(AITaskRun, run.id)
         assert task_run is not None
         task_run.reason = "cancel_requested"
-        task_run.metadata_json = {"cancel_requested_at": datetime.now(timezone.utc).isoformat()}
+        task_run.metadata_json = {
+            "cancel_requested_at": datetime.now(timezone.utc).isoformat()
+        }
         db_session.add(task_run)
         db_session.flush()
-        raise AIIntegrationError("provider timeout", retryable=True)
+        raise AIIntegrationError(
+            "provider timeout",
+            retryable=True,
+            provider_io_outcome="not_sent",
+        )
 
     monkeypatch.setattr("app.services.ai_integration._call_ai_json", _fail_then_cancel)
 
@@ -2853,7 +3162,10 @@ def test_run_daily_brief_generation_stops_before_retry_when_cancel_requested_aft
 
     event = db_session.scalar(
         select(AITaskEvent)
-        .where(AITaskEvent.task_run_id == run.id, AITaskEvent.event_type == "cancel_observed")
+        .where(
+            AITaskEvent.task_run_id == run.id,
+            AITaskEvent.event_type == "cancel_observed",
+        )
         .order_by(AITaskEvent.created_at.desc())
     )
 
@@ -2926,7 +3238,9 @@ def test_run_daily_brief_generation_discards_provider_result_when_cancel_request
         task_run = db_session.get(AITaskRun, run.id)
         assert task_run is not None
         task_run.reason = "cancel_requested"
-        task_run.metadata_json = {"cancel_requested_at": datetime.now(timezone.utc).isoformat()}
+        task_run.metadata_json = {
+            "cancel_requested_at": datetime.now(timezone.utc).isoformat()
+        }
         db_session.add(task_run)
         db_session.flush()
         return AICompletionResult(
@@ -2944,7 +3258,9 @@ def test_run_daily_brief_generation_discards_provider_result_when_cancel_request
             total_tokens=100,
         )
 
-    monkeypatch.setattr("app.services.ai_integration._call_ai_json", _cancel_during_provider_call)
+    monkeypatch.setattr(
+        "app.services.ai_integration._call_ai_json", _cancel_during_provider_call
+    )
 
     result = run_daily_brief_generation(db_session, force=True, task_run_id=run.id)
     db_session.commit()
@@ -2952,7 +3268,10 @@ def test_run_daily_brief_generation_discards_provider_result_when_cancel_request
     task_run = db_session.get(AITaskRun, run.id)
     event = db_session.scalar(
         select(AITaskEvent)
-        .where(AITaskEvent.task_run_id == run.id, AITaskEvent.event_type == "cancel_observed")
+        .where(
+            AITaskEvent.task_run_id == run.id,
+            AITaskEvent.event_type == "cancel_observed",
+        )
         .order_by(AITaskEvent.created_at.desc())
     )
 
@@ -3028,7 +3347,9 @@ def test_run_daily_brief_generation_discards_provider_result_when_run_terminaliz
         assert task_run is not None
         task_run.status = "error"
         task_run.reason = "stale_task_lost"
-        task_run.error = "Task no longer appears in Celery and did not report completion"
+        task_run.error = (
+            "Task no longer appears in Celery and did not report completion"
+        )
         task_run.finished_at = datetime.now(timezone.utc)
         db_session.add(task_run)
         db_session.flush()
@@ -3047,14 +3368,19 @@ def test_run_daily_brief_generation_discards_provider_result_when_run_terminaliz
             total_tokens=100,
         )
 
-    monkeypatch.setattr("app.services.ai_integration._call_ai_json", _terminalize_during_provider_call)
+    monkeypatch.setattr(
+        "app.services.ai_integration._call_ai_json", _terminalize_during_provider_call
+    )
 
     result = run_daily_brief_generation(db_session, force=True, task_run_id=run.id)
     db_session.commit()
 
     event = db_session.scalar(
         select(AITaskEvent)
-        .where(AITaskEvent.task_run_id == run.id, AITaskEvent.event_type == "terminal_run_observed")
+        .where(
+            AITaskEvent.task_run_id == run.id,
+            AITaskEvent.event_type == "terminal_run_observed",
+        )
         .order_by(AITaskEvent.created_at.desc())
     )
 
@@ -3068,7 +3394,9 @@ def test_run_daily_brief_generation_discards_provider_result_when_run_terminaliz
     assert event.payload_json["resolved_reason"] == "stale_task_lost"
 
 
-def test_generate_daily_brief_prunes_history_to_configured_limit(db_session, ai_enabled_env, monkeypatch: pytest.MonkeyPatch):
+def test_generate_daily_brief_prunes_history_to_configured_limit(
+    db_session, ai_enabled_env, monkeypatch: pytest.MonkeyPatch
+):
     feed = Feed(
         id=uuid.uuid4(),
         name="CISA",
@@ -3149,8 +3477,15 @@ def test_generate_daily_brief_prunes_history_to_configured_limit(db_session, ai_
         assert brief is not None
         db_session.commit()
 
-    brief_dates = list(db_session.scalars(select(AIDailyBrief.brief_date).order_by(AIDailyBrief.brief_date.desc())))
-    assert brief_dates == [datetime(2026, 3, 22, 12, 0, tzinfo=timezone.utc).date(), datetime(2026, 3, 21, 12, 0, tzinfo=timezone.utc).date()]
+    brief_dates = list(
+        db_session.scalars(
+            select(AIDailyBrief.brief_date).order_by(AIDailyBrief.brief_date.desc())
+        )
+    )
+    assert brief_dates == [
+        datetime(2026, 3, 22, 12, 0, tzinfo=timezone.utc).date(),
+        datetime(2026, 3, 21, 12, 0, tzinfo=timezone.utc).date(),
+    ]
 
 
 def test_get_latest_daily_brief_returns_most_recent_ready_brief(db_session):
@@ -3224,9 +3559,15 @@ def test_prompt_builders_allow_editable_base_prompts(db_session, ai_enabled_env)
 
     active = load_active_ai_settings(db_session)
 
-    assert build_item_enrichment_system_prompt(active).startswith("You are a focused SOC analyst.")
-    assert build_daily_brief_system_prompt(active).startswith("You are writing a crisp morning brief.")
-    assert "arrays of short plain strings only" in build_daily_brief_system_prompt(active)
+    assert build_item_enrichment_system_prompt(active).startswith(
+        "You are a focused SOC analyst."
+    )
+    assert build_daily_brief_system_prompt(active).startswith(
+        "You are writing a crisp morning brief."
+    )
+    assert "arrays of short plain strings only" in build_daily_brief_system_prompt(
+        active
+    )
     assert DEFAULT_ITEM_ENRICHMENT_SYSTEM_PROMPT != active.item_enrichment_system_prompt
     assert DEFAULT_DAILY_BRIEF_SYSTEM_PROMPT != active.daily_brief_system_prompt
 
@@ -3235,4 +3576,7 @@ def test_default_prompts_emphasize_grounding_and_security_audience():
     assert "Use only the provided article text" in DEFAULT_ITEM_ENRICHMENT_SYSTEM_PROMPT
     assert "Approximate relevance rubric" in DEFAULT_ITEM_ENRICHMENT_SYSTEM_PROMPT
     assert "Write for security leads and analysts" in DEFAULT_DAILY_BRIEF_SYSTEM_PROMPT
-    assert "Recommended actions must be brief, practical, and evidence-based." in DEFAULT_DAILY_BRIEF_SYSTEM_PROMPT
+    assert (
+        "Recommended actions must be brief, practical, and evidence-based."
+        in DEFAULT_DAILY_BRIEF_SYSTEM_PROMPT
+    )
