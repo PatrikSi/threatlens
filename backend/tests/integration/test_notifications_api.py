@@ -7,12 +7,18 @@ from sqlalchemy import select
 
 from app.core.security import generate_api_token
 from app.models.api_token import ApiToken
+from app.models.audit_log import AuditLog
 from app.models.feed import Feed
 from app.models.integration import IntegrationInstance, IntegrationSubscription
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.user import User
 from app.schemas.notification import NotificationWebhookTestResponse, NotificationWebhookWrite
+from app.services import notification_webhook_http
+from app.services.notification_webhook_test_policy import (
+    NOTIFICATION_WEBHOOK_TEST_OUTCOME_ACTION,
+    NOTIFICATION_WEBHOOK_TEST_RECEIPT_ACTION,
+)
 from app.services.notification_webhooks import (
     NotificationWebhookRetryInProgressError,
     build_notification_webhook,
@@ -311,10 +317,23 @@ def test_notification_webhook_test_endpoint_returns_render_result(client: TestCl
 
     captured: dict[str, object] = {}
 
-    def _fake_test(db, *, user, payload, sample_item_id, sample_feed_id):
+    def _fake_test(
+        db,
+        *,
+        user,
+        payload,
+        sample_item_id,
+        sample_feed_id,
+        data_access,
+        authorization,
+        operation_id,
+    ):
         captured["user_id"] = user.id
         captured["name"] = payload.name
         captured["sample_feed_id"] = sample_feed_id
+        captured["data_access_principal_id"] = data_access.principal_id
+        captured["authorization_principal_id"] = authorization.principal_id
+        captured["operation_id"] = operation_id
         return NotificationWebhookTestResponse(
             success=True,
             status_code=204,
@@ -358,6 +377,9 @@ def test_notification_webhook_test_endpoint_returns_render_result(client: TestCl
     assert payload["status_code"] == 204
     assert captured["user_id"] == admin.id
     assert captured["sample_feed_id"] == feed.id
+    assert captured["data_access_principal_id"] == admin.id
+    assert captured["authorization_principal_id"] == admin.id
+    assert captured["operation_id"]
 
 
 def test_notification_webhook_test_endpoint_redacts_sensitive_previews(client: TestClient, auth_headers, monkeypatch):
@@ -410,6 +432,93 @@ def test_notification_webhook_test_endpoint_redacts_sensitive_previews(client: T
     assert payload["rendered_query_params"] == [{"key": "token", "value": "REDACTED"}]
     assert payload["rendered_body"] == f"Stored body withheld ({len(request_body)} chars)"
     assert payload["response_body_preview"] == f"Stored body withheld ({len(response_body)} chars)"
+
+
+def test_notification_webhook_test_blocks_replay_when_post_io_outcome_is_not_durable(
+    client: TestClient,
+    auth_headers,
+    db_session,
+    monkeypatch,
+):
+    operation_id = f"notification-outcome-failure-{uuid.uuid4()}"
+    outbound_calls = 0
+
+    def _fake_send(rendered):
+        nonlocal outbound_calls
+        outbound_calls += 1
+        notification_webhook_http._mark_notification_external_io_started()
+        return NotificationWebhookTestResponse(
+            success=True,
+            status_code=204,
+            duration_ms=3,
+            rendered_url=rendered.url,
+            rendered_method=rendered.method,
+            rendered_headers=rendered.headers,
+            rendered_query_params=rendered.query_params,
+            rendered_body=rendered.body,
+            response_body_preview="ok",
+            error=None,
+        )
+
+    monkeypatch.setattr(
+        "app.services.notification_webhook_http.send_rendered_notification_request",
+        _fake_send,
+    )
+    monkeypatch.setattr(
+        "app.services.notification_webhooks.record_notification_webhook_test_outcome",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("simulated outcome persistence failure")
+        ),
+    )
+    request_payload = {
+        "webhook": {
+            "name": "Durable outcome test",
+            "enabled": True,
+            "event_type": "rss_item_new",
+            "url_template": "https://hooks.example.com/test",
+            "method": "POST",
+            "feed_scope": "all",
+            "feed_ids": [],
+            "query_params": [],
+            "headers": [],
+            "body_mode": "none",
+            "body_fields": [],
+            "timeout_seconds": 10,
+        }
+    }
+    headers = {**auth_headers["admin"], "X-Request-ID": operation_id}
+
+    first = client.post(
+        "/notifications/webhooks/test",
+        json=request_payload,
+        headers=headers,
+    )
+    replay = client.post(
+        "/notifications/webhooks/test",
+        json=request_payload,
+        headers=headers,
+    )
+
+    assert first.status_code == replay.status_code == 409
+    assert first.headers["X-Error-Code"] == "notification_webhook_test_replay_unsafe"
+    assert replay.headers["X-Error-Code"] == "notification_webhook_test_replay_unsafe"
+    assert outbound_calls == 1
+    receipts = db_session.scalars(
+        select(AuditLog).where(
+            AuditLog.action == NOTIFICATION_WEBHOOK_TEST_RECEIPT_ACTION,
+            AuditLog.request_id == operation_id,
+        )
+    ).all()
+    assert len(receipts) == 1
+    outcome_count = len(
+        db_session.scalars(
+            select(AuditLog).where(
+                AuditLog.action == NOTIFICATION_WEBHOOK_TEST_OUTCOME_ACTION,
+                AuditLog.resource_id == str(receipts[0].id),
+            )
+        ).all()
+    )
+    assert outcome_count == 0
 
 
 def test_analyst_can_create_notification_webhooks_by_default(client: TestClient, auth_headers):

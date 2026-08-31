@@ -55,8 +55,6 @@ class NotificationWebhookWrite(BaseModel):
 
         if self.feed_scope == "all":
             self.feed_ids = []
-        elif not self.feed_ids:
-            raise ValueError("feed_ids is required when feed_scope is selected")
 
         if self.body_mode == "none":
             self.body_fields = []
