@@ -92,6 +92,8 @@ class CurrentAuthenticationResponse(BaseModel):
     identity_provider_mfa_asserted: bool = False
     reauthentication_endpoint: str | None = None
     security_actions_supported: bool = False
+    sensitive_actions_ready: bool = False
+    sensitive_actions_blocker: str | None = None
 
 
 class CurrentUserResponse(UserResponse):

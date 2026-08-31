@@ -99,16 +99,26 @@ def get_group_response(db: Session, group_id: uuid.UUID) -> GroupResponse:
     return _group_response(db, group)
 
 
-def list_group_members(db: Session, group_id: uuid.UUID) -> list[GroupMemberResponse]:
+def list_group_members(
+    db: Session,
+    group_id: uuid.UUID,
+    *,
+    limit: int | None = None,
+    offset: int = 0,
+) -> list[GroupMemberResponse]:
     group = db.get(IAMGroup, group_id)
     if group is None:
         raise IAMGroupNotFound("Group not found.")
     if group.is_system and group.key == "all-users":
-        users = db.scalars(
+        query = (
             select(User)
             .where(User.is_active.is_(True), User.is_approved.is_(True))
             .order_by(User.email, User.id)
-        ).all()
+            .offset(offset)
+        )
+        if limit is not None:
+            query = query.limit(limit)
+        users = db.scalars(query).all()
         return [
             GroupMemberResponse(
                 id=user.id,
@@ -120,12 +130,16 @@ def list_group_members(db: Session, group_id: uuid.UUID) -> list[GroupMemberResp
             )
             for user in users
         ]
-    rows = db.execute(
+    query = (
         select(IAMGroupMembership, User)
         .join(User, User.id == IAMGroupMembership.user_id)
         .where(IAMGroupMembership.group_id == group.id)
         .order_by(User.email, IAMGroupMembership.created_at)
-    ).all()
+        .offset(offset)
+    )
+    if limit is not None:
+        query = query.limit(limit)
+    rows = db.execute(query).all()
     return [
         GroupMemberResponse(
             id=membership.id,
@@ -208,7 +222,9 @@ def update_group(
     return group
 
 
-def delete_group(db: Session, *, group_id: uuid.UUID) -> IAMGroup:
+def delete_group(
+    db: Session, *, group_id: uuid.UUID, expected_revision: int
+) -> IAMGroup:
     group = db.scalar(select(IAMGroup).where(IAMGroup.id == group_id).with_for_update())
     if group is None:
         raise IAMGroupNotFound("Group not found.")
@@ -218,6 +234,8 @@ def delete_group(db: Session, *, group_id: uuid.UUID) -> IAMGroup:
         raise IAMGroupConflict(
             "Identity-provider groups must be removed through the provider mapping."
         )
+    if group.revision != expected_revision:
+        raise IAMGroupRevisionConflict(group)
     oidc_mapping_count = int(
         db.scalar(
             select(func.count(OIDCGroupClaimMapping.id)).where(
@@ -242,8 +260,11 @@ def add_group_member(
     group_id: uuid.UUID,
     user_id: uuid.UUID,
     actor_user_id: uuid.UUID,
+    expected_group_revision: int,
 ) -> MembershipResult:
     group = _lock_mutable_local_group(db, group_id)
+    if group.revision != expected_group_revision:
+        raise IAMGroupRevisionConflict(group)
     if db.get(User, user_id) is None:
         raise IAMGroupUserNotFound("User not found.")
     existing = db.scalar(
@@ -277,9 +298,15 @@ def add_group_member(
 
 
 def remove_group_member(
-    db: Session, *, group_id: uuid.UUID, membership_id: uuid.UUID
+    db: Session,
+    *,
+    group_id: uuid.UUID,
+    membership_id: uuid.UUID,
+    expected_group_revision: int,
 ) -> IAMGroupMembership:
     group = _lock_mutable_local_group(db, group_id)
+    if group.revision != expected_group_revision:
+        raise IAMGroupRevisionConflict(group)
     membership = db.scalar(
         select(IAMGroupMembership)
         .where(
@@ -305,9 +332,12 @@ def add_group_role(
     group_id: uuid.UUID,
     role_id: uuid.UUID,
     actor_user_id: uuid.UUID,
+    expected_group_revision: int,
     expected_role_revision: int | None = None,
 ) -> GroupRoleResult:
     group = _lock_mutable_local_group(db, group_id)
+    if group.revision != expected_group_revision:
+        raise IAMGroupRevisionConflict(group)
     role = db.scalar(
         select(IAMRole).where(IAMRole.id == role_id).with_for_update(read=True)
     )
@@ -348,9 +378,15 @@ def add_group_role(
 
 
 def remove_group_role(
-    db: Session, *, group_id: uuid.UUID, assignment_id: uuid.UUID
+    db: Session,
+    *,
+    group_id: uuid.UUID,
+    assignment_id: uuid.UUID,
+    expected_group_revision: int,
 ) -> IAMGroupRoleAssignment:
     group = _lock_mutable_local_group(db, group_id)
+    if group.revision != expected_group_revision:
+        raise IAMGroupRevisionConflict(group)
     assignment = db.scalar(
         select(IAMGroupRoleAssignment)
         .where(

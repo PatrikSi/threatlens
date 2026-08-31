@@ -87,6 +87,9 @@ export interface CurrentAuthentication {
   session_id?: string | null
   recent_authentication_valid?: boolean
   security_actions_supported?: boolean
+  /** Server-computed parity with sensitive mutation authentication guards. */
+  sensitive_actions_ready?: boolean
+  sensitive_actions_blocker?: string | null
 }
 
 export interface TokenResponse {

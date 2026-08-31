@@ -355,12 +355,13 @@ def patch_role(
 def remove_role(
     role_id: uuid.UUID,
     request: Request,
+    expected_revision: int = Query(ge=1),
     db: Session = Depends(get_db),
     admin: User = Depends(require_iam_mutation_actor),
 ):
     try:
         before = get_role_response(db, role_id).model_dump(mode="json")
-        delete_role(db, role_id=role_id)
+        delete_role(db, role_id=role_id, expected_revision=expected_revision)
         _record_request_audit(
             db,
             request=request,
@@ -582,12 +583,13 @@ def patch_group(
 def remove_group(
     group_id: uuid.UUID,
     request: Request,
+    expected_revision: int = Query(ge=1),
     db: Session = Depends(get_db),
     admin: User = Depends(require_iam_mutation_actor),
 ):
     try:
         before = get_group_response(db, group_id).model_dump(mode="json")
-        delete_group(db, group_id=group_id)
+        delete_group(db, group_id=group_id, expected_revision=expected_revision)
         _record_request_audit(
             db,
             request=request,
@@ -617,11 +619,13 @@ def remove_group(
 )
 def get_group_members(
     group_id: uuid.UUID,
+    limit: int = Query(default=100, ge=1, le=250),
+    offset: int = Query(default=0, ge=0, le=1_000_000),
     db: Session = Depends(get_db),
     _reader: User = Depends(require_permissions(SCOPE_READ_IAM)),
 ):
     try:
-        return list_group_members(db, group_id)
+        return list_group_members(db, group_id, limit=limit, offset=offset)
     except IAMGroupError as exc:
         raise _http_error(exc) from exc
 
@@ -646,6 +650,7 @@ def post_group_member(
             group_id=group_id,
             user_id=payload.user_id,
             actor_user_id=admin.id,
+            expected_group_revision=payload.expected_group_revision,
         )
         response = next(
             member
@@ -687,12 +692,16 @@ def delete_group_member(
     group_id: uuid.UUID,
     membership_id: uuid.UUID,
     request: Request,
+    expected_group_revision: int = Query(ge=1),
     db: Session = Depends(get_db),
     admin: User = Depends(require_iam_mutation_actor),
 ):
     try:
         membership = remove_group_member(
-            db, group_id=group_id, membership_id=membership_id
+            db,
+            group_id=group_id,
+            membership_id=membership_id,
+            expected_group_revision=expected_group_revision,
         )
         _record_request_audit(
             db,
@@ -741,6 +750,7 @@ def post_group_role(
             group_id=group_id,
             role_id=payload.role_id,
             actor_user_id=admin.id,
+            expected_group_revision=payload.expected_group_revision,
             expected_role_revision=payload.expected_role_revision,
         )
         response = get_group_response(db, group_id)
@@ -796,12 +806,16 @@ def delete_group_role(
     group_id: uuid.UUID,
     assignment_id: uuid.UUID,
     request: Request,
+    expected_group_revision: int = Query(ge=1),
     db: Session = Depends(get_db),
     admin: User = Depends(require_iam_mutation_actor),
 ):
     try:
         assignment = remove_group_role(
-            db, group_id=group_id, assignment_id=assignment_id
+            db,
+            group_id=group_id,
+            assignment_id=assignment_id,
+            expected_group_revision=expected_group_revision,
         )
         _record_request_audit(
             db,

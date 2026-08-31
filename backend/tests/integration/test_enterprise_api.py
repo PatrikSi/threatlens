@@ -3688,6 +3688,8 @@ def test_api_token_auth_rejects_unapproved_user(
         "identity_provider_mfa_asserted": False,
         "reauthentication_endpoint": None,
         "security_actions_supported": False,
+        "sensitive_actions_ready": False,
+        "sensitive_actions_blocker": "browser_session_required",
     }
 
     update_response = client.patch(

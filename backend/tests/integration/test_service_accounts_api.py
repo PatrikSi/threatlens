@@ -376,7 +376,11 @@ def test_roles_credentials_rotation_revocation_disable_and_secrecy(
             ),
         )
     with pytest.raises(IAMRoleConflict, match="still assigned"):
-        delete_role(db, role_id=machine_role.id)
+        delete_role(
+            db,
+            role_id=machine_role.id,
+            expected_revision=machine_role.revision,
+        )
 
     escalation_role = _create_custom_role(
         db,

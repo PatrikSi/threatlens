@@ -258,7 +258,11 @@ def _execute_iam_role_delete(
     db: Session, resource: object, _actor_user_id: uuid.UUID
 ) -> dict[str, object]:
     role = _as_iam_role(resource)
-    deleted = delete_role(db, role_id=role.id)
+    deleted = delete_role(
+        db,
+        role_id=role.id,
+        expected_revision=role.revision,
+    )
     return {
         "changed": True,
         "deleted_role_key": deleted.key,

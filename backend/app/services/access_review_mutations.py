@@ -150,6 +150,7 @@ def _remove_group_membership(
         db,
         group_id=item.target_id_snapshot,
         membership_id=item.assignment_id,
+        expected_group_revision=item.target_revision_snapshot,
     )
     group = db.get(IAMGroup, item.target_id_snapshot)
     return (

@@ -81,16 +81,21 @@ def test_custom_role_direct_and_group_assignments_are_additive(
     member_response = client.post(
         f"/iam/groups/{group['id']}/members",
         headers=auth_headers["admin"],
-        json={"user_id": viewer_id},
+        json={"user_id": viewer_id, "expected_group_revision": group["revision"]},
     )
     assert member_response.status_code == 201
 
     group_role_response = client.post(
         f"/iam/groups/{group['id']}/role-assignments",
         headers=auth_headers["admin"],
-        json={"role_id": role["id"], "expected_role_revision": role["revision"]},
+        json={
+            "role_id": role["id"],
+            "expected_group_revision": group["revision"] + 1,
+            "expected_role_revision": role["revision"],
+        },
     )
     assert group_role_response.status_code == 201
+    group_after_role = group_role_response.json()
 
     group_role_assignments = client.get(
         f"/iam/groups/{group['id']}/role-assignments",
@@ -108,7 +113,7 @@ def test_custom_role_direct_and_group_assignments_are_additive(
     assert "connector-team" in grouped_effective["groups"]
 
     remove_group_role = client.delete(
-        f"/iam/groups/{group['id']}/role-assignments/{group_role_assignment['id']}",
+        f"/iam/groups/{group['id']}/role-assignments/{group_role_assignment['id']}?expected_group_revision={group_after_role['revision']}",
         headers=auth_headers["admin"],
     )
     assert remove_group_role.status_code == 204
@@ -165,6 +170,118 @@ def test_role_validation_revision_and_system_role_guards(client, auth_headers):
     )
     assert immutable.status_code == 409
     assert immutable.json()["error"]["code"] == "iam_system_role_immutable"
+
+
+def test_role_and_group_deletes_require_current_revision(
+    client, auth_headers, seed_users
+):
+    role = client.post(
+        "/iam/roles",
+        headers=auth_headers["admin"],
+        json={"key": "delete-fence-role", "name": "Delete fence", "permissions": []},
+    ).json()
+    updated_role = client.patch(
+        f"/iam/roles/{role['id']}",
+        headers=auth_headers["admin"],
+        json={"expected_revision": role["revision"], "description": "Changed"},
+    ).json()
+
+    missing_role_revision = client.delete(
+        f"/iam/roles/{role['id']}", headers=auth_headers["admin"]
+    )
+    assert missing_role_revision.status_code == 422
+    stale_role = client.delete(
+        f"/iam/roles/{role['id']}?expected_revision={role['revision']}",
+        headers=auth_headers["admin"],
+    )
+    assert stale_role.status_code == 409
+    assert stale_role.json()["error"]["code"] == "iam_role_revision_conflict"
+    assert (
+        stale_role.json()["error"]["context"]["current_revision"]
+        == updated_role["revision"]
+    )
+    deleted_role = client.delete(
+        f"/iam/roles/{role['id']}?expected_revision={updated_role['revision']}",
+        headers=auth_headers["admin"],
+    )
+    assert deleted_role.status_code == 204
+
+    group = client.post(
+        "/iam/groups",
+        headers=auth_headers["admin"],
+        json={"key": "delete-fence-group", "name": "Delete fence group"},
+    ).json()
+    added = client.post(
+        f"/iam/groups/{group['id']}/members",
+        headers=auth_headers["admin"],
+        json={
+            "user_id": str(seed_users["viewer"].id),
+            "expected_group_revision": group["revision"],
+        },
+    )
+    assert added.status_code == 201
+    current_group = next(
+        item
+        for item in client.get("/iam/groups", headers=auth_headers["admin"]).json()
+        if item["id"] == group["id"]
+    )
+
+    stale_member_remove = client.delete(
+        f"/iam/groups/{group['id']}/members/{added.json()['id']}?expected_group_revision={group['revision']}",
+        headers=auth_headers["admin"],
+    )
+    assert stale_member_remove.status_code == 409
+    assert stale_member_remove.json()["error"]["code"] == "iam_group_revision_conflict"
+    assert len(
+        client.get(
+            f"/iam/groups/{group['id']}/members",
+            headers=auth_headers["admin"],
+        ).json()
+    ) == 1
+
+    stale_group = client.delete(
+        f"/iam/groups/{group['id']}?expected_revision={group['revision']}",
+        headers=auth_headers["admin"],
+    )
+    assert stale_group.status_code == 409
+    assert stale_group.json()["error"]["code"] == "iam_group_revision_conflict"
+    assert (
+        stale_group.json()["error"]["context"]["current_revision"]
+        == current_group["revision"]
+    )
+    deleted_group = client.delete(
+        f"/iam/groups/{group['id']}?expected_revision={current_group['revision']}",
+        headers=auth_headers["admin"],
+    )
+    assert deleted_group.status_code == 204
+
+
+def test_user_directory_honors_canonical_read_users_permission(
+    client, auth_headers, seed_users
+):
+    role = client.post(
+        "/iam/roles",
+        headers=auth_headers["admin"],
+        json={
+            "key": "directory-reader",
+            "name": "Directory reader",
+            "permissions": ["read:users"],
+        },
+    ).json()
+    assigned = client.post(
+        f"/iam/users/{seed_users['viewer'].id}/role-assignments",
+        headers=auth_headers["admin"],
+        json={"role_id": role["id"], "expected_role_revision": role["revision"]},
+    )
+    assert assigned.status_code == 201
+
+    directory = client.get("/users/directory", headers=auth_headers["viewer"])
+    assert directory.status_code == 200
+    assert {entry["email"] for entry in directory.json()["users"]} >= {
+        seed_users["viewer"].email,
+        seed_users["admin"].email,
+    }
+    assert client.get("/users", headers=auth_headers["viewer"]).status_code == 403
 
 
 def test_iam_permissions_and_mutations_require_administrator(client, auth_headers):
@@ -341,7 +458,10 @@ def test_effective_groups_include_membership_without_role_and_inactive_user_fail
     added = client.post(
         f"/iam/groups/{group['id']}/members",
         headers=auth_headers["admin"],
-        json={"user_id": str(seed_users["viewer"].id)},
+        json={
+            "user_id": str(seed_users["viewer"].id),
+            "expected_group_revision": group["revision"],
+        },
     )
     assert added.status_code == 201
 
