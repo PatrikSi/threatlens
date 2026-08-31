@@ -8,6 +8,7 @@ import {
 import { useLocation, useNavigate } from 'react-router-dom'
 
 import { apiFetch } from '../api/client'
+import { SettingsPageHeader } from '../components/SettingsPageHeader'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import {
@@ -220,50 +221,67 @@ export function TokensPage() {
   }
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[420px_1fr]">
+    <div className="space-y-4">
       {confirmDiscardTokenDraft.discardDialog}
-      <TokenCreatePanel
-        state={tokenFormState}
-        formError={tokenFormError}
-        requestError={createTokenError}
-        mfaStatus={mfaStatusQuery.data}
-        mfaLoading={mfaStatusQuery.isLoading}
-        mfaError={mfaStatusQuery.error}
-        mfaFetching={mfaStatusQuery.isFetching}
-        creationAvailable={creationAvailable}
-        currentAuthMethod={currentAuthMethod ?? currentSession?.auth_method}
-        oidcRecentlyAuthenticated={!oidcVerificationRequired}
-        oidcReauthPending={oidcReauthentication.isPending}
-        oidcReauthError={oidcReauthentication.error}
-        createPending={createToken.isPending}
-        nameInputRef={nameInputRef}
-        expiryInputRef={expiryInputRef}
-        passwordInputRef={passwordInputRef}
-        codeInputRef={codeInputRef}
-        onSubmit={onCreateSubmit}
-        onNameChange={(value) => updateTokenForm({ type: 'setName', value })}
-        onExpiryChange={(value) =>
-          updateTokenForm({ type: 'setExpiresInDays', value })
-        }
-        onScopesChange={(value) =>
-          updateTokenForm({ type: 'setScopesText', value })
-        }
-        onPasswordChange={(value) =>
-          updateTokenForm({ type: 'setCurrentPassword', value })
-        }
-        onCodeChange={(value) => updateTokenForm({ type: 'setCode', value })}
-        onRetryMfa={() => void mfaStatusQuery.refetch()}
-        onOIDCReauthenticate={() => oidcReauthentication.mutate()}
-        onCreatedTokenStored={(method) => {
-          dispatchTokenForm({ type: 'dismissCreatedToken' })
-          setSecretNotice(
-            method === 'copied'
-              ? 'API token copied and cleared from this page.'
-              : 'API token cleared from this page after storage was acknowledged.',
-          )
-        }}
+      <SettingsPageHeader
+        scope="Personal"
+        title="API tokens"
+        description="Create and revoke API credentials issued to your account. Administrators can also inspect and revoke another user's tokens by owner ID."
+        actions={(
+          <a
+            href="#create-api-token"
+            className="inline-flex min-h-11 items-center justify-center rounded bg-ink px-3 py-2 text-sm font-semibold text-white sm:min-h-0 dark:bg-cyan dark:text-[#053c2e]"
+          >
+            Create token
+          </a>
+        )}
       />
-      <TokenInventory isAdmin={isAdmin} secretNotice={secretNotice} />
+      <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
+        <TokenInventory isAdmin={isAdmin} secretNotice={secretNotice} />
+        <div id="create-api-token" className="min-w-0 scroll-mt-4">
+          <TokenCreatePanel
+            state={tokenFormState}
+            formError={tokenFormError}
+            requestError={createTokenError}
+            mfaStatus={mfaStatusQuery.data}
+            mfaLoading={mfaStatusQuery.isLoading}
+            mfaError={mfaStatusQuery.error}
+            mfaFetching={mfaStatusQuery.isFetching}
+            creationAvailable={creationAvailable}
+            currentAuthMethod={currentAuthMethod ?? currentSession?.auth_method}
+            oidcRecentlyAuthenticated={!oidcVerificationRequired}
+            oidcReauthPending={oidcReauthentication.isPending}
+            oidcReauthError={oidcReauthentication.error}
+            createPending={createToken.isPending}
+            nameInputRef={nameInputRef}
+            expiryInputRef={expiryInputRef}
+            passwordInputRef={passwordInputRef}
+            codeInputRef={codeInputRef}
+            onSubmit={onCreateSubmit}
+            onNameChange={(value) => updateTokenForm({ type: 'setName', value })}
+            onExpiryChange={(value) =>
+              updateTokenForm({ type: 'setExpiresInDays', value })
+            }
+            onScopesChange={(value) =>
+              updateTokenForm({ type: 'setScopesText', value })
+            }
+            onPasswordChange={(value) =>
+              updateTokenForm({ type: 'setCurrentPassword', value })
+            }
+            onCodeChange={(value) => updateTokenForm({ type: 'setCode', value })}
+            onRetryMfa={() => void mfaStatusQuery.refetch()}
+            onOIDCReauthenticate={() => oidcReauthentication.mutate()}
+            onCreatedTokenStored={(method) => {
+              dispatchTokenForm({ type: 'dismissCreatedToken' })
+              setSecretNotice(
+                method === 'copied'
+                  ? 'API token copied and cleared from this page.'
+                  : 'API token cleared from this page after storage was acknowledged.',
+              )
+            }}
+          />
+        </div>
+      </div>
     </div>
   )
 }

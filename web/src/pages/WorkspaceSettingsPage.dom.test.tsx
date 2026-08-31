@@ -53,6 +53,12 @@ describe('WorkspaceSettingsPage', () => {
     })
     renderPage()
 
+    expect(document.body.textContent).toContain('Personal and organization')
+    expect(document.body.textContent).toContain('Navigation')
+    expect(document.body.textContent).toContain(
+      'Choose the navigation items, start page, and initial dashboard panels',
+    )
+
     clickButton('Discard and reload')
     expect(setDiscardReloadRequested).toHaveBeenCalledWith(true)
     expect(discardAndReload).not.toHaveBeenCalled()
@@ -64,7 +70,7 @@ describe('WorkspaceSettingsPage', () => {
       discardAndReload,
     })
     rerenderPage()
-    expect(document.body.textContent).toContain('All unsaved personal and role-policy edits')
+    expect(document.body.textContent).toContain('All unsaved personal preferences and role defaults')
 
     const dialog = document.body.querySelector('[role="alertdialog"]')
     const confirm = [...(dialog?.querySelectorAll('button') ?? [])].find(
@@ -73,6 +79,18 @@ describe('WorkspaceSettingsPage', () => {
     expect(confirm).toBeDefined()
     act(() => confirm?.dispatchEvent(new MouseEvent('click', { bubbles: true })))
     expect(discardAndReload).toHaveBeenCalledTimes(1)
+  })
+
+  it('uses personal scope and omits organization defaults for non-policy managers', () => {
+    pageMocks.controller = controller({ canManagePolicies: false })
+
+    renderPage()
+
+    const header = document.body.querySelector('header')
+    expect(header?.querySelector('h1')?.textContent).toBe('Navigation')
+    expect(header?.querySelector('span')?.textContent).toBe('Personal')
+    expect(document.body.textContent).toContain('Personal panel')
+    expect(document.body.textContent).not.toContain('Role panel')
   })
 })
 

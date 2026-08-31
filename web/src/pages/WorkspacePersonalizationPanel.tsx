@@ -4,7 +4,9 @@ import {
   TRUSTED_DASHBOARD_PANELS,
   TRUSTED_WORKSPACE_MODULE_BY_ID,
   isTrustedWorkspaceModuleId,
+  type TrustedWorkspaceModule,
 } from '../workspace/moduleRegistry'
+import { settingsModulePresentation } from '../workspace/modulePresentation'
 import { isDashboardPanelAvailable } from '../workspace/workspaceModel'
 import type { WorkspaceSettingsController } from './useWorkspaceSettingsController'
 import {
@@ -22,15 +24,15 @@ export function WorkspacePersonalizationPanel({ controller }: { controller: Work
   return (
     <section className="tl-surface overflow-hidden rounded-xl" aria-labelledby="personal-workspace-heading">
       <header className="border-b border-slate/20 px-4 py-4 dark:border-white/10 sm:px-5">
-        <h2 id="personal-workspace-heading" className="font-display text-lg">My workspace</h2>
+        <h2 id="personal-workspace-heading" className="font-display text-lg">My navigation</h2>
         <p className="mt-1 text-sm text-slate dark:text-slate-300">
-          Personal choices can hide or reorder optional modules, but cannot grant access or override organization policy.
+          Choose what appears in your navigation and where ThreatLens opens. These preferences cannot grant access or override organization policy.
         </p>
       </header>
 
       {!personalDraft || !effective || !preferences ? (
         <div className="px-4 py-6 text-sm text-slate dark:text-slate-300">
-          {workspace.error ? 'Personal workspace settings are unavailable until the server can be reached.' : 'Loading personal workspace settings...'}
+          {workspace.error ? 'Personal navigation settings are unavailable until the server can be reached.' : 'Loading personal navigation settings...'}
         </div>
       ) : (
         <div className="space-y-5 px-4 py-4 sm:px-5">
@@ -71,7 +73,7 @@ export function WorkspacePersonalizationPanel({ controller }: { controller: Work
               onClick={() => controller.setResetPersonalRequested(true)}
             >
               <RotateCcw className="h-4 w-4" aria-hidden="true" />
-              Reset defaults
+              Reset to organization defaults
             </button>
             <button
               type="button"
@@ -83,7 +85,7 @@ export function WorkspacePersonalizationPanel({ controller }: { controller: Work
               onClick={() => void controller.savePersonal()}
             >
               <Save className="h-4 w-4" aria-hidden="true" />
-              {workspace.isSavingPreferences ? 'Saving...' : 'Save personal workspace'}
+              {workspace.isSavingPreferences ? 'Saving...' : 'Save navigation preferences'}
             </button>
           </div>
         </div>
@@ -103,9 +105,9 @@ function PersonalModuleList({ controller }: { controller: WorkspaceSettingsContr
 
   return (
     <fieldset disabled={controller.personalMutationPending}>
-      <legend className="text-sm font-semibold">Optional modules</legend>
+      <legend className="text-sm font-semibold">Navigation items</legend>
       <p className="mt-1 text-xs text-slate dark:text-slate-400">
-        Hidden or unavailable modules never become links. Desktop ordering applies among modules with the same parent.
+        Hide optional items or reorder them within their navigation section.
       </p>
       <div className="mt-3 divide-y divide-slate/15 rounded border border-slate/20 dark:divide-white/10 dark:border-white/10">
         {ordered.map(([moduleId, preference]) => {
@@ -114,6 +116,7 @@ function PersonalModuleList({ controller }: { controller: WorkspaceSettingsContr
           if (!definition || !effective) return null
           const available = effective.policy_visible && effective.permission_allowed && effective.feature_available
           const Icon = definition.icon
+          const displayLabel = workspaceModuleDisplayLabel(definition)
           const siblingItems = ordered.filter(
             ([id]) => TRUSTED_WORKSPACE_MODULE_BY_ID.get(id)?.parentId === definition.parentId,
           )
@@ -122,8 +125,8 @@ function PersonalModuleList({ controller }: { controller: WorkspaceSettingsContr
             <div key={moduleId} className="flex flex-wrap items-center gap-3 px-3 py-3">
               <Icon className="h-4 w-4 shrink-0 text-cyan" aria-hidden="true" />
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-ink dark:text-slate-100">{definition.label}</p>
-                <p className="break-all text-xs text-slate dark:text-slate-400">{moduleId}</p>
+                <p className="text-sm font-semibold text-ink dark:text-slate-100">{displayLabel}</p>
+                <p className="text-xs text-slate dark:text-slate-400">{workspaceModuleSectionLabel(definition)}</p>
                 {!available && <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">Unavailable under current policy, permissions, or feature settings.</p>}
               </div>
               <label className="inline-flex min-h-11 items-center gap-2 text-sm sm:min-h-0">
@@ -152,14 +155,14 @@ function PersonalModuleList({ controller }: { controller: WorkspaceSettingsContr
               </label>
               <div className="flex shrink-0 gap-1">
                 <OrderButton
-                  label={`Move ${definition.label} earlier`}
+                  label={`Move ${displayLabel} earlier`}
                   disabled={siblingIndex === 0 || controller.personalMutationPending}
                   onClick={() => controller.setPersonalDraft((current) => current ? movePersonalModule(current, moduleId, -1) : current)}
                 >
                   <ArrowUp className="h-4 w-4" aria-hidden="true" />
                 </OrderButton>
                 <OrderButton
-                  label={`Move ${definition.label} later`}
+                  label={`Move ${displayLabel} later`}
                   disabled={siblingIndex === siblingItems.length - 1 || controller.personalMutationPending}
                   onClick={() => controller.setPersonalDraft((current) => current ? movePersonalModule(current, moduleId, 1) : current)}
                 >
@@ -206,7 +209,7 @@ function PersonalLandingControl({ controller }: { controller: WorkspaceSettingsC
 
   return (
     <label className="block max-w-xl text-sm font-semibold">
-      Landing module
+      Start page
       <select
         className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 font-normal dark:border-cyan-900/40 dark:bg-[#072019]"
         value={draft.landingModuleId ?? ''}
@@ -218,12 +221,12 @@ function PersonalLandingControl({ controller }: { controller: WorkspaceSettingsC
       >
         <option value="">Use organization default</option>
         {!trustedCurrent && draft.landingModuleId && (
-          <option value={draft.landingModuleId}>Unavailable in this frontend (preserved)</option>
+          <option value={draft.landingModuleId}>Unavailable in this version (kept)</option>
         )}
-        {options.map((module) => <option key={module.id} value={module.id}>{module.label}</option>)}
+        {options.map((module) => <option key={module.id} value={module.id}>{workspaceModuleDisplayLabel(module)}</option>)}
       </select>
       <span className="mt-1 block text-xs font-normal text-slate dark:text-slate-400">
-        Used after local sign-in and whenever ThreatLens opens the workspace start route.
+        Used after sign-in and whenever ThreatLens opens the workspace start route.
       </span>
     </label>
   )
@@ -233,7 +236,7 @@ function PersonalDashboardControls({ controller }: { controller: WorkspaceSettin
   const draft = controller.personalDraft!
   return (
     <fieldset disabled={controller.personalMutationPending}>
-      <legend className="text-sm font-semibold">First-use dashboard defaults</legend>
+      <legend className="text-sm font-semibold">Initial dashboard panels</legend>
       <p className="mt-1 text-xs text-slate dark:text-slate-400">
         These panels seed a new or reset local dashboard. Existing saved layouts are not replaced.
       </p>
@@ -279,4 +282,14 @@ function PersonalDashboardControls({ controller }: { controller: WorkspaceSettin
       )}
     </fieldset>
   )
+}
+
+function workspaceModuleDisplayLabel(module: TrustedWorkspaceModule): string {
+  if (module.section !== 'settings') return module.label
+  return settingsModulePresentation(module.id, module.label).label
+}
+
+function workspaceModuleSectionLabel(module: TrustedWorkspaceModule): string {
+  if (module.parentId === 'settings.integrations') return 'Integration setting'
+  return module.section === 'settings' ? 'Settings navigation' : 'Main navigation'
 }

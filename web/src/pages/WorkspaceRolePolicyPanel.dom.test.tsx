@@ -52,14 +52,18 @@ describe('WorkspaceRolePolicyPanel', () => {
     root = createRoot(container)
     act(() => root?.render(<WorkspaceRolePolicyPanel controller={controller} />))
 
-    const preview = container.querySelector('[aria-label="analyst role policy preview"]')
+    const preview = container.querySelector('[aria-label="Analyst navigation preview"]')
     expect(preview).not.toBeNull()
     expect(preview?.textContent).toContain('Dashboard')
     expect(preview?.textContent).toContain('Mobile navigation')
-    expect(preview?.textContent).toContain('Workspace')
+    expect(preview?.textContent).toContain('Navigation')
+    expect(preview?.textContent).not.toContain('Workspace')
     expect(preview?.textContent).not.toContain('Feeds')
     expect(preview?.querySelector('a')).toBeNull()
     expect(preview?.querySelector('button')).toBeNull()
+    const roleLabels = [...container.querySelectorAll('[aria-label="Built-in role"] button')]
+      .map((button) => button.textContent?.trim())
+    expect(roleLabels).toEqual(['Administrator', 'Analyst', 'Viewer'])
     expect(container.textContent).toContain('future.timeline is retained for compatibility')
     expect(container.querySelector('a[href*="future.timeline"]')).toBeNull()
   })
@@ -97,7 +101,18 @@ describe('WorkspaceRolePolicyPanel', () => {
     )]
     expect(controls.length).toBeGreaterThan(10)
     expect(controls.every((control) => control.disabled)).toBe(true)
-    expect(container.textContent).toContain('Discard role changes and reload')
+    expect(container.textContent).toContain('Discard default changes and reload')
+    expect(container.textContent).toContain('Navigation defaults by role')
+    expect(container.textContent).toContain('Shown by default')
+    expect(container.textContent).toContain('Users can customize')
+    expect(container.textContent).toContain('Default start page')
+    expect(container.textContent).toContain('Initial dashboard panels')
+    expect(container.textContent).toContain('Settings navigation')
+    expect(container.textContent).not.toContain('settings.workspace')
+
+    const columnHeaders = [...container.querySelectorAll('thead th')]
+    expect(columnHeaders).toHaveLength(5)
+    expect(columnHeaders.every((header) => header.getAttribute('scope') === 'col')).toBe(true)
 
     const table = container.querySelector('table')
     const body = container.querySelector('tbody')

@@ -171,7 +171,7 @@ export function TokenInventory({
       >
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 id="token-inventory-heading" className="font-display text-xl">
-            Token Inventory
+            Issued tokens
           </h2>
           {isAdmin && (
             <AdminTokenFilter
@@ -192,6 +192,33 @@ export function TokenInventory({
             />
           )}
         </div>
+
+        {adminUserFilter && (
+          <div
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+            aria-label="Organization token administration scope"
+            className="mt-3 rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2 text-amber-950 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100"
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="tl-chip tl-chip-warning">
+                Organization administration
+              </span>
+              <span className="text-sm font-semibold">
+                Owner-scoped token inventory
+              </span>
+            </div>
+            <p className="mt-1 break-words text-sm">
+              Viewing tokens for owner{' '}
+              <span className="break-all font-mono text-xs">
+                {adminUserFilter}
+              </span>
+              . You can inspect and revoke this user's tokens; revocation
+              immediately disables affected clients.
+            </p>
+          </div>
+        )}
 
         <TokenScopeMigrationWarning unscopedTotal={unscopedTotal} />
 
@@ -365,11 +392,11 @@ function TokenRevocationDialog({
           </p>
           {isAdmin && (
             <p className="break-all text-xs text-slate dark:text-white/70">
-              User ID: {token.user_id}
+              Owner user ID: {token.user_id}
             </p>
           )}
           <p className="break-words text-xs text-slate dark:text-white/70">
-            Scopes: {token.scopes.join(', ') || 'none'}
+            Permissions: {token.scopes.join(', ') || 'none'}
           </p>
           <p className="text-xs text-slate dark:text-white/70">
             Expires: {token.expires_at ? formatDateTime(token.expires_at) : 'Never'}
@@ -466,11 +493,9 @@ function AdminTokenFilter({
   onClear: () => void
 }) {
   const draftDirty = draft.trim() !== applied
-  const statusMessage = draftDirty
-    ? applied
-      ? `Draft not applied. Results still use user ${applied}.`
-      : 'Draft not applied. Results still include your own tokens.'
-    : `Showing tokens for user ${applied}.`
+  const statusMessage = applied
+    ? `Draft not applied. Results still use owner ${applied}.`
+    : 'Draft not applied. Results still include your own tokens.'
   return (
     <form
       className="w-full max-w-full space-y-1 sm:w-auto"
@@ -478,9 +503,9 @@ function AdminTokenFilter({
     >
       <label
         htmlFor="token-admin-user-filter"
-        className="block text-xs font-semibold uppercase text-slate dark:text-slate-300"
+        className="block text-xs font-semibold text-slate dark:text-slate-300"
       >
-        Filter by User ID
+        Owner user ID
       </label>
       <input
         id="token-admin-user-filter"
@@ -517,7 +542,7 @@ function AdminTokenFilter({
           {error}
         </p>
       )}
-      {!error && (applied || draftDirty) && (
+      {!error && draftDirty && (
         <p
           role="status"
           aria-live="polite"
@@ -562,11 +587,11 @@ function TokenInventoryRow({
         </button>
       </div>
       <p className="mt-1 break-words text-xs text-slate dark:text-slate-300">
-        Scopes: {token.scopes.join(', ') || 'none'}
+        Permissions: {token.scopes.join(', ') || 'none'}
       </p>
       {isAdmin && (
         <p className="mt-1 break-all text-xs text-slate dark:text-slate-300">
-          User ID: {token.user_id}
+          Owner user ID: {token.user_id}
         </p>
       )}
       <p className="mt-1 text-xs text-slate dark:text-slate-300">

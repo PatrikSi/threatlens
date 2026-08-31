@@ -205,7 +205,11 @@ describe('AccountPage DOM workflows', () => {
       await waitForQueriesToSettle()
     })
 
-    expect(view.textContent).toContain('Account type: SSO-provisioned')
+    expect(view.querySelectorAll('h1')).toHaveLength(1)
+    expect(view.querySelector('h1')?.textContent).toBe('My account')
+    expect(view.textContent).toContain(
+      'Provisioning source: Single sign-on (OIDC)',
+    )
     expect(view.textContent).toContain(
       'account and its sign-in identity are managed by Authentik',
     )
@@ -231,7 +235,7 @@ describe('AccountPage DOM workflows', () => {
       await waitForQueriesToSettle()
     })
 
-    expect(view.textContent).toContain('Account type: Local + SSO')
+    expect(view.textContent).toContain('Provisioning source: Local')
     expect(view.querySelector('#account-current-password')).not.toBeNull()
     expect(
       [...view.querySelectorAll('button')].some(

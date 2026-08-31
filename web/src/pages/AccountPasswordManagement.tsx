@@ -30,8 +30,8 @@ export function PasswordManagementSection({
   onSubmit: (event: FormEvent) => void
 }) {
   return (
-    <section className="tl-surface rounded-xl p-4 lg:col-start-2">
-      <h2 className="font-display text-xl">Change Password</h2>
+    <section className="tl-surface rounded-xl p-4">
+      <h2 className="font-display text-xl">Password</h2>
       {ssoProvisioned ? (
         <p className="mt-3 text-sm text-slate dark:text-slate-300">
           Password credentials are managed by{' '}

@@ -11,9 +11,11 @@ import { apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
 import { useAuth } from '../components/AuthContext'
 import { DialogSurface } from '../components/ConfirmDialog'
+import { SettingsPageHeader } from '../components/SettingsPageHeader'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { formatDateTime } from '../utils/datetime'
+import { formatSettingsRoleLabel } from '../workspace/modulePresentation'
 import type {
   MFAStatusResponse,
   OIDCAccountStatus,
@@ -166,65 +168,76 @@ export function AccountPage() {
   }
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[1fr_480px]">
+    <div className="space-y-4">
       {confirmDiscardPasswordDraft.discardDialog}
-      <section className="tl-surface rounded-xl p-4">
-        <h2 className="font-display text-xl">Account</h2>
-        {meQuery.data && (
-          <div className="mt-3 space-y-1 text-sm">
-            <p>
-              <span className="font-semibold">Email:</span> {meQuery.data.email}
-            </p>
-            <p>
-              <span className="font-semibold">Role:</span> {meQuery.data.role}
-            </p>
-            <p>
-              <span className="font-semibold">Account type:</span>{' '}
-              {resolveAccountTypeLabel(ssoProvisioned, oidcStatusQuery.data)}
-            </p>
-            <p>
-              <span className="font-semibold">Status:</span>{' '}
-              {meQuery.data.is_active ? 'active' : 'inactive'}
-            </p>
-            <p>
-              <span className="font-semibold">Created:</span>{' '}
-              {formatDateTime(meQuery.data.created_at)}
-            </p>
-          </div>
-        )}
-      </section>
-
-      <OIDCIdentitySection
-        status={oidcStatusQuery.data}
-        statusLoading={oidcStatusQuery.isLoading}
-        statusError={oidcStatusQuery.error}
-        ssoProvisioned={ssoProvisioned}
-        passwordLoginEnabled={passwordLoginEnabled}
-        linkController={oidcLink}
-        unlinkController={oidcUnlink}
-        onRetryStatus={() => void oidcStatusQuery.refetch()}
+      <SettingsPageHeader
+        scope="Personal"
+        title="My account"
+        description="Review your account details, sign-in methods, password, and active sessions."
       />
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="space-y-4">
+          <section className="tl-surface rounded-xl p-4">
+            <h2 className="font-display text-xl">Account details</h2>
+            {meQuery.data && (
+              <div className="mt-3 space-y-1 text-sm">
+                <p>
+                  <span className="font-semibold">Email:</span>{' '}
+                  {meQuery.data.email}
+                </p>
+                <p>
+                  <span className="font-semibold">Base role:</span>{' '}
+                  {formatSettingsRoleLabel(meQuery.data.role)}
+                </p>
+                <p>
+                  <span className="font-semibold">Provisioning source:</span>{' '}
+                  {resolveProvisioningSourceLabel(ssoProvisioned)}
+                </p>
+                <p>
+                  <span className="font-semibold">Status:</span>{' '}
+                  {meQuery.data.is_active ? 'Active' : 'Disabled'}
+                </p>
+                <p>
+                  <span className="font-semibold">Created:</span>{' '}
+                  {formatDateTime(meQuery.data.created_at)}
+                </p>
+              </div>
+            )}
+          </section>
 
-      <PasswordManagementSection
-        ssoProvisioned={ssoProvisioned}
-        passwordLoginEnabled={passwordLoginEnabled}
-        providerName={oidcStatusQuery.data?.provider_name}
-        currentPassword={currentPassword}
-        newPassword={newPassword}
-        passwordFormError={passwordFormError}
-        mutationError={changePassword.isError ? changePassword.error : null}
-        successNotice={passwordNotice}
-        isPending={changePassword.isPending}
-        onCurrentPasswordChange={(value) => {
-          setCurrentPassword(value)
-          setPasswordFormError('')
-        }}
-        onNewPasswordChange={(value) => {
-          setNewPassword(value)
-          setPasswordFormError('')
-        }}
-        onSubmit={onSubmit}
-      />
+          <OIDCIdentitySection
+            status={oidcStatusQuery.data}
+            statusLoading={oidcStatusQuery.isLoading}
+            statusError={oidcStatusQuery.error}
+            ssoProvisioned={ssoProvisioned}
+            passwordLoginEnabled={passwordLoginEnabled}
+            linkController={oidcLink}
+            unlinkController={oidcUnlink}
+            onRetryStatus={() => void oidcStatusQuery.refetch()}
+          />
+        </div>
+
+        <PasswordManagementSection
+          ssoProvisioned={ssoProvisioned}
+          passwordLoginEnabled={passwordLoginEnabled}
+          providerName={oidcStatusQuery.data?.provider_name}
+          currentPassword={currentPassword}
+          newPassword={newPassword}
+          passwordFormError={passwordFormError}
+          mutationError={changePassword.isError ? changePassword.error : null}
+          successNotice={passwordNotice}
+          isPending={changePassword.isPending}
+          onCurrentPasswordChange={(value) => {
+            setCurrentPassword(value)
+            setPasswordFormError('')
+          }}
+          onNewPasswordChange={(value) => {
+            setNewPassword(value)
+            setPasswordFormError('')
+          }}
+          onSubmit={onSubmit}
+        />
+      </div>
       <AccountSecuritySection onDraftWarningChange={setSecurityDraftWarning} />
     </div>
   )
@@ -255,10 +268,10 @@ function OIDCIdentitySection({
   return (
     <>
       <section className="tl-surface rounded-xl p-4">
-        <h2 className="font-display text-xl">Single Sign-On</h2>
+        <h2 className="font-display text-xl">Sign-in methods</h2>
         {statusLoading && (
           <p className="mt-2 text-sm text-slate dark:text-slate-300">
-            Loading identity status...
+            Loading sign-in methods...
           </p>
         )}
         {Boolean(statusError) && (
@@ -269,7 +282,7 @@ function OIDCIdentitySection({
             <p>
               {resolveApiErrorMessage(
                 statusError,
-                'Identity status could not be loaded',
+                'Sign-in methods could not be loaded',
               )}
             </p>
             <button
@@ -277,7 +290,7 @@ function OIDCIdentitySection({
               className="mt-2 min-h-11 rounded border border-current px-3 py-2 font-semibold"
               onClick={onRetryStatus}
             >
-              Retry identity status
+              Retry sign-in methods
             </button>
           </div>
         )}
@@ -1066,17 +1079,8 @@ function OIDCUnlinkDialog({
   )
 }
 
-function resolveAccountTypeLabel(
-  ssoProvisioned: boolean,
-  oidcStatus?: OIDCAccountStatus,
-) {
-  if (ssoProvisioned) {
-    return 'SSO-provisioned'
-  }
-  if (!oidcStatus) {
-    return 'Local; SSO link status unknown'
-  }
-  return oidcStatus.linked ? 'Local + SSO' : 'Local'
+function resolveProvisioningSourceLabel(ssoProvisioned: boolean) {
+  return ssoProvisioned ? 'Single sign-on (OIDC)' : 'Local'
 }
 
 function getPasswordChangeValidationError(

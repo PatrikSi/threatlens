@@ -95,7 +95,7 @@ export function TokenCreatePanel({
   }
   return (
     <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
-      <h2 className="font-display text-xl">Create API Token</h2>
+      <h2 className="font-display text-xl">Create API token</h2>
       <p className="mt-1 text-sm text-slate dark:text-slate-300">
         Token value is only shown once after creation.
       </p>
@@ -115,10 +115,6 @@ export function TokenCreatePanel({
         </div>
       ) : (
         <>
-          <div className="mt-3 rounded-lg border border-cyan/30 bg-cyan/10 px-3 py-2 text-sm text-slate dark:border-cyan-500/30 dark:bg-cyan-500/10 dark:text-slate-200">
-            Leave scopes blank to apply the recommended read-only defaults.
-            Explicit empty scope lists are not allowed.
-          </div>
           {currentAuthMethod === 'oidc' ? (
             <div className="mt-3 rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-3 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
               <p>
@@ -159,7 +155,7 @@ export function TokenCreatePanel({
           <form className="mt-3 space-y-3" onSubmit={handleSubmit} noValidate>
             <div>
               <label htmlFor="token-name" className="text-sm font-semibold">
-                Name
+                Token name
               </label>
               <input
                 ref={nameInputRef}
@@ -175,7 +171,7 @@ export function TokenCreatePanel({
                 htmlFor="token-expiry-days"
                 className="text-sm font-semibold"
               >
-                Expiry (days)
+                Expires after (days)
               </label>
               <input
                 ref={expiryInputRef}
@@ -191,7 +187,7 @@ export function TokenCreatePanel({
             </div>
             <div>
               <label htmlFor="token-scopes" className="text-sm font-semibold">
-                Scopes (comma-separated)
+                Permissions (API scopes)
               </label>
               <input
                 id="token-scopes"
@@ -200,6 +196,10 @@ export function TokenCreatePanel({
                 onChange={(event) => onScopesChange(event.target.value)}
                 placeholder="read:feeds,write:items"
               />
+              <p className="mt-1 text-xs text-slate dark:text-slate-400">
+                Leave blank to use the recommended read-only permissions. To
+                specify permissions, enter comma-separated API scope names.
+              </p>
             </div>
             {currentAuthMethod !== 'oidc' && (
               <div>
@@ -207,7 +207,7 @@ export function TokenCreatePanel({
                   htmlFor="token-current-password"
                   className="text-sm font-semibold"
                 >
-                  Current Password
+                  Current password
                 </label>
                 <input
                   ref={passwordInputRef}
@@ -292,7 +292,7 @@ export function TokenCreatePanel({
                   : mfaLoading || Boolean(mfaError) || !mfaStatus)
               }
             >
-              Generate Token
+              Create token
             </button>
             {formError && (
               <p

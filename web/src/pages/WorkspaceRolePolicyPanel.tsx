@@ -3,8 +3,10 @@ import { RefreshCw, RotateCcw, Save } from 'lucide-react'
 import {
   TRUSTED_DASHBOARD_PANELS,
   TRUSTED_WORKSPACE_MODULE_BY_ID,
+  type TrustedWorkspaceModule,
   type TrustedWorkspaceModuleId,
 } from '../workspace/moduleRegistry'
+import { formatSettingsRoleLabel, settingsModulePresentation } from '../workspace/modulePresentation'
 import type { WorkspaceSettingsController } from './useWorkspaceSettingsController'
 import {
   rolePolicyPreview,
@@ -16,20 +18,21 @@ import { WorkspaceCompatibilityWarnings } from './WorkspaceCompatibilityWarnings
 export function WorkspaceRolePolicyPanel({ controller }: { controller: WorkspaceSettingsController }) {
   const policy = controller.selectedPolicy
   const draft = controller.roleDraft
+  const selectedRoleLabel = formatSettingsRoleLabel(controller.selectedRole)
 
   return (
     <section className="tl-surface overflow-hidden rounded-xl" aria-labelledby="role-workspace-heading">
       <header className="border-b border-slate/20 px-4 py-4 dark:border-white/10 sm:px-5">
-        <h2 id="role-workspace-heading" className="font-display text-lg">Organization role defaults</h2>
+        <h2 id="role-workspace-heading" className="font-display text-lg">Navigation defaults by role</h2>
         <p className="mt-1 text-sm text-slate dark:text-slate-300">
-          Define module defaults for built-in roles. This policy controls presentation only; IAM permissions remain authoritative.
+          Set the default navigation for each built-in role. These choices control presentation only and never grant permissions.
         </p>
-        <div className="mt-3 inline-flex max-w-full overflow-x-auto rounded border border-slate/20 p-1 dark:border-white/10" role="group" aria-label="Workspace role">
+        <div className="mt-3 inline-flex max-w-full overflow-x-auto rounded border border-slate/20 p-1 dark:border-white/10" role="group" aria-label="Built-in role">
           {controller.roles.map((role) => (
             <button
               key={role}
               type="button"
-              className={`min-h-11 rounded px-3 py-1.5 text-sm font-semibold capitalize disabled:opacity-50 sm:min-h-0 ${
+              className={`min-h-11 rounded px-3 py-1.5 text-sm font-semibold disabled:opacity-50 sm:min-h-0 ${
                 role === controller.selectedRole
                   ? 'bg-ink text-white dark:bg-cyan dark:text-[#053c2e]'
                   : 'text-slate dark:text-slate-200'
@@ -38,13 +41,13 @@ export function WorkspaceRolePolicyPanel({ controller }: { controller: Workspace
               disabled={controller.roleMutationPending}
               onClick={() => controller.selectRole(role)}
             >
-              {role}
+              {formatSettingsRoleLabel(role)}
             </button>
           ))}
         </div>
       </header>
 
-      {controller.rolePoliciesLoading && <p className="px-4 py-6 text-sm text-slate dark:text-slate-300">Loading organization policies...</p>}
+      {controller.rolePoliciesLoading && <p className="px-4 py-6 text-sm text-slate dark:text-slate-300">Loading navigation defaults...</p>}
       {controller.roleError && (
         <div role="alert" className="m-4 rounded border border-red-300/60 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200">
           <p>{controller.roleError}</p>
@@ -56,7 +59,7 @@ export function WorkspaceRolePolicyPanel({ controller }: { controller: Workspace
               onClick={() => void controller.discardAndReloadRole()}
             >
               <RefreshCw className="h-4 w-4" aria-hidden="true" />
-              Discard role changes and reload
+              Discard default changes and reload
             </button>
           )}
         </div>
@@ -87,7 +90,7 @@ export function WorkspaceRolePolicyPanel({ controller }: { controller: Workspace
               onClick={() => controller.setResetRoleRequested(true)}
             >
               <RotateCcw className="h-4 w-4" aria-hidden="true" />
-              Reset role defaults
+              Reset {selectedRoleLabel} defaults
             </button>
             <button
               type="button"
@@ -96,7 +99,7 @@ export function WorkspaceRolePolicyPanel({ controller }: { controller: Workspace
               onClick={() => controller.updateRolePolicy.mutate()}
             >
               <Save className="h-4 w-4" aria-hidden="true" />
-              {controller.updateRolePolicy.isPending ? 'Saving...' : 'Save role policy'}
+              {controller.updateRolePolicy.isPending ? 'Saving...' : 'Save navigation defaults'}
             </button>
           </div>
         </div>
@@ -114,16 +117,16 @@ function RoleModuleEditor({ controller }: { controller: WorkspaceSettingsControl
   })
   return (
     <fieldset disabled={controller.roleMutationPending}>
-      <legend className="text-sm font-semibold">Module policy</legend>
+      <legend className="text-sm font-semibold">Navigation defaults</legend>
       <div className="mt-3 rounded border border-slate/20 dark:border-white/10 sm:overflow-x-auto">
         <table className="w-full text-left text-sm sm:min-w-[760px]">
           <thead className="hidden bg-slate/5 text-xs text-slate dark:bg-white/[0.04] dark:text-slate-300 sm:table-header-group">
             <tr>
-              <th className="px-3 py-2 font-semibold">Module</th>
-              <th className="px-3 py-2 font-semibold">Visible</th>
-              <th className="px-3 py-2 font-semibold">Personal choice</th>
-              <th className="px-3 py-2 font-semibold">Desktop order</th>
-              <th className="px-3 py-2 font-semibold">Mobile priority</th>
+              <th scope="col" className="px-3 py-2 font-semibold">Navigation item</th>
+              <th scope="col" className="px-3 py-2 font-semibold">Shown by default</th>
+              <th scope="col" className="px-3 py-2 font-semibold">Users can customize</th>
+              <th scope="col" className="px-3 py-2 font-semibold">Desktop position</th>
+              <th scope="col" className="px-3 py-2 font-semibold">Mobile position</th>
             </tr>
           </thead>
           <tbody className="block divide-y divide-slate/15 dark:divide-white/10 sm:table-row-group">
@@ -131,24 +134,26 @@ function RoleModuleEditor({ controller }: { controller: WorkspaceSettingsControl
               const definition = TRUSTED_WORKSPACE_MODULE_BY_ID.get(moduleId)
               if (!definition?.policyManaged) return null
               const Icon = definition.icon
+              const displayLabel = workspaceModuleDisplayLabel(definition)
+              const roleLabel = formatSettingsRoleLabel(controller.selectedRole)
               return (
                 <tr key={moduleId} className="grid grid-cols-2 gap-x-4 gap-y-3 px-3 py-3 sm:table-row sm:p-0">
                   <td className="col-span-2 p-0 sm:table-cell sm:px-3 sm:py-2.5">
                     <div className="flex items-start gap-2">
                       <Icon className="mt-0.5 h-4 w-4 shrink-0 text-cyan" aria-hidden="true" />
                       <div className="min-w-0">
-                        <p className="font-semibold text-ink dark:text-slate-100">{definition.label}</p>
-                        <p className="break-all text-xs text-slate dark:text-slate-400">{moduleId}</p>
+                        <p className="font-semibold text-ink dark:text-slate-100">{displayLabel}</p>
+                        <p className="text-xs text-slate dark:text-slate-400">{workspaceModuleSectionLabel(definition)}</p>
                       </div>
                     </div>
                   </td>
                   <td className="flex min-w-0 flex-col gap-1 p-0 sm:table-cell sm:px-3 sm:py-2.5">
-                    <span className="text-xs font-semibold text-slate dark:text-slate-300 sm:hidden">Visible</span>
+                    <span className="text-xs font-semibold text-slate dark:text-slate-300 sm:hidden">Shown by default</span>
                     <label className="inline-flex min-h-11 items-center gap-2 sm:min-h-0">
                       <input
                         type="checkbox"
                         className="h-5 w-5 sm:h-auto sm:w-auto"
-                        aria-label={`Show ${definition.label} for ${controller.selectedRole}`}
+                        aria-label={`Show ${displayLabel} for ${roleLabel}`}
                         checked={module.visible}
                         disabled={controller.roleMutationPending}
                         onChange={(event) => updateModule(controller, moduleId, { visible: event.target.checked })}
@@ -157,12 +162,12 @@ function RoleModuleEditor({ controller }: { controller: WorkspaceSettingsControl
                     </label>
                   </td>
                   <td className="flex min-w-0 flex-col gap-1 p-0 sm:table-cell sm:px-3 sm:py-2.5">
-                    <span className="text-xs font-semibold text-slate dark:text-slate-300 sm:hidden">Personal choice</span>
+                    <span className="text-xs font-semibold text-slate dark:text-slate-300 sm:hidden">Users can customize</span>
                     <label className="inline-flex min-h-11 items-center gap-2 sm:min-h-0">
                       <input
                         type="checkbox"
                         className="h-5 w-5 sm:h-auto sm:w-auto"
-                        aria-label={`Allow personal choice for ${definition.label}`}
+                        aria-label={`Allow users to customize ${displayLabel}`}
                         checked={module.optional}
                         disabled={controller.roleMutationPending}
                         onChange={(event) => updateModule(controller, moduleId, { optional: event.target.checked })}
@@ -171,18 +176,18 @@ function RoleModuleEditor({ controller }: { controller: WorkspaceSettingsControl
                     </label>
                   </td>
                   <td className="flex min-w-0 flex-col gap-1 p-0 sm:table-cell sm:px-3 sm:py-2.5">
-                    <span className="text-xs font-semibold text-slate dark:text-slate-300 sm:hidden">Desktop order</span>
+                    <span className="text-xs font-semibold text-slate dark:text-slate-300 sm:hidden">Desktop position</span>
                     <PolicyNumberInput
-                      label={`Desktop order for ${definition.label}`}
+                      label={`Desktop position for ${displayLabel}`}
                       value={module.order}
                       disabled={controller.roleMutationPending}
                       onChange={(order) => updateModule(controller, moduleId, { order })}
                     />
                   </td>
                   <td className="flex min-w-0 flex-col gap-1 p-0 sm:table-cell sm:px-3 sm:py-2.5">
-                    <span className="text-xs font-semibold text-slate dark:text-slate-300 sm:hidden">Mobile priority</span>
+                    <span className="text-xs font-semibold text-slate dark:text-slate-300 sm:hidden">Mobile position</span>
                     <PolicyNumberInput
-                      label={`Mobile priority for ${definition.label}`}
+                      label={`Mobile position for ${displayLabel}`}
                       value={module.mobile_priority}
                       disabled={controller.roleMutationPending}
                       onChange={(mobilePriority) => updateModule(controller, moduleId, { mobile_priority: mobilePriority })}
@@ -240,19 +245,19 @@ function RolePolicyControls({ controller }: { controller: WorkspaceSettingsContr
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       <label className="block text-sm font-semibold">
-        Default landing module
+        Default start page
         <select
           className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 font-normal dark:border-cyan-900/40 dark:bg-[#072019]"
           value={draft.landingModuleId}
           disabled={controller.roleMutationPending}
           onChange={(event) => controller.setRoleDraft((current) => current ? { ...current, landingModuleId: event.target.value } : current)}
         >
-          {!trustedLanding && <option value={draft.landingModuleId}>Unavailable in this frontend (preserved)</option>}
-          {landingOptions.map((module) => <option key={module.id} value={module.id}>{module.label}</option>)}
+          {!trustedLanding && <option value={draft.landingModuleId}>Unavailable in this version (kept)</option>}
+          {landingOptions.map((module) => <option key={module.id} value={module.id}>{workspaceModuleDisplayLabel(module)}</option>)}
         </select>
       </label>
       <fieldset disabled={controller.roleMutationPending}>
-        <legend className="text-sm font-semibold">First-use dashboard defaults</legend>
+        <legend className="text-sm font-semibold">Initial dashboard panels</legend>
         <p className="mt-1 text-xs font-normal text-slate dark:text-slate-400">
           These panels seed dashboards for role members who do not have a saved local layout.
         </p>
@@ -286,10 +291,11 @@ function RolePolicyControls({ controller }: { controller: WorkspaceSettingsContr
 
 function RolePolicyPreview({ controller }: { controller: WorkspaceSettingsController }) {
   const preview = rolePolicyPreview(controller.roleDraft!)
+  const roleLabel = formatSettingsRoleLabel(controller.selectedRole)
   return (
-    <section className="rounded border border-slate/20 bg-slate/5 p-3 dark:border-white/10 dark:bg-white/[0.03]" aria-label={`${controller.selectedRole} role policy preview`}>
+    <section className="rounded border border-slate/20 bg-slate/5 p-3 dark:border-white/10 dark:bg-white/[0.03]" aria-label={`${roleLabel} navigation preview`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold capitalize">{controller.selectedRole} navigation preview</h3>
+        <h3 className="text-sm font-semibold">{roleLabel} navigation preview</h3>
         <span className="rounded border border-slate/20 px-2 py-0.5 text-xs text-slate dark:border-white/10 dark:text-slate-300">Preview only</span>
       </div>
       <p className="mt-1 text-xs text-slate dark:text-slate-400">
@@ -315,7 +321,7 @@ function PreviewRow({ label, modules }: { label: string; modules: ReturnType<typ
           return (
             <span key={module.id} className="inline-flex items-center gap-1.5 rounded border border-slate/20 bg-white px-2 py-1 text-xs dark:border-white/10 dark:bg-[#072019]">
               <Icon className="h-3.5 w-3.5 text-cyan" aria-hidden="true" />
-              {module.label}
+              {workspaceModuleDisplayLabel(module)}
             </span>
           )
         })}
@@ -327,4 +333,15 @@ function PreviewRow({ label, modules }: { label: string; modules: ReturnType<typ
 function clampOrder(value: number): number {
   if (!Number.isFinite(value)) return 0
   return Math.min(10_000, Math.max(0, Math.round(value)))
+}
+
+function workspaceModuleDisplayLabel(module: TrustedWorkspaceModule): string {
+  if (module.section !== 'settings') return module.label
+  return settingsModulePresentation(module.id, module.label).label
+}
+
+function workspaceModuleSectionLabel(module: TrustedWorkspaceModule): string {
+  if (module.section === 'primary') return 'Main navigation'
+  if (module.parentId === 'settings.integrations') return 'Integration setting'
+  return 'Settings navigation'
 }
