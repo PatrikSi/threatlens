@@ -135,7 +135,7 @@ jobs:
           severity: HIGH,CRITICAL
 
       - name: Generate platform artifact attestation
-        uses: actions/attest-build-provenance@v3
+        uses: actions/attest-build-provenance@v4
         with:
           subject-name: ${{ env.REGISTRY_IMAGE }}
           subject-digest: ${{ steps.build.outputs.digest }}
@@ -400,14 +400,14 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Generate backend manifest attestation
-        uses: actions/attest-build-provenance@v3
+        uses: actions/attest-build-provenance@v4
         with:
           subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/threatlens-backend
           subject-digest: ${{ steps.promote.outputs.backend-digest }}
           push-to-registry: true
 
       - name: Generate web manifest attestation
-        uses: actions/attest-build-provenance@v3
+        uses: actions/attest-build-provenance@v4
         with:
           subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/threatlens-web
           subject-digest: ${{ steps.promote.outputs.web-digest }}
