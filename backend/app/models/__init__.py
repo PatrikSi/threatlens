@@ -1,5 +1,6 @@
 from app.models.ai_daily_brief import AIDailyBrief
 from app.models.ai_daily_brief_source_item import AIDailyBriefSourceItem
+from app.models.ai_provider_attempt_receipt import AIProviderAttemptReceipt
 from app.models.ai_settings import AISettings
 from app.models.ai_task_event import AITaskEvent
 from app.models.ai_task_run import AITaskRun
@@ -105,6 +106,7 @@ from app.models.workspace import WorkspaceRolePolicy, WorkspaceUserPreference
 __all__ = [
     "AIDailyBrief",
     "AIDailyBriefSourceItem",
+    "AIProviderAttemptReceipt",
     "AISettings",
     "AITaskEvent",
     "AITaskRun",

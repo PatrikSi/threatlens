@@ -91,6 +91,41 @@ def test_policy_audit_preserves_service_account_identity_without_user_fk(
     assert recorded.success is False
 
 
+def test_policy_audit_records_active_mode_egress_that_was_not_served(db_session):
+    context = _context("audit", principal_type="ai_worker")
+
+    recorded = record_data_policy_decision(
+        db_session,
+        context=context,
+        decision="egress_not_served",
+        resource_type="report",
+        resource_id=uuid.uuid4(),
+        surface="ai_provider.external_io",
+    )
+    db_session.flush()
+
+    assert recorded.action == "data_policy.egress.not_served"
+    assert recorded.success is False
+    assert recorded.metadata_json["request_served"] is False
+
+
+@pytest.mark.parametrize("reserved_key", ["request_served", "handling_label_ids"])
+def test_policy_audit_rejects_reserved_extra_metadata_even_when_key_would_be_omitted(
+    db_session,
+    reserved_key,
+):
+    with pytest.raises(ValueError, match="reserved keys"):
+        record_data_policy_decision(
+            db_session,
+            context=_context("audit"),
+            decision="egress_would_deny",
+            resource_type="report",
+            surface="ai_provider.external_io",
+            request_served_known=False,
+            metadata_extra={reserved_key: "caller-controlled"},
+        )
+
+
 @pytest.mark.parametrize(
     ("mode", "decision"),
     [
@@ -98,6 +133,7 @@ def test_policy_audit_preserves_service_account_identity_without_user_fk(
         ("audit", "not_served"),
         ("disabled", "would_deny"),
         ("enforced", "would_deny"),
+        ("disabled", "egress_not_served"),
     ],
 )
 def test_policy_audit_rejects_decisions_in_the_wrong_mode(
