@@ -17,7 +17,7 @@ export function SettingsPageHeader({
 }) {
   return (
     <header className="tl-surface overflow-hidden rounded-xl">
-      <div className="flex flex-col gap-3 px-4 py-3.5 sm:flex-row sm:items-start sm:justify-between sm:px-5 sm:py-4">
+      <div className="flex flex-col gap-2.5 px-3 py-3 sm:flex-row sm:items-start sm:justify-between sm:px-4">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <span className="rounded-full border border-slate/20 bg-slate/5 px-2 py-0.5 text-xs font-semibold text-slate dark:border-white/10 dark:bg-white/[0.04] dark:text-slate-300">
@@ -25,7 +25,7 @@ export function SettingsPageHeader({
             </span>
             {badges}
           </div>
-          <h1 className="mt-1.5 font-display text-xl text-ink dark:text-white sm:text-2xl">
+          <h1 className="mt-1 font-display text-xl text-ink dark:text-white">
             {title}
           </h1>
           <p className="mt-1 max-w-3xl text-sm text-slate dark:text-slate-300">
@@ -35,7 +35,7 @@ export function SettingsPageHeader({
         {actions && <div className="shrink-0">{actions}</div>}
       </div>
       {children && (
-        <div className="border-t border-slate/15 px-4 dark:border-white/10 sm:px-5">
+        <div className="border-t border-slate/15 px-3 dark:border-white/10 sm:px-4">
           {children}
         </div>
       )}

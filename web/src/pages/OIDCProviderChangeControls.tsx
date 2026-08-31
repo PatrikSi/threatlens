@@ -498,7 +498,7 @@ export function OIDCProviderActions({
   onTest: () => void
 }) {
   return (
-    <section className="tl-surface rounded-xl p-4">
+    <section className="tl-surface rounded-xl p-3.5">
       <OIDCProviderConflictNotice
         conflict={conflict}
         saveError={conflictSaveError}

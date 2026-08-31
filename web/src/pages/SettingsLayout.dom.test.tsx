@@ -249,12 +249,12 @@ describe('SettingsLayout navigation', () => {
     }
   })
 
-  it('uses a sticky 248px desktop shell without a duplicate role card', () => {
+  it('uses a compact sticky desktop shell without a duplicate role card', () => {
     const view = renderLayout('/settings/account')
     const desktopSidebar = view.querySelector('#desktop-settings-navigation')?.closest('aside')
     const layout = desktopSidebar?.parentElement
 
-    expect(layout?.className).toContain('lg:grid-cols-[248px_minmax(0,1fr)]')
+    expect(layout?.className).toContain('lg:grid-cols-[232px_minmax(0,1fr)]')
     expect(desktopSidebar?.className).toContain('sticky')
     expect(desktopSidebar?.className).toContain('overflow-y-auto')
     expect(desktopSidebar?.textContent).toContain('Administrator')
