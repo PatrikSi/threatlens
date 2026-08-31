@@ -53,12 +53,28 @@ class DataPolicyBlockerResponse(BaseModel):
     count: int | None = None
 
 
+class DataPolicyRouteManifestEvidenceResponse(BaseModel):
+    installed: bool
+    valid: bool
+    version: int
+    digest: str
+    declared_operation_count: int
+    validated_operation_count: int
+    request_context_operation_count: int
+    governance_class_counts: dict[str, int]
+
+
 class DataPolicyPreflightResponse(BaseModel):
     ready_for_audit: bool
     ready_for_enforcement: bool
     current_coverage_version: int
     required_coverage_version: int
     blockers: list[DataPolicyBlockerResponse]
+    evaluated_policy_revision: int
+    full: bool
+    checked_at: datetime
+    route_manifest: DataPolicyRouteManifestEvidenceResponse
+    blocker_counts: dict[str, int]
 
 
 class DataPolicyOverviewResponse(BaseModel):
@@ -168,6 +184,7 @@ __all__ = [
     "DataPolicyModeUpdateResponse",
     "DataPolicyOverviewResponse",
     "DataPolicyPreflightResponse",
+    "DataPolicyRouteManifestEvidenceResponse",
     "DataPolicyStateResponse",
     "FeedHandlingLabelAssignmentRequest",
     "FeedHandlingLabelAssignmentResponse",

@@ -916,6 +916,8 @@ function PolicyModePanel({
 }
 
 function PreflightPanel({ preflight }: { preflight: DataPolicyPreflight }) {
+  const routeClasses = Object.entries(preflight.route_manifest.governance_class_counts)
+    .sort(([left], [right]) => left.localeCompare(right))
   return (
     <section className="tl-surface rounded-xl p-4" aria-labelledby="preflight-heading">
       <div className="flex items-start gap-2">
@@ -929,6 +931,36 @@ function PreflightPanel({ preflight }: { preflight: DataPolicyPreflight }) {
           </p>
         </div>
       </div>
+      <dl className="mt-3 grid gap-2 rounded border border-slate/20 bg-slate/[0.03] p-3 text-xs dark:border-white/10 dark:bg-white/[0.03] sm:grid-cols-2">
+        <div>
+          <dt className="font-semibold text-slate dark:text-slate-300">Evaluation</dt>
+          <dd className="mt-0.5">
+            {preflight.full ? 'Full scan' : 'Runtime invariants'} · policy revision {preflight.evaluated_policy_revision}
+          </dd>
+        </div>
+        <div>
+          <dt className="font-semibold text-slate dark:text-slate-300">Checked</dt>
+          <dd className="mt-0.5 font-mono">{new Date(preflight.checked_at).toISOString()}</dd>
+        </div>
+        <div>
+          <dt className="font-semibold text-slate dark:text-slate-300">Route manifest</dt>
+          <dd className="mt-0.5">
+            {preflight.route_manifest.installed
+              ? preflight.route_manifest.valid ? 'Valid' : 'Invalid'
+              : 'Not installed'} · v{preflight.route_manifest.version} · {preflight.route_manifest.validated_operation_count} / {preflight.route_manifest.declared_operation_count} operations · {preflight.route_manifest.request_context_operation_count} request-context
+          </dd>
+        </div>
+        <div>
+          <dt className="font-semibold text-slate dark:text-slate-300">Governance classes</dt>
+          <dd className="mt-0.5">
+            {routeClasses.map(([name, count]) => `${name.replaceAll('_', ' ')} ${count}`).join(' · ')}
+          </dd>
+        </div>
+        <div className="sm:col-span-2">
+          <dt className="font-semibold text-slate dark:text-slate-300">Manifest digest</dt>
+          <dd className="mt-0.5 break-all font-mono">{preflight.route_manifest.digest}</dd>
+        </div>
+      </dl>
       {preflight.blockers.length === 0 ? (
         <p className="mt-3 rounded border border-emerald-300/60 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-100">
           All enforcement invariants are satisfied.

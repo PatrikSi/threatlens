@@ -208,6 +208,27 @@ const policyOverview: DataPolicyOverview = {
     ready_for_enforcement: false,
     current_coverage_version: 7,
     required_coverage_version: 8,
+    evaluated_policy_revision: 12,
+    full: true,
+    checked_at: '2026-08-20T12:34:56Z',
+    route_manifest: {
+      installed: true,
+      valid: true,
+      version: 3,
+      digest: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      declared_operation_count: 268,
+      validated_operation_count: 268,
+      request_context_operation_count: 108,
+      governance_class_counts: {
+        captured_async: 5,
+        control_plane: 143,
+        dynamic_target: 7,
+        egress_fenced: 1,
+        public: 11,
+        request_context: 101,
+      },
+    },
+    blocker_counts: { missing_route_coverage: 1 },
     blockers: [
       {
         code: 'missing_route_coverage',
@@ -337,6 +358,14 @@ describe('AccessGovernancePage permission and policy workflows', () => {
 
     expect(view.textContent).toContain('Activation preflight')
     expect(view.textContent).toContain('Coverage 7 / 8')
+    expect(view.textContent).toContain('Full scan · policy revision 12')
+    expect(view.textContent).toContain(
+      'Valid · v3 · 268 / 268 operations · 108 request-context',
+    )
+    expect(view.textContent).toContain('dynamic target 7')
+    expect(view.textContent).toContain(
+      'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    )
     expect(view.textContent).toContain('missing route coverage')
     expect(view.textContent).toContain(
       'One retained-data route has no policy declaration.',
