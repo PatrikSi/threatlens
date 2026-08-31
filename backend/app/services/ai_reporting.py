@@ -22,6 +22,7 @@ from app.services.data_access_envelopes import (
     DATA_ACCESS_RESOURCE_DAILY_BRIEF,
     data_access_envelope_predicate,
 )
+from app.services.data_access_retention import prune_deleted_resource_envelopes
 from app.services.data_access_policy import DataAccessContext
 from app.services.url_utils import normalize_url
 
@@ -90,6 +91,12 @@ def prune_daily_brief_history(db: Session, *, keep_limit: int) -> int:
         return 0
 
     db.execute(delete(AIDailyBrief).where(AIDailyBrief.id.in_(stale_ids)))
+    prune_deleted_resource_envelopes(
+        db,
+        resources=(
+            (DATA_ACCESS_RESOURCE_DAILY_BRIEF, brief_id) for brief_id in stale_ids
+        ),
+    )
     return len(stale_ids)
 
 
