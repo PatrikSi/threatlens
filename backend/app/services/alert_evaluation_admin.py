@@ -4,8 +4,8 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import and_, case, exists, false, func, or_, select, true, union_all
-from sqlalchemy.orm import Session, aliased
+from sqlalchemy import and_, case, exists, func, or_, select, true, union_all
+from sqlalchemy.orm import Session
 
 from app.models.alert_evaluation_request import (
     AlertEvaluationRequest,
@@ -15,13 +15,14 @@ from app.models.alert_occurrence import (
     AlertOccurrence,
     AlertOccurrenceMetric,
     AlertOccurrenceMetricCohort,
-    AlertOccurrenceMetricCohortLabel,
 )
-from app.models.data_policy import HandlingLabel
 from app.models.feed import Feed
 from app.models.item import Item
 from app.services.alert_acceptance import lock_alert_evaluation_item_and_request
 from app.services.alert_evaluation_history import record_alert_evaluation_activity
+from app.services.alert_metric_data_policy import (
+    alert_metric_cohort_data_access_predicate,
+)
 from app.services.data_access_envelopes import (
     DATA_ACCESS_RESOURCE_ALERT_OCCURRENCE,
     data_access_envelope_predicate,
@@ -326,7 +327,7 @@ def list_alert_occurrence_metrics(
             )
             .where(
                 *predicates,
-                _alert_metric_cohort_data_access_predicate(data_access),
+                alert_metric_cohort_data_access_predicate(data_access),
             )
             .group_by(
                 AlertOccurrenceMetric.bucket_start,
@@ -466,32 +467,6 @@ def _alert_evaluation_data_access_predicate(
             ),
         )
     )
-
-
-def _alert_metric_cohort_data_access_predicate(data_access: DataAccessContext):
-    if not data_access.principal_eligible:
-        return false()
-    if not data_access.enforced:
-        return true()
-    metric_label = aliased(AlertOccurrenceMetricCohortLabel)
-    handling_label = aliased(HandlingLabel)
-    any_label = exists(
-        select(metric_label.cohort_id).where(
-            metric_label.cohort_id == AlertOccurrenceMetricCohort.id,
-        )
-    )
-    inaccessible_label = exists(
-        select(metric_label.cohort_id)
-        .join(handling_label, handling_label.id == metric_label.label_id)
-        .where(
-            metric_label.cohort_id == AlertOccurrenceMetricCohort.id,
-            or_(
-                metric_label.label_id.not_in(data_access.allowed_label_ids),
-                handling_label.is_active.is_(False),
-            ),
-        )
-    )
-    return and_(any_label, ~inaccessible_label)
 
 
 def _utc_day_window(since: datetime, until: datetime) -> tuple[datetime, datetime]:

@@ -295,6 +295,14 @@ class AlertOccurrenceMetricCohort(Base):
             "occurrence_count >= 0",
             name="ck_alert_occurrence_metric_cohorts_count",
         ),
+        CheckConstraint(
+            "policy_cohort_key ~ '^[0-9a-f]{64}$'",
+            name="ck_alert_occurrence_metric_cohorts_key",
+        ),
+        CheckConstraint(
+            "captured_policy_revision >= 0",
+            name="ck_alert_occurrence_metric_cohorts_revision",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -310,6 +318,8 @@ class AlertOccurrenceMetricCohort(Base):
         Uuid(as_uuid=True), nullable=False
     )
     policy_cohort_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    captured_policy_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    provenance_complete: Mapped[bool] = mapped_column(Boolean, nullable=False)
     occurrence_count: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -327,6 +337,50 @@ class AlertOccurrenceMetricCohortLabel(Base):
     __table_args__ = (
         Index(
             "ix_alert_occurrence_metric_cohort_labels_label",
+            "label_id",
+            "cohort_id",
+        ),
+    )
+
+    cohort_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("alert_occurrence_metric_cohorts.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    label_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("handling_labels.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+
+
+class AlertOccurrenceMetricCohortCapturedLabel(Base):
+    __tablename__ = "alert_occurrence_metric_cohort_captured_labels"
+    __table_args__ = (
+        Index(
+            "ix_alert_metric_captured_labels_label",
+            "label_id",
+            "cohort_id",
+        ),
+    )
+
+    cohort_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("alert_occurrence_metric_cohorts.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    label_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("handling_labels.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+
+
+class AlertOccurrenceMetricCohortTaintLabel(Base):
+    __tablename__ = "alert_occurrence_metric_cohort_taint_labels"
+    __table_args__ = (
+        Index(
+            "ix_alert_metric_taint_labels_label",
             "label_id",
             "cohort_id",
         ),

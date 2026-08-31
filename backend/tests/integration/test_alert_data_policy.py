@@ -9,7 +9,8 @@ from typing import Iterator
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_data_access_context
@@ -21,7 +22,9 @@ from app.models.alert_occurrence import (
     AlertOccurrenceActivity,
     AlertOccurrenceMetric,
     AlertOccurrenceMetricCohort,
+    AlertOccurrenceMetricCohortCapturedLabel,
     AlertOccurrenceMetricCohortLabel,
+    AlertOccurrenceMetricCohortTaintLabel,
 )
 from app.models.data_policy import (
     DataPolicyState,
@@ -45,6 +48,7 @@ from app.services.data_access_runtime import (
 from app.services.alert_maintenance import maintain_alert_history
 from app.services.alert_evaluation import persist_alert_evaluation_intent
 from app.services.alert_evaluation_admin import list_alert_occurrence_metrics
+from app.services.alert_metric_data_policy import alert_metric_cohort_integrity
 from app.schemas.data_policy import HandlingLabelStatusRequest
 
 
@@ -452,6 +456,26 @@ def test_alert_metrics_preserve_policy_after_occurrence_rollup(
 
     state = db_session.get(DataPolicyState, 1)
     assert state is not None
+    visible_cohort = db_session.scalar(
+        select(AlertOccurrenceMetricCohort).where(
+            AlertOccurrenceMetricCohort.source_feed_id_snapshot
+            == seeded.visible_feed.id
+        )
+    )
+    assert visible_cohort is not None
+    visible_cohort_key = visible_cohort.policy_cohort_key
+    assert set(
+        db_session.scalars(
+            select(AlertOccurrenceMetricCohortCapturedLabel.label_id).where(
+                AlertOccurrenceMetricCohortCapturedLabel.cohort_id == visible_cohort.id
+            )
+        ).all()
+    ) == {UNRESTRICTED_HANDLING_LABEL_ID}
+    assert not db_session.scalars(
+        select(AlertOccurrenceMetricCohortTaintLabel.label_id).where(
+            AlertOccurrenceMetricCohortTaintLabel.cohort_id == visible_cohort.id
+        )
+    ).all()
     assign_feed_handling_label(
         db_session,
         feed_id=seeded.visible_feed.id,
@@ -467,6 +491,8 @@ def test_alert_metrics_preserve_policy_after_occurrence_rollup(
         )
     )
     assert visible_cohort_id is not None
+    db_session.refresh(visible_cohort)
+    assert visible_cohort.policy_cohort_key == visible_cohort_key
     assert set(
         db_session.scalars(
             select(AlertOccurrenceMetricCohortLabel.label_id).where(
@@ -477,6 +503,66 @@ def test_alert_metrics_preserve_policy_after_occurrence_rollup(
         UNRESTRICTED_HANDLING_LABEL_ID,
         QUARANTINE_HANDLING_LABEL_ID,
     }
+    assert set(
+        db_session.scalars(
+            select(AlertOccurrenceMetricCohortCapturedLabel.label_id).where(
+                AlertOccurrenceMetricCohortCapturedLabel.cohort_id == visible_cohort_id
+            )
+        ).all()
+    ) == {UNRESTRICTED_HANDLING_LABEL_ID}
+    assert set(
+        db_session.scalars(
+            select(AlertOccurrenceMetricCohortTaintLabel.label_id).where(
+                AlertOccurrenceMetricCohortTaintLabel.cohort_id == visible_cohort_id
+            )
+        ).all()
+    ) == {QUARANTINE_HANDLING_LABEL_ID}
+
+    assign_feed_handling_label(
+        db_session,
+        feed_id=seeded.visible_feed.id,
+        handling_label_id=UNRESTRICTED_HANDLING_LABEL_ID,
+        expected_policy_revision=state.revision,
+        actor_user_id=seed_users["admin"].id,
+    )
+    db_session.commit()
+    assert set(
+        db_session.scalars(
+            select(AlertOccurrenceMetricCohortTaintLabel.label_id).where(
+                AlertOccurrenceMetricCohortTaintLabel.cohort_id == visible_cohort_id
+            )
+        ).all()
+    ) == {
+        UNRESTRICTED_HANDLING_LABEL_ID,
+        QUARANTINE_HANDLING_LABEL_ID,
+    }
+    assert alert_metric_cohort_integrity(db_session).valid is True
+    with pytest.raises(DBAPIError, match="provenance is immutable"):
+        with db_session.begin_nested():
+            db_session.execute(
+                text(
+                    "DELETE FROM alert_occurrence_metric_cohort_labels "
+                    "WHERE cohort_id = :cohort_id AND label_id = :label_id"
+                ),
+                {
+                    "cohort_id": visible_cohort_id,
+                    "label_id": QUARANTINE_HANDLING_LABEL_ID,
+                },
+            )
+    visible_cohort.policy_cohort_key = "0" * 64
+    db_session.add(visible_cohort)
+    db_session.flush()
+    corrupted = alert_metric_cohort_integrity(db_session)
+    assert corrupted.invalid_identity_count == 1
+    assert corrupted.valid is False
+    with _override_data_access("enforced"):
+        corrupted_read = client.get(
+            "/alerts/occurrences/metrics",
+            headers=auth_headers["viewer"],
+        )
+    assert corrupted_read.status_code == 200, corrupted_read.text
+    assert corrupted_read.json()["items"] == []
+    db_session.rollback()
     with _override_data_access("enforced"):
         relabeled = client.get(
             "/alerts/occurrences/metrics",
