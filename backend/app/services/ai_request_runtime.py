@@ -320,6 +320,7 @@ def run_ai_json_request(
                     item_id=item_id,
                     daily_brief_id=daily_brief_id,
                     report_id=report_id,
+                    task_run_id=task_run_id,
                     error=str(exc),
                 )
                 _commit_ai_progress(db, execution_commit)
@@ -426,6 +427,7 @@ def run_ai_json_request(
                 item_id=item_id,
                 daily_brief_id=daily_brief_id,
                 report_id=report_id,
+                task_run_id=task_run_id,
                 prompt_tokens=completion.prompt_tokens,
                 completion_tokens=completion.completion_tokens,
                 total_tokens=completion.total_tokens,
@@ -1033,6 +1035,7 @@ def _settle_ambiguous_attempt_or_leave_reserved(
             item_id=item_id,
             daily_brief_id=daily_brief_id,
             report_id=report_id,
+            task_run_id=task_run_id,
             error=message,
         )
         _commit_ai_progress(db, execution_commit)

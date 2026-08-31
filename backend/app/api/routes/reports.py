@@ -13,6 +13,7 @@ from fastapi import (
     Header,
     HTTPException,
     Query,
+    Request,
     Response,
     status,
 )
@@ -23,7 +24,6 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import (
     get_data_access_context,
-    require_permission_roles,
     require_permissions,
 )
 from app.api.resource_preconditions import (
@@ -32,11 +32,20 @@ from app.api.resource_preconditions import (
 )
 from app.api.routes.report_route_helpers import (
     active_reporting_settings as _active_reporting_settings,
+    REPORT_PREVIEW_LIMIT,
+    RESOURCE_PRECONDITION_RESPONSES,
     get_accessible_report as _get_accessible_report,
+    get_accessible_report_task as _get_accessible_report_task,
     integrity_constraint_name as _integrity_constraint_name,
     queue_response as _queue_response,
+    render_report_download as _render_report_download,
+    refence_report_context as _refence_report_context,
+    require_report_authorization_context as _require_report_authorization_context,
     require_current_resource_version as _require_current_resource_version,
+    require_report_admin_read,
+    require_report_admin_write,
     require_report_owner_or_admin as _require_report_owner_or_admin,
+    require_report_write,
     require_shared_template_admin as _require_shared_template_admin,
     require_template_owner_or_admin as _require_template_owner_or_admin,
 )
@@ -51,8 +60,7 @@ from app.api.routes.report_request_idempotency import (
     retry_request_identity,
     schedule_run_request_identity,
 )
-from app.core.rbac import ROLE_ADMIN
-from app.core.token_scopes import SCOPE_READ_REPORTS, SCOPE_WRITE_REPORTS
+from app.core.token_scopes import SCOPE_READ_REPORTS
 from app.db.session import get_db
 from app.models.feed import Feed
 from app.models.item import Item
@@ -99,11 +107,6 @@ from app.services.report_schedules import (
     report_schedule_response,
     reserve_schedule_runs,
 )
-from app.services.report_rendering import (
-    render_report_html,
-    render_report_markdown,
-    render_report_pdf,
-)
 from app.schemas.reports import ReportSectionSetError
 from app.services.report_sources import (
     build_report_source_plan,
@@ -133,30 +136,6 @@ from app.tasks.report_tasks import create_report_task_run, enqueue_report_task
 
 
 router = APIRouter(prefix="/reports", tags=["reports"])
-require_report_write = require_permissions(
-    SCOPE_WRITE_REPORTS,
-    denial_detail="Report generation requires the analyst or administrator role.",
-)
-_REPORT_ADMIN_DETAIL = (
-    "Report schedules and shared templates require the administrator role."
-)
-require_report_admin_read = require_permission_roles(
-    SCOPE_READ_REPORTS,
-    roles=(ROLE_ADMIN,),
-    detail=_REPORT_ADMIN_DETAIL,
-)
-require_report_admin_write = require_permission_roles(
-    SCOPE_WRITE_REPORTS,
-    roles=(ROLE_ADMIN,),
-    detail=_REPORT_ADMIN_DETAIL,
-)
-REPORT_PREVIEW_LIMIT = 25
-RESOURCE_PRECONDITION_RESPONSES = {
-    status.HTTP_400_BAD_REQUEST: {"description": "Malformed If-Match header"},
-    status.HTTP_412_PRECONDITION_FAILED: {
-        "description": "Resource version no longer matches"
-    },
-}
 logger = logging.getLogger(__name__)
 
 
@@ -540,6 +519,7 @@ def list_reports(
     "", response_model=ReportQueueResponse, status_code=status.HTTP_202_ACCEPTED
 )
 def create_report(
+    request: Request,
     payload: ReportCreateRequest,
     idempotency_key: Annotated[
         str | None,
@@ -556,7 +536,18 @@ def create_report(
     )
     payload = payload.model_copy(update={"filters": filters})
     identity = create_request_identity(idempotency_key, payload=payload)
-    replay = find_create_replay(db, user_id=user.id, identity=identity)
+    authorization = _require_report_authorization_context(request)
+    _refence_report_context(
+        db,
+        authorization=authorization,
+        data_access=data_access,
+    )
+    replay = find_create_replay(
+        db,
+        user_id=user.id,
+        identity=identity,
+        data_access=data_access,
+    )
     if replay is not None:
         return _queue_response(*replay)
 
@@ -613,6 +604,36 @@ def create_report(
             },
         )
         db.commit()
+        _refence_report_context(
+            db,
+            authorization=authorization,
+            data_access=data_access,
+        )
+        if identity is not None:
+            committed_replay = find_create_replay(
+                db,
+                user_id=user.id,
+                identity=identity,
+                data_access=data_access,
+            )
+            if committed_replay is not None:
+                report, run = committed_replay
+        else:
+            committed_replay = _get_accessible_report_task(
+                db,
+                report_id=report.id,
+                run_id=run.id,
+                data_access=data_access,
+            )
+        if committed_replay is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "The committed report request is no longer available. "
+                    "Reload reports before retrying."
+                ),
+            )
+        report, run = committed_replay
     except ExportSnapshotChangedError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -629,7 +650,17 @@ def create_report(
         ) from exc
     except IntegrityError:
         db.rollback()
-        replay = find_create_replay(db, user_id=user.id, identity=identity)
+        _refence_report_context(
+            db,
+            authorization=authorization,
+            data_access=data_access,
+        )
+        replay = find_create_replay(
+            db,
+            user_id=user.id,
+            identity=identity,
+            data_access=data_access,
+        )
         if replay is not None:
             return _queue_response(*replay)
         raise
@@ -680,27 +711,7 @@ def download_report(
             status_code=status.HTTP_409_CONFLICT,
             detail="Only completed reports can be downloaded.",
         )
-    detail = report_detail_response(db, report=report)
-    filename = f"threatlens-report-{report.id}"
-    if format == "pdf":
-        content = render_report_pdf(detail)
-        media_type = "application/pdf"
-        extension = "pdf"
-    elif format == "html":
-        content = render_report_html(detail).encode("utf-8")
-        media_type = "text/html; charset=utf-8"
-        extension = "html"
-    else:
-        content = render_report_markdown(detail).encode("utf-8")
-        media_type = "text/markdown; charset=utf-8"
-        extension = "md"
-    return Response(
-        content=content,
-        media_type=media_type,
-        headers={
-            "Content-Disposition": f'attachment; filename="{filename}.{extension}"'
-        },
-    )
+    return _render_report_download(db, report=report, format=format)
 
 
 @router.post(
@@ -709,6 +720,7 @@ def download_report(
     status_code=status.HTTP_202_ACCEPTED,
 )
 def retry_report(
+    request: Request,
     report_id: uuid.UUID,
     idempotency_key: Annotated[
         str | None,
@@ -719,6 +731,12 @@ def retry_report(
     data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     identity = retry_request_identity(idempotency_key, report_id=report_id)
+    authorization = _require_report_authorization_context(request)
+    _refence_report_context(
+        db,
+        authorization=authorization,
+        data_access=data_access,
+    )
     report = _get_accessible_report(
         db,
         report_id=report_id,
@@ -735,6 +753,7 @@ def retry_report(
         user_id=user.id,
         report_id=report.id,
         identity=identity,
+        data_access=data_access,
     )
     if replay is not None:
         return _queue_response(report, replay)
@@ -757,6 +776,26 @@ def retry_report(
             resource_id=str(report.id),
         )
         db.commit()
+        _refence_report_context(
+            db,
+            authorization=authorization,
+            data_access=data_access,
+        )
+        accessible_task = _get_accessible_report_task(
+            db,
+            report_id=report.id,
+            run_id=run.id,
+            data_access=data_access,
+        )
+        if accessible_task is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "The committed report retry is no longer accessible. "
+                    "Reload the report before retrying."
+                ),
+            )
+        report, run = accessible_task
     except ReportStorageError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=str(exc)
@@ -771,19 +810,30 @@ def retry_report(
         ) from exc
     except IntegrityError as exc:
         db.rollback()
+        _refence_report_context(
+            db,
+            authorization=authorization,
+            data_access=data_access,
+        )
+        current_report = _get_accessible_report(
+            db,
+            report_id=report_id,
+            data_access=data_access,
+        )
+        if current_report is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Report not found",
+            ) from exc
+        _require_report_owner_or_admin(user, current_report.owner_user_id)
         replay = find_retry_replay(
             db,
             user_id=user.id,
             report_id=report_id,
             identity=identity,
+            data_access=data_access,
         )
         if replay is not None:
-            current_report = db.get(Report, report_id)
-            if current_report is None:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Report not found",
-                ) from exc
             return _queue_response(current_report, replay)
         if _integrity_constraint_name(exc) == "uq_ai_task_runs_active_report":
             raise HTTPException(

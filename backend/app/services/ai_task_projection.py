@@ -23,6 +23,18 @@ from app.services.data_access_envelopes import (
     data_access_envelope_predicate,
 )
 from app.services.data_access_policy import DataAccessContext
+from app.services.ai_telemetry_data_policy import ai_audit_history_access_predicate
+
+
+AI_MANUAL_ACTIONS = (
+    "ai.connection.test",
+    "ai.daily_brief.generate",
+    "ai.daily_brief.queue",
+    "ai.daily_brief.backfill.queue",
+    "ai.reprocess.queue",
+    "reports.generate.queue",
+    "reports.generate.retry",
+)
 
 
 def list_daily_brief_source_items(
@@ -90,23 +102,22 @@ def list_daily_brief_source_items(
 
 
 def list_ai_manual_actions(
-    db: Session, *, limit: int = 50
+    db: Session,
+    *,
+    limit: int = 50,
+    data_access: DataAccessContext | None = None,
 ) -> list[AIAuditEntryResponse]:
+    access_predicate = (
+        ai_audit_history_access_predicate(data_access)
+        if data_access is not None
+        else True
+    )
     logs = list(
         db.scalars(
             select(AuditLog)
             .where(
-                AuditLog.action.in_(
-                    [
-                        "ai.connection.test",
-                        "ai.daily_brief.generate",
-                        "ai.daily_brief.queue",
-                        "ai.daily_brief.backfill.queue",
-                        "ai.reprocess.queue",
-                        "reports.generate.queue",
-                        "reports.generate.retry",
-                    ]
-                )
+                AuditLog.action.in_(AI_MANUAL_ACTIONS),
+                access_predicate,
             )
             .order_by(AuditLog.created_at.desc())
             .limit(limit)
@@ -116,12 +127,20 @@ def list_ai_manual_actions(
 
 
 def list_ai_prompt_history(
-    db: Session, *, limit: int = 50
+    db: Session,
+    *,
+    limit: int = 50,
+    data_access: DataAccessContext | None = None,
 ) -> list[AIAuditEntryResponse]:
+    access_predicate = (
+        ai_audit_history_access_predicate(data_access)
+        if data_access is not None
+        else True
+    )
     logs = list(
         db.scalars(
             select(AuditLog)
-            .where(AuditLog.action == "ai.settings.update")
+            .where(AuditLog.action == "ai.settings.update", access_predicate)
             .order_by(AuditLog.created_at.desc())
             .limit(limit)
         )

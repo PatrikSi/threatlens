@@ -66,6 +66,10 @@ from app.services.ai_ops_metrics import (
     build_ai_ops_overview,
     list_ai_failures as list_ai_failures,
 )
+from app.services.ai_telemetry_data_policy import (
+    complete_ai_task_run_data_access,
+    initialize_ai_task_run_data_access,
+)
 from app.services.ai_task_projection import (
     list_ai_manual_actions as list_ai_manual_actions,
     list_ai_prompt_history as list_ai_prompt_history,
@@ -128,6 +132,7 @@ def queue_ai_task_run(
     )
     db.add(run)
     db.flush()
+    initialize_ai_task_run_data_access(db, run=run)
     record_ai_task_event(db, run_id=run.id, event_type="queued", payload=metadata or {})
     return run
 
@@ -317,6 +322,8 @@ def finish_ai_task_run(
         settled_at=now,
     )
     db.add(run)
+    db.flush()
+    complete_ai_task_run_data_access(db, run_id=run.id)
     event_type = (
         "completed"
         if status == AI_STATUS_READY
@@ -667,6 +674,9 @@ def _increment_parent_run_progress(db: Session, *, child_run: AITaskRun) -> None
             },
         )
     db.add(parent)
+    if parent.finished_at is not None:
+        db.flush()
+        complete_ai_task_run_data_access(db, run_id=parent.id)
 
 
 def reconcile_daily_brief_backfill_parent_progress(
@@ -802,6 +812,9 @@ def _recalculate_daily_brief_backfill_parent_progress(
             },
         )
     db.add(parent)
+    if parent.finished_at is not None:
+        db.flush()
+        complete_ai_task_run_data_access(db, run_id=parent.id)
 
 
 def _resolve_parent_terminal_state(run: AITaskRun) -> tuple[str, str | None]:

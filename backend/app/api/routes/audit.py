@@ -201,7 +201,7 @@ def list_audit_logs(
         .limit(page_size)
     ).all()
 
-    projection = project_audit_logs(rows, context=data_access)
+    projection = project_audit_logs(db, rows, context=data_access)
     if _record_projection_decision(
         db,
         projection=projection,
@@ -266,7 +266,7 @@ def export_audit_logs(
     count_stmt = select(func.count()).select_from(query.subquery())
     total = int(db.scalar(count_stmt) or 0)
     rows = db.scalars(query.order_by(AuditLog.created_at.desc()).limit(limit)).all()
-    projection = project_audit_logs(rows, context=data_access)
+    projection = project_audit_logs(db, rows, context=data_access)
 
     response = AuditLogExportResponse(
         exported_at=datetime.now(timezone.utc),

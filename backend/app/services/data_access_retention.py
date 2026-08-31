@@ -9,6 +9,8 @@ from sqlalchemy import and_, delete, exists, func, or_, select
 from sqlalchemy.orm import Session, aliased
 
 from app.models.ai_daily_brief import AIDailyBrief
+from app.models.ai_task_run import AITaskRun
+from app.models.ai_usage_event import AIUsageEvent
 from app.models.alert_occurrence import AlertOccurrence
 from app.models.data_policy import DataAccessEnvelope, DataAccessEnvelopeSource
 from app.models.integration import IntegrationDelivery, IntegrationEvent
@@ -16,6 +18,8 @@ from app.models.investigation import Investigation
 from app.models.report import Report
 from app.services.data_access_envelopes import (
     DATA_ACCESS_RESOURCE_ALERT_OCCURRENCE,
+    DATA_ACCESS_RESOURCE_AI_TASK_RUN,
+    DATA_ACCESS_RESOURCE_AI_USAGE_EVENT,
     DATA_ACCESS_RESOURCE_DAILY_BRIEF,
     DATA_ACCESS_RESOURCE_INTEGRATION_DELIVERY,
     DATA_ACCESS_RESOURCE_INTEGRATION_EVENT,
@@ -35,6 +39,8 @@ _RESOURCE_MODELS = {
     DATA_ACCESS_RESOURCE_INTEGRATION_EVENT: IntegrationEvent,
     DATA_ACCESS_RESOURCE_INVESTIGATION: Investigation,
     DATA_ACCESS_RESOURCE_REPORT: Report,
+    DATA_ACCESS_RESOURCE_AI_TASK_RUN: AITaskRun,
+    DATA_ACCESS_RESOURCE_AI_USAGE_EVENT: AIUsageEvent,
 }
 _TARGETED_QUERY_BATCH_SIZE = 100
 _MAX_TARGETED_RESOURCES = 1_000

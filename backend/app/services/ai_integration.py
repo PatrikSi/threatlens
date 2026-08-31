@@ -51,6 +51,7 @@ from app.services.ai_provider_client import (
     AIIntegrationError as AIIntegrationError,
     call_ai_json as _provider_call_ai_json,
 )
+from app.services.ai_telemetry_data_policy import capture_ai_task_run_data_access
 from app.services.ai_request_runtime import (
     AITaskRunStoppedError,
     run_ai_json_request,
@@ -733,6 +734,13 @@ def run_daily_brief_generation(
         brief_id=brief_id,
         expected_policy_revision=planning_policy_revision,
     )
+    if task_run_id is not None:
+        capture_ai_task_run_data_access(
+            db,
+            run_id=task_run_id,
+            daily_brief_id=brief_id,
+            complete=True,
+        )
     db.commit()
 
     try:

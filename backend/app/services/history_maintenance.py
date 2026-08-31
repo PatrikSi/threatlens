@@ -18,6 +18,14 @@ from app.models.report import Report
 from app.models.tag import TagFeedbackEvent
 from app.services.auth_sessions import cleanup_auth_sessions
 from app.services.audit import record_audit
+from app.services.data_access_envelopes import (
+    DATA_ACCESS_RESOURCE_AI_TASK_RUN,
+    DATA_ACCESS_RESOURCE_AI_USAGE_EVENT,
+)
+from app.services.data_access_retention import prune_deleted_resource_envelopes
+from app.services.data_access_runtime import (
+    lock_data_policy_revision_for_derivation,
+)
 from app.services.local_mfa import (
     cleanup_mfa_challenges,
     cleanup_pending_totp_enrollments,
@@ -48,6 +56,7 @@ def prune_application_history(
     now: datetime | None = None,
     batch_size: int | None = None,
 ) -> HistoryMaintenanceResult:
+    lock_data_policy_revision_for_derivation(db)
     current_time = now or datetime.now(timezone.utc)
     effective_batch_size = max(
         1, int(batch_size or settings.integration_delivery_maintenance_batch_size)
@@ -66,12 +75,21 @@ def prune_application_history(
     ai_history_cutoff = current_time - timedelta(
         days=max(1, int(settings.ai_task_history_retention_days))
     )
-    ai_task_runs_deleted = _delete_older_than(
+    ai_usage_events_deleted = _delete_ai_history_with_envelopes(
+        db,
+        AIUsageEvent,
+        AIUsageEvent.created_at,
+        current_time - timedelta(days=max(1, int(settings.ai_usage_retention_days))),
+        effective_batch_size,
+        resource_type=DATA_ACCESS_RESOURCE_AI_USAGE_EVENT,
+    )
+    ai_task_runs_deleted = _delete_ai_history_with_envelopes(
         db,
         AITaskRun,
         AITaskRun.finished_at,
         ai_history_cutoff,
         effective_batch_size,
+        resource_type=DATA_ACCESS_RESOURCE_AI_TASK_RUN,
         extra_predicate=and_(
             AITaskRun.finished_at.is_not(None),
             ~select(Report.id)
@@ -103,14 +121,7 @@ def prune_application_history(
         ),
         ai_task_runs_deleted=ai_task_runs_deleted,
         ai_provider_attempt_receipts_deleted=(ai_provider_attempt_receipts_deleted),
-        ai_usage_events_deleted=_delete_older_than(
-            db,
-            AIUsageEvent,
-            AIUsageEvent.created_at,
-            current_time
-            - timedelta(days=max(1, int(settings.ai_usage_retention_days))),
-            effective_batch_size,
-        ),
+        ai_usage_events_deleted=ai_usage_events_deleted,
         tag_feedback_events_deleted=_delete_older_than(
             db,
             TagFeedbackEvent,
@@ -213,6 +224,41 @@ def _delete_older_than(
         delete(model)
         .where(model.id.in_(ids))
         .execution_options(synchronize_session=False)
+    )
+    return int(result.rowcount or 0)
+
+
+def _delete_ai_history_with_envelopes(
+    db: Session,
+    model,
+    timestamp_column,
+    cutoff,
+    batch_size: int,
+    *,
+    resource_type: str,
+    extra_predicate=None,
+) -> int:
+    query = select(model.id).where(timestamp_column < cutoff)
+    if extra_predicate is not None:
+        query = query.where(extra_predicate)
+    ids = list(
+        db.scalars(
+            query.order_by(timestamp_column.asc(), model.id.asc())
+            .limit(batch_size)
+            .with_for_update(skip_locked=True)
+        ).all()
+    )
+    if not ids:
+        return 0
+    result = db.execute(
+        delete(model)
+        .where(model.id.in_(ids))
+        .execution_options(synchronize_session=False)
+    )
+    db.flush()
+    prune_deleted_resource_envelopes(
+        db,
+        resources=((resource_type, resource_id) for resource_id in ids),
     )
     return int(result.rowcount or 0)
 
