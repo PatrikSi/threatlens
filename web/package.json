@@ -9,6 +9,7 @@
     "audit": "audit-ci --config .audit-ci.jsonc",
     "lint": "eslint src --ext .ts,.tsx --max-warnings=0",
     "test": "vitest run",
+    "test:dist": "node scripts/smoke_production_bundle.mjs",
     "test:watch": "vitest",
     "preview": "vite preview --host 0.0.0.0 --port 3000"
   },
