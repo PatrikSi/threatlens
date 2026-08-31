@@ -27,7 +27,11 @@ from app.models.access_review import (
 from app.models.action_approval import ActionApprovalRequest, ActionExecutionReceipt
 from app.models.article import Article
 from app.models.auth_session import AuthSession
-from app.models.audit_log import AuditLog
+from app.models.audit_log import (
+    AuditLog,
+    AuditLogDataAccessFeed,
+    AuditLogDataAccessLabel,
+)
 from app.models.data_policy import (
     DataAccessEnvelope,
     DataAccessEnvelopeLabel,
@@ -132,6 +136,8 @@ __all__ = [
     "Article",
     "AuthSession",
     "AuditLog",
+    "AuditLogDataAccessFeed",
+    "AuditLogDataAccessLabel",
     "DataAccessEnvelope",
     "DataAccessEnvelopeLabel",
     "DataAccessEnvelopeSource",

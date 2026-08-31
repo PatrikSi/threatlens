@@ -9,7 +9,8 @@ from sqlalchemy.orm import Session
 
 from app.models.ai_provider_attempt_receipt import AIProviderAttemptReceipt
 from app.models.ai_task_run import AITaskRun
-from app.models.audit_log import AuditLog
+from app.models.audit_log import AuditLog, AuditLogDataAccessLabel
+from app.models.data_policy import QUARANTINE_HANDLING_LABEL_ID
 from app.models.feed import Feed
 from app.models.item import Item
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
@@ -100,20 +101,37 @@ def resolve_audit_data_access_labels(
 
 
 def project_audit_logs(
+    db: Session,
     rows: Sequence[AuditLog],
     *,
     context: DataAccessContext,
 ) -> AuditDataAccessProjection:
+    normalized_labels: dict[uuid.UUID, set[uuid.UUID]] = {}
+    row_ids = [row.id for row in rows]
+    if row_ids:
+        for audit_log_id, label_id in db.execute(
+            select(
+                AuditLogDataAccessLabel.audit_log_id,
+                AuditLogDataAccessLabel.label_id,
+            ).where(AuditLogDataAccessLabel.audit_log_id.in_(row_ids))
+        ).all():
+            normalized_labels.setdefault(audit_log_id, set()).add(label_id)
+
     projected: list[AuditLogResponse] = []
     affected_count = 0
     restricted_label_ids: set[uuid.UUID] = set()
     for row in rows:
         response = AuditLogResponse.model_validate(row)
-        if context.mode == "disabled" or not row.data_access_governed:
+        normalized = normalized_labels.get(row.id, set())
+        governed = row.data_access_governed or bool(normalized)
+        if context.mode == "disabled" or not governed:
             projected.append(response)
             continue
 
-        label_ids, valid_snapshot = _stored_label_ids(row.data_access_label_ids)
+        stored_label_ids, valid_snapshot = _stored_label_ids(
+            row.data_access_label_ids
+        )
+        label_ids = frozenset({*stored_label_ids, *normalized})
         restricted = (
             not valid_snapshot
             or not label_ids
@@ -125,6 +143,8 @@ def project_audit_logs(
 
         affected_count += 1
         restricted_label_ids.update(label_ids)
+        if not valid_snapshot or not label_ids:
+            restricted_label_ids.add(QUARANTINE_HANDLING_LABEL_ID)
         if context.auditing:
             projected.append(response)
             continue

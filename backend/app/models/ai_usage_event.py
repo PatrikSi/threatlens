@@ -1,7 +1,18 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, Uuid, func
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    Uuid,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -13,6 +24,17 @@ class AIUsageEvent(Base):
         Index("ix_ai_usage_events_item_id", "item_id"),
         Index("ix_ai_usage_events_daily_brief_id", "daily_brief_id"),
         Index("ix_ai_usage_events_report_id", "report_id"),
+        Index("ix_ai_usage_events_task_run_snapshot", "task_run_id_snapshot"),
+        CheckConstraint(
+            "data_access_scope IN ('system', 'governed')",
+            name="ck_ai_usage_events_data_access_scope",
+        ),
+        CheckConstraint(
+            "data_access_scope <> 'system' OR "
+            "(feature_type = 'connection_test' AND item_id IS NULL "
+            "AND daily_brief_id IS NULL AND report_id IS NULL)",
+            name="ck_ai_usage_events_system_scope",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -28,6 +50,12 @@ class AIUsageEvent(Base):
     )
     report_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("reports.id", ondelete="SET NULL"), nullable=True
+    )
+    task_run_id_snapshot: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True), nullable=True
+    )
+    data_access_scope: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="governed", server_default="governed"
     )
     prompt_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     completion_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)

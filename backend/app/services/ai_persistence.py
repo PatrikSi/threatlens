@@ -15,6 +15,9 @@ from app.models.item import Item
 from app.models.item_classification import ItemClassification
 from app.models.tag import ItemTag, Tag
 from app.services.ai_config import ActiveAISettings
+from app.services.ai_telemetry_data_policy import (
+    capture_ai_usage_event_data_access,
+)
 
 
 def record_usage_event(
@@ -27,28 +30,35 @@ def record_usage_event(
     item_id: uuid.UUID | None = None,
     daily_brief_id: uuid.UUID | None = None,
     report_id: uuid.UUID | None = None,
+    task_run_id: uuid.UUID | None = None,
     prompt_tokens: int | None = None,
     completion_tokens: int | None = None,
     total_tokens: int | None = None,
     latency_ms: int | None = None,
     error: str | None = None,
-) -> None:
-    db.add(
-        AIUsageEvent(
-            feature_type=feature_type,
-            success=success,
-            provider=provider,
-            model=model,
-            item_id=item_id,
-            daily_brief_id=daily_brief_id,
-            report_id=report_id,
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
-            total_tokens=total_tokens,
-            latency_ms=latency_ms,
-            error=error,
-        )
+) -> AIUsageEvent:
+    event = AIUsageEvent(
+        feature_type=feature_type,
+        success=success,
+        provider=provider,
+        model=model,
+        item_id=item_id,
+        daily_brief_id=daily_brief_id,
+        report_id=report_id,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        total_tokens=total_tokens,
+        latency_ms=latency_ms,
+        error=error,
     )
+    db.add(event)
+    db.flush()
+    capture_ai_usage_event_data_access(
+        db,
+        event=event,
+        task_run_id=task_run_id,
+    )
+    return event
 
 
 def replace_daily_brief_source_items(
@@ -58,7 +68,11 @@ def replace_daily_brief_source_items(
     item_rows_all: list[object],
     selected_item_ids: set[str],
 ) -> None:
-    db.execute(delete(AIDailyBriefSourceItem).where(AIDailyBriefSourceItem.daily_brief_id == brief.id))
+    db.execute(
+        delete(AIDailyBriefSourceItem).where(
+            AIDailyBriefSourceItem.daily_brief_id == brief.id
+        )
+    )
     for index, row in enumerate(item_rows_all, start=1):
         included = str(row.id) in selected_item_ids
         db.add(
@@ -72,7 +86,9 @@ def replace_daily_brief_source_items(
                 feed_name_snapshot=row.feed_name,
                 url_snapshot=row.url,
                 classification_snapshot=row.primary_category,
-                relevance_score_snapshot=float(row.relevance_score) if row.relevance_score is not None else None,
+                relevance_score_snapshot=float(row.relevance_score)
+                if row.relevance_score is not None
+                else None,
                 relevance_label_snapshot=row.relevance_label,
                 published_at_snapshot=row.published_at,
                 first_seen_at_snapshot=row.first_seen_at,
@@ -123,9 +139,15 @@ def compute_item_source_hash(
                 "article_text": article.text,
                 "feed_name": feed_name,
                 "classification": {
-                    "primary_category": classification.primary_category if classification is not None else None,
-                    "secondary_categories": classification.secondary_categories if classification is not None else [],
-                    "confidence": float(classification.confidence) if classification is not None else None,
+                    "primary_category": classification.primary_category
+                    if classification is not None
+                    else None,
+                    "secondary_categories": classification.secondary_categories
+                    if classification is not None
+                    else [],
+                    "confidence": float(classification.confidence)
+                    if classification is not None
+                    else None,
                 },
                 "tags": tag_names,
             },

@@ -24,6 +24,7 @@ from app.services.data_access_envelopes import (
 )
 from app.services.data_access_retention import prune_deleted_resource_envelopes
 from app.services.data_access_policy import DataAccessContext
+from app.services.ai_telemetry_data_policy import ai_usage_event_access_predicate
 from app.services.url_utils import normalize_url
 
 
@@ -158,9 +159,18 @@ def daily_brief_response_from_model(
     )
 
 
-def get_ai_usage_summary(db: Session) -> AIUsageSummaryResponse:
+def get_ai_usage_summary(
+    db: Session,
+    *,
+    data_access: DataAccessContext | None = None,
+) -> AIUsageSummaryResponse:
     now = datetime.now(timezone.utc)
     window_start = now - timedelta(hours=24)
+    access_predicate = (
+        ai_usage_event_access_predicate(data_access)
+        if data_access is not None
+        else True
+    )
 
     totals_row = db.execute(
         select(
@@ -180,12 +190,13 @@ def get_ai_usage_summary(db: Session) -> AIUsageSummaryResponse:
             func.sum(func.coalesce(AIUsageEvent.total_tokens, 0)).label("total_tokens"),
             func.avg(AIUsageEvent.latency_ms).label("average_latency_ms"),
             func.max(AIUsageEvent.created_at).label("last_request_at"),
-        )
+        ).where(access_predicate)
     ).one()
     requests_last_24h = (
         db.scalar(
             select(func.count(AIUsageEvent.id)).where(
-                AIUsageEvent.created_at >= window_start
+                AIUsageEvent.created_at >= window_start,
+                access_predicate,
             )
         )
         or 0
@@ -205,6 +216,7 @@ def get_ai_usage_summary(db: Session) -> AIUsageSummaryResponse:
             func.avg(AIUsageEvent.latency_ms).label("average_latency_ms"),
             func.max(AIUsageEvent.created_at).label("last_request_at"),
         )
+        .where(access_predicate)
         .group_by(AIUsageEvent.feature_type)
         .order_by(AIUsageEvent.feature_type.asc())
     ).all()

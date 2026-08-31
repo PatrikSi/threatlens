@@ -497,6 +497,7 @@ def set_handling_label_status(
             or 0
         )
         from app.models.alert_occurrence import AlertOccurrenceMetricCohortLabel
+        from app.models.audit_log import AuditLogDataAccessLabel
         from app.models.integration import IntegrationDeliveryMetricCohortLabel
 
         metric_reference_count = int(
@@ -519,6 +520,15 @@ def set_handling_label_status(
             or 0
         )
         derived_reference_count += integration_metric_reference_count
+        audit_history_reference_count = int(
+            db.scalar(
+                select(func.count(AuditLogDataAccessLabel.audit_log_id)).where(
+                    AuditLogDataAccessLabel.label_id == label.id
+                )
+            )
+            or 0
+        )
+        derived_reference_count += audit_history_reference_count
         if derived_reference_count:
             raise DataPolicyConflict(
                 "This handling label is retained by derived intelligence. Keep it active or remove the derived records first.",
@@ -589,6 +599,9 @@ def assign_feed_handling_label(
         from app.services.integration_metric_data_policy import (
             taint_integration_delivery_metrics_for_feed,
         )
+        from app.services.ai_telemetry_data_policy import (
+            taint_ai_audit_history_for_feed,
+        )
 
         feed.handling_label_id = label.id
         db.add(feed)
@@ -606,6 +619,11 @@ def assign_feed_handling_label(
             handling_label_id=label.id,
         )
         taint_integration_delivery_metrics_for_feed(
+            db,
+            feed_id=feed.id,
+            handling_label_id=label.id,
+        )
+        taint_ai_audit_history_for_feed(
             db,
             feed_id=feed.id,
             handling_label_id=label.id,

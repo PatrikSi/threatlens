@@ -5,8 +5,10 @@ import pytest
 from pydantic import BaseModel
 
 from app.models.ai_task_run import AITaskRun
+from app.models.data_policy import DataPolicyState
 from app.models.report import Report
 from app.models.user import User
+from app.services.data_access_policy import DataAccessContext
 from app.services.report_idempotency import (
     ReportIdempotencyConflictError,
     build_report_create_identity,
@@ -17,6 +19,20 @@ from app.services.report_idempotency import (
 
 class _CreatePayload(BaseModel):
     title: str
+
+
+def _disabled_context(db_session, *, user_id: uuid.UUID) -> DataAccessContext:
+    state = db_session.get(DataPolicyState, 1)
+    assert state is not None
+    return DataAccessContext(
+        mode="disabled",
+        policy_revision=state.revision,
+        coverage_version=0,
+        principal_type="user",
+        principal_id=user_id,
+        principal_eligible=True,
+        allowed_label_ids=frozenset(),
+    )
 
 
 def test_create_replay_finds_legacy_raw_idempotency_key(db_session):
@@ -75,6 +91,7 @@ def test_create_replay_finds_legacy_raw_idempotency_key(db_session):
         db_session,
         user_id=user.id,
         identity=identity,
+        data_access=_disabled_context(db_session, user_id=user.id),
     )
 
     assert replay == (report, run)
@@ -115,6 +132,7 @@ def test_create_replay_finds_legacy_raw_idempotency_key(db_session):
         db_session,
         user_id=user.id,
         identity=identity,
+        data_access=_disabled_context(db_session, user_id=user.id),
     ) == (report, replacement)
 
     replacement.report_id = None
@@ -124,16 +142,19 @@ def test_create_replay_finds_legacy_raw_idempotency_key(db_session):
             db_session,
             user_id=user.id,
             identity=identity,
+            data_access=_disabled_context(db_session, user_id=user.id),
         )
 
 
 def test_retry_replay_without_idempotency_identity_is_not_a_replay(db_session):
+    user_id = uuid.uuid4()
     assert (
         find_report_retry_replay(
             db_session,
-            user_id=uuid.uuid4(),
+            user_id=user_id,
             report_id=uuid.uuid4(),
             identity=None,
+            data_access=_disabled_context(db_session, user_id=user_id),
         )
         is None
     )

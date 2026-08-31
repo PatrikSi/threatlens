@@ -136,3 +136,45 @@ class AuditLog(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class AuditLogDataAccessFeed(Base):
+    __tablename__ = "audit_log_data_access_feeds"
+    __table_args__ = (
+        Index(
+            "ix_audit_log_data_access_feeds_feed",
+            "source_feed_id_snapshot",
+            "audit_log_id",
+        ),
+    )
+
+    audit_log_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("audit_logs.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    source_feed_id_snapshot: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True
+    )
+
+
+class AuditLogDataAccessLabel(Base):
+    __tablename__ = "audit_log_data_access_labels"
+    __table_args__ = (
+        Index(
+            "ix_audit_log_data_access_labels_label",
+            "label_id",
+            "audit_log_id",
+        ),
+    )
+
+    audit_log_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("audit_logs.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    label_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("handling_labels.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
