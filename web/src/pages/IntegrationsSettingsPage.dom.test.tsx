@@ -448,6 +448,8 @@ describe('IntegrationsSettingsPage DOM workflows', () => {
 
     expect(view.textContent).toContain('Read-only access')
     expect(view.textContent).toContain('permission to manage email delivery')
+    expect(view.firstElementChild?.className).toContain('space-y-3')
+    expect(view.querySelector('#smtp-hook-name')?.closest('section')?.className).toContain('p-3')
     expect(view.querySelector<HTMLInputElement>('#smtp-hook-name')?.matches(':disabled')).toBe(true)
     expect(view.querySelector<HTMLSelectElement>('#smtp-send-for')?.matches(':disabled')).toBe(true)
     expect(view.querySelector<HTMLInputElement>('#smtp-host')?.matches(':disabled')).toBe(true)

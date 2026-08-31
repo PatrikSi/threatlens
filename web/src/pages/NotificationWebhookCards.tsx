@@ -7,7 +7,7 @@ import { NotificationWebhooksController } from './useNotificationWebhooksControl
 export function SavedWebhooksCard({ controller }: { controller: NotificationWebhooksController }) {
   const { canManageWebhooks, onCreateNewWebhook, onSelectWebhook, selectedWebhookId, webhooks, webhooksQuery } = controller
   return (
-    <section className="min-w-0 rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+    <section className="min-w-0 rounded-xl border border-slate/20 bg-white/80 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/90">
       <div className="flex items-center justify-between gap-3">
         <h2 className="font-display text-lg">Configured webhooks</h2>
         {canManageWebhooks && (
@@ -71,17 +71,15 @@ export function TestResultAndVariables({ controller }: { controller: Notificatio
     variablesQuery,
   } = controller
   return (
-    <section className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-      <div className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="font-display text-lg">Test result</h2>
-          {testResult && (
+    <section className={`grid gap-3 ${testResult ? 'xl:grid-cols-[1.2fr_0.8fr]' : ''}`}>
+      {testResult && (
+        <div className="rounded-xl border border-slate/20 bg-white/80 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="font-display text-lg">Test result</h2>
             <span className={`tl-chip ${testResult.success ? 'tl-chip-success' : 'tl-chip-danger'}`}>
               {testResult.success ? 'Success' : 'Failed'}
             </span>
-          )}
-        </div>
-        {testResult ? (
+          </div>
           <div className="mt-3 space-y-3 text-sm">
             <p className="text-xs text-slate dark:text-white/60">
               Sensitive URL parameters, headers, request bodies, and response previews are redacted before display.
@@ -123,14 +121,10 @@ export function TestResultAndVariables({ controller }: { controller: Notificatio
             )}
             {testResult.error && <p role="alert" aria-live="assertive" aria-atomic="true" className="text-sm text-red-600">{testResult.error}</p>}
           </div>
-        ) : (
-          <p className="mt-3 text-sm text-slate dark:text-white/70">
-            Run a test delivery to inspect a redacted request preview and the webhook response summary.
-          </p>
-        )}
-      </div>
+        </div>
+      )}
 
-      <div className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+      <div className="rounded-xl border border-slate/20 bg-white/80 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/90">
         <div className="flex items-center justify-between gap-3">
           <div>
             <h2 className="font-display text-lg">Available variables</h2>

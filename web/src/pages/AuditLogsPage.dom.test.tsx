@@ -111,6 +111,8 @@ describe('AuditLogsPage DOM workflows', () => {
     const view = renderPage()
 
     expect(view.querySelector('h1')?.textContent).toBe('Audit log')
+    expect(view.firstElementChild?.className).toContain('space-y-3')
+    expect(view.querySelector('#audit-log-action-filter')?.closest('section')?.className).toContain('p-3')
     expect(view.querySelector('label[for="audit-log-action-filter"]')?.textContent).toContain('Event')
     expect(view.querySelector('label[for="audit-log-actor-filter"]')?.textContent).toContain('Actor user ID')
     const eventInput = view.querySelector<HTMLInputElement>('#audit-log-action-filter')

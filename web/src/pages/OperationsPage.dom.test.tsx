@@ -185,6 +185,8 @@ describe('OperationsPage DOM workflows', () => {
     expect(view.textContent).toContain('Restore drill')
     expect(view.querySelector('table')).not.toBeNull()
     expect(view.querySelector('h1')?.textContent).toBe('System health')
+    expect(view.firstElementChild?.className).toContain('space-y-3')
+    expect(view.querySelector('#operations-components-heading')?.closest('section')?.className).toContain('py-3')
     expect(Array.from(view.querySelectorAll('th')).every((heading) => heading.getAttribute('scope') === 'col')).toBe(true)
     const statusLabels = [...view.querySelectorAll('.tl-chip')].map((chip) => chip.textContent)
     expect(statusLabels).toEqual(expect.arrayContaining(['Degraded', 'Healthy', 'Warning', 'Succeeded']))

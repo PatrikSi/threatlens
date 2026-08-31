@@ -51,14 +51,14 @@ export function ActiveTasksPanel({
           />
         </div>
 
-        <div className="mt-4 space-y-3">
+        <div className="mt-3 space-y-3">
           {errorMessage && (
             <p className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-300">
               {errorMessage}
             </p>
           )}
           {isLoading && !runs.length && (
-            <div className="rounded-xl border border-slate/20 bg-white/70 p-4 text-sm text-slate dark:border-cyan-900/40 dark:bg-[#072019]/80 dark:text-white/70">
+            <div className="rounded-xl border border-slate/20 bg-white/70 p-3 text-sm text-slate dark:border-cyan-900/40 dark:bg-[#072019]/80 dark:text-white/70">
               Checking queued and running AI tasks...
             </div>
           )}
@@ -202,7 +202,7 @@ export function QueueWorkPanel(props: QueueWorkPanelProps) {
 
   return (
     <Panel title="Queue AI work" subtitle="Launch daily brief and reprocess jobs from one place, with optional feed, time, and item targeting.">
-      <div className="space-y-4">
+      <div className="space-y-3">
         {queueWorkBlockedReason && (
           <div
             role="status"
@@ -213,7 +213,7 @@ export function QueueWorkPanel(props: QueueWorkPanelProps) {
             {queueWorkBlockedReason}
           </div>
         )}
-        <div className="rounded-xl border border-slate/20 bg-white/70 p-4 dark:border-cyan-900/40 dark:bg-[#072019]/80">
+        <div className="rounded-xl border border-slate/20 bg-white/70 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/80">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <p className="text-sm font-semibold">Daily brief</p>
@@ -230,7 +230,7 @@ export function QueueWorkPanel(props: QueueWorkPanelProps) {
               {dailyBriefPending ? 'Queueing...' : 'Queue daily brief'}
             </button>
           </div>
-          <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,220px)_minmax(0,1fr)]">
+          <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,220px)_minmax(0,1fr)]">
             <Field label="Daily brief lookback (days)">
               <input
                 className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#041612]/90"
@@ -249,7 +249,7 @@ export function QueueWorkPanel(props: QueueWorkPanelProps) {
           </div>
         </div>
 
-        <div className="rounded-xl border border-slate/20 bg-white/70 p-4 dark:border-cyan-900/40 dark:bg-[#072019]/80">
+        <div className="rounded-xl border border-slate/20 bg-white/70 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/80">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <p className="text-sm font-semibold">Reprocess scope</p>
@@ -276,7 +276,7 @@ export function QueueWorkPanel(props: QueueWorkPanelProps) {
             </div>
           </div>
 
-          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             <Field label="Reprocess lookback (days)">
               <input
                 className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#041612]/90"
@@ -326,7 +326,7 @@ export function QueueWorkPanel(props: QueueWorkPanelProps) {
             )}
           </div>
 
-          <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,280px)_minmax(0,1fr)]">
+          <div className="mt-3 grid gap-3 xl:grid-cols-[minmax(0,280px)_minmax(0,1fr)]">
             <FeedScope
               feeds={feeds}
               selectedFeedIds={selectedFeedIds}
@@ -346,11 +346,6 @@ export function QueueWorkPanel(props: QueueWorkPanelProps) {
               isReady={itemSearchReady}
             />
           </div>
-
-          <p className="mt-4 text-xs text-slate dark:text-white/60">
-            Selected articles override the lookback window. Without selected articles, ThreatLens uses the time range and feed
-            filters against the last X articles by publication time, falling back to first-seen time for undated feed items.
-          </p>
         </div>
       </div>
     </Panel>

@@ -83,7 +83,7 @@ function RunDetailContent({
       )}
       {!selectedRun && <EmptyInline>Select a run to inspect it.</EmptyInline>}
       {selectedRun && (
-        <div className="space-y-4">
+        <div className="space-y-3">
           <RunSummary
             run={selectedRun}
             onInspectRun={runState.setInspectedRunId}

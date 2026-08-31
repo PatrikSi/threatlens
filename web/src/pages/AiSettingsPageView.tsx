@@ -144,44 +144,47 @@ function AiSettingsNavigation({
   }
 
   return (
-    <aside className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
-      <h2 className="font-display text-xl">Automation workspace</h2>
-      <p className="mt-1 text-sm text-slate dark:text-white/70">
-        Review status, work with queued jobs, and manage provider settings without leaving the settings area.
-      </p>
-      <label htmlFor="mobile-ai-settings-section" className="mt-3 block text-xs font-semibold uppercase text-slate xl:hidden dark:text-slate-400">
-        Section
-        <select
-          id="mobile-ai-settings-section"
-          className="mt-1 w-full rounded border border-slate/20 bg-white px-3 py-2 text-sm font-semibold normal-case text-ink dark:border-cyan-900/40 dark:bg-[#041612] dark:text-slate-100"
-          value={activeTab}
-          onChange={(event) => setActiveTab(event.target.value as AiTab)}
-        >
-          {AI_TABS.map((tab) => (
-            <option key={tab.value} value={tab.value}>{tab.label}</option>
-          ))}
-        </select>
-      </label>
-      <nav className="mt-3 hidden grid-cols-1 gap-1 xl:grid" role="tablist" aria-label="AI automation sections">
-        {AI_TABS.map((tab) => (
-          <TabButton
-            key={tab.value}
-            id={getAiTabButtonId(tab.value)}
-            controls={getAiTabPanelId(tab.value)}
-            active={activeTab === tab.value}
-            onClick={() => setActiveTab(tab.value)}
-            onKeyDown={(event) => handleKeyDown(event, tab.value)}
-            fullWidth
+    <aside className="rounded-xl border border-slate/20 bg-white/80 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+      <h2 className="text-sm font-semibold">Sections</h2>
+      <div className="mt-2 grid gap-3 md:grid-cols-[minmax(180px,0.75fr)_minmax(0,1.25fr)] xl:block">
+        <label htmlFor="mobile-ai-settings-section" className="block xl:hidden">
+          <span className="sr-only">Section</span>
+          <select
+            id="mobile-ai-settings-section"
+            className="w-full rounded border border-slate/20 bg-white px-3 py-2 text-sm font-semibold text-ink dark:border-cyan-900/40 dark:bg-[#041612] dark:text-slate-100"
+            value={activeTab}
+            onChange={(event) => setActiveTab(event.target.value as AiTab)}
           >
-            {tab.label}
-          </TabButton>
-        ))}
-      </nav>
-      <div className="mt-5 rounded border border-cyan/20 bg-cyan/10 p-3 text-xs dark:border-cyan-800/40 dark:bg-cyan-950/40">
-        <p className="font-semibold">Current model</p>
-        <p className="mt-1 text-cyan-800 dark:text-cyan-200">{settings?.model || 'Not configured'}</p>
-        <p className="mt-3 font-semibold">Endpoint</p>
-        <p className="mt-1 break-all text-cyan-800 dark:text-cyan-200">{settings?.base_url || 'Not configured'}</p>
+            {AI_TABS.map((tab) => (
+              <option key={tab.value} value={tab.value}>{tab.label}</option>
+            ))}
+          </select>
+        </label>
+        <nav className="hidden grid-cols-1 gap-1 xl:grid" role="tablist" aria-label="AI automation sections">
+          {AI_TABS.map((tab) => (
+            <TabButton
+              key={tab.value}
+              id={getAiTabButtonId(tab.value)}
+              controls={getAiTabPanelId(tab.value)}
+              active={activeTab === tab.value}
+              onClick={() => setActiveTab(tab.value)}
+              onKeyDown={(event) => handleKeyDown(event, tab.value)}
+              fullWidth
+            >
+              {tab.label}
+            </TabButton>
+          ))}
+        </nav>
+        <dl className="grid gap-2 rounded border border-cyan/20 bg-cyan/10 px-3 py-2 text-xs sm:grid-cols-2 xl:mt-3 xl:grid-cols-1 dark:border-cyan-800/40 dark:bg-cyan-950/40">
+          <div>
+            <dt className="font-semibold">Current model</dt>
+            <dd className="mt-0.5 text-cyan-800 dark:text-cyan-200">{settings?.model || 'Not configured'}</dd>
+          </div>
+          <div>
+            <dt className="font-semibold">Endpoint</dt>
+            <dd className="mt-0.5 break-all text-cyan-800 dark:text-cyan-200">{settings?.base_url || 'Not configured'}</dd>
+          </div>
+        </dl>
       </div>
     </aside>
   )
@@ -189,7 +192,7 @@ function AiSettingsNavigation({
 
 function AiSettingsTabContent(props: AiSettingsPageViewProps) {
   return (
-    <section className="space-y-4">
+    <section className="space-y-3">
       {props.activeTab === 'overview' && (
         <section id={getAiTabPanelId('overview')} role="tabpanel" aria-labelledby={getAiTabButtonId('overview')}>
           <OverviewTab {...props.overviewProps} />
@@ -258,10 +261,10 @@ function AiSettingsDialogs(props: AiSettingsPageViewProps) {
 
 export function AiSettingsPageView(props: AiSettingsPageViewProps) {
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <AiSettingsHeader settings={props.settings} />
       <AiSettingsNoticeBanner notice={props.notice} />
-      <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
+      <div className="grid gap-3 xl:grid-cols-[280px_minmax(0,1fr)]">
         <AiSettingsNavigation activeTab={props.activeTab} setActiveTab={props.setActiveTab} settings={props.settings} />
         <AiSettingsTabContent {...props} />
       </div>

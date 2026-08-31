@@ -43,7 +43,7 @@ function DeliveryDetails({
         </div>
       </summary>
 
-      <div className="mt-4 space-y-3 text-sm">
+      <div className="mt-3 space-y-3 text-sm">
         <div className="flex flex-wrap items-center gap-2">
           {!isReadOnlyViewer && isRetryableDelivery(delivery) ? (
             <button
@@ -104,7 +104,7 @@ export function NotificationDeliveryHistory({ controller }: { controller: Notifi
   const { deliveriesQuery, retryDelivery, selectedWebhookId } = controller
   const firstDelivery = deliveriesQuery.data?.deliveries[0]
   return (
-    <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+    <section className="rounded-xl border border-slate/20 bg-white/80 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/90">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="font-display text-lg">Delivery history</h2>
@@ -137,7 +137,7 @@ export function NotificationDeliveryHistory({ controller }: { controller: Notifi
       )}
 
       {selectedWebhookId && deliveriesQuery.data?.deliveries.length ? (
-        <div className="mt-4 space-y-3">
+        <div className="mt-3 space-y-3">
           <div className="grid gap-3 md:grid-cols-4">
             <MetricCard label="Attempts" value={String(deliveriesQuery.data.total)} />
             <MetricCard label="Last code" value={firstDelivery?.status_code != null ? String(firstDelivery.status_code) : 'n/a'} />

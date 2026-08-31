@@ -21,7 +21,7 @@ export function Panel({
   children: ReactNode
 }) {
   return (
-    <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+    <section className="rounded-xl border border-slate/20 bg-white/80 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/90">
       <h3 className="font-display text-lg">{title}</h3>
       {subtitle && <p className="mt-1 text-sm text-slate dark:text-white/70">{subtitle}</p>}
       <div className="mt-3">{children}</div>
@@ -46,12 +46,12 @@ export function OverviewSection({
   children: ReactNode
 }) {
   return (
-    <section className="rounded-2xl border border-slate/20 bg-white/70 p-5 dark:border-cyan-900/40 dark:bg-[#03130f]/80">
-      <div className="border-b border-slate/15 pb-3 dark:border-cyan-900/30">
-        <h3 className="font-display text-xl">{title}</h3>
+    <section className="space-y-3">
+      <div className="border-b border-slate/15 pb-2 dark:border-cyan-900/30">
+        <h2 className="font-display text-lg">{title}</h2>
         <p className="mt-1 text-sm text-slate dark:text-white/70">{description}</p>
       </div>
-      <div className="mt-4 space-y-4">{children}</div>
+      <div className="space-y-3">{children}</div>
     </section>
   )
 }
@@ -104,9 +104,9 @@ export function TabButton({
 
 export function StatCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-slate/20 bg-white/80 px-4 py-3 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+    <div className="rounded-lg border border-slate/20 bg-white/80 px-3 py-2 dark:border-cyan-900/40 dark:bg-[#041612]/90">
       <p className="text-xs uppercase text-slate dark:text-white/55">{label}</p>
-      <p className="mt-1 text-xl font-semibold">{value}</p>
+      <p className="mt-0.5 text-lg font-semibold">{value}</p>
     </div>
   )
 }
@@ -170,7 +170,7 @@ export function TimeSeriesBars({
 
   return (
     <div className="space-y-2">
-      <div className="flex h-36 items-end gap-1">
+      <div className="flex h-28 items-end gap-1">
         {points.map((point) => {
           const primaryHeight = `${Math.max(4, ((Number(point[valueKey]) || 0) / maxPrimary) * 100)}%`
           const secondaryHeight = secondaryKey ? `${Math.max(0, ((Number(point[secondaryKey]) || 0) / maxSecondary) * 38)}%` : '0%'

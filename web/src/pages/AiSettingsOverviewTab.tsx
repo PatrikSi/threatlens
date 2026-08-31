@@ -53,8 +53,8 @@ export function OverviewTab({
   }
 
   return (
-    <div className="space-y-4">
-      <Panel title="Overview" subtitle="Start here to see whether AI is healthy, how much it is being used, and where it needs attention.">
+    <div className="space-y-3">
+      <Panel title="Current window">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <MiniStat label="Model" value={settings?.model || 'Not configured'} />
@@ -93,9 +93,9 @@ export function OverviewTab({
         title="Health"
         description="Use this section to confirm the endpoint is configured, the queue is moving, and problems are visible quickly."
       >
-        <div className="grid gap-4 xl:grid-cols-2">
+        <div className="grid gap-3 xl:grid-cols-2">
           <Panel title="AI status" subtitle={readiness ?? 'Loading runtime state...'}>
-            <dl className="space-y-2 text-sm">
+            <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
               <Metric label="Configured" value={settings?.ai_configured ? 'Yes' : 'No'} />
               <Metric label="API key in environment" value={settings?.api_key_configured ? 'Yes' : 'No (optional)'} />
               <Metric label="Model" value={settings?.model || 'Not configured'} />
@@ -120,7 +120,7 @@ export function OverviewTab({
           </Panel>
 
           <Panel title="Queue snapshot" subtitle="Database-backed snapshot of AI task runs.">
-            <dl className="space-y-2 text-sm">
+            <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
               <Metric label="Known workers" value={overview.live.worker_count} />
               <Metric label="Running" value={overview.live.active_count} />
               <Metric label="Queued" value={overview.live.queued_count} />
@@ -143,7 +143,7 @@ export function OverviewTab({
         title="Usage"
         description="Volume, token cost, and model performance for the selected time window."
       >
-        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           <StatCard label="Requests" value={overview.kpis.total_requests.toLocaleString()} />
           <StatCard label="Success rate" value={`${overview.kpis.success_rate_pct.toFixed(1)}%`} />
           <StatCard label="Total tokens" value={overview.kpis.total_tokens.toLocaleString()} />
@@ -155,7 +155,7 @@ export function OverviewTab({
           />
         </section>
 
-        <div className="grid gap-4 xl:grid-cols-2">
+        <div className="grid gap-3 xl:grid-cols-2">
           <Panel title="Requests and failures over time" subtitle="Recent request volume and failure pressure across the selected window.">
             <TimeSeriesBars
               points={overview.time_series}
@@ -219,7 +219,7 @@ export function OverviewTab({
           </Panel>
         </div>
 
-        <div className="grid gap-4 xl:grid-cols-2">
+        <div className="grid gap-3 xl:grid-cols-2">
           <Panel title="Token usage over time" subtitle="Total tokens by day.">
             <TimeSeriesBars points={overview.time_series} valueKey="total_tokens" accentClass="bg-emerald-500" />
           </Panel>
@@ -231,7 +231,7 @@ export function OverviewTab({
               <MiniStat label="Average total tokens" value={overview.token_efficiency.average_total_tokens.toFixed(1)} />
               <MiniStat label="Prompt-to-completion ratio" value={overview.token_efficiency.prompt_to_completion_ratio.toFixed(2)} />
             </div>
-            <p className="mt-4 text-sm text-slate dark:text-white/70">
+            <p className="mt-3 text-sm text-slate dark:text-white/70">
               Top expensive feature: {formatTaskTypeLabel(overview.token_efficiency.top_expensive_feature || 'n/a')} (
               {overview.token_efficiency.top_expensive_feature_avg_tokens.toFixed(1)} avg tokens)
             </p>
@@ -243,50 +243,46 @@ export function OverviewTab({
         title="Quality and coverage"
         description="How complete the enrichment pipeline is, what the relevance output looks like, and how much data the AI subsystem retains."
       >
-        <div className="grid gap-4 xl:grid-cols-2">
-          <Panel title="Coverage and freshness" subtitle="How much content is enriched and whether the pipeline is keeping up.">
-            <dl className="space-y-2 text-sm">
-              <Metric label="Eligible items" value={overview.coverage.eligible_items} />
-              <Metric label="Enriched" value={overview.coverage.enriched_items} />
-              <Metric label="Pending" value={overview.coverage.pending_items} />
-              <Metric label="Failed" value={overview.coverage.failed_items} />
-              <Metric label="No article" value={overview.coverage.skipped_no_article_count} />
-              <Metric label="AI disabled skips" value={overview.coverage.skipped_ai_disabled_count} />
-              <Metric label="Config skips" value={overview.coverage.skipped_not_configured_count} />
-              <Metric label="Auto-enrich off skips" value={overview.coverage.skipped_auto_enrich_disabled_count} />
-              <Metric label="Unchanged skips" value={overview.coverage.skipped_unchanged_count} />
-              <Metric label="Oldest pending" value={overview.coverage.oldest_pending_at ? formatTimestamp(overview.coverage.oldest_pending_at) : 'n/a'} />
-              <Metric label="Last enrichment" value={overview.coverage.last_successful_enrichment_at ? formatTimestamp(overview.coverage.last_successful_enrichment_at) : 'Never'} />
-              <Metric label="Last daily brief" value={overview.coverage.last_successful_daily_brief_at ? formatTimestamp(overview.coverage.last_successful_daily_brief_at) : 'Never'} />
-            </dl>
-          </Panel>
-        </div>
+        <Panel title="Coverage and freshness" subtitle="How much content is enriched and whether the pipeline is keeping up.">
+          <dl className="grid gap-x-6 gap-y-2 text-sm md:grid-cols-2">
+            <Metric label="Eligible items" value={overview.coverage.eligible_items} />
+            <Metric label="Enriched" value={overview.coverage.enriched_items} />
+            <Metric label="Pending" value={overview.coverage.pending_items} />
+            <Metric label="Failed" value={overview.coverage.failed_items} />
+            <Metric label="No article" value={overview.coverage.skipped_no_article_count} />
+            <Metric label="AI disabled skips" value={overview.coverage.skipped_ai_disabled_count} />
+            <Metric label="Config skips" value={overview.coverage.skipped_not_configured_count} />
+            <Metric label="Auto-enrich off skips" value={overview.coverage.skipped_auto_enrich_disabled_count} />
+            <Metric label="Unchanged skips" value={overview.coverage.skipped_unchanged_count} />
+            <Metric label="Oldest pending" value={overview.coverage.oldest_pending_at ? formatTimestamp(overview.coverage.oldest_pending_at) : 'n/a'} />
+            <Metric label="Last enrichment" value={overview.coverage.last_successful_enrichment_at ? formatTimestamp(overview.coverage.last_successful_enrichment_at) : 'Never'} />
+            <Metric label="Last daily brief" value={overview.coverage.last_successful_daily_brief_at ? formatTimestamp(overview.coverage.last_successful_daily_brief_at) : 'Never'} />
+          </dl>
+        </Panel>
 
-        <div className="grid gap-4 xl:grid-cols-2">
-          <Panel title="Relevance distribution" subtitle="Current relevance labels and the feeds producing them.">
-            <div className="grid gap-3 sm:grid-cols-4">
-              <MiniStat label="High" value={overview.relevance_distribution.high_count} />
-              <MiniStat label="Medium" value={overview.relevance_distribution.medium_count} />
-              <MiniStat label="Low" value={overview.relevance_distribution.low_count} />
-              <MiniStat label="Average score" value={overview.relevance_distribution.average_score.toFixed(2)} />
-            </div>
-            <div className="mt-4 space-y-2">
-              {overview.relevance_distribution.by_feed.slice(0, 6).map((feed) => (
-                <div key={feed.feed_name} className="rounded-lg border border-slate/10 px-3 py-2 text-sm dark:border-cyan-900/30">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="font-semibold">{feed.feed_name}</span>
-                    <span className="text-xs text-slate dark:text-white/60">{feed.total_items} items</span>
-                  </div>
-                  <p className="mt-1 text-xs text-slate dark:text-white/60">
-                    High {feed.high_count} · Medium {feed.medium_count} · Low {feed.low_count} · Average {feed.average_score.toFixed(2)}
-                  </p>
+        <Panel title="Relevance distribution" subtitle="Current relevance labels and the feeds producing them.">
+          <div className="grid gap-3 sm:grid-cols-4">
+            <MiniStat label="High" value={overview.relevance_distribution.high_count} />
+            <MiniStat label="Medium" value={overview.relevance_distribution.medium_count} />
+            <MiniStat label="Low" value={overview.relevance_distribution.low_count} />
+            <MiniStat label="Average score" value={overview.relevance_distribution.average_score.toFixed(2)} />
+          </div>
+          <div className="mt-3 grid gap-2 md:grid-cols-2">
+            {overview.relevance_distribution.by_feed.slice(0, 6).map((feed) => (
+              <div key={feed.feed_name} className="rounded-lg border border-slate/10 px-3 py-2 text-sm dark:border-cyan-900/30">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="font-semibold">{feed.feed_name}</span>
+                  <span className="text-xs text-slate dark:text-white/60">{feed.total_items} items</span>
                 </div>
-              ))}
-            </div>
-          </Panel>
-        </div>
+                <p className="mt-1 text-xs text-slate dark:text-white/60">
+                  High {feed.high_count} · Medium {feed.medium_count} · Low {feed.low_count} · Average {feed.average_score.toFixed(2)}
+                </p>
+              </div>
+            ))}
+          </div>
+        </Panel>
 
-        <div className="grid gap-4 xl:grid-cols-2">
+        <div className="grid gap-3 xl:grid-cols-2">
           <Panel title="Cache and no-op activity">
             <dl className="space-y-2 text-sm">
               <Metric label="Reused" value={overview.cache.reused_count} />

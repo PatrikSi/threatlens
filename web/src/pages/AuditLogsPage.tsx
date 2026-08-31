@@ -75,7 +75,7 @@ export function AuditLogsPage() {
   })
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <SettingsPageHeader
         scope="Organization"
         title="Audit log"
@@ -107,7 +107,7 @@ export function AuditLogsPage() {
         )}
       </SettingsPageHeader>
 
-      <section className="min-w-0 overflow-hidden rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+      <section className="min-w-0 overflow-hidden rounded-xl border border-slate/20 bg-white/80 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/90">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div className="grid w-full gap-3 sm:grid-cols-2 lg:w-auto">
             <label htmlFor="audit-log-action-filter" className="text-xs font-semibold text-slate dark:text-slate-300">
@@ -166,7 +166,7 @@ export function AuditLogsPage() {
 
       <div className="mt-3 space-y-2 sm:hidden" aria-label="Audit events">
         {auditQueryEnabled && auditQuery.isLoading && (
-          <p className="py-4 text-center text-sm text-slate dark:text-slate-300">Loading audit logs...</p>
+          <p className="py-3 text-center text-sm text-slate dark:text-slate-300">Loading audit logs...</p>
         )}
         {auditQueryEnabled && auditQuery.isError && (
           <div role="alert" className="rounded-lg border border-red-300/60 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-950/25 dark:text-red-200">
@@ -174,7 +174,7 @@ export function AuditLogsPage() {
           </div>
         )}
         {auditQueryEnabled && !auditQuery.isLoading && !auditQuery.isError && logs.length === 0 && (
-          <div className="rounded-lg border border-dashed border-slate/25 px-3 py-4 text-center text-sm text-slate dark:border-cyan-900/40 dark:text-slate-300">
+          <div className="rounded-lg border border-dashed border-slate/25 px-3 py-3 text-center text-sm text-slate dark:border-cyan-900/40 dark:text-slate-300">
             No events match the current filters.
           </div>
         )}
@@ -221,14 +221,14 @@ export function AuditLogsPage() {
           <tbody>
             {auditQueryEnabled && auditQuery.isLoading && (
               <tr>
-                <td colSpan={5} className="px-2 py-6 text-center text-slate dark:text-slate-300">
+                <td colSpan={5} className="px-2 py-4 text-center text-slate dark:text-slate-300">
                   Loading audit logs...
                 </td>
               </tr>
             )}
             {auditQueryEnabled && auditQuery.isError && (
               <tr>
-                <td colSpan={5} className="px-2 py-6">
+                <td colSpan={5} className="px-2 py-4">
                   <div role="alert" className="rounded-lg border border-red-300/60 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-950/25 dark:text-red-200">
                     {auditQueryError}
                   </div>
@@ -237,8 +237,8 @@ export function AuditLogsPage() {
             )}
             {auditQueryEnabled && !auditQuery.isLoading && !auditQuery.isError && logs.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-2 py-6">
-                  <div className="rounded-lg border border-dashed border-slate/25 px-3 py-4 text-center text-sm text-slate dark:border-cyan-900/40 dark:text-slate-300">
+                <td colSpan={5} className="px-2 py-4">
+                  <div className="rounded-lg border border-dashed border-slate/25 px-3 py-3 text-center text-sm text-slate dark:border-cyan-900/40 dark:text-slate-300">
                     No events match the current filters.
                   </div>
                 </td>
@@ -270,7 +270,7 @@ export function AuditLogsPage() {
         </table>
       </div>
 
-      <div className="mt-4 grid grid-cols-[auto_1fr_auto] items-center gap-2 text-sm sm:flex sm:flex-wrap sm:justify-between">
+      <div className="mt-3 grid grid-cols-[auto_1fr_auto] items-center gap-2 text-sm sm:flex sm:flex-wrap sm:justify-between">
         <button className="rounded border border-slate/30 px-2 py-1 disabled:cursor-not-allowed disabled:opacity-60 dark:border-cyan-900/40" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
           Previous
         </button>

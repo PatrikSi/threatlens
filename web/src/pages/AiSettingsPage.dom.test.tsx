@@ -597,6 +597,7 @@ describe('AiSettingsPage DOM workflows', () => {
     const mobileSection = view.querySelector<HTMLSelectElement>('#mobile-ai-settings-section')
     const desktopTabs = view.querySelector<HTMLElement>('[aria-label="AI automation sections"]')
     const navigation = mobileSection?.closest('aside')
+    const compactNavigation = mobileSection?.closest('label')?.parentElement
     const workspace = navigation?.parentElement
 
     expect(mobileSection).not.toBeNull()
@@ -607,11 +608,18 @@ describe('AiSettingsPage DOM workflows', () => {
     ])
     expect(mobileSection?.closest('label')?.className).toContain('xl:hidden')
     expect(mobileSection?.closest('label')?.className).not.toContain('lg:hidden')
+    expect(mobileSection?.previousElementSibling?.className).toContain('sr-only')
+    expect(compactNavigation?.className).toContain('md:grid-cols-[minmax(180px,0.75fr)_minmax(0,1.25fr)]')
+    expect(compactNavigation?.className).toContain('xl:block')
     expect(desktopTabs?.className).toContain('hidden')
     expect(desktopTabs?.className).toContain('xl:grid')
     expect(desktopTabs?.className).not.toContain('lg:grid')
+    expect(view.firstElementChild?.className).toContain('space-y-3')
+    expect(navigation?.className).toContain('p-3')
+    expect(workspace?.className).toContain('gap-3')
     expect(workspace?.className).toContain('xl:grid-cols-[280px_minmax(0,1fr)]')
     expect(workspace?.className).not.toContain('lg:grid-cols-[280px_minmax(0,1fr)]')
+    expect(view.textContent).not.toContain('Review status, work with queued jobs, or change provider and feature settings.')
   })
 
   it('blocks queued AI work when the saved endpoint is not configured', () => {

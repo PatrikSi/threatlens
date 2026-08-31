@@ -34,7 +34,7 @@ function ConnectionTestResult({ result }: { result: AITestConnectionResponse }) 
   }
 
   return (
-    <div className="mt-4 rounded-xl border border-slate/20 bg-white/70 p-3 text-sm dark:border-cyan-900/40 dark:bg-[#072019]/80">
+    <div className="mt-3 rounded-xl border border-slate/20 bg-white/70 p-3 text-sm dark:border-cyan-900/40 dark:bg-[#072019]/80">
       <p className="font-semibold">{title}</p>
       <p className="mt-1 text-slate dark:text-white/70">
         Model: {result.model || 'unknown'}

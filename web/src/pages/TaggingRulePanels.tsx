@@ -18,7 +18,7 @@ export function TaggingRulesList({ controller }: TaggingPanelProps) {
   const { bundleQuery, canManageTagging, onCreateNewRule, onSelectRule, selectedRuleId } = controller
 
   return (
-    <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+    <section className="rounded-xl border border-slate/20 bg-white/80 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/90">
       <div className="flex items-center justify-between gap-3">
         <h2 className="font-display text-lg">Rules</h2>
         <button
@@ -93,7 +93,7 @@ export function TaggingRuleEditor({ controller }: TaggingPanelProps) {
   } = controller
 
   return (
-    <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+    <section className="rounded-xl border border-slate/20 bg-white/80 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/90">
       <fieldset disabled={!controller.canManageTagging} className="m-0 min-w-0 border-0 p-0">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -140,7 +140,7 @@ export function TaggingRuleEditor({ controller }: TaggingPanelProps) {
         />
         <RuleFeedScope controller={controller} />
 
-        <div className="mt-5 flex flex-wrap items-center gap-2">
+        <div className="mt-4 flex flex-wrap items-center gap-2">
           <button
             className="rounded bg-ink px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]"
             disabled={saveRule.isPending || Boolean(ruleValidationError) || !controller.canManageTagging}
@@ -177,7 +177,7 @@ type RuleDraftFieldsProps = Pick<TaggingSettingsController, 'ruleDraft' | 'setRu
 
 function RuleIdentityFields({ ruleDraft, setRuleDraft }: RuleDraftFieldsProps) {
   return (
-    <div className="mt-4 grid gap-4 md:grid-cols-2">
+    <div className="mt-3 grid gap-3 md:grid-cols-2">
       <div>
         <label htmlFor="tagging-rule-name" className="text-sm font-semibold">
           Rule name
@@ -239,13 +239,13 @@ function RuleIdentityFields({ ruleDraft, setRuleDraft }: RuleDraftFieldsProps) {
 
 function RulePatternFields({ ruleDraft, setRuleDraft }: RuleDraftFieldsProps) {
   return (
-    <div className="mt-4">
+    <div className="mt-3">
       <label htmlFor="tagging-rule-pattern" className="text-sm font-semibold">
         Pattern
       </label>
       <textarea
         id="tagging-rule-pattern"
-        className="mt-1 h-28 w-full rounded border border-slate/30 bg-white px-3 py-2 font-mono text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
+        className="mt-1 h-24 w-full rounded border border-slate/30 bg-white px-3 py-2 font-mono text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
         value={ruleDraft.pattern}
         onChange={(event) => setRuleDraft((current) => ({ ...current, pattern: event.target.value }))}
       />
@@ -275,7 +275,7 @@ function RuleSelectionGroup<T extends string>({
   onToggle: (value: T) => void
 }) {
   return (
-    <div className="mt-5">
+    <div className="mt-4">
       <h3 className="font-semibold">{title}</h3>
       <p className="mt-1 text-xs text-slate dark:text-white/65">{description}</p>
       <div role="group" aria-label={title} className="mt-2 flex flex-wrap gap-2">
@@ -304,7 +304,7 @@ function RuleFeedScope({ controller }: TaggingPanelProps) {
   const { feeds, feedsQuery, ruleDraft, setRuleDraft } = controller
 
   return (
-    <div className="mt-5 rounded-lg border border-slate/20 p-4 dark:border-cyan-900/40">
+    <div className="mt-4 rounded-lg border border-slate/20 p-3 dark:border-cyan-900/40">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h3 className="font-semibold">Feed scope</h3>
@@ -339,7 +339,7 @@ function RuleFeedScope({ controller }: TaggingPanelProps) {
       </div>
 
       {ruleDraft.feed_scope === 'selected' && (
-        <div className="mt-4">
+        <div className="mt-3">
           {feedsQuery.isLoading && <p className="text-sm text-slate dark:text-white/70">Loading feeds...</p>}
           {feedsQuery.isError && (
             <p role="alert" className="text-sm text-red-600">
@@ -407,7 +407,7 @@ export function TaggingRulePreview({ controller }: TaggingPanelProps) {
   const { previewResult } = controller
 
   return (
-    <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+    <section className="rounded-xl border border-slate/20 bg-white/80 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/90">
       <div className="flex items-center justify-between gap-3">
         <div>
           <h2 className="font-display text-lg">Rule preview</h2>
@@ -426,7 +426,7 @@ export function TaggingRulePreview({ controller }: TaggingPanelProps) {
         <p className="mt-3 text-sm text-slate dark:text-white/70">Run a preview to inspect recent matches and affected items.</p>
       )}
       {previewResult && (
-        <div className="mt-4 space-y-3">
+        <div className="mt-3 space-y-3">
           {previewResult.items.length > 0 ? (
             previewResult.items.map((item) => (
               <article

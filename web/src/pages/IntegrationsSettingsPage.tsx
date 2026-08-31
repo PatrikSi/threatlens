@@ -8,16 +8,16 @@ import { useSMTPIntegrationController } from './useSMTPIntegrationController'
 export function SMTPIntegrationSettingsPage() {
   const controller = useSMTPIntegrationController()
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <SMTPIntegrationHeader accessNotice={controller.accessNotice} loadError={controller.loadError} />
       <SMTPAnalyticsPanel
         analytics={controller.analyticsQuery.data}
         loading={controller.analyticsQuery.isLoading}
         error={controller.analyticsQuery.error}
       />
-      <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
+      <div className="grid gap-3 xl:grid-cols-[320px_minmax(0,1fr)]">
         <SMTPHookList controller={controller} />
-        <div className="space-y-4">
+        <div className="space-y-3">
           <SMTPHookEditor controller={controller} />
           <SMTPDeliveryHistory
             hook={controller.selectedHook}

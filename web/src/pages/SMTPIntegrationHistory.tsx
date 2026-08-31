@@ -26,7 +26,7 @@ export function SMTPAnalyticsPanel({
   error: unknown
 }) {
   return (
-    <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+    <section className="rounded-xl border border-slate/20 bg-white/80 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/90">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="font-display text-lg">Email delivery health</h2>
@@ -46,7 +46,7 @@ export function SMTPAnalyticsPanel({
 
 function SMTPAnalyticsDetails({ analytics }: { analytics: SMTPAnalyticsResponse }) {
   return (
-    <div className="mt-4 space-y-4">
+    <div className="mt-3 space-y-3">
       <div className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-5">
         <Metric label="Enabled destinations" value={`${analytics.enabled_hook_count} / ${analytics.hook_count}`} />
         <Metric label="Total deliveries" value={String(analytics.total_deliveries)} />
@@ -54,7 +54,7 @@ function SMTPAnalyticsDetails({ analytics }: { analytics: SMTPAnalyticsResponse 
         <Metric label="Failures 24h" value={String(analytics.failures_last_24h)} />
         <Metric label="Queued / retry" value={`${analytics.pending_deliveries} / ${analytics.retry_wait_deliveries}`} />
       </div>
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_280px]">
         <div className="rounded-lg border border-slate/20 px-3 py-3 dark:border-cyan-900/40">
           <p className="text-sm font-semibold">Event breakdown</p>
           {analytics.events.length ? (
@@ -103,7 +103,7 @@ type SMTPDeliveryHistoryProps = {
 export function SMTPDeliveryHistory(props: SMTPDeliveryHistoryProps) {
   const [historyView, setHistoryView] = useState<'deliveries' | 'tests'>('deliveries')
   return (
-    <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+    <section className="rounded-xl border border-slate/20 bg-white/80 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/90">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="font-display text-lg">Email delivery history</h2>
@@ -182,7 +182,7 @@ function SMTPDeliveriesPanel({
   const latest = deliveries.deliveries[0]
   const metricPrefix = deliveryPage === 1 ? 'Latest' : 'First shown'
   return (
-    <div id="smtp-deliveries-panel" role="tabpanel" aria-labelledby="smtp-deliveries-tab" className="mt-4 space-y-3">
+    <div id="smtp-deliveries-panel" role="tabpanel" aria-labelledby="smtp-deliveries-tab" className="mt-3 space-y-3">
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Metric label="Deliveries" value={String(deliveries.total)} />
         <Metric label={`${metricPrefix} attempts`} value={String(latest.attempt_count)} />
@@ -237,7 +237,7 @@ function SMTPDeliveryDetails({
           </div>
         </div>
       </summary>
-      <div className="mt-4 space-y-3 text-sm">
+      <div className="mt-3 space-y-3 text-sm">
         {delivery.state === 'dead_letter' && (
           <button
             type="button"
@@ -304,7 +304,7 @@ function SMTPTestRunsPanel({
   const latest = testRuns.runs[0]
   const metricPrefix = testRunPage === 1 ? 'Latest' : 'First shown'
   return (
-    <div id="smtp-tests-panel" role="tabpanel" aria-labelledby="smtp-tests-tab" className="mt-4 space-y-3">
+    <div id="smtp-tests-panel" role="tabpanel" aria-labelledby="smtp-tests-tab" className="mt-3 space-y-3">
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Metric label="Tests" value={String(testRuns.total)} />
         <Metric label={`${metricPrefix} result`} value={latest.status === 'succeeded' ? 'Succeeded' : 'Failed'} />
@@ -330,7 +330,7 @@ function SMTPTestRunsPanel({
               </div>
             </div>
           </summary>
-          <div className="mt-4 space-y-3 text-sm">
+          <div className="mt-3 space-y-3 text-sm">
             {(run.error_code || run.error_message) && (
               <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-red-700 dark:border-red-900/50 dark:bg-red-950/35 dark:text-red-200">
                 <p className="font-semibold">{run.error_code || 'SMTP test error'}</p>

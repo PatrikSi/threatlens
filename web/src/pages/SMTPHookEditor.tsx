@@ -14,7 +14,7 @@ import { SMTPIntegrationController } from './useSMTPIntegrationController'
 export function SMTPHookList({ controller }: { controller: SMTPIntegrationController }) {
   const { canManageEmailDelivery, hooks, hooksQuery, onCreateHook, onSelectHook, selectedHookId } = controller
   return (
-    <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+    <section className="rounded-xl border border-slate/20 bg-white/80 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/90">
       <div className="flex items-center justify-between gap-3">
         <h2 className="font-display text-lg">Email destinations</h2>
         <button
@@ -91,7 +91,7 @@ function SMTPHookListItem({
 
 export function SMTPHookEditor({ controller }: { controller: SMTPIntegrationController }) {
   return (
-    <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+    <section className="rounded-xl border border-slate/20 bg-white/80 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/90">
       <fieldset disabled={!controller.canManageEmailDelivery} className="m-0 min-w-0 border-0 p-0">
         <SMTPHookEditorHeading controller={controller} />
         <UnreadableSecretNotice hook={controller.selectedHook} />
@@ -134,7 +134,7 @@ function SMTPHookEditorHeading({ controller }: { controller: SMTPIntegrationCont
 function UnreadableSecretNotice({ hook }: { hook: SMTPHook | null }) {
   if (!hook?.has_unreadable_secret) return null
   return (
-    <div role="alert" className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/35 dark:text-red-200">
+    <div role="alert" className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/35 dark:text-red-200">
       {hook.uses_shared_credentials
         ? 'The shared SMTP password cannot be decrypted. Update the credential source or choose another source.'
         : 'The saved SMTP password cannot be decrypted. Enter a new password or clear it before saving.'}
@@ -145,7 +145,7 @@ function UnreadableSecretNotice({ hook }: { hook: SMTPHook | null }) {
 function SMTPEventFields({ controller }: { controller: SMTPIntegrationController }) {
   const { availableEventOptions, currentSendFor, unavailableDailyBriefSelected, unavailableReportSelected } = controller.eventAvailability
   return (
-    <div className="mt-4 grid gap-4 md:grid-cols-2">
+    <div className="mt-3 grid gap-3 md:grid-cols-2">
       <TextInput
         id="smtp-hook-name"
         label="Name"
@@ -188,8 +188,8 @@ function UnavailableAIEventNotice({ visible, feature }: { visible: boolean; feat
 function SMTPTransportFields({ controller }: { controller: SMTPIntegrationController }) {
   const { credentialSources, draft, selectedCredentialSource, selectedHook, setDraft, validation } = controller
   return (
-    <div className="mt-5 border-t border-slate/20 pt-5 dark:border-cyan-900/40">
-      <div className="grid gap-4 md:grid-cols-2">
+    <div className="mt-4 border-t border-slate/20 pt-4 dark:border-cyan-900/40">
+      <div className="grid gap-3 md:grid-cols-2">
         <div className="md:col-span-2">
           <label htmlFor="smtp-credential-source" className="text-sm font-semibold">SMTP authentication</label>
           <select
@@ -227,7 +227,7 @@ function SMTPTransportFields({ controller }: { controller: SMTPIntegrationContro
         </div>
       </div>
       {!draft.credential_source_id && selectedHook?.password_configured && !selectedHook.uses_shared_credentials && (
-        <label className="mt-4 flex items-center gap-2 text-sm">
+        <label className="mt-3 flex items-center gap-2 text-sm">
           <input type="checkbox" checked={draft.clear_password} disabled={Boolean(draft.password.trim())} onChange={(event) => setDraft((current) => ({ ...current, clear_password: event.target.checked }))} />
           Clear saved password on save
         </label>
@@ -285,7 +285,7 @@ function OwnedTransportFields({ controller }: { controller: SMTPIntegrationContr
 function SMTPFeedScope({ controller }: { controller: SMTPIntegrationController }) {
   const { draft, feeds, setDraft, validation } = controller
   return (
-    <div className="mt-5 border-t border-slate/20 pt-5 dark:border-cyan-900/40">
+    <div className="mt-4 border-t border-slate/20 pt-4 dark:border-cyan-900/40">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h3 className="font-semibold">Feed scope</h3>
@@ -311,7 +311,7 @@ function SMTPFeedScope({ controller }: { controller: SMTPIntegrationController }
         </div>
       </div>
       {draft.feed_scope === 'selected' && (
-        <div className="mt-4 grid max-h-64 gap-2 overflow-auto md:grid-cols-2">
+        <div className="mt-3 grid max-h-64 gap-2 overflow-auto md:grid-cols-2">
           {feeds.map((feed) => (
             <label key={feed.id} className="flex items-start gap-3 rounded border border-slate/20 p-3 text-sm dark:border-cyan-900/40">
               <input className="mt-1" type="checkbox" checked={draft.feed_ids.includes(feed.id)} onChange={() => setDraft((current) => ({ ...current, feed_ids: toggleValue(current.feed_ids, feed.id) }))} />
@@ -338,12 +338,12 @@ function SMTPTemplateFields({
   setDraft: SMTPIntegrationController['setDraft']
 }) {
   return (
-    <div className="mt-5 border-t border-slate/20 pt-5 dark:border-cyan-900/40">
-      <div className="grid gap-4">
+    <div className="mt-4 border-t border-slate/20 pt-4 dark:border-cyan-900/40">
+      <div className="grid gap-3">
         <TextInput id="smtp-subject-template" label="Email subject template" value={draft.subject_template} error={validation.subject_template} onChange={(value) => setDraft((current) => ({ ...current, subject_template: value }))} />
         <TextArea id="smtp-html-template" label="Email HTML template" value={draft.html_template} error={validation.html_template} rows={10} onChange={(value) => setDraft((current) => ({ ...current, html_template: value }))} />
       </div>
-      <details className="mt-4 rounded-lg border border-slate/20 px-3 py-2 dark:border-cyan-900/40">
+      <details className="mt-3 rounded-lg border border-slate/20 px-3 py-2 dark:border-cyan-900/40">
         <summary className="cursor-pointer text-sm font-semibold">Template variables</summary>
         <div className="mt-3 grid max-h-64 gap-2 overflow-auto md:grid-cols-2">
           {variables.map((variable) => (
@@ -361,7 +361,7 @@ function SMTPTemplateFields({
 function SMTPHookActions({ controller }: { controller: SMTPIntegrationController }) {
   const { selectedHook } = controller
   return (
-    <div className="mt-5 grid gap-4 border-t border-slate/20 pt-5 dark:border-cyan-900/40 lg:grid-cols-[minmax(0,1fr)_280px]">
+    <div className="mt-4 grid gap-3 border-t border-slate/20 pt-4 dark:border-cyan-900/40 lg:grid-cols-[minmax(0,1fr)_280px]">
       <div>
         <div className="flex flex-wrap items-center gap-2">
           <button
@@ -426,10 +426,10 @@ function SMTPHookStatus({ controller }: { controller: SMTPIntegrationController 
   return (
     <>
       {(notice || saveHook.isError || testHook.isError || replayDelivery.isError) && (
-        <p role={hasError ? 'alert' : 'status'} className={`mt-4 text-sm ${hasError ? 'text-red-600' : 'text-emerald-700 dark:text-emerald-300'}`}>{message}</p>
+        <p role={hasError ? 'alert' : 'status'} className={`mt-3 text-sm ${hasError ? 'text-red-600' : 'text-emerald-700 dark:text-emerald-300'}`}>{message}</p>
       )}
       {testResult && (
-        <div className="mt-4 rounded-lg border border-slate/20 px-3 py-3 text-sm dark:border-cyan-900/40">
+        <div className="mt-3 rounded-lg border border-slate/20 px-3 py-3 text-sm dark:border-cyan-900/40">
           <div className="flex flex-wrap items-center gap-2">
             <span className={`tl-chip ${testResult.success ? 'tl-chip-success' : 'tl-chip-danger'}`}>{testResult.success ? 'Success' : 'Failed'}</span>
             <span>{testResult.action === 'send' ? 'Test email' : 'Connection test'}</span>

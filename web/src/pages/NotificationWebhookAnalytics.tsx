@@ -13,7 +13,7 @@ import { NotificationWebhooksController } from './useNotificationWebhooksControl
 export function NotificationWebhookAnalytics({ controller }: { controller: NotificationWebhooksController }) {
   const { analytics, analyticsQuery } = controller
   return (
-    <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+    <section className="rounded-xl border border-slate/20 bg-white/80 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/90">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="font-display text-lg">Delivery health</h2>
@@ -31,10 +31,10 @@ export function NotificationWebhookAnalytics({ controller }: { controller: Notif
       )}
 
       {analytics && (
-        <div className="mt-4 space-y-4">
+        <div className="mt-3 space-y-3">
           {analytics.queue.status !== 'healthy' && (
             <div
-              className={`rounded-lg border px-4 py-3 text-sm ${
+              className={`rounded-lg border px-3 py-2 text-sm ${
                 analytics.queue.status === 'critical'
                   ? 'border-red-200 bg-red-50 text-red-800 dark:border-red-900/50 dark:bg-red-950/35 dark:text-red-200'
                   : 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/35 dark:text-amber-200'
@@ -56,8 +56,8 @@ export function NotificationWebhookAnalytics({ controller }: { controller: Notif
             />
           </div>
 
-          <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-            <div className="rounded-lg border border-slate/20 p-4 dark:border-cyan-900/40">
+          <div className="grid gap-3 xl:grid-cols-[1.2fr_0.8fr]">
+            <div className="rounded-lg border border-slate/20 p-3 dark:border-cyan-900/40">
               <h3 className="font-semibold">Event breakdown</h3>
               <div className="mt-3 space-y-2">
                 {analytics.events.length ? (
@@ -83,7 +83,7 @@ export function NotificationWebhookAnalytics({ controller }: { controller: Notif
               </div>
             </div>
 
-            <div className="rounded-lg border border-slate/20 p-4 dark:border-cyan-900/40">
+            <div className="rounded-lg border border-slate/20 p-3 dark:border-cyan-900/40">
               <div className="flex items-center justify-between gap-3">
                 <h3 className="font-semibold">Delivery queue</h3>
                 <span className={`tl-chip ${queueStatusBadgeClass(analytics.queue)}`}>

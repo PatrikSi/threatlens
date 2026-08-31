@@ -247,6 +247,8 @@ describe('TaggingSettingsPage DOM workflows', () => {
 
     expect(pageText()).toContain('Read-only access')
     expect(pageText()).toContain('permission to manage content tagging')
+    expect(view.firstElementChild?.className).toContain('space-y-3')
+    expect(view.querySelector('#tagging-auto-confidence')?.closest('section')?.className).toContain('p-3')
     expect(view.querySelector<HTMLInputElement>('#tagging-auto-confidence')?.matches(':disabled')).toBe(true)
     expect(view.querySelector<HTMLInputElement>('#tagging-reapply-days')?.matches(':disabled')).toBe(true)
 
