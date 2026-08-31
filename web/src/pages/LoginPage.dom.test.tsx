@@ -695,8 +695,12 @@ describe('LoginPage accessibility', () => {
     })
     await submitForm(view)
 
-    await vi.waitFor(() => {
-      expect(credentialMutationVariables(['auth', 'register'])).toHaveLength(0)
+    await act(async () => {
+      await vi.waitFor(() => {
+        expect(credentialMutationVariables(['auth', 'register'])).toHaveLength(
+          0,
+        )
+      })
     })
     expect(view.querySelector<HTMLInputElement>('#login-password')?.value).toBe(
       '',
