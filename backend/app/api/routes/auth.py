@@ -43,6 +43,7 @@ from app.schemas.auth import (
 )
 from app.schemas.auth_security import MFALoginVerifyRequest
 from app.api.access_responses import effective_access_response
+from app.api.sensitive_action_auth import sensitive_browser_session_readiness
 from app.services.audit import record_audit
 from app.services.authorization import bump_iam_policy_revision
 from app.services.auth_rate_limit import (
@@ -544,11 +545,17 @@ def _current_authentication_response(
     user: User,
 ) -> CurrentAuthenticationResponse:
     if get_auth_credential_kind(request) == AUTH_API_TOKEN:
-        return CurrentAuthenticationResponse(credential_kind="api_token")
+        return CurrentAuthenticationResponse(
+            credential_kind="api_token",
+            sensitive_actions_blocker="browser_session_required",
+        )
 
     session_id = get_current_auth_session_id(request)
     if session_id is None:
-        return CurrentAuthenticationResponse(credential_kind="legacy_session")
+        return CurrentAuthenticationResponse(
+            credential_kind="legacy_session",
+            sensitive_actions_blocker="opaque_session_required",
+        )
     session = db.scalar(
         select(AuthSession).where(
             AuthSession.id == session_id,
@@ -558,8 +565,16 @@ def _current_authentication_response(
         )
     )
     if session is None:
-        return CurrentAuthenticationResponse(credential_kind="legacy_session")
+        return CurrentAuthenticationResponse(
+            credential_kind="legacy_session",
+            sensitive_actions_blocker="opaque_session_required",
+        )
     recent = recent_authentication_state(session)
+    sensitive_readiness = sensitive_browser_session_readiness(
+        db,
+        user=user,
+        session=session,
+    )
     return CurrentAuthenticationResponse(
         credential_kind="opaque_session",
         session_id=session.id,
@@ -573,6 +588,8 @@ def _current_authentication_response(
         ),
         reauthentication_endpoint=recent.reauthentication_endpoint,
         security_actions_supported=True,
+        sensitive_actions_ready=sensitive_readiness.ready,
+        sensitive_actions_blocker=sensitive_readiness.blocker,
     )
 
 

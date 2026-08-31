@@ -352,7 +352,11 @@ def test_role_deletion_reports_handling_label_reference(db_session, seed_users):
     )
 
     with pytest.raises(IAMRoleConflict, match="handling-label access policy"):
-        delete_role(db_session, role_id=role.id)
+        delete_role(
+            db_session,
+            role_id=role.id,
+            expected_revision=role.revision,
+        )
 
 
 def test_locking_mutation_refreshes_stale_identity_map_state(db_session, seed_users):

@@ -1911,6 +1911,32 @@ def test_local_reauthentication_requires_current_totp_when_mfa_is_enabled(
     assert current.status_code == 200
     assert current.json()["authentication"]["session_auth_method"] == "local"
     assert current.json()["authentication"]["mfa_method"] == "totp"
+    assert current.json()["authentication"]["sensitive_actions_ready"] is True
+    assert current.json()["authentication"]["sensitive_actions_blocker"] is None
+
+    active_session = db_session.scalar(
+        select(AuthSession)
+        .where(
+            AuthSession.user_id == admin.id,
+            AuthSession.revoked_at.is_(None),
+        )
+        .order_by(AuthSession.authenticated_at.desc())
+    )
+    assert active_session is not None
+    active_session.mfa_method = "recovery_code"
+    db_session.add(active_session)
+    db_session.commit()
+
+    recovery_session = client.get("/auth/me")
+    assert recovery_session.status_code == 200
+    assert (
+        recovery_session.json()["authentication"]["sensitive_actions_ready"]
+        is False
+    )
+    assert (
+        recovery_session.json()["authentication"]["sensitive_actions_blocker"]
+        == "mfa_verification_required"
+    )
 
 
 def test_concurrent_session_rotations_serialize_auth_generations(database_engine):

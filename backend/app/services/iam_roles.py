@@ -176,12 +176,16 @@ def update_role(
     return role
 
 
-def delete_role(db: Session, *, role_id: uuid.UUID) -> IAMRole:
+def delete_role(
+    db: Session, *, role_id: uuid.UUID, expected_revision: int
+) -> IAMRole:
     role = db.scalar(select(IAMRole).where(IAMRole.id == role_id).with_for_update())
     if role is None:
         raise IAMRoleNotFound("Role not found.")
     if role.is_system:
         raise IAMSystemRoleImmutable("Built-in roles cannot be deleted.")
+    if role.revision != expected_revision:
+        raise IAMRoleRevisionConflict(role)
     assignment_count = int(
         db.scalar(
             select(func.count(IAMUserRoleAssignment.id)).where(

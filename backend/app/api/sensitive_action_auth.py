@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from fastapi import Request, status
 from sqlalchemy.orm import Session
 
@@ -18,6 +20,43 @@ from app.services.recent_auth import (
     recent_authentication_error_context,
     recent_authentication_state,
 )
+
+
+@dataclass(frozen=True)
+class SensitiveBrowserSessionReadiness:
+    ready: bool
+    blocker: str | None
+
+
+def sensitive_browser_session_readiness(
+    db: Session,
+    *,
+    user: User,
+    session: AuthSession,
+) -> SensitiveBrowserSessionReadiness:
+    recent = recent_authentication_state(session)
+    if not recent.valid:
+        return SensitiveBrowserSessionReadiness(
+            ready=False,
+            blocker=(
+                "oidc_reauthentication_required"
+                if session.auth_method == "oidc"
+                else "local_reauthentication_required"
+            ),
+        )
+    if session.auth_method == "oidc":
+        assurance_ready = auth_session_has_configured_oidc_mfa_assurance(session)
+        return SensitiveBrowserSessionReadiness(
+            ready=assurance_ready,
+            blocker=None if assurance_ready else "oidc_mfa_assurance_required",
+        )
+    local_mfa_enabled, _confirmed_at, _remaining = mfa_status(db, user_id=user.id)
+    if local_mfa_enabled and session.mfa_method != "totp":
+        return SensitiveBrowserSessionReadiness(
+            ready=False,
+            blocker="mfa_verification_required",
+        )
+    return SensitiveBrowserSessionReadiness(ready=True, blocker=None)
 
 
 def require_sensitive_browser_session(
@@ -65,13 +104,11 @@ def require_sensitive_browser_session(
             error_code="session_inactive",
         )
 
-    recent = recent_authentication_state(session)
-    if not recent.valid:
-        error_code = (
-            "oidc_reauthentication_required"
-            if session.auth_method == "oidc"
-            else "local_reauthentication_required"
-        )
+    readiness = sensitive_browser_session_readiness(db, user=user, session=session)
+    if readiness.blocker in {
+        "oidc_reauthentication_required",
+        "local_reauthentication_required",
+    }:
         raise ApiHTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=(
@@ -79,12 +116,12 @@ def require_sensitive_browser_session(
                 if session.auth_method == "oidc"
                 else f"Confirm your local identity before {operation_label}."
             ),
-            error_code=error_code,
+            error_code=readiness.blocker,
             error_context=recent_authentication_error_context(session, action=action),
         )
 
     if session.auth_method == "oidc":
-        if not auth_session_has_configured_oidc_mfa_assurance(session):
+        if readiness.blocker == "oidc_mfa_assurance_required":
             raise ApiHTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=(
@@ -98,8 +135,7 @@ def require_sensitive_browser_session(
             )
         return session
 
-    local_mfa_enabled, _confirmed_at, _remaining = mfa_status(db, user_id=user.id)
-    if local_mfa_enabled and session.mfa_method != "totp":
+    if readiness.blocker == "mfa_verification_required":
         raise ApiHTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=(
@@ -111,4 +147,8 @@ def require_sensitive_browser_session(
     return session
 
 
-__all__ = ["require_sensitive_browser_session"]
+__all__ = [
+    "SensitiveBrowserSessionReadiness",
+    "require_sensitive_browser_session",
+    "sensitive_browser_session_readiness",
+]

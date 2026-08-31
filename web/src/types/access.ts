@@ -16,7 +16,10 @@ export interface EffectiveAccess {
   roles: EffectiveRole[]
   groups: string[]
   permissions: string[]
+  /** Concrete permissions backed by non-temporary role or group assignments. */
+  durable_permissions?: string[]
   policy_revision: number
+  elevation_ids?: string[]
 }
 
 export interface AccessExplanation {

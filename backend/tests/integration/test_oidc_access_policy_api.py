@@ -121,11 +121,15 @@ def test_oidc_access_policy_management_is_revisioned_audited_and_source_safe(
     assert mapping_set["role_mappings"][0]["source_key"].startswith("oidc:role:")
     assert mapping_set["group_mappings"][0]["source_key"].startswith("oidc:group:")
 
-    role_delete = client.delete(f"/iam/roles/{role.id}", headers=auth_headers["admin"])
+    role_delete = client.delete(
+        f"/iam/roles/{role.id}?expected_revision={role.revision}",
+        headers=auth_headers["admin"],
+    )
     assert role_delete.status_code == 409
     assert "OIDC claim mapping" in role_delete.json()["detail"]
     group_delete = client.delete(
-        f"/iam/groups/{group.id}", headers=auth_headers["admin"]
+        f"/iam/groups/{group.id}?expected_revision={group.revision}",
+        headers=auth_headers["admin"],
     )
     assert group_delete.status_code == 409
     assert "OIDC claim mapping" in group_delete.json()["detail"]

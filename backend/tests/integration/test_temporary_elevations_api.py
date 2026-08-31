@@ -156,6 +156,10 @@ def test_elevation_lifecycle_is_idempotent_audited_and_immediately_enforced(
     after = client.get("/iam/effective", headers=auth_headers["viewer"])
     assert after.status_code == 200
     assert "write:elevations" in after.json()["permissions"]
+    assert "write:elevations" not in after.json()["durable_permissions"]
+    assert set(after.json()["durable_permissions"]).issubset(
+        after.json()["permissions"]
+    )
     assert elevation["id"] in after.json()["elevation_ids"]
     assert any(
         role["source"] == f"elevation:{elevation['id']}"

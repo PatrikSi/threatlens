@@ -46,6 +46,7 @@ class EffectiveAccessResponse(BaseModel):
     roles: list[EffectiveRoleResponse]
     groups: list[str]
     permissions: list[str]
+    durable_permissions: list[str]
     policy_revision: int = Field(ge=1)
     elevation_ids: list[uuid.UUID] = Field(default_factory=list)
 
@@ -249,10 +250,12 @@ class GroupResponse(BaseModel):
 
 class GroupMemberRequest(IAMRequestModel):
     user_id: uuid.UUID
+    expected_group_revision: int = Field(ge=1)
 
 
 class GroupRoleRequest(IAMRequestModel):
     role_id: uuid.UUID
+    expected_group_revision: int = Field(ge=1)
     expected_role_revision: int | None = Field(default=None, ge=1)
 
 

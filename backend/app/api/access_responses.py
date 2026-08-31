@@ -22,6 +22,11 @@ def effective_access_response(
         ],
         groups=list(context.groups),
         permissions=sorted(context.permissions),
+        durable_permissions=sorted(
+            permission
+            for permission in context.permissions
+            if context.has_durable(permission)
+        ),
         policy_revision=context.policy_revision,
         elevation_ids=list(context.elevation_ids),
     )

@@ -11,6 +11,7 @@ from app.api.deps import (
     get_admin_user,
     get_current_auth_session_id,
     is_cookie_session_auth,
+    require_permissions,
     require_token_scopes,
     resolve_client_ip,
 )
@@ -160,10 +161,8 @@ def list_user_directory(
     limit: int = Query(default=100, ge=1, le=250),
     offset: int = Query(default=0, ge=0, le=1_000_000),
     db: Session = Depends(get_db),
-    admin: User = Depends(get_admin_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_READ_USERS)),
+    _reader: User = Depends(require_permissions(SCOPE_READ_USERS)),
 ):
-    _ = admin
     if role is not None and role not in ALL_ROLES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
