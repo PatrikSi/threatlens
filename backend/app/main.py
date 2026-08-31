@@ -11,10 +11,14 @@ from fastapi import APIRouter, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.openapi.utils import get_openapi
-from fastapi.routing import APIRoute
 
 from app.core.api_errors import apply_openapi_error_contract, install_api_error_handlers
 from app.core.config import Settings, get_settings
+from app.core.data_policy_route_attestation import (
+    install_route_governance_attestation,
+    iter_effective_api_routes as _iter_effective_api_routes,
+    validate_route_governance_manifest,
+)
 from app.core.logging_config import (
     configure_logging,
     log_configuration_summary,
@@ -299,6 +303,8 @@ def _mount_api_routers(application: FastAPI, *, include_legacy_aliases: bool) ->
 _mount_api_routers(
     app, include_legacy_aliases=_should_mount_legacy_api_aliases(settings)
 )
+DATA_POLICY_ROUTE_GOVERNANCE_ATTESTATION = validate_route_governance_manifest(app)
+install_route_governance_attestation(DATA_POLICY_ROUTE_GOVERNANCE_ATTESTATION)
 
 
 def _collect_route_token_scopes(route: Any) -> tuple[str, ...]:
@@ -313,20 +319,6 @@ def _collect_route_token_scopes(route: Any) -> tuple[str, ...]:
                 scopes.append(scope)
         stack.extend(getattr(dependant, "dependencies", []) or [])
     return tuple(scopes)
-
-
-def _iter_effective_api_routes(application: FastAPI):
-    for route in application.routes:
-        if isinstance(route, APIRoute):
-            yield route
-            continue
-
-        route_contexts = getattr(route, "effective_route_contexts", None)
-        if not callable(route_contexts):
-            continue
-        for route_context in route_contexts():
-            if isinstance(getattr(route_context, "original_route", None), APIRoute):
-                yield route_context
 
 
 def _route_required_token_scopes_by_operation(
