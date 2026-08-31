@@ -595,13 +595,13 @@ export function UsersPage() {
 
   return (
     <>
-      <div className="space-y-4">
+      <div className="space-y-3">
         <SettingsPageHeader
           scope="Organization"
           title="Users"
           description="Manage user lifecycle, base roles, sign-in methods, and account security."
         />
-        <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+        <section className="rounded-xl border border-slate/20 bg-white/80 p-3.5 dark:border-cyan-900/40 dark:bg-[#041612]/90">
         <UserDirectoryHeader
           data={usersQuery.data}
           filteredCount={filteredUsers.length}
@@ -693,7 +693,7 @@ export function UsersPage() {
         {usersQuery.isSuccess && (
           <form
             id="create-user-form"
-            className={`${createUserFormVisible ? 'grid' : 'hidden'} mt-4 gap-3 border-t border-slate/15 pt-4 sm:grid-cols-2 lg:grid-cols-4 dark:border-cyan-900/30`}
+            className={`${createUserFormVisible ? 'grid' : 'hidden'} mt-3 gap-3 border-t border-slate/15 pt-3 sm:grid-cols-2 lg:grid-cols-4 dark:border-cyan-900/30`}
             onSubmit={onCreateSubmit}
           >
             <div className="sm:col-span-2 lg:col-span-4">

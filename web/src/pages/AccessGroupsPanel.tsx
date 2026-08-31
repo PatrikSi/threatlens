@@ -336,7 +336,7 @@ export function AccessGroupsPanel({
   return (
     <section className="tl-surface overflow-hidden rounded-xl" aria-labelledby="groups-heading">
       <GroupsHeader canWrite={canWrite} busy={busy} onNew={() => chooseGroup('new')} />
-      <div className="grid min-h-[680px] lg:grid-cols-[320px_minmax(0,1fr)]">
+      <div className="grid lg:grid-cols-[300px_minmax(0,1fr)]">
         <GroupsSidebar
           groups={filteredGroups}
           selectedGroupId={selectedGroupId}
@@ -522,7 +522,7 @@ function GroupsHeader({
   onNew: () => void
 }) {
   return (
-    <header className="border-b border-slate/15 px-4 py-4 dark:border-white/10 sm:px-5">
+    <header className="border-b border-slate/15 px-3 py-3 dark:border-white/10 sm:px-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 id="groups-heading" className="font-display text-xl">Groups and assignments</h2>
@@ -561,9 +561,9 @@ function GroupsSidebar({
         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate" aria-hidden="true" />
         <input type="search" className="min-h-11 w-full rounded border border-slate/25 bg-white py-2 pl-9 pr-3 text-sm dark:border-cyan-900/40 dark:bg-[#072019]" placeholder="Search groups" value={search} onChange={(event) => onSearch(event.target.value)} />
       </label>
-      <ul className="mt-3 max-h-[620px] space-y-1 overflow-y-auto" aria-label="IAM groups">
+      <ul className="mt-2 max-h-[460px] space-y-1 overflow-y-auto" aria-label="IAM groups">
         {groups.map((group) => <li key={group.id}><GroupOption group={group} selected={group.id === selectedGroupId} onChoose={onChoose} /></li>)}
-        {groups.length === 0 && <li className="px-3 py-6 text-center text-sm text-slate dark:text-slate-400">No groups match this search.</li>}
+        {groups.length === 0 && <li className="px-3 py-4 text-center text-sm text-slate dark:text-slate-400">No groups match this search.</li>}
       </ul>
     </aside>
   )
@@ -582,7 +582,7 @@ function GroupOption({
     <button
       type="button"
       aria-current={selected ? 'true' : undefined}
-      className={`w-full rounded-lg border px-3 py-2.5 text-left ${selected ? 'border-cyan/50 bg-cyan/10' : 'border-transparent hover:border-slate/20 hover:bg-slate/5 dark:hover:border-white/10 dark:hover:bg-white/[0.04]'}`}
+      className={`w-full rounded-lg border px-2.5 py-2 text-left ${selected ? 'border-cyan/50 bg-cyan/10' : 'border-transparent hover:border-slate/20 hover:bg-slate/5 dark:hover:border-white/10 dark:hover:bg-white/[0.04]'}`}
       onClick={() => onChoose(group.id)}
     >
       <div className="flex items-start justify-between gap-2">
@@ -643,19 +643,19 @@ interface GroupWorkspaceProps {
 
 function GroupWorkspace(props: GroupWorkspaceProps) {
   if (props.selectedGroupId === null) {
-    return <div className="min-w-0 p-4 text-sm text-slate sm:p-5 dark:text-slate-300">Select a group to inspect membership and effective role grants.</div>
+    return <div className="min-w-0 p-3 text-sm text-slate sm:p-4 dark:text-slate-300">Select a group to inspect membership and effective role grants.</div>
   }
   return (
-    <div className="min-w-0 p-4 sm:p-5">
+    <div className="min-w-0 p-3 sm:p-4">
       <GroupDetailsEditor {...props} />
       {props.selectedGroup && (
-        <div className="mt-5 grid gap-5 xl:grid-cols-2">
+        <div className="mt-3 grid gap-3 xl:grid-cols-2">
           <GroupMembersSection {...props} group={props.selectedGroup} />
           <GroupRolesSection {...props} group={props.selectedGroup} />
         </div>
       )}
       {props.mutationError != null && (
-        <div role="alert" className="mt-5 rounded border border-red-300/60 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-100">
+        <div role="alert" className="mt-3 rounded border border-red-300/60 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-100">
           <p className="flex items-start gap-2"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />{resolveApiErrorMessage(props.mutationError, 'Group mutation failed')}</p>
           {props.mutationOutcomeUnknown && (
             <>
@@ -692,7 +692,7 @@ function GroupDetailsEditor({
       }}
     >
       <fieldset disabled={!mutableGroup || busy}>
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-3 md:grid-cols-2">
           <label className="text-sm font-semibold">
             Group name
             <input
@@ -713,7 +713,7 @@ function GroupDetailsEditor({
           <label className="text-sm font-semibold md:col-span-2">
             Description
             <textarea
-              className="mt-1 min-h-24 w-full rounded border border-slate/25 bg-white px-3 py-2 font-normal dark:border-cyan-900/40 dark:bg-[#072019]"
+              className="mt-1 min-h-20 w-full rounded border border-slate/25 bg-white px-3 py-2 font-normal dark:border-cyan-900/40 dark:bg-[#072019]"
               value={draft.description}
               onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))}
             />
@@ -727,8 +727,8 @@ function GroupDetailsEditor({
         </p>
       )}
       {dirty && !creating && <p className="mt-3 text-xs text-amber-800 dark:text-amber-200">Save or discard group-detail changes before editing members or role grants.</p>}
-      {validation && mutableGroup && <p role="alert" className="mt-4 rounded border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">{validation}</p>}
-      <div className="mt-4 flex flex-col-reverse gap-2 border-b border-slate/15 pb-5 sm:flex-row sm:justify-between dark:border-white/10">
+      {validation && mutableGroup && <p role="alert" className="mt-3 rounded border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">{validation}</p>}
+      <div className="mt-3 flex flex-col-reverse gap-2 border-b border-slate/15 pb-3 sm:flex-row sm:justify-between dark:border-white/10">
         <div>
           {selectedGroup && mutableGroup && (
             <button type="button" className="tl-button-danger inline-flex min-h-11 items-center justify-center gap-2 rounded px-3 py-2 text-sm font-semibold sm:min-h-0" onClick={onDelete} disabled={busy || dirty}>
@@ -751,7 +751,7 @@ function GroupDetailsEditor({
 }
 
 function ReadOnlyGroupNotice({ group }: { group: IAMGroup }) {
-  return <div className="mt-4 flex items-start gap-2 rounded border border-slate/20 bg-slate/5 px-3 py-2 text-sm dark:border-white/10 dark:bg-white/[0.04]"><LockKeyhole className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />{readOnlyGroupReason(group)}</div>
+  return <div className="mt-3 flex items-start gap-2 rounded border border-slate/20 bg-slate/5 px-3 py-2 text-sm dark:border-white/10 dark:bg-white/[0.04]"><LockKeyhole className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />{readOnlyGroupReason(group)}</div>
 }
 
 function readOnlyGroupReason(group: IAMGroup): string {

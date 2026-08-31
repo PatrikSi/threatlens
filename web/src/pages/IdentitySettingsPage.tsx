@@ -366,7 +366,7 @@ export function IdentitySettingsPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {unsavedChanges.discardDialog}
       <SettingsPageHeader
         scope="Organization"
@@ -385,7 +385,7 @@ export function IdentitySettingsPage() {
       {providerQuery.data && (
         <>
           <section
-            className="tl-surface rounded-xl p-4"
+            className="tl-surface rounded-xl p-3.5"
             aria-labelledby="oidc-session-verification-heading"
           >
             <h2
@@ -436,7 +436,7 @@ export function IdentitySettingsPage() {
             disabled={!providerChangesAllowed || providerDataStale}
             className="contents"
           >
-            <section className="tl-surface rounded-xl p-4">
+            <section className="tl-surface rounded-xl p-3.5">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <h2 className="font-display text-lg">
@@ -462,7 +462,7 @@ export function IdentitySettingsPage() {
                 </label>
               </div>
 
-              <div className="mt-4 grid gap-4 lg:grid-cols-2">
+              <div className="mt-3 grid gap-3 lg:grid-cols-2">
                 <Field label="Provider name" htmlFor="oidc-name">
                   <input
                     id="oidc-name"
@@ -655,11 +655,11 @@ export function IdentitySettingsPage() {
               </div>
             </section>
 
-            <section className="tl-surface rounded-xl p-4">
+            <section className="tl-surface rounded-xl p-3.5">
               <h2 className="font-display text-lg">
                 Provisioning and role mapping
               </h2>
-              <div className="mt-4 grid gap-4 lg:grid-cols-2">
+              <div className="mt-3 grid gap-3 lg:grid-cols-2">
                 <Field label="Role claim name" htmlFor="oidc-role-claim">
                   <input
                     id="oidc-role-claim"
@@ -693,7 +693,7 @@ export function IdentitySettingsPage() {
                 </Field>
               </div>
 
-              <div className="mt-4 space-y-2">
+              <div className="mt-3 space-y-2">
                 {draft.roleMappings.map((mapping, index) => (
                   <div
                     key={index}
@@ -780,7 +780,7 @@ export function IdentitySettingsPage() {
                 </button>
               </div>
 
-              <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <div className="mt-3 grid gap-2.5 md:grid-cols-2 xl:grid-cols-4">
                 <Toggle
                   label="Create users on first sign-in (JIT)"
                   checked={draft.jitProvisioningEnabled}
@@ -902,7 +902,7 @@ function ProviderQueryStatus({
 }) {
   if (loading) {
     return (
-      <section className="tl-surface rounded-xl p-4 text-sm">
+      <section className="tl-surface rounded-xl p-3.5 text-sm">
         Loading single sign-on settings...
       </section>
     )
@@ -911,7 +911,7 @@ function ProviderQueryStatus({
   return (
     <section
       role="alert"
-      className="tl-surface rounded-xl p-4 text-sm text-red-600 dark:text-red-300"
+      className="tl-surface rounded-xl p-3.5 text-sm text-red-600 dark:text-red-300"
     >
       <p>
         {formatError(

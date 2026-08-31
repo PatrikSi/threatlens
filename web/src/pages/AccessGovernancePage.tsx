@@ -207,7 +207,7 @@ export function AccessGovernancePage() {
   })
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <SettingsPageHeader
         scope="Organization"
         title="Access control"
@@ -473,8 +473,8 @@ function GovernanceOverview({
   const attentionLoading = attentionStates.some((state) => state === 'loading')
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
-      <section className="tl-surface rounded-xl p-4 sm:p-5" aria-labelledby="governance-posture-heading">
+    <div className="grid gap-3 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
+      <section className="tl-surface rounded-xl p-3 sm:p-4" aria-labelledby="governance-posture-heading">
         <div className="flex items-start justify-between gap-3">
           <div>
             <h2 id="governance-posture-heading" className="font-display text-xl">
@@ -487,7 +487,7 @@ function GovernanceOverview({
           {dataPolicy && <ModeBadge mode={dataPolicy.state.mode} />}
         </div>
 
-        <dl className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <dl className="mt-3 grid gap-x-5 sm:grid-cols-2">
           <Metric label="Access roles" value={roleCount} detail="System and custom" />
           <Metric label="Groups" value={groupCount} detail="Local and federated" />
           <Metric
@@ -501,14 +501,14 @@ function GovernanceOverview({
         </dl>
 
         {errors.length > 0 && (
-          <div role="status" className="mt-4 flex items-start gap-2 rounded border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
+          <div role="status" className="mt-3 flex items-start gap-2 rounded border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
             One or more permitted governance inventories could not be loaded. Counts and queue rows from those inventories are omitted; core IAM data remains available.
           </div>
         )}
       </section>
 
-      <section className="tl-surface rounded-xl p-4 sm:p-5" aria-labelledby="data-boundary-heading">
+      <section className="tl-surface rounded-xl p-3 sm:p-4" aria-labelledby="data-boundary-heading">
         <h2 id="data-boundary-heading" className="font-display text-xl">
           Data handling
         </h2>
@@ -521,7 +521,7 @@ function GovernanceOverview({
                 : 'Data-policy state is not available to this role.'}
           </p>
         ) : (
-          <div className="mt-3 space-y-3 text-sm">
+          <div className="mt-2 space-y-2 text-sm">
             <div className="flex items-center justify-between gap-3">
               <span className="text-slate dark:text-slate-300">Policy revision</span>
               <span className="font-mono font-semibold">{dataPolicy.state.revision}</span>
@@ -537,7 +537,7 @@ function GovernanceOverview({
               <span className="text-slate dark:text-slate-300">Data-handling labels</span>
               <span className="font-semibold">{dataPolicy.labels.length}</span>
             </div>
-            <div className="flex items-start gap-2 border-t border-slate/15 pt-3 dark:border-white/10">
+            <div className="flex items-start gap-2 border-t border-slate/15 pt-2 dark:border-white/10">
               {dataPolicy.preflight.ready_for_enforcement ? (
                 <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />
               ) : (
@@ -558,11 +558,11 @@ function GovernanceOverview({
         )}
       </section>
 
-      <section className="tl-surface rounded-xl p-4 sm:p-5 xl:col-span-2" aria-labelledby="governance-attention-heading">
+      <section className="tl-surface rounded-xl p-3 sm:p-4 xl:col-span-2" aria-labelledby="governance-attention-heading">
         <h2 id="governance-attention-heading" className="font-display text-xl">
           Items needing attention
         </h2>
-        <div className="mt-3 overflow-x-auto rounded border border-slate/20 dark:border-white/10">
+        <div className="mt-2 overflow-x-auto rounded border border-slate/20 dark:border-white/10">
           <table className="min-w-[760px] w-full text-left text-sm">
             <thead className="bg-slate/5 text-xs text-slate dark:bg-white/[0.04] dark:text-slate-300">
               <tr>
@@ -584,7 +584,7 @@ function GovernanceOverview({
               ))}
               {openReviews.length + liveElevations.length + pendingApprovals.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="px-3 py-6 text-center text-slate dark:text-slate-400">
+                  <td colSpan={4} className="px-3 py-4 text-center text-slate dark:text-slate-400">
                     {attentionLoading
                       ? 'Governance queues are still loading.'
                       : attentionUnavailable
@@ -603,10 +603,12 @@ function GovernanceOverview({
 
 function Metric({ label, value, detail }: { label: string; value: number | string; detail: string }) {
   return (
-    <div className="tl-surface-muted rounded-lg p-3">
-      <dt className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-slate-400">{label}</dt>
-      <dd className="mt-1 font-display text-2xl text-ink dark:text-white">{value}</dd>
-      <dd className="mt-1 text-xs text-slate dark:text-slate-400">{detail}</dd>
+    <div className="flex items-start justify-between gap-3 border-t border-slate/15 py-2 dark:border-white/10">
+      <div className="min-w-0">
+        <dt className="text-sm font-semibold text-ink dark:text-slate-100">{label}</dt>
+        <dd className="mt-0.5 text-xs text-slate dark:text-slate-400">{detail}</dd>
+      </div>
+      <dd className="shrink-0 font-display text-xl text-ink dark:text-white">{value}</dd>
     </div>
   )
 }
@@ -637,12 +639,12 @@ function ModeBadge({ mode }: { mode: 'disabled' | 'audit' | 'enforced' }) {
 }
 
 function LoadingState({ label }: { label: string }) {
-  return <div className="tl-surface rounded-xl p-6 text-sm text-slate dark:text-slate-300">{label}</div>
+  return <div className="tl-surface rounded-xl p-4 text-sm text-slate dark:text-slate-300">{label}</div>
 }
 
 function ErrorState({ error, fallback, onRetry }: { error: unknown; fallback: string; onRetry: () => void }) {
   return (
-    <div className="tl-surface rounded-xl p-5" role="alert">
+    <div className="tl-surface rounded-xl p-3.5" role="alert">
       <div className="flex items-start gap-3">
         <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" aria-hidden="true" />
         <div>

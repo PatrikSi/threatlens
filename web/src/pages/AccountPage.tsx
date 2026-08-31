@@ -168,17 +168,17 @@ export function AccountPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {confirmDiscardPasswordDraft.discardDialog}
       <SettingsPageHeader
         scope="Personal"
         title="My account"
         description="Review your account details, sign-in methods, password, and active sessions."
       />
-      <div className="grid gap-4 lg:grid-cols-2">
-        <div className="space-y-4">
-          <section className="tl-surface rounded-xl p-4">
-            <h2 className="font-display text-xl">Account details</h2>
+      <div className="grid gap-3 lg:grid-cols-2">
+        <div className="space-y-3">
+          <section className="tl-surface rounded-xl p-3.5">
+            <h2 className="font-display text-lg">Account details</h2>
             {meQuery.data && (
               <div className="mt-3 space-y-1 text-sm">
                 <p>
@@ -267,8 +267,8 @@ function OIDCIdentitySection({
 
   return (
     <>
-      <section className="tl-surface rounded-xl p-4">
-        <h2 className="font-display text-xl">Sign-in methods</h2>
+      <section className="tl-surface rounded-xl p-3.5">
+        <h2 className="font-display text-lg">Sign-in methods</h2>
         {statusLoading && (
           <p className="mt-2 text-sm text-slate dark:text-slate-300">
             Loading sign-in methods...
@@ -329,7 +329,7 @@ function OIDCIdentitySection({
                 ) : passwordLoginEnabled ? (
                   <button
                     type="button"
-                    className="mt-4 min-h-11 rounded border border-red-300/70 px-3 py-2 font-semibold text-red-700 dark:border-red-500/40 dark:text-red-200"
+                    className="mt-3 min-h-11 rounded border border-red-300/70 px-3 py-2 font-semibold text-red-700 dark:border-red-500/40 dark:text-red-200"
                     onClick={unlinkController.openDialog}
                     aria-label={`Unlink ${providerName} from this account`}
                   >

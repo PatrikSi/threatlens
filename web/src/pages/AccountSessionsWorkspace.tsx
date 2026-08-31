@@ -31,7 +31,7 @@ export function AccountSessionsWorkspace({
     ['expired', 'revoked'].includes(sessionStatus(session)),
   )
   return (
-    <div className="tl-surface rounded-xl p-4">
+    <div className="tl-surface rounded-xl p-3.5">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h3 className="font-semibold">Browser sessions</h3>
@@ -71,13 +71,13 @@ export function AccountSessionsWorkspace({
       {data && (
         <>
           {activeSessions.length === 0 ? (
-            <p className="mt-4 text-sm text-slate dark:text-slate-300">
+            <p className="mt-3 text-sm text-slate dark:text-slate-300">
               No active opaque browser sessions are recorded. This can occur for
               a legacy session created before the security upgrade.
             </p>
           ) : (
             <ul
-              className="mt-4 divide-y divide-slate/15 dark:divide-cyan-900/30"
+              className="mt-3 divide-y divide-slate/15 dark:divide-cyan-900/30"
               aria-label="Active browser sessions"
             >
               {activeSessions.map((session) => (
@@ -104,7 +104,7 @@ export function AccountSessionsWorkspace({
             </button>
           )}
           {historicalSessions.length > 0 && (
-            <details className="mt-4 border-t border-slate/15 pt-3 dark:border-cyan-900/30">
+            <details className="mt-3 border-t border-slate/15 pt-2.5 dark:border-cyan-900/30">
               <summary className="cursor-pointer text-sm font-semibold">
                 Recent inactive sessions ({historicalSessions.length})
               </summary>
@@ -155,7 +155,7 @@ function SessionRow({
 }) {
   const status = sessionStatus(session)
   return (
-    <li className="py-3 first:pt-0 last:pb-0">
+    <li className="py-2.5 first:pt-0 last:pb-0">
       <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <p className="break-words text-sm font-semibold">
@@ -167,17 +167,29 @@ function SessionRow({
               <span className="ml-1 text-slate dark:text-slate-300">Expired</span>
             )}
           </p>
-          <p className="mt-1 text-xs text-slate dark:text-slate-300">
-            {formatAuthMethod(session)} · IP {session.client_ip || 'not recorded'}
-          </p>
-          <p className="mt-1 text-xs text-slate dark:text-slate-300">
-            Last active {formatDateTime(session.last_seen_at)} · Effective expiry{' '}
-            {formatDateTime(effectiveSessionExpiry(session))}
-          </p>
-          <p className="mt-1 text-xs text-slate dark:text-slate-300">
-            Idle expiry {formatDateTime(session.idle_expires_at)} · Maximum expiry{' '}
-            {formatDateTime(session.absolute_expires_at)}
-          </p>
+          <dl className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate dark:text-slate-300">
+            <div>
+              <dt className="sr-only">Authentication and network</dt>
+              <dd>
+                {formatAuthMethod(session)} · IP{' '}
+                {session.client_ip || 'not recorded'}
+              </dd>
+            </div>
+            <div>
+              <dt className="sr-only">Last active and effective expiry</dt>
+              <dd>
+                Last active {formatDateTime(session.last_seen_at)} · Effective expiry{' '}
+                {formatDateTime(effectiveSessionExpiry(session))}
+              </dd>
+            </div>
+            <div>
+              <dt className="sr-only">Session expiry limits</dt>
+              <dd>
+                Idle expiry {formatDateTime(session.idle_expires_at)} · Maximum expiry{' '}
+                {formatDateTime(session.absolute_expires_at)}
+              </dd>
+            </div>
+          </dl>
           {session.revoked_at && (
             <p className="mt-1 text-xs text-slate dark:text-slate-300">
               Revoked {formatDateTime(session.revoked_at)}
@@ -190,7 +202,7 @@ function SessionRow({
         {(status === 'active' || status === 'current') && (
           <button
             type="button"
-            className="min-h-11 shrink-0 rounded border border-red-300/70 px-3 py-2 text-sm font-semibold text-red-700 dark:border-red-500/40 dark:text-red-200"
+            className="min-h-11 shrink-0 rounded border border-red-300/70 px-3 py-2 text-sm font-semibold text-red-700 sm:min-h-9 sm:py-1.5 dark:border-red-500/40 dark:text-red-200"
             onClick={() => onRevoke(session)}
             disabled={actionsDisabled}
             aria-describedby={

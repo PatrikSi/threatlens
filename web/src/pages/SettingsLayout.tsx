@@ -42,7 +42,7 @@ export function SettingsLayout() {
   }, [location.pathname])
 
   return (
-    <div className="grid min-w-0 gap-4 lg:grid-cols-[248px_minmax(0,1fr)]">
+    <div className="grid min-w-0 gap-3 lg:grid-cols-[232px_minmax(0,1fr)]">
       <aside className="tl-surface min-w-0 rounded-lg p-3 lg:hidden">
         <button
           type="button"
@@ -104,7 +104,7 @@ export function SettingsLayout() {
 
         <nav
           id="desktop-settings-navigation"
-          className="mt-4"
+          className="mt-3"
           aria-label="Settings sections"
         >
           <SettingsNavigationItems
@@ -156,7 +156,7 @@ function SettingsNavigationItems({
   })).filter((group) => group.modules.length > 0)
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2.5">
       {groups.map((group) => {
         const headingId = `${variant}-settings-group-${group.id}`
         return (
@@ -308,8 +308,8 @@ function mobileNavigationClass(active: boolean, nested = false) {
 }
 
 function desktopNavigationClass(active: boolean, nested = false) {
-  return `flex min-h-9 w-full items-center gap-2 rounded-md border px-2.5 ${
-    nested ? 'py-1 text-[13px]' : 'py-1.5 text-sm'
+  return `flex min-h-8 w-full items-center gap-2 rounded-md border px-2.5 ${
+    nested ? 'py-0.5 text-[13px]' : 'py-1 text-sm'
   } text-left transition ${
     active
       ? 'tl-nav-link-active font-semibold'
