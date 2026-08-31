@@ -6,6 +6,7 @@ import packageMetadata from '../../package.json'
 import { ApiError, apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
 import { useCurrentUser } from '../hooks/useCurrentUser'
+import { formatSettingsRoleLabel } from '../workspace/modulePresentation'
 import { useWorkspace } from '../workspace/useWorkspace'
 import { useAuth } from './AuthContext'
 import { useTheme } from './ThemeContext'
@@ -69,10 +70,18 @@ export function AppShell() {
 
   return (
     <div className="flex min-h-screen flex-col text-ink dark:text-slate-100">
+      <a
+        href="#main-content"
+        className="fixed left-3 top-3 z-50 -translate-y-20 rounded bg-ink px-3 py-2 text-sm font-semibold text-white transition focus:translate-y-0 dark:bg-cyan dark:text-[#053c2e]"
+      >
+        Skip to content
+      </a>
       <header className="tl-app-header">
         <div className="px-3 py-2 sm:px-4 sm:py-3 lg:hidden">
           <div className="flex items-center justify-between gap-3">
-            <h1 className="font-display text-xl font-bold">ThreatLens</h1>
+            <Link to="/" className="font-display text-xl font-bold" aria-label="ThreatLens home">
+              ThreatLens
+            </Link>
             <button
               type="button"
               className="tl-subtle-control rounded px-3 py-1.5 text-sm font-semibold"
@@ -87,7 +96,10 @@ export function AppShell() {
 
           {mobileNavOpen && (
             <div id="mobile-primary-navigation" className="mt-3 border-t border-slate/20 pt-2 dark:border-white/10">
-              <nav className="divide-y divide-slate/15 text-sm font-semibold text-slate dark:divide-white/10 dark:text-slate-200">
+              <nav
+                aria-label="Primary navigation"
+                className="divide-y divide-slate/15 text-sm font-semibold text-slate dark:divide-white/10 dark:text-slate-200"
+              >
                 {mobileNavLinks.map((link) => {
                   const active = isNavLinkActive(location.pathname, link.route)
                   return (
@@ -111,7 +123,9 @@ export function AppShell() {
                 {meQuery.data && (
                   <div className="min-w-0 px-1 text-sm text-slate dark:text-slate-200">
                     <p className="break-all font-semibold text-ink dark:text-slate-100">{meQuery.data.email}</p>
-                    <p className="mt-0.5 text-xs capitalize text-slate dark:text-slate-400">{meQuery.data.role}</p>
+                    <p className="mt-0.5 text-xs text-slate dark:text-slate-400">
+                      {formatSettingsRoleLabel(meQuery.data.role)}
+                    </p>
                   </div>
                 )}
                 <button
@@ -130,7 +144,7 @@ export function AppShell() {
                   }}
                   disabled={logout.isPending}
                 >
-                  {logout.isPending ? 'Logging out...' : 'Logout'}
+                  {logout.isPending ? 'Signing out...' : 'Sign out'}
                 </button>
               </div>
             </div>
@@ -139,8 +153,13 @@ export function AppShell() {
 
         <div className="hidden w-full flex-wrap items-center justify-between gap-3 px-3 py-3 sm:px-4 lg:flex lg:px-6">
           <div className="flex items-center gap-6">
-            <h1 className="font-display text-2xl font-bold">ThreatLens</h1>
-            <nav className="flex flex-wrap gap-2 text-sm font-semibold text-slate dark:text-slate-200">
+            <Link to="/" className="font-display text-2xl font-bold" aria-label="ThreatLens home">
+              ThreatLens
+            </Link>
+            <nav
+              aria-label="Primary navigation"
+              className="flex flex-wrap gap-2 text-sm font-semibold text-slate dark:text-slate-200"
+            >
               {desktopNavLinks.map((link) => {
                 const active = isNavLinkActive(location.pathname, link.route)
                 return (
@@ -164,7 +183,7 @@ export function AppShell() {
           <div className="flex items-center gap-2">
             {meQuery.data && (
               <div className="tl-subtle-control rounded px-2.5 py-1.5 text-sm">
-                {meQuery.data.email} ({meQuery.data.role})
+                {meQuery.data.email} ({formatSettingsRoleLabel(meQuery.data.role)})
               </div>
             )}
             <button
@@ -183,7 +202,7 @@ export function AppShell() {
               }}
               disabled={logout.isPending}
             >
-              {logout.isPending ? 'Logging out...' : 'Logout'}
+              {logout.isPending ? 'Signing out...' : 'Sign out'}
             </button>
           </div>
         </div>
@@ -193,7 +212,7 @@ export function AppShell() {
           </div>
         )}
       </header>
-      <main className={`tl-app-content w-full flex-1 ${isDashboardRoute ? 'px-0 py-0' : 'px-2 py-2 sm:px-4 sm:py-4 lg:px-6'}`}>
+      <main id="main-content" className={`tl-app-content w-full flex-1 ${isDashboardRoute ? 'px-0 py-0' : 'px-2 py-2 sm:px-4 sm:py-4 lg:px-6'}`}>
         <Outlet />
       </main>
       <footer className="px-3 py-3 text-right text-[11px] text-slate/55 dark:text-slate-400/60 sm:px-4 lg:px-6">
@@ -221,5 +240,7 @@ function isServerExpiredLogout(error: unknown) {
 }
 
 function resolveLogoutFailureNotice(error: unknown) {
-  return resolveApiErrorMessage(error, 'Logout could not be completed', { includeTechnicalDetail: false })
+  return resolveApiErrorMessage(error, 'Sign out could not be completed', {
+    includeTechnicalDetail: false,
+  })
 }
