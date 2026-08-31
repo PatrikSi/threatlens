@@ -1660,7 +1660,7 @@ def test_webhook_test_missing_real_provenance_before_io_fails_closed(
         _unexpected_send,
     )
     monkeypatch.setattr(
-        "app.services.notification_webhooks.lock_notification_webhook_test_receipt_for_outcome",
+        "app.services.notification_webhook_testing.lock_notification_webhook_test_receipt_for_outcome",
         _lock_receipt_then_delete_item,
     )
     with _data_access(user.id, mode=mode):
