@@ -13,11 +13,14 @@ from sqlalchemy.orm import Session
 
 from app.core.permissions import ALL_PERMISSION_IDS
 from app.core.token_scopes import (
+    SCOPE_READ_AI,
     SCOPE_READ_IAM,
     SCOPE_READ_SERVICE_ACCOUNTS,
+    SCOPE_WRITE_AI,
     SCOPE_WRITE_IAM,
     SCOPE_WRITE_SERVICE_ACCOUNTS,
 )
+from app.models.ai_provider_attempt_receipt import AIProviderAttemptReceipt
 from app.models.iam import (
     IAMGroupRoleAssignment,
     IAMRole,
@@ -30,6 +33,10 @@ from app.models.service_account import (
     ServiceAccountRoleAssignment,
 )
 from app.models.temporary_elevation import TemporaryElevation
+from app.services.ai_provider_attempts import (
+    AIProviderAttemptReconciliationError,
+    reconcile_ai_provider_attempt,
+)
 from app.services.authorization import database_clock
 from app.services.iam_roles import IAMRoleError, delete_role
 from app.services.service_accounts import ServiceAccountError, disable_service_account
@@ -259,7 +266,152 @@ def _execute_iam_role_delete(
     }
 
 
+def _resolve_ai_provider_attempt_receipt(
+    db: Session, target_id: uuid.UUID, lock: bool
+) -> object | None:
+    query = select(AIProviderAttemptReceipt).where(
+        AIProviderAttemptReceipt.id == target_id
+    )
+    if lock:
+        query = query.with_for_update()
+    return db.scalar(query.execution_options(populate_existing=True))
+
+
+def _snapshot_ai_provider_attempt_receipt(
+    _db: Session, resource: object
+) -> dict[str, object]:
+    receipt = _as_ai_provider_attempt_receipt(resource)
+    evidence: dict[str, object] = {
+        "id": str(receipt.id),
+        "operation_id": str(receipt.operation_id),
+        "attempt_number": int(receipt.attempt_number),
+        "max_attempts": int(receipt.max_attempts),
+        "reservation_generation": int(receipt.reservation_generation),
+        "pre_io_failure_count": int(receipt.pre_io_failure_count),
+        "last_pre_io_failure_at": (
+            receipt.last_pre_io_failure_at.isoformat()
+            if receipt.last_pre_io_failure_at is not None
+            else None
+        ),
+        "request_fingerprint": receipt.request_fingerprint,
+        "task_run_id_snapshot": str(receipt.task_run_id_snapshot),
+        "feature_type": receipt.feature_type,
+        "resource_type": receipt.resource_type,
+        "resource_id": (
+            str(receipt.resource_id) if receipt.resource_id is not None else None
+        ),
+        "requested_max_tokens": int(receipt.requested_max_tokens),
+        "iam_revision": receipt.iam_revision,
+        "data_policy_revision": receipt.data_policy_revision,
+        "data_policy_mode": receipt.data_policy_mode,
+        "state": receipt.state,
+        "io_outcome": receipt.io_outcome,
+        "retryable": receipt.retryable,
+        "next_max_tokens": receipt.next_max_tokens,
+        "created_at": receipt.created_at.isoformat(),
+        "settled_at": (
+            receipt.settled_at.isoformat()
+            if receipt.settled_at is not None
+            else None
+        ),
+        "reconciliation_action": receipt.reconciliation_action,
+    }
+    return {
+        **evidence,
+        "revision": int(receipt.revision),
+        "precondition_digest": _precondition_digest(evidence),
+    }
+
+
+def _execute_ai_provider_attempt_confirm_not_sent(
+    db: Session, resource: object, actor_user_id: uuid.UUID
+) -> dict[str, object]:
+    return _execute_ai_provider_attempt_reconciliation(
+        db,
+        resource=resource,
+        actor_user_id=actor_user_id,
+        action="confirmed_not_sent",
+    )
+
+
+def _execute_ai_provider_attempt_acknowledge_may_have_sent(
+    db: Session, resource: object, actor_user_id: uuid.UUID
+) -> dict[str, object]:
+    return _execute_ai_provider_attempt_reconciliation(
+        db,
+        resource=resource,
+        actor_user_id=actor_user_id,
+        action="acknowledged_may_have_sent",
+    )
+
+
+def _execute_ai_provider_attempt_reconciliation(
+    db: Session,
+    *,
+    resource: object,
+    actor_user_id: uuid.UUID,
+    action: str,
+) -> dict[str, object]:
+    receipt = _as_ai_provider_attempt_receipt(resource)
+    reconciled = reconcile_ai_provider_attempt(
+        db,
+        receipt_id=receipt.id,
+        expected_revision=receipt.revision,
+        action=action,
+        actor_user_id=actor_user_id,
+    )
+    return {
+        "changed": True,
+        "receipt_id": str(reconciled.id),
+        "operation_id": str(reconciled.operation_id),
+        "reconciliation_action": reconciled.reconciliation_action,
+        "reconciled_from_state": reconciled.reconciled_from_state,
+        "reconciled_from_io_outcome": reconciled.reconciled_from_io_outcome,
+        "state": reconciled.state,
+        "io_outcome": reconciled.io_outcome,
+        "retryable": reconciled.retryable,
+        "new_revision": int(reconciled.revision),
+    }
+
+
 ACTION_DEFINITIONS: tuple[RegisteredActionDefinition, ...] = (
+    RegisteredActionDefinition(
+        key="ai.provider_attempt.confirm_not_sent",
+        version=1,
+        label="Confirm AI provider attempt was not sent",
+        description=(
+            "Resolve one unsafe AI provider receipt after independent evidence "
+            "confirms the request did not reach the provider. The current logical "
+            "operation can continue only when its durable retry budget remains."
+        ),
+        target_type="ai_provider_attempt_receipt",
+        audit_action="ai.provider_attempt.confirm_not_sent",
+        requester_permission=SCOPE_READ_AI,
+        approver_permission=SCOPE_WRITE_AI,
+        risk="critical",
+        payload_model=EmptyActionPayload,
+        resolve_target=_resolve_ai_provider_attempt_receipt,
+        snapshot_target=_snapshot_ai_provider_attempt_receipt,
+        execute=_execute_ai_provider_attempt_confirm_not_sent,
+    ),
+    RegisteredActionDefinition(
+        key="ai.provider_attempt.acknowledge_may_have_sent",
+        version=1,
+        label="Acknowledge AI provider attempt may have been sent",
+        description=(
+            "Resolve one unsafe AI provider receipt after independently accepting "
+            "that the provider may have processed the request."
+        ),
+        target_type="ai_provider_attempt_receipt",
+        audit_action="ai.provider_attempt.acknowledge_may_have_sent",
+        requester_permission=SCOPE_READ_AI,
+        approver_permission=SCOPE_WRITE_AI,
+        risk="critical",
+        payload_model=EmptyActionPayload,
+        resolve_target=_resolve_ai_provider_attempt_receipt,
+        snapshot_target=_snapshot_ai_provider_attempt_receipt,
+        execute=_execute_ai_provider_attempt_acknowledge_may_have_sent,
+    ),
     RegisteredActionDefinition(
         key="service_account.disable",
         version=1,
@@ -417,6 +569,22 @@ def inspect_registered_action_target(
                     "blocker_count": int(snapshot["blocker_count"]),
                 },
             )
+    if isinstance(resource, AIProviderAttemptReceipt):
+        if (
+            resource.reconciliation_action is not None
+            or (resource.state, resource.io_outcome)
+            not in {("reserved", "reserved"), ("ambiguous", "ambiguous")}
+        ):
+            raise RegisteredActionTargetConflict(
+                "Only an unresolved reserved or ambiguous AI provider receipt "
+                "can be reconciled.",
+                context={
+                    "target_id": str(parsed_id),
+                    "current_revision": current_revision,
+                    "state": resource.state,
+                    "io_outcome": resource.io_outcome,
+                },
+            )
     return RegisteredActionTarget(
         target_id=str(parsed_id),
         snapshot=snapshot,
@@ -454,7 +622,11 @@ def execute_registered_action(
         )
     try:
         return definition.execute(db, target.resource, actor_user_id)
-    except (IAMRoleError, ServiceAccountError) as exc:
+    except (
+        AIProviderAttemptReconciliationError,
+        IAMRoleError,
+        ServiceAccountError,
+    ) as exc:
         raise RegisteredActionTargetConflict(str(exc)) from exc
 
 
@@ -489,6 +661,16 @@ def _as_service_account(resource: object) -> ServiceAccount:
 def _as_iam_role(resource: object) -> IAMRole:
     if not isinstance(resource, IAMRole):
         raise RuntimeError("Registered IAM action resolved the wrong target type.")
+    return resource
+
+
+def _as_ai_provider_attempt_receipt(
+    resource: object,
+) -> AIProviderAttemptReceipt:
+    if not isinstance(resource, AIProviderAttemptReceipt):
+        raise RuntimeError(
+            "Registered AI provider-attempt action resolved the wrong target type."
+        )
     return resource
 
 

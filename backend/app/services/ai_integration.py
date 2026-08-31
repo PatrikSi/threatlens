@@ -26,6 +26,9 @@ from app.services import ai_normalization as _ai_normalization
 from app.services import ai_prompting as _ai_prompting
 from app.services import ai_provider_client as _ai_provider_client
 from app.services.ai_config import ActiveAISettings, load_active_ai_settings
+from app.services.ai_egress_data_policy import (
+    enforce_ai_egress_data_policy as _enforce_ai_egress_data_policy,
+)
 from app.services.ai_ops import (
     AI_PROVIDER_CLAIM_DAILY_BRIEF,
     AI_PROVIDER_CLAIM_ITEM_ENRICHMENT,
@@ -156,6 +159,7 @@ def test_ai_connection(
             active,
             feature_type=FEATURE_CONNECTION_TEST,
             task_run_id=task_run_id,
+            provider_operation_scope="connection_test",
             messages=[
                 {
                     "role": "system",
@@ -326,6 +330,7 @@ def run_item_ai_enrichment(
             feature_type=FEATURE_ITEM_ENRICHMENT,
             item_id=item_id,
             task_run_id=task_run_id,
+            provider_operation_scope="item_enrichment",
             messages=messages,
         )
     except AITaskRunStoppedError as exc:
@@ -737,6 +742,7 @@ def run_daily_brief_generation(
             feature_type=FEATURE_DAILY_BRIEF,
             daily_brief_id=brief_id,
             task_run_id=task_run_id,
+            provider_operation_scope="daily_brief",
             messages=messages,
         )
     except AITaskRunStoppedError as exc:
@@ -1024,12 +1030,18 @@ def _request_json_with_usage(
     daily_brief_id: uuid.UUID | None = None,
     report_id: uuid.UUID | None = None,
     task_run_id: uuid.UUID | None = None,
+    provider_operation_scope: str | None = None,
     max_completion_tokens: int | None = None,
     max_retry_completion_tokens: int | None = None,
     max_provider_attempts: int | None = None,
     execution_checkpoint: Callable[[], None] | None = None,
     execution_commit: Callable[[], None] | None = None,
 ) -> AICompletionResult:
+    if feature_type == FEATURE_REPORT and provider_operation_scope is None:
+        raise AIIntegrationError(
+            "Report provider calls require a durable operation scope.",
+            retryable=False,
+        )
     return run_ai_json_request(
         db,
         active,
@@ -1039,11 +1051,13 @@ def _request_json_with_usage(
         daily_brief_id=daily_brief_id,
         report_id=report_id,
         task_run_id=task_run_id,
+        provider_operation_scope=provider_operation_scope or feature_type,
         max_completion_tokens=max_completion_tokens,
         max_retry_completion_tokens=max_retry_completion_tokens,
         max_provider_attempts=max_provider_attempts,
         execution_checkpoint=execution_checkpoint,
         execution_commit=execution_commit,
+        enforce_egress_data_policy=_enforce_ai_egress_data_policy,
         report_feature_type=FEATURE_REPORT,
         call_ai_json=_call_ai_json,
         record_task_run_stop_observed=_record_task_run_stop_observed,
@@ -1064,6 +1078,7 @@ def request_ai_json_with_usage(
     messages: list[dict[str, str]],
     report_id: uuid.UUID | None = None,
     task_run_id: uuid.UUID | None = None,
+    provider_operation_scope: str | None = None,
     max_completion_tokens: int | None = None,
     max_retry_completion_tokens: int | None = None,
     max_provider_attempts: int | None = None,
@@ -1071,6 +1086,12 @@ def request_ai_json_with_usage(
     execution_commit: Callable[[], None] | None = None,
 ) -> AICompletionResult:
     """Run a provider exchange with the standard retry, history, and cancellation behavior."""
+    if feature_type == FEATURE_CONNECTION_TEST:
+        raise AIIntegrationError(
+            "Connection-test provider calls must use the dedicated AI connection-test "
+            "workflow.",
+            retryable=False,
+        )
     return _request_json_with_usage(
         db,
         active,
@@ -1078,6 +1099,7 @@ def request_ai_json_with_usage(
         messages=messages,
         report_id=report_id,
         task_run_id=task_run_id,
+        provider_operation_scope=provider_operation_scope,
         max_completion_tokens=max_completion_tokens,
         max_retry_completion_tokens=max_retry_completion_tokens,
         max_provider_attempts=max_provider_attempts,

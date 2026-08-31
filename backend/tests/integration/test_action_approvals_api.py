@@ -8,6 +8,7 @@ from app.models.action_approval import (
     ActionApprovalRequest,
     ActionExecutionReceipt,
 )
+from app.models.ai_provider_attempt_receipt import AIProviderAttemptReceipt
 from app.models.audit_log import AuditLog
 from app.models.governance_operation_receipt import GovernanceOperationReceipt
 from app.models.service_account import ServiceAccount
@@ -166,7 +167,19 @@ def test_action_catalog_and_history_require_read_approvals(
     )
     assert catalog.status_code == 200, catalog.text
     definitions = {item["key"]: item for item in catalog.json()}
-    assert {"iam.role.delete", "service_account.disable"} <= set(definitions)
+    assert set(definitions) == {
+        "ai.provider_attempt.acknowledge_may_have_sent",
+        "ai.provider_attempt.confirm_not_sent",
+        "iam.role.delete",
+        "service_account.disable",
+    }
+    ai_receipt_action = definitions["ai.provider_attempt.confirm_not_sent"]
+    assert ai_receipt_action["target_type"] == "ai_provider_attempt_receipt"
+    assert ai_receipt_action["requester_permission"] == "read:ai"
+    assert ai_receipt_action["approver_permission"] == "write:ai"
+    assert ai_receipt_action["risk"] == "critical"
+    assert ai_receipt_action["version"] == 1
+    assert ai_receipt_action["payload_fields"] == []
     service_account_action = definitions["service_account.disable"]
     assert service_account_action["label"] == "Disable service account"
     assert service_account_action["target_type"] == "service_account"
@@ -184,6 +197,126 @@ def test_action_catalog_and_history_require_read_approvals(
         "page": 1,
         "page_size": 25,
     }
+
+
+def test_ai_provider_receipt_reconciliation_requires_two_person_approval(
+    client,
+    auth_headers,
+    seed_users,
+    db_session,
+):
+    role = _create_role(
+        client,
+        auth_headers["admin"],
+        permissions=["read:approvals", "write:approvals", "read:ai"],
+    )
+    _assign_role(
+        client,
+        auth_headers["admin"],
+        user_id=seed_users["viewer"].id,
+        role=role,
+    )
+    provider_receipt = AIProviderAttemptReceipt(
+        operation_id=uuid.uuid4(),
+        attempt_number=1,
+        request_fingerprint="c" * 64,
+        task_run_id_snapshot=uuid.uuid4(),
+        feature_type="item_enrichment",
+        resource_type="item",
+        resource_id=uuid.uuid4(),
+        max_attempts=3,
+        requested_max_tokens=1_024,
+        iam_revision=2,
+        data_policy_revision=3,
+        data_policy_mode="enforced",
+        state="ambiguous",
+        io_outcome="ambiguous",
+        retryable=False,
+        settled_at=func.now(),
+    )
+    db_session.add(provider_receipt)
+    db_session.commit()
+    _set_auth_token_version(db_session, seed_users["admin"], 1)
+
+    requester_browser = _browser_login(
+        client,
+        email="viewer@example.com",
+        password="ViewerPass123!",
+    )
+    created_response = client.post(
+        "/iam/action-approvals",
+        headers={
+            **requester_browser,
+            "Idempotency-Key": "ai-receipt-reconcile-create-1",
+        },
+        json={
+            "action_type": "ai.provider_attempt.acknowledge_may_have_sent",
+            "target_id": str(provider_receipt.id),
+            "target_revision": 1,
+            "payload": {},
+            "expires_in_seconds": 3_600,
+            "reason": "Acknowledge the independently reviewed provider outcome.",
+        },
+    )
+    assert created_response.status_code == 201, created_response.text
+    created = created_response.json()
+    assert created["requester_permission"] == "read:ai"
+    assert created["approver_permission"] == "write:ai"
+    assert created["target_snapshot"]["state"] == "ambiguous"
+    assert created["target_snapshot"]["io_outcome"] == "ambiguous"
+    assert created["target_snapshot"]["request_fingerprint"] == "c" * 64
+
+    approver_browser = _browser_login(
+        client,
+        email="admin@example.com",
+        password="AdminPass123!",
+    )
+    approved_response = client.post(
+        f"/iam/action-approvals/{created['id']}/decision",
+        headers={
+            **approver_browser,
+            "Idempotency-Key": "ai-receipt-reconcile-decision-1",
+        },
+        json={
+            "expected_revision": 1,
+            "approve": True,
+            "reason": "Provider evidence was reviewed independently.",
+        },
+    )
+    assert approved_response.status_code == 200, approved_response.text
+    approved = approved_response.json()
+    assert approved["decided_by_user_id"] == str(seed_users["admin"].id)
+
+    requester_browser = _browser_login(
+        client,
+        email="viewer@example.com",
+        password="ViewerPass123!",
+    )
+    executed_response = client.post(
+        f"/iam/action-approvals/{created['id']}/execute",
+        headers={
+            **requester_browser,
+            "Idempotency-Key": "ai-receipt-reconcile-execute-1",
+        },
+        json={"expected_revision": approved["revision"]},
+    )
+    assert executed_response.status_code == 200, executed_response.text
+    result = executed_response.json()["receipt"]["result"]
+    assert result["reconciliation_action"] == "acknowledged_may_have_sent"
+    assert result["reconciled_from_state"] == "ambiguous"
+    assert result["reconciled_from_io_outcome"] == "ambiguous"
+    assert result["state"] == "ambiguous"
+    assert result["io_outcome"] == "ambiguous"
+    assert result["retryable"] is False
+    assert result["new_revision"] == 2
+
+    db_session.expire_all()
+    reconciled = db_session.get(AIProviderAttemptReceipt, provider_receipt.id)
+    assert reconciled is not None
+    assert reconciled.reconciliation_action == "acknowledged_may_have_sent"
+    assert reconciled.reconciled_by_user_id_snapshot == seed_users["viewer"].id
+    assert reconciled.reconciled_from_state == "ambiguous"
+    assert reconciled.reconciled_from_io_outcome == "ambiguous"
 
 
 def test_service_account_disable_approval_lifecycle_is_idempotent_and_audited(
