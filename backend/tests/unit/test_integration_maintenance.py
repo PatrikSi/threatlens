@@ -15,8 +15,10 @@ from app.models.integration import (
     IntegrationDelivery,
     IntegrationDeliveryMetric,
     IntegrationDeliveryMetricCohort,
+    IntegrationDeliveryMetricCohortCapturedLabel,
     IntegrationDeliveryMetricCohortFeed,
     IntegrationDeliveryMetricCohortLabel,
+    IntegrationDeliveryMetricCohortTaintLabel,
     IntegrationEvent,
     IntegrationInstance,
     IntegrationSubscription,
@@ -34,7 +36,14 @@ from app.services.data_access_envelopes import (
     DataAccessSourceInput,
     merge_data_access_envelope_sources,
 )
-from app.services.data_access_policy import assign_feed_handling_label
+from app.services.data_access_policy import (
+    DataAccessContext,
+    assign_feed_handling_label,
+)
+from app.services.integration_metric_data_policy import (
+    integration_metric_cohort_data_access_predicate,
+    integration_metric_cohort_integrity,
+)
 
 
 def test_terminal_delivery_metrics_are_rolled_up_exactly_once(db_session, monkeypatch):
@@ -143,12 +152,18 @@ def test_metric_rollup_retains_feed_provenance_across_relabel(
     assert rollup_terminal_integration_deliveries(db_session, now=now) == 1
 
     cohort = db_session.query(IntegrationDeliveryMetricCohort).one()
+    captured_key = cohort.policy_cohort_key
     assert cohort.provenance_complete is True
     assert cohort.source_count == 1
     assert {
         row.label_id
         for row in db_session.query(IntegrationDeliveryMetricCohortLabel).all()
     } == {label.id}
+    assert {
+        row.label_id
+        for row in db_session.query(IntegrationDeliveryMetricCohortCapturedLabel).all()
+    } == {label.id}
+    assert db_session.query(IntegrationDeliveryMetricCohortTaintLabel).count() == 0
     assert {
         row.source_feed_id_snapshot
         for row in db_session.query(IntegrationDeliveryMetricCohortFeed).all()
@@ -169,6 +184,74 @@ def test_metric_rollup_retains_feed_provenance_across_relabel(
         row.label_id
         for row in db_session.query(IntegrationDeliveryMetricCohortLabel).all()
     } == {label.id, UNRESTRICTED_HANDLING_LABEL_ID}
+    db_session.refresh(cohort)
+    assert cohort.policy_cohort_key == captured_key
+    assert {
+        row.label_id
+        for row in db_session.query(IntegrationDeliveryMetricCohortCapturedLabel).all()
+    } == {label.id}
+    assert {
+        row.label_id
+        for row in db_session.query(IntegrationDeliveryMetricCohortTaintLabel).all()
+    } == {UNRESTRICTED_HANDLING_LABEL_ID}
+    unrestricted_only = DataAccessContext(
+        mode="enforced",
+        policy_revision=state.revision,
+        coverage_version=1,
+        principal_type="user",
+        principal_id=delivery.owner_user_id,
+        principal_eligible=True,
+        allowed_label_ids=frozenset({UNRESTRICTED_HANDLING_LABEL_ID}),
+    )
+    assert (
+        db_session.scalar(
+            select(IntegrationDeliveryMetricCohort.id).where(
+                integration_metric_cohort_data_access_predicate(unrestricted_only)
+            )
+        )
+        is None
+    )
+
+    assign_feed_handling_label(
+        db_session,
+        feed_id=feed.id,
+        handling_label_id=label.id,
+        expected_policy_revision=state.revision,
+        actor_user_id=delivery.owner_user_id,
+    )
+    db_session.commit()
+    assert {
+        row.label_id
+        for row in db_session.query(IntegrationDeliveryMetricCohortTaintLabel).all()
+    } == {label.id, UNRESTRICTED_HANDLING_LABEL_ID}
+    restricted_only = DataAccessContext(
+        mode="enforced",
+        policy_revision=state.revision,
+        coverage_version=1,
+        principal_type="user",
+        principal_id=delivery.owner_user_id,
+        principal_eligible=True,
+        allowed_label_ids=frozenset({label.id}),
+    )
+    assert (
+        db_session.scalar(
+            select(IntegrationDeliveryMetricCohort.id).where(
+                integration_metric_cohort_data_access_predicate(restricted_only)
+            )
+        )
+        is None
+    )
+    assert integration_metric_cohort_integrity(db_session).valid is True
+
+    cohort.policy_cohort_key = "0" * 64
+    db_session.add(cohort)
+    db_session.flush()
+    corrupted = integration_metric_cohort_integrity(db_session)
+    assert corrupted.invalid_identity_count == 1
+    assert corrupted.valid is False
+    db_session.rollback()
+    cohort = db_session.query(IntegrationDeliveryMetricCohort).one()
+    assert cohort.policy_cohort_key == captured_key
     db_session.delete(feed)
     db_session.commit()
     assert {
@@ -188,7 +271,9 @@ def test_metric_rollup_retains_feed_provenance_across_relabel(
     assert db_session.query(IntegrationDeliveryMetricCohort).count() == 0
 
 
-def test_retention_deletes_legacy_projection_only_after_generic_rollup(db_session, monkeypatch):
+def test_retention_deletes_legacy_projection_only_after_generic_rollup(
+    db_session, monkeypatch
+):
     now = datetime(2026, 7, 14, 12, 0, tzinfo=timezone.utc)
     event, delivery, legacy = _persist_terminal_webhook_delivery(
         db_session,
@@ -226,9 +311,7 @@ def test_retention_deletes_legacy_projection_only_after_generic_rollup(db_sessio
     assert db_session.query(IntegrationDeliveryMetric).count() == 1
 
 
-def test_retention_prunes_only_safe_unlinked_legacy_deliveries(
-    db_session, monkeypatch
-):
+def test_retention_prunes_only_safe_unlinked_legacy_deliveries(db_session, monkeypatch):
     now = datetime(2026, 7, 14, 12, 0, tzinfo=timezone.utc)
     old = now - timedelta(days=2)
     user = User(
@@ -344,8 +427,7 @@ def test_retention_prunes_only_safe_unlinked_legacy_deliveries(
     )
     malformed_label = db_session.scalar(
         select(DataAccessEnvelopeLabel).where(
-            DataAccessEnvelopeLabel.envelope_id
-            == malformed_snapshot.envelope_id
+            DataAccessEnvelopeLabel.envelope_id == malformed_snapshot.envelope_id
         )
     )
     assert malformed_label is not None

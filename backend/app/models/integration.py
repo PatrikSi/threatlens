@@ -388,6 +388,50 @@ class IntegrationDeliveryMetricCohortLabel(Base):
     )
 
 
+class IntegrationDeliveryMetricCohortCapturedLabel(Base):
+    __tablename__ = "integration_delivery_metric_cohort_captured_labels"
+    __table_args__ = (
+        Index(
+            "ix_integration_metric_captured_labels_label",
+            "label_id",
+            "cohort_id",
+        ),
+    )
+
+    cohort_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("integration_delivery_metric_cohorts.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    label_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("handling_labels.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+
+
+class IntegrationDeliveryMetricCohortTaintLabel(Base):
+    __tablename__ = "integration_delivery_metric_cohort_taint_labels"
+    __table_args__ = (
+        Index(
+            "ix_integration_metric_taint_labels_label",
+            "label_id",
+            "cohort_id",
+        ),
+    )
+
+    cohort_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("integration_delivery_metric_cohorts.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    label_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("handling_labels.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+
+
 class IntegrationDeliveryMetricCohortFeed(Base):
     __tablename__ = "integration_delivery_metric_cohort_feeds"
     __table_args__ = (

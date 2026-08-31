@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import String, cast, delete, exists, func, or_, select, text
@@ -21,8 +21,10 @@ from app.models.integration import (
     IntegrationDelivery,
     IntegrationDeliveryMetric,
     IntegrationDeliveryMetricCohort,
+    IntegrationDeliveryMetricCohortCapturedLabel,
     IntegrationDeliveryMetricCohortFeed,
     IntegrationDeliveryMetricCohortLabel,
+    IntegrationDeliveryMetricCohortTaintLabel,
     IntegrationEvent,
 )
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
@@ -52,7 +54,7 @@ TERMINAL_NOTIFICATION_DELIVERY_STATES = ("succeeded", "failed")
 ACTIVE_NOTIFICATION_DELIVERY_STATES = ("pending", "sending")
 MAX_INTEGRATION_MAINTENANCE_BATCH_SIZE = 1_000
 _FEED_PROVENANCE_SOURCE_TYPES = frozenset({"feed", "feed_taint", "item"})
-_COMPLETE_PROVENANCE_SOURCE_TYPES = _FEED_PROVENANCE_SOURCE_TYPES | {"system"}
+_CAPTURED_PROVENANCE_SOURCE_TYPES = frozenset({"feed", "item", "system"})
 _METRIC_COUNTER_FIELDS = (
     "succeeded_count",
     "failed_count",
@@ -74,6 +76,16 @@ class IntegrationMaintenanceResult:
     data_access_envelope_candidates_scanned: int
     data_access_envelope_unknown_types: int
     data_access_envelope_backlog_remaining: bool
+
+
+@dataclass(frozen=True)
+class _IntegrationMetricProvenance:
+    captured_policy_revision: int
+    provenance_complete: bool
+    source_count: int
+    captured_label_ids: frozenset[uuid.UUID]
+    taint_label_ids: frozenset[uuid.UUID]
+    source_feed_ids: frozenset[uuid.UUID]
 
 
 def run_integration_delivery_maintenance(
@@ -128,15 +140,13 @@ def rollup_terminal_integration_deliveries(
     attempt_stats = _attempt_stats_by_delivery(
         db, [delivery.id for delivery in deliveries]
     )
-    public_rollups: dict[
-        tuple[datetime, uuid.UUID, str, str], dict[str, int]
-    ] = {}
+    public_rollups: dict[tuple[datetime, uuid.UUID, str, str], dict[str, int]] = {}
     cohort_rollups: dict[
         tuple[tuple[datetime, uuid.UUID, str, str], str], dict[str, int]
     ] = {}
     cohort_metadata: dict[
         tuple[tuple[datetime, uuid.UUID, str, str], str],
-        tuple[bool, int, frozenset[uuid.UUID], frozenset[uuid.UUID]],
+        _IntegrationMetricProvenance,
     ] = {}
     for delivery in deliveries:
         ensure_integration_delivery_data_access_envelope(
@@ -161,12 +171,7 @@ def rollup_terminal_integration_deliveries(
             resource_id=delivery.id,
             for_update=True,
         )
-        (
-            provenance_complete,
-            source_count,
-            label_ids,
-            feed_ids,
-        ) = _metric_provenance(
+        provenance = _metric_provenance(
             envelope,
             sources,
             policy_revision=policy_revision,
@@ -190,24 +195,31 @@ def rollup_terminal_integration_deliveries(
             aggregate,
         )
         policy_cohort_key = integration_metric_policy_cohort_key(
-            policy_revision=policy_revision,
-            provenance_complete=provenance_complete,
-            source_count=source_count,
-            label_ids=label_ids,
-            feed_ids=feed_ids,
+            policy_revision=provenance.captured_policy_revision,
+            provenance_complete=provenance.provenance_complete,
+            source_count=provenance.source_count,
+            label_ids=provenance.captured_label_ids,
+            feed_ids=provenance.source_feed_ids,
         )
         cohort_identity = (key, policy_cohort_key)
-        metadata = (
-            provenance_complete,
-            source_count,
-            label_ids,
-            feed_ids,
-        )
-        previous_metadata = cohort_metadata.setdefault(cohort_identity, metadata)
-        if previous_metadata != metadata:
+        previous_metadata = cohort_metadata.setdefault(cohort_identity, provenance)
+        if (
+            previous_metadata.captured_policy_revision
+            != provenance.captured_policy_revision
+            or previous_metadata.provenance_complete != provenance.provenance_complete
+            or previous_metadata.source_count != provenance.source_count
+            or previous_metadata.captured_label_ids != provenance.captured_label_ids
+            or previous_metadata.source_feed_ids != provenance.source_feed_ids
+        ):
             raise RuntimeError(
                 "Integration delivery metric cohort identity collision detected."
             )
+        cohort_metadata[cohort_identity] = replace(
+            previous_metadata,
+            taint_label_ids=(
+                previous_metadata.taint_label_ids | provenance.taint_label_ids
+            ),
+        )
         _merge_metric_counts(
             cohort_rollups.setdefault(cohort_identity, _empty_metric_counts()),
             aggregate,
@@ -219,9 +231,7 @@ def rollup_terminal_integration_deliveries(
             "'threatlens.integration_metric_cohort_write', 'on', true)"
         )
     )
-    metric_ids: dict[
-        tuple[datetime, uuid.UUID, str, str], uuid.UUID
-    ] = {}
+    metric_ids: dict[tuple[datetime, uuid.UUID, str, str], uuid.UUID] = {}
     for (
         bucket_start,
         integration_id,
@@ -274,16 +284,17 @@ def rollup_terminal_integration_deliveries(
         key=lambda value: (*_metric_key_sort(value[0][0]), value[0][1]),
     ):
         metric_key, policy_cohort_key = cohort_identity
-        provenance_complete, source_count, label_ids, feed_ids = cohort_metadata[
-            cohort_identity
-        ]
+        provenance = cohort_metadata[cohort_identity]
+        captured_label_ids = provenance.captured_label_ids
+        taint_label_ids = provenance.taint_label_ids
+        feed_ids = provenance.source_feed_ids
         statement = pg_insert(IntegrationDeliveryMetricCohort).values(
             id=uuid.uuid4(),
             metric_id=metric_ids[metric_key],
             policy_cohort_key=policy_cohort_key,
-            captured_policy_revision=policy_revision,
-            provenance_complete=provenance_complete,
-            source_count=source_count,
+            captured_policy_revision=provenance.captured_policy_revision,
+            provenance_complete=provenance.provenance_complete,
+            source_count=provenance.source_count,
             **aggregate,
             updated_at=current_time,
         )
@@ -323,15 +334,27 @@ def rollup_terminal_integration_deliveries(
         ).one()
         cohort_id = cohort_row.id
         if (
-            cohort_row.captured_policy_revision != policy_revision
-            or cohort_row.provenance_complete != provenance_complete
-            or cohort_row.source_count != source_count
+            cohort_row.captured_policy_revision != provenance.captured_policy_revision
+            or cohort_row.provenance_complete != provenance.provenance_complete
+            or cohort_row.source_count != provenance.source_count
         ):
             raise RuntimeError(
                 "Integration delivery metric cohort metadata conflicts with its "
                 "immutable identity."
             )
-        for label_id in sorted(label_ids, key=str):
+        for label_id in sorted(captured_label_ids, key=str):
+            db.execute(
+                pg_insert(IntegrationDeliveryMetricCohortCapturedLabel)
+                .values(cohort_id=cohort_id, label_id=label_id)
+                .on_conflict_do_nothing()
+            )
+        for label_id in sorted(taint_label_ids, key=str):
+            db.execute(
+                pg_insert(IntegrationDeliveryMetricCohortTaintLabel)
+                .values(cohort_id=cohort_id, label_id=label_id)
+                .on_conflict_do_nothing()
+            )
+        for label_id in sorted(captured_label_ids | taint_label_ids, key=str):
             db.execute(
                 pg_insert(IntegrationDeliveryMetricCohortLabel)
                 .values(cohort_id=cohort_id, label_id=label_id)
@@ -346,27 +369,42 @@ def rollup_terminal_integration_deliveries(
                 )
                 .on_conflict_do_nothing()
             )
-        retained_labels = frozenset(
+        retained_captured = frozenset(
+            db.scalars(
+                select(IntegrationDeliveryMetricCohortCapturedLabel.label_id)
+                .where(
+                    IntegrationDeliveryMetricCohortCapturedLabel.cohort_id == cohort_id
+                )
+                .with_for_update()
+            ).all()
+        )
+        retained_taints = frozenset(
+            db.scalars(
+                select(IntegrationDeliveryMetricCohortTaintLabel.label_id)
+                .where(IntegrationDeliveryMetricCohortTaintLabel.cohort_id == cohort_id)
+                .with_for_update()
+            ).all()
+        )
+        retained_effective = frozenset(
             db.scalars(
                 select(IntegrationDeliveryMetricCohortLabel.label_id)
-                .where(
-                    IntegrationDeliveryMetricCohortLabel.cohort_id == cohort_id
-                )
+                .where(IntegrationDeliveryMetricCohortLabel.cohort_id == cohort_id)
                 .with_for_update()
             ).all()
         )
         retained_feeds = frozenset(
             db.scalars(
-                select(
-                    IntegrationDeliveryMetricCohortFeed.source_feed_id_snapshot
-                )
-                .where(
-                    IntegrationDeliveryMetricCohortFeed.cohort_id == cohort_id
-                )
+                select(IntegrationDeliveryMetricCohortFeed.source_feed_id_snapshot)
+                .where(IntegrationDeliveryMetricCohortFeed.cohort_id == cohort_id)
                 .with_for_update()
             ).all()
         )
-        if not label_ids.issubset(retained_labels) or retained_feeds != feed_ids:
+        if (
+            retained_captured != captured_label_ids
+            or not taint_label_ids.issubset(retained_taints)
+            or retained_effective != retained_captured | retained_taints
+            or retained_feeds != feed_ids
+        ):
             raise RuntimeError(
                 "Integration delivery metric cohort provenance is inconsistent."
             )
@@ -492,8 +530,7 @@ def prune_integration_delivery_history(
         )
         valid_event_envelope = exists(
             select(event_envelope.id).where(
-                event_envelope.resource_type
-                == DATA_ACCESS_RESOURCE_INTEGRATION_EVENT,
+                event_envelope.resource_type == DATA_ACCESS_RESOURCE_INTEGRATION_EVENT,
                 event_envelope.resource_id == IntegrationEvent.id,
                 event_envelope.source_count > 0,
                 normalized_source_count == event_envelope.source_count,
@@ -638,20 +675,35 @@ def _metric_provenance(
     sources: tuple[DataAccessSourceSnapshot, ...],
     *,
     policy_revision: int,
-) -> tuple[bool, int, frozenset[uuid.UUID], frozenset[uuid.UUID]]:
-    source_count = len(sources)
-    label_ids = set(envelope.label_ids)
+) -> _IntegrationMetricProvenance:
+    captured_sources = tuple(
+        source for source in sources if source.source_type != "feed_taint"
+    )
+    taint_sources = tuple(
+        source for source in sources if source.source_type == "feed_taint"
+    )
+    source_count = len(captured_sources)
+    captured_label_ids = {source.handling_label_id for source in captured_sources}
+    taint_label_ids = {source.handling_label_id for source in taint_sources}
     feed_ids = {
         source.source_feed_id
-        for source in sources
+        for source in captured_sources
         if source.source_feed_id is not None
     }
-    provenance_complete = (
-        source_count > 0
-        and envelope.source_count == source_count
+    captured_policy_revision = max(
+        (source.captured_policy_revision for source in captured_sources),
+        default=policy_revision,
+    )
+    aggregate_complete = (
+        envelope.source_count == len(sources)
         and envelope.policy_revision <= policy_revision
+        and set(envelope.label_ids) == captured_label_ids | taint_label_ids
+    )
+    provenance_complete = (
+        bool(captured_sources)
+        and aggregate_complete
         and all(
-            source.source_type in _COMPLETE_PROVENANCE_SOURCE_TYPES
+            source.source_type in _CAPTURED_PROVENANCE_SOURCE_TYPES
             and source.captured_policy_revision <= policy_revision
             and (
                 source.source_type not in _FEED_PROVENANCE_SOURCE_TYPES
@@ -661,20 +713,28 @@ def _metric_provenance(
                 source.source_type != "system"
                 or (
                     source.source_feed_id is None
-                    and source.handling_label_id
-                    == UNRESTRICTED_HANDLING_LABEL_ID
+                    and source.handling_label_id == UNRESTRICTED_HANDLING_LABEL_ID
                 )
             )
-            for source in sources
+            for source in captured_sources
         )
     )
     if not provenance_complete:
-        label_ids.add(QUARANTINE_HANDLING_LABEL_ID)
-    return (
-        provenance_complete,
-        source_count,
-        frozenset(label_ids),
-        frozenset(feed_ids),
+        captured_label_ids.add(QUARANTINE_HANDLING_LABEL_ID)
+    if not all(
+        source.source_type == "feed_taint"
+        and source.source_feed_id is not None
+        and source.captured_policy_revision <= policy_revision
+        for source in taint_sources
+    ):
+        taint_label_ids.add(QUARANTINE_HANDLING_LABEL_ID)
+    return _IntegrationMetricProvenance(
+        captured_policy_revision=captured_policy_revision,
+        provenance_complete=provenance_complete,
+        source_count=source_count,
+        captured_label_ids=frozenset(captured_label_ids),
+        taint_label_ids=frozenset(taint_label_ids),
+        source_feed_ids=frozenset(feed_ids),
     )
 
 
@@ -773,8 +833,7 @@ def _validate_metric_cohort_totals(
     )
     if mismatches:
         raise RuntimeError(
-            "Integration delivery metric cohort totals do not match their base "
-            "metrics."
+            "Integration delivery metric cohort totals do not match their base metrics."
         )
 
 
