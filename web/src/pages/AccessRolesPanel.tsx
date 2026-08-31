@@ -303,13 +303,32 @@ export function AccessRolesPanel({
                   This role changed or was removed while you were editing. Copy any draft details you need, then discard this draft and reload the catalog.
                 </p>
               )}
-              {mutationError && <div role="alert" className="mt-4 rounded border border-red-300/60 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-100"><p className="flex items-start gap-2"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />{resolveApiErrorMessage(mutationError, 'Role mutation failed')}</p>{saveOutcomeUnknown && <><p className="mt-2">The outcome is unknown. The catalog was refreshed; review the matching server role before attempting another write.</p><button type="button" className="mt-2 font-semibold underline" onClick={() => {
-                const matched = creating
-                  ? catalog.roles.find((role) => role.key === normalizeDraft(draft).key)
-                  : selectedRole
-                if (matched) loadRoleDraft(matched)
-                saveRole.reset()
-              }}>Use refreshed state</button></>}</div>}
+              {mutationError && (
+                <div role="alert" className="mt-4 rounded border border-red-300/60 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-100">
+                  <p className="flex items-start gap-2">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                    {resolveApiErrorMessage(mutationError, 'Role mutation failed')}
+                  </p>
+                  {saveOutcomeUnknown && (
+                    <>
+                      <p className="mt-2">The outcome is unknown. The catalog was refreshed; review the matching server role before attempting another write.</p>
+                      <button
+                        type="button"
+                        className="mt-2 font-semibold underline"
+                        onClick={() => {
+                          const matched = creating
+                            ? catalog.roles.find((role) => role.key === normalizeDraft(draft).key)
+                            : selectedRole
+                          if (matched) loadRoleDraft(matched)
+                          saveRole.reset()
+                        }}
+                      >
+                        Use refreshed state
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
 
               <div className="mt-5 flex flex-col-reverse gap-2 border-t border-slate/15 pt-4 sm:flex-row sm:justify-between dark:border-white/10">
                 <div>
