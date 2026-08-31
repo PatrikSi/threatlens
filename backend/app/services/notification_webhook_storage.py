@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Collection
 
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
@@ -182,8 +183,13 @@ def notification_webhook_response_from_model(
     webhook: NotificationWebhook,
     *,
     redact_secrets: bool = False,
+    accessible_feed_ids: Collection[uuid.UUID] | None = None,
 ) -> NotificationWebhookResponse:
     payload = notification_webhook_write_from_model(webhook)
+    feed_ids = payload.feed_ids
+    if accessible_feed_ids is not None:
+        visible = frozenset(accessible_feed_ids)
+        feed_ids = [feed_id for feed_id in feed_ids if feed_id in visible]
     return NotificationWebhookResponse(
         id=webhook.id,
         user_id=webhook.user_id,
@@ -193,7 +199,7 @@ def notification_webhook_response_from_model(
         url_template="REDACTED" if redact_secrets else payload.url_template,
         method=payload.method,
         feed_scope=payload.feed_scope,
-        feed_ids=payload.feed_ids,
+        feed_ids=feed_ids,
         query_params=(redact_notification_config_fields(payload.query_params) if redact_secrets else payload.query_params),
         headers=redact_notification_config_fields(payload.headers) if redact_secrets else payload.headers,
         body_mode=payload.body_mode,

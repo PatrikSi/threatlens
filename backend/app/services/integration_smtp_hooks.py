@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Collection
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, true
 from sqlalchemy.orm import Session
 
 from app.models.integration import (
     IntegrationAttempt,
     IntegrationDelivery,
     IntegrationDeliveryMetric,
+    IntegrationDeliveryMetricCohort,
     IntegrationInstance,
     IntegrationRun,
 )
@@ -28,7 +30,15 @@ from app.schemas.integration import (
     SMTPTestRunResponse,
     SMTP_TEMPLATE_DEFAULTS,
 )
+from app.services.data_access_envelopes import (
+    DATA_ACCESS_RESOURCE_INTEGRATION_DELIVERY,
+    data_access_envelope_predicate,
+)
+from app.services.data_access_policy import DataAccessContext
 from app.services.integration_registry import SMTP_CONFIG_SCHEMA_VERSION
+from app.services.integration_metric_data_policy import (
+    integration_metric_cohort_data_access_predicate,
+)
 from app.services.integration_storage import (
     INTEGRATION_DIRECTION_DESTINATION,
     INTEGRATION_HEALTH_UNKNOWN,
@@ -59,13 +69,25 @@ class SMTPHookValidationError(ValueError):
     pass
 
 
-def list_smtp_hooks(db: Session) -> list[SMTPHookResponse]:
+def list_smtp_hooks(
+    db: Session,
+    *,
+    accessible_feed_ids: Collection[uuid.UUID] | None = None,
+) -> list[SMTPHookResponse]:
     instances = db.scalars(
         select(IntegrationInstance)
         .where(IntegrationInstance.integration_type == SMTP_INTEGRATION_TYPE)
         .order_by(IntegrationInstance.created_at.asc(), IntegrationInstance.id.asc())
     ).all()
-    return [smtp_hook_response(db, instance) for instance in instances if not smtp_instance_is_archived(instance)]
+    return [
+        smtp_hook_response(
+            db,
+            instance,
+            accessible_feed_ids=accessible_feed_ids,
+        )
+        for instance in instances
+        if not smtp_instance_is_archived(instance)
+    ]
 
 
 def get_smtp_hook(
@@ -88,8 +110,12 @@ def get_smtp_hook(
 
 def create_smtp_hook(db: Session, payload: SMTPHookWrite) -> IntegrationInstance:
     _validate_unique_name(db, payload.name)
-    source = validate_smtp_hook_credential_selection(db, payload=payload, lock_source=True)
-    _validate_direct_credentials(instance=None, payload=payload, required=payload.settings.enabled)
+    source = validate_smtp_hook_credential_selection(
+        db, payload=payload, lock_source=True
+    )
+    _validate_direct_credentials(
+        instance=None, payload=payload, required=payload.settings.enabled
+    )
     instance = IntegrationInstance(
         name=payload.name,
         integration_type=SMTP_INTEGRATION_TYPE,
@@ -112,9 +138,13 @@ def create_smtp_hook(db: Session, payload: SMTPHookWrite) -> IntegrationInstance
     return instance
 
 
-def update_smtp_hook(db: Session, instance: IntegrationInstance, payload: SMTPHookWrite) -> None:
+def update_smtp_hook(
+    db: Session, instance: IntegrationInstance, payload: SMTPHookWrite
+) -> None:
     _validate_unique_name(db, payload.name, excluding_id=instance.id)
-    source = validate_smtp_hook_credential_selection(db, payload=payload, target=instance, lock_source=True)
+    source = validate_smtp_hook_credential_selection(
+        db, payload=payload, target=instance, lock_source=True
+    )
     dependents = _active_credential_dependents(db, instance.id)
     if source is not None and dependents:
         raise SMTPHookConflictError(
@@ -141,7 +171,9 @@ def update_smtp_hook(db: Session, instance: IntegrationInstance, payload: SMTPHo
 
 def archive_smtp_hook(db: Session, instance: IntegrationInstance) -> None:
     if instance.system_key == SMTP_SYSTEM_KEY:
-        raise SMTPHookConflictError("The default SMTP hook cannot be deleted. Disable it instead.")
+        raise SMTPHookConflictError(
+            "The default SMTP hook cannot be deleted. Disable it instead."
+        )
     dependents = _active_credential_dependents(db, instance.id)
     if dependents:
         names = ", ".join(sorted(dependent.name for dependent in dependents)[:3])
@@ -149,7 +181,9 @@ def archive_smtp_hook(db: Session, instance: IntegrationInstance) -> None:
         raise SMTPHookConflictError(
             f"SMTP credentials are still used by {names}{suffix}. Choose new credentials for those hooks first."
         )
-    config = dict(instance.config_json) if isinstance(instance.config_json, dict) else {}
+    config = (
+        dict(instance.config_json) if isinstance(instance.config_json, dict) else {}
+    )
     config["archived_at"] = datetime.now(timezone.utc).isoformat()
     instance.config_json = config
     instance.enabled = False
@@ -170,19 +204,29 @@ def validate_smtp_credential_source(
         return None
     if target is not None and source_id == target.id:
         raise SMTPHookConflictError("An SMTP hook cannot reuse its own credentials.")
-    source_query = select(IntegrationInstance).where(IntegrationInstance.id == source_id)
+    source_query = select(IntegrationInstance).where(
+        IntegrationInstance.id == source_id
+    )
     if lock_source:
         source_query = source_query.with_for_update()
     source = db.scalar(source_query)
-    if source is None or source.integration_type != SMTP_INTEGRATION_TYPE or smtp_instance_is_archived(source):
-        raise SMTPHookNotFoundError("The selected SMTP credential source was not found.")
+    if (
+        source is None
+        or source.integration_type != SMTP_INTEGRATION_TYPE
+        or smtp_instance_is_archived(source)
+    ):
+        raise SMTPHookNotFoundError(
+            "The selected SMTP credential source was not found."
+        )
     if source.credential_source_integration_id is not None:
         raise SMTPHookConflictError(
             "The selected SMTP hook already uses shared credentials. Choose a hook with its own credentials."
         )
     source_config = source.config_json if isinstance(source.config_json, dict) else {}
     if not source_config.get("host"):
-        raise SMTPHookConflictError("The selected SMTP credential source does not have a server host configured.")
+        raise SMTPHookConflictError(
+            "The selected SMTP credential source does not have a server host configured."
+        )
     secrets, secret_error = read_smtp_secret_config(source)
     if secret_error:
         raise SMTPHookConflictError(secret_error)
@@ -210,30 +254,50 @@ def validate_smtp_hook_credential_selection(
     return source
 
 
-def smtp_hook_response(db: Session, instance: IntegrationInstance) -> SMTPHookResponse:
+def smtp_hook_response(
+    db: Session,
+    instance: IntegrationInstance,
+    *,
+    accessible_feed_ids: Collection[uuid.UUID] | None = None,
+) -> SMTPHookResponse:
     source = None
     source_error = None
     try:
         source = get_smtp_credential_source(db, instance)
     except SMTPSecretError as exc:
         source_error = str(exc)
-    settings = smtp_settings_response_from_model(instance, credential_source=source)
+    settings = smtp_settings_response_from_model(
+        instance,
+        credential_source=source,
+        accessible_feed_ids=accessible_feed_ids,
+    )
     values = settings.model_dump()
     if source_error:
         values.update(configured=False, health_status="error", last_error=source_error)
     source_id = instance.credential_source_integration_id
-    unresolved_source = db.get(IntegrationInstance, source_id) if source_id and source is None else None
+    unresolved_source = (
+        db.get(IntegrationInstance, source_id) if source_id and source is None else None
+    )
     return SMTPHookResponse(
         **values,
         is_default=instance.system_key == SMTP_SYSTEM_KEY,
         uses_shared_credentials=source_id is not None,
         credential_source_id=source_id,
-        credential_source_name=(source or unresolved_source).name if (source or unresolved_source) is not None else None,
+        credential_source_name=(source or unresolved_source).name
+        if (source or unresolved_source) is not None
+        else None,
     )
 
 
 def list_smtp_template_defaults() -> list[SMTPTemplateDefaultResponse]:
-    order = ("rss_item_new", "alert_match", "feed_failing", "webhook_failed", "daily_digest", "all")
+    order = (
+        "rss_item_new",
+        "alert_match",
+        "feed_failing",
+        "webhook_failed",
+        "daily_digest",
+        "all",
+    )
     return [
         SMTPTemplateDefaultResponse(
             send_for=send_for,
@@ -245,34 +309,71 @@ def list_smtp_template_defaults() -> list[SMTPTemplateDefaultResponse]:
     ]
 
 
-def get_smtp_analytics(db: Session) -> SMTPAnalyticsResponse:
+def get_smtp_analytics(
+    db: Session,
+    *,
+    data_access: DataAccessContext | None = None,
+) -> SMTPAnalyticsResponse:
+    access_predicate = _smtp_delivery_access_predicate(data_access)
     active_hooks = [
         instance
         for instance in db.scalars(
-            select(IntegrationInstance).where(IntegrationInstance.integration_type == SMTP_INTEGRATION_TYPE)
+            select(IntegrationInstance).where(
+                IntegrationInstance.integration_type == SMTP_INTEGRATION_TYPE
+            )
         ).all()
         if not smtp_instance_is_archived(instance)
     ]
-    metric_rows = db.execute(
-        select(
-            IntegrationDeliveryMetric.event_type,
-            func.sum(IntegrationDeliveryMetric.succeeded_count),
-            func.sum(IntegrationDeliveryMetric.failed_count),
-            func.sum(IntegrationDeliveryMetric.dead_letter_count),
+    if data_access is not None and (
+        data_access.enforced or not data_access.principal_eligible
+    ):
+        metric_query = (
+            select(
+                IntegrationDeliveryMetric.event_type,
+                func.sum(IntegrationDeliveryMetricCohort.succeeded_count),
+                func.sum(IntegrationDeliveryMetricCohort.failed_count),
+                func.sum(IntegrationDeliveryMetricCohort.dead_letter_count),
+            )
+            .join(
+                IntegrationDeliveryMetricCohort,
+                IntegrationDeliveryMetricCohort.metric_id
+                == IntegrationDeliveryMetric.id,
+            )
+            .where(
+                IntegrationDeliveryMetric.connector_type
+                == SMTP_INTEGRATION_TYPE,
+                integration_metric_cohort_data_access_predicate(data_access),
+            )
+            .group_by(IntegrationDeliveryMetric.event_type)
         )
-        .where(IntegrationDeliveryMetric.connector_type == SMTP_INTEGRATION_TYPE)
-        .group_by(IntegrationDeliveryMetric.event_type)
-    ).all()
+    else:
+        metric_query = (
+            select(
+                IntegrationDeliveryMetric.event_type,
+                func.sum(IntegrationDeliveryMetric.succeeded_count),
+                func.sum(IntegrationDeliveryMetric.failed_count),
+                func.sum(IntegrationDeliveryMetric.dead_letter_count),
+            )
+            .where(
+                IntegrationDeliveryMetric.connector_type
+                == SMTP_INTEGRATION_TYPE
+            )
+            .group_by(IntegrationDeliveryMetric.event_type)
+        )
+    metric_rows = db.execute(metric_query).all()
     raw_rows = db.execute(
         select(IntegrationDelivery.event_type, IntegrationDelivery.state, func.count())
         .where(
             IntegrationDelivery.connector_type == SMTP_INTEGRATION_TYPE,
             IntegrationDelivery.metrics_aggregated_at.is_(None),
             IntegrationDelivery.state.in_(SMTP_TERMINAL_STATES),
+            access_predicate,
         )
         .group_by(IntegrationDelivery.event_type, IntegrationDelivery.state)
     ).all()
-    events: dict[str, dict[str, int]] = defaultdict(lambda: {"succeeded": 0, "failed": 0})
+    events: dict[str, dict[str, int]] = defaultdict(
+        lambda: {"succeeded": 0, "failed": 0}
+    )
     for event_type, succeeded, failed, dead_letter in metric_rows:
         events[event_type]["succeeded"] += int(succeeded or 0)
         events[event_type]["failed"] += int(failed or 0) + int(dead_letter or 0)
@@ -292,6 +393,7 @@ def get_smtp_analytics(db: Session) -> SMTPAnalyticsResponse:
                 IntegrationDelivery.connector_type == SMTP_INTEGRATION_TYPE,
                 IntegrationDelivery.state.in_(SMTP_FAILURE_STATES),
                 IntegrationDelivery.updated_at >= cutoff,
+                access_predicate,
             )
         )
         or 0
@@ -303,6 +405,7 @@ def get_smtp_analytics(db: Session) -> SMTPAnalyticsResponse:
             .where(
                 IntegrationDelivery.connector_type == SMTP_INTEGRATION_TYPE,
                 IntegrationDelivery.state.in_(("pending", "sending")),
+                access_predicate,
             )
         )
         or 0
@@ -314,6 +417,7 @@ def get_smtp_analytics(db: Session) -> SMTPAnalyticsResponse:
             .where(
                 IntegrationDelivery.connector_type == SMTP_INTEGRATION_TYPE,
                 IntegrationDelivery.state == "retry_wait",
+                access_predicate,
             )
         )
         or 0
@@ -325,10 +429,14 @@ def get_smtp_analytics(db: Session) -> SMTPAnalyticsResponse:
             func.count(),
             func.max(IntegrationDelivery.updated_at),
         )
-        .join(IntegrationInstance, IntegrationInstance.id == IntegrationDelivery.integration_id)
+        .join(
+            IntegrationInstance,
+            IntegrationInstance.id == IntegrationDelivery.integration_id,
+        )
         .where(
             IntegrationDelivery.connector_type == SMTP_INTEGRATION_TYPE,
             IntegrationDelivery.state.in_(SMTP_FAILURE_STATES),
+            access_predicate,
         )
         .group_by(IntegrationDelivery.integration_id, IntegrationInstance.name)
         .order_by(func.count().desc(), func.max(IntegrationDelivery.updated_at).desc())
@@ -372,14 +480,18 @@ def list_smtp_deliveries(
     instance: IntegrationInstance,
     page: int,
     page_size: int,
+    data_access: DataAccessContext | None = None,
 ) -> SMTPDeliveryListResponse:
     query = select(IntegrationDelivery).where(
         IntegrationDelivery.integration_id == instance.id,
         IntegrationDelivery.connector_type == SMTP_INTEGRATION_TYPE,
+        _smtp_delivery_access_predicate(data_access),
     )
     total = int(db.scalar(select(func.count()).select_from(query.subquery())) or 0)
     deliveries = db.scalars(
-        query.order_by(IntegrationDelivery.created_at.desc(), IntegrationDelivery.id.desc())
+        query.order_by(
+            IntegrationDelivery.created_at.desc(), IntegrationDelivery.id.desc()
+        )
         .offset((page - 1) * page_size)
         .limit(page_size)
     ).all()
@@ -389,17 +501,34 @@ def list_smtp_deliveries(
         for attempt in db.scalars(
             select(IntegrationAttempt)
             .where(IntegrationAttempt.delivery_id.in_(delivery_ids))
-            .order_by(IntegrationAttempt.delivery_id.asc(), IntegrationAttempt.attempt_number.asc())
+            .order_by(
+                IntegrationAttempt.delivery_id.asc(),
+                IntegrationAttempt.attempt_number.asc(),
+            )
         ).all():
             attempts_by_delivery[attempt.delivery_id].append(attempt)
     return SMTPDeliveryListResponse(
         deliveries=[
-            _smtp_delivery_response(delivery, attempts=attempts_by_delivery.get(delivery.id, []))
+            _smtp_delivery_response(
+                delivery, attempts=attempts_by_delivery.get(delivery.id, [])
+            )
             for delivery in deliveries
         ],
         total=total,
         page=page,
         page_size=page_size,
+    )
+
+
+def _smtp_delivery_access_predicate(
+    data_access: DataAccessContext | None,
+):
+    if data_access is None:
+        return true()
+    return data_access_envelope_predicate(
+        DATA_ACCESS_RESOURCE_INTEGRATION_DELIVERY,
+        IntegrationDelivery.id,
+        data_access,
     )
 
 
@@ -496,7 +625,9 @@ def _smtp_attempt_response(attempt: IntegrationAttempt) -> SMTPDeliveryAttemptRe
     )
 
 
-def _validate_shared_credential_payload(payload: SMTPHookWrite, *, source: IntegrationInstance | None) -> None:
+def _validate_shared_credential_payload(
+    payload: SMTPHookWrite, *, source: IntegrationInstance | None
+) -> None:
     if source is None:
         return
     if payload.settings.password is not None or payload.settings.clear_password:
@@ -511,7 +642,11 @@ def _validate_direct_credentials(
     payload: SMTPHookWrite,
     required: bool,
 ) -> None:
-    if payload.credential_source_id is not None or not required or not payload.settings.username:
+    if (
+        payload.credential_source_id is not None
+        or not required
+        or not payload.settings.username
+    ):
         return
     if payload.settings.password:
         return
@@ -530,10 +665,14 @@ def _validate_direct_credentials(
     )
 
 
-def _validate_unique_name(db: Session, name: str, *, excluding_id: uuid.UUID | None = None) -> None:
+def _validate_unique_name(
+    db: Session, name: str, *, excluding_id: uuid.UUID | None = None
+) -> None:
     normalized = name.casefold()
     instances = db.scalars(
-        select(IntegrationInstance).where(IntegrationInstance.integration_type == SMTP_INTEGRATION_TYPE)
+        select(IntegrationInstance).where(
+            IntegrationInstance.integration_type == SMTP_INTEGRATION_TYPE
+        )
     ).all()
     if any(
         instance.id != excluding_id
@@ -544,7 +683,9 @@ def _validate_unique_name(db: Session, name: str, *, excluding_id: uuid.UUID | N
         raise SMTPHookConflictError("An SMTP hook with this name already exists.")
 
 
-def _active_credential_dependents(db: Session, source_id: uuid.UUID) -> list[IntegrationInstance]:
+def _active_credential_dependents(
+    db: Session, source_id: uuid.UUID
+) -> list[IntegrationInstance]:
     return [
         instance
         for instance in db.scalars(

@@ -27,13 +27,10 @@ def validate_notification_webhook_payload(
     available_feed_ids: set[uuid.UUID],
 ) -> None:
     if payload.feed_scope == "selected":
-        invalid_feed_ids = [
-            str(feed_id)
-            for feed_id in payload.feed_ids
-            if feed_id not in available_feed_ids
-        ]
-        if invalid_feed_ids:
-            raise ValueError(f"Unknown feed ids: {', '.join(sorted(invalid_feed_ids))}")
+        if any(feed_id not in available_feed_ids for feed_id in payload.feed_ids):
+            # Do not disclose which submitted identifiers exist but are outside
+            # the actor's current handling-label grants.
+            raise ValueError("One or more selected feeds are unavailable")
 
     validate_notification_target_url(payload.url_template)
 
