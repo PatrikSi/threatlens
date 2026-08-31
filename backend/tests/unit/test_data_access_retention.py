@@ -6,7 +6,7 @@ from threading import Event, Thread
 from time import sleep
 
 import pytest
-from sqlalchemy import delete, func, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models.data_policy import (
@@ -27,9 +27,11 @@ from app.models.item import Item
 from app.models.report import Report
 from app.models.report_source_item import ReportSourceItem
 from app.services.data_access_envelopes import (
+    DATA_ACCESS_RESOURCE_DAILY_BRIEF,
     DATA_ACCESS_RESOURCE_INTEGRATION_DELIVERY,
     DATA_ACCESS_RESOURCE_INTEGRATION_EVENT,
     DATA_ACCESS_RESOURCE_REPORT,
+    SUPPORTED_DATA_ACCESS_RESOURCE_TYPES,
 )
 from app.services.data_access_retention import (
     prune_deleted_resource_envelopes,
@@ -44,6 +46,30 @@ from app.services.data_access_runtime import (
 )
 from app.services.ai_reporting import prune_daily_brief_history
 from app.services.report_storage import delete_report
+
+
+def _envelope_resources(
+    db_session,
+    resources: tuple[tuple[str, uuid.UUID], ...],
+) -> set[tuple[str, uuid.UUID]]:
+    return set(
+        db_session.execute(
+            select(
+                DataAccessEnvelope.resource_type,
+                DataAccessEnvelope.resource_id,
+            ).where(
+                or_(
+                    *(
+                        and_(
+                            DataAccessEnvelope.resource_type == resource_type,
+                            DataAccessEnvelope.resource_id == resource_id,
+                        )
+                        for resource_type, resource_id in resources
+                    )
+                )
+            )
+        ).all()
+    )
 
 
 def test_report_and_daily_brief_deletion_remove_leaf_envelopes(db_session):
@@ -82,15 +108,14 @@ def test_report_and_daily_brief_deletion_remove_leaf_envelopes(db_session):
     assert db_session.get(Report, report_id) is None
     assert db_session.get(AIDailyBrief, stale_brief_id) is None
     assert db_session.get(AIDailyBrief, current_brief_id) is not None
-    remaining = set(
-        db_session.execute(
-            select(
-                DataAccessEnvelope.resource_type,
-                DataAccessEnvelope.resource_id,
-            )
-        ).all()
+    resources = (
+        (DATA_ACCESS_RESOURCE_REPORT, report_id),
+        (DATA_ACCESS_RESOURCE_DAILY_BRIEF, stale_brief_id),
+        (DATA_ACCESS_RESOURCE_DAILY_BRIEF, current_brief_id),
     )
-    assert remaining == {("ai_daily_brief", current_brief_id)}
+    assert _envelope_resources(db_session, resources) == {
+        (DATA_ACCESS_RESOURCE_DAILY_BRIEF, current_brief_id)
+    }
 
 
 def test_lineage_retention_deletes_replay_chain_child_first(db_session):
@@ -179,6 +204,12 @@ def test_lineage_retention_deletes_replay_chain_child_first(db_session):
         live.id,
         replay.id,
     )
+    resources = (
+        (DATA_ACCESS_RESOURCE_REPORT, report_id),
+        (DATA_ACCESS_RESOURCE_INTEGRATION_EVENT, event_id),
+        (DATA_ACCESS_RESOURCE_INTEGRATION_DELIVERY, live_id),
+        (DATA_ACCESS_RESOURCE_INTEGRATION_DELIVERY, replay_id),
+    )
 
     db_session.execute(delete(Report).where(Report.id == report_id))
     assert (
@@ -216,19 +247,20 @@ def test_lineage_retention_deletes_replay_chain_child_first(db_session):
         )
         == 2
     )
-    assert db_session.scalar(select(func.count(DataAccessEnvelope.id))) == 0
+    assert _envelope_resources(db_session, resources) == set()
 
 
 def test_orphan_sweep_selects_lineage_leaves_instead_of_starving(db_session):
     policy_revision = db_session.get(DataPolicyState, 1).revision
     now = datetime.now(timezone.utc)
+    created_at = datetime(2000, 1, 1, tzinfo=timezone.utc)
     envelopes = [
         DataAccessEnvelope(
             resource_type=DATA_ACCESS_RESOURCE_REPORT,
             resource_id=uuid.uuid4(),
             source_count=1,
             policy_revision=policy_revision,
-            created_at=now + timedelta(seconds=index),
+            created_at=created_at + timedelta(seconds=index),
         )
         for index in range(3)
     ]
@@ -260,20 +292,25 @@ def test_orphan_sweep_selects_lineage_leaves_instead_of_starving(db_session):
         db_session.flush()
         parent_source_id = source.id
     db_session.commit()
+    resources = tuple(
+        (DATA_ACCESS_RESOURCE_REPORT, envelope.resource_id)
+        for envelope in envelopes
+    )
 
     first = prune_orphan_data_access_envelopes(db_session, limit=1)
     assert first.deleted_count == 1
     assert first.candidates_scanned == 1
     assert first.backlog_remaining is True
+    assert _envelope_resources(db_session, resources) == set(resources[:2])
 
     second = prune_orphan_data_access_envelopes(db_session, limit=1)
     assert second.deleted_count == 1
     assert second.backlog_remaining is True
+    assert _envelope_resources(db_session, resources) == {resources[0]}
 
     third = prune_orphan_data_access_envelopes(db_session, limit=1)
     assert third.deleted_count == 1
-    assert third.backlog_remaining is False
-    assert db_session.scalar(select(func.count(DataAccessEnvelope.id))) == 0
+    assert _envelope_resources(db_session, resources) == set()
 
 
 def test_retention_rejects_invalid_target_references(db_session):
@@ -296,23 +333,39 @@ def test_unknown_resource_types_are_reported_and_retained(db_session, monkeypatc
         "warning",
         lambda message, count: warnings.append((message, count)),
     )
-    policy_revision = db_session.get(DataPolicyState, 1).revision
-    db_session.add(
-        DataAccessEnvelope(
-            resource_type="future_resource",
-            resource_id=uuid.uuid4(),
-            source_count=0,
-            policy_revision=policy_revision,
+    unknown_before = int(
+        db_session.scalar(
+            select(func.count(DataAccessEnvelope.id)).where(
+                DataAccessEnvelope.resource_type.not_in(
+                    tuple(sorted(SUPPORTED_DATA_ACCESS_RESOURCE_TYPES))
+                )
+            )
         )
+        or 0
     )
+    policy_revision = db_session.get(DataPolicyState, 1).revision
+    unknown_envelope = DataAccessEnvelope(
+        resource_type="future_resource",
+        resource_id=uuid.uuid4(),
+        source_count=0,
+        policy_revision=policy_revision,
+    )
+    db_session.add(unknown_envelope)
     db_session.commit()
+    unknown_envelope_id = unknown_envelope.id
 
     result = prune_orphan_data_access_envelopes(db_session, limit=10)
 
-    assert result.deleted_count == 0
-    assert result.unknown_resource_types == 1
+    expected_unknown_count = unknown_before + 1
+    assert db_session.get(DataAccessEnvelope, unknown_envelope_id) is not None
+    assert result.unknown_resource_types == expected_unknown_count
     assert result.backlog_remaining is True
-    assert warnings == [("data_access_retention_unknown_resource_types count=%s", 1)]
+    assert warnings == [
+        (
+            "data_access_retention_unknown_resource_types count=%s",
+            expected_unknown_count,
+        )
+    ]
 
 
 def test_resource_deletion_waits_for_envelope_creation(

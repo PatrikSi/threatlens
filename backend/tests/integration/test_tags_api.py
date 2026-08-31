@@ -30,7 +30,6 @@ def test_create_tag_handles_concurrent_normalized_name_race(database_engine, mon
                     TagCreate(name=name),
                     db=session,
                     user=actor,
-                    _scope_user=actor,
                 )
             except HTTPException as exc:
                 return exc.status_code, str(exc.detail)
