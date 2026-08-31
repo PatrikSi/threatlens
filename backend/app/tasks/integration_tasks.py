@@ -259,6 +259,10 @@ def maintain_integration_delivery_history():
         "deliveries_deleted": result.deliveries_deleted,
         "events_deleted": result.events_deleted,
         "metrics_deleted": result.metrics_deleted,
+        "data_access_envelopes_deleted": result.data_access_envelopes_deleted,
+        "data_access_envelope_candidates_scanned": result.data_access_envelope_candidates_scanned,
+        "data_access_envelope_unknown_types": result.data_access_envelope_unknown_types,
+        "data_access_envelope_backlog_remaining": result.data_access_envelope_backlog_remaining,
     }
 
 

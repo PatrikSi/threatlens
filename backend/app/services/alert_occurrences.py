@@ -9,6 +9,11 @@ from sqlalchemy.orm import Session
 
 from app.models.alert_occurrence import AlertOccurrence, AlertOccurrenceActivity
 from app.models.user import User
+from app.services.data_access_envelopes import (
+    DATA_ACCESS_RESOURCE_ALERT_OCCURRENCE,
+    data_access_envelope_predicate,
+)
+from app.services.data_access_policy import DataAccessContext
 
 
 ALERT_OCCURRENCE_STATES = frozenset({"new", "acknowledged", "investigating", "closed"})
@@ -55,6 +60,7 @@ def list_alert_occurrences(
     db: Session,
     *,
     user: User,
+    data_access: DataAccessContext,
     lifecycle_states: list[str],
     severities: list[str],
     alert_interest_id: uuid.UUID | None,
@@ -65,7 +71,14 @@ def list_alert_occurrences(
     page: int,
     page_size: int,
 ) -> AlertOccurrencePage:
-    predicates = [AlertOccurrence.owner_user_id == user.id]
+    predicates = [
+        AlertOccurrence.owner_user_id == user.id,
+        data_access_envelope_predicate(
+            DATA_ACCESS_RESOURCE_ALERT_OCCURRENCE,
+            AlertOccurrence.id,
+            data_access,
+        ),
+    ]
     if lifecycle_states:
         predicates.append(AlertOccurrence.lifecycle_state.in_(lifecycle_states))
     if severities:
@@ -111,11 +124,17 @@ def get_alert_occurrence(
     *,
     user: User,
     occurrence_id: uuid.UUID,
+    data_access: DataAccessContext,
     for_update: bool = False,
 ) -> AlertOccurrence:
     query = select(AlertOccurrence).where(
         AlertOccurrence.id == occurrence_id,
         AlertOccurrence.owner_user_id == user.id,
+        data_access_envelope_predicate(
+            DATA_ACCESS_RESOURCE_ALERT_OCCURRENCE,
+            AlertOccurrence.id,
+            data_access,
+        ),
     )
     if for_update:
         query = query.with_for_update().execution_options(populate_existing=True)
@@ -130,6 +149,7 @@ def update_alert_occurrence_lifecycle(
     *,
     user: User,
     occurrence_id: uuid.UUID,
+    data_access: DataAccessContext,
     expected_version: int,
     target_state: str,
     disposition: str | None,
@@ -139,6 +159,7 @@ def update_alert_occurrence_lifecycle(
         db,
         user=user,
         occurrence_id=occurrence_id,
+        data_access=data_access,
         for_update=True,
     )
     _require_expected_version(occurrence, expected_version)
@@ -156,6 +177,7 @@ def bulk_update_alert_occurrence_lifecycle(
     db: Session,
     *,
     user: User,
+    data_access: DataAccessContext,
     entries: list[tuple[uuid.UUID, int]],
     target_state: str,
     disposition: str | None,
@@ -178,6 +200,11 @@ def bulk_update_alert_occurrence_lifecycle(
             .where(
                 AlertOccurrence.owner_user_id == user.id,
                 AlertOccurrence.id.in_(occurrence_ids),
+                data_access_envelope_predicate(
+                    DATA_ACCESS_RESOURCE_ALERT_OCCURRENCE,
+                    AlertOccurrence.id,
+                    data_access,
+                ),
             )
             .order_by(AlertOccurrence.id.asc())
             .with_for_update()
@@ -210,6 +237,7 @@ def update_alert_occurrence_snooze(
     *,
     user: User,
     occurrence_id: uuid.UUID,
+    data_access: DataAccessContext,
     expected_version: int,
     snoozed_until: datetime | None,
     reason: str | None,
@@ -220,6 +248,7 @@ def update_alert_occurrence_snooze(
         db,
         user=user,
         occurrence_id=occurrence_id,
+        data_access=data_access,
         for_update=True,
     )
     _require_expected_version(occurrence, expected_version)
@@ -286,10 +315,16 @@ def list_alert_occurrence_activity(
     *,
     user: User,
     occurrence_id: uuid.UUID,
+    data_access: DataAccessContext,
     page: int,
     page_size: int,
 ) -> AlertOccurrenceActivityPage:
-    get_alert_occurrence(db, user=user, occurrence_id=occurrence_id)
+    get_alert_occurrence(
+        db,
+        user=user,
+        occurrence_id=occurrence_id,
+        data_access=data_access,
+    )
     predicate = AlertOccurrenceActivity.occurrence_id == occurrence_id
     total = (
         db.scalar(select(func.count(AlertOccurrenceActivity.id)).where(predicate)) or 0

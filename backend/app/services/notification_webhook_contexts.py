@@ -16,6 +16,10 @@ from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.schemas.notification import NotificationEventType, NotificationWebhookWrite
 from app.services.alert_matching import build_item_haystack, match_alert_keywords
+from app.services.data_access_policy import (
+    DataAccessContext,
+    handling_label_access_predicate,
+)
 from app.services.daily_brief_notifications import (
     DailyBriefNotificationContextError,
     daily_brief_context_from_payload,
@@ -36,20 +40,41 @@ def resolve_sample_feed_and_item(
     payload: NotificationWebhookWrite,
     sample_item_id: uuid.UUID | None,
     sample_feed_id: uuid.UUID | None,
+    data_access: DataAccessContext | None = None,
 ) -> tuple[Feed | SimpleNamespace, Item | SimpleNamespace]:
+    feed_access = (
+        handling_label_access_predicate(Feed.handling_label_id, data_access)
+        if data_access is not None
+        else True
+    )
     if sample_item_id is not None:
-        item = db.scalar(select(Item).where(Item.id == sample_item_id))
-        if item is None:
+        row = db.execute(
+            select(Item, Feed)
+            .join(Feed, Feed.id == Item.feed_id)
+            .where(Item.id == sample_item_id, feed_access)
+        ).first()
+        if row is None:
             raise ValueError("Sample item not found")
-        feed = db.scalar(select(Feed).where(Feed.id == item.feed_id))
-        if feed is None:
+        item = row.Item
+        feed = row.Feed
+        if sample_feed_id is not None:
+            requested_feed = db.scalar(
+                select(Feed).where(Feed.id == sample_feed_id, feed_access)
+            )
+            if requested_feed is None:
+                raise ValueError("Sample feed not found")
+            if requested_feed.id != feed.id:
+                raise ValueError("Sample item not found")
+        if feed is None:  # pragma: no cover - protected by the inner join
             raise ValueError("Sample feed not found")
         return feed, item
 
     feed: Feed | None = None
     item: Item | None = None
     if sample_feed_id is not None:
-        feed = db.scalar(select(Feed).where(Feed.id == sample_feed_id))
+        feed = db.scalar(
+            select(Feed).where(Feed.id == sample_feed_id, feed_access)
+        )
         if feed is None:
             raise ValueError("Sample feed not found")
         item = db.scalar(
@@ -59,7 +84,9 @@ def resolve_sample_feed_and_item(
         )
     elif payload.feed_scope == "selected" and payload.feed_ids:
         candidate_feed_id = payload.feed_ids[0]
-        feed = db.scalar(select(Feed).where(Feed.id == candidate_feed_id))
+        feed = db.scalar(
+            select(Feed).where(Feed.id == candidate_feed_id, feed_access)
+        )
         if feed is not None:
             item = db.scalar(
                 select(Item)
@@ -67,9 +94,16 @@ def resolve_sample_feed_and_item(
                 .order_by(Item.first_seen_at.desc())
             )
     else:
-        item = db.scalar(select(Item).order_by(Item.first_seen_at.desc()))
-        if item is not None:
-            feed = db.scalar(select(Feed).where(Feed.id == item.feed_id))
+        row = db.execute(
+            select(Item, Feed)
+            .join(Feed, Feed.id == Item.feed_id)
+            .where(feed_access)
+            .order_by(Item.first_seen_at.desc())
+            .limit(1)
+        ).first()
+        if row is not None:
+            item = row.Item
+            feed = row.Feed
 
     if feed is None:
         feed = SimpleNamespace(

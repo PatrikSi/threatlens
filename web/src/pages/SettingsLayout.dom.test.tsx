@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const settingsLayoutMocks = vi.hoisted(() => ({
   currentUserError: false,
+  integrationChildrenVisible: true,
 }))
 
 vi.mock('../hooks/useCurrentUser', () => ({
@@ -33,6 +34,35 @@ vi.mock('../hooks/useCurrentUser', () => ({
     isError: settingsLayoutMocks.currentUserError,
     error: null,
   }),
+}))
+
+vi.mock('../workspace/useWorkspace', () => ({
+  useWorkspace: () => {
+    const account = { id: 'settings.account', route: '/settings/account', label: 'Account', parentId: 'primary.settings' }
+    const tokens = { id: 'settings.tokens', route: '/settings/tokens', label: 'API Tokens', parentId: 'primary.settings' }
+    const workspace = { id: 'settings.workspace', route: '/settings/workspace', label: 'Workspace', parentId: 'primary.settings' }
+    const integrations = { id: 'settings.integrations', route: '/settings/integrations', label: 'Integrations', parentId: 'primary.settings' }
+    const webhooks = { id: 'settings.integrations.webhooks', route: '/settings/integrations/webhooks', label: 'Webhooks', parentId: 'settings.integrations' }
+    const smtp = { id: 'settings.integrations.smtp', route: '/settings/integrations/smtp', label: 'SMTP', parentId: 'settings.integrations' }
+    const adminModules = [
+      { id: 'settings.ai', route: '/settings/ai', label: 'AI', parentId: 'primary.settings' },
+      { id: 'settings.tagging', route: '/settings/tagging', label: 'Tagging', parentId: 'primary.settings' },
+      { id: 'settings.identity', route: '/settings/identity', label: 'Identity', parentId: 'primary.settings' },
+      { id: 'settings.users', route: '/settings/users', label: 'Users', parentId: 'primary.settings' },
+      { id: 'settings.audit', route: '/settings/audit-logs', label: 'Audit Logs', parentId: 'primary.settings' },
+      { id: 'settings.operations', route: '/settings/operations', label: 'Operations', parentId: 'primary.settings' },
+    ]
+    const children = settingsLayoutMocks.integrationChildrenVisible
+      ? settingsLayoutMocks.currentUserError ? [webhooks] : [webhooks, smtp]
+      : []
+    const common = settingsLayoutMocks.currentUserError ? [] : adminModules
+    return {
+      model: {
+        settingsNavigation: [account, integrations, tokens, workspace, ...common, ...children],
+        mobileSettingsNavigation: [workspace, tokens, integrations, account, ...common, ...children],
+      },
+    }
+  },
 }))
 
 import { SettingsLayout } from './SettingsLayout'
@@ -71,6 +101,7 @@ afterEach(() => {
   container = null
   document.body.innerHTML = ''
   settingsLayoutMocks.currentUserError = false
+  settingsLayoutMocks.integrationChildrenVisible = true
 })
 
 describe('SettingsLayout navigation', () => {
@@ -126,6 +157,31 @@ describe('SettingsLayout navigation', () => {
     expect(document.body.textContent ?? '').toContain('SMTP body')
   })
 
+  it('places Integrations by desktop order and honors a separate mobile priority order', () => {
+    const view = renderLayout('/settings/account')
+    const desktopItems = topLevelNavigationLabels(
+      view.querySelector('#desktop-settings-navigation > div'),
+    )
+    expect(desktopItems.slice(0, 4)).toEqual(['Account', 'Integrations', 'API Tokens', 'Workspace'])
+
+    act(() => {
+      view.querySelector<HTMLButtonElement>('[aria-controls="mobile-settings-navigation"]')?.click()
+    })
+    const mobileItems = topLevelNavigationLabels(
+      view.querySelector('#mobile-settings-navigation nav'),
+    )
+    expect(mobileItems.slice(0, 4)).toEqual(['Workspace', 'API Tokens', 'Integrations', 'Account'])
+  })
+
+  it('does not render an empty Integrations container when no child route is available', () => {
+    settingsLayoutMocks.integrationChildrenVisible = false
+    const view = renderLayout('/settings/account')
+
+    expect(
+      Array.from(view.querySelectorAll('button')).some((button) => button.textContent?.trim() === 'Integrations'),
+    ).toBe(false)
+  })
+
   it('fails closed and labels the role unavailable when identity refresh fails', () => {
     settingsLayoutMocks.currentUserError = true
     const view = renderLayout('/settings/account')
@@ -140,3 +196,12 @@ describe('SettingsLayout navigation', () => {
     expect(view.textContent).not.toContain('SMTP')
   })
 })
+
+function topLevelNavigationLabels(container: Element | null) {
+  return Array.from(container?.children ?? []).map((element) => {
+    const control = element.matches('a, button')
+      ? element
+      : element.querySelector(':scope > a, :scope > button')
+    return control?.textContent?.trim() ?? ''
+  })
+}

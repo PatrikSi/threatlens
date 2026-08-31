@@ -1,16 +1,23 @@
 import logging
 import uuid
-from hashlib import sha256
+from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_admin_user, get_current_user, require_token_scopes
+from app.api.deps import (
+    get_admin_user,
+    get_current_user,
+    get_data_access_context,
+    require_token_scopes,
+)
 from app.core.config import get_settings
 from app.core.logging_config import redact_log_text, verbose_logging_enabled
 from app.core.token_scopes import SCOPE_READ_AI, SCOPE_READ_ITEMS, SCOPE_WRITE_AI
 from app.db.session import get_db
 from app.models.user import User
+from app.models.ai_task_run import AITaskRun
+from app.models.audit_log import AuditLog
 from app.schemas.ai import (
     AIAuditEntryResponse,
     AIDailyBriefBackfillRequest,
@@ -48,64 +55,72 @@ from app.services.ai_integration import (
 )
 from app.services.ai_ops import (
     AI_STATUS_ERROR,
-    AI_STATUS_QUEUED,
     AI_STATUS_READY,
-    AI_STATUS_RUNNING,
     AI_STATUS_SKIPPED,
     AI_TASK_TYPE_CONNECTION_TEST,
     AI_TASK_TYPE_DAILY_BRIEF,
     AI_TASK_TYPE_REPROCESS,
     AI_TRIGGER_MANUAL,
-    cancel_ai_task_run,
     finish_ai_task_run,
     get_ai_connection_test_workload,
-    get_ai_live_status,
-    get_ai_ops_overview,
-    get_ai_task_run_detail,
     list_ai_manual_actions,
     list_ai_prompt_history,
-    list_ai_task_runs,
     list_daily_brief_source_items,
     queue_ai_task_run,
     start_ai_task_run,
     update_ai_task_run_celery,
 )
 from app.services.audit import record_audit
+from app.services.data_access_policy import DataAccessContext
+from app.services.data_policy_audit import record_data_policy_decision
+from app.services.ai_telemetry_data_policy import (
+    ai_audit_history_would_deny_summary,
+    ai_task_run_would_deny_summary,
+    ai_usage_event_would_deny_summary,
+    cancel_ai_task_run_for_data_access,
+    capture_ai_task_run_data_access,
+    get_ai_task_run_detail_for_data_access,
+    list_ai_task_runs_for_data_access,
+)
+from app.services.ai_ops_metrics import build_ai_ops_overview
+from app.services.ai_task_projection import AI_MANUAL_ACTIONS
+from app.services.ai_task_runtime import (
+    get_ai_db_live_status,
+    get_ai_live_status_for_data_access,
+)
+from app.api.routes.ai_policy_helpers import (
+    ai_live_would_deny_summary,
+    ai_run_list_filters,
+    record_ai_overview_would_deny,
+    record_ai_telemetry_would_deny,
+    refence_ai_context,
+    require_ai_authorization_context,
+)
+from app.api.routes.ai_route_helpers import (
+    celery_task_id as _celery_task_id,
+    effective_reprocess_limit as _effective_reprocess_limit,
+    hash_prompt as _hash_prompt,
+    queue_response_task_id as _queue_response_task_id,
+    require_ai_enabled,
+)
 from app.services.report_task_lineage import ReportTaskLineageError
 from app.tasks.feed_tasks import CoordinationUnavailableError, daily_ai_brief_lock
-from app.tasks.feed_tasks import backfill_daily_ai_briefs, dispatch_daily_ai_brief_generation, reprocess_recent_ai_items
+from app.tasks.feed_tasks import (
+    backfill_daily_ai_briefs,
+    dispatch_daily_ai_brief_generation,
+    reprocess_recent_ai_items,
+)
 from app.tasks.integration_tasks import enqueue_integration_event_routing
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 logger = logging.getLogger(__name__)
 
 
-def require_ai_enabled():
-    if not get_settings().ai_enabled:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AI features are disabled")
-
-
-def _hash_prompt(value: str | None) -> str | None:
-    if value is None:
-        return None
-    return sha256(value.encode("utf-8", errors="ignore")).hexdigest()
-
-
-def _effective_reprocess_limit(limit: int) -> int:
-    settings = get_settings()
-    return max(1, min(int(limit), int(settings.dispatch_ai_reprocess_batch_size)))
-
-
-def _celery_task_id(task: object) -> str | None:
-    task_id = getattr(task, "id", None)
-    return str(task_id) if task_id else None
-
-
-def _queue_response_task_id(task: object, run_id: uuid.UUID) -> str:
-    return _celery_task_id(task) or str(run_id)
-
-
-@router.get("/settings", response_model=AISettingsResponse, dependencies=[Depends(require_ai_enabled)])
+@router.get(
+    "/settings",
+    response_model=AISettingsResponse,
+    dependencies=[Depends(require_ai_enabled)],
+)
 def get_ai_settings_route(
     db: Session = Depends(get_db),
     admin: User = Depends(get_admin_user),
@@ -116,7 +131,11 @@ def get_ai_settings_route(
     return ai_settings_response_from_model(settings)
 
 
-@router.put("/settings", response_model=AISettingsResponse, dependencies=[Depends(require_ai_enabled)])
+@router.put(
+    "/settings",
+    response_model=AISettingsResponse,
+    dependencies=[Depends(require_ai_enabled)],
+)
 def update_ai_settings_route(
     payload: AISettingsUpdate,
     db: Session = Depends(get_db),
@@ -201,12 +220,20 @@ def update_ai_settings_route(
             "request_max_retries": payload.request_max_retries,
             "changed_fields": after_changed_fields,
             "prompt_hashes": {
-                "item_enrichment_system_prompt": _hash_prompt(payload.item_enrichment_system_prompt),
-                "daily_brief_system_prompt": _hash_prompt(payload.daily_brief_system_prompt),
+                "item_enrichment_system_prompt": _hash_prompt(
+                    payload.item_enrichment_system_prompt
+                ),
+                "daily_brief_system_prompt": _hash_prompt(
+                    payload.daily_brief_system_prompt
+                ),
                 "global_instructions": _hash_prompt(payload.global_instructions),
-                "item_summary_instructions": _hash_prompt(payload.item_summary_instructions),
+                "item_summary_instructions": _hash_prompt(
+                    payload.item_summary_instructions
+                ),
                 "relevance_instructions": _hash_prompt(payload.relevance_instructions),
-                "daily_brief_instructions": _hash_prompt(payload.daily_brief_instructions),
+                "daily_brief_instructions": _hash_prompt(
+                    payload.daily_brief_instructions
+                ),
             },
         },
     )
@@ -216,7 +243,11 @@ def update_ai_settings_route(
     return ai_settings_response_from_model(settings)
 
 
-@router.post("/test-connection", response_model=AITestConnectionResponse, dependencies=[Depends(require_ai_enabled)])
+@router.post(
+    "/test-connection",
+    response_model=AITestConnectionResponse,
+    dependencies=[Depends(require_ai_enabled)],
+)
 def test_ai_connection_route(
     db: Session = Depends(get_db),
     admin: User = Depends(get_admin_user),
@@ -260,7 +291,9 @@ def test_ai_connection_route(
             model=settings.model,
         )
         db.commit()
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
 
     finish_ai_task_run(
         db,
@@ -278,55 +311,109 @@ def test_ai_connection_route(
         action="ai.connection.test",
         resource_type="ai_settings",
         success=result.success,
-        metadata={"model": result.model, "latency_ms": result.latency_ms, "run_id": str(run.id)},
+        metadata={
+            "model": result.model,
+            "latency_ms": result.latency_ms,
+            "run_id": str(run.id),
+        },
     )
     db.commit()
     return result
 
 
-@router.get("/usage", response_model=AIUsageSummaryResponse, dependencies=[Depends(require_ai_enabled)])
+@router.get(
+    "/usage",
+    response_model=AIUsageSummaryResponse,
+    dependencies=[Depends(require_ai_enabled)],
+)
 def get_ai_usage_route(
+    request: Request,
     db: Session = Depends(get_db),
     admin: User = Depends(get_admin_user),
     _scope_user: User = Depends(require_token_scopes(SCOPE_READ_AI)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     _ = admin
-    return get_ai_usage_summary(db)
+    authorization = require_ai_authorization_context(request)
+    response = get_ai_usage_summary(db, data_access=data_access)
+    refence_ai_context(
+        db,
+        authorization=authorization,
+        data_access=data_access,
+    )
+    record_ai_telemetry_would_deny(
+        request,
+        db,
+        data_access=data_access,
+        summary=ai_usage_event_would_deny_summary(
+            db,
+            data_access=data_access,
+        ),
+        surface="ai.usage.read",
+        resource_type="ai_usage_event",
+        history_scope="usage_aggregate",
+    )
+    return response
 
 
-@router.get("/daily-brief/latest", response_model=AIDailyBriefResponse, dependencies=[Depends(require_ai_enabled)])
+@router.get(
+    "/daily-brief/latest",
+    response_model=AIDailyBriefResponse,
+    dependencies=[Depends(require_ai_enabled)],
+)
 def get_latest_daily_brief_route(
     db: Session = Depends(get_db),
     _user: User = Depends(get_current_user),
     _scope_user: User = Depends(require_token_scopes(SCOPE_READ_ITEMS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     active = load_active_ai_settings(db)
     if not active.ai_configured or not active.daily_brief_enabled:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Daily brief is unavailable")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Daily brief is unavailable"
+        )
 
-    brief = get_latest_daily_brief(db)
+    brief = get_latest_daily_brief(db, data_access=data_access)
     if brief is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No daily brief has been generated yet")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No daily brief has been generated yet",
+        )
     return daily_brief_response_from_model(db, brief)
 
 
-@router.get("/daily-briefs", response_model=list[AIDailyBriefResponse], dependencies=[Depends(require_ai_enabled)])
+@router.get(
+    "/daily-briefs",
+    response_model=list[AIDailyBriefResponse],
+    dependencies=[Depends(require_ai_enabled)],
+)
 def list_daily_briefs_route(
     limit: int | None = Query(default=None, ge=1, le=90),
     db: Session = Depends(get_db),
     _user: User = Depends(get_current_user),
     _scope_user: User = Depends(require_token_scopes(SCOPE_READ_ITEMS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     active = load_active_ai_settings(db)
     if not active.ai_configured or not active.daily_brief_enabled:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Daily brief is unavailable")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Daily brief is unavailable"
+        )
 
     effective_limit = limit or active.daily_brief_history_limit
-    briefs = get_recent_daily_briefs(db, limit=effective_limit)
+    briefs = get_recent_daily_briefs(
+        db,
+        limit=effective_limit,
+        data_access=data_access,
+    )
     return [daily_brief_response_from_model(db, brief) for brief in briefs]
 
 
-@router.post("/daily-brief/generate", response_model=AIDailyBriefResponse, dependencies=[Depends(require_ai_enabled)])
+@router.post(
+    "/daily-brief/generate",
+    response_model=AIDailyBriefResponse,
+    dependencies=[Depends(require_ai_enabled)],
+)
 def generate_daily_brief_route(
     db: Session = Depends(get_db),
     admin: User = Depends(get_admin_user),
@@ -341,7 +428,9 @@ def generate_daily_brief_route(
         model=settings.model,
         metadata={"force": True},
     )
-    start_ai_task_run(db, run_id=run.id, worker_name="api", metadata_updates={"force": True})
+    start_ai_task_run(
+        db, run_id=run.id, worker_name="api", metadata_updates={"force": True}
+    )
     db.commit()
 
     try:
@@ -357,7 +446,10 @@ def generate_daily_brief_route(
                     metadata_updates={"force": True},
                 )
                 db.commit()
-                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Daily brief is already running")
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Daily brief is already running",
+                )
 
             result = run_daily_brief_generation(db, force=True, task_run_id=run.id)
     except CoordinationUnavailableError as exc:
@@ -371,28 +463,45 @@ def generate_daily_brief_route(
             model=settings.model,
         )
         db.commit()
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Task queue is temporarily unavailable. Try again later.") from exc
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Task queue is temporarily unavailable. Try again later.",
+        ) from exc
 
     finish_ai_task_run(
         db,
         run_id=run.id,
-        status=AI_STATUS_READY if result.status == "ready" else AI_STATUS_ERROR if result.status == "error" else AI_STATUS_SKIPPED,
+        status=AI_STATUS_READY
+        if result.status == "ready"
+        else AI_STATUS_ERROR
+        if result.status == "error"
+        else AI_STATUS_SKIPPED,
         reason=result.reason,
-        error=result.brief.error if result.brief is not None and result.status == "error" else None,
+        error=result.brief.error
+        if result.brief is not None and result.status == "error"
+        else None,
         worker_name="api",
         model=result.brief.model if result.brief is not None else settings.model,
         prompt_tokens=result.brief.prompt_tokens if result.brief is not None else None,
-        completion_tokens=result.brief.completion_tokens if result.brief is not None else None,
+        completion_tokens=result.brief.completion_tokens
+        if result.brief is not None
+        else None,
         total_tokens=result.brief.total_tokens if result.brief is not None else None,
         latency_ms=result.brief.latency_ms if result.brief is not None else None,
         prompt_char_count=result.prompt_char_count,
         response_char_count=result.response_char_count,
-        metadata_updates={"items_considered": result.items_considered, "items_selected": result.items_selected},
+        metadata_updates={
+            "items_considered": result.items_considered,
+            "items_selected": result.items_selected,
+        },
         daily_brief_id=result.brief.id if result.brief is not None else None,
     )
     if result.brief is None:
         db.commit()
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="No items are available for a daily brief")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="No items are available for a daily brief",
+        )
 
     record_audit(
         db,
@@ -407,7 +516,9 @@ def generate_daily_brief_route(
             "run_id": str(run.id),
             "items_considered": result.items_considered,
             "items_selected": result.items_selected,
-            "integration_event_id": str(result.integration_event_id) if result.integration_event_id else None,
+            "integration_event_id": str(result.integration_event_id)
+            if result.integration_event_id
+            else None,
         },
     )
     db.commit()
@@ -417,7 +528,11 @@ def generate_daily_brief_route(
     return daily_brief_response_from_model(db, result.brief)
 
 
-@router.post("/daily-brief/queue", response_model=AIQueuedTaskResponse, dependencies=[Depends(require_ai_enabled)])
+@router.post(
+    "/daily-brief/queue",
+    response_model=AIQueuedTaskResponse,
+    dependencies=[Depends(require_ai_enabled)],
+)
 def queue_daily_brief_route(
     db: Session = Depends(get_db),
     admin: User = Depends(get_admin_user),
@@ -436,12 +551,15 @@ def queue_daily_brief_route(
     task = _enqueue_task_run_or_fail(
         db,
         run_id=run.id,
-        task_factory=lambda: dispatch_daily_ai_brief_generation.delay(True, str(run.id), str(admin.id)),
+        task_factory=lambda: dispatch_daily_ai_brief_generation.delay(
+            True, str(run.id), str(admin.id)
+        ),
         on_enqueue_failure=lambda error: record_audit(
             db,
             actor_user_id=admin.id,
             action="ai.daily_brief.queue",
-            resource_type="ai_daily_brief",
+            resource_type="ai_task_run",
+            resource_id=str(run.id),
             success=False,
             metadata={"run_id": str(run.id), "error": error},
         ),
@@ -453,15 +571,26 @@ def queue_daily_brief_route(
         db,
         actor_user_id=admin.id,
         action="ai.daily_brief.queue",
-        resource_type="ai_daily_brief",
+        resource_type="ai_task_run",
+        resource_id=str(run.id),
         success=True,
-        metadata={"task_id": task_id, "celery_task_id": celery_task_id, "run_id": str(run.id)},
+        metadata={
+            "task_id": task_id,
+            "celery_task_id": celery_task_id,
+            "run_id": str(run.id),
+        },
     )
     db.commit()
-    return AIQueuedTaskResponse(task_id=task_id, queued=True, run_id=run.id, celery_task_id=celery_task_id)
+    return AIQueuedTaskResponse(
+        task_id=task_id, queued=True, run_id=run.id, celery_task_id=celery_task_id
+    )
 
 
-@router.post("/daily-brief/backfill", response_model=AIDailyBriefBackfillResponse, dependencies=[Depends(require_ai_enabled)])
+@router.post(
+    "/daily-brief/backfill",
+    response_model=AIDailyBriefBackfillResponse,
+    dependencies=[Depends(require_ai_enabled)],
+)
 def queue_daily_brief_backfill_route(
     payload: AIDailyBriefBackfillRequest,
     db: Session = Depends(get_db),
@@ -494,12 +623,15 @@ def queue_daily_brief_backfill_route(
     task = _enqueue_task_run_or_fail(
         db,
         run_id=run.id,
-        task_factory=lambda: backfill_daily_ai_briefs.delay(payload.days, str(run.id), str(admin.id)),
+        task_factory=lambda: backfill_daily_ai_briefs.delay(
+            payload.days, str(run.id), str(admin.id)
+        ),
         on_enqueue_failure=lambda error: record_audit(
             db,
             actor_user_id=admin.id,
             action="ai.daily_brief.backfill.queue",
-            resource_type="ai_daily_brief",
+            resource_type="ai_task_run",
+            resource_id=str(run.id),
             success=False,
             metadata={"run_id": str(run.id), "days": payload.days, "error": error},
         ),
@@ -511,9 +643,15 @@ def queue_daily_brief_backfill_route(
         db,
         actor_user_id=admin.id,
         action="ai.daily_brief.backfill.queue",
-        resource_type="ai_daily_brief",
+        resource_type="ai_task_run",
+        resource_id=str(run.id),
         success=True,
-        metadata={"task_id": task_id, "celery_task_id": celery_task_id, "run_id": str(run.id), "days": payload.days},
+        metadata={
+            "task_id": task_id,
+            "celery_task_id": celery_task_id,
+            "run_id": str(run.id),
+            "days": payload.days,
+        },
     )
     db.commit()
     return AIDailyBriefBackfillResponse(
@@ -525,7 +663,11 @@ def queue_daily_brief_backfill_route(
     )
 
 
-@router.post("/reprocess", response_model=AIReprocessResponse, dependencies=[Depends(require_ai_enabled)])
+@router.post(
+    "/reprocess",
+    response_model=AIReprocessResponse,
+    dependencies=[Depends(require_ai_enabled)],
+)
 def reprocess_ai_for_recent_items_route(
     payload: AIReprocessRequest,
     db: Session = Depends(get_db),
@@ -550,13 +692,23 @@ def reprocess_ai_for_recent_items_route(
             "days": payload.days,
             "limit": payload.limit,
             "effective_limit": effective_limit,
-            "start_time": payload.start_time.isoformat() if payload.start_time else None,
+            "start_time": payload.start_time.isoformat()
+            if payload.start_time
+            else None,
             "end_time": payload.end_time.isoformat() if payload.end_time else None,
             "feed_ids": [str(feed_id) for feed_id in payload.feed_ids],
             "item_ids": [str(item_id) for item_id in payload.item_ids],
             "date_basis": "published_at_or_first_seen_at",
         },
     )
+    if payload.item_ids or payload.feed_ids:
+        capture_ai_task_run_data_access(
+            db,
+            run_id=run.id,
+            item_ids=payload.item_ids,
+            feed_ids=payload.feed_ids,
+            complete=True,
+        )
     db.commit()
     task = _enqueue_task_run_or_fail(
         db,
@@ -575,13 +727,16 @@ def reprocess_ai_for_recent_items_route(
             db,
             actor_user_id=admin.id,
             action="ai.reprocess.queue",
-            resource_type="ai_settings",
+            resource_type="ai_task_run",
+            resource_id=str(run.id),
             success=False,
             metadata={
                 "days": payload.days,
                 "limit": payload.limit,
                 "effective_limit": effective_limit,
-                "start_time": payload.start_time.isoformat() if payload.start_time else None,
+                "start_time": payload.start_time.isoformat()
+                if payload.start_time
+                else None,
                 "end_time": payload.end_time.isoformat() if payload.end_time else None,
                 "feed_ids": [str(feed_id) for feed_id in payload.feed_ids],
                 "item_ids": [str(item_id) for item_id in payload.item_ids],
@@ -598,12 +753,15 @@ def reprocess_ai_for_recent_items_route(
         db,
         actor_user_id=admin.id,
         action="ai.reprocess.queue",
-        resource_type="ai_settings",
+        resource_type="ai_task_run",
+        resource_id=str(run.id),
         metadata={
             "days": payload.days,
             "limit": payload.limit,
             "effective_limit": effective_limit,
-            "start_time": payload.start_time.isoformat() if payload.start_time else None,
+            "start_time": payload.start_time.isoformat()
+            if payload.start_time
+            else None,
             "end_time": payload.end_time.isoformat() if payload.end_time else None,
             "feed_ids": [str(feed_id) for feed_id in payload.feed_ids],
             "item_ids": [str(item_id) for item_id in payload.item_ids],
@@ -614,10 +772,14 @@ def reprocess_ai_for_recent_items_route(
         },
     )
     db.commit()
-    return AIReprocessResponse(task_id=task_id, queued=True, run_id=run.id, celery_task_id=celery_task_id)
+    return AIReprocessResponse(
+        task_id=task_id, queued=True, run_id=run.id, celery_task_id=celery_task_id
+    )
 
 
-def _enqueue_task_run_or_fail(db: Session, *, run_id: uuid.UUID, task_factory, on_enqueue_failure=None):
+def _enqueue_task_run_or_fail(
+    db: Session, *, run_id: uuid.UUID, task_factory, on_enqueue_failure=None
+):
     try:
         return task_factory()
     except Exception as exc:
@@ -645,29 +807,87 @@ def _enqueue_task_run_or_fail(db: Session, *, run_id: uuid.UUID, task_factory, o
         ) from exc
 
 
-@router.get("/ops/overview", response_model=AIOpsOverviewResponse, dependencies=[Depends(require_ai_enabled)])
+@router.get(
+    "/ops/overview",
+    response_model=AIOpsOverviewResponse,
+    dependencies=[Depends(require_ai_enabled)],
+)
 def get_ai_ops_overview_route(
+    request: Request,
     days: int = Query(default=30, ge=1, le=365),
     db: Session = Depends(get_db),
     admin: User = Depends(get_admin_user),
     _scope_user: User = Depends(require_token_scopes(SCOPE_READ_AI)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     _ = admin
-    return get_ai_ops_overview(db, days=days)
+    authorization = require_ai_authorization_context(request)
+    response = build_ai_ops_overview(
+        db,
+        days=days,
+        data_access=data_access,
+        live_status_loader=lambda session: get_ai_db_live_status(
+            session,
+            data_access=data_access,
+        ),
+    )
+    refence_ai_context(
+        db,
+        authorization=authorization,
+        data_access=data_access,
+    )
+    record_ai_overview_would_deny(
+        request,
+        db,
+        data_access=data_access,
+        days=days,
+    )
+    return response
 
 
-@router.get("/ops/live", response_model=AILiveStatusResponse, dependencies=[Depends(require_ai_enabled)])
+@router.get(
+    "/ops/live",
+    response_model=AILiveStatusResponse,
+    dependencies=[Depends(require_ai_enabled)],
+)
 def get_ai_ops_live_route(
+    request: Request,
     db: Session = Depends(get_db),
     admin: User = Depends(get_admin_user),
     _scope_user: User = Depends(require_token_scopes(SCOPE_READ_AI)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
-    _ = (db, admin)
-    return get_ai_live_status(db)
+    _ = admin
+    response = get_ai_live_status_for_data_access(db, data_access=data_access)
+    refence_ai_context(
+        db,
+        authorization=require_ai_authorization_context(request),
+        data_access=data_access,
+    )
+    summary = ai_live_would_deny_summary(
+        db,
+        data_access=data_access,
+        response=response,
+    )
+    record_ai_telemetry_would_deny(
+        request,
+        db,
+        data_access=data_access,
+        summary=summary,
+        surface="ai.ops.live.read",
+        resource_type="ai_task_run",
+        history_scope="live_tasks",
+    )
+    return response
 
 
-@router.get("/ops/runs", response_model=AITaskRunListResponse, dependencies=[Depends(require_ai_enabled)])
+@router.get(
+    "/ops/runs",
+    response_model=AITaskRunListResponse,
+    dependencies=[Depends(require_ai_enabled)],
+)
 def list_ai_ops_runs_route(
+    request: Request,
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     days: int | None = Query(default=None, ge=1, le=365),
@@ -680,15 +900,15 @@ def list_ai_ops_runs_route(
     db: Session = Depends(get_db),
     admin: User = Depends(get_admin_user),
     _scope_user: User = Depends(require_token_scopes(SCOPE_READ_AI)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     _ = admin
     since = None
     if days is not None:
-        from datetime import datetime, timedelta, timezone
-
         since = datetime.now(timezone.utc) - timedelta(days=days)
-    return list_ai_task_runs(
+    response = list_ai_task_runs_for_data_access(
         db,
+        data_access=data_access,
         limit=limit,
         offset=offset,
         task_type=task_type,
@@ -698,33 +918,106 @@ def list_ai_ops_runs_route(
         since=since,
         parent_run_id=parent_run_id,
         only_failures=only_failures,
-        reconcile_stale=status_value in {AI_STATUS_QUEUED, AI_STATUS_RUNNING},
     )
+    refence_ai_context(
+        db,
+        authorization=require_ai_authorization_context(request),
+        data_access=data_access,
+    )
+    filters = ai_run_list_filters(
+        task_type=task_type,
+        status_value=status_value,
+        trigger_source=trigger_source,
+        model=model,
+        since=since,
+        parent_run_id=parent_run_id,
+        only_failures=only_failures,
+    )
+    record_ai_telemetry_would_deny(
+        request,
+        db,
+        data_access=data_access,
+        summary=ai_task_run_would_deny_summary(
+            db,
+            data_access=data_access,
+            filters=filters,
+        ),
+        surface="ai.ops.runs.read",
+        resource_type="ai_task_run",
+        history_scope="run_list",
+    )
+    return response
 
 
-@router.get("/ops/runs/{run_id}", response_model=AITaskRunDetailResponse, dependencies=[Depends(require_ai_enabled)])
+@router.get(
+    "/ops/runs/{run_id}",
+    response_model=AITaskRunDetailResponse,
+    dependencies=[Depends(require_ai_enabled)],
+)
 def get_ai_ops_run_detail_route(
+    request: Request,
     run_id: uuid.UUID,
     db: Session = Depends(get_db),
     admin: User = Depends(get_admin_user),
     _scope_user: User = Depends(require_token_scopes(SCOPE_READ_AI)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     _ = admin
-    detail = get_ai_task_run_detail(db, run_id=run_id)
+    detail = get_ai_task_run_detail_for_data_access(
+        db,
+        run_id=run_id,
+        data_access=data_access,
+    )
     if detail is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AI task run not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="AI task run not found"
+        )
+    refence_ai_context(
+        db,
+        authorization=require_ai_authorization_context(request),
+        data_access=data_access,
+    )
+    record_ai_telemetry_would_deny(
+        request,
+        db,
+        data_access=data_access,
+        summary=ai_task_run_would_deny_summary(
+            db,
+            data_access=data_access,
+            filters=(AITaskRun.id == run_id,),
+        ),
+        surface="ai.ops.run_detail.read",
+        resource_type="ai_task_run",
+        history_scope="run_detail_events",
+    )
     return detail
 
 
-@router.post("/ops/runs/{run_id}/cancel", response_model=AITaskRunResponse, dependencies=[Depends(require_ai_enabled)])
+@router.post(
+    "/ops/runs/{run_id}/cancel",
+    response_model=AITaskRunResponse,
+    dependencies=[Depends(require_ai_enabled)],
+)
 def cancel_ai_ops_run_route(
+    request: Request,
     run_id: uuid.UUID,
     db: Session = Depends(get_db),
     admin: User = Depends(get_admin_user),
     _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_AI)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
+    summary = ai_task_run_would_deny_summary(
+        db,
+        data_access=data_access,
+        filters=(AITaskRun.id == run_id,),
+    )
     try:
-        run = cancel_ai_task_run(db, run_id=run_id, actor_user_id=admin.id)
+        run = cancel_ai_task_run_for_data_access(
+            db,
+            run_id=run_id,
+            actor_user_id=admin.id,
+            data_access=data_access,
+        )
     except ReportTaskLineageError as exc:
         logger.exception("report_task_lineage_invalid run_id=%s", run_id)
         raise HTTPException(
@@ -735,7 +1028,11 @@ def cancel_ai_ops_run_route(
             ),
         ) from exc
     if run is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AI task run not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="AI task run not found"
+        )
+    authorization = require_ai_authorization_context(request)
+    refence_ai_context(db, authorization=authorization, data_access=data_access)
     record_audit(
         db,
         actor_user_id=admin.id,
@@ -743,38 +1040,125 @@ def cancel_ai_ops_run_route(
         resource_type="ai_task_run",
         resource_id=str(run.id),
         success=True,
-        metadata={"task_type": run.task_type, "status": run.status, "reason": run.reason},
+        metadata={
+            "task_type": run.task_type,
+            "status": run.status,
+            "reason": run.reason,
+        },
     )
+    if summary.affected_count:
+        record_data_policy_decision(
+            db,
+            context=data_access,
+            decision="would_deny",
+            resource_type="ai_task_run",
+            resource_id=run.id,
+            surface="ai.ops.run.cancel",
+            handling_label_ids=summary.handling_label_ids,
+            affected_count=summary.affected_count,
+            metadata_extra={"history_scope": "run_cancel"},
+        )
     db.commit()
-    detail = get_ai_task_run_detail(db, run_id=run.id)
+    refence_ai_context(db, authorization=authorization, data_access=data_access)
+    detail = get_ai_task_run_detail_for_data_access(
+        db,
+        run_id=run.id,
+        data_access=data_access,
+    )
     if detail is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AI task run not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="AI task run not found"
+        )
     return detail.run
 
 
-@router.get("/ops/manual-actions", response_model=list[AIAuditEntryResponse], dependencies=[Depends(require_ai_enabled)])
+@router.get(
+    "/ops/manual-actions",
+    response_model=list[AIAuditEntryResponse],
+    dependencies=[Depends(require_ai_enabled)],
+)
 def list_ai_ops_manual_actions_route(
+    request: Request,
     limit: int = Query(default=50, ge=1, le=200),
     db: Session = Depends(get_db),
     admin: User = Depends(get_admin_user),
     _scope_user: User = Depends(require_token_scopes(SCOPE_READ_AI)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     _ = admin
-    return list_ai_manual_actions(db, limit=limit)
+    authorization = require_ai_authorization_context(request)
+    response = list_ai_manual_actions(
+        db,
+        limit=limit,
+        data_access=data_access,
+    )
+    refence_ai_context(
+        db,
+        authorization=authorization,
+        data_access=data_access,
+    )
+    record_ai_telemetry_would_deny(
+        request,
+        db,
+        data_access=data_access,
+        summary=ai_audit_history_would_deny_summary(
+            db,
+            data_access=data_access,
+            filters=(AuditLog.action.in_(AI_MANUAL_ACTIONS),),
+        ),
+        surface="ai.ops.manual_actions.read",
+        resource_type="audit_log",
+        history_scope="manual_actions",
+    )
+    return response
 
 
-@router.get("/ops/prompt-history", response_model=list[AIAuditEntryResponse], dependencies=[Depends(require_ai_enabled)])
+@router.get(
+    "/ops/prompt-history",
+    response_model=list[AIAuditEntryResponse],
+    dependencies=[Depends(require_ai_enabled)],
+)
 def list_ai_ops_prompt_history_route(
+    request: Request,
     limit: int = Query(default=50, ge=1, le=200),
     db: Session = Depends(get_db),
     admin: User = Depends(get_admin_user),
     _scope_user: User = Depends(require_token_scopes(SCOPE_READ_AI)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     _ = admin
-    return list_ai_prompt_history(db, limit=limit)
+    authorization = require_ai_authorization_context(request)
+    response = list_ai_prompt_history(
+        db,
+        limit=limit,
+        data_access=data_access,
+    )
+    refence_ai_context(
+        db,
+        authorization=authorization,
+        data_access=data_access,
+    )
+    record_ai_telemetry_would_deny(
+        request,
+        db,
+        data_access=data_access,
+        summary=ai_audit_history_would_deny_summary(
+            db,
+            data_access=data_access,
+            filters=(AuditLog.action == "ai.settings.update",),
+        ),
+        surface="ai.ops.prompt_history.read",
+        resource_type="audit_log",
+        history_scope="prompt_configuration",
+    )
+    return response
 
 
-@router.get("/daily-briefs/{brief_id}/sources", response_model=list[AIDailyBriefSourceItemResponse], dependencies=[Depends(require_ai_enabled)])
+@router.get(
+    "/daily-briefs/{brief_id}/sources",
+    response_model=list[AIDailyBriefSourceItemResponse],
+    dependencies=[Depends(require_ai_enabled)],
+)
 def list_daily_brief_sources_route(
     brief_id: uuid.UUID,
     included: bool | None = Query(default=None),
@@ -782,9 +1166,18 @@ def list_daily_brief_sources_route(
     db: Session = Depends(get_db),
     admin: User = Depends(get_admin_user),
     _scope_user: User = Depends(require_token_scopes(SCOPE_READ_AI)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     _ = admin
-    sources = list_daily_brief_source_items(db, daily_brief_id=brief_id, included=included, limit=limit)
+    sources = list_daily_brief_source_items(
+        db,
+        daily_brief_id=brief_id,
+        data_access=data_access,
+        included=included,
+        limit=limit,
+    )
     if sources is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Daily brief not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Daily brief not found"
+        )
     return sources

@@ -91,6 +91,9 @@ const dashboardPageDomMocks = vi.hoisted(() => ({
   queryKeys: [] as unknown[][],
   queryOptions: [] as Array<{ queryKey: unknown[]; enabled: boolean | undefined }>,
   unsavedChangesWarning: vi.fn(),
+  workspaceDefaultsAvailable: true,
+  workspaceDefaultsDegraded: false,
+  workspacePanelIds: ['rss'] as Array<'rss' | 'alerts' | 'notes' | 'daily_brief'>,
 }))
 
 function createSavedView(
@@ -332,6 +335,16 @@ vi.mock('@tanstack/react-query', () => ({
   },
 }))
 
+vi.mock('../workspace/useWorkspace', () => ({
+  useWorkspace: () => ({
+    isLoading: false,
+    isDegraded: dashboardPageDomMocks.workspaceDefaultsDegraded,
+    effective: dashboardPageDomMocks.workspaceDefaultsAvailable ? { role: 'admin' } : undefined,
+    userContext: { role: 'admin' },
+    model: { dashboardPanelIds: dashboardPageDomMocks.workspacePanelIds },
+  }),
+}))
+
 vi.mock('../hooks/useCurrentUser', () => ({
   useCurrentUser: () => dashboardPageDomMocks.currentUser,
 }))
@@ -443,6 +456,9 @@ beforeEach(() => {
   dashboardPageDomMocks.alertMatchesTotal = null
   dashboardPageDomMocks.queryKeys = []
   dashboardPageDomMocks.queryOptions = []
+  dashboardPageDomMocks.workspaceDefaultsAvailable = true
+  dashboardPageDomMocks.workspaceDefaultsDegraded = false
+  dashboardPageDomMocks.workspacePanelIds = ['rss']
 
   window.localStorage.clear()
   Object.defineProperty(window, 'innerWidth', {
@@ -479,6 +495,78 @@ afterEach(() => {
 })
 
 describe('DashboardPage DOM workflows', () => {
+  it('waits for authoritative panel defaults before persisting a first-time dashboard layout', async () => {
+    dashboardPageDomMocks.workspaceDefaultsAvailable = false
+    dashboardPageDomMocks.workspacePanelIds = ['notes']
+    renderPage()
+
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 250))
+    })
+    const storageKey = 'threatlens.dashboard.windows.v2:user-1'
+    expect(window.localStorage.getItem(storageKey)).toBeNull()
+
+    dashboardPageDomMocks.workspaceDefaultsAvailable = true
+    await act(async () => {
+      root?.render(<DashboardPage />)
+      await new Promise((resolve) => window.setTimeout(resolve, 0))
+    })
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 250))
+    })
+
+    const stored = JSON.parse(window.localStorage.getItem(storageKey) ?? '[]') as DashboardWindow[]
+    expect(stored.map((windowLayout) => windowLayout.type)).toEqual(['notes'])
+  })
+
+  it('loads a valid existing dashboard layout while workspace defaults are unavailable', async () => {
+    const storageKey = 'threatlens.dashboard.windows.v2:user-1'
+    window.localStorage.setItem(
+      storageKey,
+      JSON.stringify([createNotesWindow('stored-notes', 'Stored notes')]),
+    )
+    dashboardPageDomMocks.workspaceDefaultsAvailable = false
+    dashboardPageDomMocks.workspacePanelIds = ['alerts']
+
+    renderPage()
+    await flushAsyncWork()
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 250))
+    })
+
+    expect(document.querySelector('[aria-label="Stored notes dashboard panel"]')).not.toBeNull()
+    const stored = JSON.parse(window.localStorage.getItem(storageKey) ?? '[]') as DashboardWindow[]
+    expect(stored.map((windowLayout) => windowLayout.type)).toEqual(['notes'])
+  })
+
+  it('initializes and preserves safe local defaults when workspace defaults fail to load', async () => {
+    dashboardPageDomMocks.workspaceDefaultsAvailable = false
+    dashboardPageDomMocks.workspaceDefaultsDegraded = true
+    dashboardPageDomMocks.workspacePanelIds = ['rss']
+
+    renderPage()
+    await flushAsyncWork()
+
+    expect(document.body.textContent).toContain('safe local defaults')
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 250))
+    })
+    const storageKey = 'threatlens.dashboard.windows.v2:user-1'
+    const stored = JSON.parse(window.localStorage.getItem(storageKey) ?? '[]') as DashboardWindow[]
+    expect(stored.map((windowLayout) => windowLayout.type)).toEqual(['rss'])
+
+    dashboardPageDomMocks.workspaceDefaultsAvailable = true
+    dashboardPageDomMocks.workspaceDefaultsDegraded = false
+    dashboardPageDomMocks.workspacePanelIds = ['notes']
+    await act(async () => {
+      root?.render(<DashboardPage />)
+      await new Promise((resolve) => window.setTimeout(resolve, 250))
+    })
+
+    const preserved = JSON.parse(window.localStorage.getItem(storageKey) ?? '[]') as DashboardWindow[]
+    expect(preserved.map((windowLayout) => windowLayout.type)).toEqual(['rss'])
+  })
+
   it('keeps a failed saved-view deletion target open and renders the failure', () => {
     dashboardPageDomMocks.deleteShouldFail = true
     renderPage()

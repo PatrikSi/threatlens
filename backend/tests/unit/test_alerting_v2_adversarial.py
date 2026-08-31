@@ -50,6 +50,7 @@ from app.services.alert_evaluation import (
     reserve_recoverable_alert_evaluations,
 )
 from app.services.alert_maintenance import _delete_terminal_evaluation_ids
+from app.services.data_access_policy import DataAccessContext
 from app.services.integration_connectors.base import IntegrationEventContextError
 from app.services.integration_connectors.smtp import SMTPIntegrationConnector
 from app.services.integration_connectors.webhook import WebhookIntegrationConnector
@@ -62,6 +63,17 @@ from app.services.notification_webhook_templates import AlertMatchContext
 from app.tasks.alert_tasks import (
     dispatch_pending_alert_evaluations,
     enqueue_alert_evaluation_requests,
+)
+
+
+_DISABLED_DATA_ACCESS = DataAccessContext(
+    mode="disabled",
+    policy_revision=0,
+    coverage_version=0,
+    principal_type="user",
+    principal_id=uuid.UUID(int=0),
+    principal_eligible=True,
+    allowed_label_ids=frozenset(),
 )
 
 
@@ -721,6 +733,7 @@ def test_backfill_cursor_progresses_across_equal_timestamps(db_session, seed_use
 
     first = list_alert_backfill_candidates(
         db_session,
+        data_access=_DISABLED_DATA_ACCESS,
         since=now - timedelta(seconds=1),
         until=now + timedelta(seconds=1),
         limit=2,
@@ -732,6 +745,7 @@ def test_backfill_cursor_progresses_across_equal_timestamps(db_session, seed_use
 
     first_persisted = persist_alert_backfill_intents(
         db_session,
+        data_access=_DISABLED_DATA_ACCESS,
         since=now - timedelta(seconds=1),
         until=now + timedelta(seconds=1),
         limit=2,
@@ -739,6 +753,7 @@ def test_backfill_cursor_progresses_across_equal_timestamps(db_session, seed_use
     db_session.commit()
     second = list_alert_backfill_candidates(
         db_session,
+        data_access=_DISABLED_DATA_ACCESS,
         since=now - timedelta(seconds=1),
         until=now + timedelta(seconds=1),
         limit=2,
@@ -747,6 +762,7 @@ def test_backfill_cursor_progresses_across_equal_timestamps(db_session, seed_use
     )
     second_persisted = persist_alert_backfill_intents(
         db_session,
+        data_access=_DISABLED_DATA_ACCESS,
         since=now - timedelta(seconds=1),
         until=now + timedelta(seconds=1),
         limit=2,
@@ -790,6 +806,7 @@ def test_backfill_candidate_count_and_page_share_one_database_snapshot(
 
     page = list_alert_backfill_candidates(
         db_session,
+        data_access=_DISABLED_DATA_ACCESS,
         since=since,
         until=until,
         limit=10,
@@ -813,6 +830,7 @@ def test_backfill_preview_is_owner_bound_expiring_single_use_and_content_stable(
     now = datetime.now(timezone.utc)
     snapshot = create_alert_backfill_preview(
         db_session,
+        data_access=_DISABLED_DATA_ACCESS,
         actor_user_id=seed_users["admin"].id,
         since=item.first_seen_at - timedelta(seconds=1),
         until=item.first_seen_at + timedelta(seconds=1),
@@ -824,6 +842,7 @@ def test_backfill_preview_is_owner_bound_expiring_single_use_and_content_stable(
     with pytest.raises(AlertBackfillPreviewError) as foreign_error:
         persist_alert_backfill_preview_intents(
             db_session,
+            data_access=_DISABLED_DATA_ACCESS,
             preview_id=snapshot.preview.id,
             actor_user_id=seed_users["analyst"].id,
             now=now,
@@ -835,6 +854,7 @@ def test_backfill_preview_is_owner_bound_expiring_single_use_and_content_stable(
     db_session.commit()
     applied = persist_alert_backfill_preview_intents(
         db_session,
+        data_access=_DISABLED_DATA_ACCESS,
         preview_id=snapshot.preview.id,
         actor_user_id=seed_users["admin"].id,
         now=now,
@@ -846,6 +866,7 @@ def test_backfill_preview_is_owner_bound_expiring_single_use_and_content_stable(
 
     replayed = persist_alert_backfill_preview_intents(
         db_session,
+        data_access=_DISABLED_DATA_ACCESS,
         preview_id=snapshot.preview.id,
         actor_user_id=seed_users["admin"].id,
         now=now,
@@ -857,6 +878,7 @@ def test_backfill_preview_is_owner_bound_expiring_single_use_and_content_stable(
 
     legacy_consumed = create_alert_backfill_preview(
         db_session,
+        data_access=_DISABLED_DATA_ACCESS,
         actor_user_id=seed_users["admin"].id,
         since=item.first_seen_at - timedelta(seconds=1),
         until=item.first_seen_at + timedelta(seconds=1),
@@ -869,6 +891,7 @@ def test_backfill_preview_is_owner_bound_expiring_single_use_and_content_stable(
     with pytest.raises(AlertBackfillPreviewError) as consumed_error:
         persist_alert_backfill_preview_intents(
             db_session,
+            data_access=_DISABLED_DATA_ACCESS,
             preview_id=legacy_consumed.preview.id,
             actor_user_id=seed_users["admin"].id,
             now=now,
@@ -877,6 +900,7 @@ def test_backfill_preview_is_owner_bound_expiring_single_use_and_content_stable(
 
     expired = create_alert_backfill_preview(
         db_session,
+        data_access=_DISABLED_DATA_ACCESS,
         actor_user_id=seed_users["admin"].id,
         since=item.first_seen_at - timedelta(seconds=1),
         until=item.first_seen_at + timedelta(seconds=1),
@@ -887,6 +911,7 @@ def test_backfill_preview_is_owner_bound_expiring_single_use_and_content_stable(
     with pytest.raises(AlertBackfillPreviewError) as expired_error:
         persist_alert_backfill_preview_intents(
             db_session,
+            data_access=_DISABLED_DATA_ACCESS,
             preview_id=expired.preview.id,
             actor_user_id=seed_users["admin"].id,
             now=now + timedelta(hours=1),
@@ -911,6 +936,7 @@ def test_backfill_preview_rejects_non_list_candidate_storage(
     now = datetime.now(timezone.utc)
     snapshot = create_alert_backfill_preview(
         db_session,
+        data_access=_DISABLED_DATA_ACCESS,
         actor_user_id=seed_users["admin"].id,
         since=item.first_seen_at - timedelta(seconds=1),
         until=item.first_seen_at + timedelta(seconds=1),
@@ -924,6 +950,7 @@ def test_backfill_preview_rejects_non_list_candidate_storage(
     with pytest.raises(AlertBackfillPreviewError) as error:
         persist_alert_backfill_preview_intents(
             db_session,
+            data_access=_DISABLED_DATA_ACCESS,
             preview_id=snapshot.preview.id,
             actor_user_id=seed_users["admin"].id,
             now=now,
@@ -955,6 +982,7 @@ def test_backfill_preview_rejects_inconsistent_candidate_pages(
     now = datetime.now(timezone.utc)
     snapshot = create_alert_backfill_preview(
         db_session,
+        data_access=_DISABLED_DATA_ACCESS,
         actor_user_id=seed_users["admin"].id,
         since=min(item_one.first_seen_at, item_two.first_seen_at)
         - timedelta(seconds=1),
@@ -985,6 +1013,7 @@ def test_backfill_preview_rejects_inconsistent_candidate_pages(
     with pytest.raises(AlertBackfillPreviewError) as error:
         persist_alert_backfill_preview_intents(
             db_session,
+            data_access=_DISABLED_DATA_ACCESS,
             preview_id=snapshot.preview.id,
             actor_user_id=seed_users["admin"].id,
             now=now,
@@ -1005,6 +1034,7 @@ def test_backfill_replay_validates_request_binding_and_legacy_receipts(
     now = datetime.now(timezone.utc)
     snapshot = create_alert_backfill_preview(
         db_session,
+        data_access=_DISABLED_DATA_ACCESS,
         actor_user_id=seed_users["admin"].id,
         since=item.first_seen_at - timedelta(seconds=1),
         until=item.first_seen_at + timedelta(seconds=1),
@@ -1013,6 +1043,7 @@ def test_backfill_replay_validates_request_binding_and_legacy_receipts(
     )
     applied = persist_alert_backfill_preview_intents(
         db_session,
+        data_access=_DISABLED_DATA_ACCESS,
         preview_id=snapshot.preview.id,
         actor_user_id=seed_users["admin"].id,
         now=now,
@@ -1031,6 +1062,7 @@ def test_backfill_replay_validates_request_binding_and_legacy_receipts(
     with pytest.raises(AlertBackfillPreviewError) as invalid_error:
         persist_alert_backfill_preview_intents(
             db_session,
+            data_access=_DISABLED_DATA_ACCESS,
             preview_id=snapshot.preview.id,
             actor_user_id=seed_users["admin"].id,
             now=now,
@@ -1046,6 +1078,7 @@ def test_backfill_replay_validates_request_binding_and_legacy_receipts(
     with pytest.raises(AlertBackfillPreviewError) as unsupported_error:
         persist_alert_backfill_preview_intents(
             db_session,
+            data_access=_DISABLED_DATA_ACCESS,
             preview_id=snapshot.preview.id,
             actor_user_id=seed_users["admin"].id,
             now=now,
@@ -1103,6 +1136,7 @@ def test_backfill_replay_validates_request_binding_and_legacy_receipts(
         db_session.commit()
         replayed = persist_alert_backfill_preview_intents(
             db_session,
+            data_access=_DISABLED_DATA_ACCESS,
             preview_id=snapshot.preview.id,
             actor_user_id=seed_users["admin"].id,
             now=now,
@@ -1123,6 +1157,7 @@ def test_backfill_replay_validates_request_binding_and_legacy_receipts(
     db_session.commit()
     replayed_v1 = persist_alert_backfill_preview_intents(
         db_session,
+        data_access=_DISABLED_DATA_ACCESS,
         preview_id=snapshot.preview.id,
         actor_user_id=seed_users["admin"].id,
         now=now,
@@ -1148,6 +1183,7 @@ def test_v2_backfill_receipt_rejects_swapped_request_candidate_bindings(
     now = datetime.now(timezone.utc)
     snapshot = create_alert_backfill_preview(
         db_session,
+        data_access=_DISABLED_DATA_ACCESS,
         actor_user_id=seed_users["admin"].id,
         since=min(item_one.first_seen_at, item_two.first_seen_at)
         - timedelta(seconds=1),
@@ -1158,6 +1194,7 @@ def test_v2_backfill_receipt_rejects_swapped_request_candidate_bindings(
     )
     applied = persist_alert_backfill_preview_intents(
         db_session,
+        data_access=_DISABLED_DATA_ACCESS,
         preview_id=snapshot.preview.id,
         actor_user_id=seed_users["admin"].id,
         now=now,
@@ -1224,6 +1261,7 @@ def test_v2_backfill_receipt_rejects_swapped_request_candidate_bindings(
     with pytest.raises(AlertBackfillPreviewError) as error:
         persist_alert_backfill_preview_intents(
             db_session,
+            data_access=_DISABLED_DATA_ACCESS,
             preview_id=snapshot.preview.id,
             actor_user_id=seed_users["admin"].id,
             now=now,
@@ -1243,6 +1281,7 @@ def test_v3_backfill_receipt_is_bound_to_its_exact_acceptance_activity(
     now = datetime.now(timezone.utc)
     snapshot = create_alert_backfill_preview(
         db_session,
+        data_access=_DISABLED_DATA_ACCESS,
         actor_user_id=seed_users["admin"].id,
         since=item.first_seen_at - timedelta(seconds=1),
         until=item.first_seen_at + timedelta(seconds=1),
@@ -1251,6 +1290,7 @@ def test_v3_backfill_receipt_is_bound_to_its_exact_acceptance_activity(
     )
     applied = persist_alert_backfill_preview_intents(
         db_session,
+        data_access=_DISABLED_DATA_ACCESS,
         preview_id=snapshot.preview.id,
         actor_user_id=seed_users["admin"].id,
         now=now,
@@ -1281,6 +1321,7 @@ def test_v3_backfill_receipt_is_bound_to_its_exact_acceptance_activity(
     with pytest.raises(AlertBackfillPreviewError) as error:
         persist_alert_backfill_preview_intents(
             db_session,
+            data_access=_DISABLED_DATA_ACCESS,
             preview_id=snapshot.preview.id,
             actor_user_id=seed_users["admin"].id,
             now=now,
@@ -1310,6 +1351,7 @@ def test_simultaneous_backfill_applies_share_one_durable_result(database_engine)
         now = datetime.now(timezone.utc)
         snapshot = create_alert_backfill_preview(
             setup_db,
+            data_access=_DISABLED_DATA_ACCESS,
             actor_user_id=actor_id,
             since=item.first_seen_at - timedelta(seconds=1),
             until=item.first_seen_at + timedelta(seconds=1),
@@ -1328,6 +1370,7 @@ def test_simultaneous_backfill_applies_share_one_durable_result(database_engine)
             start.wait(timeout=5)
             result = persist_alert_backfill_preview_intents(
                 worker_db,
+                data_access=_DISABLED_DATA_ACCESS,
                 preview_id=preview_id,
                 actor_user_id=actor_id,
                 now=now,
@@ -1394,6 +1437,7 @@ def test_backfill_reset_preserves_live_provenance_and_never_notifies(
 
     result = persist_alert_backfill_intents(
         db_session,
+        data_access=_DISABLED_DATA_ACCESS,
         since=item.first_seen_at - timedelta(seconds=1),
         until=item.first_seen_at + timedelta(seconds=1),
         limit=10,

@@ -11,6 +11,7 @@ from app.api.deps import (
     get_admin_user,
     get_current_auth_session_id,
     is_cookie_session_auth,
+    require_permissions,
     require_token_scopes,
     resolve_client_ip,
 )
@@ -29,6 +30,10 @@ from app.schemas.user import (
     UserUpdateRequest,
 )
 from app.services.audit import record_audit
+from app.services.authorization import (
+    bump_iam_policy_revision,
+    lock_iam_policy_for_mutation,
+)
 from app.services.auth_sessions import lock_exact_auth_session, lock_user_auth_states
 from app.services.local_mfa import (
     MFAError,
@@ -46,6 +51,7 @@ from app.services.investigation_ownership import (
     reconcile_user_investigation_access_change,
 )
 from app.services.password_verification import verify_current_password_or_raise
+from app.services.oidc_role_provenance import clear_oidc_role_provenance
 from app.services.recent_auth import (
     auth_session_has_configured_oidc_mfa_assurance,
     recent_authentication_error_context,
@@ -155,10 +161,8 @@ def list_user_directory(
     limit: int = Query(default=100, ge=1, le=250),
     offset: int = Query(default=0, ge=0, le=1_000_000),
     db: Session = Depends(get_db),
-    admin: User = Depends(get_admin_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_READ_USERS)),
+    _reader: User = Depends(require_permissions(SCOPE_READ_USERS)),
 ):
-    _ = admin
     if role is not None and role not in ALL_ROLES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -258,6 +262,7 @@ def create_user(
     db.add(user)
     try:
         db.flush()
+        bump_iam_policy_revision(db)
     except IntegrityError as exc:
         db.rollback()
         raise HTTPException(
@@ -310,6 +315,8 @@ def update_user(
         value is not None
         for value in (payload.role, payload.is_active, payload.is_approved)
     )
+    if access_state_update:
+        lock_iam_policy_for_mutation(db)
     locked_users = (
         lock_users_for_security_change(db, [admin.id, user_id])
         if access_state_update
@@ -334,6 +341,13 @@ def update_user(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid role"
         )
+    access_state_changed = any(
+        (
+            payload.role is not None and payload.role != user.role,
+            payload.is_active is not None and payload.is_active != user.is_active,
+            payload.is_approved is not None and payload.is_approved != user.is_approved,
+        )
+    )
 
     management = load_user_management_context(db, user.id)
     _ensure_locally_managed_changes(user, payload, management)
@@ -424,11 +438,18 @@ def update_user(
     should_rotate_auth_tokens = payload.password is not None or email_changed
     revoked_api_tokens = 0
     revoked_auth_sessions = 0
+    oidc_role_provenance_cleared = False
 
     if payload.role is not None:
         if payload.role != user.role:
             should_rotate_auth_tokens = True
         user.role = payload.role
+        if (
+            management.identity is not None
+            and management.identity.role_sync_provenance is not None
+        ):
+            clear_oidc_role_provenance(management.identity)
+            oidc_role_provenance_cleared = True
 
     if normalized_email is not None:
         existing = db.scalar(
@@ -461,6 +482,8 @@ def update_user(
         revoked_auth_sessions = revoked.auth_sessions
 
     db.add(user)
+    if access_state_changed:
+        bump_iam_policy_revision(db)
     legacy_unversioned_password_update = (
         payload.password is not None and payload.expected_security_version is None
     )
@@ -501,6 +524,7 @@ def update_user(
             "revoked_api_tokens": int(revoked_api_tokens),
             "revoked_auth_sessions": int(revoked_auth_sessions),
             "cleared_investigation_assignments": investigation_access.cleared_assignment_count,
+            "oidc_role_provenance_cleared": oidc_role_provenance_cleared,
         },
     )
     try:

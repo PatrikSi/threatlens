@@ -9,11 +9,21 @@ class AuditLogResponse(BaseModel):
 
     id: uuid.UUID
     actor_user_id: uuid.UUID | None
+    actor_principal_type: str | None
+    actor_principal_id: uuid.UUID | None
+    credential_kind: str | None
+    credential_id: uuid.UUID | None
+    request_id: str | None
+    source_ip: str | None
+    authorization_elevation_ids: list[uuid.UUID]
+    authorization_approval_id: uuid.UUID | None
+    execution_receipt_id: uuid.UUID | None
     action: str
     resource_type: str
     resource_id: str | None
     success: bool
     metadata_json: dict
+    data_access_redacted: bool = False
     created_at: datetime
 
 

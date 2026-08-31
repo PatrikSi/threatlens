@@ -3,6 +3,7 @@ from __future__ import annotations
 import hmac
 import hashlib
 import secrets
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Literal
@@ -29,6 +30,9 @@ class OIDCTransaction:
     session_binding: str | None
     auth_token_version: int | None
     earliest_auth_time: int | None
+    access_policy_revision: int | None = None
+    access_policy_id: str | None = None
+    access_policy_generation: int | None = None
 
 
 def new_oidc_transaction(
@@ -40,6 +44,9 @@ def new_oidc_transaction(
     session_binding: str | None = None,
     auth_token_version: int | None = None,
     earliest_auth_time: int | None = None,
+    access_policy_revision: int | None = None,
+    access_policy_id: str | None = None,
+    access_policy_generation: int | None = None,
 ) -> OIDCTransaction:
     return OIDCTransaction(
         provider_id=provider_id,
@@ -52,6 +59,9 @@ def new_oidc_transaction(
         session_binding=session_binding,
         auth_token_version=auth_token_version,
         earliest_auth_time=earliest_auth_time,
+        access_policy_revision=access_policy_revision,
+        access_policy_id=access_policy_id,
+        access_policy_generation=access_policy_generation,
     )
 
 
@@ -72,6 +82,9 @@ def encode_oidc_transaction(transaction: OIDCTransaction) -> str:
         "session_binding": transaction.session_binding,
         "auth_token_version": transaction.auth_token_version,
         "earliest_auth_time": transaction.earliest_auth_time,
+        "access_policy_revision": transaction.access_policy_revision,
+        "access_policy_id": transaction.access_policy_id,
+        "access_policy_generation": transaction.access_policy_generation,
     }
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
@@ -141,6 +154,28 @@ def decode_oidc_transaction(
         isinstance(earliest_auth_time, bool) or not isinstance(earliest_auth_time, int)
     ):
         return None
+    access_policy_revision = payload.get("access_policy_revision")
+    if access_policy_revision is not None and (
+        isinstance(access_policy_revision, bool)
+        or not isinstance(access_policy_revision, int)
+        or access_policy_revision < 1
+    ):
+        return None
+    access_policy_id = payload.get("access_policy_id")
+    if access_policy_id is not None:
+        if not isinstance(access_policy_id, str):
+            return None
+        try:
+            uuid.UUID(access_policy_id)
+        except ValueError:
+            return None
+    access_policy_generation = payload.get("access_policy_generation")
+    if access_policy_generation is not None and (
+        isinstance(access_policy_generation, bool)
+        or not isinstance(access_policy_generation, int)
+        or access_policy_generation < 0
+    ):
+        return None
     return OIDCTransaction(
         provider_id=values[0],
         provider_config_revision=provider_config_revision,
@@ -152,6 +187,9 @@ def decode_oidc_transaction(
         session_binding=session_binding,
         auth_token_version=auth_token_version,
         earliest_auth_time=earliest_auth_time,
+        access_policy_revision=access_policy_revision,
+        access_policy_id=access_policy_id,
+        access_policy_generation=access_policy_generation,
     )
 
 

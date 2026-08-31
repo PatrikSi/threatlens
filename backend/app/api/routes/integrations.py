@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Collection
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_admin_user, require_token_scopes
+from app.api.deps import get_admin_user, get_data_access_context, require_token_scopes
 from app.core.token_scopes import SCOPE_READ_INTEGRATIONS, SCOPE_WRITE_INTEGRATIONS
 from app.db.session import get_db
 from app.models.feed import Feed
@@ -29,6 +30,21 @@ from app.schemas.integration import (
     SMTPTestRunListResponse,
 )
 from app.services.audit import record_audit
+from app.services.data_access_envelopes import (
+    DATA_ACCESS_RESOURCE_INTEGRATION_DELIVERY,
+    data_access_envelope_predicate,
+)
+from app.services.data_access_policy import (
+    DataAccessContext,
+    fence_data_access_context,
+)
+from app.services.data_policy_audit import record_data_policy_decision
+from app.services.integration_delivery_policy_history import (
+    integration_delivery_would_deny_summary,
+)
+from app.services.integration_metric_data_policy import (
+    integration_metric_would_deny_summary,
+)
 from app.services.integration_registry import list_integration_connectors
 from app.services.integration_delivery import replay_dead_letter_delivery
 from app.services.integration_smtp_hooks import (
@@ -90,9 +106,25 @@ def get_smtp_settings(
     db: Session = Depends(get_db),
     _admin: User = Depends(get_admin_user),
     _scope_user: User = Depends(require_token_scopes(SCOPE_READ_INTEGRATIONS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
-    instance = get_or_create_persisted_smtp_integration(db)
-    return smtp_settings_response_from_model(instance)
+    instance = get_or_create_smtp_integration(db)
+    response = smtp_settings_response_from_model(
+        instance,
+        accessible_feed_ids=_smtp_response_feed_ids(db, data_access=data_access),
+    )
+    _record_smtp_selected_feed_would_deny(
+        db,
+        data_access=data_access,
+        feed_ids=response.feed_ids,
+        surface="integrations.smtp.settings.read",
+        resource_id=instance.id,
+    )
+    # Persist first-run initialization only after every policy-sensitive read
+    # and the response snapshot have completed under the request fence.
+    db.commit()
+    fence_data_access_context(db, data_access)
+    return response
 
 
 @router.get("/smtp/hooks", response_model=list[SMTPHookResponse])
@@ -100,28 +132,53 @@ def get_smtp_hooks(
     db: Session = Depends(get_db),
     _admin: User = Depends(get_admin_user),
     _scope_user: User = Depends(require_token_scopes(SCOPE_READ_INTEGRATIONS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
-    get_or_create_persisted_smtp_integration(db)
-    return list_smtp_hooks(db)
+    get_or_create_smtp_integration(db)
+    response = list_smtp_hooks(
+        db,
+        accessible_feed_ids=_smtp_response_feed_ids(db, data_access=data_access),
+    )
+    _record_smtp_selected_feed_would_deny(
+        db,
+        data_access=data_access,
+        feed_ids={feed_id for hook in response for feed_id in hook.feed_ids},
+        surface="integrations.smtp.hooks.read",
+    )
+    db.commit()
+    fence_data_access_context(db, data_access)
+    return response
 
 
-@router.post("/smtp/hooks", response_model=SMTPHookResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/smtp/hooks", response_model=SMTPHookResponse, status_code=status.HTTP_201_CREATED
+)
 def create_smtp_hook_route(
     payload: SMTPHookWrite,
     db: Session = Depends(get_db),
     admin: User = Depends(get_admin_user),
     _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_INTEGRATIONS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
+    _fence_smtp_selected_feed_context(
+        db, payload=payload.settings, data_access=data_access
+    )
     lock_smtp_configuration(db)
     _validate_smtp_notification_settings(
         db,
         payload.settings,
         require_recipients=payload.settings.enabled,
         allow_shared_host=payload.credential_source_id is not None,
+        data_access=data_access,
+        audit_surface="integrations.smtp.hook.create",
     )
     try:
         instance = create_smtp_hook(db, payload)
-    except (SMTPHookConflictError, SMTPHookNotFoundError, SMTPHookValidationError) as exc:
+    except (
+        SMTPHookConflictError,
+        SMTPHookNotFoundError,
+        SMTPHookValidationError,
+    ) as exc:
         raise _smtp_hook_http_error(exc) from exc
     record_audit(
         db,
@@ -131,9 +188,15 @@ def create_smtp_hook_route(
         resource_id=str(instance.id),
         metadata=_smtp_hook_audit_metadata(payload),
     )
+    db.flush()
+    response = smtp_hook_response(
+        db,
+        instance,
+        accessible_feed_ids=_smtp_response_feed_ids(db, data_access=data_access),
+    )
     db.commit()
-    db.refresh(instance)
-    return smtp_hook_response(db, instance)
+    fence_data_access_context(db, data_access)
+    return response
 
 
 @router.patch("/smtp/hooks/{hook_id}", response_model=SMTPHookResponse)
@@ -143,7 +206,11 @@ def update_smtp_hook_route(
     db: Session = Depends(get_db),
     admin: User = Depends(get_admin_user),
     _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_INTEGRATIONS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
+    _fence_smtp_selected_feed_context(
+        db, payload=payload.settings, data_access=data_access
+    )
     lock_smtp_configuration(db)
     try:
         instance = get_smtp_hook(db, hook_id, for_update=True)
@@ -154,10 +221,17 @@ def update_smtp_hook_route(
         payload.settings,
         require_recipients=payload.settings.enabled,
         allow_shared_host=payload.credential_source_id is not None,
+        data_access=data_access,
+        audit_surface="integrations.smtp.hook.update",
+        audit_resource_id=instance.id,
     )
     try:
         update_smtp_hook(db, instance, payload)
-    except (SMTPHookConflictError, SMTPHookNotFoundError, SMTPHookValidationError) as exc:
+    except (
+        SMTPHookConflictError,
+        SMTPHookNotFoundError,
+        SMTPHookValidationError,
+    ) as exc:
         raise _smtp_hook_http_error(exc) from exc
     record_audit(
         db,
@@ -167,9 +241,15 @@ def update_smtp_hook_route(
         resource_id=str(instance.id),
         metadata=_smtp_hook_audit_metadata(payload),
     )
+    db.flush()
+    response = smtp_hook_response(
+        db,
+        instance,
+        accessible_feed_ids=_smtp_response_feed_ids(db, data_access=data_access),
+    )
     db.commit()
-    db.refresh(instance)
-    return smtp_hook_response(db, instance)
+    fence_data_access_context(db, data_access)
+    return response
 
 
 @router.delete("/smtp/hooks/{hook_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -209,9 +289,22 @@ def get_smtp_analytics_route(
     db: Session = Depends(get_db),
     _admin: User = Depends(get_admin_user),
     _scope_user: User = Depends(require_token_scopes(SCOPE_READ_INTEGRATIONS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
-    get_or_create_persisted_smtp_integration(db)
-    return get_smtp_analytics(db)
+    fence_data_access_context(db, data_access)
+    get_or_create_smtp_integration(db)
+    response = get_smtp_analytics(db, data_access=data_access)
+    _record_integration_delivery_history_would_deny(
+        db,
+        data_access=data_access,
+        connector_type="smtp",
+        surface="integrations.smtp.analytics.read",
+        resource_type="integration_delivery",
+    )
+    _record_smtp_metric_history_would_deny(db, data_access=data_access)
+    db.commit()
+    fence_data_access_context(db, data_access)
+    return response
 
 
 @router.get("/smtp/hooks/{hook_id}/deliveries", response_model=SMTPDeliveryListResponse)
@@ -222,12 +315,32 @@ def get_smtp_hook_deliveries(
     db: Session = Depends(get_db),
     _admin: User = Depends(get_admin_user),
     _scope_user: User = Depends(require_token_scopes(SCOPE_READ_INTEGRATIONS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
+    fence_data_access_context(db, data_access)
     try:
         instance = get_smtp_hook(db, hook_id)
     except SMTPHookNotFoundError as exc:
         raise _smtp_hook_http_error(exc) from exc
-    return list_smtp_deliveries(db, instance=instance, page=page, page_size=page_size)
+    response = list_smtp_deliveries(
+        db,
+        instance=instance,
+        page=page,
+        page_size=page_size,
+        data_access=data_access,
+    )
+    _record_integration_delivery_history_would_deny(
+        db,
+        data_access=data_access,
+        connector_type="smtp",
+        integration_id=instance.id,
+        surface="integrations.smtp.deliveries.read",
+        resource_type="integration_instance",
+        resource_id=instance.id,
+    )
+    db.commit()
+    fence_data_access_context(db, data_access)
+    return response
 
 
 @router.get("/smtp/hooks/{hook_id}/test-runs", response_model=SMTPTestRunListResponse)
@@ -256,7 +369,9 @@ def replay_smtp_hook_delivery(
     db: Session = Depends(get_db),
     admin: User = Depends(get_admin_user),
     _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_INTEGRATIONS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
+    fence_data_access_context(db, data_access)
     try:
         get_smtp_hook(db, hook_id)
     except SMTPHookNotFoundError as exc:
@@ -266,14 +381,32 @@ def replay_smtp_hook_delivery(
             IntegrationDelivery.id == delivery_id,
             IntegrationDelivery.integration_id == hook_id,
             IntegrationDelivery.connector_type == "smtp",
+            data_access_envelope_predicate(
+                DATA_ACCESS_RESOURCE_INTEGRATION_DELIVERY,
+                IntegrationDelivery.id,
+                data_access,
+            ),
         )
     )
     if delivery is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="SMTP delivery not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="SMTP delivery not found"
+        )
+    _record_integration_delivery_history_would_deny(
+        db,
+        data_access=data_access,
+        connector_type="smtp",
+        delivery_id=delivery.id,
+        surface="integrations.smtp.delivery.replay",
+        resource_type="integration_delivery",
+        resource_id=delivery.id,
+    )
     try:
         replay = replay_dead_letter_delivery(db, delivery_id=delivery.id)
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
     record_audit(
         db,
         actor_user_id=admin.id,
@@ -298,6 +431,7 @@ def test_smtp_hook(
     db: Session = Depends(get_db),
     admin: User = Depends(get_admin_user),
     _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_INTEGRATIONS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     instance = None
     if payload.hook_id is not None:
@@ -311,13 +445,18 @@ def test_smtp_hook(
             if instance is None:
                 raise SMTPHookNotFoundError("SMTP hook not found")
             credential_source = get_smtp_credential_source(db, instance)
-            active_settings = build_active_smtp_settings(instance, credential_source=credential_source)
+            active_settings = build_active_smtp_settings(
+                instance, credential_source=credential_source
+            )
         else:
             _validate_smtp_notification_settings(
                 db,
                 payload.hook.settings,
                 require_recipients=False,
                 allow_shared_host=payload.hook.credential_source_id is not None,
+                data_access=data_access,
+                audit_surface="integrations.smtp.hook.test_unsaved",
+                audit_resource_id=instance.id if instance is not None else None,
             )
             credential_source = validate_smtp_hook_credential_selection(
                 db,
@@ -340,10 +479,14 @@ def test_smtp_hook(
     except (SMTPHookConflictError, SMTPHookNotFoundError) as exc:
         raise _smtp_hook_http_error(exc) from exc
     except SMTPSecretError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
     result = test_smtp_integration(
         active_settings,
-        recipient_email=str(payload.recipient_email) if payload.send_email and payload.recipient_email else None,
+        recipient_email=str(payload.recipient_email)
+        if payload.send_email and payload.recipient_email
+        else None,
     ).model_copy(update={"used_unsaved_settings": used_unsaved_settings})
     run = None
     if instance is not None:
@@ -379,9 +522,18 @@ def update_smtp_settings(
     db: Session = Depends(get_db),
     admin: User = Depends(get_admin_user),
     _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_INTEGRATIONS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
+    _fence_smtp_selected_feed_context(db, payload=payload, data_access=data_access)
     instance = lock_smtp_configuration(db)
-    _validate_smtp_notification_settings(db, payload, require_recipients=payload.enabled)
+    _validate_smtp_notification_settings(
+        db,
+        payload,
+        require_recipients=payload.enabled,
+        data_access=data_access,
+        audit_surface="integrations.smtp.settings.update",
+        audit_resource_id=instance.id,
+    )
     apply_smtp_settings_update(instance, payload)
     db.add(instance)
     sync_smtp_subscriptions(db, instance)
@@ -404,9 +556,14 @@ def update_smtp_settings(
             "password_action": _password_audit_action(payload),
         },
     )
+    db.flush()
+    response = smtp_settings_response_from_model(
+        instance,
+        accessible_feed_ids=_smtp_response_feed_ids(db, data_access=data_access),
+    )
     db.commit()
-    db.refresh(instance)
-    return smtp_settings_response_from_model(instance)
+    fence_data_access_context(db, data_access)
+    return response
 
 
 @router.post("/smtp/test", response_model=SMTPTestResponse)
@@ -415,19 +572,33 @@ def test_smtp_settings(
     db: Session = Depends(get_db),
     admin: User = Depends(get_admin_user),
     _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_INTEGRATIONS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     instance = get_or_create_smtp_integration(db)
     used_unsaved_settings = payload.settings is not None
     if payload.settings is not None:
-        _validate_smtp_notification_settings(db, payload.settings, require_recipients=False)
+        _validate_smtp_notification_settings(
+            db,
+            payload.settings,
+            require_recipients=False,
+            data_access=data_access,
+            audit_surface="integrations.smtp.settings.test_unsaved",
+            audit_resource_id=instance.id,
+        )
     try:
-        active_settings = build_active_smtp_settings(instance, override=payload.settings)
+        active_settings = build_active_smtp_settings(
+            instance, override=payload.settings
+        )
     except SMTPSecretError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
 
     result = test_smtp_integration(
         active_settings,
-        recipient_email=str(payload.recipient_email) if payload.send_email and payload.recipient_email else None,
+        recipient_email=str(payload.recipient_email)
+        if payload.send_email and payload.recipient_email
+        else None,
     ).model_copy(update={"used_unsaved_settings": used_unsaved_settings})
     run = record_smtp_test_result(
         db,
@@ -462,12 +633,41 @@ def replay_integration_delivery(
     db: Session = Depends(get_db),
     admin: User = Depends(get_admin_user),
     _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_INTEGRATIONS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
+    fence_data_access_context(db, data_access)
+    visible_delivery_id = db.scalar(
+        select(IntegrationDelivery.id).where(
+            IntegrationDelivery.id == delivery_id,
+            data_access_envelope_predicate(
+                DATA_ACCESS_RESOURCE_INTEGRATION_DELIVERY,
+                IntegrationDelivery.id,
+                data_access,
+            ),
+        )
+    )
+    if visible_delivery_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Integration delivery not found",
+        )
+    _record_integration_delivery_history_would_deny(
+        db,
+        data_access=data_access,
+        delivery_id=visible_delivery_id,
+        surface="integrations.delivery.replay",
+        resource_type="integration_delivery",
+        resource_id=visible_delivery_id,
+    )
     try:
         replay = replay_dead_letter_delivery(db, delivery_id=delivery_id)
     except ValueError as exc:
         message = str(exc)
-        status_code = status.HTTP_404_NOT_FOUND if message == "Integration delivery not found" else status.HTTP_409_CONFLICT
+        status_code = (
+            status.HTTP_404_NOT_FOUND
+            if message == "Integration delivery not found"
+            else status.HTTP_409_CONFLICT
+        )
         raise HTTPException(status_code=status_code, detail=message) from exc
     record_audit(
         db,
@@ -475,7 +675,10 @@ def replay_integration_delivery(
         action="integrations.delivery.replay",
         resource_type="integration_delivery",
         resource_id=str(replay.id),
-        metadata={"source_delivery_id": str(delivery_id), "connector_type": replay.connector_type},
+        metadata={
+            "source_delivery_id": str(delivery_id),
+            "connector_type": replay.connector_type,
+        },
     )
     db.commit()
     queued = enqueue_integration_delivery_processing([replay.id])
@@ -508,7 +711,9 @@ def _smtp_test_audit_metadata(
         "duration_ms": result.duration_ms,
         "error_code": result.error_code,
         "error_message": result.error,
-        "server_message": result.server_message[:4000] if result.server_message else None,
+        "server_message": result.server_message[:4000]
+        if result.server_message
+        else None,
         "recipient_provided": recipient_provided,
         "used_unsaved_settings": used_unsaved_settings,
     }
@@ -534,14 +739,87 @@ def _smtp_hook_audit_metadata(payload: SMTPHookWrite) -> dict:
         "host": settings.host if payload.credential_source_id is None else None,
         "port": settings.port if payload.credential_source_id is None else None,
         "security": settings.security if payload.credential_source_id is None else None,
-        "username_configured": bool(settings.username) if payload.credential_source_id is None else None,
+        "username_configured": bool(settings.username)
+        if payload.credential_source_id is None
+        else None,
         "from_email": str(settings.from_email) if settings.from_email else None,
         "recipient_count": len(settings.to_emails),
         "event_types": settings.event_types,
         "feed_scope": settings.feed_scope,
-        "credential_source_id": str(payload.credential_source_id) if payload.credential_source_id else None,
-        "password_action": "shared" if payload.credential_source_id else _password_audit_action(settings),
+        "credential_source_id": str(payload.credential_source_id)
+        if payload.credential_source_id
+        else None,
+        "password_action": "shared"
+        if payload.credential_source_id
+        else _password_audit_action(settings),
     }
+
+
+def _record_integration_delivery_history_would_deny(
+    db: Session,
+    *,
+    data_access: DataAccessContext,
+    surface: str,
+    resource_type: str,
+    resource_id: uuid.UUID | None = None,
+    connector_type: str | None = None,
+    integration_id: uuid.UUID | None = None,
+    delivery_id: uuid.UUID | None = None,
+) -> None:
+    summary = integration_delivery_would_deny_summary(
+        db,
+        data_access=data_access,
+        connector_type=connector_type,
+        integration_id=integration_id,
+        delivery_id=delivery_id,
+    )
+    if not summary.affected_count:
+        return
+    record_data_policy_decision(
+        db,
+        context=data_access,
+        decision="would_deny",
+        resource_type=resource_type,
+        resource_id=resource_id,
+        surface=surface,
+        handling_label_ids=summary.handling_label_ids,
+        affected_count=summary.affected_count,
+        metadata_extra={
+            "connector_type": connector_type or "all",
+            "history_scope": "delivery_id"
+            if delivery_id is not None
+            else "integration_id"
+            if integration_id is not None
+            else "connector",
+        },
+    )
+
+
+def _record_smtp_metric_history_would_deny(
+    db: Session,
+    *,
+    data_access: DataAccessContext,
+) -> None:
+    summary = integration_metric_would_deny_summary(
+        db,
+        data_access=data_access,
+        connector_type="smtp",
+    )
+    if not summary.affected_count:
+        return
+    record_data_policy_decision(
+        db,
+        context=data_access,
+        decision="would_deny",
+        resource_type="integration_delivery_metric",
+        surface="integrations.smtp.analytics.read",
+        handling_label_ids=summary.handling_label_ids,
+        affected_count=summary.affected_count,
+        metadata_extra={
+            "connector_type": "smtp",
+            "history_scope": "metric_cohort",
+        },
+    )
 
 
 def _validate_smtp_notification_settings(
@@ -550,6 +828,9 @@ def _validate_smtp_notification_settings(
     *,
     require_recipients: bool,
     allow_shared_host: bool = False,
+    data_access: DataAccessContext,
+    audit_surface: str,
+    audit_resource_id: uuid.UUID | None = None,
 ) -> None:
     if payload.enabled and not payload.host and not allow_shared_host:
         raise HTTPException(
@@ -563,19 +844,130 @@ def _validate_smtp_notification_settings(
         )
 
     if payload.feed_scope == "selected":
-        known_feed_ids = set(db.scalars(select(Feed.id).where(Feed.id.in_(payload.feed_ids))).all())
-        invalid_feed_ids = sorted(str(feed_id) for feed_id in payload.feed_ids if feed_id not in known_feed_ids)
-        if invalid_feed_ids:
+        fence_data_access_context(db, data_access)
+        feed_rows = db.execute(
+            select(Feed.id, Feed.handling_label_id).where(
+                Feed.id.in_(payload.feed_ids)
+            )
+        ).all()
+        labels_by_feed = {row.id: row.handling_label_id for row in feed_rows}
+        missing_feed_ids = [
+            feed_id for feed_id in payload.feed_ids if feed_id not in labels_by_feed
+        ]
+        restricted_feed_ids = [
+            feed_id
+            for feed_id, label_id in labels_by_feed.items()
+            if not data_access.principal_eligible
+            or label_id not in data_access.allowed_label_ids
+        ]
+        if data_access.mode == "disabled" and missing_feed_ids:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=f"Unknown feed ids: {', '.join(invalid_feed_ids)}",
+                detail=(
+                    "Unknown feed ids: "
+                    + ", ".join(sorted(str(feed_id) for feed_id in missing_feed_ids))
+                ),
             )
+        if data_access.mode in {"audit", "enforced"} and (
+            missing_feed_ids
+            or (
+                (data_access.enforced or not data_access.principal_eligible)
+                and restricted_feed_ids
+            )
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="One or more selected feeds are unavailable",
+            )
+        _record_smtp_selected_feed_would_deny(
+            db,
+            data_access=data_access,
+            feed_ids=restricted_feed_ids,
+            surface=audit_surface,
+            resource_id=audit_resource_id,
+        )
 
     unknown_variables = sorted(
-        find_unknown_template_variables_in_texts([payload.subject_template, payload.html_template])
+        find_unknown_template_variables_in_texts(
+            [payload.subject_template, payload.html_template]
+        )
     )
     if unknown_variables:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Unknown template variable(s): {', '.join(unknown_variables)}",
         )
+
+
+def _smtp_response_feed_ids(
+    db: Session,
+    *,
+    data_access: DataAccessContext,
+) -> set[uuid.UUID] | None:
+    fence_data_access_context(db, data_access)
+    if data_access.mode == "disabled":
+        return None
+    if data_access.auditing and data_access.principal_eligible:
+        return None
+    if not data_access.principal_eligible:
+        return set()
+    return set(
+        db.scalars(
+            select(Feed.id).where(
+                Feed.handling_label_id.in_(data_access.allowed_label_ids)
+            )
+        ).all()
+    )
+
+
+def _fence_smtp_selected_feed_context(
+    db: Session,
+    *,
+    payload: SMTPSettingsUpdate,
+    data_access: DataAccessContext,
+) -> None:
+    if payload.feed_scope == "selected":
+        fence_data_access_context(db, data_access)
+
+
+def _record_smtp_selected_feed_would_deny(
+    db: Session,
+    *,
+    data_access: DataAccessContext,
+    feed_ids: Collection[uuid.UUID],
+    surface: str,
+    resource_id: uuid.UUID | None = None,
+) -> None:
+    if not data_access.auditing:
+        return
+    selected_feed_ids = set(feed_ids)
+    if not selected_feed_ids:
+        return
+    rows = db.execute(
+        select(Feed.id, Feed.handling_label_id).where(Feed.id.in_(selected_feed_ids))
+    ).all()
+    known_feed_ids = {row.id for row in rows}
+    missing_count = len(selected_feed_ids - known_feed_ids)
+    denied_rows = [
+        row
+        for row in rows
+        if not data_access.principal_eligible
+        or row.handling_label_id not in data_access.allowed_label_ids
+    ]
+    affected_count = len({row.id for row in denied_rows}) + missing_count
+    if not affected_count:
+        return
+    record_data_policy_decision(
+        db,
+        context=data_access,
+        decision="would_deny",
+        resource_type="integration_instance",
+        resource_id=resource_id,
+        surface=surface,
+        handling_label_ids={row.handling_label_id for row in denied_rows},
+        affected_count=affected_count,
+        metadata_extra={
+            "configuration_kind": "smtp_selected_feeds",
+            "unresolved_reference_count": missing_count,
+        },
+    )

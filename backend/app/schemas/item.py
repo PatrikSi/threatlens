@@ -49,6 +49,7 @@ class ItemListEntry(BaseModel):
     classification: str | None
     is_read: bool
     is_starred: bool
+    personal_state_available: bool = True
     tags: list[str]
     tag_details: list[ItemTagDetailResponse] = Field(default_factory=list)
     ai_relevance_score: float | None = None
@@ -97,6 +98,7 @@ class ArticleResponse(BaseModel):
 class ItemStateResponse(BaseModel):
     is_read: bool
     is_starred: bool
+    personal_state_available: bool = True
     note: str | None
     updated_at: datetime | None
 
@@ -205,7 +207,9 @@ class ItemTagsUpdateRequest(BaseModel):
 
         if duplicates:
             unique_duplicates = sorted(set(duplicates))
-            raise ValueError(f"Duplicate tag IDs are not allowed: {', '.join(unique_duplicates)}")
+            raise ValueError(
+                f"Duplicate tag IDs are not allowed: {', '.join(unique_duplicates)}"
+            )
         return value
 
 

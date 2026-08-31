@@ -5,7 +5,7 @@ import time
 import uuid
 from contextlib import contextmanager
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 from threading import Event, Thread, enumerate as enumerate_threads
 from types import SimpleNamespace
@@ -14,13 +14,20 @@ import pytest
 from sqlalchemy import select
 
 from app.models.alert_interest import AlertInterest
+from app.models.alert_evaluation_request import AlertEvaluationRequest
 from app.models.ai_daily_brief import AIDailyBrief
 from app.models.ai_daily_brief_source_item import AIDailyBriefSourceItem
 from app.models.audit_log import AuditLog
 from app.models.feed import Feed
-from app.models.integration import IntegrationEvent, IntegrationInstance
+from app.models.integration import (
+    IntegrationDelivery,
+    IntegrationEvent,
+    IntegrationInstance,
+)
 from app.models.item import Item
 from app.models.item_classification import ItemClassification
+from app.models.notification_webhook import NotificationWebhook
+from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.user import User
 from app.schemas.integration import SMTPSettingsUpdate
 from app.services.daily_brief_notifications import emit_daily_brief_ready_event
@@ -28,6 +35,8 @@ from app.services.integration_storage import (
     apply_smtp_settings_update,
     build_active_smtp_settings,
 )
+from app.services.integration_events import route_integration_event
+from app.services.integration_processors import process_smtp_integration_delivery
 from app.services.smtp_integration import (
     SMTP_DELIVERY_AUDIT_ACTION,
     _fenced_smtp_io_timeout_seconds,
@@ -36,6 +45,7 @@ from app.services.smtp_integration import (
     smtp_notification_event_enabled,
     test_smtp_integration as run_smtp_integration_test,
 )
+from app.services.smtp_delivery_history import smtp_delivery_dedupe_key
 from app.services.smtp_deadlines import remaining_smtp_operation_seconds
 from app.services.smtp_transport import (
     SMTP_DNS_RESOLVER_CONCURRENCY,
@@ -45,7 +55,9 @@ from app.services.smtp_transport import (
 from app.tasks.feed_tasks import (
     dispatch_daily_digest_notification_webhooks,
     dispatch_smtp_alert_match_notification,
+    dispatch_smtp_feed_failing_notification,
     dispatch_smtp_new_item_notification,
+    dispatch_smtp_webhook_failed_notification,
 )
 
 
@@ -1079,7 +1091,7 @@ def test_smtp_event_enabled_respects_saved_scope_when_secret_is_unreadable(db_se
     )
 
 
-def test_dispatch_smtp_new_item_notification_task_sends_and_records_audit(
+def test_dispatch_smtp_new_item_notification_task_emits_and_enqueues_generic_event(
     db_session, monkeypatch
 ):
     sent_messages: list[EmailMessage] = []
@@ -1119,21 +1131,179 @@ def test_dispatch_smtp_new_item_notification_task_sends_and_records_audit(
     db_session.commit()
 
     _use_feed_task_db_session(monkeypatch, db_session)
+    queued_event_ids: list[uuid.UUID] = []
+    monkeypatch.setattr(
+        "app.tasks.notification_tasks.enqueue_integration_event_routing",
+        lambda event_ids: queued_event_ids.extend(event_ids) or True,
+    )
 
     result = dispatch_smtp_new_item_notification(str(item.id))
 
+    event = db_session.scalar(
+        select(IntegrationEvent).where(
+            IntegrationEvent.idempotency_key == f"item:{item.id}:rss_item_new:v1"
+        )
+    )
     audit = db_session.scalar(
         select(AuditLog).where(AuditLog.action == SMTP_DELIVERY_AUDIT_ACTION)
     )
-    assert result["status"] == "sent"
-    assert result["sent"] == 1
+    assert result["status"] == "queued"
+    assert result["sent"] == 0
+    assert result["enqueue_failed"] is False
+    assert sent_messages == []
+    assert audit is None
+    assert event is not None
+    assert event.source_type == "item"
+    assert event.source_id == str(item.id)
+    assert event.payload_json["item_id"] == str(item.id)
+    assert event.payload_json["feed_id"] == str(feed.id)
+    assert result["integration_event_id"] == str(event.id)
+    assert queued_event_ids == [event.id]
+
+    event.routing_state = "failed"
+    event.available_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+    db_session.commit()
+    backoff_result = dispatch_smtp_new_item_notification(str(item.id))
+
+    assert backoff_result["status"] == "retry_scheduled"
+    assert backoff_result["reason"] == "event_backoff"
+    assert queued_event_ids == [event.id]
+
+    event.routing_state = "pending"
+    event.available_at = datetime.now(timezone.utc)
+    db_session.commit()
+    routed = route_integration_event(db_session, event_id=event.id)
+    smtp_delivery = db_session.scalar(
+        select(IntegrationDelivery).where(
+            IntegrationDelivery.event_id == event.id,
+            IntegrationDelivery.connector_type == "smtp",
+        )
+    )
+    assert routed.status == "routed"
+    assert smtp_delivery is not None
+    monkeypatch.setattr(
+        "app.services.integration_processors.persist_external_side_effect_marker",
+        lambda **_kwargs: True,
+    )
+
+    processed = process_smtp_integration_delivery(
+        db_session,
+        delivery_id=smtp_delivery.id,
+    )
+    db_session.commit()
+
+    assert processed.status == "succeeded", processed.reason
     assert len(sent_messages) == 1
+    audit = db_session.scalar(
+        select(AuditLog).where(AuditLog.action == SMTP_DELIVERY_AUDIT_ACTION)
+    )
     assert audit is not None
     assert audit.success is True
-    assert audit.metadata_json["event_type"] == "rss_item_new"
+
+    duplicate_result = dispatch_smtp_new_item_notification(str(item.id))
+
+    assert duplicate_result["status"] == "already_routed"
+    assert duplicate_result["event_status"] == "already_routed"
+    assert duplicate_result["reason"] is None
+    assert db_session.query(IntegrationEvent).count() == 1
+    assert queued_event_ids == [event.id]
 
 
-def test_dispatch_smtp_alert_match_notification_uses_global_alert_context(
+def test_generic_smtp_delivery_adopts_legacy_success_receipt(
+    db_session,
+    monkeypatch,
+):
+    instance = _smtp_instance()
+    apply_smtp_settings_update(
+        instance,
+        SMTPSettingsUpdate(
+            enabled=True,
+            host="smtp.example.com",
+            from_email="threatlens@example.com",
+            to_emails=["analyst@example.com"],
+            event_types=["rss_item_new"],
+        ),
+    )
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Legacy receipt feed",
+        url="https://example.com/legacy-receipt.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        url="https://example.com/legacy-receipt",
+        title="Legacy receipt item",
+        summary="Already delivered by a rolling-upgrade worker.",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key=f"legacy-receipt:{uuid.uuid4()}",
+        content_hash="e" * 64,
+        status="new",
+    )
+    legacy_dedupe_key = smtp_delivery_dedupe_key(
+        instance_id=instance.id,
+        event_type="rss_item_new",
+        delivery_kind="live",
+        item_id=item.id,
+        feed_id=feed.id,
+        source_delivery_id=None,
+        scope_key=None,
+    )
+    db_session.add_all(
+        [
+            instance,
+            feed,
+            item,
+            AuditLog(
+                action=SMTP_DELIVERY_AUDIT_ACTION,
+                resource_type="integration_instance",
+                resource_id=str(instance.id),
+                success=True,
+                metadata_json={
+                    "dedupe_key": legacy_dedupe_key,
+                    "delivery_outcome": "accepted",
+                },
+            ),
+        ]
+    )
+    db_session.commit()
+    _use_feed_task_db_session(monkeypatch, db_session)
+    monkeypatch.setattr(
+        "app.tasks.notification_tasks.enqueue_integration_event_routing",
+        lambda _event_ids: True,
+    )
+    monkeypatch.setattr(
+        "app.services.smtp_integration._open_smtp",
+        lambda _active: (_ for _ in ()).throw(
+            AssertionError("legacy success receipt must suppress SMTP I/O")
+        ),
+    )
+
+    staged = dispatch_smtp_new_item_notification(str(item.id))
+    event_id = uuid.UUID(staged["integration_event_id"])
+    routed = route_integration_event(db_session, event_id=event_id)
+    delivery = db_session.scalar(
+        select(IntegrationDelivery).where(
+            IntegrationDelivery.event_id == event_id,
+            IntegrationDelivery.connector_type == "smtp",
+        )
+    )
+    assert routed.status == "routed"
+    assert delivery is not None
+
+    processed = process_smtp_integration_delivery(
+        db_session,
+        delivery_id=delivery.id,
+    )
+
+    assert processed.status == "succeeded"
+    assert processed.reason == "legacy_delivery_already_recorded"
+    assert delivery.state == "succeeded"
+
+
+def test_dispatch_smtp_alert_match_notification_queues_durable_evaluation(
     db_session, monkeypatch
 ):
     sent_messages: list[EmailMessage] = []
@@ -1203,20 +1373,169 @@ def test_dispatch_smtp_alert_match_notification_uses_global_alert_context(
     db_session.commit()
 
     _use_feed_task_db_session(monkeypatch, db_session)
+    queued_request_ids: list[uuid.UUID] = []
+    monkeypatch.setattr(
+        "app.tasks.notification_tasks.enqueue_alert_evaluation_requests",
+        lambda request_ids: queued_request_ids.extend(request_ids) or True,
+    )
 
     result = dispatch_smtp_alert_match_notification(str(item.id))
 
-    assert result["status"] == "sent"
-    assert len(sent_messages) == 1
-    assert (
-        sent_messages[0]["Subject"]
-        == "[ThreatLens] Ransomware Watch: LockBit phishing expands"
+    evaluation = db_session.scalar(
+        select(AlertEvaluationRequest).where(AlertEvaluationRequest.item_id == item.id)
     )
     audit = db_session.scalar(
         select(AuditLog).where(AuditLog.action == SMTP_DELIVERY_AUDIT_ACTION)
     )
-    assert audit is not None
-    assert audit.metadata_json["event_type"] == "alert_match"
+    assert result["status"] == "queued"
+    assert sent_messages == []
+    assert audit is None
+    assert evaluation is not None
+    assert evaluation.notify is True
+    assert evaluation.state == "pending"
+    assert result["evaluation_request_id"] == str(evaluation.id)
+    assert queued_request_ids == [evaluation.id]
+    assert (
+        db_session.scalar(
+            select(IntegrationEvent.id).where(
+                IntegrationEvent.event_type == "alert_match"
+            )
+        )
+        is None
+    )
+
+    replay = dispatch_smtp_alert_match_notification(str(item.id))
+
+    assert replay["status"] == "in_progress"
+    assert replay["evaluation_request_id"] == str(evaluation.id)
+    assert queued_request_ids == [evaluation.id]
+
+
+def test_dispatch_smtp_feed_failing_notification_keeps_event_when_enqueue_fails(
+    db_session, monkeypatch
+):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Failing feed",
+        url="https://example.com/feed.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+        error_count=3,
+        last_error="http_status:500",
+    )
+    db_session.add(feed)
+    db_session.commit()
+    _use_feed_task_db_session(monkeypatch, db_session)
+    queued_event_ids: list[uuid.UUID] = []
+    monkeypatch.setattr(
+        "app.tasks.notification_tasks.enqueue_integration_event_routing",
+        lambda event_ids: queued_event_ids.extend(event_ids) or False,
+    )
+
+    result = dispatch_smtp_feed_failing_notification(str(feed.id))
+
+    event = db_session.scalar(
+        select(IntegrationEvent).where(IntegrationEvent.event_type == "feed_failing")
+    )
+    assert result["status"] == "pending"
+    assert result["reason"] == "event_enqueue_failed"
+    assert result["enqueue_failed"] is True
+    assert event is not None
+    assert event.idempotency_key.startswith(f"feed:{feed.id}:feed_failing:")
+    assert event.idempotency_key.endswith(":v1")
+    assert event.payload_json["feed_id"] == str(feed.id)
+    assert event.payload_json["error_count"] == 3
+    assert result["integration_event_id"] == str(event.id)
+    assert queued_event_ids == [event.id]
+
+
+def test_dispatch_smtp_webhook_failed_notification_emits_source_event(
+    db_session, monkeypatch
+):
+    user = User(
+        id=uuid.uuid4(),
+        email="failed-webhook-owner@example.com",
+        password_hash="x",
+        role="viewer",
+        is_active=True,
+        is_approved=True,
+    )
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Unit42",
+        url="https://example.com/feed.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    source_webhook = NotificationWebhook(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        name="Primary webhook",
+        event_type="rss_item_new",
+        url_template="https://example.com/source",
+        method="POST",
+        feed_scope="all",
+        feed_ids_json=[],
+        query_params_json=[],
+        headers_json=[],
+        body_mode="none",
+        body_fields_json=[],
+        timeout_seconds=10,
+    )
+    failed_delivery = NotificationWebhookDelivery(
+        id=uuid.uuid4(),
+        webhook_id=source_webhook.id,
+        user_id=user.id,
+        event_type_snapshot="rss_item_new",
+        feed_id=feed.id,
+        delivery_kind="live",
+        delivery_state="failed",
+        attempt_count=1,
+        success=False,
+        status_code=500,
+        duration_ms=25,
+        timeout_seconds=10,
+        rendered_url="https://example.com/source",
+        rendered_method="POST",
+        rendered_headers_json=[],
+        rendered_query_params_json=[],
+        rendered_body=None,
+        response_body_preview="error",
+        error="HTTP 500",
+        feed_name_snapshot=feed.name,
+        attempted_at=datetime.now(timezone.utc),
+    )
+    db_session.add_all([user, feed])
+    db_session.flush()
+    db_session.add(source_webhook)
+    db_session.flush()
+    db_session.add(failed_delivery)
+    db_session.commit()
+    _use_feed_task_db_session(monkeypatch, db_session)
+    queued_event_ids: list[uuid.UUID] = []
+    monkeypatch.setattr(
+        "app.tasks.notification_tasks.enqueue_integration_event_routing",
+        lambda event_ids: queued_event_ids.extend(event_ids) or True,
+    )
+
+    result = dispatch_smtp_webhook_failed_notification(str(failed_delivery.id))
+
+    event = db_session.scalar(
+        select(IntegrationEvent).where(
+            IntegrationEvent.idempotency_key
+            == f"webhook_delivery:{failed_delivery.id}:webhook_failed:v1"
+        )
+    )
+    assert result["status"] == "queued"
+    assert event is not None
+    assert event.source_type == "notification_webhook_delivery"
+    assert event.source_id == str(failed_delivery.id)
+    assert event.payload_json == {
+        "source_delivery_id": str(failed_delivery.id),
+        "feed_id": str(feed.id),
+        "owner_user_id": str(user.id),
+    }
+    assert queued_event_ids == [event.id]
 
 
 def test_dispatch_daily_digest_notification_webhooks_emits_durable_event(
@@ -1306,6 +1625,18 @@ def test_dispatch_daily_digest_notification_webhooks_emits_durable_event(
     assert event.payload_json["daily_brief"]["text"] == "A generated security briefing."
     assert event.routing_state == "pending"
     assert queued_event_ids == [str(event.id)]
+
+    event.routing_state = "failed"
+    event.available_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+    db_session.add(event)
+    db_session.commit()
+    queued_event_ids.clear()
+    backoff = dispatch_daily_digest_notification_webhooks()
+
+    assert backoff["smtp_status"] == "retry_scheduled"
+    assert backoff["smtp_reason"] == "event_backoff"
+    assert backoff["enqueue_failed"] is False
+    assert queued_event_ids == []
 
 
 def test_daily_brief_notification_reconciler_does_not_requeue_routed_event(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from types import SimpleNamespace
 
 from sqlalchemy import select
@@ -125,6 +126,37 @@ def _has_smtp_delivery_attempt(
         )
         is not None
     )
+
+
+def smtp_delivery_side_effect_outcome(
+    db: Session,
+    *,
+    instance_id: uuid.UUID,
+    dedupe_key: str,
+    not_before: datetime | None = None,
+) -> str | None:
+    """Return a legacy outcome that makes automatic redelivery ambiguous."""
+    query = select(AuditLog).where(
+        AuditLog.action == SMTP_DELIVERY_AUDIT_ACTION,
+        AuditLog.resource_type == SMTP_DELIVERY_RESOURCE_TYPE,
+        AuditLog.resource_id == str(instance_id),
+        AuditLog.metadata_json["dedupe_key"].as_string() == dedupe_key,
+        (
+            AuditLog.success.is_(True)
+            | AuditLog.metadata_json["delivery_outcome"]
+            .as_string()
+            .in_(["accepted", "partial", "unknown"])
+        ),
+    )
+    if not_before is not None:
+        query = query.where(AuditLog.created_at >= not_before)
+    audit = db.scalar(
+        query.order_by(AuditLog.created_at.desc(), AuditLog.id.desc()).limit(1)
+    )
+    if audit is None:
+        return None
+    outcome = (audit.metadata_json or {}).get("delivery_outcome")
+    return str(outcome) if outcome is not None else "accepted"
 
 
 def smtp_delivery_dedupe_key(

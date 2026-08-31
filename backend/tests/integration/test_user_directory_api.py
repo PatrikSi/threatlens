@@ -157,3 +157,4 @@ def test_user_directory_distinguishes_disabled_linked_oidc_identity(
     assert account["identity_linked"] is True
     assert account["sso_sign_in_available"] is False
     assert account["oidc_identity_status"] == "linked_unavailable"
+    assert account["role_managed_by"] == "local"

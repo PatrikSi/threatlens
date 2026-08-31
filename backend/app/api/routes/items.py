@@ -4,10 +4,15 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import HTMLResponse
-from sqlalchemy import String, and_, cast, func, or_, select
+from sqlalchemy import String, and_, cast, false, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_operator_user, require_token_scopes
+from app.api.deps import (
+    AuthenticatedPrincipal,
+    get_data_access_context,
+    require_permissions,
+)
+from app.core.api_errors import ApiHTTPException
 from app.core.config import get_settings
 from app.core.logging_config import verbose_logging_enabled
 from app.core.token_scopes import SCOPE_READ_ITEMS, SCOPE_WRITE_ITEMS
@@ -40,8 +45,16 @@ from app.services.article_preview import (
     ArticlePreviewFetchError,
     fetch_article_preview_document,
 )
+from app.services.data_access_policy import (
+    DataAccessContext,
+    handling_label_access_predicate,
+)
 from app.services.item_state import get_or_create_item_state
-from app.services.item_views import build_item_graph, load_item_tag_suggestions, load_tags_for_items
+from app.services.item_views import (
+    build_item_graph,
+    load_item_tag_suggestions,
+    load_tags_for_items,
+)
 from app.services.tag_feedback import record_feedback_events
 from app.tasks.feed_tasks import fetch_article
 
@@ -109,7 +122,10 @@ def list_items(
     since: datetime | None = None,
     until: datetime | None = None,
     has_article: bool | None = None,
-    date_basis: str = Query(default="first_seen_at", pattern="^(first_seen_at|published_at_or_first_seen_at)$"),
+    date_basis: str = Query(
+        default="first_seen_at",
+        pattern="^(first_seen_at|published_at_or_first_seen_at)$",
+    ),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=25, ge=1, le=100),
     sort: str = Query(
@@ -117,20 +133,36 @@ def list_items(
         pattern="^(published_at_desc|published_at_asc|first_seen_desc|first_seen_asc)$",
     ),
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_READ_ITEMS)),
+    principal: AuthenticatedPrincipal = Depends(require_permissions(SCOPE_READ_ITEMS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     selected_feed_ids = _parse_feed_ids(feed_ids)
     selected_tags = _parse_tag_filters(tag, tags)
     if feed_id and feed_id not in selected_feed_ids:
         selected_feed_ids.append(feed_id)
 
+    if not isinstance(principal, User) and (
+        is_read is not None or is_starred is not None
+    ):
+        raise ApiHTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Service accounts do not have personal read or starred state. "
+                "Remove user-state filters and retry."
+            ),
+            error_code="service_account_user_state_unsupported",
+        )
     state_subq = (
         select(
             ItemState.item_id.label("item_id"),
             ItemState.is_read.label("is_read"),
             ItemState.is_starred.label("is_starred"),
         )
-        .where(ItemState.user_id == user.id)
+        .where(
+            ItemState.user_id == principal.id
+            if isinstance(principal, User)
+            else false()
+        )
         .subquery()
     )
 
@@ -149,6 +181,12 @@ def list_items(
         .outerjoin(ItemClassification, ItemClassification.item_id == Item.id)
         .outerjoin(state_subq, state_subq.c.item_id == Item.id)
         .outerjoin(ItemAIEnrichment, ItemAIEnrichment.item_id == Item.id)
+        .where(
+            handling_label_access_predicate(
+                Feed.handling_label_id,
+                data_access,
+            )
+        )
     )
 
     filters = []
@@ -189,14 +227,24 @@ def list_items(
                 filters.append(
                     select(ItemTag.item_id)
                     .join(Tag, Tag.id == ItemTag.tag_id)
-                    .where(and_(ItemTag.item_id == Item.id, func.lower(Tag.name) == selected_tag))
+                    .where(
+                        and_(
+                            ItemTag.item_id == Item.id,
+                            func.lower(Tag.name) == selected_tag,
+                        )
+                    )
                     .exists()
                 )
         else:
             filters.append(
                 select(ItemTag.item_id)
                 .join(Tag, Tag.id == ItemTag.tag_id)
-                .where(and_(ItemTag.item_id == Item.id, func.lower(Tag.name).in_(selected_tags)))
+                .where(
+                    and_(
+                        ItemTag.item_id == Item.id,
+                        func.lower(Tag.name).in_(selected_tags),
+                    )
+                )
                 .exists()
             )
 
@@ -228,7 +276,9 @@ def list_items(
     }
     order_by = order_clauses[sort]
 
-    rows = db.execute(query.order_by(*order_by).offset((page - 1) * page_size).limit(page_size)).all()
+    rows = db.execute(
+        query.order_by(*order_by).offset((page - 1) * page_size).limit(page_size)
+    ).all()
 
     item_ids = [row.Item.id for row in rows]
     tags_by_item, tag_details_by_item = load_tags_for_items(db, item_ids=item_ids)
@@ -248,9 +298,12 @@ def list_items(
             classification=row.primary_category,
             is_read=row.is_read,
             is_starred=row.is_starred,
+            personal_state_available=isinstance(principal, User),
             tags=tags_by_item.get(row.Item.id, []),
             tag_details=tag_details_by_item.get(row.Item.id, []),
-            ai_relevance_score=float(row.ai_relevance_score) if row.ai_relevance_score is not None else None,
+            ai_relevance_score=float(row.ai_relevance_score)
+            if row.ai_relevance_score is not None
+            else None,
             ai_relevance_label=row.ai_relevance_label,
             ai_status=row.ai_status,
         )
@@ -264,27 +317,55 @@ def list_items(
 def get_item(
     item_id: uuid.UUID,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_READ_ITEMS)),
+    principal: AuthenticatedPrincipal = Depends(require_permissions(SCOPE_READ_ITEMS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     row = db.execute(
-        select(Item, Feed.name.label("feed_name"))
+        select(Item, Feed)
         .join(Feed, Feed.id == Item.feed_id)
-        .where(Item.id == item_id)
+        .where(
+            Item.id == item_id,
+            handling_label_access_predicate(
+                Feed.handling_label_id,
+                data_access,
+            ),
+        )
     ).first()
     if row is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Item not found"
+        )
 
     item = row.Item
+    feed = row.Feed
 
     article = db.scalar(select(Article).where(Article.item_id == item_id))
-    classification = db.scalar(select(ItemClassification).where(ItemClassification.item_id == item_id))
-    enrichment = db.scalar(select(ItemAIEnrichment).where(ItemAIEnrichment.item_id == item_id))
-    feed = db.scalar(select(Feed).where(Feed.id == item.feed_id))
-    state = db.scalar(
-        select(ItemState).where(and_(ItemState.user_id == user.id, ItemState.item_id == item_id))
+    classification = db.scalar(
+        select(ItemClassification).where(ItemClassification.item_id == item_id)
+    )
+    enrichment = db.scalar(
+        select(ItemAIEnrichment).where(ItemAIEnrichment.item_id == item_id)
+    )
+    state = (
+        db.scalar(
+            select(ItemState).where(
+                and_(
+                    ItemState.user_id == principal.id,
+                    ItemState.item_id == item_id,
+                )
+            )
+        )
+        if isinstance(principal, User)
+        else None
     )
     if state is None:
-        state_view = ItemStateResponse(is_read=False, is_starred=False, note=None, updated_at=None)
+        state_view = ItemStateResponse(
+            is_read=False,
+            is_starred=False,
+            personal_state_available=isinstance(principal, User),
+            note=None,
+            updated_at=None,
+        )
     else:
         state_view = ItemStateResponse(
             is_read=state.is_read,
@@ -302,12 +383,13 @@ def get_item(
         article=article,
         feed=feed,
         existing_tag_names=existing_tag_names,
+        data_access=data_access,
     )
 
     return ItemDetailResponse(
         id=item.id,
         feed_id=item.feed_id,
-        feed_name=row.feed_name,
+        feed_name=feed.name,
         source_guid=item.source_guid,
         url=item.url,
         canonical_url=item.canonical_url,
@@ -333,7 +415,9 @@ def get_item(
         ai_insight=ItemAIInsightResponse(
             status=enrichment.status,
             summary_text=enrichment.summary_text,
-            relevance_score=float(enrichment.relevance_score) if enrichment.relevance_score is not None else None,
+            relevance_score=float(enrichment.relevance_score)
+            if enrichment.relevance_score is not None
+            else None,
             relevance_label=enrichment.relevance_label,
             relevance_reasons=list(enrichment.relevance_reasons_json or []),
             model=enrichment.model,
@@ -355,7 +439,8 @@ def get_item_graph(
     ioc_limit: int = Query(default=18, ge=1, le=60),
     since_days: int = Query(default=30, ge=1, le=180),
     db: Session = Depends(get_db),
-    _user: User = Depends(require_token_scopes(SCOPE_READ_ITEMS)),
+    _principal: AuthenticatedPrincipal = Depends(require_permissions(SCOPE_READ_ITEMS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     return build_item_graph(
         db,
@@ -364,6 +449,7 @@ def get_item_graph(
         related_item_limit=related_item_limit,
         ioc_limit=ioc_limit,
         since_days=since_days,
+        data_access=data_access,
     )
 
 
@@ -375,11 +461,24 @@ def get_item_graph(
 def get_item_article_preview(
     item_id: uuid.UUID,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_token_scopes(SCOPE_READ_ITEMS)),
+    _principal: AuthenticatedPrincipal = Depends(require_permissions(SCOPE_READ_ITEMS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
-    item = db.scalar(select(Item).where(Item.id == item_id))
+    item = db.scalar(
+        select(Item)
+        .join(Feed, Feed.id == Item.feed_id)
+        .where(
+            Item.id == item_id,
+            handling_label_access_predicate(
+                Feed.handling_label_id,
+                data_access,
+            ),
+        )
+    )
     if item is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Item not found"
+        )
 
     article = db.scalar(select(Article).where(Article.item_id == item_id))
     try:
@@ -398,12 +497,14 @@ def set_item_read(
     item_id: uuid.UUID,
     payload: ReadUpdateRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(get_operator_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_ITEMS)),
+    user: User = Depends(require_permissions(SCOPE_WRITE_ITEMS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
-    item = db.scalar(select(Item.id).where(Item.id == item_id))
+    item = _accessible_item_id(db, item_id=item_id, data_access=data_access)
     if item is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Item not found"
+        )
 
     state = get_or_create_item_state(db, user_id=user.id, item_id=item_id)
     previous_is_read = state.is_read
@@ -429,17 +530,20 @@ def set_item_read(
     db.commit()
     return {"status": "ok"}
 
+
 @router.post("/{item_id}/star", status_code=status.HTTP_200_OK)
 def set_item_star(
     item_id: uuid.UUID,
     payload: StarUpdateRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(get_operator_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_ITEMS)),
+    user: User = Depends(require_permissions(SCOPE_WRITE_ITEMS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
-    item = db.scalar(select(Item.id).where(Item.id == item_id))
+    item = _accessible_item_id(db, item_id=item_id, data_access=data_access)
     if item is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Item not found"
+        )
 
     state = get_or_create_item_state(db, user_id=user.id, item_id=item_id)
     previous_is_starred = state.is_starred
@@ -471,12 +575,14 @@ def set_item_note(
     item_id: uuid.UUID,
     payload: NoteUpdateRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(get_operator_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_ITEMS)),
+    user: User = Depends(require_permissions(SCOPE_WRITE_ITEMS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
-    item = db.scalar(select(Item.id).where(Item.id == item_id))
+    item = _accessible_item_id(db, item_id=item_id, data_access=data_access)
     if item is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Item not found"
+        )
 
     state = get_or_create_item_state(db, user_id=user.id, item_id=item_id)
     state.note = payload.note
@@ -496,12 +602,14 @@ def set_item_note(
 def retry_item_article_fetch(
     item_id: uuid.UUID,
     db: Session = Depends(get_db),
-    user: User = Depends(get_operator_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_ITEMS)),
+    user: User = Depends(require_permissions(SCOPE_WRITE_ITEMS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
-    item = db.scalar(select(Item.id).where(Item.id == item_id))
+    item = _accessible_item_id(db, item_id=item_id, data_access=data_access)
     if item is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Item not found"
+        )
 
     try:
         task = fetch_article.delay(str(item_id), force=True)
@@ -544,15 +652,19 @@ def set_item_tags(
     item_id: uuid.UUID,
     payload: ItemTagsUpdateRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(get_operator_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_ITEMS)),
+    user: User = Depends(require_permissions(SCOPE_WRITE_ITEMS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
-    item = db.scalar(select(Item.id).where(Item.id == item_id))
+    item = _accessible_item_id(db, item_id=item_id, data_access=data_access)
     if item is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Item not found"
+        )
 
     existing_tag_rows = db.execute(
-        select(Tag.name).join(ItemTag, ItemTag.tag_id == Tag.id).where(ItemTag.item_id == item_id)
+        select(Tag.name)
+        .join(ItemTag, ItemTag.tag_id == Tag.id)
+        .where(ItemTag.item_id == item_id)
     ).all()
     existing_tag_names = {tag_name for (tag_name,) in existing_tag_rows}
 
@@ -560,18 +672,26 @@ def set_item_tags(
     applied: list[str] = []
     requested_tag_names: list[str] = []
     if requested_tag_ids:
-        valid_tag_rows = db.scalars(select(Tag).where(Tag.id.in_(requested_tag_ids))).all()
+        valid_tag_rows = db.scalars(
+            select(Tag).where(Tag.id.in_(requested_tag_ids))
+        ).all()
         valid_tag_by_id = {tag.id: tag for tag in valid_tag_rows}
         valid_tag_set = set(valid_tag_by_id.keys())
-        missing_tag_ids = [str(tag_id) for tag_id in requested_tag_ids if tag_id not in valid_tag_set]
+        missing_tag_ids = [
+            str(tag_id) for tag_id in requested_tag_ids if tag_id not in valid_tag_set
+        ]
         if missing_tag_ids:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=f"Unknown tag IDs: {', '.join(missing_tag_ids)}",
             )
-        requested_tag_names = [valid_tag_by_id[tag_id].name for tag_id in requested_tag_ids]
+        requested_tag_names = [
+            valid_tag_by_id[tag_id].name for tag_id in requested_tag_ids
+        ]
 
-    db.query(ItemTag).filter(ItemTag.item_id == item_id).delete(synchronize_session=False)
+    db.query(ItemTag).filter(ItemTag.item_id == item_id).delete(
+        synchronize_session=False
+    )
 
     for tag_id in requested_tag_ids:
         db.add(
@@ -621,15 +741,31 @@ def set_item_tags(
 def get_item_tag_suggestions(
     item_id: uuid.UUID,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_token_scopes(SCOPE_READ_ITEMS)),
+    _principal: AuthenticatedPrincipal = Depends(require_permissions(SCOPE_READ_ITEMS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
-    item = db.scalar(select(Item).where(Item.id == item_id))
-    if item is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
+    row = db.execute(
+        select(Item, Feed)
+        .join(Feed, Feed.id == Item.feed_id)
+        .where(
+            Item.id == item_id,
+            handling_label_access_predicate(
+                Feed.handling_label_id,
+                data_access,
+            ),
+        )
+    ).first()
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Item not found"
+        )
+    item = row.Item
 
     article = db.scalar(select(Article).where(Article.item_id == item_id))
-    classification = db.scalar(select(ItemClassification).where(ItemClassification.item_id == item_id))
-    feed = db.scalar(select(Feed).where(Feed.id == item.feed_id))
+    classification = db.scalar(
+        select(ItemClassification).where(ItemClassification.item_id == item_id)
+    )
+    feed = row.Feed
     tags_by_item, _ = load_tags_for_items(db, item_ids=[item_id])
 
     suggestions = load_item_tag_suggestions(
@@ -639,5 +775,25 @@ def get_item_tag_suggestions(
         article=article,
         feed=feed,
         existing_tag_names=tags_by_item.get(item_id, []),
+        data_access=data_access,
     )
     return ItemTagSuggestionListResponse(item_id=item_id, suggestions=suggestions)
+
+
+def _accessible_item_id(
+    db: Session,
+    *,
+    item_id: uuid.UUID,
+    data_access: DataAccessContext,
+) -> uuid.UUID | None:
+    return db.scalar(
+        select(Item.id)
+        .join(Feed, Feed.id == Item.feed_id)
+        .where(
+            Item.id == item_id,
+            handling_label_access_predicate(
+                Feed.handling_label_id,
+                data_access,
+            ),
+        )
+    )

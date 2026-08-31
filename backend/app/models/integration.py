@@ -3,6 +3,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     DateTime,
     ForeignKey,
     Index,
@@ -301,4 +302,157 @@ class IntegrationDeliveryMetric(Base):
         nullable=False,
         server_default=func.now(),
         onupdate=func.now(),
+    )
+
+
+class IntegrationDeliveryMetricCohort(Base):
+    __tablename__ = "integration_delivery_metric_cohorts"
+    __table_args__ = (
+        UniqueConstraint(
+            "metric_id",
+            "policy_cohort_key",
+            name="uq_integration_delivery_metric_cohorts_dimensions",
+        ),
+        Index(
+            "ix_integration_delivery_metric_cohorts_metric",
+            "metric_id",
+        ),
+        CheckConstraint(
+            "policy_cohort_key ~ '^[0-9a-f]{64}$'",
+            name="ck_integration_delivery_metric_cohorts_key",
+        ),
+        CheckConstraint(
+            "captured_policy_revision >= 1",
+            name="ck_integration_delivery_metric_cohorts_revision",
+        ),
+        CheckConstraint(
+            "source_count >= 0 AND (source_count > 0 OR NOT provenance_complete)",
+            name="ck_integration_delivery_metric_cohorts_provenance",
+        ),
+        CheckConstraint(
+            "succeeded_count >= 0 AND failed_count >= 0 "
+            "AND dead_letter_count >= 0 AND attempt_count >= 0 "
+            "AND duration_total_ms >= 0 AND duration_max_ms >= 0",
+            name="ck_integration_delivery_metric_cohorts_counters",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    metric_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("integration_delivery_metrics.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    policy_cohort_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    captured_policy_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    provenance_complete: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    source_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    succeeded_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    failed_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    dead_letter_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    duration_total_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    duration_max_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class IntegrationDeliveryMetricCohortLabel(Base):
+    __tablename__ = "integration_delivery_metric_cohort_labels"
+    __table_args__ = (
+        Index(
+            "ix_integration_delivery_metric_cohort_labels_label",
+            "label_id",
+            "cohort_id",
+        ),
+    )
+
+    cohort_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("integration_delivery_metric_cohorts.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    label_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("handling_labels.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+
+
+class IntegrationDeliveryMetricCohortCapturedLabel(Base):
+    __tablename__ = "integration_delivery_metric_cohort_captured_labels"
+    __table_args__ = (
+        Index(
+            "ix_integration_metric_captured_labels_label",
+            "label_id",
+            "cohort_id",
+        ),
+    )
+
+    cohort_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("integration_delivery_metric_cohorts.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    label_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("handling_labels.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+
+
+class IntegrationDeliveryMetricCohortTaintLabel(Base):
+    __tablename__ = "integration_delivery_metric_cohort_taint_labels"
+    __table_args__ = (
+        Index(
+            "ix_integration_metric_taint_labels_label",
+            "label_id",
+            "cohort_id",
+        ),
+    )
+
+    cohort_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("integration_delivery_metric_cohorts.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    label_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("handling_labels.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+
+
+class IntegrationDeliveryMetricCohortFeed(Base):
+    __tablename__ = "integration_delivery_metric_cohort_feeds"
+    __table_args__ = (
+        Index(
+            "ix_integration_delivery_metric_cohort_feeds_feed",
+            "source_feed_id_snapshot",
+            "cohort_id",
+        ),
+        CheckConstraint(
+            "source_feed_id_snapshot <> "
+            "'00000000-0000-0000-0000-000000000000'::uuid",
+            name="ck_integration_delivery_metric_cohort_feeds_nonzero",
+        ),
+    )
+
+    cohort_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("integration_delivery_metric_cohorts.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    source_feed_id_snapshot: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        primary_key=True,
     )

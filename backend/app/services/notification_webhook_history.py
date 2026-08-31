@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import hashlib
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, exists, false, func, or_, select, true
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.models.data_policy import DataAccessEnvelope, DataAccessEnvelopeLabel
+from app.models.feed import Feed
+from app.models.item import Item
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.user import User
@@ -21,6 +24,15 @@ from app.schemas.notification import (
     NotificationWebhookTestResponse,
 )
 from app.services.integration_compat import lock_notification_webhook
+from app.services.data_access_envelopes import (
+    DATA_ACCESS_RESOURCE_INTEGRATION_DELIVERY,
+    data_access_envelope_predicate,
+)
+from app.services.data_access_policy import (
+    DataAccessContext,
+    fence_data_access_context,
+    handling_label_access_predicate,
+)
 from app.services.integration_delivery import (
     claim_webhook_delivery as claim_generic_webhook_delivery,
     ensure_webhook_delivery,
@@ -80,6 +92,12 @@ class NotificationDeliveryReservationBatch:
     delivery_ids: list[uuid.UUID]
     matched_webhooks: int
     skipped: int
+
+
+@dataclass(frozen=True, slots=True)
+class NotificationDeliveryWouldDenySummary:
+    affected_count: int
+    handling_label_ids: frozenset[uuid.UUID]
 
 
 def has_recent_notification_delivery(
@@ -158,8 +176,12 @@ def try_acquire_notification_delivery_lock(
 
 
 def get_notification_analytics(
-    db: Session, *, user_id: uuid.UUID
+    db: Session,
+    *,
+    user_id: uuid.UUID,
+    data_access: DataAccessContext | None = None,
 ) -> NotificationAnalyticsResponse:
+    access_predicate = notification_delivery_data_access_predicate(data_access)
     terminal_filter = NotificationWebhookDelivery.delivery_state.in_(
         NOTIFICATION_DELIVERY_TERMINAL_STATES
     )
@@ -170,6 +192,7 @@ def get_notification_analytics(
             .where(
                 NotificationWebhookDelivery.user_id == user_id,
                 terminal_filter,
+                access_predicate,
             )
         )
         or 0
@@ -182,6 +205,7 @@ def get_notification_analytics(
                 NotificationWebhookDelivery.user_id == user_id,
                 NotificationWebhookDelivery.delivery_state
                 == NOTIFICATION_DELIVERY_SUCCEEDED,
+                access_predicate,
             )
         )
         or 0
@@ -197,6 +221,7 @@ def get_notification_analytics(
                 NotificationWebhookDelivery.delivery_state
                 == NOTIFICATION_DELIVERY_FAILED,
                 NotificationWebhookDelivery.attempted_at >= cutoff,
+                access_predicate,
             )
         )
         or 0
@@ -208,7 +233,11 @@ def get_notification_analytics(
             NotificationWebhookDelivery.delivery_state,
             func.count().label("count"),
         )
-        .where(NotificationWebhookDelivery.user_id == user_id, terminal_filter)
+        .where(
+            NotificationWebhookDelivery.user_id == user_id,
+            terminal_filter,
+            access_predicate,
+        )
         .group_by(
             NotificationWebhookDelivery.event_type_snapshot,
             NotificationWebhookDelivery.delivery_state,
@@ -244,6 +273,7 @@ def get_notification_analytics(
         .where(
             NotificationWebhookDelivery.user_id == user_id,
             NotificationWebhookDelivery.delivery_state == NOTIFICATION_DELIVERY_FAILED,
+            access_predicate,
         )
         .group_by(NotificationWebhookDelivery.webhook_id, NotificationWebhook.name)
         .order_by(
@@ -274,7 +304,11 @@ def get_notification_analytics(
         failures_last_24h=failures_last_24h,
         most_failing_webhook=most_failing_webhook,
         events=events,
-        queue=get_notification_delivery_queue_snapshot(db, user_id=user_id),
+        queue=get_notification_delivery_queue_snapshot(
+            db,
+            user_id=user_id,
+            data_access=data_access,
+        ),
     )
 
 
@@ -282,13 +316,14 @@ def get_notification_delivery_queue_snapshot(
     db: Session,
     *,
     user_id: uuid.UUID | None = None,
+    data_access: DataAccessContext | None = None,
     now: datetime | None = None,
 ) -> NotificationQueueSnapshot:
     current_time = now or datetime.now(timezone.utc)
     stale_cutoff = current_time - NOTIFICATION_DELIVERY_STALE_AFTER
-    base_filters = (
-        [NotificationWebhookDelivery.user_id == user_id] if user_id is not None else []
-    )
+    base_filters = [notification_delivery_data_access_predicate(data_access)]
+    if user_id is not None:
+        base_filters.append(NotificationWebhookDelivery.user_id == user_id)
     pending_filters = [
         *base_filters,
         NotificationWebhookDelivery.delivery_state == NOTIFICATION_DELIVERY_PENDING,
@@ -371,6 +406,147 @@ def get_notification_delivery_queue_snapshot(
             NOTIFICATION_DELIVERY_QUEUE_DEGRADED_AFTER.total_seconds()
         ),
         stale_after_seconds=int(NOTIFICATION_DELIVERY_STALE_AFTER.total_seconds()),
+    )
+
+
+def notification_delivery_data_access_predicate(
+    data_access: DataAccessContext | None,
+):
+    if data_access is None:
+        return true()
+    if not data_access.principal_eligible:
+        return false()
+    if not data_access.enforced:
+        return true()
+    generic_delivery = and_(
+        NotificationWebhookDelivery.integration_delivery_id.is_not(None),
+        data_access_envelope_predicate(
+            DATA_ACCESS_RESOURCE_INTEGRATION_DELIVERY,
+            NotificationWebhookDelivery.integration_delivery_id,
+            data_access,
+        ),
+    )
+    legacy_item = and_(
+        NotificationWebhookDelivery.integration_delivery_id.is_(None),
+        NotificationWebhookDelivery.item_id.is_not(None),
+        exists(
+            select(Item.id)
+            .join(Feed, Feed.id == Item.feed_id)
+            .where(
+                Item.id == NotificationWebhookDelivery.item_id,
+                or_(
+                    NotificationWebhookDelivery.feed_id.is_(None),
+                    Item.feed_id == NotificationWebhookDelivery.feed_id,
+                ),
+                handling_label_access_predicate(
+                    Feed.handling_label_id,
+                    data_access,
+                ),
+            )
+        ),
+    )
+    legacy_feed = and_(
+        NotificationWebhookDelivery.integration_delivery_id.is_(None),
+        NotificationWebhookDelivery.item_id.is_(None),
+        NotificationWebhookDelivery.feed_id.is_not(None),
+        NotificationWebhookDelivery.event_type_snapshot == "feed_failing",
+        exists(
+            select(Feed.id).where(
+                Feed.id == NotificationWebhookDelivery.feed_id,
+                handling_label_access_predicate(
+                    Feed.handling_label_id,
+                    data_access,
+                ),
+            )
+        ),
+    )
+    return or_(generic_delivery, legacy_item, legacy_feed)
+
+
+def notification_delivery_would_deny_summary(
+    db: Session,
+    *,
+    data_access: DataAccessContext,
+    user_id: uuid.UUID | None = None,
+    webhook_id: uuid.UUID | None = None,
+    delivery_id: uuid.UUID | None = None,
+) -> NotificationDeliveryWouldDenySummary:
+    """Summarize audit-visible history that enforced mode would withhold."""
+
+    if not data_access.auditing or not data_access.principal_eligible:
+        return NotificationDeliveryWouldDenySummary(0, frozenset())
+
+    fence_data_access_context(db, data_access)
+    enforced_context = replace(data_access, mode="enforced")
+    filters = []
+    if user_id is not None:
+        filters.append(NotificationWebhookDelivery.user_id == user_id)
+    if webhook_id is not None:
+        filters.append(NotificationWebhookDelivery.webhook_id == webhook_id)
+    if delivery_id is not None:
+        filters.append(NotificationWebhookDelivery.id == delivery_id)
+    denied = ~notification_delivery_data_access_predicate(enforced_context)
+    affected_count = int(
+        db.scalar(
+            select(func.count())
+            .select_from(NotificationWebhookDelivery)
+            .where(*filters, denied)
+        )
+        or 0
+    )
+    if not affected_count:
+        return NotificationDeliveryWouldDenySummary(0, frozenset())
+
+    envelope_labels = db.scalars(
+        select(DataAccessEnvelopeLabel.label_id)
+        .select_from(NotificationWebhookDelivery)
+        .join(
+            DataAccessEnvelope,
+            and_(
+                DataAccessEnvelope.resource_type
+                == DATA_ACCESS_RESOURCE_INTEGRATION_DELIVERY,
+                DataAccessEnvelope.resource_id
+                == NotificationWebhookDelivery.integration_delivery_id,
+            ),
+        )
+        .join(
+            DataAccessEnvelopeLabel,
+            DataAccessEnvelopeLabel.envelope_id == DataAccessEnvelope.id,
+        )
+        .where(
+            *filters,
+            DataAccessEnvelopeLabel.label_id.not_in(
+                enforced_context.allowed_label_ids
+            ),
+        )
+        .distinct()
+    ).all()
+    item_labels = db.scalars(
+        select(Feed.handling_label_id)
+        .select_from(NotificationWebhookDelivery)
+        .join(Item, Item.id == NotificationWebhookDelivery.item_id)
+        .join(Feed, Feed.id == Item.feed_id)
+        .where(
+            *filters,
+            NotificationWebhookDelivery.integration_delivery_id.is_(None),
+            Feed.handling_label_id.not_in(enforced_context.allowed_label_ids),
+        )
+        .distinct()
+    ).all()
+    feed_labels = db.scalars(
+        select(Feed.handling_label_id)
+        .select_from(NotificationWebhookDelivery)
+        .join(Feed, Feed.id == NotificationWebhookDelivery.feed_id)
+        .where(
+            *filters,
+            NotificationWebhookDelivery.integration_delivery_id.is_(None),
+            Feed.handling_label_id.not_in(enforced_context.allowed_label_ids),
+        )
+        .distinct()
+    ).all()
+    return NotificationDeliveryWouldDenySummary(
+        affected_count,
+        frozenset((*envelope_labels, *item_labels, *feed_labels)),
     )
 
 

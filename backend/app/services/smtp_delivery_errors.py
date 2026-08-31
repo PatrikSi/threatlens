@@ -1,14 +1,31 @@
 from __future__ import annotations
 
 import smtplib
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.services.integration_delivery_data_policy import (
+        IntegrationDeliveryPolicyAudit,
+    )
 
 
 class SMTPDeliveryIneligibleError(RuntimeError):
     """The SMTP control plane changed before an external operation began."""
 
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        data_policy_audit: IntegrationDeliveryPolicyAudit | None = None,
+    ) -> None:
         super().__init__(message)
         self.code = code
+        self.data_policy_audit = data_policy_audit
+
+
+class SMTPDeliveryTemporarilyIneligibleError(SMTPDeliveryIneligibleError):
+    """A revoked delivery may become eligible again within its retry budget."""
 
 
 class SMTPDeliveryDatabasePreflightError(RuntimeError):

@@ -1,4 +1,5 @@
 import { ApiError, ApiTransportError } from '../api/client'
+export { isAmbiguousMutationError as isAmbiguousReportingMutationError } from '../api/mutationResilience'
 import type { ReportQueueResponse } from '../types/api'
 
 export const REPORT_PREVIEW_TIMEOUT_MS = 60_000
@@ -12,11 +13,6 @@ export type ReportQueueFeedback = {
 
 const RETRYABLE_CLIENT_STATUSES = new Set([408, 409, 425, 429])
 const NON_BLOCKING_CLIENT_STATUSES = new Set([408, 425, 429])
-
-export function isAmbiguousReportingMutationError(error: unknown): boolean {
-  return error instanceof ApiTransportError
-    || (error instanceof ApiError && (error.status >= 500 || error.code === 'invalid_response'))
-}
 
 export function requireReportQueueResponse(
   value: unknown,

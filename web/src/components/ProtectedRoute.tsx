@@ -9,12 +9,19 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const meQuery = useCurrentUser()
   const location = useLocation()
   const from = { pathname: location.pathname, search: location.search, hash: location.hash }
+  const returnState = isWorkspaceEntry(location.pathname) ? {} : { from }
 
   if (meQuery.isLoading) {
     return <div className="p-6 text-sm text-slate dark:text-slate-300">Loading session...</div>
   }
   if (meQuery.error instanceof ApiError && meQuery.error.status === 401) {
-    return <Navigate to="/login" replace state={{ authMessage: 'Session expired. Sign in again.', from }} />
+    return (
+      <Navigate
+        to="/login"
+        replace
+        state={{ authMessage: 'Session expired. Sign in again.', ...returnState }}
+      />
+    )
   }
   if (meQuery.error instanceof ApiError && meQuery.error.status === 403) {
     return (
@@ -44,8 +51,12 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
     )
   }
   if (!meQuery.data) {
-    return <Navigate to="/login" replace state={{ authMessage: 'Sign in to continue.', from }} />
+    return <Navigate to="/login" replace state={{ authMessage: 'Sign in to continue.', ...returnState }} />
   }
 
   return <>{children}</>
+}
+
+function isWorkspaceEntry(pathname: string) {
+  return pathname === '/' || pathname === '/start'
 }

@@ -1,6 +1,7 @@
 import json
 import socket
 import uuid
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs, urlsplit
 
@@ -28,7 +29,7 @@ from app.services.oidc_config import (
     oidc_callback_url,
     validate_oidc_provider_urls,
 )
-from app.services.oidc_identity import resolve_oidc_role
+from app.services.oidc_identity import OIDCIdentityError, resolve_oidc_role
 from app.services.secret_storage import encrypt_text
 from app.services.oidc_transaction import (
     decode_oidc_transaction,
@@ -116,6 +117,14 @@ def test_oidc_role_mapping_supports_nested_claims_and_uses_highest_role():
         resolve_oidc_role(provider, {"realm_access": {"roles": ["unmapped"]}})
         == "viewer"
     )
+    assert resolve_oidc_role(provider, {}) == "viewer"
+    assert resolve_oidc_role(provider, {"realm_access": {"roles": []}}) == "viewer"
+
+    for malformed in (None, 7, {}, ["responders", 7], " responders", ""):
+        with pytest.raises(OIDCIdentityError) as invalid:
+            resolve_oidc_role(provider, {"realm_access": {"roles": malformed}})
+        assert invalid.value.code == "role_claim_invalid"
+        assert invalid.value.details == {"claim_path": "realm_access.roles"}
 
 
 def test_oidc_urls_require_https_by_default(monkeypatch):
@@ -195,7 +204,12 @@ def test_oidc_callback_path_is_configurable(monkeypatch):
 
 def test_oidc_transaction_rejects_state_mismatch():
     transaction = new_oidc_transaction(
-        provider_id="provider-1", provider_config_revision=1, mode="login"
+        provider_id="provider-1",
+        provider_config_revision=1,
+        mode="login",
+        access_policy_revision=7,
+        access_policy_id="00000000-0000-4000-8000-000000000777",
+        access_policy_generation=11,
     )
     encoded = encode_oidc_transaction(transaction)
     settings = get_settings()
@@ -203,6 +217,28 @@ def test_oidc_transaction_rejects_state_mismatch():
 
     assert decode_oidc_transaction(request, "different-state") is None
     assert decode_oidc_transaction(request, transaction.state) == transaction
+
+    legacy_payload = jwt.decode(
+        encoded,
+        settings.jwt_secret,
+        algorithms=[settings.jwt_algorithm],
+        audience="threatlens:oidc-transaction",
+    )
+    legacy_payload.pop("access_policy_revision")
+    legacy_payload.pop("access_policy_id")
+    legacy_payload.pop("access_policy_generation")
+    legacy_encoded = jwt.encode(
+        legacy_payload, settings.jwt_secret, algorithm=settings.jwt_algorithm
+    )
+    legacy_request = _request_with_cookie(
+        settings.oidc_transaction_cookie_name, legacy_encoded
+    )
+    assert decode_oidc_transaction(legacy_request, transaction.state) == replace(
+        transaction,
+        access_policy_revision=None,
+        access_policy_id=None,
+        access_policy_generation=None,
+    )
 
 
 def test_authorization_url_contains_pkce_nonce_and_exact_callback():

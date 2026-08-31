@@ -1233,6 +1233,8 @@ def test_ai_ops_endpoints_expose_runs_sources_and_audit_logs(
     assert [event["event_type"] for event in detail_payload["events"]] == [
         "queued",
         "started",
+        "provider_exchange_started",
+        "provider_exchange_settled",
         "provider_exchange",
         "completed",
     ]

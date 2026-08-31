@@ -4,16 +4,33 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy import and_, case, exists, func, or_, select, true, union_all
 from sqlalchemy.orm import Session
 
 from app.models.alert_evaluation_request import (
     AlertEvaluationRequest,
     AlertEvaluationRequestActivity,
 )
-from app.models.alert_occurrence import AlertOccurrence, AlertOccurrenceMetric
+from app.models.alert_occurrence import (
+    AlertOccurrence,
+    AlertOccurrenceMetric,
+    AlertOccurrenceMetricCohort,
+)
+from app.models.feed import Feed
+from app.models.item import Item
 from app.services.alert_acceptance import lock_alert_evaluation_item_and_request
 from app.services.alert_evaluation_history import record_alert_evaluation_activity
+from app.services.alert_metric_data_policy import (
+    alert_metric_cohort_data_access_predicate,
+)
+from app.services.data_access_envelopes import (
+    DATA_ACCESS_RESOURCE_ALERT_OCCURRENCE,
+    data_access_envelope_predicate,
+)
+from app.services.data_access_policy import (
+    DataAccessContext,
+    handling_label_access_predicate,
+)
 
 
 ALERT_EVALUATION_STATES = frozenset(
@@ -75,6 +92,7 @@ class AlertOccurrenceMetricPage:
 def list_alert_evaluation_requests(
     db: Session,
     *,
+    data_access: DataAccessContext,
     states: list[str],
     sources: list[str],
     item_id: uuid.UUID | None,
@@ -84,7 +102,7 @@ def list_alert_evaluation_requests(
     now: datetime | None = None,
 ) -> AlertEvaluationRequestPage:
     current_time = _as_utc(now or datetime.now(timezone.utc))
-    predicates = []
+    predicates = [_alert_evaluation_data_access_predicate(data_access)]
     if states:
         predicates.append(AlertEvaluationRequest.state.in_(states))
     if sources:
@@ -137,10 +155,12 @@ def get_alert_evaluation_request(
     db: Session,
     *,
     request_id: uuid.UUID,
+    data_access: DataAccessContext,
     for_update: bool = False,
 ) -> AlertEvaluationRequest:
     query = select(AlertEvaluationRequest).where(
-        AlertEvaluationRequest.id == request_id
+        AlertEvaluationRequest.id == request_id,
+        _alert_evaluation_data_access_predicate(data_access),
     )
     if for_update:
         query = query.with_for_update().execution_options(populate_existing=True)
@@ -154,10 +174,15 @@ def list_alert_evaluation_activity(
     db: Session,
     *,
     request_id: uuid.UUID,
+    data_access: DataAccessContext,
     page: int,
     page_size: int,
 ) -> AlertEvaluationActivityPage:
-    get_alert_evaluation_request(db, request_id=request_id)
+    get_alert_evaluation_request(
+        db,
+        request_id=request_id,
+        data_access=data_access,
+    )
     predicate = AlertEvaluationRequestActivity.request_id == request_id
     total = (
         db.scalar(
@@ -184,11 +209,17 @@ def replay_dead_letter_evaluation(
     db: Session,
     *,
     request_id: uuid.UUID,
+    data_access: DataAccessContext,
     expected_version: int,
     actor_user_id: uuid.UUID,
     now: datetime | None = None,
 ) -> AlertEvaluationRequest:
     current_time = _as_utc(now or datetime.now(timezone.utc))
+    get_alert_evaluation_request(
+        db,
+        request_id=request_id,
+        data_access=data_access,
+    )
     locked = lock_alert_evaluation_item_and_request(db, request_id=request_id)
     request = locked.request
     if request is None:
@@ -256,6 +287,7 @@ def list_alert_occurrence_metrics(
     db: Session,
     *,
     owner_user_id: uuid.UUID,
+    data_access: DataAccessContext,
     since: datetime,
     until: datetime,
     severities: list[str],
@@ -276,9 +308,44 @@ def list_alert_occurrence_metrics(
     if suppressed is not None:
         predicates.append(AlertOccurrenceMetric.suppressed == suppressed)
     bounded_limit = max(1, min(int(limit), 1_000))
-    historical = list(
-        db.scalars(select(AlertOccurrenceMetric).where(*predicates)).all()
-    )
+    if data_access.enforced:
+        historical = (
+            select(
+                AlertOccurrenceMetric.bucket_start.label("bucket_start"),
+                AlertOccurrenceMetric.severity.label("severity"),
+                AlertOccurrenceMetric.lifecycle_state.label("lifecycle_state"),
+                AlertOccurrenceMetric.suppressed.label("suppressed"),
+                func.sum(AlertOccurrenceMetricCohort.occurrence_count).label(
+                    "occurrence_count"
+                ),
+                func.min(AlertOccurrenceMetric.created_at).label("created_at"),
+                func.max(AlertOccurrenceMetric.updated_at).label("updated_at"),
+            )
+            .join(
+                AlertOccurrenceMetricCohort,
+                AlertOccurrenceMetricCohort.metric_id == AlertOccurrenceMetric.id,
+            )
+            .where(
+                *predicates,
+                alert_metric_cohort_data_access_predicate(data_access),
+            )
+            .group_by(
+                AlertOccurrenceMetric.bucket_start,
+                AlertOccurrenceMetric.severity,
+                AlertOccurrenceMetric.lifecycle_state,
+                AlertOccurrenceMetric.suppressed,
+            )
+        )
+    else:
+        historical = select(
+            AlertOccurrenceMetric.bucket_start.label("bucket_start"),
+            AlertOccurrenceMetric.severity.label("severity"),
+            AlertOccurrenceMetric.lifecycle_state.label("lifecycle_state"),
+            AlertOccurrenceMetric.suppressed.label("suppressed"),
+            AlertOccurrenceMetric.occurrence_count.label("occurrence_count"),
+            AlertOccurrenceMetric.created_at.label("created_at"),
+            AlertOccurrenceMetric.updated_at.label("updated_at"),
+        ).where(*predicates)
     suppressed_dimension = case(
         (AlertOccurrence.suppressed_at.is_not(None), True),
         else_=False,
@@ -289,6 +356,11 @@ def list_alert_occurrence_metrics(
         AlertOccurrence.metrics_aggregated_at.is_(None),
         AlertOccurrence.created_at >= window_start,
         AlertOccurrence.created_at < window_end,
+        data_access_envelope_predicate(
+            DATA_ACCESS_RESOURCE_ALERT_OCCURRENCE,
+            AlertOccurrence.id,
+            data_access,
+        ),
     ]
     if severities:
         live_predicates.append(AlertOccurrence.severity_snapshot.in_(severities))
@@ -300,15 +372,15 @@ def list_alert_occurrence_metrics(
             if suppressed
             else AlertOccurrence.suppressed_at.is_(None)
         )
-    live_rows = db.execute(
+    live = (
         select(
             bucket.label("bucket_start"),
-            AlertOccurrence.severity_snapshot,
-            AlertOccurrence.lifecycle_state,
+            AlertOccurrence.severity_snapshot.label("severity"),
+            AlertOccurrence.lifecycle_state.label("lifecycle_state"),
             suppressed_dimension.label("suppressed"),
-            func.count(AlertOccurrence.id),
-            func.min(AlertOccurrence.created_at),
-            func.max(AlertOccurrence.updated_at),
+            func.count(AlertOccurrence.id).label("occurrence_count"),
+            func.min(AlertOccurrence.created_at).label("created_at"),
+            func.max(AlertOccurrence.updated_at).label("updated_at"),
         )
         .where(*live_predicates)
         .group_by(
@@ -317,53 +389,58 @@ def list_alert_occurrence_metrics(
             AlertOccurrence.lifecycle_state,
             suppressed_dimension,
         )
+    )
+
+    sources = union_all(historical, live).subquery("alert_metric_sources")
+    rows = db.execute(
+        select(
+            sources.c.bucket_start,
+            sources.c.severity,
+            sources.c.lifecycle_state,
+            sources.c.suppressed,
+            func.sum(sources.c.occurrence_count).label("occurrence_count"),
+            func.min(sources.c.created_at).label("created_at"),
+            func.max(sources.c.updated_at).label("updated_at"),
+        )
+        .group_by(
+            sources.c.bucket_start,
+            sources.c.severity,
+            sources.c.lifecycle_state,
+            sources.c.suppressed,
+        )
+        .order_by(
+            sources.c.bucket_start.desc(),
+            sources.c.severity.desc(),
+            sources.c.lifecycle_state.asc(),
+            sources.c.suppressed.asc(),
+        )
+        .limit(bounded_limit + 1)
     ).all()
-    combined: dict[tuple[datetime, str, str, bool], AlertOccurrenceMetricPoint] = {}
-    for row in historical:
+    items = []
+    for row in rows[:bounded_limit]:
         bucket_start = _as_utc(row.bucket_start)
-        key = (bucket_start, row.severity, row.lifecycle_state, row.suppressed)
-        combined[key] = AlertOccurrenceMetricPoint(
-            row.id,
+        key = (
             bucket_start,
-            owner_user_id,
             row.severity,
             row.lifecycle_state,
             row.suppressed,
-            row.occurrence_count,
-            row.created_at,
-            row.updated_at,
         )
-    for (
-        bucket_start,
-        severity,
-        state,
-        is_suppressed,
-        count,
-        created,
-        updated,
-    ) in live_rows:
-        bucket_start = _as_utc(bucket_start)
-        key = (bucket_start, severity, state, is_suppressed)
-        previous = combined.get(key)
-        combined[key] = AlertOccurrenceMetricPoint(
-            previous.id if previous else _metric_projection_id(owner_user_id, key),
-            bucket_start,
-            owner_user_id,
-            severity,
-            state,
-            is_suppressed,
-            int(count) + (previous.occurrence_count if previous else 0),
-            min(created, previous.created_at) if previous else created,
-            max(updated, previous.updated_at) if previous else updated,
+        items.append(
+            AlertOccurrenceMetricPoint(
+                _metric_projection_id(owner_user_id, key),
+                bucket_start,
+                owner_user_id,
+                row.severity,
+                row.lifecycle_state,
+                row.suppressed,
+                int(row.occurrence_count),
+                row.created_at,
+                row.updated_at,
+            )
         )
-    ordered = sorted(
-        combined.values(),
-        key=lambda row: (row.bucket_start, row.id),
-        reverse=True,
-    )
     return AlertOccurrenceMetricPage(
-        ordered[:bounded_limit],
-        truncated=len(ordered) > bounded_limit,
+        items,
+        truncated=len(rows) > bounded_limit,
     )
 
 
@@ -372,6 +449,24 @@ def _metric_projection_id(
     key: tuple[datetime, str, str, bool],
 ) -> uuid.UUID:
     return uuid.uuid5(owner_user_id, "|".join(str(value) for value in key))
+
+
+def _alert_evaluation_data_access_predicate(
+    data_access: DataAccessContext,
+):
+    if not data_access.enforced:
+        return true()
+    return exists(
+        select(Item.id)
+        .join(Feed, Feed.id == Item.feed_id)
+        .where(
+            Item.id == AlertEvaluationRequest.item_id,
+            handling_label_access_predicate(
+                Feed.handling_label_id,
+                data_access,
+            ),
+        )
+    )
 
 
 def _utc_day_window(since: datetime, until: datetime) -> tuple[datetime, datetime]:

@@ -24,6 +24,9 @@ from app.schemas.reports import (
 )
 from app.services.ai_config import ActiveAISettings
 from app.services.ai_prompting import build_company_context
+from app.services.data_access_envelopes import DATA_ACCESS_RESOURCE_REPORT
+from app.services.data_access_retention import prune_deleted_resource_envelopes
+from app.services.data_access_runtime import ensure_report_data_access_envelope
 from app.services.report_prompt_budget import (
     CONTEXT_COMPACTION_WARNING,
     FINDINGS_COMPACTION_WARNING,
@@ -35,9 +38,7 @@ class ReportStorageError(ValueError):
     pass
 
 
-_SOURCE_TIGHTENING_WARNING = (
-    "Source excerpts were tightened at execution to fit the current model context window."
-)
+_SOURCE_TIGHTENING_WARNING = "Source excerpts were tightened at execution to fit the current model context window."
 _RUNTIME_WARNING_PREFIXES = ("Execution omitted ",)
 
 
@@ -58,8 +59,12 @@ def create_report_from_plan(
 ) -> Report:
     validate_report_section_set(payload.sections)
     if not plan.included_sources:
-        raise ReportStorageError("No matching articles fit the selected filters and AI context guardrails.")
-    title = payload.title or _default_report_title(template, payload.period_start, payload.period_end)
+        raise ReportStorageError(
+            "No matching articles fit the selected filters and AI context guardrails."
+        )
+    title = payload.title or _default_report_title(
+        template, payload.period_start, payload.period_end
+    )
     report = Report(
         template_id=template.id if template else payload.template_id,
         schedule_id=schedule_id,
@@ -78,10 +83,14 @@ def create_report_from_plan(
         filters_json=payload.filters.model_dump(mode="json"),
         prompt_config_json=payload.prompt.model_dump(mode="json"),
         generation_context_json={
-            "company_context": build_company_context(active) if payload.prompt.use_company_context else {},
+            "company_context": build_company_context(active)
+            if payload.prompt.use_company_context
+            else {},
             "global_instructions": active.global_instructions,
         },
-        sections_config_json=[section.model_dump(mode="json") for section in payload.sections],
+        sections_config_json=[
+            section.model_dump(mode="json") for section in payload.sections
+        ],
         **report_plan_record_fields(plan),
         provider=active.provider_type,
         model=active.model,
@@ -90,8 +99,13 @@ def create_report_from_plan(
     )
     db.add(report)
     db.flush()
-    _replace_report_sources(db, report=report, plan=plan)
+    replace_report_sources_from_plan(db, report=report, plan=plan)
     _replace_report_sections(db, report=report, sections=payload.sections)
+    ensure_report_data_access_envelope(
+        db,
+        report_id=report.id,
+        expected_policy_revision=plan.data_policy_revision,
+    )
     return report
 
 
@@ -177,17 +191,18 @@ def reset_report_for_retry(db: Session, *, report: Report) -> None:
     coverage["warnings"] = [
         warning
         for warning in coverage.get("warnings") or []
-        if warning not in {
+        if warning
+        not in {
             CONTEXT_COMPACTION_WARNING,
             FINDINGS_COMPACTION_WARNING,
             _SOURCE_TIGHTENING_WARNING,
         }
-        and not any(
-            warning.startswith(prefix) for prefix in _RUNTIME_WARNING_PREFIXES
-        )
+        and not any(warning.startswith(prefix) for prefix in _RUNTIME_WARNING_PREFIXES)
     ]
     report.coverage_json = coverage
-    for section in db.scalars(select(ReportSection).where(ReportSection.report_id == report.id)).all():
+    for section in db.scalars(
+        select(ReportSection).where(ReportSection.report_id == report.id)
+    ).all():
         section.status = "pending"
         section.body_markdown = ""
         section.key_points_json = []
@@ -241,7 +256,10 @@ def report_detail_response(db: Session, *, report: Report) -> ReportDetailRespon
         **report_list_item(report).model_dump(),
         filters=ArticleExportFilters.model_validate(report.filters_json or {}),
         prompt=ReportPromptConfig.model_validate(report.prompt_config_json or {}),
-        sections_config=[ReportSectionConfig.model_validate(entry) for entry in report.sections_config_json or []],
+        sections_config=[
+            ReportSectionConfig.model_validate(entry)
+            for entry in report.sections_config_json or []
+        ],
         metrics=dict(report.metrics_json or {}),
         coverage=dict(report.coverage_json or {}),
         summary_text=report.summary_text,
@@ -291,10 +309,18 @@ def report_detail_response(db: Session, *, report: Report) -> ReportDetailRespon
 
 
 def delete_report(db: Session, *, report: Report) -> None:
+    report_id = report.id
     db.delete(report)
+    db.flush()
+    prune_deleted_resource_envelopes(
+        db,
+        resources=((DATA_ACCESS_RESOURCE_REPORT, report_id),),
+    )
 
 
-def _replace_report_sources(db: Session, *, report: Report, plan: ReportSourcePlan) -> None:
+def replace_report_sources_from_plan(
+    db: Session, *, report: Report, plan: ReportSourcePlan
+) -> None:
     db.execute(delete(ReportSourceItem).where(ReportSourceItem.report_id == report.id))
     for rank, source in enumerate(plan.sources, start=1):
         record = source.record
@@ -309,14 +335,21 @@ def _replace_report_sources(db: Session, *, report: Report, plan: ReportSourcePl
                 title_snapshot=record.title,
                 feed_name_snapshot=record.feed_name,
                 url_snapshot=record.url,
-                classification_snapshot=record.classification.primary_category if record.classification else None,
-                relevance_score_snapshot=record.ai.relevance_score if record.ai else None,
-                relevance_label_snapshot=record.ai.relevance_label if record.ai else None,
+                classification_snapshot=record.classification.primary_category
+                if record.classification
+                else None,
+                relevance_score_snapshot=record.ai.relevance_score
+                if record.ai
+                else None,
+                relevance_label_snapshot=record.ai.relevance_label
+                if record.ai
+                else None,
                 published_at_snapshot=record.published_at,
                 first_seen_at_snapshot=record.first_seen_at,
                 tags_snapshot_json=[tag.name for tag in record.tags],
                 iocs_snapshot_json=[
-                    {"type": ioc.type, "value": ioc.value, "confidence": ioc.confidence} for ioc in record.iocs
+                    {"type": ioc.type, "value": ioc.value, "confidence": ioc.confidence}
+                    for ioc in record.iocs
                 ],
                 evidence_text=source.evidence_text,
                 estimated_tokens=source.estimated_tokens,
@@ -331,7 +364,9 @@ def _replace_report_sections(
     sections: list[ReportSectionConfig],
 ) -> None:
     db.execute(delete(ReportSection).where(ReportSection.report_id == report.id))
-    for position, section in enumerate((section for section in sections if section.enabled), start=1):
+    for position, section in enumerate(
+        (section for section in sections if section.enabled), start=1
+    ):
         db.add(
             ReportSection(
                 report_id=report.id,
@@ -349,4 +384,6 @@ def _default_report_title(
     period_end: datetime,
 ) -> str:
     name = template.name if template else "Intelligence Report"
-    return f"{name}: {period_start.date().isoformat()} to {period_end.date().isoformat()}"
+    return (
+        f"{name}: {period_start.date().isoformat()} to {period_end.date().isoformat()}"
+    )

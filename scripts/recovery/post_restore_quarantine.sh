@@ -313,7 +313,18 @@ BEGIN
     ('alert_evaluation_requests', 'lease_expires_at'),
     ('alert_evaluation_requests', 'completed_at'),
     ('alert_evaluation_requests', 'last_error_code'),
-    ('alert_evaluation_requests', 'last_error_message')
+    ('alert_evaluation_requests', 'last_error_message'),
+    ('service_accounts', 'is_active'),
+    ('service_accounts', 'disabled_at'),
+    ('service_account_credentials', 'revoked_at'),
+    ('temporary_elevations', 'status'),
+    ('temporary_elevations', 'revision'),
+    ('temporary_elevations', 'closed_by_user_id'),
+    ('temporary_elevations', 'closed_by_principal_type'),
+    ('temporary_elevations', 'closed_by_email_snapshot'),
+    ('temporary_elevations', 'closed_at'),
+    ('temporary_elevations', 'close_reason'),
+    ('temporary_elevations', 'updated_at')
   ) AS required(table_name, column_name)
   WHERE to_regclass('public.' || required.table_name) IS NOT NULL
     AND NOT EXISTS (
@@ -424,6 +435,8 @@ DO $quarantine$
 DECLARE
   affected_users bigint := 0;
   revoked_api_tokens bigint := 0;
+  revoked_service_account_credentials bigint := 0;
+  disabled_service_accounts bigint := 0;
   revoked_sessions bigint := 0;
   consumed_mfa_challenges bigint := 0;
   disabled_instances bigint := 0;
@@ -443,16 +456,19 @@ DECLARE
   interrupted_reports bigint := 0;
   interrupted_report_sections bigint := 0;
   quarantined_alert_evaluations bigint := 0;
+  revoked_temporary_elevations bigint := 0;
+  cancelled_elevation_requests bigint := 0;
+  cancelled_action_approvals bigint := 0;
+  quarantined_access_reviews bigint := 0;
+  audit_already_recorded boolean := false;
 BEGIN
-  IF EXISTS (
+  SELECT EXISTS (
     SELECT 1 FROM audit_logs
     WHERE action = 'system.restore.quarantine'
       AND resource_type = 'postgresql_backup'
       AND resource_id = current_setting('threatlens.restore_checksum')
       AND success IS TRUE
-  ) THEN
-    RETURN;
-  END IF;
+  ) INTO audit_already_recorded;
 
   UPDATE users
   SET auth_token_version = auth_token_version + 1;
@@ -462,6 +478,22 @@ BEGIN
   SET revoked_at = COALESCE(revoked_at, clock_timestamp())
   WHERE revoked_at IS NULL;
   GET DIAGNOSTICS revoked_api_tokens = ROW_COUNT;
+
+  IF to_regclass('public.service_account_credentials') IS NOT NULL THEN
+    EXECUTE $sql$UPDATE service_account_credentials
+      SET revoked_at = COALESCE(revoked_at, clock_timestamp())
+      WHERE revoked_at IS NULL$sql$;
+    GET DIAGNOSTICS revoked_service_account_credentials = ROW_COUNT;
+  END IF;
+
+  IF to_regclass('public.service_accounts') IS NOT NULL THEN
+    EXECUTE $sql$UPDATE service_accounts
+      SET is_active = false,
+          disabled_at = COALESCE(disabled_at, clock_timestamp()),
+          revision = revision + 1
+      WHERE is_active IS TRUE$sql$;
+    GET DIAGNOSTICS disabled_service_accounts = ROW_COUNT;
+  END IF;
 
   IF to_regclass('public.auth_sessions') IS NOT NULL THEN
     IF EXISTS (
@@ -484,6 +516,55 @@ BEGIN
       SET consumed_at = COALESCE(consumed_at, clock_timestamp())
       WHERE consumed_at IS NULL$sql$;
     GET DIAGNOSTICS consumed_mfa_challenges = ROW_COUNT;
+  END IF;
+
+  IF to_regclass('public.temporary_elevations') IS NOT NULL THEN
+    EXECUTE $sql$UPDATE temporary_elevations
+      SET status = 'revoked', closed_by_user_id = NULL,
+          closed_by_principal_type = 'system', closed_by_email_snapshot = NULL,
+          closed_at = clock_timestamp(),
+          close_reason = 'restore_quarantine', revision = revision + 1,
+          updated_at = clock_timestamp()
+      WHERE status = 'approved'$sql$;
+    GET DIAGNOSTICS revoked_temporary_elevations = ROW_COUNT;
+    EXECUTE $sql$UPDATE temporary_elevations
+      SET status = 'cancelled', closed_by_user_id = NULL,
+          closed_by_principal_type = 'system', closed_by_email_snapshot = NULL,
+          closed_at = clock_timestamp(),
+          close_reason = 'restore_quarantine', revision = revision + 1,
+          updated_at = clock_timestamp()
+      WHERE status = 'pending'$sql$;
+    GET DIAGNOSTICS cancelled_elevation_requests = ROW_COUNT;
+    IF revoked_temporary_elevations > 0
+       AND to_regclass('public.iam_policy_state') IS NOT NULL THEN
+      EXECUTE 'UPDATE iam_policy_state SET revision = revision + 1, updated_at = clock_timestamp() WHERE id = 1';
+    END IF;
+  END IF;
+
+  IF to_regclass('public.action_approval_requests') IS NOT NULL THEN
+    EXECUTE $sql$UPDATE action_approval_requests
+      SET status = 'cancelled', cancelled_by_user_id = NULL,
+          cancelled_by_principal_type = 'system',
+          cancelled_by_email_snapshot = NULL,
+          cancelled_from_status = status,
+          cancelled_at = statement_timestamp(),
+          cancel_reason = 'restore_quarantine', revision = revision + 1,
+          updated_at = statement_timestamp()
+      WHERE status IN ('pending', 'approved')
+        AND expires_at > statement_timestamp()$sql$;
+    GET DIAGNOSTICS cancelled_action_approvals = ROW_COUNT;
+  END IF;
+
+  IF to_regclass('public.access_review_campaigns') IS NOT NULL THEN
+    EXECUTE $sql$UPDATE access_review_campaigns
+      SET status = 'quarantined', quarantined_by_user_id = NULL,
+          quarantined_by_principal_type = 'system',
+          quarantined_by_email_snapshot = NULL,
+          quarantined_at = statement_timestamp(),
+          quarantine_reason = 'restore_quarantine', revision = revision + 1,
+          updated_at = statement_timestamp()
+      WHERE status IN ('open', 'closed', 'applying')$sql$;
+    GET DIAGNOSTICS quarantined_access_reviews = ROW_COUNT;
   END IF;
 
   IF to_regclass('public.integration_instances') IS NOT NULL THEN
@@ -671,15 +752,21 @@ BEGIN
   VALUES (
     current_setting('threatlens.restore_audit_id')::uuid,
     NULL,
-    'system.restore.quarantine',
+    CASE
+      WHEN audit_already_recorded THEN 'system.restore.quarantine.reapply'
+      ELSE 'system.restore.quarantine'
+    END,
     'postgresql_backup',
     current_setting('threatlens.restore_checksum'),
     true,
     jsonb_build_object(
       'schema_version', 1,
       'source', 'host-recovery-hook',
+      'reapplied', audit_already_recorded,
       'affected_users', affected_users,
       'revoked_api_tokens', revoked_api_tokens,
+      'revoked_service_account_credentials', revoked_service_account_credentials,
+      'disabled_service_accounts', disabled_service_accounts,
       'revoked_sessions', revoked_sessions,
       'consumed_mfa_challenges', consumed_mfa_challenges,
       'disabled_instances', disabled_instances,
@@ -698,7 +785,11 @@ BEGIN
       'disabled_report_deliveries', disabled_report_deliveries,
       'interrupted_reports', interrupted_reports,
       'interrupted_report_sections', interrupted_report_sections,
-      'quarantined_alert_evaluations', quarantined_alert_evaluations
+      'quarantined_alert_evaluations', quarantined_alert_evaluations,
+      'revoked_temporary_elevations', revoked_temporary_elevations,
+      'cancelled_elevation_requests', cancelled_elevation_requests,
+      'cancelled_action_approvals', cancelled_action_approvals,
+      'quarantined_access_reviews', quarantined_access_reviews
     )
   );
 END
@@ -723,9 +814,45 @@ BEGIN
   IF EXISTS (SELECT 1 FROM api_tokens WHERE revoked_at IS NULL) THEN
     RAISE EXCEPTION 'active API tokens remain after restore quarantine';
   END IF;
+  IF to_regclass('public.service_account_credentials') IS NOT NULL THEN
+    IF EXISTS (
+      SELECT 1 FROM service_account_credentials WHERE revoked_at IS NULL
+    ) THEN
+      RAISE EXCEPTION 'active service-account credentials remain after restore quarantine';
+    END IF;
+  END IF;
+  IF to_regclass('public.service_accounts') IS NOT NULL THEN
+    IF EXISTS (SELECT 1 FROM service_accounts WHERE is_active IS TRUE) THEN
+      RAISE EXCEPTION 'active service accounts remain after restore quarantine';
+    END IF;
+  END IF;
   IF to_regclass('public.auth_sessions') IS NOT NULL THEN
     IF EXISTS (SELECT 1 FROM auth_sessions WHERE revoked_at IS NULL) THEN
       RAISE EXCEPTION 'active browser sessions remain after restore quarantine';
+    END IF;
+  END IF;
+  IF to_regclass('public.temporary_elevations') IS NOT NULL THEN
+    IF EXISTS (
+      SELECT 1 FROM temporary_elevations WHERE status IN ('pending', 'approved')
+    ) THEN
+      RAISE EXCEPTION 'pending or active temporary elevations remain after restore quarantine';
+    END IF;
+  END IF;
+  IF to_regclass('public.action_approval_requests') IS NOT NULL THEN
+    IF EXISTS (
+      SELECT 1 FROM action_approval_requests
+      WHERE status IN ('pending', 'approved')
+        AND expires_at > clock_timestamp()
+    ) THEN
+      RAISE EXCEPTION 'actionable sensitive-action approvals remain after restore quarantine';
+    END IF;
+  END IF;
+  IF to_regclass('public.access_review_campaigns') IS NOT NULL THEN
+    IF EXISTS (
+      SELECT 1 FROM access_review_campaigns
+      WHERE status IN ('open', 'closed', 'applying')
+    ) THEN
+      RAISE EXCEPTION 'actionable access-review campaigns remain after restore quarantine';
     END IF;
   END IF;
   IF to_regclass('public.feeds') IS NOT NULL THEN

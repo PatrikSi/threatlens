@@ -6,7 +6,8 @@ from datetime import datetime, timezone
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, aliased
 
-from app.core.rbac import ROLE_ADMIN, ROLE_ANALYST
+from app.core.rbac import ROLE_ADMIN
+from app.core.token_scopes import SCOPE_WRITE_INVESTIGATIONS
 from app.models.investigation import (
     Investigation,
     InvestigationActivity,
@@ -17,7 +18,6 @@ from app.models.investigation import (
 from app.models.user import User
 from app.schemas.investigation import (
     InvestigationActivityListResponse,
-    InvestigationActivityResponse,
     InvestigationDetailResponse,
     InvestigationEvidenceListResponse,
     InvestigationListResponse,
@@ -25,21 +25,42 @@ from app.schemas.investigation import (
     InvestigationMemberCandidateListResponse,
     InvestigationMemberResponse,
     InvestigationNoteListResponse,
-    InvestigationSummaryResponse,
 )
 from app.services.auth_sessions import lock_user_auth_state, lock_user_auth_states
+from app.services.authorization import (
+    authorization_context_for_user,
+    lock_iam_policy_for_mutation,
+)
+from app.services.data_access_envelopes import (
+    DATA_ACCESS_RESOURCE_INVESTIGATION,
+    data_access_envelope_predicate,
+)
+from app.services.data_access_policy import DataAccessContext
+from app.services.data_access_runtime import (
+    ensure_investigation_data_access_envelope,
+    lock_data_policy_revision_for_derivation,
+    merge_investigation_evidence_data_access,
+)
 from app.services.investigation_evidence import (
     EvidenceSourceError,
     build_evidence_snapshot,
 )
+from app.services.investigation_owner_eligibility import (
+    eligible_investigation_owner_ids_query,
+    has_durable_investigation_write_access,
+)
 from app.services.investigation_collections import (
+    list_activity_page,
+    list_members as _list_members,
     list_evidence_page,
     list_note_page,
     list_recent_evidence,
     list_recent_notes,
+    summary_response as _summary_response,
 )
 from app.services.investigation_read_access import (
     load_composed_investigation_read_access,
+    lock_composed_investigation_write_access,
 )
 
 WRITE_MEMBER_ROLES = frozenset({"owner", "editor"})
@@ -84,6 +105,7 @@ def list_investigations(
     db: Session,
     *,
     user: User,
+    data_access: DataAccessContext,
     q: str | None,
     statuses: list[str],
     severities: list[str],
@@ -126,7 +148,14 @@ def list_investigations(
     visibility_filter = or_(
         Investigation.visibility == "team", membership_role.is_not(None)
     )
-    filters = [visibility_filter]
+    filters = [
+        visibility_filter,
+        data_access_envelope_predicate(
+            DATA_ACCESS_RESOURCE_INVESTIGATION,
+            Investigation.id,
+            data_access,
+        ),
+    ]
     if not include_archived:
         filters.append(Investigation.status != "archived")
     if statuses:
@@ -195,7 +224,8 @@ def create_investigation(
         raise InvestigationValidationError(
             "The initial assignee must be the creator. Add another member before assigning the investigation to them."
         )
-    _lock_eligible_actor(db, user.id)
+    locked_actor = _lock_eligible_actor(db, user.id)
+    _validate_member_role_for_account(db, locked_actor, OWNER_MEMBER_ROLE)
     investigation = Investigation(
         title=normalized_title,
         description=description.strip(),
@@ -224,6 +254,7 @@ def create_investigation(
         details={"severity": severity, "visibility": visibility},
     )
     db.flush()
+    ensure_investigation_data_access_envelope(db, investigation_id=investigation.id)
     return investigation
 
 
@@ -259,10 +290,17 @@ def list_member_candidates(
 
 
 def get_investigation_detail(
-    db: Session, *, investigation_id: uuid.UUID, user: User
+    db: Session,
+    *,
+    investigation_id: uuid.UUID,
+    user: User,
+    data_access: DataAccessContext,
 ) -> InvestigationDetailResponse:
     investigation, current_role = _get_visible_investigation_for_composed_read(
-        db, investigation_id=investigation_id, user=user
+        db,
+        investigation_id=investigation_id,
+        user=user,
+        data_access=data_access,
     )
     members = _list_members(db, investigation_id)
     evidence, evidence_count = list_recent_evidence(db, investigation_id)
@@ -292,11 +330,15 @@ def list_evidence(
     *,
     investigation_id: uuid.UUID,
     user: User,
+    data_access: DataAccessContext,
     page: int,
     page_size: int,
 ) -> InvestigationEvidenceListResponse:
     _get_visible_investigation_for_composed_read(
-        db, investigation_id=investigation_id, user=user
+        db,
+        investigation_id=investigation_id,
+        user=user,
+        data_access=data_access,
     )
     return list_evidence_page(
         db,
@@ -311,11 +353,15 @@ def list_notes(
     *,
     investigation_id: uuid.UUID,
     user: User,
+    data_access: DataAccessContext,
     page: int,
     page_size: int,
 ) -> InvestigationNoteListResponse:
     _get_visible_investigation_for_composed_read(
-        db, investigation_id=investigation_id, user=user
+        db,
+        investigation_id=investigation_id,
+        user=user,
+        data_access=data_access,
     )
     return list_note_page(
         db,
@@ -330,9 +376,11 @@ def update_investigation(
     *,
     investigation_id: uuid.UUID,
     user: User,
+    data_access: DataAccessContext,
     expected_version: int,
     changes: dict,
 ) -> tuple[Investigation, list[str]]:
+    lock_iam_policy_for_mutation(db)
     requested_assignee_id = changes.get("assignee_user_id")
     locked_accounts = lock_user_auth_states(
         db,
@@ -345,7 +393,10 @@ def update_investigation(
         else None
     )
     investigation, member = _lock_for_write(
-        db, investigation_id=investigation_id, user=user
+        db,
+        investigation_id=investigation_id,
+        user=user,
+        data_access=data_access,
     )
     _require_expected_version(investigation, expected_version)
     if investigation.status == "archived" and changes.get("status") not in {"open"}:
@@ -387,7 +438,7 @@ def update_investigation(
                     "The assignee must be an owner or editor of this investigation."
                 )
             _validate_member_role_for_account(
-                requested_assignee, assignee_membership.role
+                db, requested_assignee, assignee_membership.role
             )
         if investigation.assignee_user_id != assignee_user_id:
             investigation.assignee_user_id = assignee_user_id
@@ -443,13 +494,18 @@ def add_member(
     *,
     investigation_id: uuid.UUID,
     user: User,
+    data_access: DataAccessContext,
     member_user_id: uuid.UUID,
     role: str,
     expected_version: int,
 ) -> InvestigationMember:
+    lock_iam_policy_for_mutation(db)
     target = lock_user_auth_states(db, [user.id, member_user_id]).get(member_user_id)
     investigation, actor_member = _lock_for_write(
-        db, investigation_id=investigation_id, user=user
+        db,
+        investigation_id=investigation_id,
+        user=user,
+        data_access=data_access,
     )
     _require_owner(actor_member)
     _require_expected_version(investigation, expected_version)
@@ -458,7 +514,7 @@ def add_member(
         raise InvestigationValidationError(
             "The selected user is not an active, approved ThreatLens account."
         )
-    _validate_member_role_for_account(target, role)
+    _validate_member_role_for_account(db, target, role)
     existing = db.scalar(
         select(InvestigationMember).where(
             InvestigationMember.investigation_id == investigation.id,
@@ -496,13 +552,18 @@ def update_member(
     *,
     investigation_id: uuid.UUID,
     user: User,
+    data_access: DataAccessContext,
     member_user_id: uuid.UUID,
     role: str,
     expected_version: int,
 ) -> tuple[InvestigationMember, bool]:
+    lock_iam_policy_for_mutation(db)
     target = lock_user_auth_states(db, [user.id, member_user_id]).get(member_user_id)
     investigation, actor_member = _lock_for_write(
-        db, investigation_id=investigation_id, user=user
+        db,
+        investigation_id=investigation_id,
+        user=user,
+        data_access=data_access,
     )
     _require_owner(actor_member)
     _require_expected_version(investigation, expected_version)
@@ -523,7 +584,7 @@ def update_member(
             "The investigation member account no longer exists.",
             code="investigation_member_account_missing",
         )
-    _validate_member_role_for_account(target, role)
+    _validate_member_role_for_account(db, target, role)
     if member.role == OWNER_MEMBER_ROLE and role != OWNER_MEMBER_ROLE:
         _require_another_owner(db, investigation.id, excluding_user_id=member.user_id)
     if member.role == role:
@@ -554,11 +615,15 @@ def remove_member(
     *,
     investigation_id: uuid.UUID,
     user: User,
+    data_access: DataAccessContext,
     member_user_id: uuid.UUID,
     expected_version: int,
 ) -> None:
     investigation, actor_member = _lock_for_write(
-        db, investigation_id=investigation_id, user=user
+        db,
+        investigation_id=investigation_id,
+        user=user,
+        data_access=data_access,
     )
     _require_owner(actor_member)
     _require_expected_version(investigation, expected_version)
@@ -603,13 +668,17 @@ def add_evidence(
     *,
     investigation_id: uuid.UUID,
     user: User,
+    data_access: DataAccessContext,
     source_type: str,
     source_id: uuid.UUID,
     note: str | None,
     expected_version: int,
 ) -> InvestigationEvidence:
     investigation, _member = _lock_for_write(
-        db, investigation_id=investigation_id, user=user
+        db,
+        investigation_id=investigation_id,
+        user=user,
+        data_access=data_access,
     )
     _require_expected_version(investigation, expected_version)
     if investigation.status == "archived":
@@ -617,6 +686,23 @@ def add_evidence(
             "Archived investigations are read-only. Reopen it before adding evidence.",
             code="investigation_archived",
         )
+    evidence_policy_revision = lock_data_policy_revision_for_derivation(db)
+    try:
+        snapshot = build_evidence_snapshot(
+            db,
+            source_type=source_type,
+            source_id=source_id,
+            requesting_user_id=user.id,
+            requesting_user_is_admin=user.role == ROLE_ADMIN,
+            data_access=data_access,
+        )
+    except EvidenceSourceError as exc:
+        if data_access.enforced:
+            raise InvestigationNotFoundError(
+                "Investigation evidence source not found.",
+                code="investigation_evidence_source_not_found",
+            ) from exc
+        raise InvestigationValidationError(str(exc)) from exc
     duplicate = db.scalar(
         select(InvestigationEvidence.id).where(
             InvestigationEvidence.investigation_id == investigation.id,
@@ -629,16 +715,6 @@ def add_evidence(
             "This evidence is already included in the investigation.",
             code="investigation_evidence_exists",
         )
-    try:
-        snapshot = build_evidence_snapshot(
-            db,
-            source_type=source_type,
-            source_id=source_id,
-            requesting_user_id=user.id,
-            requesting_user_is_admin=user.role == ROLE_ADMIN,
-        )
-    except EvidenceSourceError as exc:
-        raise InvestigationValidationError(str(exc)) from exc
     evidence = InvestigationEvidence(
         investigation_id=investigation.id,
         source_type=source_type,
@@ -663,6 +739,13 @@ def add_evidence(
         details={"source_type": source_type, "source_id": str(source_id)},
     )
     db.flush()
+    merge_investigation_evidence_data_access(
+        db,
+        evidence=evidence,
+        data_access=data_access,
+        source_item_ids=snapshot.source_item_ids,
+        expected_policy_revision=evidence_policy_revision,
+    )
     return evidence
 
 
@@ -672,10 +755,14 @@ def remove_evidence(
     investigation_id: uuid.UUID,
     evidence_id: uuid.UUID,
     user: User,
+    data_access: DataAccessContext,
     expected_version: int,
 ) -> None:
     investigation, _member = _lock_for_write(
-        db, investigation_id=investigation_id, user=user
+        db,
+        investigation_id=investigation_id,
+        user=user,
+        data_access=data_access,
     )
     _require_expected_version(investigation, expected_version)
     if investigation.status == "archived":
@@ -715,11 +802,15 @@ def add_note(
     *,
     investigation_id: uuid.UUID,
     user: User,
+    data_access: DataAccessContext,
     body: str,
     expected_version: int,
 ) -> InvestigationNote:
     investigation, _member = _lock_for_write(
-        db, investigation_id=investigation_id, user=user
+        db,
+        investigation_id=investigation_id,
+        user=user,
+        data_access=data_access,
     )
     _require_expected_version(investigation, expected_version)
     if investigation.status == "archived":
@@ -754,12 +845,16 @@ def update_note(
     investigation_id: uuid.UUID,
     note_id: uuid.UUID,
     user: User,
+    data_access: DataAccessContext,
     body: str,
     expected_note_version: int,
     expected_investigation_version: int,
 ) -> tuple[InvestigationNote, bool]:
     investigation, member = _lock_for_write(
-        db, investigation_id=investigation_id, user=user
+        db,
+        investigation_id=investigation_id,
+        user=user,
+        data_access=data_access,
     )
     _require_expected_version(investigation, expected_investigation_version)
     if investigation.status == "archived":
@@ -815,11 +910,15 @@ def delete_note(
     investigation_id: uuid.UUID,
     note_id: uuid.UUID,
     user: User,
+    data_access: DataAccessContext,
     expected_note_version: int,
     expected_investigation_version: int,
 ) -> None:
     investigation, member = _lock_for_write(
-        db, investigation_id=investigation_id, user=user
+        db,
+        investigation_id=investigation_id,
+        user=user,
+        data_access=data_access,
     )
     _require_expected_version(investigation, expected_investigation_version)
     if investigation.status == "archived":
@@ -870,41 +969,19 @@ def list_activity(
     *,
     investigation_id: uuid.UUID,
     user: User,
+    data_access: DataAccessContext,
     page: int,
     page_size: int,
 ) -> InvestigationActivityListResponse:
     _get_visible_investigation_for_composed_read(
-        db, investigation_id=investigation_id, user=user
+        db,
+        investigation_id=investigation_id,
+        user=user,
+        data_access=data_access,
     )
-    actor = aliased(User)
-    query = (
-        select(InvestigationActivity, actor.email.label("actor_email"))
-        .outerjoin(actor, actor.id == InvestigationActivity.actor_user_id)
-        .where(InvestigationActivity.investigation_id == investigation_id)
-    )
-    total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
-    rows = db.execute(
-        query.order_by(
-            InvestigationActivity.created_at.desc(), InvestigationActivity.id.desc()
-        )
-        .offset((page - 1) * page_size)
-        .limit(page_size)
-    ).all()
-    return InvestigationActivityListResponse(
-        activities=[
-            InvestigationActivityResponse(
-                id=row.InvestigationActivity.id,
-                actor_user_id=row.InvestigationActivity.actor_user_id,
-                actor_email=row.actor_email,
-                action=row.InvestigationActivity.action,
-                entity_type=row.InvestigationActivity.entity_type,
-                entity_id=row.InvestigationActivity.entity_id,
-                details=dict(row.InvestigationActivity.details_json or {}),
-                created_at=row.InvestigationActivity.created_at,
-            )
-            for row in rows
-        ],
-        total=int(total),
+    return list_activity_page(
+        db,
+        investigation_id=investigation_id,
         page=page,
         page_size=page_size,
     )
@@ -927,12 +1004,17 @@ def member_response(
 
 
 def _get_visible_investigation_for_composed_read(
-    db: Session, *, investigation_id: uuid.UUID, user: User
+    db: Session,
+    *,
+    investigation_id: uuid.UUID,
+    user: User,
+    data_access: DataAccessContext,
 ) -> tuple[Investigation, str | None]:
     access = load_composed_investigation_read_access(
         db,
         investigation_id=investigation_id,
         user=user,
+        data_access=data_access,
     )
     if access.authorization_changed:
         raise InvestigationReadAuthorizationChangedError(
@@ -945,22 +1027,23 @@ def _get_visible_investigation_for_composed_read(
 
 
 def _lock_for_write(
-    db: Session, *, investigation_id: uuid.UUID, user: User
+    db: Session,
+    *,
+    investigation_id: uuid.UUID,
+    user: User,
+    data_access: DataAccessContext,
 ) -> tuple[Investigation, InvestigationMember]:
     _lock_eligible_actor(db, user.id)
-    investigation = db.scalar(
-        select(Investigation)
-        .where(Investigation.id == investigation_id)
-        .with_for_update()
+    access = lock_composed_investigation_write_access(
+        db,
+        investigation_id=investigation_id,
+        user_id=user.id,
+        data_access=data_access,
     )
+    investigation = access.investigation
     if investigation is None:
         raise InvestigationNotFoundError
-    member = db.scalar(
-        select(InvestigationMember).where(
-            InvestigationMember.investigation_id == investigation.id,
-            InvestigationMember.user_id == user.id,
-        )
-    )
+    member = access.member
     if member is None:
         if investigation.visibility == "private":
             raise InvestigationNotFoundError
@@ -972,57 +1055,6 @@ def _lock_for_write(
             "Your investigation membership is read-only."
         )
     return investigation, member
-
-
-def _list_members(
-    db: Session, investigation_id: uuid.UUID
-) -> list[InvestigationMemberResponse]:
-    rows = db.execute(
-        select(InvestigationMember, User.email.label("email"))
-        .join(User, User.id == InvestigationMember.user_id)
-        .where(InvestigationMember.investigation_id == investigation_id)
-        .order_by(InvestigationMember.created_at.asc(), User.email.asc())
-    ).all()
-    return [
-        InvestigationMemberResponse(
-            user_id=row.InvestigationMember.user_id,
-            email=row.email,
-            role=row.InvestigationMember.role,
-            created_at=row.InvestigationMember.created_at,
-        )
-        for row in rows
-    ]
-
-
-def _summary_response(
-    investigation: Investigation,
-    *,
-    current_user_role: str | None,
-    evidence_count: int,
-    member_count: int,
-    note_count: int,
-    assignee_email: str | None,
-) -> InvestigationSummaryResponse:
-    return InvestigationSummaryResponse(
-        id=investigation.id,
-        title=investigation.title,
-        description=investigation.description,
-        status=investigation.status,
-        severity=investigation.severity,
-        visibility=investigation.visibility,
-        disposition=investigation.disposition,
-        assignee_user_id=investigation.assignee_user_id,
-        assignee_email=assignee_email,
-        current_user_role=current_user_role,
-        evidence_count=evidence_count,
-        member_count=member_count,
-        note_count=note_count,
-        version=investigation.version,
-        created_at=investigation.created_at,
-        updated_at=investigation.updated_at,
-        closed_at=investigation.closed_at,
-        archived_at=investigation.archived_at,
-    )
 
 
 def _record_activity(
@@ -1054,14 +1086,26 @@ def _require_owner(member: InvestigationMember) -> None:
         )
 
 
-def _validate_member_role_for_account(user: User, member_role: str) -> None:
-    if member_role in WRITE_MEMBER_ROLES and (
-        user.role not in {ROLE_ADMIN, ROLE_ANALYST}
-        or not user.is_active
-        or not user.is_approved
+def _validate_member_role_for_account(
+    db: Session, user: User, member_role: str
+) -> None:
+    if member_role == OWNER_MEMBER_ROLE and not has_durable_investigation_write_access(
+        db, user
     ):
         raise InvestigationValidationError(
-            "Owner and editor membership requires an analyst or administrator account."
+            "Investigation ownership requires an analyst or administrator account with "
+            "durable built-in access, or a locally managed investigation-write role. "
+            "Expiring identity-provider access can be used for editor membership but "
+            "cannot be the basis for ownership."
+        )
+    if member_role in WRITE_MEMBER_ROLES and (
+        not user.is_active
+        or not user.is_approved
+        or not authorization_context_for_user(db, user).has(SCOPE_WRITE_INVESTIGATIONS)
+    ):
+        raise InvestigationValidationError(
+            "Owner and editor membership requires an analyst or administrator account, "
+            "or an active, approved account with an explicit investigation-write role."
         )
 
 
@@ -1071,40 +1115,20 @@ def _lock_membership_account(db: Session, user_id: uuid.UUID) -> User | None:
 
 
 def _lock_eligible_actor(db: Session, user_id: uuid.UUID) -> User:
+    lock_iam_policy_for_mutation(db)
     actor = _lock_membership_account(db, user_id)
     if (
         actor is None
-        or actor.role not in {ROLE_ADMIN, ROLE_ANALYST}
         or not actor.is_active
         or not actor.is_approved
+        or not authorization_context_for_user(db, actor).has(SCOPE_WRITE_INVESTIGATIONS)
     ):
         raise InvestigationActorNotEligibleError(
-            "Your account is no longer active, approved, or assigned the analyst or "
-            "administrator role. Sign in again before changing investigations."
+            "Your account is no longer active, approved, authorized as an analyst or "
+            "administrator, or granted explicit investigation write access. Sign in "
+            "again before retrying."
         )
     return actor
-
-
-def eligible_investigation_owner_ids_query(
-    investigation_id: uuid.UUID,
-    *,
-    excluding_user_id: uuid.UUID | None = None,
-):
-    """Return eligible owner IDs for mutation guards and IAM reconciliation."""
-    query = (
-        select(InvestigationMember.user_id)
-        .join(User, User.id == InvestigationMember.user_id)
-        .where(
-            InvestigationMember.investigation_id == investigation_id,
-            InvestigationMember.role == OWNER_MEMBER_ROLE,
-            User.is_active.is_(True),
-            User.is_approved.is_(True),
-            User.role.in_((ROLE_ADMIN, ROLE_ANALYST)),
-        )
-    )
-    if excluding_user_id is not None:
-        query = query.where(InvestigationMember.user_id != excluding_user_id)
-    return query
 
 
 def _require_another_owner(
@@ -1118,7 +1142,8 @@ def _require_another_owner(
     )
     if other_owner is None:
         raise InvestigationConflictError(
-            "An investigation must retain at least one owner who is an active, approved analyst or administrator. "
+            "An investigation must retain at least one owner who is active, approved, "
+            "and has investigation write access. "
             "Promote an eligible member before changing this owner.",
             code="investigation_owner_required",
         )

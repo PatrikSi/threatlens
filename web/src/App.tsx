@@ -14,12 +14,23 @@ import { Component, Suspense, lazy, useEffect, useMemo, useState } from 'react'
 
 import { AppShell } from './components/AppShell'
 import { AuthProvider, useAuth } from './components/AuthContext'
+import { PermissionRoute } from './components/PermissionRoute'
 import { ProtectedRoute } from './components/ProtectedRoute'
-import { RoleRoute } from './components/RoleRoute'
 import { ThemeProvider } from './components/ThemeContext'
-import { LoginPage } from './pages/LoginPage'
+import { WorkspaceLandingRedirect } from './components/WorkspaceLandingRedirect'
+import { WorkspaceProvider } from './components/WorkspaceProvider'
+import {
+  LoginPage,
+  clearPendingOidcReturnDestination,
+  readPendingOidcReturnDestination,
+} from './pages/LoginPage'
+import { useWorkspace } from './workspace/useWorkspace'
+import type { TrustedWorkspaceModuleId } from './workspace/moduleRegistry'
 
 const AccountPage = lazy(() => import('./pages/AccountPage').then((module) => ({ default: module.AccountPage })))
+const AccessGovernancePage = lazy(() =>
+  import('./pages/AccessGovernancePage').then((module) => ({ default: module.AccessGovernancePage })),
+)
 const AiSettingsPage = lazy(() => import('./pages/AiSettingsPage').then((module) => ({ default: module.AiSettingsPage })))
 const AlertsPage = lazy(() => import('./pages/AlertsPage').then((module) => ({ default: module.AlertsPage })))
 const AuditLogsPage = lazy(() => import('./pages/AuditLogsPage').then((module) => ({ default: module.AuditLogsPage })))
@@ -49,6 +60,9 @@ const TaggingSettingsPage = lazy(() =>
 )
 const TokensPage = lazy(() => import('./pages/TokensPage').then((module) => ({ default: module.TokensPage })))
 const UsersPage = lazy(() => import('./pages/UsersPage').then((module) => ({ default: module.UsersPage })))
+const WorkspaceSettingsPage = lazy(() =>
+  import('./pages/WorkspaceSettingsPage').then((module) => ({ default: module.WorkspaceSettingsPage })),
+)
 
 function createQueryClient() {
   return new QueryClient({
@@ -93,11 +107,14 @@ function createAppRouter() {
           path="/"
           element={
             <ProtectedRoute>
-              <AppShell />
+              <WorkspaceProvider>
+                <AppShell />
+              </WorkspaceProvider>
             </ProtectedRoute>
           }
         >
           <Route index element={suspenseRoute(<DashboardPage />, 'Loading dashboard...')} />
+          <Route path="start" element={<WorkspaceStartRoute />} />
           <Route path="alerts" element={suspenseRoute(<AlertsPage />, 'Loading alerts...')} />
           <Route path="investigations" element={suspenseRoute(<InvestigationsPage />, 'Loading investigations...')} />
           <Route path="investigations/:investigationId" element={suspenseRoute(<InvestigationsPage />, 'Loading investigation...')} />
@@ -108,68 +125,86 @@ function createAppRouter() {
           <Route path="reporting/:reportId" element={suspenseRoute(<ReportingPage />, 'Loading intelligence report...')} />
           <Route path="ai" element={<Navigate to="/settings/ai" replace />} />
           <Route path="settings" element={suspenseRoute(<SettingsLayout />, 'Loading settings...')}>
-            <Route index element={<Navigate to="account" replace />} />
+            <Route
+              index
+              element={<WorkspaceChildRedirect parentId="primary.settings" fallback="/settings/account" />}
+            />
             <Route path="account" element={suspenseRoute(<AccountPage />, 'Loading account settings...')} />
             <Route path="notifications" element={<Navigate to="/settings/integrations/webhooks" replace />} />
             <Route path="integrations">
-              <Route index element={<Navigate to="webhooks" replace />} />
+              <Route
+                index
+                element={<WorkspaceChildRedirect parentId="settings.integrations" fallback="/settings" />}
+              />
               <Route path="webhooks" element={suspenseRoute(<NotificationWebhooksSettingsPage />, 'Loading webhook integration settings...')} />
               <Route
                 path="smtp"
                 element={
-                  <RoleRoute roles={['admin']}>
+                  <PermissionRoute permissions={['read:integrations']}>
                     {suspenseRoute(<IntegrationsSettingsPage />, 'Loading SMTP integration settings...')}
-                  </RoleRoute>
+                  </PermissionRoute>
                 }
               />
             </Route>
             <Route
+              path="access"
+              element={
+                <PermissionRoute permissions={['read:iam']}>
+                  {suspenseRoute(<AccessGovernancePage />, 'Loading access governance...')}
+                </PermissionRoute>
+              }
+            />
+            <Route
               path="identity"
               element={
-                <RoleRoute roles={['admin']}>
+                <PermissionRoute permissions={['read:users']}>
                   {suspenseRoute(<IdentitySettingsPage />, 'Loading identity provider settings...')}
-                </RoleRoute>
+                </PermissionRoute>
               }
             />
             <Route
               path="ai"
               element={
-                <RoleRoute roles={['admin']}>
+                <PermissionRoute permissions={['read:ai']}>
                   {suspenseRoute(<AiSettingsPage />, 'Loading AI settings...')}
-                </RoleRoute>
+                </PermissionRoute>
               }
             />
             <Route
               path="tagging"
               element={
-                <RoleRoute roles={['admin']}>
+                <PermissionRoute permissions={['read:tagging']}>
                   {suspenseRoute(<TaggingSettingsPage />, 'Loading tagging settings...')}
-                </RoleRoute>
+                </PermissionRoute>
               }
             />
             <Route path="tokens" element={suspenseRoute(<TokensPage />, 'Loading token inventory...')} />
             <Route
+              path="workspace"
+              element={suspenseRoute(<WorkspaceSettingsPage />, 'Loading workspace settings...')}
+            />
+            <Route
               path="operations"
               element={
-                <RoleRoute roles={['admin']}>
+                <PermissionRoute permissions={['read:operations']}>
                   {suspenseRoute(<OperationsPage />, 'Loading operations status...')}
-                </RoleRoute>
+                </PermissionRoute>
               }
             />
             <Route
               path="users"
               element={
-                <RoleRoute roles={['admin']}>
+                <PermissionRoute permissions={['read:users']}>
                   {suspenseRoute(<UsersPage />, 'Loading user administration...')}
-                </RoleRoute>
+                </PermissionRoute>
               }
             />
             <Route
               path="audit-logs"
               element={
-                <RoleRoute roles={['admin']}>
+                <PermissionRoute permissions={['read:audit']}>
                   {suspenseRoute(<AuditLogsPage />, 'Loading audit logs...')}
-                </RoleRoute>
+                </PermissionRoute>
               }
             />
           </Route>
@@ -178,6 +213,37 @@ function createAppRouter() {
       </Route>,
     ),
   )
+}
+
+function WorkspaceStartRoute() {
+  const [oidcReturnTo] = useState(readPendingOidcReturnDestination)
+
+  useEffect(() => {
+    clearPendingOidcReturnDestination()
+  }, [])
+
+  if (oidcReturnTo) {
+    return <Navigate to={oidcReturnTo} replace />
+  }
+  return <WorkspaceLandingRedirect />
+}
+
+function WorkspaceChildRedirect({
+  parentId,
+  fallback,
+}: {
+  parentId: TrustedWorkspaceModuleId
+  fallback: string
+}) {
+  const workspace = useWorkspace()
+
+  if (workspace.isLoading) {
+    return <RouteLoadingFallback label="Resolving available settings..." />
+  }
+  const child = workspace.model.settingsNavigation.find(
+    (module) => module.parentId === parentId && module.landingEligible,
+  )
+  return <Navigate to={child?.route ?? fallback} replace />
 }
 
 interface AppRenderErrorBoundaryState {

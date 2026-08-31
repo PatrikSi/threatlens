@@ -7,7 +7,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_token_scopes
+from app.api.deps import (
+    get_data_access_context,
+    require_permission_roles,
+    require_permissions,
+)
 from app.api.routes.alert_operations import router as alert_operations_router
 from app.core.api_errors import ApiHTTPException
 from app.core.config import get_settings
@@ -67,9 +71,27 @@ from app.services.alert_rules import (
     AlertRuleQuotaExceededError,
     lock_alert_rule_creation_slot,
 )
+from app.services.data_access_policy import DataAccessContext
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
 logger = logging.getLogger(__name__)
+_ALERT_BACKFILL_ADMIN_DETAIL = (
+    "Alert reconciliation and backfill require the administrator role."
+)
+require_alert_backfill_preview_admin = require_permission_roles(
+    SCOPE_READ_ALERTS,
+    SCOPE_READ_ITEMS,
+    roles=(ROLE_ADMIN,),
+    detail=_ALERT_BACKFILL_ADMIN_DETAIL,
+    error_code="alert_backfill_admin_required",
+)
+require_alert_backfill_apply_admin = require_permission_roles(
+    SCOPE_WRITE_ALERTS,
+    SCOPE_READ_ITEMS,
+    roles=(ROLE_ADMIN,),
+    detail=_ALERT_BACKFILL_ADMIN_DETAIL,
+    error_code="alert_backfill_admin_required",
+)
 MAX_ALERT_PAGE = 1_000_000
 AlertPage = Annotated[int, Query(ge=1, le=MAX_ALERT_PAGE)]
 
@@ -147,7 +169,7 @@ def _parse_category_csv(raw_value: str | None) -> list[str]:
 def list_alert_interests(
     include_disabled: bool = Query(default=True),
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_READ_ALERTS)),
+    user: User = Depends(require_permissions(SCOPE_READ_ALERTS)),
 ):
     query = select(AlertInterest).where(AlertInterest.user_id == user.id)
     if not include_disabled:
@@ -163,7 +185,7 @@ def list_alert_interests(
 def create_alert_interest(
     payload: AlertInterestCreate,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_ALERTS)),
+    user: User = Depends(require_permissions(SCOPE_WRITE_ALERTS)),
 ):
     try:
         lock_alert_rule_creation_slot(db, owner_user_id=user.id)
@@ -217,7 +239,8 @@ def create_alert_interest(
 def preview_alert_interest(
     payload: AlertInterestPreviewRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_READ_ALERTS, SCOPE_READ_ITEMS)),
+    user: User = Depends(require_permissions(SCOPE_READ_ALERTS, SCOPE_READ_ITEMS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     preview = AlertMatchDefinition(
         id=uuid.uuid4(),
@@ -229,6 +252,7 @@ def preview_alert_interest(
         db,
         user=user,
         alerts=[preview],
+        data_access=data_access,
         page=1,
         page_size=payload.limit,
         sort="first_seen_desc",
@@ -249,7 +273,8 @@ def list_alert_matches(
     page_size: int = Query(default=25, ge=1, le=100),
     sort: str = Query(default="published_at_desc"),
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_READ_ALERTS, SCOPE_READ_ITEMS)),
+    user: User = Depends(require_permissions(SCOPE_READ_ALERTS, SCOPE_READ_ITEMS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     selected_alert_ids = _parse_uuid_csv(alert_ids, "Invalid alert id in alert_ids")
     selected_categories = _parse_category_csv(categories)
@@ -269,6 +294,7 @@ def list_alert_matches(
         db,
         user=user,
         alerts=list(alerts),
+        data_access=data_access,
         q=q,
         is_starred=is_starred,
         is_read=is_read,
@@ -300,7 +326,8 @@ def get_alert_occurrences(
     page: AlertPage = 1,
     page_size: int = Query(default=25, ge=1, le=100),
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_READ_ALERTS, SCOPE_READ_ITEMS)),
+    user: User = Depends(require_permissions(SCOPE_READ_ALERTS, SCOPE_READ_ITEMS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     since = _as_utc(since)
     until = _as_utc(until)
@@ -327,6 +354,7 @@ def get_alert_occurrences(
     result = list_alert_occurrences(
         db,
         user=user,
+        data_access=data_access,
         lifecycle_states=list(dict.fromkeys(lifecycle_states)),
         severities=list(dict.fromkeys(severities)),
         alert_interest_id=alert_interest_id,
@@ -352,12 +380,13 @@ def get_alert_occurrences(
 def preview_alert_occurrence_backfill(
     payload: AlertBackfillRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_READ_ALERTS, SCOPE_READ_ITEMS)),
+    user: User = Depends(require_alert_backfill_preview_admin),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
-    _require_alert_admin(user)
     snapshot = create_alert_backfill_preview(
         db,
         actor_user_id=user.id,
+        data_access=data_access,
         since=payload.since,
         until=payload.until,
         limit=payload.limit,
@@ -397,14 +426,15 @@ def preview_alert_occurrence_backfill(
 def apply_alert_occurrence_backfill(
     payload: AlertBackfillApplyRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_ALERTS, SCOPE_READ_ITEMS)),
+    user: User = Depends(require_alert_backfill_apply_admin),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
-    _require_alert_admin(user)
     try:
         result = persist_alert_backfill_preview_intents(
             db,
             preview_id=payload.preview_token,
             actor_user_id=user.id,
+            data_access=data_access,
         )
     except AlertBackfillPreviewError as exc:
         db.rollback()
@@ -454,7 +484,8 @@ def apply_alert_occurrence_backfill(
 def bulk_acknowledge_alert_occurrences(
     payload: AlertOccurrenceBulkUpdate,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_ALERTS, SCOPE_READ_ITEMS)),
+    user: User = Depends(require_permissions(SCOPE_WRITE_ALERTS, SCOPE_READ_ITEMS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     if payload.disposition is not None:
         raise ApiHTTPException(
@@ -465,6 +496,7 @@ def bulk_acknowledge_alert_occurrences(
     return _bulk_mutate_occurrences(
         db,
         user=user,
+        data_access=data_access,
         payload=payload,
         target_state="acknowledged",
         audit_action="alerts.occurrences.bulk_acknowledge",
@@ -478,7 +510,8 @@ def bulk_acknowledge_alert_occurrences(
 def bulk_close_alert_occurrences(
     payload: AlertOccurrenceBulkUpdate,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_ALERTS, SCOPE_READ_ITEMS)),
+    user: User = Depends(require_permissions(SCOPE_WRITE_ALERTS, SCOPE_READ_ITEMS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     if payload.disposition is None:
         raise ApiHTTPException(
@@ -489,6 +522,7 @@ def bulk_close_alert_occurrences(
     return _bulk_mutate_occurrences(
         db,
         user=user,
+        data_access=data_access,
         payload=payload,
         target_state="closed",
         audit_action="alerts.occurrences.bulk_close",
@@ -505,10 +539,16 @@ router.include_router(alert_operations_router)
 def get_alert_occurrence_detail(
     occurrence_id: uuid.UUID,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_READ_ALERTS, SCOPE_READ_ITEMS)),
+    user: User = Depends(require_permissions(SCOPE_READ_ALERTS, SCOPE_READ_ITEMS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     try:
-        return get_alert_occurrence(db, user=user, occurrence_id=occurrence_id)
+        return get_alert_occurrence(
+            db,
+            user=user,
+            occurrence_id=occurrence_id,
+            data_access=data_access,
+        )
     except Exception as exc:
         return _raise_occurrence_error(db, exc)
 
@@ -522,13 +562,15 @@ def get_alert_occurrence_activity(
     page: AlertPage = 1,
     page_size: int = Query(default=50, ge=1, le=100),
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_READ_ALERTS)),
+    user: User = Depends(require_permissions(SCOPE_READ_ALERTS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     try:
         result = list_alert_occurrence_activity(
             db,
             user=user,
             occurrence_id=occurrence_id,
+            data_access=data_access,
             page=page,
             page_size=page_size,
         )
@@ -550,13 +592,15 @@ def patch_alert_occurrence_lifecycle(
     occurrence_id: uuid.UUID,
     payload: AlertOccurrenceLifecycleUpdate,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_ALERTS, SCOPE_READ_ITEMS)),
+    user: User = Depends(require_permissions(SCOPE_WRITE_ALERTS, SCOPE_READ_ITEMS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     try:
         occurrence = update_alert_occurrence_lifecycle(
             db,
             user=user,
             occurrence_id=occurrence_id,
+            data_access=data_access,
             expected_version=payload.expected_version,
             target_state=payload.state,
             disposition=payload.disposition,
@@ -588,13 +632,15 @@ def patch_alert_occurrence_snooze(
     occurrence_id: uuid.UUID,
     payload: AlertOccurrenceSnoozeUpdate,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_ALERTS, SCOPE_READ_ITEMS)),
+    user: User = Depends(require_permissions(SCOPE_WRITE_ALERTS, SCOPE_READ_ITEMS)),
+    data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     try:
         occurrence = update_alert_occurrence_snooze(
             db,
             user=user,
             occurrence_id=occurrence_id,
+            data_access=data_access,
             expected_version=payload.expected_version,
             snoozed_until=payload.snoozed_until,
             reason=payload.reason,
@@ -622,7 +668,7 @@ def update_alert_interest(
     alert_id: uuid.UUID,
     payload: AlertInterestUpdate,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_ALERTS)),
+    user: User = Depends(require_permissions(SCOPE_WRITE_ALERTS)),
 ):
     alert = db.scalar(
         select(AlertInterest)
@@ -775,7 +821,7 @@ def delete_alert_interest(
     expected_revision: int | None = Query(default=None, ge=1),
     expected_row_version: int | None = Query(default=None, ge=1),
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_ALERTS)),
+    user: User = Depends(require_permissions(SCOPE_WRITE_ALERTS)),
 ):
     alert = db.scalar(
         select(AlertInterest)
@@ -820,6 +866,7 @@ def _bulk_mutate_occurrences(
     db: Session,
     *,
     user: User,
+    data_access: DataAccessContext,
     payload: AlertOccurrenceBulkUpdate,
     target_state: str,
     audit_action: str,
@@ -828,6 +875,7 @@ def _bulk_mutate_occurrences(
         occurrences = bulk_update_alert_occurrence_lifecycle(
             db,
             user=user,
+            data_access=data_access,
             entries=[
                 (entry.occurrence_id, entry.expected_version) for entry in payload.items
             ],
@@ -851,15 +899,6 @@ def _bulk_mutate_occurrences(
         return {"items": occurrences, "updated": len(occurrences)}
     except Exception as exc:
         return _raise_occurrence_error(db, exc)
-
-
-def _require_alert_admin(user: User) -> None:
-    if user.role != ROLE_ADMIN:
-        raise ApiHTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Alert reconciliation and backfill require the administrator role.",
-            error_code="alert_backfill_admin_required",
-        )
 
 
 def _raise_occurrence_error(db: Session, exc: Exception):

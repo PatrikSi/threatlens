@@ -26,6 +26,9 @@ from app.services import ai_normalization as _ai_normalization
 from app.services import ai_prompting as _ai_prompting
 from app.services import ai_provider_client as _ai_provider_client
 from app.services.ai_config import ActiveAISettings, load_active_ai_settings
+from app.services.ai_egress_data_policy import (
+    enforce_ai_egress_data_policy as _enforce_ai_egress_data_policy,
+)
 from app.services.ai_ops import (
     AI_PROVIDER_CLAIM_DAILY_BRIEF,
     AI_PROVIDER_CLAIM_ITEM_ENRICHMENT,
@@ -48,6 +51,7 @@ from app.services.ai_provider_client import (
     AIIntegrationError as AIIntegrationError,
     call_ai_json as _provider_call_ai_json,
 )
+from app.services.ai_telemetry_data_policy import capture_ai_task_run_data_access
 from app.services.ai_request_runtime import (
     AITaskRunStoppedError,
     run_ai_json_request,
@@ -58,6 +62,10 @@ from app.services.ai_reporting import (
     get_latest_daily_brief as get_latest_daily_brief,
     get_recent_daily_briefs as get_recent_daily_briefs,
     prune_daily_brief_history as prune_daily_brief_history,
+)
+from app.services.data_access_runtime import (
+    ensure_daily_brief_data_access_envelope,
+    lock_data_policy_revision_for_derivation,
 )
 from app.services.safe_fetch import build_safe_http_client
 
@@ -152,6 +160,7 @@ def test_ai_connection(
             active,
             feature_type=FEATURE_CONNECTION_TEST,
             task_run_id=task_run_id,
+            provider_operation_scope="connection_test",
             messages=[
                 {
                     "role": "system",
@@ -322,6 +331,7 @@ def run_item_ai_enrichment(
             feature_type=FEATURE_ITEM_ENRICHMENT,
             item_id=item_id,
             task_run_id=task_run_id,
+            provider_operation_scope="item_enrichment",
             messages=messages,
         )
     except AITaskRunStoppedError as exc:
@@ -588,6 +598,7 @@ def run_daily_brief_generation(
             items_selected=len(existing.top_item_ids_json or []),
         )
 
+    planning_policy_revision = lock_data_policy_revision_for_derivation(db)
     window_end = now
     window_start = now - timedelta(hours=active.daily_brief_window_hours)
     item_window_at = func.coalesce(Item.published_at, Item.first_seen_at)
@@ -637,6 +648,7 @@ def run_daily_brief_generation(
             ItemAIEnrichment.relevance_score.desc().nullslast(), item_window_at.desc()
         )
         .limit(source_audit_limit)
+        .with_for_update(read=True, of=(Item, Feed))
     ).all()
     item_rows = item_rows_all[: active.daily_brief_max_items]
     if not item_rows:
@@ -692,7 +704,6 @@ def run_daily_brief_generation(
     selected_item_ids = {str(row.id) for row in item_rows}
     try:
         db.flush()
-        db.commit()
     except IntegrityError:
         db.rollback()
         competing_brief = db.scalar(
@@ -711,6 +722,26 @@ def run_daily_brief_generation(
             items_considered=int(competing_brief.item_count or total_items),
             items_selected=len(competing_brief.top_item_ids_json or []),
         )
+    _replace_daily_brief_source_items(
+        db,
+        brief=brief,
+        item_rows_all=item_rows_all,
+        selected_item_ids=selected_item_ids,
+    )
+    db.flush()
+    ensure_daily_brief_data_access_envelope(
+        db,
+        brief_id=brief_id,
+        expected_policy_revision=planning_policy_revision,
+    )
+    if task_run_id is not None:
+        capture_ai_task_run_data_access(
+            db,
+            run_id=task_run_id,
+            daily_brief_id=brief_id,
+            complete=True,
+        )
+    db.commit()
 
     try:
         completion = _request_json_with_usage(
@@ -719,6 +750,7 @@ def run_daily_brief_generation(
             feature_type=FEATURE_DAILY_BRIEF,
             daily_brief_id=brief_id,
             task_run_id=task_run_id,
+            provider_operation_scope="daily_brief",
             messages=messages,
         )
     except AITaskRunStoppedError as exc:
@@ -774,12 +806,6 @@ def run_daily_brief_generation(
                 items_considered=len(item_rows_all),
                 items_selected=len(item_rows),
             )
-        _replace_daily_brief_source_items(
-            db,
-            brief=brief,
-            item_rows_all=item_rows_all,
-            selected_item_ids=selected_item_ids,
-        )
         prune_daily_brief_history(db, keep_limit=active.daily_brief_history_limit)
         return AIDailyBriefGenerationResult(
             brief=brief,
@@ -853,12 +879,6 @@ def run_daily_brief_generation(
             prompt_char_count=completion.prompt_char_count,
             response_char_count=completion.response_char_count,
         )
-    _replace_daily_brief_source_items(
-        db,
-        brief=brief,
-        item_rows_all=item_rows_all,
-        selected_item_ids=selected_item_ids,
-    )
     prune_daily_brief_history(db, keep_limit=active.daily_brief_history_limit)
     notification_event = (
         emit_daily_brief_ready_event(db, brief=brief) if emit_notification else None
@@ -1018,12 +1038,18 @@ def _request_json_with_usage(
     daily_brief_id: uuid.UUID | None = None,
     report_id: uuid.UUID | None = None,
     task_run_id: uuid.UUID | None = None,
+    provider_operation_scope: str | None = None,
     max_completion_tokens: int | None = None,
     max_retry_completion_tokens: int | None = None,
     max_provider_attempts: int | None = None,
     execution_checkpoint: Callable[[], None] | None = None,
     execution_commit: Callable[[], None] | None = None,
 ) -> AICompletionResult:
+    if feature_type == FEATURE_REPORT and provider_operation_scope is None:
+        raise AIIntegrationError(
+            "Report provider calls require a durable operation scope.",
+            retryable=False,
+        )
     return run_ai_json_request(
         db,
         active,
@@ -1033,11 +1059,13 @@ def _request_json_with_usage(
         daily_brief_id=daily_brief_id,
         report_id=report_id,
         task_run_id=task_run_id,
+        provider_operation_scope=provider_operation_scope or feature_type,
         max_completion_tokens=max_completion_tokens,
         max_retry_completion_tokens=max_retry_completion_tokens,
         max_provider_attempts=max_provider_attempts,
         execution_checkpoint=execution_checkpoint,
         execution_commit=execution_commit,
+        enforce_egress_data_policy=_enforce_ai_egress_data_policy,
         report_feature_type=FEATURE_REPORT,
         call_ai_json=_call_ai_json,
         record_task_run_stop_observed=_record_task_run_stop_observed,
@@ -1058,6 +1086,7 @@ def request_ai_json_with_usage(
     messages: list[dict[str, str]],
     report_id: uuid.UUID | None = None,
     task_run_id: uuid.UUID | None = None,
+    provider_operation_scope: str | None = None,
     max_completion_tokens: int | None = None,
     max_retry_completion_tokens: int | None = None,
     max_provider_attempts: int | None = None,
@@ -1065,6 +1094,12 @@ def request_ai_json_with_usage(
     execution_commit: Callable[[], None] | None = None,
 ) -> AICompletionResult:
     """Run a provider exchange with the standard retry, history, and cancellation behavior."""
+    if feature_type == FEATURE_CONNECTION_TEST:
+        raise AIIntegrationError(
+            "Connection-test provider calls must use the dedicated AI connection-test "
+            "workflow.",
+            retryable=False,
+        )
     return _request_json_with_usage(
         db,
         active,
@@ -1072,6 +1107,7 @@ def request_ai_json_with_usage(
         messages=messages,
         report_id=report_id,
         task_run_id=task_run_id,
+        provider_operation_scope=provider_operation_scope,
         max_completion_tokens=max_completion_tokens,
         max_retry_completion_tokens=max_retry_completion_tokens,
         max_provider_attempts=max_provider_attempts,

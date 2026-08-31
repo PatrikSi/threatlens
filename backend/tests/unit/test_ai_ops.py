@@ -38,6 +38,23 @@ from app.services.ai_ops import (
 )
 from app.services.report_dispatch import supersede_legacy_report_dispatch
 from app.schemas.ai import AILiveTaskResponse
+from app.services.data_access_envelopes import DATA_ACCESS_RESOURCE_AI_TASK_RUN
+from app.services.data_access_retention import prune_deleted_resource_envelopes
+
+
+def _delete_task_runs_with_envelopes(
+    db: Session,
+    *,
+    run_ids: list[uuid.UUID],
+) -> None:
+    db.execute(delete(AITaskRun).where(AITaskRun.id.in_(run_ids)))
+    db.flush()
+    prune_deleted_resource_envelopes(
+        db,
+        resources=(
+            (DATA_ACCESS_RESOURCE_AI_TASK_RUN, run_id) for run_id in run_ids
+        ),
+    )
 
 
 def _create_item(db_session: Session, *, source_guid: str) -> Item:
@@ -666,9 +683,12 @@ def test_cancel_waits_for_concurrent_report_supersession(
         blocker.close()
         thread.join(timeout=1)
         with Session(database_engine) as cleanup:
-            cleanup.execute(
-                delete(AITaskRun).where(AITaskRun.report_id == report_id)
+            run_ids = list(
+                cleanup.scalars(
+                    select(AITaskRun.id).where(AITaskRun.report_id == report_id)
+                )
             )
+            _delete_task_runs_with_envelopes(cleanup, run_ids=run_ids)
             cleanup.execute(delete(Report).where(Report.id == report_id))
             cleanup.commit()
 
@@ -805,8 +825,9 @@ def test_finish_ai_task_run_is_atomic_across_postgresql_sessions(database_engine
             assert parent.error_count == int(child.status == AI_STATUS_ERROR)
     finally:
         with Session(database_engine) as cleanup:
-            cleanup.execute(
-                delete(AITaskRun).where(AITaskRun.id.in_([child_id, parent_id]))
+            _delete_task_runs_with_envelopes(
+                cleanup,
+                run_ids=[child_id, parent_id],
             )
             cleanup.commit()
 
@@ -882,7 +903,7 @@ def test_cancel_request_wins_when_committed_before_terminal_transition(database_
         if thread.is_alive():
             thread.join(timeout=10)
         with Session(database_engine) as cleanup:
-            cleanup.execute(delete(AITaskRun).where(AITaskRun.id == run_id))
+            _delete_task_runs_with_envelopes(cleanup, run_ids=[run_id])
             cleanup.commit()
 
 

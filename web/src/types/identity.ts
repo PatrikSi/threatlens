@@ -1,3 +1,5 @@
+import type { EffectiveAccess } from './access'
+
 export interface User {
   id: string
   email: string
@@ -69,6 +71,8 @@ export interface CurrentUser extends User {
   features: AppFeatures
   /** Present on servers with opaque-session recent-authentication support. */
   authentication?: CurrentAuthentication
+  /** Present on servers with canonical roles, groups, and credential attenuation. */
+  access?: EffectiveAccess
 }
 
 export interface CurrentAuthentication {
@@ -83,6 +87,9 @@ export interface CurrentAuthentication {
   session_id?: string | null
   recent_authentication_valid?: boolean
   security_actions_supported?: boolean
+  /** Server-computed parity with sensitive mutation authentication guards. */
+  sensitive_actions_ready?: boolean
+  sensitive_actions_blocker?: string | null
 }
 
 export interface TokenResponse {

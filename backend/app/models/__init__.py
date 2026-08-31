@@ -1,5 +1,6 @@
 from app.models.ai_daily_brief import AIDailyBrief
 from app.models.ai_daily_brief_source_item import AIDailyBriefSourceItem
+from app.models.ai_provider_attempt_receipt import AIProviderAttemptReceipt
 from app.models.ai_settings import AISettings
 from app.models.ai_task_event import AITaskEvent
 from app.models.ai_task_run import AITaskRun
@@ -17,20 +18,52 @@ from app.models.alert_occurrence import (
     AlertOccurrenceMetric,
 )
 from app.models.api_token import ApiToken
+from app.models.access_review import (
+    AccessReviewApplyReceipt,
+    AccessReviewCampaign,
+    AccessReviewDecision,
+    AccessReviewItem,
+)
+from app.models.action_approval import ActionApprovalRequest, ActionExecutionReceipt
 from app.models.article import Article
 from app.models.auth_session import AuthSession
-from app.models.audit_log import AuditLog
+from app.models.audit_log import (
+    AuditLog,
+    AuditLogDataAccessFeed,
+    AuditLogDataAccessLabel,
+)
+from app.models.data_policy import (
+    DataAccessEnvelope,
+    DataAccessEnvelopeLabel,
+    DataAccessEnvelopeSource,
+    DataPolicyRoleGrant,
+    DataPolicyState,
+    HandlingLabel,
+)
 from app.models.feed import Feed
+from app.models.governance_operation_receipt import GovernanceOperationReceipt
 from app.models.ioc import IOC, ItemIOC
 from app.models.integration import (
     IntegrationAttempt,
     IntegrationDelivery,
     IntegrationDeliveryMetric,
+    IntegrationDeliveryMetricCohort,
+    IntegrationDeliveryMetricCohortFeed,
+    IntegrationDeliveryMetricCohortLabel,
     IntegrationEvent,
     IntegrationInstance,
     IntegrationRun,
     IntegrationSubscription,
     IntegrationSubscriptionFeed,
+)
+from app.models.iam import (
+    IAMGroup,
+    IAMGroupMembership,
+    IAMGroupRoleAssignment,
+    IAMPolicyState,
+    IAMRole,
+    IAMRolePermission,
+    IAMUserRoleAssignment,
 )
 from app.models.investigation import (
     Investigation,
@@ -47,6 +80,12 @@ from app.models.mfa import MFALoginChallenge, UserRecoveryCode, UserTOTPCredenti
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.oidc import ExternalIdentity, OIDCProvider
+from app.models.oidc_access import (
+    OIDCAccessPolicy,
+    OIDCClaimMappingSet,
+    OIDCGroupClaimMapping,
+    OIDCRoleClaimMapping,
+)
 from app.models.report import Report
 from app.models.report_generation_lease import ReportGenerationLease
 from app.models.report_operation_receipt import ReportOperationReceipt
@@ -55,20 +94,37 @@ from app.models.report_section import ReportSection
 from app.models.report_source_item import ReportSourceItem
 from app.models.report_template import ReportTemplate
 from app.models.saved_view import SavedView
+from app.models.service_account import (
+    ServiceAccount,
+    ServiceAccountCredential,
+    ServiceAccountRoleAssignment,
+)
 from app.models.system_operation_run import SystemOperationRun
 from app.models.tag import ItemTag, Tag, TagFeedbackEvent
 from app.models.tagging_rule import TaggingRule
 from app.models.tagging_settings import TaggingSettings
+from app.models.temporary_elevation import (
+    TemporaryElevation,
+    TemporaryElevationPermission,
+)
 from app.models.user import User
+from app.models.workspace import WorkspaceRolePolicy, WorkspaceUserPreference
 
 __all__ = [
     "AIDailyBrief",
     "AIDailyBriefSourceItem",
+    "AIProviderAttemptReceipt",
     "AISettings",
     "AITaskEvent",
     "AITaskRun",
     "AIUsageEvent",
     "ApiToken",
+    "AccessReviewApplyReceipt",
+    "AccessReviewCampaign",
+    "AccessReviewDecision",
+    "AccessReviewItem",
+    "ActionApprovalRequest",
+    "ActionExecutionReceipt",
     "AlertBackfillPreview",
     "AlertEvaluationMatch",
     "AlertEvaluationRequest",
@@ -80,17 +136,36 @@ __all__ = [
     "Article",
     "AuthSession",
     "AuditLog",
+    "AuditLogDataAccessFeed",
+    "AuditLogDataAccessLabel",
+    "DataAccessEnvelope",
+    "DataAccessEnvelopeLabel",
+    "DataAccessEnvelopeSource",
+    "DataPolicyRoleGrant",
+    "DataPolicyState",
     "Feed",
+    "GovernanceOperationReceipt",
     "ExternalIdentity",
     "IOC",
     "IntegrationAttempt",
     "IntegrationDelivery",
     "IntegrationDeliveryMetric",
+    "IntegrationDeliveryMetricCohort",
+    "IntegrationDeliveryMetricCohortFeed",
+    "IntegrationDeliveryMetricCohortLabel",
     "IntegrationEvent",
     "IntegrationInstance",
     "IntegrationRun",
     "IntegrationSubscription",
     "IntegrationSubscriptionFeed",
+    "IAMGroup",
+    "IAMGroupMembership",
+    "IAMGroupRoleAssignment",
+    "IAMPolicyState",
+    "IAMRole",
+    "IAMRolePermission",
+    "IAMUserRoleAssignment",
+    "HandlingLabel",
     "Investigation",
     "InvestigationActivity",
     "InvestigationEvidence",
@@ -105,6 +180,10 @@ __all__ = [
     "NotificationWebhook",
     "NotificationWebhookDelivery",
     "OIDCProvider",
+    "OIDCAccessPolicy",
+    "OIDCClaimMappingSet",
+    "OIDCGroupClaimMapping",
+    "OIDCRoleClaimMapping",
     "Report",
     "ReportGenerationLease",
     "ReportOperationReceipt",
@@ -113,13 +192,20 @@ __all__ = [
     "ReportSourceItem",
     "ReportTemplate",
     "SavedView",
+    "ServiceAccount",
+    "ServiceAccountCredential",
+    "ServiceAccountRoleAssignment",
     "SystemOperationRun",
     "Tag",
     "ItemTag",
     "TagFeedbackEvent",
     "TaggingRule",
     "TaggingSettings",
+    "TemporaryElevation",
+    "TemporaryElevationPermission",
     "User",
     "UserRecoveryCode",
     "UserTOTPCredential",
+    "WorkspaceRolePolicy",
+    "WorkspaceUserPreference",
 ]

@@ -26,6 +26,9 @@ from app.services.integration_connectors import (
 from app.services.integration_event_schemas import (
     max_supported_integration_event_schema,
 )
+from app.services.data_access_runtime import (
+    ensure_integration_event_data_access_envelope,
+)
 from app.services.integration_registry import (
     get_integration_connector,
     iter_integration_connectors_for_event,
@@ -105,6 +108,7 @@ def emit_integration_event(
         )
     )
     if existing is not None:
+        ensure_integration_event_data_access_envelope(db, event_id=existing.id)
         return existing
 
     resolved_schema_version, resolved_payload = _prepare_event_envelope(
@@ -113,6 +117,7 @@ def emit_integration_event(
         payload=payload,
         requested_schema_version=schema_version,
     )
+    emitted_at = datetime.now(timezone.utc)
     event = IntegrationEvent(
         event_type=event_type,
         schema_version=resolved_schema_version,
@@ -122,7 +127,8 @@ def emit_integration_event(
         idempotency_key=idempotency_key,
         payload_json=resolved_payload,
         routing_state=EVENT_PENDING,
-        available_at=available_at or datetime.now(timezone.utc),
+        available_at=available_at or emitted_at,
+        created_at=emitted_at,
     )
     try:
         with db.begin_nested():
@@ -136,7 +142,9 @@ def emit_integration_event(
         )
         if existing is None:
             raise
+        ensure_integration_event_data_access_envelope(db, event_id=existing.id)
         return existing
+    ensure_integration_event_data_access_envelope(db, event_id=event.id)
     return event
 
 
@@ -213,10 +221,20 @@ def route_integration_event(
     )
     if event is None:
         raise IntegrationEventContextError("Integration event not found")
+    ensure_integration_event_data_access_envelope(db, event_id=event.id)
     if event.routing_state == EVENT_ROUTED:
         return _routed_event_result(db, event)
     if event.routing_state == EVENT_DEAD_LETTER:
         return _event_delivery_result(db, event, status=EVENT_DEAD_LETTER)
+
+    current_time = datetime.now(timezone.utc)
+    scheduled_at = _coerce_utc(event.available_at)
+    if (
+        event.routing_state == EVENT_FAILED
+        and scheduled_at is not None
+        and scheduled_at > current_time
+    ):
+        return _event_delivery_result(db, event, status=EVENT_FAILED)
 
     compatibility_message = _event_schema_compatibility_message(event)
     if compatibility_message is not None:
@@ -242,6 +260,67 @@ def route_integration_event(
             status=EVENT_FAILED,
             errors=[error],
         )
+
+    if event.event_type == "report_ready":
+        from app.services.report_event_compatibility import (
+            ReportEventOwnerIneligible,
+            report_ready_event_owner_id,
+        )
+
+        try:
+            with db.begin_nested():
+                report_ready_event_owner_id(db, event=event)
+        except ReportEventOwnerIneligible as exc:
+            error = ConnectorRoutingError(
+                connector_type="event_envelope",
+                message=str(exc)[:1000],
+                retryable=True,
+            )
+            event.routing_attempt_count = (
+                max(0, int(event.routing_attempt_count or 0)) + 1
+            )
+            max_attempts = max(1, int(settings.integration_event_routing_max_attempts))
+            event.routing_state = (
+                EVENT_FAILED
+                if event.routing_attempt_count < max_attempts
+                else EVENT_DEAD_LETTER
+            )
+            event.claimed_at = None
+            event.routed_at = None
+            event.available_at = current_time + timedelta(
+                seconds=_routing_backoff_seconds(event.routing_attempt_count)
+            )
+            event.last_error = _format_routing_errors([error])
+            db.add(event)
+            db.flush()
+            return _event_delivery_result(
+                db,
+                event,
+                status=event.routing_state,
+                errors=[error],
+            )
+        except IntegrationEventContextError as exc:
+            error = ConnectorRoutingError(
+                connector_type="event_envelope",
+                message=str(exc)[:1000],
+                retryable=False,
+            )
+            event.routing_state = EVENT_DEAD_LETTER
+            event.routing_attempt_count = (
+                max(0, int(event.routing_attempt_count or 0)) + 1
+            )
+            event.claimed_at = None
+            event.routed_at = None
+            event.available_at = datetime.now(timezone.utc)
+            event.last_error = _format_routing_errors([error])
+            db.add(event)
+            db.flush()
+            return _event_delivery_result(
+                db,
+                event,
+                status=EVENT_DEAD_LETTER,
+                errors=[error],
+            )
 
     event.routing_state = EVENT_ROUTING
     event.claimed_at = datetime.now(timezone.utc)

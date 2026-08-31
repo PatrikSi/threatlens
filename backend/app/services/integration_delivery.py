@@ -19,6 +19,9 @@ from app.models.integration import (
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.services.integration_compat import ensure_webhook_integration
+from app.services.data_access_runtime import (
+    ensure_integration_delivery_data_access_envelope,
+)
 from app.services.integration_delivery_attempts import (
     interrupt_running_attempt,
     retry_budget_attempt_count as _retry_budget_attempt_count,
@@ -138,6 +141,7 @@ def claim_integration_delivery(
         return IntegrationDeliveryClaim(
             status=MISSING, delivery_id=delivery_id, reason="delivery_not_found"
         )
+    ensure_integration_delivery_data_access_envelope(db, delivery_id=delivery.id)
     if delivery.state in DELIVERY_TERMINAL_STATES:
         return _claim_result(
             delivery, status=TERMINAL, reason=f"delivery_{delivery.state}"
@@ -772,6 +776,7 @@ def replay_dead_letter_delivery(
     )
     db.add(replay)
     db.flush()
+    ensure_integration_delivery_data_access_envelope(db, delivery_id=replay.id)
     if legacy_source is not None:
         db.add(clone_webhook_replay(source=legacy_source, replay_id=replay.id))
         db.flush()
@@ -834,6 +839,7 @@ def ensure_webhook_delivery(
         delivery.event_id = event_id
         db.add(delivery)
         db.flush()
+    ensure_integration_delivery_data_access_envelope(db, delivery_id=delivery.id)
     return delivery
 
 

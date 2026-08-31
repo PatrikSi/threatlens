@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import uuid
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
@@ -11,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.models.feed import Feed
 from app.models.integration import (
     IntegrationDelivery,
+    IntegrationEvent,
     IntegrationInstance,
 )
 from app.models.item import Item
@@ -22,6 +24,9 @@ from app.services.integration_delivery import (
     claim_integration_delivery,
     finalize_integration_delivery,
     renew_integration_delivery_lease,
+)
+from app.services.integration_delivery_data_policy import (
+    record_integration_delivery_policy_audit,
 )
 from app.services.integration_delivery_compatibility import (
     defer_integration_delivery_for_compatibility,
@@ -35,6 +40,7 @@ from app.services.daily_brief_notifications import (
 )
 from app.services.notification_webhooks import (
     FailedWebhookContext,
+    try_acquire_notification_delivery_lock,
 )
 from app.services.smtp_delivery_errors import SMTPDeliveryDatabasePreflightError
 from app.services.smtp_integration import (
@@ -44,12 +50,17 @@ from app.services.smtp_delivery_eligibility import (
     SMTPDeliveryIneligibleError,
     SMTPDeliverySourceCompatibilityError,
     SMTPDeliverySourceContextError,
+    SMTPDeliveryTemporarilyIneligibleError,
     ensure_smtp_delivery_schema_compatible,
     lock_smtp_delivery_external_io_eligibility,
     persist_smtp_delivery_source_owner_context,
     smtp_legacy_alert_delivery_snapshot,
 )
-from app.services.integration_storage import ActiveSMTPSettings
+from app.services.integration_storage import ActiveSMTPSettings, SMTP_SYSTEM_KEY
+from app.services.smtp_delivery_history import (
+    smtp_delivery_dedupe_key,
+    smtp_delivery_side_effect_outcome,
+)
 
 RETRYABLE_SMTP_ERROR_CODES = frozenset(
     {
@@ -74,6 +85,7 @@ SMTP_LOCAL_FAILURE_ERROR_CODES = frozenset(
 )
 SMTP_OWNER_NOT_ELIGIBLE = "smtp_owner_not_eligible"
 SMTP_COMPATIBILITY_RETRY_SECONDS = 300
+LEGACY_DELIVERY_CLOCK_SKEW_TOLERANCE = timedelta(minutes=5)
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +104,63 @@ class IntegrationDeliveryProcessingResult:
     status: str
     reason: str | None = None
     retry_at: str | None = None
+
+
+@dataclass(frozen=True)
+class _LegacySMTPDeliveryIdentity:
+    dedupe_key: str
+    event_type: str
+    delivery_kind: str
+    item_id: uuid.UUID | None
+    feed_id: uuid.UUID | None
+    source_delivery_id: uuid.UUID | None
+    scope_key: str | None
+    receipt_not_before: datetime | None
+
+
+def _defer_smtp_temporarily_ineligible(
+    db: Session,
+    *,
+    delivery_id: uuid.UUID,
+    expected_attempt_number: int,
+    error_code: str,
+    error_message: str,
+) -> IntegrationDeliveryProcessingResult:
+    outcome = finalize_integration_delivery(
+        db,
+        delivery_id=delivery_id,
+        expected_attempt_number=expected_attempt_number,
+        success=False,
+        duration_ms=0,
+        error_code=error_code,
+        error_message=error_message,
+        retryable=True,
+        affect_circuit=False,
+        response_json={
+            "failure_class": "smtp_temporary_policy",
+            "delivery_outcome": "not_attempted",
+            "external_side_effect_possible": False,
+        },
+    )
+    db.commit()
+    return IntegrationDeliveryProcessingResult(
+        delivery_id,
+        outcome.state or "retry_wait",
+        error_code,
+        outcome.retry_at.isoformat() if outcome.retry_at else None,
+    )
+
+
+def _restore_smtp_data_policy_audit(
+    db: Session,
+    *,
+    error: SMTPDeliveryIneligibleError,
+) -> None:
+    if error.data_policy_audit is not None:
+        record_integration_delivery_policy_audit(
+            db,
+            audit=error.data_policy_audit,
+        )
 
 
 def process_smtp_integration_delivery(
@@ -150,7 +219,24 @@ def process_smtp_integration_delivery(
                 delivery.id, outcome.state or "succeeded", context["skip_reason"]
             )
 
+        legacy_identity = _legacy_smtp_delivery_identity(
+            db,
+            delivery=delivery,
+            instance=instance,
+            context=context,
+        )
+
         if not _smtp_integration_owner_is_eligible(db, instance=instance):
+            if delivery.event_type == "report_ready":
+                return _defer_smtp_temporarily_ineligible(
+                    db,
+                    delivery_id=delivery.id,
+                    expected_attempt_number=claim.attempt_number,
+                    error_code=SMTP_OWNER_NOT_ELIGIBLE,
+                    error_message=(
+                        "Report delivery owner is temporarily inactive or unapproved."
+                    ),
+                )
             outcome = finalize_integration_delivery(
                 db,
                 delivery_id=delivery.id,
@@ -189,6 +275,11 @@ def process_smtp_integration_delivery(
                         "SMTP delivery lease is no longer owned by this worker"
                     )
                 db.commit()
+                _require_legacy_smtp_delivery_lock(
+                    db,
+                    instance_id=instance.id,
+                    identity=legacy_identity,
+                )
                 lock_smtp_delivery_external_io_eligibility(
                     db,
                     delivery_id=delivery.id,
@@ -204,6 +295,39 @@ def process_smtp_integration_delivery(
                 ) from exc
 
         try:
+            _require_legacy_smtp_delivery_lock(
+                db,
+                instance_id=instance.id,
+                identity=legacy_identity,
+            )
+            legacy_outcome = _legacy_smtp_side_effect_outcome(
+                db,
+                instance=instance,
+                identity=legacy_identity,
+            )
+            if legacy_outcome is not None:
+                outcome = finalize_integration_delivery(
+                    db,
+                    delivery_id=delivery.id,
+                    expected_attempt_number=claim.attempt_number,
+                    success=True,
+                    duration_ms=0,
+                    error_code=None,
+                    error_message=None,
+                    retryable=False,
+                    affect_circuit=False,
+                    response_json={
+                        "skipped": True,
+                        "reason": "legacy_delivery_already_recorded",
+                        "legacy_delivery_outcome": legacy_outcome,
+                    },
+                )
+                db.commit()
+                return IntegrationDeliveryProcessingResult(
+                    delivery.id,
+                    outcome.state or "succeeded",
+                    "legacy_delivery_already_recorded",
+                )
 
             def _mark_external_side_effect_possible() -> None:
                 nonlocal external_side_effect_possible
@@ -275,9 +399,20 @@ def process_smtp_integration_delivery(
                 exc.code,
                 outcome.retry_at.isoformat() if outcome.retry_at else None,
             )
+        except SMTPDeliveryTemporarilyIneligibleError as exc:
+            external_side_effect_possible = False
+            db.rollback()
+            return _defer_smtp_temporarily_ineligible(
+                db,
+                delivery_id=delivery.id,
+                expected_attempt_number=claim.attempt_number,
+                error_code=exc.code,
+                error_message=str(exc),
+            )
         except SMTPDeliveryIneligibleError as exc:
             external_side_effect_possible = False
             db.rollback()
+            _restore_smtp_data_policy_audit(db, error=exc)
             outcome = finalize_integration_delivery(
                 db,
                 delivery_id=delivery.id,
@@ -329,8 +464,7 @@ def process_smtp_integration_delivery(
                 error_code=result.error_code,
                 error_message=result.error,
                 retryable=retryable,
-                affect_circuit=result.error_code
-                not in SMTP_LOCAL_FAILURE_ERROR_CODES,
+                affect_circuit=result.error_code not in SMTP_LOCAL_FAILURE_ERROR_CODES,
                 response_json={
                     "recipient_count": result.recipient_count,
                     "accepted_count": result.accepted_count,
@@ -522,6 +656,86 @@ def _smtp_integration_owner_is_eligible(
         .execution_options(populate_existing=True)
     )
     return owner is not None and owner.is_active and owner.is_approved
+
+
+def _legacy_smtp_delivery_identity(
+    db: Session,
+    *,
+    delivery: IntegrationDelivery,
+    instance: IntegrationInstance,
+    context: dict,
+) -> _LegacySMTPDeliveryIdentity | None:
+    if (
+        instance.system_key != SMTP_SYSTEM_KEY
+        or delivery.delivery_kind != "live"
+        or delivery.event_id is None
+    ):
+        return None
+    event = db.get(IntegrationEvent, delivery.event_id)
+    if event is None:
+        return None
+    dedupe_key = smtp_delivery_dedupe_key(
+        instance_id=instance.id,
+        event_type=delivery.event_type,
+        delivery_kind=delivery.delivery_kind,
+        item_id=getattr(context["item"], "id", None),
+        feed_id=getattr(context["feed"], "id", None),
+        source_delivery_id=context["source_delivery_id"],
+        scope_key=context["scope_key"],
+    )
+    return _LegacySMTPDeliveryIdentity(
+        dedupe_key=dedupe_key,
+        event_type=delivery.event_type,
+        delivery_kind=delivery.delivery_kind,
+        item_id=getattr(context["item"], "id", None),
+        feed_id=getattr(context["feed"], "id", None),
+        source_delivery_id=context["source_delivery_id"],
+        scope_key=context["scope_key"],
+        receipt_not_before=event.created_at - LEGACY_DELIVERY_CLOCK_SKEW_TOLERANCE
+        if delivery.event_type == "alert_match"
+        else None,
+    )
+
+
+def _require_legacy_smtp_delivery_lock(
+    db: Session,
+    *,
+    instance_id: uuid.UUID,
+    identity: _LegacySMTPDeliveryIdentity | None,
+) -> None:
+    if identity is None:
+        return
+    if try_acquire_notification_delivery_lock(
+        db,
+        webhook_id=instance_id,
+        event_type=identity.event_type,
+        delivery_kind=identity.delivery_kind,
+        item_id=identity.item_id,
+        feed_id=identity.feed_id,
+        source_delivery_id=identity.source_delivery_id,
+        scope_key=identity.scope_key,
+    ):
+        return
+    raise SMTPDeliveryPreflightError(
+        "SMTP delivery is waiting for a rolling-upgrade compatibility lock; "
+        "it will retry before sending any message."
+    )
+
+
+def _legacy_smtp_side_effect_outcome(
+    db: Session,
+    *,
+    instance: IntegrationInstance,
+    identity: _LegacySMTPDeliveryIdentity | None,
+) -> str | None:
+    if identity is None:
+        return None
+    return smtp_delivery_side_effect_outcome(
+        db,
+        instance_id=instance.id,
+        dedupe_key=identity.dedupe_key,
+        not_before=identity.receipt_not_before,
+    )
 
 
 def _load_smtp_delivery_context(db: Session, *, delivery: IntegrationDelivery) -> dict:

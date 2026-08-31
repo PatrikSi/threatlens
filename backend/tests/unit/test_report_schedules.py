@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfoNotFoundError
 import pytest
 
 from app.core.config import get_settings
+from app.models.data_policy import DataPolicyState
 from app.models.report_schedule import ReportSchedule
 from app.models.report_template import ReportTemplate
 from app.models.user import User
@@ -153,9 +154,7 @@ def _persist_schedule(db_session, *, next_run_at: datetime) -> ReportSchedule:
 
 def test_due_schedule_query_excludes_backed_off_failures(db_session):
     now = datetime.now(timezone.utc)
-    backed_off = _persist_schedule(
-        db_session, next_run_at=now - timedelta(minutes=5)
-    )
+    backed_off = _persist_schedule(db_session, next_run_at=now - timedelta(minutes=5))
     ready = _persist_schedule(db_session, next_run_at=now - timedelta(minutes=1))
     backed_off.failure_state = "retrying"
     backed_off.retry_at = now + timedelta(minutes=5)
@@ -184,12 +183,23 @@ def test_skipped_scheduled_report_persists_complete_coverage(
 ):
     due_at = datetime.now(timezone.utc)
     schedule = _persist_schedule(db_session, next_run_at=due_at)
+    owner = User(
+        email=f"scheduled-report-{uuid.uuid4()}@example.com",
+        password_hash="not-used-in-this-test",
+        role="admin",
+        is_active=True,
+        is_approved=True,
+    )
+    db_session.add(owner)
+    db_session.flush()
+    schedule.owner_user_id = owner.id
     schedule.delivery_enabled = True
     template = db_session.get(ReportTemplate, schedule.template_id)
     assert template is not None
     template.use_company_context = False
     plan = SimpleNamespace(
         included_sources=[],
+        sources=[],
         total_matches=total_matches,
         omitted_source_count=omitted_sources,
         metrics={"matched": total_matches},
@@ -197,6 +207,7 @@ def test_skipped_scheduled_report_persists_complete_coverage(
         estimated_source_tokens=0,
         budget=SimpleNamespace(context_window_tokens=4096),
         batch_count=0,
+        data_policy_revision=db_session.get(DataPolicyState, 1).revision,
     )
     active = SimpleNamespace(
         ai_enabled=True,
@@ -249,14 +260,10 @@ def test_transient_schedule_failure_backs_off_then_advances_occurrence(
     monkeypatch.setenv("REPORT_SCHEDULE_MAX_ATTEMPTS", "2")
     get_settings.cache_clear()
     now = datetime.now(timezone.utc)
-    schedule = _persist_schedule(
-        db_session, next_run_at=now - timedelta(minutes=1)
-    )
+    schedule = _persist_schedule(db_session, next_run_at=now - timedelta(minutes=1))
     error = ExportSnapshotChangedError("snapshot changed")
 
-    record_schedule_failure(
-        db_session, schedule_id=schedule.id, now=now, error=error
-    )
+    record_schedule_failure(db_session, schedule_id=schedule.id, now=now, error=error)
     db_session.commit()
     db_session.refresh(schedule)
     assert schedule.failure_state == "retrying"
@@ -299,9 +306,7 @@ def test_schedule_failure_version_cannot_move_backward(db_session):
 
 def test_context_budget_failure_eventually_quarantines_schedule(db_session):
     now = datetime.now(timezone.utc)
-    schedule = _persist_schedule(
-        db_session, next_run_at=now - timedelta(minutes=1)
-    )
+    schedule = _persist_schedule(db_session, next_run_at=now - timedelta(minutes=1))
     error = AIContextBudgetError("Configured report context cannot fit.")
 
     for attempt in range(3):
@@ -432,9 +437,7 @@ def test_schedule_update_clears_retry_state(db_session):
 
 def test_successful_reservation_clears_retry_state(db_session, monkeypatch):
     now = datetime.now(timezone.utc)
-    schedule = _persist_schedule(
-        db_session, next_run_at=now - timedelta(minutes=1)
-    )
+    schedule = _persist_schedule(db_session, next_run_at=now - timedelta(minutes=1))
     schedule.failure_state = "retrying"
     schedule.consecutive_failure_count = 2
     schedule.retry_at = now

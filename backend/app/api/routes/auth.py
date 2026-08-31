@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import (
     AUTH_API_TOKEN,
     get_auth_credential_kind,
+    get_authorization_context,
     get_current_auth_session_id,
     get_current_user,
     is_cookie_session_auth,
@@ -41,7 +42,10 @@ from app.schemas.auth import (
     UserResponse,
 )
 from app.schemas.auth_security import MFALoginVerifyRequest
+from app.api.access_responses import effective_access_response
+from app.api.sensitive_action_auth import sensitive_browser_session_readiness
 from app.services.audit import record_audit
+from app.services.authorization import bump_iam_policy_revision
 from app.services.auth_rate_limit import (
     check_login_throttle,
     check_self_registration_throttle,
@@ -163,6 +167,7 @@ def register(payload: RegisterRequest, request: Request, db: Session = Depends(g
     db.add(user)
     try:
         db.flush()
+        bump_iam_policy_revision(db)
     except IntegrityError as exc:
         db.rollback()
         raise HTTPException(
@@ -512,6 +517,12 @@ def me(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    authorization = get_authorization_context(request)
+    if authorization is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Effective access could not be resolved. Retry the request.",
+        )
     return CurrentUserResponse(
         id=user.id,
         email=user.email,
@@ -524,6 +535,7 @@ def me(
         provisioning_source=user.provisioning_source,
         features=_resolve_app_features(db),
         authentication=_current_authentication_response(request, db, user),
+        access=effective_access_response(authorization),
     )
 
 
@@ -533,11 +545,17 @@ def _current_authentication_response(
     user: User,
 ) -> CurrentAuthenticationResponse:
     if get_auth_credential_kind(request) == AUTH_API_TOKEN:
-        return CurrentAuthenticationResponse(credential_kind="api_token")
+        return CurrentAuthenticationResponse(
+            credential_kind="api_token",
+            sensitive_actions_blocker="browser_session_required",
+        )
 
     session_id = get_current_auth_session_id(request)
     if session_id is None:
-        return CurrentAuthenticationResponse(credential_kind="legacy_session")
+        return CurrentAuthenticationResponse(
+            credential_kind="legacy_session",
+            sensitive_actions_blocker="opaque_session_required",
+        )
     session = db.scalar(
         select(AuthSession).where(
             AuthSession.id == session_id,
@@ -547,8 +565,16 @@ def _current_authentication_response(
         )
     )
     if session is None:
-        return CurrentAuthenticationResponse(credential_kind="legacy_session")
+        return CurrentAuthenticationResponse(
+            credential_kind="legacy_session",
+            sensitive_actions_blocker="opaque_session_required",
+        )
     recent = recent_authentication_state(session)
+    sensitive_readiness = sensitive_browser_session_readiness(
+        db,
+        user=user,
+        session=session,
+    )
     return CurrentAuthenticationResponse(
         credential_kind="opaque_session",
         session_id=session.id,
@@ -562,6 +588,8 @@ def _current_authentication_response(
         ),
         reauthentication_endpoint=recent.reauthentication_endpoint,
         security_actions_supported=True,
+        sensitive_actions_ready=sensitive_readiness.ready,
+        sensitive_actions_blocker=sensitive_readiness.blocker,
     )
 
 

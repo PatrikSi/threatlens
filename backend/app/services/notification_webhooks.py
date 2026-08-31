@@ -4,13 +4,11 @@ import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
-from urllib.parse import urlsplit
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.core.rbac import ROLE_ADMIN, ROLE_ANALYST
 from app.models.feed import Feed
 from app.models.item import Item
 from app.models.notification_webhook import NotificationWebhook
@@ -20,12 +18,8 @@ from app.schemas.notification import (
     NotificationEventType,
     NotificationTemplateVariable,
     NotificationWebhookTestResponse,
-    NotificationWebhookWrite,
 )
 from app.services import notification_webhook_http
-from app.services.daily_brief_notifications import (
-    get_latest_daily_brief_notification_context,
-)
 from app.services.integration_compat import WebhookConfigurationCompatibilityError
 from app.services.integration_delivery import (
     WebhookDeliveryIneligibleError,
@@ -35,9 +29,13 @@ from app.services.notification_webhook_compatibility import (
     WebhookExternalIOFenceError,
     defer_claimed_notification_webhook_for_compatibility,
     defer_claimed_notification_webhook_for_preflight_error,
+    defer_claimed_notification_webhook_for_temporary_policy,
     finalize_claimed_notification_webhook_for_policy_error,
     lock_notification_webhook_external_io_eligibility as _lock_notification_webhook_external_io_eligibility,
     mark_notification_webhook_external_io_started,
+)
+from app.services.webhook_delivery_eligibility import (
+    WebhookDeliveryTemporarilyIneligibleError,
 )
 from app.services.notification_webhook_contexts import (  # noqa: F401 - compatibility re-exports
     FEED_FAILING_NOTIFICATION_THRESHOLD,
@@ -59,6 +57,7 @@ from app.services.notification_webhook_history import (  # noqa: F401 - compatib
     NOTIFICATION_DELIVERY_SUCCEEDED,
     NOTIFICATION_DELIVERY_TERMINAL_STATES,
     NotificationDeliveryReservationBatch,
+    NotificationDeliveryWouldDenySummary,
     NotificationWebhookDeliveryAttempt,
     NotificationWebhookRetryReservation,
     claim_notification_webhook_delivery as _claim_notification_webhook_delivery,
@@ -76,6 +75,8 @@ from app.services.notification_webhook_history import (  # noqa: F401 - compatib
     is_retryable_notification_outcome as _is_retryable_notification_outcome,
     is_retryable_notification_result as _is_retryable_notification_result,
     notification_delivery_chain_attempt_count as _notification_delivery_chain_attempt_count,
+    notification_delivery_data_access_predicate,
+    notification_delivery_would_deny_summary,
     notification_delivery_retry_delay_seconds as _notification_delivery_retry_delay_seconds,
     notification_delivery_retry_root_id as _notification_delivery_retry_root_id,
     seconds_since as _seconds_since,
@@ -96,7 +97,6 @@ from app.services.notification_webhook_templates import (
     DailyDigestContext,
     FailedWebhookContext,
     TemplateRenderError,
-    find_unknown_template_variables as _find_unknown_template_variables,
     find_unknown_template_variables_in_texts,
     isoformat as _isoformat,
     list_template_variables,
@@ -108,7 +108,6 @@ from app.services.notification_webhook_storage import (
     apply_notification_webhook_updates,
     build_notification_webhook,
     decrypt_notification_json as _decrypt_notification_json,
-    decrypt_notification_text as _decrypt_notification_text,
     notification_error_for_display as _notification_error_for_display,
     notification_feed_ids_from_storage as _notification_feed_ids_from_storage,
     notification_webhook_delivery_response_from_model,
@@ -117,10 +116,15 @@ from app.services.notification_webhook_storage import (
     redact_delivery_body_preview as _redact_delivery_body_preview,
     redact_notification_field_values as _redact_notification_field_values,
     redact_notification_query_params as _redact_notification_query_params,
-    redact_notification_test_response as _redact_notification_test_response,
-    upgrade_notification_webhook_delivery_secret_storage as _upgrade_notification_webhook_delivery_secret_storage,
 )
-from app.services.url_utils import is_fetchable_url
+from app.services.notification_webhook_testing import (  # noqa: F401 - compatibility re-export
+    test_notification_webhook,
+)
+from app.services.notification_webhook_validation import (
+    validate_notification_delivery_target_for_actor,
+    validate_notification_webhook_payload,  # noqa: F401 - compatibility re-export
+    validate_notification_webhook_payload_for_actor,  # noqa: F401 - compatibility re-export
+)
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -148,202 +152,6 @@ __all__ = [
 
 class NotificationWebhookRetryInProgressError(RuntimeError):
     pass
-
-
-def validate_notification_webhook_payload(
-    payload: NotificationWebhookWrite, available_feed_ids: set[uuid.UUID]
-) -> None:
-    if payload.feed_scope == "selected":
-        invalid_feed_ids = [
-            str(feed_id)
-            for feed_id in payload.feed_ids
-            if feed_id not in available_feed_ids
-        ]
-        if invalid_feed_ids:
-            raise ValueError(f"Unknown feed ids: {', '.join(sorted(invalid_feed_ids))}")
-
-    _validate_notification_target_url(payload.url_template)
-
-    unknown_variables = sorted(_find_unknown_template_variables(payload))
-    if unknown_variables:
-        raise ValueError(
-            f"Unknown template variable(s): {', '.join(unknown_variables)}"
-        )
-
-
-def _validate_notification_target_url(url_template: str) -> None:
-    try:
-        split = urlsplit(url_template)
-    except ValueError as exc:
-        raise ValueError("url_template must be a valid URL") from exc
-
-    if "{{" in split.scheme or "{{" in split.netloc:
-        raise ValueError(
-            "url_template must not contain templates in the scheme or host"
-        )
-    if split.scheme.lower() not in {"http", "https"}:
-        raise ValueError("url_template must use http or https")
-    if split.scheme.lower() != "https" and not settings.allow_private_network_webhooks:
-        raise ValueError(
-            "url_template must use https unless ALLOW_PRIVATE_NETWORK_WEBHOOKS is enabled"
-        )
-    if (
-        split.scheme.lower() == "http"
-        and settings.allow_private_network_webhooks
-        and is_fetchable_url(url_template, allow_private_network=False)
-    ):
-        raise ValueError(
-            "url_template must use https for publicly routable hosts; plain http is only allowed for private-network webhook endpoints"
-        )
-    if split.username or split.password:
-        raise ValueError("url_template must not include embedded credentials")
-    if split.fragment:
-        raise ValueError("url_template must not include fragments")
-    if not is_fetchable_url(
-        url_template, allow_private_network=settings.allow_private_network_webhooks
-    ):
-        raise ValueError("url_template is not allowed for outbound fetch")
-
-
-def validate_notification_webhook_payload_for_actor(
-    payload: NotificationWebhookWrite,
-    available_feed_ids: set[uuid.UUID],
-    *,
-    actor_user: User | SimpleNamespace | None,
-) -> None:
-    validate_notification_webhook_payload(payload, available_feed_ids)
-    validate_notification_actor_for_delivery(actor_user)
-
-
-def validate_notification_delivery_target_for_actor(
-    delivery: NotificationWebhookDelivery,
-    *,
-    actor_user: User | SimpleNamespace | None,
-) -> None:
-    _upgrade_notification_webhook_delivery_secret_storage(delivery)
-    rendered_url = _decrypt_notification_text(delivery.rendered_url) or ""
-    validate_notification_actor_for_delivery(actor_user)
-    _validate_notification_target_url(rendered_url)
-
-
-def validate_notification_actor_for_delivery(
-    actor_user: User | SimpleNamespace | None,
-) -> None:
-    if actor_user is None:
-        raise ValueError(
-            "Webhook owner is no longer active and approved for outbound delivery"
-        )
-    if not getattr(actor_user, "is_active", True) or not getattr(
-        actor_user, "is_approved", True
-    ):
-        raise ValueError(
-            "Webhook owner is no longer active and approved for outbound delivery"
-        )
-    if getattr(actor_user, "role", None) not in {ROLE_ADMIN, ROLE_ANALYST}:
-        raise ValueError(
-            "Webhook owner is no longer authorized to manage outbound deliveries"
-        )
-
-
-def test_notification_webhook(
-    db: Session,
-    *,
-    user: User,
-    payload: NotificationWebhookWrite,
-    sample_item_id: uuid.UUID | None = None,
-    sample_feed_id: uuid.UUID | None = None,
-) -> NotificationWebhookTestResponse:
-    feed, item = _resolve_sample_feed_and_item(
-        db,
-        payload=payload,
-        sample_item_id=sample_item_id,
-        sample_feed_id=sample_feed_id,
-    )
-    sample_feed = _build_sample_feed_for_event(feed, payload.event_type)
-    alert_context = None
-    failed_webhook_context = None
-    digest_context = None
-
-    if payload.event_type == "alert_match":
-        alert_context = build_alert_match_context_for_item(
-            db, user_id=user.id, item=item
-        )
-        if alert_context is None:
-            alert_context = AlertMatchContext(
-                count=1,
-                primary_name="Threat activity",
-                names=["Threat activity"],
-                categories=["monitoring"],
-                matched_keywords=["credential theft"],
-            )
-    elif payload.event_type == "webhook_failed":
-        failed_webhook_context = FailedWebhookContext(
-            id=uuid.uuid4(),
-            name="Example monitored webhook",
-            event_type="rss_item_new",
-            status_code=500,
-            error="HTTP 500",
-            attempted_at=datetime.now(timezone.utc),
-        )
-    elif payload.event_type in {"daily_digest", "report_ready"}:
-        digest_context = get_latest_daily_brief_notification_context(db)
-        if digest_context is None:
-            now = datetime.now(timezone.utc)
-            digest_context = DailyDigestContext(
-                window_start=now - timedelta(hours=24),
-                window_end=now,
-                total_items=7,
-                total_feeds=2,
-                feed_names=["Example Feed", "CISA"],
-                top_titles=["ThreatLens sample brief item", "Second sample brief item"],
-                brief_id=uuid.uuid4(),
-                brief_date=now.date().isoformat(),
-                generated_at=now,
-                title="Example AI Daily Brief",
-                brief_text="The latest intelligence highlights identity threats and exposed edge services.",
-                key_points=[
-                    "Prioritize identity telemetry",
-                    "Review exposed edge services",
-                ],
-                recommended_actions=[
-                    "Validate MFA coverage",
-                    "Confirm edge patch status",
-                ],
-            )
-
-    rendered = render_notification_request(
-        payload,
-        user=user,
-        feed=sample_feed,
-        item=item,
-        event_type=payload.event_type,
-        alert_context=alert_context,
-        failed_webhook_context=failed_webhook_context,
-        digest_context=digest_context,
-    )
-    try:
-        validate_notification_actor_for_delivery(user)
-        _validate_notification_target_url(rendered.url)
-    except ValueError as exc:
-        return _redact_notification_test_response(
-            NotificationWebhookTestResponse(
-                success=False,
-                status_code=None,
-                duration_ms=0,
-                rendered_url=rendered.url,
-                rendered_method=rendered.method,
-                rendered_headers=rendered.headers,
-                rendered_query_params=rendered.query_params,
-                rendered_body=rendered.body,
-                response_body_preview=None,
-                error=str(exc),
-            )
-        )
-    result = notification_webhook_http.send_rendered_notification_request(rendered)
-    return _redact_notification_test_response(result)
-
-
-test_notification_webhook.__test__ = False
 
 
 def get_matching_notification_webhooks_for_feed(
@@ -907,7 +715,11 @@ def process_notification_webhook_delivery(
     claimed_attempt_number = max(1, int(delivery.attempt_count or 0))
     actor_user = db.scalar(select(User).where(User.id == delivery.user_id))
     try:
-        validate_notification_delivery_target_for_actor(delivery, actor_user=actor_user)
+        validate_notification_delivery_target_for_actor(
+            delivery,
+            actor_user=actor_user,
+            require_active=delivery.event_type_snapshot != "report_ready",
+        )
         generic_delivery_id = _lock_notification_webhook_external_io_eligibility(
             db,
             delivery=delivery,
@@ -915,6 +727,14 @@ def process_notification_webhook_delivery(
         )
     except WebhookConfigurationCompatibilityError as exc:
         return defer_claimed_notification_webhook_for_compatibility(
+            db,
+            delivery=delivery,
+            expected_attempt_number=claimed_attempt_number,
+            error=exc,
+            commit_outcome=commit_outcome,
+        )
+    except WebhookDeliveryTemporarilyIneligibleError as exc:
+        return defer_claimed_notification_webhook_for_temporary_policy(
             db,
             delivery=delivery,
             expected_attempt_number=claimed_attempt_number,
@@ -976,6 +796,14 @@ def process_notification_webhook_delivery(
         )
     except WebhookConfigurationCompatibilityError as exc:
         return defer_claimed_notification_webhook_for_compatibility(
+            db,
+            delivery=delivery,
+            expected_attempt_number=claimed_attempt_number,
+            error=exc,
+            commit_outcome=commit_outcome,
+        )
+    except WebhookDeliveryTemporarilyIneligibleError as exc:
+        return defer_claimed_notification_webhook_for_temporary_policy(
             db,
             delivery=delivery,
             expected_attempt_number=claimed_attempt_number,

@@ -16,7 +16,6 @@ from app.services.integration_delivery import (
     WebhookDeliveryIneligibleError,
     finalize_integration_delivery,
     lock_webhook_delivery_external_io_eligibility,
-    record_integration_delivery_unknown_outcome,
 )
 from app.services.integration_delivery_attempts import (
     persist_external_side_effect_marker,
@@ -28,6 +27,9 @@ from app.services.notification_webhook_history import (
     delivery_result_from_model,
 )
 from app.services.notification_webhook_storage import POLICY_FAILURE_ERROR_PREFIX
+from app.services.webhook_delivery_eligibility import (
+    WebhookDeliveryTemporarilyIneligibleError,
+)
 
 
 class WebhookExternalIOFenceError(RuntimeError):
@@ -117,12 +119,13 @@ def defer_claimed_notification_webhook_for_compatibility(
             },
         )
     else:
-        outcome = record_integration_delivery_unknown_outcome(
+        outcome = _finalize_ambiguous_webhook_outcome(
             db,
             delivery_id=delivery.integration_delivery_id,
             expected_attempt_number=expected_attempt_number,
             error_code=error.code,
             error_message=error_message,
+            failure_class="webhook_schema_compatibility_after_io",
         )
     return _apply_deferred_outcome(
         db,
@@ -170,12 +173,13 @@ def defer_claimed_notification_webhook_for_preflight_error(
             },
         )
     else:
-        outcome = record_integration_delivery_unknown_outcome(
+        outcome = _finalize_ambiguous_webhook_outcome(
             db,
             delivery_id=delivery.integration_delivery_id,
             expected_attempt_number=expected_attempt_number,
             error_code=error.code,
             error_message=error_message,
+            failure_class="webhook_preflight_after_io",
         )
     return _apply_deferred_outcome(
         db,
@@ -183,6 +187,92 @@ def defer_claimed_notification_webhook_for_preflight_error(
         outcome=outcome,
         error_message=error_message,
         commit_outcome=commit_outcome,
+    )
+
+
+def defer_claimed_notification_webhook_for_temporary_policy(
+    db: Session,
+    *,
+    delivery: NotificationWebhookDelivery,
+    expected_attempt_number: int,
+    error: WebhookDeliveryTemporarilyIneligibleError,
+    commit_outcome: bool,
+) -> NotificationWebhookDeliveryAttempt:
+    if delivery.integration_delivery_id is None:
+        raise WebhookDeliveryIneligibleError(
+            "webhook_projection_missing",
+            "Webhook integration delivery configuration is incomplete.",
+        )
+    error_message = str(error)
+    marker = _external_side_effect_marker(
+        db,
+        delivery_id=delivery.integration_delivery_id,
+        expected_attempt_number=expected_attempt_number,
+    )
+    if marker is False:
+        outcome = finalize_integration_delivery(
+            db,
+            delivery_id=delivery.integration_delivery_id,
+            expected_attempt_number=expected_attempt_number,
+            success=False,
+            duration_ms=0,
+            error_code=error.code,
+            error_message=error_message,
+            retryable=True,
+            affect_circuit=False,
+            response_json={
+                "failure_class": "webhook_temporary_policy",
+                "delivery_outcome": "not_attempted",
+                "external_side_effect_possible": False,
+                "retry_budget_consumed": True,
+            },
+        )
+    else:
+        outcome = _finalize_ambiguous_webhook_outcome(
+            db,
+            delivery_id=delivery.integration_delivery_id,
+            expected_attempt_number=expected_attempt_number,
+            error_code=error.code,
+            error_message=error_message,
+            failure_class="webhook_temporary_policy_after_io",
+        )
+    return _apply_deferred_outcome(
+        db,
+        delivery=delivery,
+        outcome=outcome,
+        error_message=error_message,
+        commit_outcome=commit_outcome,
+    )
+
+
+def _finalize_ambiguous_webhook_outcome(
+    db: Session,
+    *,
+    delivery_id: uuid.UUID,
+    expected_attempt_number: int,
+    error_code: str,
+    error_message: str,
+    failure_class: str,
+) -> IntegrationDeliveryOutcome:
+    """Stop automatic retries after any webhook request may have left ThreatLens."""
+
+    return finalize_integration_delivery(
+        db,
+        delivery_id=delivery_id,
+        expected_attempt_number=expected_attempt_number,
+        success=False,
+        duration_ms=0,
+        error_code=error_code,
+        error_message=error_message,
+        retryable=False,
+        schedule_retry=False,
+        affect_circuit=False,
+        response_json={
+            "failure_class": failure_class,
+            "delivery_outcome": "unknown",
+            "external_side_effect_possible": True,
+            "automatic_retry_suppressed": True,
+        },
     )
 
 

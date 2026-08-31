@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from app.models.ai_task_run import AITaskRun
 from app.models.article import Article
 from app.models.item import Item
+from app.services.ai_telemetry_data_policy import capture_ai_task_run_data_access
 
 
 @dataclass(frozen=True)
@@ -455,6 +456,14 @@ def _record_selection(
         return
     run.target_count = len(item_ids)
     db.add(run)
+    db.flush()
+    capture_ai_task_run_data_access(
+        db,
+        run_id=run_id,
+        item_ids=item_ids,
+        feed_ids=selection.feed_ids,
+        complete=True,
+    )
     runtime.record_ai_task_event(
         db,
         run_id=run_id,

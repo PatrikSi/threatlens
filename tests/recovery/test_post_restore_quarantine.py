@@ -177,8 +177,16 @@ class PostRestoreQuarantineTests(unittest.TestCase):
         self.assertIn("pg_advisory_xact_lock", sql)
         self.assertIn("UPDATE users", sql)
         self.assertIn("UPDATE api_tokens", sql)
+        self.assertIn("UPDATE service_account_credentials", sql)
+        self.assertIn("UPDATE service_accounts", sql)
         self.assertIn("UPDATE auth_sessions", sql)
         self.assertIn("UPDATE mfa_login_challenges", sql)
+        self.assertIn("UPDATE temporary_elevations", sql)
+        self.assertIn("UPDATE action_approval_requests", sql)
+        self.assertIn("cancelled_action_approvals", sql)
+        self.assertIn("UPDATE access_review_campaigns", sql)
+        self.assertIn("quarantined_access_reviews", sql)
+        self.assertIn("closed_by_principal_type = 'system'", sql)
         self.assertIn("UPDATE integration_instances", sql)
         self.assertIn("UPDATE integration_subscriptions", sql)
         self.assertIn("UPDATE notification_webhooks", sql)
@@ -195,6 +203,10 @@ class PostRestoreQuarantineTests(unittest.TestCase):
         self.assertIn("UPDATE report_sections", sql)
         self.assertIn("UPDATE alert_evaluation_requests", sql)
         self.assertIn("system.restore.quarantine", sql)
+        self.assertIn("INTO audit_already_recorded", sql)
+        self.assertIn("system.restore.quarantine.reapply", sql)
+        self.assertIn("'reapplied', audit_already_recorded", sql)
+        self.assertNotIn("THEN\n    RETURN;", sql)
 
     def test_verify_checks_credentials_outbound_work_and_audit_marker(self) -> None:
         result = self._run("verify")
@@ -204,7 +216,10 @@ class PostRestoreQuarantineTests(unittest.TestCase):
         sql = (self.sql_directory / "verify.sql").read_text(encoding="utf-8")
         for invariant in (
             "api_tokens",
+            "service_account_credentials",
+            "service_accounts",
             "auth_sessions",
+            "temporary_elevations",
             "mfa_login_challenges",
             "integration_instances",
             "integration_subscriptions",

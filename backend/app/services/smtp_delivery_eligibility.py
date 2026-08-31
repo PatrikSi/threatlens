@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Callable
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -17,11 +15,11 @@ from app.models.integration import (
     IntegrationSubscription,
 )
 from app.models.user import User
+from app.services import smtp_delivery_data_policy as smtp_data_policy
 from app.services.smtp_alert_context import (
     SMTP_ALERT_KEYWORD_CAP as _SMTP_ALERT_KEYWORD_CAP,
     SMTP_ALERT_NAME_CAP as _SMTP_ALERT_NAME_CAP,
     SMTP_LEGACY_ALERT_OCCURRENCE_CAP as _SMTP_LEGACY_ALERT_OCCURRENCE_CAP,
-    combine_smtp_alert_contexts as _combine_alert_contexts,
     legacy_smtp_payload_alert_context as _legacy_payload_alert_context,
 )
 from app.services.notification_webhook_templates import AlertMatchContext
@@ -29,6 +27,7 @@ from app.services.smtp_delivery_errors import (
     SMTPDeliveryIneligibleError,
     SMTPDeliverySourceCompatibilityError,
     SMTPDeliverySourceContextError,
+    SMTPDeliveryTemporarilyIneligibleError,
 )
 from app.services.smtp_schema_compatibility import (
     ensure_smtp_config_schema_compatible,
@@ -42,23 +41,21 @@ from app.services.integration_storage import (
     build_active_smtp_settings,
     smtp_instance_is_archived,
 )
+from app.services.smtp_legacy_alert_snapshot import (
+    SMTPLegacyAlertSnapshot,
+)
+from app.services.smtp_report_delivery_eligibility import (
+    smtp_report_ready_delivery_owner_id,
+)
+from app.services.smtp_delivery_heartbeat import (  # noqa: F401 - compatibility re-export
+    persisted_smtp_settings_heartbeat,
+)
 
 _DELIVERY_SENDING = "sending"
 SMTP_SOURCE_OWNER_IDS_KEY = "_threatlens_source_owner_user_ids"
 # Schema 3 is owner-scoped. Legacy global schemas remain supported within the
 # same 100-owner bound as their combined alert context.
 _SMTP_ALERT_SOURCE_OWNER_CAP_BY_SCHEMA = {1: 100, 2: 100, 3: 1}
-
-
-@dataclass(frozen=True)
-class SMTPLegacyAlertSnapshot:
-    item: SimpleNamespace
-    feed: SimpleNamespace
-    contexts_by_owner: dict[uuid.UUID, AlertMatchContext]
-
-    @property
-    def alert_context(self) -> AlertMatchContext:
-        return _combine_alert_contexts(self.contexts_by_owner)
 
 
 def smtp_alert_event_source_owner_ids(
@@ -406,17 +403,6 @@ def persist_smtp_delivery_source_owner_context(
     return owner_ids
 
 
-def persisted_smtp_settings_heartbeat(
-    heartbeat: Callable[[int, ActiveSMTPSettings], None],
-    *,
-    persisted_settings: ActiveSMTPSettings,
-) -> Callable[[int, ActiveSMTPSettings], None]:
-    def _heartbeat(lease_seconds: int, _effective_settings: ActiveSMTPSettings) -> None:
-        heartbeat(lease_seconds, persisted_settings)
-
-    return _heartbeat
-
-
 def lock_smtp_delivery_external_io_eligibility(
     db: Session,
     *,
@@ -431,6 +417,7 @@ def lock_smtp_delivery_external_io_eligibility(
     after the next SMTP operation has completed.
     """
 
+    policy_fence = smtp_data_policy.lock_smtp_delivery_data_policy_fence(db)
     acquire_smtp_configuration_read_lock(db)
     delivery = db.scalar(
         select(IntegrationDelivery)
@@ -501,7 +488,18 @@ def lock_smtp_delivery_external_io_eligibility(
             "SMTP configuration changed after this delivery was claimed.",
         )
 
-    if delivery.owner_user_id != instance.owner_user_id:
+    report_owner_id = (
+        smtp_report_ready_delivery_owner_id(db, delivery=delivery)
+        if delivery.event_type == "report_ready"
+        else None
+    )
+    owner_matches_instance = delivery.owner_user_id == instance.owner_user_id
+    global_report_delivery = (
+        instance.owner_user_id is None
+        and report_owner_id is not None
+        and delivery.owner_user_id == report_owner_id
+    )
+    if not owner_matches_instance and not global_report_delivery:
         raise SMTPDeliveryIneligibleError(
             "smtp_owner_mismatch",
             "SMTP delivery owner no longer matches its integration owner.",
@@ -510,6 +508,8 @@ def lock_smtp_delivery_external_io_eligibility(
     owner_ids = set(source_owner_ids)
     if instance.owner_user_id is not None:
         owner_ids.add(instance.owner_user_id)
+    if report_owner_id is not None:
+        owner_ids.add(report_owner_id)
     owners = {
         owner.id: owner
         for owner in db.scalars(
@@ -530,7 +530,12 @@ def lock_smtp_delivery_external_io_eligibility(
         or not integration_owner.is_active
         or not integration_owner.is_approved
     ):
-        raise SMTPDeliveryIneligibleError(
+        error_type = (
+            SMTPDeliveryTemporarilyIneligibleError
+            if report_owner_id is not None
+            else SMTPDeliveryIneligibleError
+        )
+        raise error_type(
             "smtp_owner_not_eligible",
             "SMTP owner is no longer active and approved for outbound delivery.",
         )
@@ -544,6 +549,20 @@ def lock_smtp_delivery_external_io_eligibility(
             "smtp_source_owner_not_eligible",
             "An alert source owner is no longer active and approved for outbound delivery.",
         )
+    if report_owner_id is not None:
+        report_owner = owners.get(report_owner_id)
+        if (
+            report_owner is None
+            or not report_owner.is_active
+            or not report_owner.is_approved
+        ):
+            raise SMTPDeliveryTemporarilyIneligibleError(
+                "smtp_report_owner_not_eligible",
+                "Report owner is temporarily inactive or unapproved for outbound delivery.",
+            )
+    smtp_data_policy.enforce_smtp_delivery_data_policy(
+        db, instance=instance, delivery=delivery, policy_fence=policy_fence
+    )
 
 
 def _smtp_delivery_source_owner_ids(

@@ -9,9 +9,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.models.alert_evaluation_request import AlertEvaluationRequest
 from app.models.ai_daily_brief import AIDailyBrief
 from app.models.feed import Feed
+from app.models.integration import IntegrationEvent
 from app.models.item import Item
+from app.models.item_classification import ItemClassification
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.services.integration_delivery import mark_integration_delivery_dead_letter
@@ -19,30 +22,25 @@ from app.services.integration_events import (
     EVENT_DEAD_LETTER,
     EVENT_FAILED,
     EVENT_PENDING,
+    EVENT_ROUTED,
+    EVENT_ROUTING,
     emit_integration_event,
 )
 from app.services.ai_config import load_active_ai_settings
+from app.services.alert_evaluation import persist_alert_evaluation_intent
 from app.services.daily_brief_notifications import emit_daily_brief_ready_event
 from app.services.feed_pipeline import mark_feed_failure
 from app.services.notification_webhooks import (
     FEED_FAILING_NOTIFICATION_THRESHOLD,
-    FailedWebhookContext,
     build_alert_match_context_for_item,
     list_recoverable_notification_delivery_ids,
     process_notification_webhook_delivery,
-    reserve_alert_match_notification_deliveries,
-    reserve_feed_failing_notification_deliveries,
-    reserve_new_item_notification_deliveries,
     reserve_notification_webhook_delivery,
     reserve_retryable_notification_webhook_delivery,
-    reserve_webhook_failed_notification_deliveries,
 )
-from app.services.smtp_integration import SMTPDispatchResult, dispatch_smtp_notification
+from app.tasks.alert_tasks import enqueue_alert_evaluation_requests
 from app.tasks.celery_app import celery_app
 from app.tasks.feed_task_notifications import (
-    dispatch_feed_failing_notification_batch,
-    dispatch_item_notification_batch,
-    dispatch_webhook_failed_notification_batch,
     enqueue_notification_delivery_batches,
     process_reserved_notification_deliveries as process_reserved_notification_deliveries_impl,
 )
@@ -64,7 +62,8 @@ def _mark_failed_webhook_delivery_dead_letter(
         db,
         delivery_id=failed_delivery.integration_delivery_id,
         error_code="attempts_exhausted",
-        error_message=failed_delivery.error or "Webhook delivery attempts were exhausted.",
+        error_message=failed_delivery.error
+        or "Webhook delivery attempts were exhausted.",
     )
 
 
@@ -80,7 +79,9 @@ def _emit_failed_webhook_integration_event(
         idempotency_key=f"webhook_delivery:{failed_delivery.id}:webhook_failed:v1",
         payload={
             "source_delivery_id": str(failed_delivery.id),
-            "feed_id": str(failed_delivery.feed_id) if failed_delivery.feed_id else None,
+            "feed_id": str(failed_delivery.feed_id)
+            if failed_delivery.feed_id
+            else None,
             "owner_user_id": str(failed_delivery.user_id),
         },
     )
@@ -94,10 +95,12 @@ def _process_reserved_notification_deliveries(
     return process_reserved_notification_deliveries_impl(
         db,
         delivery_ids,
-        process_delivery=lambda session, *, delivery_id: process_notification_webhook_delivery(
-            session,
-            delivery_id=delivery_id,
-            commit_outcome=False,
+        process_delivery=lambda session, *, delivery_id: (
+            process_notification_webhook_delivery(
+                session,
+                delivery_id=delivery_id,
+                commit_outcome=False,
+            )
         ),
         reserve_retryable_delivery=reserve_retryable_notification_webhook_delivery,
         reserve_failed_delivery_notifications=None,
@@ -140,64 +143,148 @@ def _enqueue_smtp_notification_items(item_ids: list[uuid.UUID], *, task: Any) ->
 
 
 def _enqueue_smtp_new_item_notifications(item_ids: list[uuid.UUID]) -> bool:
-    return _enqueue_smtp_notification_items(item_ids, task=dispatch_smtp_new_item_notification)
+    return _enqueue_smtp_notification_items(
+        item_ids, task=dispatch_smtp_new_item_notification
+    )
 
 
 def _enqueue_smtp_alert_match_notification(item_id: uuid.UUID) -> bool:
-    return _enqueue_smtp_notification_items([item_id], task=dispatch_smtp_alert_match_notification)
+    return _enqueue_smtp_notification_items(
+        [item_id], task=dispatch_smtp_alert_match_notification
+    )
 
 
 def _enqueue_smtp_feed_failing_notification(feed_id: uuid.UUID) -> bool:
     try:
         dispatch_smtp_feed_failing_notification.delay(str(feed_id))
     except Exception as exc:
-        logger.exception("smtp_feed_failing_notification_enqueue_failed feed_id=%s error=%s", feed_id, exc)
-        return False
-    return True
-
-
-def _smtp_task_response(result: SMTPDispatchResult, **identifiers: str) -> dict[str, Any]:
-    response = {
-        "status": result.status,
-        **identifiers,
-        "reason": result.reason,
-        "sent": 1 if result.sent else 0,
-        "failed": 1 if result.failed else 0,
-        "skipped": 1 if result.skipped else 0,
-    }
-    if result.delivery is not None:
-        response.update(
-            {
-                "recipient_count": result.delivery.recipient_count,
-                "accepted_count": result.delivery.accepted_count,
-                "error_code": result.delivery.error_code,
-            }
-        )
-    return response
-
-
-def _smtp_skipped_task_response(reason: str | None, **identifiers: str) -> dict[str, Any]:
-    return _smtp_task_response(SMTPDispatchResult(status="skipped", reason=reason), **identifiers)
-
-
-def _safe_enqueue_smtp_task(task: Any, value: str) -> bool:
-    try:
-        task.delay(value)
-    except Exception as exc:
         logger.exception(
-            "smtp_notification_enqueue_failed task=%s value=%s error=%s",
-            getattr(task, "name", "unknown"),
-            value,
+            "smtp_feed_failing_notification_enqueue_failed feed_id=%s error=%s",
+            feed_id,
             exc,
         )
         return False
     return True
 
 
-def _load_item_and_feed_for_notification(db: Session, item_id: str) -> tuple[Item | None, Feed | None, str | None]:
+def _smtp_skipped_task_response(
+    reason: str | None, **identifiers: str
+) -> dict[str, Any]:
+    return {
+        "status": "skipped",
+        **identifiers,
+        "reason": reason,
+        "sent": 0,
+        "failed": 0,
+        "skipped": 1,
+    }
+
+
+def _legacy_webhook_task_response(
+    staging: dict[str, Any],
+    *,
+    include_smtp_enqueue_status: bool,
+) -> dict[str, Any]:
+    """Preserve historical Celery result fields while exposing durable staging."""
+
+    staging_status = str(staging.get("status") or "pending")
+    response = {
+        **staging,
+        "status": "skipped" if staging_status == "skipped" else "ok",
+        "delivery_status": staging_status,
+        "delivery_failed": int(staging.get("failed") or 0),
+        "matched_webhooks": 0,
+        "delivered": 0,
+        "failed": 0,
+        "skipped": int(staging.get("skipped") or 0),
+    }
+    if include_smtp_enqueue_status:
+        response["smtp_enqueue_failed"] = bool(staging.get("enqueue_failed", False))
+    return response
+
+
+def _enqueue_legacy_integration_event(
+    event_id: uuid.UUID,
+    *,
+    routing_state: str,
+    available_at: datetime | None = None,
+    **identifiers: str,
+) -> dict[str, Any]:
+    if routing_state == EVENT_DEAD_LETTER:
+        status, reason, enqueue_failed, publication_state = (
+            "dead_letter",
+            "event_dead_letter",
+            False,
+            "not_required",
+        )
+    elif routing_state == EVENT_ROUTED:
+        status, reason, enqueue_failed, publication_state = (
+            "already_routed",
+            None,
+            False,
+            "complete",
+        )
+    elif routing_state == EVENT_ROUTING:
+        status, reason, enqueue_failed, publication_state = (
+            "in_progress",
+            None,
+            False,
+            "in_progress",
+        )
+    elif routing_state == EVENT_PENDING:
+        enqueue_ok = enqueue_integration_event_routing([event_id])
+        status, reason, enqueue_failed, publication_state = (
+            ("queued", None, False, "published")
+            if enqueue_ok
+            else ("pending", "event_enqueue_failed", True, "failed")
+        )
+    elif routing_state == EVENT_FAILED:
+        status, reason, enqueue_failed, publication_state = (
+            "retry_scheduled",
+            "event_backoff",
+            False,
+            "deferred",
+        )
+    else:
+        logger.error(
+            "legacy_smtp_event_has_unknown_state event_id=%s routing_state=%s",
+            event_id,
+            routing_state,
+        )
+        status, reason, enqueue_failed, publication_state = (
+            "pending",
+            "unknown_event_state",
+            True,
+            "unknown",
+        )
+
+    return {
+        "status": status,
+        "event_status": status,
+        "routing_state": routing_state,
+        "durable_state": routing_state,
+        "retry_at": (
+            _coerce_utc(available_at).isoformat()
+            if routing_state == EVENT_FAILED and available_at is not None
+            else None
+        ),
+        "publication_state": publication_state,
+        **identifiers,
+        "reason": reason,
+        "sent": 0,
+        "failed": 1 if status == "dead_letter" else 0,
+        "skipped": 1 if status in {"already_routed", "in_progress"} else 0,
+        "integration_event_id": str(event_id),
+        "enqueue_failed": enqueue_failed,
+    }
+
+
+def _load_item_and_feed_for_notification(
+    db: Session, item_id: str
+) -> tuple[Item | None, Feed | None, str | None]:
     try:
         parsed_item_id = uuid.UUID(item_id)
-    except ValueError:
+    except (AttributeError, TypeError, ValueError):
         return None, None, "invalid_item_id"
 
     item = db.scalar(select(Item).where(Item.id == parsed_item_id))
@@ -277,10 +364,16 @@ def process_notification_webhook_deliveries(delivery_ids: list[str]):
             skipped += 1
 
     if not parsed_delivery_ids:
-        return {"status": "skipped", "reason": "no_valid_delivery_ids", "skipped": skipped}
+        return {
+            "status": "skipped",
+            "reason": "no_valid_delivery_ids",
+            "skipped": skipped,
+        }
 
     with db_session() as db:
-        delivered, failed = _process_reserved_notification_deliveries(db, parsed_delivery_ids)
+        delivered, failed = _process_reserved_notification_deliveries(
+            db, parsed_delivery_ids
+        )
         return {
             "status": "ok",
             "scanned": len(parsed_delivery_ids),
@@ -300,9 +393,24 @@ def dispatch_smtp_new_item_notification(item_id: str):
         item, feed, reason = _load_item_and_feed_for_notification(db, item_id)
         if item is None or feed is None:
             return _smtp_skipped_task_response(reason, item_id=item_id)
-        result = dispatch_smtp_notification(db, event_type="rss_item_new", feed=feed, item=item)
+        event = emit_integration_event(
+            db,
+            event_type="rss_item_new",
+            source_type="item",
+            source_id=item.id,
+            idempotency_key=f"item:{item.id}:rss_item_new:v1",
+            payload={"item_id": str(item.id), "feed_id": str(feed.id)},
+        )
+        event_id = event.id
+        routing_state = event.routing_state
+        event_available_at = event.available_at
         db.commit()
-        return _smtp_task_response(result, item_id=item_id)
+    return _enqueue_legacy_integration_event(
+        event_id,
+        routing_state=routing_state,
+        available_at=event_available_at,
+        item_id=item_id,
+    )
 
 
 @celery_app.task(
@@ -320,15 +428,90 @@ def dispatch_smtp_alert_match_notification(item_id: str):
         if alert_context is None:
             return _smtp_skipped_task_response("no_alert_match", item_id=item_id)
 
-        result = dispatch_smtp_notification(
-            db,
-            event_type="alert_match",
-            feed=feed,
-            item=item,
-            alert_context=alert_context,
+        classification = db.scalar(
+            select(ItemClassification).where(ItemClassification.item_id == item.id)
         )
+        intent = persist_alert_evaluation_intent(
+            db,
+            item=item,
+            classification=classification,
+            source="live",
+            notify=True,
+        )
+        evaluation = db.get(AlertEvaluationRequest, intent.request_id)
+        if evaluation is None:
+            raise RuntimeError("Alert evaluation intent could not be reloaded")
+        request_id = evaluation.id
+        request_state = evaluation.state
+        request_available_at = evaluation.available_at
+        dispatch_published_at = evaluation.dispatch_published_at
+        last_dispatch_failed_at = evaluation.last_dispatch_failed_at
+        notifications_enabled = evaluation.notify
+        should_enqueue = intent.created
         db.commit()
-        return _smtp_task_response(result, item_id=item_id)
+    if should_enqueue:
+        enqueue_ok = enqueue_alert_evaluation_requests([request_id])
+        return {
+            "status": "queued" if enqueue_ok else "pending",
+            "item_id": item_id,
+            "reason": None if enqueue_ok else "evaluation_enqueue_failed",
+            "evaluation_request_id": str(request_id),
+            "evaluation_state": request_state,
+            "retry_at": _coerce_utc(request_available_at).isoformat(),
+            "publication_state": "published" if enqueue_ok else "failed",
+            "enqueue_failed": not enqueue_ok,
+            "sent": 0,
+            "failed": 0,
+            "skipped": 0,
+        }
+    if not notifications_enabled:
+        return {
+            **_smtp_skipped_task_response(
+                "alert_evaluation_notifications_disabled",
+                item_id=item_id,
+            ),
+            "evaluation_request_id": str(request_id),
+            "evaluation_state": request_state,
+            "retry_at": (
+                _coerce_utc(request_available_at).isoformat()
+                if request_state in {"pending", "retry_wait"}
+                else None
+            ),
+            "publication_state": "not_required",
+            "enqueue_failed": False,
+        }
+    status, reason = {
+        "succeeded": ("already_evaluated", None),
+        "dead_letter": ("dead_letter", "alert_evaluation_dead_letter"),
+    }.get(request_state, ("in_progress", None))
+    publication_state = (
+        "failed"
+        if last_dispatch_failed_at is not None
+        and (
+            dispatch_published_at is None
+            or last_dispatch_failed_at >= dispatch_published_at
+        )
+        else "published"
+        if dispatch_published_at is not None
+        else "pending"
+    )
+    return {
+        "status": status,
+        "item_id": item_id,
+        "reason": reason,
+        "evaluation_request_id": str(request_id),
+        "evaluation_state": request_state,
+        "retry_at": (
+            _coerce_utc(request_available_at).isoformat()
+            if request_state in {"pending", "retry_wait"}
+            else None
+        ),
+        "publication_state": publication_state,
+        "enqueue_failed": False,
+        "sent": 0,
+        "failed": 1 if status == "dead_letter" else 0,
+        "skipped": 1 if status == "already_evaluated" else 0,
+    }
 
 
 @celery_app.task(
@@ -347,16 +530,33 @@ def dispatch_smtp_feed_failing_notification(feed_id: str):
         if feed is None:
             return _smtp_skipped_task_response("feed_not_found", feed_id=feed_id)
         if int(feed.error_count or 0) < FEED_FAILING_NOTIFICATION_THRESHOLD:
-            return _smtp_skipped_task_response("below_failure_threshold", feed_id=feed_id)
+            return _smtp_skipped_task_response(
+                "below_failure_threshold", feed_id=feed_id
+            )
 
-        result = dispatch_smtp_notification(
+        scope_key = _feed_failing_smtp_scope_key(datetime.now(timezone.utc))
+        event = emit_integration_event(
             db,
             event_type="feed_failing",
-            feed=feed,
-            scope_key=_feed_failing_smtp_scope_key(datetime.now(timezone.utc)),
+            source_type="feed",
+            source_id=feed.id,
+            idempotency_key=f"feed:{feed.id}:feed_failing:{scope_key}:v1",
+            payload={
+                "feed_id": str(feed.id),
+                "scope_key": scope_key,
+                "error_count": int(feed.error_count or 0),
+            },
         )
+        event_id = event.id
+        routing_state = event.routing_state
+        event_available_at = event.available_at
         db.commit()
-        return _smtp_task_response(result, feed_id=feed_id)
+    return _enqueue_legacy_integration_event(
+        event_id,
+        routing_state=routing_state,
+        available_at=event_available_at,
+        feed_id=feed_id,
+    )
 
 
 @celery_app.task(
@@ -368,39 +568,49 @@ def dispatch_smtp_webhook_failed_notification(delivery_id: str):
     try:
         parsed_delivery_id = uuid.UUID(delivery_id)
     except (AttributeError, TypeError, ValueError):
-        return _smtp_skipped_task_response("invalid_delivery_id", delivery_id=delivery_id)
+        return _smtp_skipped_task_response(
+            "invalid_delivery_id", delivery_id=delivery_id
+        )
 
     with db_session() as db:
         failed_delivery = db.scalar(
-            select(NotificationWebhookDelivery).where(NotificationWebhookDelivery.id == parsed_delivery_id)
+            select(NotificationWebhookDelivery).where(
+                NotificationWebhookDelivery.id == parsed_delivery_id
+            )
         )
         if failed_delivery is None:
-            return _smtp_skipped_task_response("delivery_not_found", delivery_id=delivery_id)
-        if failed_delivery.success or failed_delivery.event_type_snapshot == "webhook_failed":
+            return _smtp_skipped_task_response(
+                "delivery_not_found", delivery_id=delivery_id
+            )
+        if (
+            failed_delivery.success
+            or failed_delivery.event_type_snapshot == "webhook_failed"
+        ):
             return _smtp_skipped_task_response("not_eligible", delivery_id=delivery_id)
 
-        source_webhook = db.scalar(select(NotificationWebhook).where(NotificationWebhook.id == failed_delivery.webhook_id))
+        source_webhook = db.scalar(
+            select(NotificationWebhook).where(
+                NotificationWebhook.id == failed_delivery.webhook_id
+            )
+        )
         if source_webhook is None:
-            return _smtp_skipped_task_response("source_webhook_not_found", delivery_id=delivery_id)
+            return _smtp_skipped_task_response(
+                "source_webhook_not_found", delivery_id=delivery_id
+            )
 
-        feed = db.scalar(select(Feed).where(Feed.id == failed_delivery.feed_id)) if failed_delivery.feed_id else None
-        failed_context = FailedWebhookContext(
-            id=source_webhook.id,
-            name=source_webhook.name,
-            event_type=failed_delivery.event_type_snapshot,
-            status_code=failed_delivery.status_code,
-            error=failed_delivery.error,
-            attempted_at=failed_delivery.attempted_at,
-        )
-        result = dispatch_smtp_notification(
-            db,
-            event_type="webhook_failed",
-            feed=feed,
-            failed_webhook_context=failed_context,
-            source_delivery_id=failed_delivery.id,
-        )
+        event_id = _emit_failed_webhook_integration_event(db, failed_delivery)
+        event = db.get(IntegrationEvent, event_id)
+        if event is None:
+            raise RuntimeError("Emitted integration event could not be reloaded")
+        routing_state = event.routing_state
+        event_available_at = event.available_at
         db.commit()
-        return _smtp_task_response(result, delivery_id=delivery_id)
+    return _enqueue_legacy_integration_event(
+        event_id,
+        routing_state=routing_state,
+        available_at=event_available_at,
+        delivery_id=delivery_id,
+    )
 
 
 @celery_app.task(
@@ -409,15 +619,10 @@ def dispatch_smtp_webhook_failed_notification(delivery_id: str):
     reject_on_worker_lost=True,
 )
 def dispatch_new_item_notification_webhooks(item_id: str):
-    with db_session() as db:
-        webhook_result = dispatch_item_notification_batch(
-            db,
-            item_id,
-            reserve_deliveries=reserve_new_item_notification_deliveries,
-            process_reserved_deliveries=_process_reserved_notification_deliveries,
-        )
-    smtp_enqueue_ok = _safe_enqueue_smtp_task(dispatch_smtp_new_item_notification, item_id)
-    return {**webhook_result, "smtp_enqueue_failed": not smtp_enqueue_ok}
+    return _legacy_webhook_task_response(
+        dispatch_smtp_new_item_notification(item_id),
+        include_smtp_enqueue_status=True,
+    )
 
 
 @celery_app.task(
@@ -426,15 +631,10 @@ def dispatch_new_item_notification_webhooks(item_id: str):
     reject_on_worker_lost=True,
 )
 def dispatch_alert_match_notification_webhooks(item_id: str):
-    with db_session() as db:
-        webhook_result = dispatch_item_notification_batch(
-            db,
-            item_id,
-            reserve_deliveries=reserve_alert_match_notification_deliveries,
-            process_reserved_deliveries=_process_reserved_notification_deliveries,
-        )
-    smtp_enqueue_ok = _safe_enqueue_smtp_task(dispatch_smtp_alert_match_notification, item_id)
-    return {**webhook_result, "smtp_enqueue_failed": not smtp_enqueue_ok}
+    return _legacy_webhook_task_response(
+        dispatch_smtp_alert_match_notification(item_id),
+        include_smtp_enqueue_status=True,
+    )
 
 
 @celery_app.task(
@@ -443,16 +643,10 @@ def dispatch_alert_match_notification_webhooks(item_id: str):
     reject_on_worker_lost=True,
 )
 def dispatch_feed_failing_notification_webhooks(feed_id: str):
-    with db_session() as db:
-        webhook_result = dispatch_feed_failing_notification_batch(
-            db,
-            feed_id,
-            failure_threshold=FEED_FAILING_NOTIFICATION_THRESHOLD,
-            reserve_deliveries=reserve_feed_failing_notification_deliveries,
-            process_reserved_deliveries=_process_reserved_notification_deliveries,
-        )
-    smtp_enqueue_ok = _safe_enqueue_smtp_task(dispatch_smtp_feed_failing_notification, feed_id)
-    return {**webhook_result, "smtp_enqueue_failed": not smtp_enqueue_ok}
+    return _legacy_webhook_task_response(
+        dispatch_smtp_feed_failing_notification(feed_id),
+        include_smtp_enqueue_status=True,
+    )
 
 
 @celery_app.task(
@@ -461,13 +655,10 @@ def dispatch_feed_failing_notification_webhooks(feed_id: str):
     reject_on_worker_lost=True,
 )
 def dispatch_webhook_failed_notification_webhooks(delivery_id: str):
-    with db_session() as db:
-        return dispatch_webhook_failed_notification_batch(
-            db,
-            delivery_id,
-            reserve_deliveries=reserve_webhook_failed_notification_deliveries,
-            process_reserved_deliveries=_process_reserved_notification_deliveries,
-        )
+    return _legacy_webhook_task_response(
+        dispatch_smtp_webhook_failed_notification(delivery_id),
+        include_smtp_enqueue_status=False,
+    )
 
 
 @celery_app.task(
@@ -495,31 +686,27 @@ def dispatch_daily_digest_notification_webhooks():
             return {"status": "skipped", "reason": "daily_brief_not_ready"}
         event = emit_daily_brief_ready_event(db, brief=brief)
         event_id = event.id
-        should_enqueue = event.routing_state in {EVENT_PENDING, EVENT_FAILED}
-        event_terminal = event.routing_state == EVENT_DEAD_LETTER
+        routing_state = event.routing_state
+        event_available_at = event.available_at
         db.commit()
-    enqueue_ok = enqueue_integration_event_routing([event_id]) if should_enqueue else True
-    if event_terminal:
-        delivery_status, delivery_reason = "dead_letter", "event_dead_letter"
-    elif not should_enqueue:
-        delivery_status, delivery_reason = "already_routed", None
-    elif enqueue_ok:
-        delivery_status, delivery_reason = "queued", None
-    else:
-        delivery_status, delivery_reason = "pending", "event_enqueue_failed"
+    routing = _enqueue_legacy_integration_event(
+        event_id,
+        routing_state=routing_state,
+        available_at=event_available_at,
+    )
     return {
         "status": "ok",
         "matched_webhooks": 0,
         "delivered": 0,
         "failed": 0,
         "skipped": 0,
-        "smtp_status": delivery_status,
-        "smtp_reason": delivery_reason,
+        "smtp_status": routing["status"],
+        "smtp_reason": routing["reason"],
         "smtp_sent": 0,
         "smtp_failed": 0,
         "smtp_skipped": 0,
         "integration_event_id": str(event_id),
-        "enqueue_failed": should_enqueue and not enqueue_ok,
+        "enqueue_failed": routing["enqueue_failed"],
     }
 
 

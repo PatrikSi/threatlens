@@ -42,6 +42,18 @@ from app.services.ai_ops_common import (
     _coerce_utc,
     _percentile,
 )
+from app.services.ai_telemetry_data_policy import (
+    ai_task_run_access_predicate,
+    ai_usage_event_access_predicate,
+)
+from app.services.data_access_envelopes import (
+    DATA_ACCESS_RESOURCE_DAILY_BRIEF,
+    data_access_envelope_predicate,
+)
+from app.services.data_access_policy import (
+    DataAccessContext,
+    handling_label_access_predicate,
+)
 
 
 def build_ai_ops_overview(
@@ -49,11 +61,17 @@ def build_ai_ops_overview(
     *,
     days: int,
     live_status_loader: Callable[[Session], AILiveStatusResponse],
+    data_access: DataAccessContext | None = None,
 ) -> AIOpsOverviewResponse:
     now = datetime.now(timezone.utc)
     since = now - timedelta(days=max(1, days))
     usage_events = list(
-        db.scalars(select(AIUsageEvent).where(AIUsageEvent.created_at >= since))
+        db.scalars(
+            select(AIUsageEvent).where(
+                AIUsageEvent.created_at >= since,
+                _usage_access_predicate(data_access),
+            )
+        )
     )
     live = live_status_loader(db)
 
@@ -70,7 +88,10 @@ def build_ai_ops_overview(
     total_tokens = sum(int(event.total_tokens or 0) for event in usage_events)
     last_successful_run_at = db.scalar(
         select(AITaskRun.finished_at)
-        .where(AITaskRun.status == AI_STATUS_READY)
+        .where(
+            AITaskRun.status == AI_STATUS_READY,
+            _run_access_predicate(data_access),
+        )
         .order_by(AITaskRun.finished_at.desc())
     )
 
@@ -93,27 +114,41 @@ def build_ai_ops_overview(
         kpis=kpis,
         live=live,
         per_model=_build_per_model_usage(usage_events),
-        time_series=_build_time_series(usage_events, db, since=since, now=now),
+        time_series=_build_time_series(
+            usage_events,
+            db,
+            since=since,
+            now=now,
+            data_access=data_access,
+        ),
         token_efficiency=_build_token_efficiency(usage_events),
-        relevance_distribution=_build_relevance_distribution(db),
-        coverage=_build_coverage_stats(db),
+        relevance_distribution=_build_relevance_distribution(
+            db, data_access=data_access
+        ),
+        coverage=_build_coverage_stats(db, data_access=data_access),
         failures=[],
         endpoint_health=_build_endpoint_health(usage_events),
-        feature_health=_build_feature_health(db),
-        storage=_build_storage_stats(db),
-        cache=_build_cache_stats(db),
+        feature_health=_build_feature_health(db, data_access=data_access),
+        storage=_build_storage_stats(db, data_access=data_access),
+        cache=_build_cache_stats(db, data_access=data_access),
     )
 
 
 def list_ai_failures(
-    db: Session, *, days: int = 30, limit: int = 25
+    db: Session,
+    *,
+    days: int = 30,
+    limit: int = 25,
+    data_access: DataAccessContext | None = None,
 ) -> list[AIFailureGroupResponse]:
     since = datetime.now(timezone.utc) - timedelta(days=max(1, days))
     groups: dict[tuple[str | None, str | None, str | None, str], dict[str, Any]] = {}
 
     for event in db.scalars(
         select(AIUsageEvent).where(
-            AIUsageEvent.created_at >= since, AIUsageEvent.success.is_(False)
+            AIUsageEvent.created_at >= since,
+            AIUsageEvent.success.is_(False),
+            _usage_access_predicate(data_access),
         )
     ):
         error = _normalize_error_text(event.error)
@@ -139,6 +174,7 @@ def list_ai_failures(
         select(AITaskRun).where(
             AITaskRun.created_at >= since,
             or_(AITaskRun.status == AI_STATUS_ERROR, AITaskRun.error.is_not(None)),
+            _run_access_predicate(data_access),
         )
     ):
         error = _normalize_error_text(run.error)
@@ -241,6 +277,7 @@ def _build_time_series(
     *,
     since: datetime,
     now: datetime,
+    data_access: DataAccessContext | None = None,
 ) -> list[AITimeSeriesPointResponse]:
     buckets: dict[str, dict[str, Any]] = {}
     cursor = since.date()
@@ -263,6 +300,7 @@ def _build_time_series(
             select(AITaskRun).where(
                 AITaskRun.task_type == AI_TASK_TYPE_DAILY_BRIEF,
                 AITaskRun.created_at >= since,
+                _run_access_predicate(data_access),
             )
         )
     )
@@ -355,7 +393,11 @@ def _build_token_efficiency(events: list[AIUsageEvent]) -> AITokenEfficiencyResp
     )
 
 
-def _build_relevance_distribution(db: Session) -> AIRelevanceDistributionResponse:
+def _build_relevance_distribution(
+    db: Session,
+    *,
+    data_access: DataAccessContext | None = None,
+) -> AIRelevanceDistributionResponse:
     enrichments = list(
         db.execute(
             select(
@@ -368,6 +410,7 @@ def _build_relevance_distribution(db: Session) -> AIRelevanceDistributionRespons
             .where(
                 ItemAIEnrichment.status == AI_STATUS_READY,
                 ItemAIEnrichment.relevance_label.is_not(None),
+                _feed_access_predicate(data_access),
             )
         )
     )
@@ -432,60 +475,92 @@ def _build_relevance_distribution(db: Session) -> AIRelevanceDistributionRespons
     )
 
 
-def _build_coverage_stats(db: Session) -> AICoverageStatsResponse:
+def _build_coverage_stats(
+    db: Session,
+    *,
+    data_access: DataAccessContext | None = None,
+) -> AICoverageStatsResponse:
     from app.models.article import Article
 
     eligible_items = int(
         db.scalar(
             select(func.count(Item.id))
             .join(Article, Article.item_id == Item.id)
-            .where(Article.text.is_not(None))
+            .join(Feed, Feed.id == Item.feed_id)
+            .where(Article.text.is_not(None), _feed_access_predicate(data_access))
         )
         or 0
     )
     enriched_items = int(
         db.scalar(
-            select(func.count(ItemAIEnrichment.item_id)).where(
-                ItemAIEnrichment.status == AI_STATUS_READY
+            select(func.count(ItemAIEnrichment.item_id))
+            .join(Item, Item.id == ItemAIEnrichment.item_id)
+            .join(Feed, Feed.id == Item.feed_id)
+            .where(
+                ItemAIEnrichment.status == AI_STATUS_READY,
+                _feed_access_predicate(data_access),
             )
         )
         or 0
     )
     pending_items = int(
         db.scalar(
-            select(func.count(ItemAIEnrichment.item_id)).where(
-                ItemAIEnrichment.status == "pending"
+            select(func.count(ItemAIEnrichment.item_id))
+            .join(Item, Item.id == ItemAIEnrichment.item_id)
+            .join(Feed, Feed.id == Item.feed_id)
+            .where(
+                ItemAIEnrichment.status == "pending",
+                _feed_access_predicate(data_access),
             )
         )
         or 0
     )
     failed_items = int(
         db.scalar(
-            select(func.count(ItemAIEnrichment.item_id)).where(
-                ItemAIEnrichment.status == AI_STATUS_ERROR
+            select(func.count(ItemAIEnrichment.item_id))
+            .join(Item, Item.id == ItemAIEnrichment.item_id)
+            .join(Feed, Feed.id == Item.feed_id)
+            .where(
+                ItemAIEnrichment.status == AI_STATUS_ERROR,
+                _feed_access_predicate(data_access),
             )
         )
         or 0
     )
     oldest_pending_at = db.scalar(
         select(ItemAIEnrichment.generated_at)
-        .where(ItemAIEnrichment.status == "pending")
+        .join(Item, Item.id == ItemAIEnrichment.item_id)
+        .join(Feed, Feed.id == Item.feed_id)
+        .where(
+            ItemAIEnrichment.status == "pending",
+            _feed_access_predicate(data_access),
+        )
         .order_by(ItemAIEnrichment.generated_at.asc())
     )
     last_successful_enrichment_at = db.scalar(
         select(ItemAIEnrichment.generated_at)
-        .where(ItemAIEnrichment.status == AI_STATUS_READY)
+        .join(Item, Item.id == ItemAIEnrichment.item_id)
+        .join(Feed, Feed.id == Item.feed_id)
+        .where(
+            ItemAIEnrichment.status == AI_STATUS_READY,
+            _feed_access_predicate(data_access),
+        )
         .order_by(ItemAIEnrichment.generated_at.desc())
     )
     last_successful_daily_brief_at = db.scalar(
         select(AIDailyBrief.generated_at)
-        .where(AIDailyBrief.status == AI_STATUS_READY)
+        .where(
+            AIDailyBrief.status == AI_STATUS_READY,
+            _brief_access_predicate(data_access),
+        )
         .order_by(AIDailyBrief.generated_at.desc())
     )
     last_ai_run_at = db.scalar(
-        select(AITaskRun.finished_at).order_by(AITaskRun.finished_at.desc())
+        select(AITaskRun.finished_at)
+        .where(_run_access_predicate(data_access))
+        .order_by(AITaskRun.finished_at.desc())
     )
-    skip_counts = _load_skip_counts(db)
+    skip_counts = _load_skip_counts(db, data_access=data_access)
     return AICoverageStatsResponse(
         eligible_items=eligible_items,
         enriched_items=enriched_items,
@@ -510,10 +585,18 @@ def _build_coverage_stats(db: Session) -> AICoverageStatsResponse:
     )
 
 
-def _load_skip_counts(db: Session) -> dict[str, int]:
+def _load_skip_counts(
+    db: Session,
+    *,
+    data_access: DataAccessContext | None = None,
+) -> dict[str, int]:
     rows = db.execute(
         select(AITaskRun.reason, func.count(AITaskRun.id))
-        .where(AITaskRun.status == AI_STATUS_SKIPPED, AITaskRun.reason.is_not(None))
+        .where(
+            AITaskRun.status == AI_STATUS_SKIPPED,
+            AITaskRun.reason.is_not(None),
+            _run_access_predicate(data_access),
+        )
         .group_by(AITaskRun.reason)
     ).all()
     return {reason: int(count) for reason, count in rows if reason}
@@ -581,7 +664,11 @@ def _build_endpoint_health(events: list[AIUsageEvent]) -> AIEndpointHealthRespon
     )
 
 
-def _build_feature_health(db: Session) -> list[AIFeatureHealthRowResponse]:
+def _build_feature_health(
+    db: Session,
+    *,
+    data_access: DataAccessContext | None = None,
+) -> list[AIFeatureHealthRowResponse]:
     settings = db.scalar(select(AISettings).limit(1))
     enabled = {
         "summaries": bool(settings.summary_enabled) if settings else False,
@@ -592,20 +679,25 @@ def _build_feature_health(db: Session) -> list[AIFeatureHealthRowResponse]:
     }
     feature_to_filters: dict[str, Select[Any]] = {
         "summaries": select(AITaskRun).where(
-            AITaskRun.task_type == AI_TASK_TYPE_ITEM_ENRICHMENT
+            AITaskRun.task_type == AI_TASK_TYPE_ITEM_ENRICHMENT,
+            _run_access_predicate(data_access),
         ),
         "relevance": select(AITaskRun).where(
-            AITaskRun.task_type == AI_TASK_TYPE_ITEM_ENRICHMENT
+            AITaskRun.task_type == AI_TASK_TYPE_ITEM_ENRICHMENT,
+            _run_access_predicate(data_access),
         ),
         "daily_brief": select(AITaskRun).where(
-            AITaskRun.task_type == AI_TASK_TYPE_DAILY_BRIEF
+            AITaskRun.task_type == AI_TASK_TYPE_DAILY_BRIEF,
+            _run_access_predicate(data_access),
         ),
         "reporting": select(AITaskRun).where(
-            AITaskRun.task_type == AI_TASK_TYPE_REPORT
+            AITaskRun.task_type == AI_TASK_TYPE_REPORT,
+            _run_access_predicate(data_access),
         ),
         "auto_enrichment": select(AITaskRun).where(
             AITaskRun.task_type == AI_TASK_TYPE_ITEM_ENRICHMENT,
             AITaskRun.trigger_source == AI_TRIGGER_AUTO,
+            _run_access_predicate(data_access),
         ),
     }
     rows: list[AIFeatureHealthRowResponse] = []
@@ -634,25 +726,57 @@ def _build_feature_health(db: Session) -> list[AIFeatureHealthRowResponse]:
     return rows
 
 
-def _build_storage_stats(db: Session) -> AIStorageStatsResponse:
+def _build_storage_stats(
+    db: Session,
+    *,
+    data_access: DataAccessContext | None = None,
+) -> AIStorageStatsResponse:
     settings = db.scalar(select(AISettings).limit(1))
     now = datetime.now(timezone.utc)
     seven_days_ago = now - timedelta(days=7)
     thirty_days_ago = now - timedelta(days=30)
     return AIStorageStatsResponse(
-        retained_daily_briefs=int(db.scalar(select(func.count(AIDailyBrief.id))) or 0),
+        retained_daily_briefs=int(
+            db.scalar(
+                select(func.count(AIDailyBrief.id)).where(
+                    _brief_access_predicate(data_access)
+                )
+            )
+            or 0
+        ),
         daily_brief_history_limit=int(settings.daily_brief_history_limit)
         if settings
         else 0,
         enrichment_rows=int(
-            db.scalar(select(func.count(ItemAIEnrichment.item_id))) or 0
+            db.scalar(
+                select(func.count(ItemAIEnrichment.item_id))
+                .join(Item, Item.id == ItemAIEnrichment.item_id)
+                .join(Feed, Feed.id == Item.feed_id)
+                .where(_feed_access_predicate(data_access))
+            )
+            or 0
         ),
-        usage_event_rows=int(db.scalar(select(func.count(AIUsageEvent.id))) or 0),
-        task_history_rows=int(db.scalar(select(func.count(AITaskRun.id))) or 0),
+        usage_event_rows=int(
+            db.scalar(
+                select(func.count(AIUsageEvent.id)).where(
+                    _usage_access_predicate(data_access)
+                )
+            )
+            or 0
+        ),
+        task_history_rows=int(
+            db.scalar(
+                select(func.count(AITaskRun.id)).where(
+                    _run_access_predicate(data_access)
+                )
+            )
+            or 0
+        ),
         growth_last_7d=int(
             db.scalar(
                 select(func.count(AITaskRun.id)).where(
-                    AITaskRun.created_at >= seven_days_ago
+                    AITaskRun.created_at >= seven_days_ago,
+                    _run_access_predicate(data_access),
                 )
             )
             or 0
@@ -660,7 +784,8 @@ def _build_storage_stats(db: Session) -> AIStorageStatsResponse:
         growth_last_30d=int(
             db.scalar(
                 select(func.count(AITaskRun.id)).where(
-                    AITaskRun.created_at >= thirty_days_ago
+                    AITaskRun.created_at >= thirty_days_ago,
+                    _run_access_predicate(data_access),
                 )
             )
             or 0
@@ -668,13 +793,18 @@ def _build_storage_stats(db: Session) -> AIStorageStatsResponse:
     )
 
 
-def _build_cache_stats(db: Session) -> AICacheStatsResponse:
+def _build_cache_stats(
+    db: Session,
+    *,
+    data_access: DataAccessContext | None = None,
+) -> AICacheStatsResponse:
     reused_count = int(
         db.scalar(
             select(func.count(AITaskRun.id)).where(
                 AITaskRun.task_type == AI_TASK_TYPE_ITEM_ENRICHMENT,
                 AITaskRun.status == AI_STATUS_SKIPPED,
                 AITaskRun.reason.in_(["unchanged", "source_hash_unchanged"]),
+                _run_access_predicate(data_access),
             )
         )
         or 0
@@ -684,6 +814,7 @@ def _build_cache_stats(db: Session) -> AICacheStatsResponse:
             select(func.count(AITaskRun.id)).where(
                 AITaskRun.task_type == AI_TASK_TYPE_ITEM_ENRICHMENT,
                 AITaskRun.status == AI_STATUS_READY,
+                _run_access_predicate(data_access),
             )
         )
         or 0
@@ -712,4 +843,38 @@ def _looks_like_auth_error(value: str | None) -> bool:
     return any(
         fragment in lowered
         for fragment in ["401", "403", "unauthorized", "forbidden", "auth"]
+    )
+
+
+def _run_access_predicate(data_access: DataAccessContext | None):
+    return (
+        ai_task_run_access_predicate(data_access) if data_access is not None else True
+    )
+
+
+def _usage_access_predicate(data_access: DataAccessContext | None):
+    return (
+        ai_usage_event_access_predicate(data_access)
+        if data_access is not None
+        else True
+    )
+
+
+def _feed_access_predicate(data_access: DataAccessContext | None):
+    return (
+        handling_label_access_predicate(Feed.handling_label_id, data_access)
+        if data_access is not None
+        else True
+    )
+
+
+def _brief_access_predicate(data_access: DataAccessContext | None):
+    return (
+        data_access_envelope_predicate(
+            DATA_ACCESS_RESOURCE_DAILY_BRIEF,
+            AIDailyBrief.id,
+            data_access,
+        )
+        if data_access is not None
+        else True
     )

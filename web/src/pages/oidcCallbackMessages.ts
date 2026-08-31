@@ -31,6 +31,18 @@ const LOGIN_MESSAGES: Record<string, string> = {
     'The identity provider did not confirm a recent sign-in. Start SSO sign-in again and complete any requested verification.',
   role_sync_blocked:
     'The IdP-mapped role could not be applied safely. An administrator must transfer investigation ownership or preserve another active admin, then retry.',
+  role_claim_invalid:
+    'The identity provider returned an invalid role claim. Ask an administrator to inspect the configured role claim and provider scopes.',
+  access_claim_required:
+    'The identity provider did not supply an access claim required by ThreatLens. Ask an administrator to verify the provider scopes and claim mappings.',
+  access_claim_invalid:
+    'The identity provider returned a configured access claim in an unsupported form. Ask an administrator to inspect the provider claim mapping.',
+  access_policy_invalid:
+    'The ThreatLens SSO access policy references an unavailable role or group. Ask an administrator to repair the access mapping.',
+  access_policy_unavailable:
+    'ThreatLens could not verify the SSO access policy. Retry sign-in, then ask an administrator to check the database and IAM logs.',
+  access_sync_blocked:
+    'SSO access could not be reduced safely because an investigation still depends on this account. Ask an administrator to transfer ownership, then retry sign-in.',
   missing_code:
     'The identity provider returned without an authorization code. Start SSO sign-in again.',
   authentication_failed:
