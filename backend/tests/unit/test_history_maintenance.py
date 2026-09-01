@@ -16,6 +16,7 @@ from app.models.integration import IntegrationInstance, IntegrationRun
 from app.models.item import Item
 from app.models.mfa import MFALoginChallenge, UserTOTPCredential
 from app.models.report import Report
+from app.models.system_health_sample import SystemHealthSample
 from app.models.tag import TagFeedbackEvent
 from app.models.user import User
 from app.services.history_maintenance import prune_application_history
@@ -35,6 +36,7 @@ def test_application_history_retention_prunes_only_expired_terminal_rows(
         "integration_run_retention_days",
         "auth_session_retention_days",
         "action_approval_retention_days",
+        "operations_health_history_retention_days",
     ):
         monkeypatch.setattr(
             f"app.services.history_maintenance.settings.{setting_name}", 30
@@ -235,6 +237,8 @@ def test_application_history_retention_prunes_only_expired_terminal_rows(
         ),
         old_execution_receipt,
         old_operation_receipt,
+        _system_health_sample(old),
+        _system_health_sample(recent),
     ]
     db_session.add_all(records)
     db_session.commit()
@@ -256,6 +260,7 @@ def test_application_history_retention_prunes_only_expired_terminal_rows(
     assert result.action_approval_requests_deleted == 2
     assert result.action_execution_receipts_deleted == 1
     assert result.action_operation_receipts_deleted == 1
+    assert result.system_health_samples_deleted == 1
     assert db_session.get(AITaskRun, unfinished_run.id) is not None
     assert db_session.get(AITaskRun, report_request_run.id) is not None
     assert db_session.query(AuditLog).filter(AuditLog.action == "recent").count() == 1
@@ -269,6 +274,12 @@ def test_application_history_retention_prunes_only_expired_terminal_rows(
     assert db_session.get(ActionApprovalRequest, old_executed_approval_id) is None
     assert db_session.get(ActionApprovalRequest, recent_denied_approval_id) is not None
     assert db_session.get(GovernanceOperationReceipt, old_operation_receipt_id) is None
+    assert (
+        db_session.query(SystemHealthSample)
+        .filter(SystemHealthSample.sampled_at == recent)
+        .count()
+        == 1
+    )
     governance_prune = db_session.scalar(
         select(AuditLog).where(AuditLog.action == "history.action_approvals.prune")
     )
@@ -529,6 +540,19 @@ def test_ai_receipt_retention_prunes_only_whole_expired_safe_ledgers(
         "batch_size": 100,
         "completed_at": now.isoformat(),
     }
+
+
+def _system_health_sample(sampled_at: datetime) -> SystemHealthSample:
+    return SystemHealthSample(
+        sampled_at=sampled_at,
+        overall_status="healthy",
+        component_statuses_json={},
+        worker_status="healthy",
+        worker_reason="healthy",
+        missing_queues_json=[],
+        stale_execution_queues_json=[],
+        issue_codes_json=[],
+    )
 
 
 def _approval_record(

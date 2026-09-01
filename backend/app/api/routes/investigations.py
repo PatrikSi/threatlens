@@ -3,11 +3,12 @@ from __future__ import annotations
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import (
     get_authorization_context,
+    get_current_user,
     get_data_access_context,
     require_permissions,
 )
@@ -26,6 +27,8 @@ from app.schemas.investigation import (
     InvestigationCreate,
     InvestigationDetailResponse,
     InvestigationEvidenceAdd,
+    InvestigationEvidenceCandidateListResponse,
+    InvestigationEvidenceCandidateSearch,
     InvestigationEvidenceListResponse,
     InvestigationListResponse,
     InvestigationMemberAdd,
@@ -38,6 +41,10 @@ from app.schemas.investigation import (
 )
 from app.services.audit import record_audit
 from app.services.data_access_policy import DataAccessContext
+from app.services.investigation_evidence_candidates import (
+    authorize_evidence_candidate_search,
+    list_evidence_candidates,
+)
 from app.services.investigations import (
     InvestigationConflictError,
     InvestigationNotFoundError,
@@ -375,6 +382,55 @@ def get_investigation_evidence(
             data_access=data_access,
             page=page,
             page_size=page_size,
+        )
+    except Exception as exc:
+        _raise_service_error(db, exc)
+
+
+@router.post(
+    "/{investigation_id}/evidence-candidates",
+    response_model=InvestigationEvidenceCandidateListResponse,
+)
+def post_investigation_evidence_candidates(
+    investigation_id: uuid.UUID,
+    payload: InvestigationEvidenceCandidateSearch,
+    response: Response,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+    _principal: User = Depends(require_investigation_write),
+    data_access: DataAccessContext = Depends(get_data_access_context),
+):
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        investigation = authorize_evidence_candidate_search(
+            db,
+            investigation_id=investigation_id,
+            user=user,
+            data_access=data_access,
+        )
+        authorization = get_authorization_context(request)
+        if authorization is None:
+            raise ApiHTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    "Investigation evidence access could not be resolved. "
+                    "Retry the request."
+                ),
+                error_code="iam_policy_unavailable",
+            )
+        return list_evidence_candidates(
+            db,
+            investigation=investigation,
+            user=user,
+            authorization=authorization,
+            data_access=data_access,
+            q=payload.q,
+            requested_source_types=payload.source_types,
+            range_value=payload.range,
+            as_of=payload.as_of,
+            page=payload.page,
+            page_size=payload.page_size,
         )
     except Exception as exc:
         _raise_service_error(db, exc)

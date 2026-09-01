@@ -17,13 +17,8 @@ from app.schemas.health import EncryptedDataInventoryResponse
 from app.services.beat_heartbeat import BeatHealthSnapshot, read_beat_heartbeat
 from app.services.encrypted_data_inventory import scan_encrypted_data_inventory
 from app.services.notification_webhooks import get_notification_delivery_queue_snapshot
+from app.services.queue_execution_canaries import required_worker_queues
 from app.tasks.celery_app import (
-    QUEUE_AI,
-    QUEUE_AI_REPORTS,
-    QUEUE_INGEST,
-    QUEUE_MAINTENANCE,
-    QUEUE_NOTIFICATIONS,
-    QUEUE_PROCESSING,
     celery_app,
 )
 
@@ -232,10 +227,7 @@ def _worker_health_snapshot(settings) -> tuple[bool, dict[str, str], dict[str, o
 
 
 def _required_worker_queues(settings) -> list[str]:
-    queues = [QUEUE_INGEST, QUEUE_PROCESSING, QUEUE_NOTIFICATIONS, QUEUE_MAINTENANCE]
-    if settings.ai_enabled:
-        queues.extend([QUEUE_AI, QUEUE_AI_REPORTS])
-    return queues
+    return required_worker_queues(settings)
 
 
 def _beat_health_snapshot(settings) -> BeatHealthSnapshot:

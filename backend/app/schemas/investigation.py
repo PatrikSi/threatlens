@@ -10,6 +10,8 @@ InvestigationSeverity = Literal["low", "medium", "high", "critical"]
 InvestigationVisibility = Literal["private", "team"]
 InvestigationMemberRole = Literal["owner", "editor", "viewer"]
 InvestigationEvidenceType = Literal["item", "ioc", "report", "alert_occurrence"]
+InvestigationEvidenceCandidateRange = Literal["24h", "7d", "30d", "90d"]
+InvestigationEvidenceQueryKind = Literal["empty", "text", "url", "ioc", "uuid"]
 
 
 class InvestigationCreate(BaseModel):
@@ -91,6 +93,74 @@ class InvestigationMemberCandidateListResponse(BaseModel):
     total: int = Field(ge=0)
     page: int = Field(ge=1)
     page_size: int = Field(ge=1, le=50)
+
+
+class InvestigationEvidenceCandidate(BaseModel):
+    source_type: InvestigationEvidenceType
+    source_id: uuid.UUID
+    title: str
+    description: str | None
+    url: str | None
+    observed_at: datetime | None
+    source_label: str | None
+    metadata: dict
+    already_attached: bool
+    match_reason: str | None
+
+
+class InvestigationEvidenceCandidateSearch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    q: str | None = Field(default=None, max_length=255)
+    source_types: list[InvestigationEvidenceType] = Field(
+        default_factory=lambda: [
+            "item",
+            "ioc",
+            "report",
+            "alert_occurrence",
+        ],
+        max_length=4,
+    )
+    range: InvestigationEvidenceCandidateRange = "7d"
+    page: int = Field(default=1, ge=1, le=20)
+    page_size: int = Field(default=20, ge=1, le=50)
+    as_of: datetime | None = None
+
+
+class InvestigationEvidenceQueryAnalysis(BaseModel):
+    kind: InvestigationEvidenceQueryKind
+    normalized_value: str | None
+    detected_ioc_type: str | None
+
+
+class InvestigationEvidenceSourceCapability(BaseModel):
+    source_type: InvestigationEvidenceType
+    available: bool
+    unavailable_reason: str | None
+    required_permissions: list[str]
+
+
+class InvestigationEvidenceCandidateListResponse(BaseModel):
+    candidates: list[InvestigationEvidenceCandidate]
+    total: int = Field(
+        ge=0,
+        description=(
+            "Exact candidate count unless total_truncated is true, in which case "
+            "this is a lower bound."
+        ),
+    )
+    total_truncated: bool = Field(
+        description=(
+            "Whether candidate counting stopped at a bounded per-source limit."
+        )
+    )
+    page: int = Field(ge=1)
+    page_size: int = Field(ge=1, le=50)
+    query_analysis: InvestigationEvidenceQueryAnalysis
+    source_capabilities: list[InvestigationEvidenceSourceCapability]
+    effective_range: InvestigationEvidenceCandidateRange
+    effective_since: datetime
+    effective_until: datetime
 
 
 class InvestigationEvidenceResponse(BaseModel):

@@ -5,8 +5,13 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.schemas.operations import OperationsDiagnosticsResponse, OperationsOverviewResponse
+from app.schemas.operations import (
+    OperationsDiagnosticsResponse,
+    OperationsOverviewResponse,
+    OperationsWorkerTopologyResponse,
+)
 from app.services.operations_common import as_utc, ordered_issues, overall_status
+from app.services.operations_health_history import collect_health_history
 from app.services.operations_probes import (
     collect_application_info,
     collect_component_checks,
@@ -30,6 +35,7 @@ from app.services.operations_runs import (
     list_system_operation_runs,
     system_operation_run_response,
 )
+from app.services.worker_health import collect_worker_topology
 
 
 DIAGNOSTIC_RUN_LIMIT = 25
@@ -39,15 +45,21 @@ def collect_operations_overview(
     db: Session,
     *,
     now: datetime | None = None,
+    worker_topology: OperationsWorkerTopologyResponse | None = None,
 ) -> OperationsOverviewResponse:
     generated_at = as_utc(now or datetime.now(timezone.utc))
     settings = get_settings()
+    topology = worker_topology or collect_worker_topology(
+        settings,
+        now=generated_at,
+    )
     issues = []
     database_ok, components = collect_component_checks(
         db,
         settings=settings,
         checked_at=generated_at,
         issues=issues,
+        worker_topology=topology,
     )
     application = collect_application_info(
         db,
@@ -85,11 +97,25 @@ def collect_operations_overview(
 
 
 def collect_operations_diagnostics(db: Session) -> OperationsDiagnosticsResponse:
-    overview = collect_operations_overview(db)
+    generated_at = as_utc(datetime.now(timezone.utc))
+    worker_topology = collect_worker_topology(now=generated_at)
+    overview = collect_operations_overview(
+        db,
+        now=generated_at,
+        worker_topology=worker_topology,
+    )
+    health_history = collect_health_history(
+        db,
+        window="24h",
+        now=overview.generated_at,
+    )
     recent = list_system_operation_runs(db, page=1, page_size=DIAGNOSTIC_RUN_LIMIT)
     return OperationsDiagnosticsResponse(
+        schema_version=2,
         generated_at=overview.generated_at,
         overview=overview,
+        worker_topology=worker_topology,
+        health_history=health_history,
         recent_runs=recent.runs,
         recent_runs_truncated=recent.total > DIAGNOSTIC_RUN_LIMIT,
     )

@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.api.routes import operations as operations_routes
 from app.core.security import generate_api_token
 from app.core.token_scopes import SCOPE_READ_HEALTH, SCOPE_READ_OPERATIONS, SCOPE_WRITE_OPERATIONS
 from app.models.api_token import ApiToken
@@ -17,12 +18,19 @@ from app.schemas.health import (
     EncryptedDataInventorySummary,
     EncryptedDataStartupScan,
 )
+from app.schemas.operations import (
+    OperationsWorkerNode,
+    OperationsWorkerQueue,
+    OperationsWorkerTopologyResponse,
+)
 from app.services import encrypted_data_inventory, operations, operations_probes
 from app.services.beat_heartbeat import BeatHealthSnapshot, BeatHeartbeatSnapshot
 
 
 OPERATIONS_PATHS = (
     "/operations/overview",
+    "/operations/workers",
+    "/operations/health-history",
     "/operations/runs",
     "/operations/diagnostics",
 )
@@ -65,6 +73,17 @@ def healthy_operations_probes(monkeypatch):
         operations_probes.shutil,
         "disk_usage",
         lambda _path: SimpleNamespace(total=1_000_000, used=500_000, free=500_000),
+    )
+    topology = _healthy_worker_topology(now)
+    monkeypatch.setattr(
+        operations_routes,
+        "collect_worker_topology",
+        lambda: topology,
+    )
+    monkeypatch.setattr(
+        operations,
+        "collect_worker_topology",
+        lambda *_args, **_kwargs: topology,
     )
     return now
 
@@ -254,8 +273,10 @@ def test_diagnostics_snapshot_is_stable_bounded_and_redacted(
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["schema_version"] == 1
+    assert payload["schema_version"] == 2
     assert payload["generated_at"] == payload["overview"]["generated_at"]
+    assert payload["worker_topology"]["status"] == "healthy"
+    assert payload["health_history"]["window"] == "24h"
     assert len(payload["recent_runs"]) == operations.DIAGNOSTIC_RUN_LIMIT
     assert payload["recent_runs_truncated"] is True
     assert len(response.content) < 1_000_000
@@ -344,6 +365,8 @@ def test_operations_openapi_is_read_only_and_declares_required_scope():
     schema = app.openapi()
     for path in (
         "/v1/operations/overview",
+        "/v1/operations/workers",
+        "/v1/operations/health-history",
         "/v1/operations/runs",
         "/v1/operations/diagnostics",
     ):
@@ -351,6 +374,27 @@ def test_operations_openapi_is_read_only_and_declares_required_scope():
         assert schema["paths"][path]["get"]["x-threatlens-required-token-scopes"] == [
             SCOPE_READ_OPERATIONS
         ]
+
+
+def test_health_history_window_is_bounded_by_contract(
+    client,
+    auth_headers,
+    healthy_operations_probes,
+):
+    _ = healthy_operations_probes
+    response = client.get(
+        "/operations/health-history?window=7d",
+        headers=auth_headers["admin"],
+    )
+    invalid = client.get(
+        "/operations/health-history?window=forever",
+        headers=auth_headers["admin"],
+    )
+
+    assert response.status_code == 200
+    assert response.json()["window"] == "7d"
+    assert response.json()["coverage"]["returned_sample_count"] == 0
+    assert invalid.status_code == 422
 
 
 def _token_headers(db_session, user_id: uuid.UUID, scopes: list[str]) -> dict[str, str]:
@@ -395,4 +439,69 @@ def _healthy_operations_inventory(
         inventory=_healthy_inventory(now),
         row_limit_per_category=encrypted_data_inventory.OPERATIONS_INVENTORY_ROW_LIMIT,
         truncated_categories=(),
+    )
+
+
+def _healthy_worker_topology(now: datetime) -> OperationsWorkerTopologyResponse:
+    queue_metadata = {
+        "ingest": ("Feed ingestion", "worker"),
+        "processing": ("Item processing", "worker"),
+        "notifications": ("Notifications", "worker-notifications"),
+        "maintenance": ("Maintenance", "worker-maintenance"),
+    }
+    return OperationsWorkerTopologyResponse(
+        generated_at=now,
+        status="healthy",
+        reason="healthy",
+        timeout_seconds=1.0,
+        responding_worker_count=1,
+        observed_worker_count=1,
+        worker_inventory_truncated=False,
+        total_capacity=4,
+        active_count=0,
+        reserved_count=0,
+        scheduled_count=0,
+        missing_queues=[],
+        stale_execution_queues=[],
+        missing_execution_evidence_queues=[],
+        canary_dispatch_ok=True,
+        canary_dispatch_reason="healthy",
+        canary_dispatch_heartbeat_at=now,
+        canary_dispatch_age_seconds=1,
+        probes=[],
+        workers=[
+            OperationsWorkerNode(
+                name="worker@test-host",
+                queues=list(queue_metadata),
+                responded_to=[],
+                missing_responses=[],
+                ping_ok=True,
+                capacity=4,
+                active_count=0,
+                reserved_count=0,
+                scheduled_count=0,
+                processed_total=10,
+                uptime_seconds=60,
+            )
+        ],
+        queues=[
+            OperationsWorkerQueue(
+                key=key,
+                label=label,
+                service_hint=service_hint,
+                required=True,
+                status="healthy",
+                consumers=["worker@test-host"],
+                consumer_count=1,
+                capacity=4,
+                active_count=0,
+                reserved_count=0,
+                scheduled_count=0,
+                execution_reason="fresh",
+                execution_heartbeat_at=now,
+                execution_age_seconds=1,
+                execution_worker="worker@test-host",
+            )
+            for key, (label, service_hint) in queue_metadata.items()
+        ],
     )

@@ -99,6 +99,7 @@ from app.models.service_account import (
     ServiceAccountCredential,
     ServiceAccountRoleAssignment,
 )
+from app.models.system_health_sample import SystemHealthSample
 from app.models.system_operation_run import SystemOperationRun
 from app.models.tag import ItemTag, Tag, TagFeedbackEvent
 from app.models.tagging_rule import TaggingRule
@@ -196,6 +197,7 @@ __all__ = [
     "ServiceAccountCredential",
     "ServiceAccountRoleAssignment",
     "SystemOperationRun",
+    "SystemHealthSample",
     "Tag",
     "ItemTag",
     "TagFeedbackEvent",
