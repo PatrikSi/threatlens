@@ -198,16 +198,32 @@ permission requires the built-in administrator base role.
 
 ## Workspace Page
 
-- Personal preferences let each user reorder optional primary and Settings
-  modules, hide optional modules, choose an available landing page, and select
-  first-use dashboard panels.
+- Personal workspace controls separate the global top navigation from the
+  contextual Settings sidebar. The top-navigation editor and preview list only
+  trusted primary modules that can appear in the application header; users can
+  reorder or hide optional entries. `Settings` remains structurally fixed;
+  `Dashboard` is fixed by default but can be made optional by organization
+  policy.
+- Optional Settings destinations remain available in a separately labeled,
+  compact Settings-navigation surface. Existing Settings preferences stay in
+  the personal draft and write payload when a user changes only the top
+  navigation, so an unrelated save does not silently discard them.
+- Personal top-navigation order applies to the desktop header. Mobile
+  top-navigation order follows the organization role policy, while the Settings
+  sidebar uses one order at both breakpoints.
+- Start-page selection is independent of top-navigation membership. A user can
+  choose any available trusted landing destination, including a Settings page,
+  or inherit the organization default.
 - Personal controls cannot expose a module hidden by role policy, unavailable to
   the account, disabled by a feature dependency, or blocked by permissions.
-- Principals with durable `write:workspace` authority can edit role policies for `admin`,
-  `analyst`, and `viewer`, including visibility, optionality, desktop order,
-  mobile priority, landing page, and dashboard defaults.
-- Role preview is an inert navigation simulation. It does not impersonate a
-  role, issue requests as another user, or turn preview entries into links.
+- Principals with durable `write:workspace` authority can edit role policies for
+  `admin`, `analyst`, and `viewer`. Top-navigation defaults and Settings-sidebar
+  defaults are presented separately; both support visibility, optionality, and
+  ordering, while mobile priority applies only to the top navigation. Role
+  policies also define the default landing page and first-use dashboard panels.
+- The role top-navigation preview is inert and contains only primary header
+  modules. It does not impersonate a role, issue requests as another user, or
+  turn preview entries into links.
 - Revision conflicts keep the current draft visible and prompt the editor to
   reload before retrying, preventing an older browser from overwriting newer
   policy.

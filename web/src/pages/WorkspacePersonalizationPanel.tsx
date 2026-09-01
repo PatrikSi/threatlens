@@ -4,6 +4,7 @@ import { useRef, useState } from 'react'
 import {
   TRUSTED_DASHBOARD_PANELS,
   TRUSTED_WORKSPACE_MODULE_BY_ID,
+  isTopNavigationModule,
   isTrustedWorkspaceModuleId,
   type TrustedWorkspaceModule,
 } from '../workspace/moduleRegistry'
@@ -39,9 +40,9 @@ export function WorkspacePersonalizationPanel({ controller }: { controller: Work
   return (
     <section className="tl-surface overflow-hidden rounded-xl" aria-labelledby="personal-workspace-heading">
       <header className="border-b border-slate/20 px-4 py-3.5 dark:border-white/10">
-        <h2 id="personal-workspace-heading" className="font-display text-lg">My navigation</h2>
+        <h2 id="personal-workspace-heading" className="font-display text-lg">My workspace</h2>
         <p className="mt-1 text-sm text-slate dark:text-slate-300">
-          Choose what appears in your navigation and where ThreatLens opens. These preferences cannot grant access or override organization policy.
+          Personalize the top navigation, Settings sidebar, start page, and initial dashboard. These preferences cannot grant access or override organization policy.
         </p>
       </header>
 
@@ -51,8 +52,19 @@ export function WorkspacePersonalizationPanel({ controller }: { controller: Work
         </div>
       ) : (
         <div className="space-y-4 px-4 py-3.5">
-          <PersonalModuleList controller={controller} />
+          <PersonalModuleList controller={controller} scope="top" />
           <PersonalNavigationStructurePreview controller={controller} />
+          <details className="rounded-lg border border-slate/20 bg-slate/5 dark:border-white/10 dark:bg-white/[0.03]">
+            <summary className="cursor-pointer px-3 py-2.5 text-sm font-semibold text-ink dark:text-slate-100">
+              Settings sidebar items
+              <span className="ml-2 text-xs font-normal text-slate dark:text-slate-400">
+                Separate from the top navigation
+              </span>
+            </summary>
+            <div className="border-t border-slate/15 px-3 py-3 dark:border-white/10">
+              <PersonalModuleList controller={controller} scope="settings" />
+            </div>
+          </details>
           <PersonalLandingControl controller={controller} />
           <PersonalDashboardControls controller={controller} />
 
@@ -110,8 +122,17 @@ export function WorkspacePersonalizationPanel({ controller }: { controller: Work
   )
 }
 
-function PersonalModuleList({ controller }: { controller: WorkspaceSettingsController }) {
-  const instructionsId = 'personal-navigation-reorder-instructions'
+function PersonalModuleList({
+  controller,
+  scope,
+}: {
+  controller: WorkspaceSettingsController
+  scope: 'top' | 'settings'
+}) {
+  const topNavigation = scope === 'top'
+  const instructionsId = topNavigation
+    ? 'personal-navigation-reorder-instructions'
+    : 'personal-settings-navigation-reorder-instructions'
   const draft = controller.personalDraft!
   const resolvedById = new Map(
     controller.workspace.model.modules.map((module) => [module.id, module]),
@@ -123,7 +144,12 @@ function PersonalModuleList({ controller }: { controller: WorkspaceSettingsContr
     'Order changes remain unsaved until you save navigation preferences.',
   )
   const dropHandled = useRef(false)
-  const ordered = [...draft.modules.entries()].sort(([leftId, left], [rightId, right]) => {
+  const ordered = [...draft.modules.entries()].filter(([moduleId]) => {
+    const definition = TRUSTED_WORKSPACE_MODULE_BY_ID.get(moduleId)
+    return definition && (topNavigation
+      ? isTopNavigationModule(definition)
+      : definition.section === 'settings')
+  }).sort(([leftId, left], [rightId, right]) => {
     const leftDefinition = TRUSTED_WORKSPACE_MODULE_BY_ID.get(leftId)
     const rightDefinition = TRUSTED_WORKSPACE_MODULE_BY_ID.get(rightId)
     const groupOrder = leftDefinition && rightDefinition
@@ -205,9 +231,13 @@ function PersonalModuleList({ controller }: { controller: WorkspaceSettingsContr
 
   return (
     <fieldset disabled={controller.personalMutationPending}>
-      <legend className="text-sm font-semibold">Navigation items</legend>
+      <legend className="text-sm font-semibold">
+        {topNavigation ? 'Top navigation items' : 'Settings sidebar items'}
+      </legend>
       <p id={instructionsId} className="mt-1 text-xs text-slate dark:text-slate-400">
-        Only items your organization lets you personalize appear here. Fixed destinations and containers stay in place. Main order applies on desktop; mobile main order follows organization defaults. Settings use this order on every screen size. Drag within a named group. Use the earlier and later buttons for keyboard or touch.
+        {topNavigation
+          ? 'Only customizable items from the top navbar appear here. Items not listed stay fixed; Settings is always fixed. This order applies on desktop; mobile order follows organization defaults. Drag to reorder, or use the earlier and later buttons for keyboard or touch.'
+          : 'These items appear only in the Settings sidebar, not the top navbar. Drag within a Settings group to set its order on every screen size, or use the earlier and later buttons for keyboard or touch.'}
       </p>
       <p role="status" aria-live="polite" aria-atomic="true" className="mt-1 min-h-4 text-xs text-slate dark:text-slate-400">
         {reorderStatus}
@@ -239,7 +269,8 @@ function PersonalModuleList({ controller }: { controller: WorkspaceSettingsContr
           return (
             <div
               key={moduleId}
-              data-navigation-reorder-item={moduleId}
+              data-navigation-reorder-item={topNavigation ? moduleId : undefined}
+              data-settings-navigation-reorder-item={topNavigation ? undefined : moduleId}
               className={`flex flex-wrap items-center gap-2 px-2 py-2 transition ${
                 draggedModuleId === moduleId ? 'opacity-50' : ''
               } ${dropTargetModuleId === moduleId ? 'bg-cyan/10 ring-1 ring-inset ring-cyan/40' : ''}`}
@@ -391,63 +422,39 @@ function PersonalNavigationStructurePreview({
   return (
     <section
       className="rounded-lg border border-slate/20 bg-slate/5 p-3 dark:border-white/10 dark:bg-white/[0.03]"
-      aria-labelledby="personal-navigation-preview-heading"
+      aria-labelledby="personal-top-navigation-preview-heading"
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 id="personal-navigation-preview-heading" className="text-sm font-semibold">
-          Navigation preview
+        <h3 id="personal-top-navigation-preview-heading" className="text-sm font-semibold">
+          Top navigation preview
         </h3>
         <span className="rounded border border-slate/20 px-2 py-0.5 text-xs text-slate dark:border-white/10 dark:text-slate-300">
           Draft
         </span>
       </div>
       <p className="mt-1 text-xs text-slate dark:text-slate-400">
-        Every destination that will remain visible is shown here. Fixed destinations and containers are included for context. Main navigation reflects desktop order.
+        Matches the desktop top navbar after save. Settings is always fixed; organization policy determines which other items can be personalized.
       </p>
-      <div className="mt-2 grid gap-x-4 gap-y-2 md:grid-cols-2 xl:grid-cols-3">
-        {WORKSPACE_NAVIGATION_GROUPS.map((group) => {
-          const groupItems = items.filter(
-            (item) => workspaceNavigationGroupPresentation(item.module).id === group.id,
-          )
-          if (groupItems.length === 0) return null
+      <ul className="mt-2 flex flex-wrap gap-1.5">
+        {items.map(({ module, fixed }) => {
+          const Icon = module.icon
           return (
-            <section
-              key={group.id}
-              aria-labelledby={`personal-navigation-preview-${group.id}`}
-              className={group.id === 'settings.integrations'
-                ? 'border-l border-slate/20 pl-3 dark:border-white/10'
-                : undefined}
+            <li
+              key={module.id}
+              data-navigation-preview-module={module.id}
+              className="inline-flex min-w-0 items-center gap-1.5 rounded border border-slate/20 bg-white px-2 py-1 text-xs dark:border-white/10 dark:bg-[#072019]"
             >
-              <h4
-                id={`personal-navigation-preview-${group.id}`}
-                className="text-xs font-semibold text-slate dark:text-slate-300"
-              >
-                {group.label}
-              </h4>
-              <ul className="mt-1 flex flex-wrap gap-1.5">
-                {groupItems.map(({ module, fixed }) => {
-                  const Icon = module.icon
-                  return (
-                    <li
-                      key={module.id}
-                      data-navigation-preview-module={module.id}
-                      className="inline-flex min-w-0 items-center gap-1.5 rounded border border-slate/20 bg-white px-2 py-1 text-xs dark:border-white/10 dark:bg-[#072019]"
-                    >
-                      <Icon className="h-3.5 w-3.5 shrink-0 text-cyan" aria-hidden="true" />
-                      <span>{workspaceModuleDisplayLabel(module)}</span>
-                      {fixed && (
-                        <span className="rounded bg-slate/10 px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate dark:bg-white/10 dark:text-slate-300">
-                          {module.isContainer ? 'Fixed container' : 'Fixed'}
-                        </span>
-                      )}
-                    </li>
-                  )
-                })}
-              </ul>
-            </section>
+              <Icon className="h-3.5 w-3.5 shrink-0 text-cyan" aria-hidden="true" />
+              <span>{workspaceModuleDisplayLabel(module)}</span>
+              {fixed && (
+                <span className="rounded bg-slate/10 px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate dark:bg-white/10 dark:text-slate-300">
+                  {module.isContainer ? 'Fixed container' : 'Fixed'}
+                </span>
+              )}
+            </li>
           )
         })}
-      </div>
+      </ul>
     </section>
   )
 }
@@ -489,7 +496,7 @@ function PersonalLandingControl({ controller }: { controller: WorkspaceSettingsC
         })}
       </select>
       <span className="mt-1 block text-xs font-normal text-slate dark:text-slate-400">
-        Used after sign-in and whenever ThreatLens opens the workspace start route.
+        Used after sign-in and whenever ThreatLens opens the workspace start route. Available Settings pages can be selected independently of the top navigation.
       </span>
     </label>
   )
@@ -548,10 +555,12 @@ function PersonalDashboardControls({ controller }: { controller: WorkspaceSettin
 }
 
 function workspaceModuleSectionLabel(module: TrustedWorkspaceModule): string {
+  if (isTopNavigationModule(module)) return 'Top navigation'
   return workspaceNavigationGroupPresentation(module).label
 }
 
 function workspaceModuleReorderGroupLabel(module: TrustedWorkspaceModule): string {
+  if (isTopNavigationModule(module)) return 'top navigation'
   return workspaceNavigationGroupPresentation(module).label
 }
 

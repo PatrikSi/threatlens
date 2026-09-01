@@ -113,11 +113,17 @@ Default top navigation links:
 - `Settings`
 
 The effective workspace policy controls visibility and order while retaining the
-existing desktop and mobile shell styling. Desktop order uses module order;
-mobile order uses mobile priority. Only module IDs compiled into
-`workspace/moduleRegistry.ts` can provide labels, icon components, routes, or
-mobile behavior. Unknown server IDs are retained for compatibility diagnostics
-but are never rendered as links.
+existing desktop and mobile shell styling. For these top-navigation modules,
+desktop order uses module order and mobile order uses mobile priority. Only
+module IDs compiled into `workspace/moduleRegistry.ts` can provide labels, icon
+components, routes, or mobile behavior. Unknown server IDs are retained for
+compatibility diagnostics but are never rendered as links.
+
+The top-navigation editors and previews use the same trusted primary-module
+boundary as the application header. Contextual Settings destinations are managed
+in a separately labeled, compact Settings-navigation surface; their module order
+is shared by the desktop and mobile Settings sidebars rather than using mobile
+priority.
 
 Top-right controls:
 
@@ -140,12 +146,16 @@ Top-right controls:
 - Local password login enters through `/start`, and successful OIDC callbacks
   return there as well. The resolver selects the configured available trusted
   route while explicit safe deep links are still honored. `/` always remains the
-  literal Dashboard route.
+  literal Dashboard route. A configured start page may be an available Settings
+  destination even though Settings leaves are not top-navigation modules.
 - Restricted Settings routes use canonical permissions from the current-user
   access envelope. The backend remains authoritative and enforces the same
   permissions on every API call.
 - Personal preference and role-policy writes include expected revisions and
-  invalidate the effective-workspace query after success.
+  invalidate the effective-workspace query after success. Personal drafts keep
+  Settings-navigation preferences when the user edits only top navigation, and
+  the complete trusted draft preserves existing Settings values instead of
+  dropping unrelated preferences.
 - Workspace API calls:
   - `GET /workspace/modules`
   - `GET /workspace/effective`

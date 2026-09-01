@@ -31,7 +31,7 @@ export function WorkspaceSettingsPage() {
       <SettingsPageHeader
         scope={controller.canReadPolicies ? 'Personal and organization' : 'Personal'}
         title="Navigation"
-        description="Choose the navigation items, start page, and initial dashboard panels that shape the ThreatLens workspace."
+        description="Configure the top navigation, Settings sidebar, start page, and initial dashboard panels that shape the ThreatLens workspace."
         actions={
           <button
             type="button"
@@ -194,10 +194,10 @@ function AdminNavigationSettings({ controller }: { controller: WorkspaceSettings
         </div>
         <p className="px-2 pb-1 pt-1.5 text-xs text-slate dark:text-slate-400">
           {activeView === 'personal'
-            ? 'Customize your own navigation, start page, and initial dashboard.'
+            ? 'Customize your top navigation, Settings sidebar, start page, and initial dashboard.'
             : controller.canManagePolicies
-              ? 'Set organization navigation defaults for each built-in role.'
-              : 'Review the organization navigation defaults for each built-in role.'}
+              ? 'Set organization top-navigation and Settings-sidebar defaults for each built-in role.'
+              : 'Review organization top-navigation and Settings-sidebar defaults for each built-in role.'}
         </p>
       </div>
 
