@@ -5,7 +5,7 @@ COPY package.json package-lock.json ./
 RUN test -f package-lock.json && npm ci
 
 COPY . .
-ARG APP_VERSION=1.9.0
+ARG APP_VERSION=1.10.0
 ARG VITE_API_BASE_URL=/api/v1
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL} \
     VITE_APP_VERSION=${APP_VERSION}
@@ -43,7 +43,7 @@ RUN npm run build
 FROM nginx:1.31.3-alpine
 RUN apk upgrade --no-cache libcrypto3 libssl3
 ARG BUILD_DATE=unknown
-ARG APP_VERSION=1.9.0
+ARG APP_VERSION=1.10.0
 ARG VCS_REF=unknown
 ENV THREATLENS_CSP_CONNECT_SRC="'self'" \
     THREATLENS_CSP_FRAME_SRC="'self'" \
