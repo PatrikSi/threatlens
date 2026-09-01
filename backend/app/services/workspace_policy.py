@@ -172,6 +172,17 @@ def update_role_policy(
     _validate_dashboard_panels(payload.dashboard_panel_ids)
 
     modules_by_id = {module.module_id: module for module in payload.modules}
+    fixed_module_ids = sorted(
+        module_id
+        for module_id, module in modules_by_id.items()
+        if not WORKSPACE_MODULE_BY_ID[module_id].policy_managed
+        and module != _default_module_policy(normalized_role, module_id)
+    )
+    if fixed_module_ids:
+        raise WorkspaceModuleNotCustomizable(
+            "Structural workspace modules are fixed by this ThreatLens release and cannot be changed by organization policy.",
+            context={"module_ids": fixed_module_ids, "role": normalized_role},
+        )
     landing = modules_by_id.get(payload.landing_module_id)
     if landing is None:
         if (
@@ -307,7 +318,10 @@ def update_user_preferences(
     if unknown_ids:
         raise _unknown_module_error(unknown_ids)
     non_customizable = sorted(
-        module_id for module_id in supplied_ids if not policy_by_id[module_id].optional
+        module_id
+        for module_id in supplied_ids
+        if not WORKSPACE_MODULE_BY_ID[module_id].policy_managed
+        or not policy_by_id[module_id].optional
     )
     if non_customizable:
         raise WorkspaceModuleNotCustomizable(
@@ -623,6 +637,12 @@ def _parse_role_modules(
     for definition in WORKSPACE_MODULES:
         value = raw.get(definition.id, defaults[definition.id])
         parsed = _parse_role_module(definition.id, value)
+        if not definition.policy_managed:
+            fixed = _default_module_policy(role, definition.id)
+            if parsed != fixed:
+                warnings.append(f"ignored_fixed_policy_module:{definition.id}")
+            modules.append(fixed)
+            continue
         if parsed is None:
             warnings.append(f"invalid_policy_module:{definition.id}")
             parsed = WorkspaceModulePolicy(
@@ -634,6 +654,13 @@ def _parse_role_modules(
             )
         modules.append(parsed)
     return modules, unknown, warnings
+
+
+def _default_module_policy(
+    role: WorkspaceRole, module_id: str
+) -> WorkspaceModulePolicy:
+    value = default_role_modules(role)[module_id]
+    return WorkspaceModulePolicy(module_id=module_id, **value)
 
 
 def _parse_role_module(module_id: str, value: object) -> WorkspaceModulePolicy | None:
@@ -677,6 +704,9 @@ def _parse_user_modules(
     modules: list[WorkspaceModulePreference] = []
     for module_id in sorted(WORKSPACE_MODULE_BY_ID):
         if module_id not in raw:
+            continue
+        if not WORKSPACE_MODULE_BY_ID[module_id].policy_managed:
+            warnings.append(f"ignored_fixed_preference_module:{module_id}")
             continue
         value = raw[module_id]
         if not isinstance(value, dict):

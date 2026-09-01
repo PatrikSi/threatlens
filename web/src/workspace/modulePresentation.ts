@@ -1,4 +1,7 @@
-import type { TrustedWorkspaceModuleId } from './moduleRegistry'
+import type {
+  TrustedWorkspaceModule,
+  TrustedWorkspaceModuleId,
+} from './moduleRegistry'
 
 export type SettingsPresentationGroupId =
   | 'personal'
@@ -16,11 +19,33 @@ export interface SettingsModulePresentation {
   label: string
 }
 
+export type WorkspaceNavigationGroupId =
+  | 'main'
+  | 'settings.personal'
+  | 'settings.organization'
+  | 'settings.automation'
+  | 'settings.integrations'
+  | 'settings.system'
+
+export interface WorkspaceNavigationGroupPresentation {
+  id: WorkspaceNavigationGroupId
+  label: string
+}
+
 export const SETTINGS_PRESENTATION_GROUPS: readonly SettingsPresentationGroup[] = [
   { id: 'personal', label: 'Personal' },
   { id: 'organization', label: 'Organization' },
   { id: 'automation', label: 'Automation' },
   { id: 'system', label: 'System' },
+]
+
+export const WORKSPACE_NAVIGATION_GROUPS: readonly WorkspaceNavigationGroupPresentation[] = [
+  { id: 'main', label: 'Main navigation' },
+  { id: 'settings.personal', label: 'Personal settings' },
+  { id: 'settings.organization', label: 'Organization settings' },
+  { id: 'settings.automation', label: 'Automation settings' },
+  { id: 'settings.integrations', label: 'Integration settings' },
+  { id: 'settings.system', label: 'System settings' },
 ]
 
 const SETTINGS_MODULE_PRESENTATION: Partial<
@@ -57,6 +82,30 @@ export function settingsModulePresentation(
       label: fallbackLabel,
     }
   )
+}
+
+export function workspaceModuleDisplayLabel(module: TrustedWorkspaceModule): string {
+  if (module.section !== 'settings') return module.label
+  return settingsModulePresentation(module.id, module.label).label
+}
+
+export function workspaceNavigationGroupPresentation(
+  module: Pick<TrustedWorkspaceModule, 'id' | 'parentId' | 'section' | 'label'>,
+): WorkspaceNavigationGroupPresentation {
+  if (module.section === 'primary') return WORKSPACE_NAVIGATION_GROUPS[0]
+  if (module.parentId === 'settings.integrations') {
+    return WORKSPACE_NAVIGATION_GROUPS.find((group) => group.id === 'settings.integrations')!
+  }
+
+  const settingsGroup = settingsModulePresentation(module.id, module.label).groupId
+  return WORKSPACE_NAVIGATION_GROUPS.find(
+    (group) => group.id === `settings.${settingsGroup}`,
+  )!
+}
+
+export function workspaceNavigationGroupOrder(module: TrustedWorkspaceModule): number {
+  const groupId = workspaceNavigationGroupPresentation(module).id
+  return WORKSPACE_NAVIGATION_GROUPS.findIndex((group) => group.id === groupId)
 }
 
 export function formatSettingsRoleLabel(role: string): string {

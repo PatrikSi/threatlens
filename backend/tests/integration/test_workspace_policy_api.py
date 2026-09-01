@@ -116,6 +116,9 @@ def test_workspace_registry_and_defaults_preserve_current_navigation(
         module.id for module in WORKSPACE_MODULES
     }
     assert all(module["route"].startswith("/") for module in registry["modules"])
+    assert {
+        module["id"] for module in registry["modules"] if not module["policy_managed"]
+    } == {"primary.settings", "settings.integrations"}
     assert {panel["id"] for panel in registry["dashboard_panels"]} == {
         "rss",
         "alerts",
@@ -368,6 +371,172 @@ def test_workspace_mutations_are_revisioned_effective_and_audited(
     }
 
 
+def test_structural_workspace_containers_are_not_role_policy_managed(
+    workspace_client,
+    db_session,
+    auth_headers,
+):
+    row = db_session.get(WorkspaceRolePolicy, "viewer")
+    row.modules_json = {
+        **row.modules_json,
+        "primary.settings": {
+            "visible": False,
+            "optional": True,
+            "order": 999,
+            "mobile_priority": 999,
+        },
+        "settings.integrations": {
+            "visible": False,
+            "optional": False,
+            "order": 998,
+            "mobile_priority": 998,
+        },
+    }
+    db_session.commit()
+
+    policy_response = workspace_client.get(
+        "/v1/workspace/role-policies/viewer", headers=auth_headers["admin"]
+    )
+    assert policy_response.status_code == 200
+    policy = policy_response.json()
+    modules = {module["module_id"]: module for module in policy["modules"]}
+    assert modules["primary.settings"] == {
+        "module_id": "primary.settings",
+        "visible": True,
+        "optional": False,
+        "order": 70,
+        "mobile_priority": 70,
+    }
+    assert modules["settings.integrations"] == {
+        "module_id": "settings.integrations",
+        "visible": True,
+        "optional": True,
+        "order": 80,
+        "mobile_priority": 80,
+    }
+    assert {
+        "ignored_fixed_policy_module:primary.settings",
+        "ignored_fixed_policy_module:settings.integrations",
+    } <= set(policy["warnings"])
+
+    rejected = workspace_client.put(
+        "/v1/workspace/role-policies/viewer",
+        headers=auth_headers["admin"],
+        json=_role_policy_payload(
+            policy,
+            module_changes={
+                "primary.settings": {"visible": False},
+                "settings.integrations": {"optional": False},
+            },
+        ),
+    )
+    assert rejected.status_code == 409
+    rejected_error = rejected.json()["error"]
+    assert rejected_error["code"] == "workspace_module_not_customizable"
+    assert rejected_error["message"] == (
+        "Structural workspace modules are fixed by this ThreatLens release and "
+        "cannot be changed by organization policy."
+    )
+    assert rejected_error["context"] == {
+        "module_ids": ["primary.settings", "settings.integrations"],
+        "role": "viewer",
+    }
+
+    repaired = workspace_client.put(
+        "/v1/workspace/role-policies/viewer",
+        headers=auth_headers["admin"],
+        json=_role_policy_payload(policy),
+    )
+    assert repaired.status_code == 200
+    assert not repaired.json()["warnings"]
+    db_session.expire_all()
+    stored = db_session.get(WorkspaceRolePolicy, "viewer")
+    assert stored.modules_json["primary.settings"] == {
+        "visible": True,
+        "optional": False,
+        "order": 70,
+        "mobile_priority": 70,
+    }
+    assert stored.modules_json["settings.integrations"] == {
+        "visible": True,
+        "optional": True,
+        "order": 80,
+        "mobile_priority": 80,
+    }
+
+
+def test_structural_workspace_containers_are_not_personally_customizable(
+    workspace_client,
+    db_session,
+    seed_users,
+    auth_headers,
+):
+    db_session.add(
+        WorkspaceUserPreference(
+            user_id=seed_users["viewer"].id,
+            modules_json={"settings.integrations": {"visible": False, "order": 999}},
+            landing_module_id=None,
+            dashboard_panel_ids_json=None,
+            revision=1,
+            updated_by_user_id=seed_users["viewer"].id,
+        )
+    )
+    db_session.commit()
+
+    preferences_response = workspace_client.get(
+        "/v1/workspace/preferences", headers=auth_headers["viewer"]
+    )
+    assert preferences_response.status_code == 200
+    preferences = preferences_response.json()
+    assert preferences["modules"] == []
+    assert preferences["warnings"] == [
+        "ignored_fixed_preference_module:settings.integrations"
+    ]
+
+    effective_response = workspace_client.get(
+        "/v1/workspace/effective", headers=auth_headers["viewer"]
+    )
+    assert effective_response.status_code == 200
+    effective_modules = {
+        module["id"]: module for module in effective_response.json()["modules"]
+    }
+    assert effective_modules["settings.integrations"]["visible"] is True
+    assert effective_modules["settings.integrations"]["preference_visible"] is True
+
+    rejected = workspace_client.put(
+        "/v1/workspace/preferences",
+        headers=auth_headers["viewer"],
+        json={
+            "expected_revision": preferences["revision"],
+            "landing_module_id": None,
+            "modules": [{"module_id": "settings.integrations", "visible": False}],
+            "dashboard_panel_ids": None,
+        },
+    )
+    assert rejected.status_code == 409
+    assert rejected.json()["error"]["code"] == "workspace_module_not_customizable"
+    assert rejected.json()["error"]["context"] == {
+        "module_ids": ["settings.integrations"],
+        "role": "viewer",
+    }
+
+    repaired = workspace_client.put(
+        "/v1/workspace/preferences",
+        headers=auth_headers["viewer"],
+        json={
+            "expected_revision": preferences["revision"],
+            "landing_module_id": None,
+            "modules": [],
+            "dashboard_panel_ids": None,
+        },
+    )
+    assert repaired.status_code == 200
+    assert repaired.json()["warnings"] == []
+    db_session.expire_all()
+    stored = db_session.get(WorkspaceUserPreference, seed_users["viewer"].id)
+    assert stored.modules_json == {}
+
+
 def test_workspace_rejects_untrusted_input_and_preserves_future_ids(
     workspace_client,
     db_session,
@@ -453,19 +622,19 @@ def test_workspace_rejects_untrusted_input_and_preserves_future_ids(
         == "workspace_unknown_dashboard_panel"
     )
 
-    hidden_parent_payload = _role_policy_payload(
+    hidden_landing_payload = _role_policy_payload(
         update_response.json(),
-        module_changes={"primary.settings": {"visible": False}},
+        module_changes={"primary.alerts": {"visible": False}},
     )
-    hidden_parent_payload["landing_module_id"] = "settings.account"
-    hidden_parent_response = workspace_client.put(
+    hidden_landing_payload["landing_module_id"] = "primary.alerts"
+    hidden_landing_response = workspace_client.put(
         "/v1/workspace/role-policies/admin",
         headers=headers,
-        json=hidden_parent_payload,
+        json=hidden_landing_payload,
     )
-    assert hidden_parent_response.status_code == 422
+    assert hidden_landing_response.status_code == 422
     assert (
-        hidden_parent_response.json()["error"]["code"]
+        hidden_landing_response.json()["error"]["code"]
         == "workspace_landing_module_unavailable"
     )
 
@@ -531,6 +700,10 @@ def test_workspace_registry_matches_frontend_routes_and_panel_ids():
         module.parent_id is None or module.parent_id in modules
         for module in registry.modules
     )
+    assert {module.id for module in registry.modules if not module.policy_managed} == {
+        "primary.settings",
+        "settings.integrations",
+    }
     assert len({panel.id for panel in registry.dashboard_panels}) == len(
         registry.dashboard_panels
     )
@@ -544,6 +717,9 @@ def test_workspace_registry_matches_frontend_routes_and_panel_ids():
     tagging = modules["settings.tagging"]
     assert tagging.required_permission == "read:tagging"
     assert tagging.required_permissions == ["read:tagging"]
+    tokens = modules["settings.tokens"]
+    assert tokens.required_permission == "read:tokens"
+    assert tokens.required_permissions == ["read:tokens"]
     assert modules["primary.alerts"].required_permissions == [
         "read:alerts",
         "read:items",

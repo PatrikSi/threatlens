@@ -29,7 +29,7 @@ export function WorkspaceSettingsPage() {
   return (
     <div className="space-y-3">
       <SettingsPageHeader
-        scope={controller.canManagePolicies ? 'Personal and organization' : 'Personal'}
+        scope={controller.canReadPolicies ? 'Personal and organization' : 'Personal'}
         title="Navigation"
         description="Choose the navigation items, start page, and initial dashboard panels that shape the ThreatLens workspace."
         actions={
@@ -72,7 +72,7 @@ export function WorkspaceSettingsPage() {
         )}
       </SettingsPageHeader>
 
-      {controller.canManagePolicies ? (
+      {controller.canReadPolicies ? (
         <AdminNavigationSettings controller={controller} />
       ) : (
         <WorkspacePersonalizationPanel controller={controller} />
@@ -81,7 +81,9 @@ export function WorkspaceSettingsPage() {
       <ConfirmDialog
         open={controller.discardReloadRequested}
         title="Discard navigation changes and reload?"
-        description="All unsaved personal preferences and role defaults on this page will be discarded, then the latest server revisions will be loaded."
+        description={controller.canManagePolicies
+          ? 'All unsaved personal preferences and role defaults on this page will be discarded, then the latest server revisions will be loaded.'
+          : 'All unsaved personal navigation preferences will be discarded, then the latest server revisions will be loaded.'}
         confirmLabel="Discard and reload"
         confirmingLabel="Reloading..."
         confirmTone="danger"
@@ -112,7 +114,7 @@ export function WorkspaceSettingsPage() {
         onConfirm={() => void controller.resetPersonal()}
       />
       <ConfirmDialog
-        open={controller.resetRoleRequested}
+        open={controller.canManagePolicies && controller.resetRoleRequested}
         title={`Reset ${selectedRoleLabel} navigation defaults?`}
         description="This changes the organization navigation defaults for every user with this built-in role. Personal choices are retained where the reset policy still permits them."
         confirmLabel="Reset navigation defaults"
@@ -193,7 +195,9 @@ function AdminNavigationSettings({ controller }: { controller: WorkspaceSettings
         <p className="px-2 pb-1 pt-1.5 text-xs text-slate dark:text-slate-400">
           {activeView === 'personal'
             ? 'Customize your own navigation, start page, and initial dashboard.'
-            : 'Set organization navigation defaults for each built-in role.'}
+            : controller.canManagePolicies
+              ? 'Set organization navigation defaults for each built-in role.'
+              : 'Review the organization navigation defaults for each built-in role.'}
         </p>
       </div>
 

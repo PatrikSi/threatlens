@@ -81,8 +81,8 @@ describe('WorkspaceSettingsPage', () => {
     expect(discardAndReload).toHaveBeenCalledTimes(1)
   })
 
-  it('uses personal scope and omits organization defaults for non-policy managers', () => {
-    pageMocks.controller = controller({ canManagePolicies: false })
+  it('uses personal scope and omits organization defaults without workspace read access', () => {
+    pageMocks.controller = controller({ canReadPolicies: false, canManagePolicies: false })
 
     renderPage()
 
@@ -92,6 +92,22 @@ describe('WorkspaceSettingsPage', () => {
     expect(document.body.textContent).toContain('Personal panel')
     expect(document.body.textContent).not.toContain('Role panel')
     expect(document.body.querySelector('[role="tablist"]')).toBeNull()
+  })
+
+  it('exposes organization defaults for inspection without management access', () => {
+    pageMocks.controller = controller({ canReadPolicies: true, canManagePolicies: false })
+
+    renderPage()
+
+    const header = document.body.querySelector('header')
+    expect(header?.querySelector('span')?.textContent).toBe('Personal and organization')
+    expect(document.body.querySelector('[role="tablist"]')).not.toBeNull()
+    expect(document.body.textContent).toContain('Personal panel')
+
+    act(() => findTab('Role defaults').click())
+    expect(findTabPanel('role-defaults-navigation-panel').hidden).toBe(false)
+    expect(document.body.textContent).toContain('Role panel')
+    expect(document.body.textContent).toContain('Review the organization navigation defaults')
   })
 
   it('shows one admin editor at a time with an arrow-key accessible tab pattern', () => {
@@ -211,6 +227,7 @@ function controller(overrides: Partial<WorkspaceSettingsController>): WorkspaceS
       isResettingPreferences: false,
     },
     workspaceError: '',
+    canReadPolicies: true,
     canManagePolicies: true,
     personalDirty: false,
     personalError: '',

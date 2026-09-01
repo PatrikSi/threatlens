@@ -20,8 +20,8 @@ from app.core.token_scopes import (
     SCOPE_READ_REPORTS,
     SCOPE_READ_STATS,
     SCOPE_READ_TAGGING,
+    SCOPE_READ_TOKENS,
     SCOPE_READ_USERS,
-    SCOPE_WRITE_TOKENS,
 )
 from app.schemas.workspace import (
     WorkspaceDashboardPanelDefinitionResponse,
@@ -50,6 +50,7 @@ class WorkspaceModuleDefinition:
     default_order: int
     default_mobile_priority: int
     mobile_behavior: Literal["primary", "secondary"]
+    policy_managed: bool
 
     @property
     def required_permission(self) -> str | None:
@@ -81,6 +82,7 @@ def _module(
     optional: bool = True,
     parent_id: str | None = None,
     mobile_behavior: Literal["primary", "secondary"] = "secondary",
+    policy_managed: bool = True,
 ) -> WorkspaceModuleDefinition:
     section: Literal["primary", "settings"] = (
         "settings" if module_id.startswith("settings.") else "primary"
@@ -100,6 +102,7 @@ def _module(
         default_order=order,
         default_mobile_priority=order,
         mobile_behavior=mobile_behavior,
+        policy_managed=policy_managed,
     )
 
 
@@ -158,7 +161,14 @@ WORKSPACE_MODULES: tuple[WorkspaceModuleDefinition, ...] = (
         order=60,
         permissions=(SCOPE_READ_REPORTS,),
     ),
-    _module("primary.settings", "Settings", "/settings", order=70, optional=False),
+    _module(
+        "primary.settings",
+        "Settings",
+        "/settings",
+        order=70,
+        optional=False,
+        policy_managed=False,
+    ),
     _module(
         "settings.account",
         "Account",
@@ -172,7 +182,7 @@ WORKSPACE_MODULES: tuple[WorkspaceModuleDefinition, ...] = (
         "API Tokens",
         "/settings/tokens",
         order=10,
-        permissions=(SCOPE_WRITE_TOKENS,),
+        permissions=(SCOPE_READ_TOKENS,),
         mobile_behavior="primary",
     ),
     _module(
@@ -238,6 +248,7 @@ WORKSPACE_MODULES: tuple[WorkspaceModuleDefinition, ...] = (
         "/settings/integrations",
         order=80,
         permissions=(SCOPE_READ_NOTIFICATIONS,),
+        policy_managed=False,
     ),
     _module(
         "settings.integrations.webhooks",
@@ -296,6 +307,7 @@ def workspace_registry_response() -> WorkspaceRegistryResponse:
                 default_order=module.default_order,
                 default_mobile_priority=module.default_mobile_priority,
                 mobile_behavior=module.mobile_behavior,
+                policy_managed=module.policy_managed,
             )
             for module in WORKSPACE_MODULES
         ],

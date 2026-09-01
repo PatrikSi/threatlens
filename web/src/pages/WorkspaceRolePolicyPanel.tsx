@@ -7,10 +7,16 @@ import {
   type TrustedWorkspaceModule,
   type TrustedWorkspaceModuleId,
 } from '../workspace/moduleRegistry'
-import { formatSettingsRoleLabel, settingsModulePresentation } from '../workspace/modulePresentation'
+import {
+  WORKSPACE_NAVIGATION_GROUPS,
+  formatSettingsRoleLabel,
+  workspaceModuleDisplayLabel,
+  workspaceNavigationGroupOrder,
+  workspaceNavigationGroupPresentation,
+} from '../workspace/modulePresentation'
+import { isWorkspaceModuleRoleAllowed } from '../workspace/workspaceModel'
 import type { WorkspaceSettingsController } from './useWorkspaceSettingsController'
 import {
-  moveRolePolicyModule,
   reorderRolePolicyModule,
   rolePolicyPreview,
   toggleStringValue,
@@ -32,7 +38,7 @@ export function WorkspaceRolePolicyPanel({ controller }: { controller: Workspace
       <header className="border-b border-slate/20 px-4 py-3.5 dark:border-white/10">
         <h2 id="role-workspace-heading" className="font-display text-lg">Navigation defaults by role</h2>
         <p className="mt-1 text-sm text-slate dark:text-slate-300">
-          Set the default navigation for each built-in role. These choices control presentation only and never grant permissions.
+          {controller.canManagePolicies ? 'Set' : 'Review'} the default navigation for each built-in role. These choices control presentation only and never grant permissions.
         </p>
         <div className="mt-3 inline-flex max-w-full overflow-x-auto rounded border border-slate/20 p-1 dark:border-white/10" role="group" aria-label="Built-in role">
           {controller.roles.map((role) => (
@@ -73,8 +79,16 @@ export function WorkspaceRolePolicyPanel({ controller }: { controller: Workspace
       )}
       {policy && draft && (
         <div className="space-y-4 px-4 py-3.5">
+          {!controller.canManagePolicies && (
+            <p className="rounded border border-slate/20 bg-slate/5 px-3 py-2 text-sm text-slate dark:border-white/10 dark:bg-white/[0.03] dark:text-slate-300">
+              Read-only organization policy. Changes require durable workspace-management permission.
+            </p>
+          )}
           <WorkspaceCompatibilityWarnings warnings={controller.selectedPolicyWarnings} />
-          <RoleModuleEditor controller={controller} />
+          <RoleModuleEditor
+            key={`${controller.selectedRole}:${controller.canManagePolicies ? 'edit' : 'read'}`}
+            controller={controller}
+          />
           <RolePolicyControls controller={controller} />
           <RolePolicyPreview controller={controller} />
 
@@ -89,26 +103,28 @@ export function WorkspaceRolePolicyPanel({ controller }: { controller: Workspace
               {controller.roleFeedback}
             </p>
           )}
-          <div className="flex flex-col-reverse gap-2 border-t border-slate/15 pt-3 sm:flex-row sm:justify-end dark:border-white/10">
-            <button
-              type="button"
-              className="inline-flex min-h-11 items-center justify-center gap-2 rounded border border-slate/30 px-3 py-2 text-sm font-semibold disabled:opacity-60 sm:min-h-0 dark:border-cyan-900/40"
-              disabled={controller.roleMutationPending}
-              onClick={() => controller.setResetRoleRequested(true)}
-            >
-              <RotateCcw className="h-4 w-4" aria-hidden="true" />
-              Reset {selectedRoleLabel} defaults
-            </button>
-            <button
-              type="button"
-              className="inline-flex min-h-11 items-center justify-center gap-2 rounded bg-ink px-3 py-2 text-sm font-semibold text-white disabled:opacity-60 sm:min-h-0 dark:bg-cyan dark:text-[#053c2e]"
-              disabled={!controller.roleDirty || Boolean(controller.roleValidation) || controller.roleMutationPending}
-              onClick={() => controller.updateRolePolicy.mutate()}
-            >
-              <Save className="h-4 w-4" aria-hidden="true" />
-              {controller.updateRolePolicy.isPending ? 'Saving...' : 'Save navigation defaults'}
-            </button>
-          </div>
+          {controller.canManagePolicies && (
+            <div className="flex flex-col-reverse gap-2 border-t border-slate/15 pt-3 sm:flex-row sm:justify-end dark:border-white/10">
+              <button
+                type="button"
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded border border-slate/30 px-3 py-2 text-sm font-semibold disabled:opacity-60 sm:min-h-0 dark:border-cyan-900/40"
+                disabled={controller.roleMutationPending}
+                onClick={() => controller.setResetRoleRequested(true)}
+              >
+                <RotateCcw className="h-4 w-4" aria-hidden="true" />
+                Reset {selectedRoleLabel} defaults
+              </button>
+              <button
+                type="button"
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded bg-ink px-3 py-2 text-sm font-semibold text-white disabled:opacity-60 sm:min-h-0 dark:bg-cyan dark:text-[#053c2e]"
+                disabled={!controller.roleDirty || Boolean(controller.roleValidation) || controller.roleMutationPending}
+                onClick={() => controller.updateRolePolicy.mutate()}
+              >
+                <Save className="h-4 w-4" aria-hidden="true" />
+                {controller.updateRolePolicy.isPending ? 'Saving...' : 'Save navigation defaults'}
+              </button>
+            </div>
+          )}
         </div>
       )}
     </section>
@@ -123,27 +139,46 @@ function RoleModuleEditor({ controller }: { controller: WorkspaceSettingsControl
   const [dropTargetModuleId, setDropTargetModuleId] = useState<TrustedWorkspaceModuleId | null>(null)
   const [keyboardGrabbedModuleId, setKeyboardGrabbedModuleId] = useState<TrustedWorkspaceModuleId | null>(null)
   const [reorderStatus, setReorderStatus] = useState(
-    `Order changes remain unsaved until you save ${roleLabel} navigation defaults.`,
+    controller.canManagePolicies
+      ? `Order changes remain unsaved until you save ${roleLabel} navigation defaults.`
+      : `Viewing the organization defaults for ${roleLabel}.`,
   )
   const dropHandled = useRef(false)
+  const editingDisabled = !controller.canManagePolicies || controller.roleMutationPending
   const modules = [...draft.modules.entries()].sort(([leftId, left], [rightId, right]) => {
-    const leftSection = TRUSTED_WORKSPACE_MODULE_BY_ID.get(leftId)?.section ?? 'settings'
-    const rightSection = TRUSTED_WORKSPACE_MODULE_BY_ID.get(rightId)?.section ?? 'settings'
-    return leftSection.localeCompare(rightSection) || left.order - right.order || leftId.localeCompare(rightId)
+    const leftDefinition = TRUSTED_WORKSPACE_MODULE_BY_ID.get(leftId)
+    const rightDefinition = TRUSTED_WORKSPACE_MODULE_BY_ID.get(rightId)
+    const groupOrder = leftDefinition && rightDefinition
+      ? workspaceNavigationGroupOrder(leftDefinition) - workspaceNavigationGroupOrder(rightDefinition)
+      : 0
+    return groupOrder || left.order - right.order || leftId.localeCompare(rightId)
   })
 
   function moveModule(moduleId: TrustedWorkspaceModuleId, direction: -1 | 1) {
+    if (editingDisabled) return
     const definition = TRUSTED_WORKSPACE_MODULE_BY_ID.get(moduleId)
-    if (!definition) return
+    if (
+      !definition ||
+      !isWorkspaceModuleRoleAllowed(definition, controller.selectedRole)
+    ) return
+    const groupId = workspaceNavigationGroupPresentation(definition).id
     const siblings = modules.filter(
-      ([id]) => TRUSTED_WORKSPACE_MODULE_BY_ID.get(id)?.parentId === definition.parentId,
+      ([id]) => {
+        const candidate = TRUSTED_WORKSPACE_MODULE_BY_ID.get(id)
+        return candidate &&
+          isWorkspaceModuleRoleAllowed(candidate, controller.selectedRole) &&
+          candidate.parentId === definition.parentId &&
+          workspaceNavigationGroupPresentation(candidate).id === groupId
+      },
     )
     const currentIndex = siblings.findIndex(([id]) => id === moduleId)
     const nextIndex = currentIndex + direction
     if (currentIndex < 0 || nextIndex < 0 || nextIndex >= siblings.length) return
 
     controller.setRoleDraft((current) =>
-      current ? moveRolePolicyModule(current, moduleId, direction) : current,
+      current
+        ? reorderRolePolicyModule(current, moduleId, siblings[nextIndex]![0])
+        : current,
     )
     setReorderStatus(
       `Moved ${workspaceModuleDisplayLabel(definition)} to desktop position ${nextIndex + 1} of ${siblings.length} in ${workspaceModuleReorderGroupLabel(definition)}. Save ${roleLabel} navigation defaults to apply this order.`,
@@ -151,19 +186,34 @@ function RoleModuleEditor({ controller }: { controller: WorkspaceSettingsControl
   }
 
   function dropModule(sourceId: TrustedWorkspaceModuleId, targetId: TrustedWorkspaceModuleId) {
+    if (editingDisabled) return
     const sourceDefinition = TRUSTED_WORKSPACE_MODULE_BY_ID.get(sourceId)
     const targetDefinition = TRUSTED_WORKSPACE_MODULE_BY_ID.get(targetId)
-    if (!sourceDefinition || !targetDefinition) return
-    if (sourceDefinition.parentId !== targetDefinition.parentId) {
+    if (
+      !sourceDefinition ||
+      !targetDefinition ||
+      !isWorkspaceModuleRoleAllowed(sourceDefinition, controller.selectedRole) ||
+      !isWorkspaceModuleRoleAllowed(targetDefinition, controller.selectedRole)
+    ) return
+    if (
+      sourceDefinition.parentId !== targetDefinition.parentId ||
+      workspaceNavigationGroupPresentation(sourceDefinition).id !==
+      workspaceNavigationGroupPresentation(targetDefinition).id
+    ) {
       setReorderStatus(
         `${workspaceModuleDisplayLabel(sourceDefinition)} can only be moved within ${workspaceModuleReorderGroupLabel(sourceDefinition)}.`,
       )
       return
     }
 
-    const siblings = modules.filter(
-      ([id]) => TRUSTED_WORKSPACE_MODULE_BY_ID.get(id)?.parentId === sourceDefinition.parentId,
-    )
+    const groupId = workspaceNavigationGroupPresentation(sourceDefinition).id
+    const siblings = modules.filter(([id]) => {
+      const candidate = TRUSTED_WORKSPACE_MODULE_BY_ID.get(id)
+      return candidate &&
+        isWorkspaceModuleRoleAllowed(candidate, controller.selectedRole) &&
+        candidate.parentId === sourceDefinition.parentId &&
+        workspaceNavigationGroupPresentation(candidate).id === groupId
+    })
     const targetIndex = siblings.findIndex(([id]) => id === targetId)
     if (targetIndex < 0 || sourceId === targetId) {
       setReorderStatus(`${workspaceModuleDisplayLabel(sourceDefinition)} stayed in its current position.`)
@@ -178,10 +228,12 @@ function RoleModuleEditor({ controller }: { controller: WorkspaceSettingsControl
   }
 
   return (
-    <fieldset disabled={controller.roleMutationPending}>
+    <fieldset disabled={editingDisabled}>
       <legend className="text-sm font-semibold">Navigation defaults</legend>
       <p id={instructionsId} className="mt-1 text-xs text-slate dark:text-slate-400">
-        Drag a handle to change desktop position within a navigation group. Use the earlier and later buttons for keyboard or touch; edit mobile position separately.
+        {controller.canManagePolicies
+          ? 'Structural containers stay fixed. Drag within a named group, or use the earlier and later buttons for keyboard or touch. Main navigation has a separate mobile order within fixed primary and secondary tiers; settings keep their desktop order on every screen size.'
+          : 'Structural containers stay fixed. Main navigation has a separate mobile order within fixed primary and secondary tiers; settings keep their desktop order on every screen size.'}
       </p>
       <p role="status" aria-live="polite" aria-atomic="true" className="mt-1 min-h-4 text-xs text-slate dark:text-slate-400">
         {reorderStatus}
@@ -193,8 +245,8 @@ function RoleModuleEditor({ controller }: { controller: WorkspaceSettingsControl
               <th scope="col" className="px-3 py-2 font-semibold">Navigation item</th>
               <th scope="col" className="px-3 py-2 font-semibold">Shown by default</th>
               <th scope="col" className="px-3 py-2 font-semibold">Users can customize</th>
-              <th scope="col" className="px-3 py-2 font-semibold">Desktop position</th>
-              <th scope="col" className="px-3 py-2 font-semibold">Mobile position</th>
+              <th scope="col" className="px-3 py-2 font-semibold">Desktop order in group</th>
+              <th scope="col" className="px-3 py-2 font-semibold">Mobile order in tier</th>
             </tr>
           </thead>
           <tbody className="block divide-y divide-slate/15 dark:divide-white/10 sm:table-row-group">
@@ -203,11 +255,24 @@ function RoleModuleEditor({ controller }: { controller: WorkspaceSettingsControl
               if (!definition?.policyManaged) return null
               const Icon = definition.icon
               const displayLabel = workspaceModuleDisplayLabel(definition)
+              const roleAllowed = isWorkspaceModuleRoleAllowed(
+                definition,
+                controller.selectedRole,
+              )
+              const groupId = workspaceNavigationGroupPresentation(definition).id
               const siblingItems = modules.filter(
-                ([id]) => TRUSTED_WORKSPACE_MODULE_BY_ID.get(id)?.parentId === definition.parentId,
+                ([id]) => {
+                  const candidate = TRUSTED_WORKSPACE_MODULE_BY_ID.get(id)
+                  return candidate &&
+                    isWorkspaceModuleRoleAllowed(candidate, controller.selectedRole) &&
+                    candidate.parentId === definition.parentId &&
+                    workspaceNavigationGroupPresentation(candidate).id === groupId
+                },
               )
               const siblingIndex = siblingItems.findIndex(([id]) => id === moduleId)
-              const reorderDisabled = controller.roleMutationPending || siblingItems.length < 2
+              const reorderDisabled = editingDisabled ||
+                siblingItems.length < 2 ||
+                !roleAllowed
               const keyboardGrabbed = keyboardGrabbedModuleId === moduleId
               return (
                 <tr
@@ -217,9 +282,18 @@ function RoleModuleEditor({ controller }: { controller: WorkspaceSettingsControl
                     draggedModuleId === moduleId ? 'opacity-50' : ''
                   } ${dropTargetModuleId === moduleId ? 'bg-cyan/10 ring-1 ring-inset ring-cyan/40' : ''}`}
                   onDragOver={(event) => {
-                    if (!draggedModuleId || draggedModuleId === moduleId) return
+                    if (
+                      editingDisabled ||
+                      !roleAllowed ||
+                      !draggedModuleId ||
+                      draggedModuleId === moduleId
+                    ) return
                     const draggedDefinition = TRUSTED_WORKSPACE_MODULE_BY_ID.get(draggedModuleId)
-                    if (!draggedDefinition || draggedDefinition.parentId !== definition.parentId) {
+                    if (
+                      !draggedDefinition ||
+                      draggedDefinition.parentId !== definition.parentId ||
+                      workspaceNavigationGroupPresentation(draggedDefinition).id !== groupId
+                    ) {
                       event.dataTransfer.dropEffect = 'none'
                       setDropTargetModuleId(null)
                       return
@@ -229,6 +303,7 @@ function RoleModuleEditor({ controller }: { controller: WorkspaceSettingsControl
                     setDropTargetModuleId(moduleId)
                   }}
                   onDrop={(event) => {
+                    if (editingDisabled || !roleAllowed) return
                     event.preventDefault()
                     const transferredId = event.dataTransfer.getData('text/plain')
                     const sourceId = draggedModuleId ?? (
@@ -290,6 +365,11 @@ function RoleModuleEditor({ controller }: { controller: WorkspaceSettingsControl
                       <div className="min-w-0">
                         <p className="font-semibold text-ink dark:text-slate-100">{displayLabel}</p>
                         <p className="text-xs text-slate dark:text-slate-400">{workspaceModuleSectionLabel(definition)}</p>
+                        {!roleAllowed && (
+                          <p className="mt-0.5 text-xs text-amber-700 dark:text-amber-300">
+                            Administrator base role required
+                          </p>
+                        )}
                       </div>
                       <div className="ml-auto flex shrink-0 gap-1">
                         <NavigationOrderButton
@@ -317,7 +397,7 @@ function RoleModuleEditor({ controller }: { controller: WorkspaceSettingsControl
                         className="h-5 w-5 sm:h-auto sm:w-auto"
                         aria-label={`Show ${displayLabel} for ${roleLabel}`}
                         checked={module.visible}
-                        disabled={controller.roleMutationPending}
+                        disabled={editingDisabled || !roleAllowed}
                         onChange={(event) => updateModule(controller, moduleId, { visible: event.target.checked })}
                       />
                       <span className="text-sm sm:hidden">Show</span>
@@ -331,29 +411,43 @@ function RoleModuleEditor({ controller }: { controller: WorkspaceSettingsControl
                         className="h-5 w-5 sm:h-auto sm:w-auto"
                         aria-label={`Allow users to customize ${displayLabel}`}
                         checked={module.optional}
-                        disabled={controller.roleMutationPending}
+                        disabled={editingDisabled || !roleAllowed}
                         onChange={(event) => updateModule(controller, moduleId, { optional: event.target.checked })}
                       />
                       <span className="text-sm sm:hidden">Allow</span>
                     </label>
                   </td>
                   <td className="flex min-w-0 flex-col gap-1 p-0 sm:table-cell sm:px-2 sm:py-2">
-                    <span className="text-xs font-semibold text-slate dark:text-slate-300 sm:hidden">Desktop position</span>
+                    <span className="text-xs font-semibold text-slate dark:text-slate-300 sm:hidden">Desktop order in group</span>
                     <PolicyNumberInput
-                      label={`Desktop position for ${displayLabel}`}
+                      label={`Desktop order in ${workspaceNavigationGroupPresentation(definition).label} for ${displayLabel}`}
                       value={module.order}
-                      disabled={controller.roleMutationPending}
+                      disabled={editingDisabled || !roleAllowed}
                       onChange={(order) => updateModule(controller, moduleId, { order })}
                     />
                   </td>
                   <td className="flex min-w-0 flex-col gap-1 p-0 sm:table-cell sm:px-2 sm:py-2">
-                    <span className="text-xs font-semibold text-slate dark:text-slate-300 sm:hidden">Mobile position</span>
-                    <PolicyNumberInput
-                      label={`Mobile position for ${displayLabel}`}
-                      value={module.mobile_priority}
-                      disabled={controller.roleMutationPending}
-                      onChange={(mobilePriority) => updateModule(controller, moduleId, { mobile_priority: mobilePriority })}
-                    />
+                    <span className="text-xs font-semibold text-slate dark:text-slate-300 sm:hidden">Mobile order in tier</span>
+                    {definition.section === 'primary' ? (
+                      <div className="space-y-0.5">
+                        <PolicyNumberInput
+                          label={`Mobile order in ${definition.mobileBehavior} tier for ${displayLabel}`}
+                          value={module.mobile_priority}
+                          disabled={editingDisabled || !roleAllowed}
+                          onChange={(mobilePriority) => updateModule(controller, moduleId, { mobile_priority: mobilePriority })}
+                        />
+                        <span className="block text-[11px] capitalize text-slate dark:text-slate-400">
+                          {definition.mobileBehavior} tier
+                        </span>
+                      </div>
+                    ) : (
+                      <span
+                        className="inline-flex min-h-11 items-center text-xs text-slate dark:text-slate-400 sm:min-h-0"
+                        aria-label={`Mobile order for ${displayLabel} uses desktop group order`}
+                      >
+                        Same as desktop
+                      </span>
+                    )}
                   </td>
                 </tr>
               )
@@ -401,8 +495,11 @@ function updateModule(
 
 function RolePolicyControls({ controller }: { controller: WorkspaceSettingsController }) {
   const draft = controller.roleDraft!
-  const preview = rolePolicyPreview(draft)
-  const landingOptions = [...preview.primary, ...preview.settings].filter((module) => module.policyManaged)
+  const editingDisabled = !controller.canManagePolicies || controller.roleMutationPending
+  const preview = rolePolicyPreview(draft, controller.selectedRole)
+  const landingOptions = [...preview.primary, ...preview.settings].filter(
+    (module) => module.policyManaged && module.landingEligible,
+  )
   const trustedLanding = landingOptions.some((module) => module.id === draft.landingModuleId)
   return (
     <div className="grid gap-3 lg:grid-cols-2">
@@ -411,14 +508,27 @@ function RolePolicyControls({ controller }: { controller: WorkspaceSettingsContr
         <select
           className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 font-normal dark:border-cyan-900/40 dark:bg-[#072019]"
           value={draft.landingModuleId}
-          disabled={controller.roleMutationPending}
+          disabled={editingDisabled}
           onChange={(event) => controller.setRoleDraft((current) => current ? { ...current, landingModuleId: event.target.value } : current)}
         >
           {!trustedLanding && <option value={draft.landingModuleId}>Unavailable in this version (kept)</option>}
-          {landingOptions.map((module) => <option key={module.id} value={module.id}>{workspaceModuleDisplayLabel(module)}</option>)}
+          {WORKSPACE_NAVIGATION_GROUPS.map((group) => {
+            const groupOptions = landingOptions.filter(
+              (module) => workspaceNavigationGroupPresentation(module).id === group.id,
+            )
+            return groupOptions.length > 0 ? (
+              <optgroup key={group.id} label={group.label}>
+                {groupOptions.map((module) => (
+                  <option key={module.id} value={module.id}>
+                    {workspaceModuleDisplayLabel(module)}
+                  </option>
+                ))}
+              </optgroup>
+            ) : null
+          })}
         </select>
       </label>
-      <fieldset disabled={controller.roleMutationPending}>
+      <fieldset disabled={editingDisabled}>
         <legend className="text-sm font-semibold">Initial dashboard panels</legend>
         <p className="mt-1 text-xs font-normal text-slate dark:text-slate-400">
           These panels seed dashboards for role members who do not have a saved local layout.
@@ -432,7 +542,7 @@ function RolePolicyControls({ controller }: { controller: WorkspaceSettingsContr
                   type="checkbox"
                   checked={draft.dashboardPanelIds.includes(panel.id)}
                   disabled={
-                    controller.roleMutationPending ||
+                    editingDisabled ||
                     (draft.dashboardPanelIds.length === 1 && draft.dashboardPanelIds.includes(panel.id))
                   }
                   onChange={(event) => controller.setRoleDraft((current) => current ? {
@@ -452,7 +562,7 @@ function RolePolicyControls({ controller }: { controller: WorkspaceSettingsContr
 }
 
 function RolePolicyPreview({ controller }: { controller: WorkspaceSettingsController }) {
-  const preview = rolePolicyPreview(controller.roleDraft!)
+  const preview = rolePolicyPreview(controller.roleDraft!, controller.selectedRole)
   const roleLabel = formatSettingsRoleLabel(controller.selectedRole)
   return (
     <section className="rounded border border-slate/20 bg-slate/5 p-3 dark:border-white/10 dark:bg-white/[0.03]" aria-label={`${roleLabel} navigation preview`}>
@@ -464,26 +574,55 @@ function RolePolicyPreview({ controller }: { controller: WorkspaceSettingsContro
         This preview is inert and reflects policy visibility only. User permissions, feature availability, and personal choices can hide more modules.
       </p>
       <div className="mt-3 space-y-3">
-        <PreviewRow label="Desktop navigation" modules={preview.primary} />
+        <PreviewRow label="Main navigation" modules={preview.primary} />
         <PreviewRow label="Mobile navigation" modules={preview.mobile} />
-        <PreviewRow label="Settings navigation" modules={preview.settings} />
+        {WORKSPACE_NAVIGATION_GROUPS.filter((group) => group.id !== 'main').map((group) => {
+          const modules = preview.settings.filter(
+            (module) => workspaceNavigationGroupPresentation(module).id === group.id,
+          )
+          return modules.length > 0 ? (
+            <PreviewRow
+              key={group.id}
+              label={group.label}
+              modules={modules}
+              nested={group.id === 'settings.integrations'}
+            />
+          ) : null
+        })}
       </div>
     </section>
   )
 }
 
-function PreviewRow({ label, modules }: { label: string; modules: ReturnType<typeof rolePolicyPreview>['primary'] }) {
+function PreviewRow({
+  label,
+  modules,
+  nested = false,
+}: {
+  label: string
+  modules: ReturnType<typeof rolePolicyPreview>['primary']
+  nested?: boolean
+}) {
   return (
-    <div>
+    <div className={nested ? 'ml-3 border-l border-slate/20 pl-3 dark:border-white/10' : undefined}>
       <p className="text-xs font-semibold text-slate dark:text-slate-300">{label}</p>
       <div className="mt-1 flex flex-wrap gap-1.5">
         {modules.length === 0 && <span className="text-xs text-slate dark:text-slate-400">No visible modules</span>}
         {modules.map((module) => {
           const Icon = module.icon
           return (
-            <span key={module.id} className="inline-flex items-center gap-1.5 rounded border border-slate/20 bg-white px-2 py-1 text-xs dark:border-white/10 dark:bg-[#072019]">
+            <span
+              key={module.id}
+              data-navigation-preview-module={module.id}
+              className="inline-flex items-center gap-1.5 rounded border border-slate/20 bg-white px-2 py-1 text-xs dark:border-white/10 dark:bg-[#072019]"
+            >
               <Icon className="h-3.5 w-3.5 text-cyan" aria-hidden="true" />
               {workspaceModuleDisplayLabel(module)}
+              {!module.policyManaged && (
+                <span className="rounded bg-slate/10 px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate dark:bg-white/10 dark:text-slate-300">
+                  {module.isContainer ? 'Fixed container' : 'Fixed'}
+                </span>
+              )}
             </span>
           )
         })}
@@ -497,20 +636,12 @@ function clampOrder(value: number): number {
   return Math.min(10_000, Math.max(0, Math.round(value)))
 }
 
-function workspaceModuleDisplayLabel(module: TrustedWorkspaceModule): string {
-  if (module.section !== 'settings') return module.label
-  return settingsModulePresentation(module.id, module.label).label
-}
-
 function workspaceModuleSectionLabel(module: TrustedWorkspaceModule): string {
-  if (module.section === 'primary') return 'Main navigation'
-  if (module.parentId === 'settings.integrations') return 'Integration setting'
-  return 'Settings navigation'
+  return workspaceNavigationGroupPresentation(module).label
 }
 
 function workspaceModuleReorderGroupLabel(module: TrustedWorkspaceModule): string {
-  if (module.parentId === 'settings.integrations') return 'Integration settings'
-  return module.section === 'settings' ? 'Settings navigation' : 'Main navigation'
+  return workspaceNavigationGroupPresentation(module).label
 }
 
 function isTrustedRoleModuleId(

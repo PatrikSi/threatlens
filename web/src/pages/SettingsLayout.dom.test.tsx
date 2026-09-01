@@ -87,8 +87,6 @@ vi.mock('../workspace/useWorkspace', () => ({
     return {
       model: {
         settingsNavigation: [account, tokens, workspace, ...policyOrderedModules, ...children],
-        // Deliberately different: the shell must use one stable order at every breakpoint.
-        mobileSettingsNavigation: [workspace, tokens, account, ...policyOrderedModules, ...children],
       },
     }
   },
@@ -228,6 +226,22 @@ describe('SettingsLayout navigation', () => {
     expect(view.textContent).toContain('SMTP body')
   })
 
+  it('names a hidden direct destination without adding it to navigation', () => {
+    settingsLayoutMocks.currentUserError = true
+    const view = renderLayout('/settings/integrations/smtp')
+    const menuButton = view.querySelector<HTMLButtonElement>(
+      '[aria-controls="mobile-settings-navigation"]',
+    )
+
+    expect(menuButton?.textContent).toContain('Email delivery')
+    expect(menuButton?.getAttribute('aria-label')).toContain(
+      'Current section: Email delivery',
+    )
+    expect(view.querySelector('#desktop-settings-navigation')?.textContent).not.toContain(
+      'Email delivery',
+    )
+  })
+
   it('keeps the same grouped policy order on desktop and mobile', () => {
     const view = renderLayout('/settings/account')
     const desktopNavigation = view.querySelector('#desktop-settings-navigation')
@@ -258,6 +272,7 @@ describe('SettingsLayout navigation', () => {
     expect(desktopSidebar?.className).toContain('sticky')
     expect(desktopSidebar?.className).toContain('overflow-y-auto')
     expect(desktopSidebar?.textContent).toContain('Administrator')
+    expect(desktopSidebar?.textContent).toContain('Personal and workspace controls')
     expect(desktopSidebar?.textContent).not.toContain('Current role')
     expect(desktopSidebar?.querySelector('.tl-surface-muted')).toBeNull()
   })

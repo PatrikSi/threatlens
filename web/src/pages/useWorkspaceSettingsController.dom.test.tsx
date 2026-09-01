@@ -25,6 +25,13 @@ const controllerMocks = vi.hoisted(() => ({
   refreshWorkspace: vi.fn(),
   workspace: null as unknown,
   serverPolicies: [] as unknown[],
+  currentUserAccess: {
+    permissions: ['write:workspace'],
+  } as {
+    permissions: string[]
+    durable_permissions?: string[]
+    elevation_ids?: string[]
+  },
 }))
 
 vi.mock('../hooks/useCurrentUser', () => ({
@@ -35,9 +42,7 @@ vi.mock('../hooks/useCurrentUser', () => ({
       role: 'admin',
       is_active: true,
       is_approved: true,
-      access: {
-        permissions: ['write:workspace'],
-      },
+      access: controllerMocks.currentUserAccess,
     },
     isLoading: false,
     isError: false,
@@ -73,6 +78,9 @@ let queryClient: QueryClient | null = null
 let latestController: WorkspaceSettingsController | null = null
 
 beforeEach(() => {
+  controllerMocks.currentUserAccess = {
+    permissions: ['write:workspace'],
+  }
   controllerMocks.serverPolicies = rolePolicies()
   controllerMocks.getRolePolicies.mockImplementation(async () => controllerMocks.serverPolicies)
   controllerMocks.updateRolePolicy.mockImplementation(async (role, payload) => {
@@ -133,6 +141,52 @@ afterEach(() => {
 })
 
 describe('useWorkspaceSettingsController', () => {
+  it('allows policy inspection but not editing from temporary elevation alone', async () => {
+    controllerMocks.currentUserAccess = {
+      permissions: ['read:workspace', 'write:workspace'],
+      durable_permissions: ['read:workspace'],
+      elevation_ids: ['elevation-1'],
+    }
+
+    renderController()
+    await act(async () => {
+      await vi.waitFor(() => {
+        expect(container?.textContent).toContain('role-ready:personal-ready')
+      })
+    })
+
+    expect(controller().canReadPolicies).toBe(true)
+    expect(controller().canManagePolicies).toBe(false)
+    expect(controllerMocks.getRolePolicies).toHaveBeenCalledTimes(1)
+    expect(controller().roleDraft).not.toBeNull()
+    expect(controller().personalDraft).not.toBeNull()
+
+    const originalLanding = controller().roleDraft?.landingModuleId
+    act(() => {
+      controller().setRoleDraft((current) => current ? { ...current, landingModuleId: 'primary.alerts' } : current)
+    })
+    expect(controller().roleDraft?.landingModuleId).toBe(originalLanding)
+    expect(controller().roleDirty).toBe(false)
+  })
+
+  it('keeps organization policies private without workspace read permission', async () => {
+    controllerMocks.currentUserAccess = {
+      permissions: ['read:items'],
+      durable_permissions: ['read:items'],
+    }
+
+    renderController()
+    await act(async () => {
+      await vi.waitFor(() => {
+        expect(container?.textContent).toContain('no-policy:no-role:personal-ready')
+      })
+    })
+
+    expect(controller().canReadPolicies).toBe(false)
+    expect(controller().canManagePolicies).toBe(false)
+    expect(controllerMocks.getRolePolicies).not.toHaveBeenCalled()
+  })
+
   it('preserves concurrent dirty drafts across query refreshes and unrelated mutation success', async () => {
     controllerMocks.workspace = workspaceValue(effectiveWorkspace(), {
       ...preferences(),

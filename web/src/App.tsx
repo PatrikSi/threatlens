@@ -14,10 +14,10 @@ import { Component, Suspense, lazy, useEffect, useMemo, useState } from 'react'
 
 import { AppShell } from './components/AppShell'
 import { AuthProvider, useAuth } from './components/AuthContext'
-import { PermissionRoute } from './components/PermissionRoute'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { ThemeProvider } from './components/ThemeContext'
 import { WorkspaceLandingRedirect } from './components/WorkspaceLandingRedirect'
+import { WorkspaceModuleRoute } from './components/WorkspaceModuleRoute'
 import { WorkspaceProvider } from './components/WorkspaceProvider'
 import {
   LoginPage,
@@ -25,7 +25,11 @@ import {
   readPendingOidcReturnDestination,
 } from './pages/LoginPage'
 import { useWorkspace } from './workspace/useWorkspace'
-import type { TrustedWorkspaceModuleId } from './workspace/moduleRegistry'
+import {
+  TRUSTED_WORKSPACE_MODULE_BY_ID,
+  type TrustedWorkspaceModuleId,
+} from './workspace/moduleRegistry'
+import { workspaceNavigationGroupOrder } from './workspace/modulePresentation'
 
 const AccountPage = lazy(() => import('./pages/AccountPage').then((module) => ({ default: module.AccountPage })))
 const AccessGovernancePage = lazy(() =>
@@ -113,16 +117,47 @@ function createAppRouter() {
             </ProtectedRoute>
           }
         >
-          <Route index element={suspenseRoute(<DashboardPage />, 'Loading dashboard...')} />
+          <Route
+            index
+            element={(
+              <WorkspaceModuleRoute moduleId="primary.dashboard">
+                {suspenseRoute(<DashboardPage />, 'Loading dashboard...')}
+              </WorkspaceModuleRoute>
+            )}
+          />
           <Route path="start" element={<WorkspaceStartRoute />} />
-          <Route path="alerts" element={suspenseRoute(<AlertsPage />, 'Loading alerts...')} />
-          <Route path="investigations" element={suspenseRoute(<InvestigationsPage />, 'Loading investigations...')} />
-          <Route path="investigations/:investigationId" element={suspenseRoute(<InvestigationsPage />, 'Loading investigation...')} />
-          <Route path="feeds" element={suspenseRoute(<FeedsPage />, 'Loading feeds...')} />
-          <Route path="stats" element={suspenseRoute(<StatsPage />, 'Loading statistics...')} />
-          <Route path="export" element={suspenseRoute(<ExportPage />, 'Loading export workspace...')} />
-          <Route path="reporting" element={suspenseRoute(<ReportingPage />, 'Loading intelligence reporting...')} />
-          <Route path="reporting/:reportId" element={suspenseRoute(<ReportingPage />, 'Loading intelligence report...')} />
+          <Route
+            path="alerts"
+            element={<WorkspaceModuleRoute moduleId="primary.alerts">{suspenseRoute(<AlertsPage />, 'Loading alerts...')}</WorkspaceModuleRoute>}
+          />
+          <Route
+            path="investigations"
+            element={<WorkspaceModuleRoute moduleId="primary.investigations">{suspenseRoute(<InvestigationsPage />, 'Loading investigations...')}</WorkspaceModuleRoute>}
+          />
+          <Route
+            path="investigations/:investigationId"
+            element={<WorkspaceModuleRoute moduleId="primary.investigations">{suspenseRoute(<InvestigationsPage />, 'Loading investigation...')}</WorkspaceModuleRoute>}
+          />
+          <Route
+            path="feeds"
+            element={<WorkspaceModuleRoute moduleId="primary.feeds">{suspenseRoute(<FeedsPage />, 'Loading feeds...')}</WorkspaceModuleRoute>}
+          />
+          <Route
+            path="stats"
+            element={<WorkspaceModuleRoute moduleId="primary.stats">{suspenseRoute(<StatsPage />, 'Loading statistics...')}</WorkspaceModuleRoute>}
+          />
+          <Route
+            path="export"
+            element={<WorkspaceModuleRoute moduleId="primary.export">{suspenseRoute(<ExportPage />, 'Loading export workspace...')}</WorkspaceModuleRoute>}
+          />
+          <Route
+            path="reporting"
+            element={<WorkspaceModuleRoute moduleId="primary.reporting">{suspenseRoute(<ReportingPage />, 'Loading intelligence reporting...')}</WorkspaceModuleRoute>}
+          />
+          <Route
+            path="reporting/:reportId"
+            element={<WorkspaceModuleRoute moduleId="primary.reporting">{suspenseRoute(<ReportingPage />, 'Loading intelligence report...')}</WorkspaceModuleRoute>}
+          />
           <Route path="ai" element={<Navigate to="/settings/ai" replace />} />
           <Route path="settings" element={suspenseRoute(<SettingsLayout />, 'Loading settings...')}>
             <Route
@@ -139,90 +174,90 @@ function createAppRouter() {
               <Route
                 path="webhooks"
                 element={
-                  <PermissionRoute permissions={['read:notifications']}>
+                  <WorkspaceModuleRoute moduleId="settings.integrations.webhooks">
                     {suspenseRoute(<NotificationWebhooksSettingsPage />, 'Loading webhook integration settings...')}
-                  </PermissionRoute>
+                  </WorkspaceModuleRoute>
                 }
               />
               <Route
                 path="smtp"
                 element={
-                  <PermissionRoute permissions={['read:integrations']}>
+                  <WorkspaceModuleRoute moduleId="settings.integrations.smtp">
                     {suspenseRoute(<IntegrationsSettingsPage />, 'Loading SMTP integration settings...')}
-                  </PermissionRoute>
+                  </WorkspaceModuleRoute>
                 }
               />
             </Route>
             <Route
               path="access"
               element={
-                <PermissionRoute permissions={['read:iam']}>
+                <WorkspaceModuleRoute moduleId="settings.access">
                   {suspenseRoute(<AccessGovernancePage />, 'Loading access governance...')}
-                </PermissionRoute>
+                </WorkspaceModuleRoute>
               }
             />
             <Route
               path="identity"
               element={
-                <PermissionRoute permissions={['read:users']}>
+                <WorkspaceModuleRoute moduleId="settings.identity">
                   {suspenseRoute(<IdentitySettingsPage />, 'Loading identity provider settings...')}
-                </PermissionRoute>
+                </WorkspaceModuleRoute>
               }
             />
             <Route
               path="ai"
               element={
-                <PermissionRoute permissions={['read:ai']}>
+                <WorkspaceModuleRoute moduleId="settings.ai">
                   {suspenseRoute(<AiSettingsPage />, 'Loading AI settings...')}
-                </PermissionRoute>
+                </WorkspaceModuleRoute>
               }
             />
             <Route
               path="tagging"
               element={
-                <PermissionRoute permissions={['read:tagging']}>
+                <WorkspaceModuleRoute moduleId="settings.tagging">
                   {suspenseRoute(<TaggingSettingsPage />, 'Loading tagging settings...')}
-                </PermissionRoute>
+                </WorkspaceModuleRoute>
               }
             />
             <Route
               path="tokens"
               element={
-                <PermissionRoute permissions={['write:tokens']}>
+                <WorkspaceModuleRoute moduleId="settings.tokens">
                   {suspenseRoute(<TokensPage />, 'Loading token inventory...')}
-                </PermissionRoute>
+                </WorkspaceModuleRoute>
               }
             />
             <Route
               path="workspace"
               element={
-                <PermissionRoute permissions={['read:workspace']}>
+                <WorkspaceModuleRoute moduleId="settings.workspace">
                   {suspenseRoute(<WorkspaceSettingsPage />, 'Loading workspace settings...')}
-                </PermissionRoute>
+                </WorkspaceModuleRoute>
               }
             />
             <Route
               path="operations"
               element={
-                <PermissionRoute permissions={['read:operations']}>
+                <WorkspaceModuleRoute moduleId="settings.operations">
                   {suspenseRoute(<OperationsPage />, 'Loading operations status...')}
-                </PermissionRoute>
+                </WorkspaceModuleRoute>
               }
             />
             <Route
               path="users"
               element={
-                <PermissionRoute permissions={['read:users']}>
+                <WorkspaceModuleRoute moduleId="settings.users">
                   {suspenseRoute(<UsersPage />, 'Loading user administration...')}
-                </PermissionRoute>
+                </WorkspaceModuleRoute>
               }
             />
             <Route
               path="audit-logs"
               element={
-                <PermissionRoute permissions={['read:audit']}>
+                <WorkspaceModuleRoute moduleId="settings.audit">
                   {suspenseRoute(<AuditLogsPage />, 'Loading audit logs...')}
-                </PermissionRoute>
+                </WorkspaceModuleRoute>
               }
             />
           </Route>
@@ -258,10 +293,30 @@ function WorkspaceChildRedirect({
   if (workspace.isLoading) {
     return <RouteLoadingFallback label="Resolving available settings..." />
   }
-  const child = workspace.model.settingsNavigation.find(
-    (module) => module.parentId === parentId && module.landingEligible,
-  )
+  const child = [...workspace.model.settingsNavigation]
+    .filter(
+      (module) =>
+        module.landingEligible &&
+        isWorkspaceModuleDescendantOf(module.id, parentId),
+    )
+    .sort((left, right) =>
+      workspaceNavigationGroupOrder(left) - workspaceNavigationGroupOrder(right) ||
+      left.order - right.order ||
+      left.id.localeCompare(right.id),
+    )[0]
   return <Navigate to={child?.route ?? fallback} replace />
+}
+
+function isWorkspaceModuleDescendantOf(
+  moduleId: TrustedWorkspaceModuleId,
+  ancestorId: TrustedWorkspaceModuleId,
+) {
+  let parentId = TRUSTED_WORKSPACE_MODULE_BY_ID.get(moduleId)?.parentId ?? null
+  while (parentId !== null) {
+    if (parentId === ancestorId) return true
+    parentId = TRUSTED_WORKSPACE_MODULE_BY_ID.get(parentId)?.parentId ?? null
+  }
+  return false
 }
 
 interface AppRenderErrorBoundaryState {

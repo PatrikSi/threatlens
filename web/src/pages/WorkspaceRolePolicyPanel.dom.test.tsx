@@ -42,6 +42,8 @@ describe('WorkspaceRolePolicyPanel', () => {
       roleValidation: '',
       selectedPolicyWarnings: ['unknown_policy_module:future.timeline'],
       roleDirty: true,
+      canManagePolicies: true,
+      roleMutationPending: false,
       resetRolePolicy: { isPending: false, mutate: vi.fn() },
       updateRolePolicy: { isPending: false, mutate: vi.fn() },
       setResetRoleRequested: vi.fn(),
@@ -57,15 +59,52 @@ describe('WorkspaceRolePolicyPanel', () => {
     expect(preview?.textContent).toContain('Dashboard')
     expect(preview?.textContent).toContain('Mobile navigation')
     expect(preview?.textContent).toContain('Navigation')
+    expect(preview?.querySelector('[data-navigation-preview-module="primary.settings"]')?.textContent)
+      .toContain('SettingsFixed container')
+    expect(preview?.querySelector('[data-navigation-preview-module="settings.workspace"]')?.textContent)
+      .toContain('NavigationFixed')
+    expect(preview?.querySelector('[data-navigation-preview-module="settings.integrations"]')?.textContent)
+      .toContain('IntegrationsFixed container')
+    expect(preview?.textContent).toContain('Personal settings')
+    expect(preview?.textContent).toContain('Automation settings')
+    expect(preview?.textContent).toContain('Integration settings')
+    const integrationPreview = [...(preview?.querySelectorAll('p') ?? [])].find(
+      (paragraph) => paragraph.textContent === 'Integration settings',
+    )?.parentElement
+    expect(integrationPreview?.className).toContain('ml-3')
     expect(preview?.textContent).not.toContain('Workspace')
     expect(preview?.textContent).not.toContain('Feeds')
+    expect(preview?.textContent).not.toContain('AI automation')
+    expect(preview?.textContent).not.toContain('Single sign-on')
     expect(preview?.querySelector('a')).toBeNull()
     expect(preview?.querySelector('button')).toBeNull()
     const roleLabels = [...container.querySelectorAll('[aria-label="Built-in role"] button')]
       .map((button) => button.textContent?.trim())
     expect(roleLabels).toEqual(['Administrator', 'Analyst', 'Viewer'])
     expect(container.textContent).toContain('future.timeline is retained for compatibility')
+    expect(
+      container.querySelector<HTMLInputElement>('[aria-label="Show AI automation for Analyst"]')?.disabled,
+    ).toBe(true)
+    expect(
+      container.querySelector<HTMLInputElement>('[aria-label="Show Single sign-on for Analyst"]')?.disabled,
+    ).toBe(true)
+    const taggingHandle = container.querySelector<HTMLButtonElement>(
+      '[aria-label^="Drag Content tagging."]',
+    )
+    expect(taggingHandle?.disabled).toBe(true)
+    expect(taggingHandle?.draggable).toBe(false)
+    expect(taggingHandle?.getAttribute('aria-label')).toContain('Position 1 of 1')
+    expect(container.textContent).toContain('Administrator base role required')
     expect(container.querySelector('a[href*="future.timeline"]')).toBeNull()
+    expect(
+      [...container.querySelectorAll<HTMLOptGroupElement>('select optgroup')].map(
+        (group) => group.label,
+      ),
+    ).toEqual([
+      'Main navigation',
+      'Personal settings',
+      'Integration settings',
+    ])
   })
 
   it('reorders desktop defaults by drag, handle keyboard controls, and touch buttons', () => {
@@ -85,6 +124,7 @@ describe('WorkspaceRolePolicyPanel', () => {
       roleValidation: '',
       selectedPolicyWarnings: [],
       roleDirty: true,
+      canManagePolicies: true,
       roleMutationPending: false,
       roleRevisionConflict: false,
       discardAndReloadRole: vi.fn(),
@@ -114,8 +154,20 @@ describe('WorkspaceRolePolicyPanel', () => {
     expect(handle?.getAttribute('aria-describedby')).toBe(
       'role-navigation-reorder-instructions',
     )
-    expect(container.textContent).toContain('edit mobile position separately')
-    expect(container.querySelector('[aria-label="Mobile position for Feeds"]')).not.toBeNull()
+    expect(container.textContent).toContain(
+      'settings keep their desktop order on every screen size',
+    )
+    expect(container.querySelector('[aria-label="Mobile order in primary tier for Feeds"]')).not.toBeNull()
+    expect(
+      container.querySelector('[aria-label="Mobile order for API tokens uses desktop group order"]')
+        ?.tagName,
+    ).toBe('SPAN')
+    expect(container.querySelector('[data-navigation-reorder-item="primary.settings"]')).toBeNull()
+    expect(container.querySelector('[data-navigation-reorder-item="settings.integrations"]')).toBeNull()
+    expect(
+      container.querySelector<HTMLButtonElement>('[aria-label^="Drag Dashboard."]')
+        ?.getAttribute('aria-label'),
+    ).toContain('of 7')
     expect(earlierButton).not.toBeNull()
 
     const transfer = createDataTransfer()
@@ -173,6 +225,7 @@ describe('WorkspaceRolePolicyPanel', () => {
       roleValidation: '',
       selectedPolicyWarnings: [],
       roleDirty: true,
+      canManagePolicies: true,
       roleMutationPending: true,
       roleRevisionConflict: true,
       discardAndReloadRole: vi.fn(),
@@ -199,9 +252,11 @@ describe('WorkspaceRolePolicyPanel', () => {
     expect(container.textContent).toContain('Navigation defaults by role')
     expect(container.textContent).toContain('Shown by default')
     expect(container.textContent).toContain('Users can customize')
+    expect(container.textContent).toContain('Desktop order in group')
+    expect(container.textContent).toContain('Mobile order in tier')
     expect(container.textContent).toContain('Default start page')
     expect(container.textContent).toContain('Initial dashboard panels')
-    expect(container.textContent).toContain('Settings navigation')
+    expect(container.textContent).toContain('Organization settings')
     expect(container.textContent).not.toContain('settings.workspace')
 
     const columnHeaders = [...container.querySelectorAll('thead th')]
@@ -217,12 +272,120 @@ describe('WorkspaceRolePolicyPanel', () => {
     expect(row?.className).toContain('grid')
     expect(row?.className).toContain('sm:table-row')
   })
+
+  it('lets policy readers inspect every role without exposing organization mutations', () => {
+    const policy = rolePolicy()
+    const setRoleDraft = vi.fn()
+    const controller = {
+      roles: ['admin', 'analyst', 'viewer'],
+      selectedRole: 'analyst',
+      selectRole: vi.fn(),
+      selectedPolicy: policy,
+      roleDraft: createRolePolicyDraft(policy),
+      setRoleDraft,
+      rolePoliciesLoading: false,
+      roleError: '',
+      roleFeedback: '',
+      roleValidation: '',
+      selectedPolicyWarnings: [],
+      roleDirty: false,
+      canManagePolicies: false,
+      roleMutationPending: false,
+      roleRevisionConflict: false,
+      discardAndReloadRole: vi.fn(),
+      resetRolePolicy: { isPending: false, mutate: vi.fn() },
+      updateRolePolicy: { isPending: false, mutate: vi.fn() },
+      setResetRoleRequested: vi.fn(),
+    } as unknown as WorkspaceSettingsController
+
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+    act(() => root?.render(<WorkspaceRolePolicyPanel controller={controller} />))
+
+    expect(container.textContent).toContain('Read-only organization policy')
+    expect(container.textContent).toContain('Review the default navigation')
+    const roleButtons = [...container.querySelectorAll<HTMLButtonElement>('[aria-label="Built-in role"] button')]
+    expect(roleButtons).toHaveLength(3)
+    expect(roleButtons.every((button) => !button.disabled)).toBe(true)
+    act(() => roleButtons[2].click())
+    expect(controller.selectRole).toHaveBeenCalledWith('viewer')
+
+    const editingControls = [...container.querySelectorAll<HTMLInputElement | HTMLSelectElement>(
+      'input, select',
+    )]
+    expect(editingControls.length).toBeGreaterThan(10)
+    expect(editingControls.every((control) => control.disabled)).toBe(true)
+    expect(
+      [...container.querySelectorAll<HTMLButtonElement>('[aria-label^="Drag "]')]
+        .every((handle) => handle.disabled && !handle.draggable),
+    ).toBe(true)
+    expect(container.textContent).not.toContain('Save navigation defaults')
+    expect(container.textContent).not.toContain('Reset Analyst defaults')
+    expect(setRoleDraft).not.toHaveBeenCalled()
+  })
+
+  it('resets reorder interaction state when the selected role changes', () => {
+    const analystPolicy = rolePolicy()
+    const controller = {
+      roles: ['admin', 'analyst', 'viewer'],
+      selectedRole: 'analyst',
+      selectRole: vi.fn(),
+      selectedPolicy: analystPolicy,
+      roleDraft: createRolePolicyDraft(analystPolicy),
+      setRoleDraft: vi.fn(),
+      rolePoliciesLoading: false,
+      roleError: '',
+      roleFeedback: '',
+      roleValidation: '',
+      selectedPolicyWarnings: [],
+      roleDirty: false,
+      canManagePolicies: true,
+      roleMutationPending: false,
+      roleRevisionConflict: false,
+      discardAndReloadRole: vi.fn(),
+      resetRolePolicy: { isPending: false, mutate: vi.fn() },
+      updateRolePolicy: { isPending: false, mutate: vi.fn() },
+      setResetRoleRequested: vi.fn(),
+    } as unknown as WorkspaceSettingsController
+
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+    act(() => root?.render(<WorkspaceRolePolicyPanel controller={controller} />))
+
+    const analystHandle = container.querySelector<HTMLButtonElement>(
+      '[aria-label^="Drag Feeds."]',
+    )!
+    act(() => analystHandle.click())
+    expect(analystHandle.getAttribute('aria-pressed')).toBe('true')
+
+    const viewerPolicy = { ...analystPolicy, role: 'viewer' as const }
+    const viewerController = {
+      ...controller,
+      selectedRole: 'viewer' as const,
+      selectedPolicy: viewerPolicy,
+      roleDraft: createRolePolicyDraft(viewerPolicy),
+    }
+    act(() => root?.render(<WorkspaceRolePolicyPanel controller={viewerController} />))
+
+    const viewerHandle = container.querySelector<HTMLButtonElement>(
+      '[aria-label^="Drag Feeds."]',
+    )
+    expect(viewerHandle?.getAttribute('aria-pressed')).toBe('false')
+    expect(container.querySelector('[role="status"]')?.textContent).toContain(
+      'save Viewer navigation defaults',
+    )
+    expect(container.querySelector('[role="status"]')?.textContent).not.toContain('Analyst')
+  })
 })
 
 function rolePolicy(): WorkspaceRolePolicyResponse {
   return {
     role: 'analyst', landing_module_id: 'primary.dashboard', revision: 2,
-    modules: TRUSTED_WORKSPACE_MODULES.filter((module) => module.policyManaged).map((module) => ({
+    modules: TRUSTED_WORKSPACE_MODULES.filter(
+      (module) => module.policyManaged || module.isContainer,
+    ).map((module) => ({
       module_id: module.id,
       visible: module.defaultVisibleRoles.includes('analyst'),
       optional: module.defaultOptional,

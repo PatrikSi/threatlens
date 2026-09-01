@@ -44,11 +44,12 @@ Route tree:
     - `/settings/notifications` -> redirect to `/settings/integrations/webhooks`
     - `/settings/integrations` -> first visible trusted integration child
     - `/settings/integrations/webhooks` -> `NotificationWebhooksSettings`
-    - `/settings/integrations/smtp` -> `read:integrations`-gated `SMTPIntegrationSettingsPage`
-    - `/settings/ai` -> `read:ai`-gated `AiSettingsPage` (shown only when `features.ai_enabled`)
+    - `/settings/integrations/smtp` -> `read:integrations`-gated `SMTPIntegrationSettingsPage` with no sealed base-role requirement
+    - `/settings/ai` -> administrator-base-role and `read:ai`-gated `AiSettingsPage` (shown only when `features.ai_enabled`)
+    - `/settings/identity` -> administrator-base-role and `read:users`-gated `IdentitySettingsPage`
     - `/settings/tagging` -> `read:tagging`-gated `TaggingSettingsPage`
-    - `/settings/tokens` -> `TokensPage`
-    - `/settings/operations` -> `read:operations`-gated `OperationsPage`
+    - `/settings/tokens` -> `read:tokens`-gated `TokensPage`
+    - `/settings/operations` -> `read:operations`-gated `OperationsPage` with no sealed base-role requirement
     - `/settings/users` -> `read:users`-gated `UsersPage`
     - `/settings/audit-logs` -> `read:audit`-gated `AuditLogsPage`
 
@@ -571,6 +572,10 @@ API calls:
 
 ### `SMTPIntegrationSettingsPage`
 
+Reading the SMTP workspace requires `read:integrations`; its mutation, test,
+delete, and replay controls require `write:integrations`. Neither permission is
+restricted to the built-in administrator base role.
+
 UI elements:
 
 - Multi-hook SMTP list with per-hook health and credential-source status
@@ -648,13 +653,14 @@ API calls:
 
 UI elements:
 
-- Create token form: name, expiry days, scopes CSV, and an authentication-method-aware step-up
+- Token inventory for users with `read:tokens`; an explicit read-only state hides
+  mutation controls when `write:tokens` is absent
+- Create token form for users with `write:tokens`: name, expiry days, scopes CSV, and an authentication-method-aware step-up
 - Leave scopes blank to get the default read-only scopes; an explicit empty list is rejected by the API
 - Local browser sessions provide the current password and enabled local MFA. OIDC browser sessions require recent provider authentication with the configured external MFA assurance; the draft is restored after redirect and is never auto-submitted.
 - One-time token reveal panel that receives keyboard focus, announces creation without reading the secret aloud, and clears the bearer value after copy or acknowledgement
-- Token inventory
 - Admin-only `user_id` filter with explicit Apply/Clear actions, UUID validation, and a visible draft-versus-applied state
-- Revoke button per token
+- Revoke button per token for users with `write:tokens`
 
 API calls:
 
@@ -688,7 +694,9 @@ API calls:
 
 ### `OperationsPage`
 
-Administrator workspace for deployment health and recovery readiness.
+Permission-gated workspace for deployment health and recovery readiness. Access
+requires `read:operations` and does not require the built-in administrator base
+role.
 
 UI elements:
 

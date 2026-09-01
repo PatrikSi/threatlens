@@ -6,12 +6,15 @@ import type {
   WorkspaceUserPreferenceResponse,
 } from '../types/workspace'
 import { TRUSTED_WORKSPACE_MODULES } from '../workspace/moduleRegistry'
+import { resolveWorkspaceModel } from '../workspace/workspaceModel'
 import {
+  buildRolePolicyPayload,
   createPersonalWorkspaceDraft,
   createRolePolicyDraft,
   movePersonalModule,
   moveRolePolicyModule,
   personalLandingOptions,
+  personalNavigationPreview,
   reorderPersonalModule,
   reorderRolePolicyModule,
   rolePolicyPreview,
@@ -52,6 +55,8 @@ describe('workspace settings model', () => {
         ['primary.alerts' as const, { visible: true, order: 10 }],
         ['primary.feeds' as const, { visible: true, order: 20 }],
         ['settings.tokens' as const, { visible: true, order: 5 }],
+        ['settings.users' as const, { visible: true, order: 10 }],
+        ['settings.ai' as const, { visible: true, order: 20 }],
       ]),
       inheritDashboardPanels: true,
       dashboardPanelIds: ['rss'],
@@ -63,6 +68,8 @@ describe('workspace settings model', () => {
 
     const crossGroup = reorderPersonalModule(moved, 'primary.alerts', 'settings.tokens')
     expect(crossGroup).toBe(moved)
+    const crossSettingsGroup = reorderPersonalModule(moved, 'settings.users', 'settings.ai')
+    expect(crossSettingsGroup).toBe(moved)
 
     const tied = {
       ...draft,
@@ -93,14 +100,28 @@ describe('workspace settings model', () => {
 
     const crossGroup = reorderRolePolicyModule(movedAgain, 'primary.feeds', 'settings.tokens')
     expect(crossGroup).toBe(movedAgain)
+    const crossSettingsGroup = reorderRolePolicyModule(
+      movedAgain,
+      'settings.users',
+      'settings.ai',
+    )
+    expect(crossSettingsGroup).toBe(movedAgain)
   })
 
   it('keeps trusted navigation containers outside role-policy visibility edits', () => {
-    const draft = createRolePolicyDraft(rolePolicy())
+    const policy = rolePolicy()
+    const draft = createRolePolicyDraft(policy)
     const unchanged = updateRolePolicyModule(draft, 'primary.settings', { visible: false })
-    unchanged.landingModuleId = 'settings.account'
+    const payload = buildRolePolicyPayload(policy, unchanged)
 
     expect(unchanged.modules.has('primary.settings')).toBe(false)
+    expect(unchanged.modules.has('settings.integrations')).toBe(false)
+    expect(payload.modules.find((module) => module.module_id === 'primary.settings')).toEqual(
+      policy.modules.find((module) => module.module_id === 'primary.settings'),
+    )
+    expect(payload.modules.find((module) => module.module_id === 'settings.integrations')).toEqual(
+      policy.modules.find((module) => module.module_id === 'settings.integrations'),
+    )
     expect(rolePolicyDraftValidation(unchanged)).toBe('')
   })
 
@@ -132,6 +153,26 @@ describe('workspace settings model', () => {
     )
   })
 
+  it('previews settings in visible hierarchy groups and omits empty containers', () => {
+    let draft = createRolePolicyDraft(rolePolicy())
+    draft = updateRolePolicyModule(draft, 'settings.integrations.webhooks', {
+      visible: false,
+    })
+    draft = updateRolePolicyModule(draft, 'settings.integrations.smtp', {
+      visible: false,
+    })
+    draft = updateRolePolicyModule(draft, 'settings.operations', { order: 0 })
+    const preview = rolePolicyPreview(draft)
+
+    expect(preview.settings.map((module) => module.id)).not.toContain('settings.integrations')
+    expect(preview.settings.findIndex((module) => module.id === 'settings.users')).toBeLessThan(
+      preview.settings.findIndex((module) => module.id === 'settings.ai'),
+    )
+    expect(preview.settings.findIndex((module) => module.id === 'settings.ai')).toBeLessThan(
+      preview.settings.findIndex((module) => module.id === 'settings.operations'),
+    )
+  })
+
   it('hydrates optional visibility, order, landing, and inherited dashboard state', () => {
     const effective = effectiveWorkspace()
     const preferences: WorkspaceUserPreferenceResponse = {
@@ -160,6 +201,44 @@ describe('workspace settings model', () => {
 
     expect(options).toContain('settings.account')
     expect(options).toContain('settings.integrations.webhooks')
+    expect(options).not.toContain('primary.settings')
+    expect(options).not.toContain('settings.integrations')
+    expect(
+      personalLandingOptions(effective, draft).every((module) => module.landingEligible),
+    ).toBe(true)
+  })
+
+  it('previews every visible personal destination and identifies fixed structure', () => {
+    const effective = effectiveWorkspace()
+    const draft = createPersonalWorkspaceDraft(effective, preferences())
+    const model = resolveWorkspaceModel(effective, undefined, {
+      role: 'admin',
+      permissions: ['*:*'],
+      features: {
+        ai_enabled: true,
+        ai_configured: true,
+        ai_summary_enabled: true,
+        ai_relevance_enabled: true,
+        ai_daily_brief_enabled: true,
+        ai_reporting_enabled: true,
+      },
+      accountEligible: true,
+    })
+    const preview = personalNavigationPreview(model.modules, draft)
+    const fixedIds = preview.filter((item) => item.fixed).map((item) => item.module.id)
+
+    expect(fixedIds).toEqual(expect.arrayContaining([
+      'primary.dashboard',
+      'primary.settings',
+      'settings.account',
+      'settings.workspace',
+      'settings.integrations',
+    ]))
+    expect(preview.findIndex((item) => item.module.id === 'settings.users')).toBeLessThan(
+      preview.findIndex((item) => item.module.id === 'settings.ai'),
+    )
+    expect(preview.findIndex((item) => item.module.id === 'settings.integrations.webhooks'))
+      .toBeLessThan(preview.findIndex((item) => item.module.id === 'settings.operations'))
   })
 
   it('rejects a role policy with no first-use dashboard panels', () => {
@@ -182,7 +261,9 @@ function preferences(): WorkspaceUserPreferenceResponse {
 function rolePolicy(): WorkspaceRolePolicyResponse {
   return {
     role: 'analyst', landing_module_id: 'primary.dashboard', revision: 2,
-    modules: TRUSTED_WORKSPACE_MODULES.filter((module) => module.policyManaged).map((module) => ({
+    modules: TRUSTED_WORKSPACE_MODULES.filter(
+      (module) => module.policyManaged || module.isContainer,
+    ).map((module) => ({
       module_id: module.id, visible: true, optional: module.defaultOptional,
       order: module.defaultOrder, mobile_priority: module.defaultMobilePriority,
     })),

@@ -7,6 +7,7 @@ import type {
   WorkspaceUserPreferenceWriteRequest,
 } from '../types/workspace'
 import {
+  TRUSTED_WORKSPACE_MODULE_BY_ID,
   TRUSTED_WORKSPACE_MODULES,
   isTrustedDashboardPanelId,
   isTrustedWorkspaceModuleId,
@@ -14,8 +15,14 @@ import {
   type TrustedWorkspaceModuleId,
 } from '../workspace/moduleRegistry'
 import {
+  workspaceNavigationGroupOrder,
+  workspaceNavigationGroupPresentation,
+} from '../workspace/modulePresentation'
+import {
   preferenceWriteRequest,
   rolePolicyWriteRequest,
+  isWorkspaceModuleRoleAllowed,
+  type ResolvedWorkspaceModule,
   type WorkspaceModulePreferenceDraft,
 } from '../workspace/workspaceModel'
 
@@ -38,13 +45,19 @@ export interface RolePolicyPreview {
   settings: TrustedWorkspaceModule[]
 }
 
+export interface PersonalNavigationPreviewItem {
+  module: TrustedWorkspaceModule
+  fixed: boolean
+}
+
 export function createRolePolicyDraft(policy: WorkspaceRolePolicyResponse): RolePolicyDraft {
   return {
     landingModuleId: policy.landing_module_id,
     modules: new Map(
       policy.modules
         .filter((module): module is WorkspaceModulePolicy & { module_id: TrustedWorkspaceModuleId } =>
-          isTrustedWorkspaceModuleId(module.module_id),
+          isTrustedWorkspaceModuleId(module.module_id) &&
+          TRUSTED_WORKSPACE_MODULE_BY_ID.get(module.module_id)?.policyManaged === true,
         )
         .map((module) => [module.module_id, { ...module }]),
     ),
@@ -188,6 +201,7 @@ function serializePersonalDraft(draft: PersonalWorkspaceDraft) {
 export function personalLandingOptions(
   effective: WorkspaceEffectiveResponse,
   draft: PersonalWorkspaceDraft,
+  role = effective.role,
 ): TrustedWorkspaceModule[] {
   const effectiveById = new Map(effective.modules.map((module) => [module.id, module]))
   const visibleById = new Map<TrustedWorkspaceModuleId, boolean>()
@@ -202,6 +216,7 @@ export function personalLandingOptions(
     if (!module) continue
     const preference = draft.modules.get(definition.id)
     const visible = Boolean(
+      isWorkspaceModuleRoleAllowed(definition, role) &&
       module.policy_visible &&
       module.permission_allowed &&
       module.feature_available &&
@@ -209,16 +224,66 @@ export function personalLandingOptions(
       parentVisible,
     )
     visibleById.set(definition.id, visible)
-    if (visible) options.push(definition)
+    // Local-only containers and controls cannot be persisted as preference landing IDs.
+    if (visible && definition.landingEligible && definition.policyManaged) {
+      options.push(definition)
+    }
   }
   return options.sort((left, right) => {
+    const groupOrder = workspaceNavigationGroupOrder(left) - workspaceNavigationGroupOrder(right)
+    if (groupOrder !== 0) return groupOrder
     const leftOrder = draft.modules.get(left.id)?.order ?? effectiveById.get(left.id)?.order ?? left.defaultOrder
     const rightOrder = draft.modules.get(right.id)?.order ?? effectiveById.get(right.id)?.order ?? right.defaultOrder
     return leftOrder - rightOrder || left.id.localeCompare(right.id)
   })
 }
 
-export function rolePolicyPreview(draft: RolePolicyDraft): RolePolicyPreview {
+export function personalNavigationPreview(
+  resolvedModules: readonly ResolvedWorkspaceModule[],
+  draft: PersonalWorkspaceDraft,
+): PersonalNavigationPreviewItem[] {
+  const resolvedById = new Map(resolvedModules.map((module) => [module.id, module]))
+  const visibleIds = new Set<TrustedWorkspaceModuleId>()
+  const orderById = new Map<TrustedWorkspaceModuleId, number>()
+
+  for (const definition of TRUSTED_WORKSPACE_MODULES) {
+    const resolved = resolvedById.get(definition.id)
+    if (!resolved) continue
+    const parentVisible = definition.parentId === null || visibleIds.has(definition.parentId)
+    const preference = draft.modules.get(definition.id)
+    const available = resolved.permissionAllowed &&
+      resolved.roleAllowed &&
+      resolved.featureAvailable &&
+      resolved.policyVisible &&
+      !resolved.reasons.includes('account_ineligible')
+    const preferenceVisible = preference?.visible ?? resolved.preferenceVisible
+    if (available && preferenceVisible && parentVisible) visibleIds.add(definition.id)
+    orderById.set(definition.id, preference?.order ?? resolved.order)
+  }
+
+  for (const definition of [...TRUSTED_WORKSPACE_MODULES].reverse()) {
+    if (!definition.isContainer || !visibleIds.has(definition.id)) continue
+    const hasVisibleChild = TRUSTED_WORKSPACE_MODULES.some(
+      (module) => module.parentId === definition.id && visibleIds.has(module.id),
+    )
+    if (!hasVisibleChild) visibleIds.delete(definition.id)
+  }
+
+  return TRUSTED_WORKSPACE_MODULES
+    .filter((module) => visibleIds.has(module.id))
+    .sort((left, right) =>
+      workspaceNavigationGroupOrder(left) - workspaceNavigationGroupOrder(right) ||
+      (orderById.get(left.id) ?? left.defaultOrder) -
+        (orderById.get(right.id) ?? right.defaultOrder) ||
+      left.id.localeCompare(right.id),
+    )
+    .map((module) => ({ module, fixed: !draft.modules.has(module.id) }))
+}
+
+export function rolePolicyPreview(
+  draft: RolePolicyDraft,
+  role?: WorkspaceEffectiveResponse['role'],
+): RolePolicyPreview {
   const visibleById = new Map<TrustedWorkspaceModuleId, boolean>()
   const visible: Array<{
     definition: TrustedWorkspaceModule
@@ -228,8 +293,9 @@ export function rolePolicyPreview(draft: RolePolicyDraft): RolePolicyPreview {
   for (const definition of TRUSTED_WORKSPACE_MODULES) {
     const policy = draft.modules.get(definition.id)
     const policyVisible = definition.policyManaged ? policy?.visible === true : true
+    const roleAllowed = role === undefined || isWorkspaceModuleRoleAllowed(definition, role)
     const parentVisible = definition.parentId === null || visibleById.get(definition.parentId) === true
-    const isVisible = policyVisible && parentVisible
+    const isVisible = policyVisible && roleAllowed && parentVisible
     visibleById.set(definition.id, isVisible)
     if (isVisible) {
       visible.push({
@@ -239,10 +305,23 @@ export function rolePolicyPreview(draft: RolePolicyDraft): RolePolicyPreview {
       })
     }
   }
-  const sorted = [...visible].sort(
-    (left, right) => left.order - right.order || left.definition.id.localeCompare(right.definition.id),
-  )
-  const mobile = visible
+  const visibleIds = new Set(visible.map(({ definition }) => definition.id))
+  for (const definition of [...TRUSTED_WORKSPACE_MODULES].reverse()) {
+    if (!definition.isContainer || !visibleIds.has(definition.id)) continue
+    const hasVisibleChild = TRUSTED_WORKSPACE_MODULES.some(
+      (module) => module.parentId === definition.id && visibleIds.has(module.id),
+    )
+    if (!hasVisibleChild) visibleIds.delete(definition.id)
+  }
+  const resolvedVisible = visible.filter(({ definition }) => visibleIds.has(definition.id))
+  const sorted = [...resolvedVisible].sort((left, right) => {
+    const groupOrder = workspaceNavigationGroupOrder(left.definition) -
+      workspaceNavigationGroupOrder(right.definition)
+    return groupOrder ||
+      left.order - right.order ||
+      left.definition.id.localeCompare(right.definition.id)
+  })
+  const mobile = resolvedVisible
     .filter(({ definition }) => definition.section === 'primary')
     .sort((left, right) => {
       if (left.definition.mobileBehavior !== right.definition.mobileBehavior) {
@@ -263,9 +342,12 @@ export function rolePolicyPreview(draft: RolePolicyDraft): RolePolicyPreview {
 export function rolePolicyDraftValidation(
   draft: RolePolicyDraft,
   preservedLandingModuleId?: string,
+  role?: WorkspaceEffectiveResponse['role'],
 ): string {
-  const preview = rolePolicyPreview(draft)
-  const available = [...preview.primary, ...preview.settings].filter((module) => module.policyManaged)
+  const preview = rolePolicyPreview(draft, role)
+  const available = [...preview.primary, ...preview.settings].filter(
+    (module) => module.policyManaged && module.landingEligible,
+  )
   if (available.length === 0) {
     return 'At least one trusted module must remain visible so the role has a landing destination.'
   }
@@ -305,7 +387,13 @@ function reorderSiblingModules<T extends { order: number }>(
   if (moduleId === targetId) return modules
   const sourceDefinition = TRUSTED_WORKSPACE_MODULES.find((module) => module.id === moduleId)
   const targetDefinition = TRUSTED_WORKSPACE_MODULES.find((module) => module.id === targetId)
-  if (!sourceDefinition || !targetDefinition || sourceDefinition.parentId !== targetDefinition.parentId) {
+  if (
+    !sourceDefinition ||
+    !targetDefinition ||
+    sourceDefinition.parentId !== targetDefinition.parentId ||
+    workspaceNavigationGroupPresentation(sourceDefinition).id !==
+      workspaceNavigationGroupPresentation(targetDefinition).id
+  ) {
     return modules
   }
 
@@ -336,8 +424,14 @@ function orderedSiblingModules<T extends { order: number }>(
 ): Array<[TrustedWorkspaceModuleId, T]> {
   const definition = TRUSTED_WORKSPACE_MODULES.find((module) => module.id === moduleId)
   if (!definition) return []
+  const groupId = workspaceNavigationGroupPresentation(definition).id
   return [...modules.entries()]
-    .filter(([id]) => TRUSTED_WORKSPACE_MODULES.find((module) => module.id === id)?.parentId === definition.parentId)
+    .filter(([id]) => {
+      const candidate = TRUSTED_WORKSPACE_MODULES.find((module) => module.id === id)
+      return candidate &&
+        candidate.parentId === definition.parentId &&
+        workspaceNavigationGroupPresentation(candidate).id === groupId
+    })
     .sort(([leftId, left], [rightId, right]) => left.order - right.order || leftId.localeCompare(rightId))
 }
 

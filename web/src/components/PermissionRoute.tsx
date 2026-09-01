@@ -3,18 +3,23 @@ import { Link, Navigate, useLocation } from 'react-router-dom'
 import { ApiError } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
 import { useCurrentUser } from '../hooks/useCurrentUser'
+import type { User } from '../types/identity'
 import { hasRequiredPermissions } from '../workspace/workspaceModel'
 import { SessionIssueState } from './SessionIssueState'
 
 interface PermissionRouteProps {
   permissions: readonly string[]
+  roles?: readonly User['role'][]
   children: React.ReactNode
 }
 
-export function PermissionRoute({ permissions, children }: PermissionRouteProps) {
+export function PermissionRoute({ permissions, roles, children }: PermissionRouteProps) {
   const meQuery = useCurrentUser()
   const location = useLocation()
   const from = { pathname: location.pathname, search: location.search, hash: location.hash }
+  const settingsActionLabel = location.pathname.startsWith('/settings')
+    ? 'Back to settings'
+    : 'Open settings'
 
   if (meQuery.isLoading) {
     return <div className="p-6 text-sm text-slate dark:text-slate-300">Checking permissions...</div>
@@ -49,25 +54,35 @@ export function PermissionRoute({ permissions, children }: PermissionRouteProps)
     return <Navigate to="/login" replace state={{ authMessage: 'Sign in to continue.', from }} />
   }
 
-  if (!hasRequiredPermissions(meQuery.data.access?.permissions ?? [], permissions)) {
+  const roleAllowed = roles === undefined || roles.includes(meQuery.data.role)
+  const permissionsAllowed = hasRequiredPermissions(
+    meQuery.data.access?.permissions ?? [],
+    permissions,
+  )
+  if (!roleAllowed || !permissionsAllowed) {
+    const roleRequirement = roles?.map(formatRoleLabel).join(' or ')
     return (
       <div className="tl-surface mx-auto max-w-2xl rounded-2xl p-6 shadow-sm">
-        <h2 className="font-display text-3xl text-ink dark:text-white">Permission required</h2>
+        <h2 className="font-display text-3xl text-ink dark:text-white">
+          {roleAllowed ? 'Permission required' : 'Base role required'}
+        </h2>
         <p className="mt-3 rounded-lg border border-amber-300/60 bg-amber-50/80 px-3 py-2 text-sm text-amber-900 dark:border-amber-800/40 dark:bg-amber-950/30 dark:text-amber-100">
-          Your account does not currently have permission to open this area. Contact an administrator if you need access.
+          {roleAllowed
+            ? 'Your account does not currently have permission to open this area. Contact an administrator if you need access.'
+            : `This area requires the ${roleRequirement} base role in addition to its permissions. Additive custom roles do not unlock sealed administrative controls.`}
         </p>
         <div className="mt-4 flex flex-wrap gap-3">
           <Link
             to="/settings"
             className="rounded border border-slate/20 px-3 py-1.5 text-sm font-semibold text-slate-700 transition hover:border-slate/30 hover:bg-slate/5 dark:border-white/10 dark:text-slate-100 dark:hover:bg-white/[0.06]"
           >
-            Back to settings
+            {settingsActionLabel}
           </Link>
           <Link
-            to="/"
+            to="/start"
             className="rounded border border-cyan/30 bg-cyan/10 px-3 py-1.5 text-sm font-semibold text-cyan transition hover:bg-cyan/15 dark:border-cyan-500/35 dark:text-cyan-100"
           >
-            Go to dashboard
+            Open workspace start
           </Link>
         </div>
       </div>
@@ -75,4 +90,10 @@ export function PermissionRoute({ permissions, children }: PermissionRouteProps)
   }
 
   return <>{children}</>
+}
+
+function formatRoleLabel(role: User['role']) {
+  if (role === 'admin') return 'Administrator'
+  if (role === 'analyst') return 'Analyst'
+  return 'Viewer'
 }
