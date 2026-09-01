@@ -301,24 +301,18 @@ describe('NotificationsPage DOM workflows', () => {
     expect(view.querySelector<HTMLButtonElement>('button[aria-label="Remove Headers row 1"]')).toBeNull()
   })
 
-  it('allows a custom-role user with write:notifications to manage webhook settings', () => {
+  it('keeps notification mutations sealed when a Viewer receives additive write access', () => {
     notificationsPageDomMocks.currentUser.data.role = 'viewer'
     notificationsPageDomMocks.currentUser.data.access.permissions = ['write:notifications']
     const view = renderPage()
 
-    expect(pageText()).not.toContain('Changes unavailable')
-    expect(pageText()).not.toContain('read-only mode')
-
-    const nameInput = view.querySelector<HTMLInputElement>('#notification-webhook-name')
-    expect(nameInput).not.toBeNull()
-
-    const testButton = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.includes('Test webhook'))
-    expect(testButton).not.toBeUndefined()
-
-    const saveButton = Array.from(view.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes('Create webhook'),
-    )
-    expect(saveButton).not.toBeUndefined()
+    expect(pageText()).toContain('Read-only access')
+    expect(pageText()).toContain('Administrator or Analyst base role')
+    expect(pageText()).toContain('Changes unavailable')
+    expect(view.querySelector<HTMLInputElement>('#notification-webhook-name')).toBeNull()
+    expect(Array.from(view.querySelectorAll('button')).some((button) =>
+      button.textContent?.includes('Test webhook'),
+    )).toBe(false)
   })
 
   it('marks the selected webhook and keeps the request-shaping controls accessible', () => {

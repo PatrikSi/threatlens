@@ -6,6 +6,7 @@ import { ApiError, apiDownload, apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { useCurrentUser } from '../hooks/useCurrentUser'
+import { hasRequiredPermissions } from '../workspace/workspaceModel'
 import type {
   ReportCapabilities,
   ReportDeliveryMode,
@@ -63,7 +64,10 @@ export function useReportingController() {
   const { reportId: routeReportId } = useParams<{ reportId?: string }>()
   const currentUser = useCurrentUser()
   const isAdmin = currentUser.data?.role === 'admin'
-  const canAuthor = currentUser.data?.role === 'admin' || currentUser.data?.role === 'analyst'
+  const canAuthor = hasRequiredPermissions(
+    currentUser.data?.access?.permissions ?? [],
+    ['write:reports'],
+  )
   const requestOwnerId = currentUser.data?.id
   const [activeTab, setActiveTab] = useState<ReportingTab>('reports')
   const [selectedTemplateId, setSelectedTemplateId] = useState('')

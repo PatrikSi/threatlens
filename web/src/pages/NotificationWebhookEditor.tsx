@@ -257,7 +257,7 @@ function EditorActions({ controller }: { controller: NotificationWebhooksControl
     canManageWebhooks,
     deleteWebhook,
     draft,
-    isReadOnlyViewer,
+    isReadOnly,
     onRequestDeleteWebhook,
     onSave,
     onTest,
@@ -270,7 +270,7 @@ function EditorActions({ controller }: { controller: NotificationWebhooksControl
     testWebhook,
     webhooks,
   } = controller
-  if (!canManageWebhooks || isReadOnlyViewer) return null
+  if (!canManageWebhooks || isReadOnly) return null
   return (
     <div className="mt-4 flex flex-wrap items-center gap-2">
       <button className="rounded bg-ink px-3 py-2 text-white disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]" disabled={saveWebhook.isPending} onClick={onSave}>

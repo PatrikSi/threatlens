@@ -65,6 +65,7 @@ import { useDashboardWindowActions } from './useDashboardWindowActions'
 import { useDashboardWindowFilters } from './useDashboardWindowFilters'
 import { useDashboardWorkspacePersistence } from './useDashboardWorkspacePersistence'
 import { useWorkspace } from '../workspace/useWorkspace'
+import { hasRequiredPermissions } from '../workspace/workspaceModel'
 
 type DashboardEditSessionSnapshot = {
   activeSavedViewId: string | null
@@ -147,7 +148,10 @@ export function useDashboardPageController() {
   const importViewsInputRef = useRef<HTMLInputElement | null>(null)
   const savedNoteValuesByItemIdRef = useRef<Record<string, string>>({})
 
-  const canManage = meQuery.data?.role === 'admin' || meQuery.data?.role === 'analyst'
+  const canManage = hasRequiredPermissions(
+    meQuery.data?.access?.permissions ?? [],
+    ['write:items'],
+  )
   const aiSummaryEnabled = Boolean(aiFeatures?.ai_summary_enabled)
   const aiRelevanceEnabled = Boolean(aiFeatures?.ai_relevance_enabled)
   const aiDailyBriefEnabled = Boolean(aiFeatures?.ai_daily_brief_enabled)

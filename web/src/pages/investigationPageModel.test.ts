@@ -59,19 +59,22 @@ describe('investigation page model', () => {
     expect(writeInvestigationListFilters(filters).toString()).toBe('status=archived')
   })
 
-  it('keeps account role, membership, and archive authority separate', () => {
-    expect(resolveInvestigationAccess(detail, 'analyst')).toMatchObject({
+  it('keeps effective permission, membership, and archive authority separate', () => {
+    expect(resolveInvestigationAccess(detail, true)).toMatchObject({
       canWrite: true,
       canManageMembers: true,
       canArchive: true,
     })
-    expect(resolveInvestigationAccess({ ...detail, current_user_role: null }, 'admin')).toMatchObject({
+    expect(resolveInvestigationAccess({ ...detail, current_user_role: null }, true)).toMatchObject({
       canWrite: false,
       readOnlyReason: 'This team-visible investigation is read-only until an owner adds you as a member.',
     })
-    expect(resolveInvestigationAccess({ ...detail, current_user_role: 'viewer' }, 'analyst').canWrite).toBe(false)
-    expect(resolveInvestigationAccess({ ...detail, current_user_role: 'editor' }, 'viewer').canWrite).toBe(false)
-    expect(resolveInvestigationAccess({ ...detail, status: 'archived', current_user_role: 'editor' }, 'analyst')).toMatchObject({
+    expect(resolveInvestigationAccess({ ...detail, current_user_role: 'viewer' }, true).canWrite).toBe(false)
+    expect(resolveInvestigationAccess({ ...detail, current_user_role: 'editor' }, false)).toMatchObject({
+      canWrite: false,
+      readOnlyReason: 'Your current access does not include permission to change investigations.',
+    })
+    expect(resolveInvestigationAccess({ ...detail, status: 'archived', current_user_role: 'editor' }, true)).toMatchObject({
       canWrite: false,
       canReopen: true,
     })

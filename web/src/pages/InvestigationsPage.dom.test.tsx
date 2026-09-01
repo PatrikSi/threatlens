@@ -15,6 +15,7 @@ const domMocks = vi.hoisted(() => ({
     id: 'user-1',
     email: 'analyst@example.com',
     role: 'analyst' as 'admin' | 'analyst' | 'viewer',
+    access: { permissions: ['write:investigations'] as string[] },
     is_active: true,
     is_approved: true,
     approved_at: '2026-08-01T10:00:00Z',
@@ -105,6 +106,7 @@ beforeEach(() => {
   domMocks.apiFetch.mockReset()
   domMocks.currentUserError = false
   domMocks.currentUser.role = 'analyst'
+  domMocks.currentUser.access.permissions = ['write:investigations']
 })
 
 afterEach(() => {
@@ -132,10 +134,20 @@ describe('InvestigationsPage DOM workflows', () => {
 
   it('hides investigation creation for global viewers', async () => {
     domMocks.currentUser.role = 'viewer'
+    domMocks.currentUser.access.permissions = ['read:investigations']
     domMocks.apiFetch.mockResolvedValue(listResponse)
     await renderAt('/investigations')
 
     expect(findButton('Create investigation')).toBeNull()
+  })
+
+  it('allows a viewer with an additive custom permission to create investigations', async () => {
+    domMocks.currentUser.role = 'viewer'
+    domMocks.currentUser.access.permissions = ['write:investigations']
+    domMocks.apiFetch.mockResolvedValue(listResponse)
+    await renderAt('/investigations')
+
+    expect(findButton('Create investigation')).not.toBeNull()
   })
 
   it('fails closed when the current analyst role cannot be refreshed', async () => {
@@ -302,8 +314,9 @@ describe('InvestigationsPage DOM workflows', () => {
 
     cleanupRender()
     domMocks.currentUser.role = 'viewer'
+    domMocks.currentUser.access.permissions = ['read:investigations']
     await renderDetail({ ...baseDetail, current_user_role: 'editor' }, '?tab=notes')
-    expect(pageText()).toContain('account role has read-only access')
+    expect(pageText()).toContain('does not include permission to change investigations')
     expect(document.querySelector('#investigation-new-note')).toBeNull()
   })
 

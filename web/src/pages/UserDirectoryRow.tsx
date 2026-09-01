@@ -25,6 +25,7 @@ import {
 
 type UserDirectoryRowProps = {
   user: AdminUser
+  canManage: boolean
   settingsDraft: UserSettingsDraft
   onSettingsDraftChange: (draft: UserSettingsDraft) => void
   passwordDraft: string
@@ -45,6 +46,7 @@ type UserDirectoryRowProps = {
 
 export function UserDirectoryRow({
   user,
+  canManage,
   settingsDraft,
   onSettingsDraftChange,
   passwordDraft,
@@ -160,11 +162,11 @@ export function UserDirectoryRow({
             type="button"
             className="shrink-0 rounded border border-slate/20 px-3 py-1.5 text-xs font-semibold dark:border-cyan-900/40"
             aria-expanded={managementOpen}
-            aria-controls={`user-settings-${user.id} user-management-${user.id}`}
-            aria-label={`${managementOpen ? 'Close management controls for' : 'Manage'} ${user.email}`}
+            aria-controls={`user-management-${user.id}`}
+            aria-label={userManagementToggleLabel(managementOpen, canManage, user.email)}
             onClick={() => setManagementOpen((current) => !current)}
           >
-            {managementOpen ? 'Close' : 'Manage'}
+            {userManagementToggleText(managementOpen, canManage)}
           </button>
         </div>
 
@@ -172,6 +174,12 @@ export function UserDirectoryRow({
           id={`user-management-${user.id}`}
           className={`${managementOpen ? 'block' : 'hidden'} mt-3 border-t border-slate/15 pt-3 dark:border-cyan-900/30`}
         >
+          <UserManagementReadOnlyNotice canManage={canManage} />
+          <fieldset
+            disabled={!canManage}
+            className="min-w-0 [&_:disabled]:cursor-not-allowed [&_:disabled]:opacity-60"
+          >
+            <legend className="sr-only">User management controls for {user.email}</legend>
           <UserSettingsConflictNotice
             conflict={settingsConflict}
             onUseServer={onUseServerSettings}
@@ -296,6 +304,7 @@ export function UserDirectoryRow({
               {notice.message}
             </p>
           )}
+          </fieldset>
         </div>
       </div>
 
@@ -339,6 +348,29 @@ export function UserDirectoryRow({
         )}
       </ConfirmDialog>
     </>
+  )
+}
+
+function userManagementToggleLabel(
+  open: boolean,
+  canManage: boolean,
+  email: string,
+) {
+  if (open) return `Close details for ${email}`
+  return canManage ? `Manage ${email}` : `View details for ${email}`
+}
+
+function userManagementToggleText(open: boolean, canManage: boolean) {
+  if (open) return 'Close'
+  return canManage ? 'Manage' : 'View details'
+}
+
+function UserManagementReadOnlyNotice({ canManage }: { canManage: boolean }) {
+  if (canManage) return null
+  return (
+    <p className="mb-3 rounded border border-amber-300/60 bg-amber-50/80 px-3 py-2 text-sm text-amber-900 dark:border-amber-800/40 dark:bg-amber-950/30 dark:text-amber-100">
+      These controls are read-only. User changes require the Administrator base role and user-management permission.
+    </p>
   )
 }
 

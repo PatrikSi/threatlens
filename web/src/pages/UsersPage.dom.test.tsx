@@ -91,6 +91,7 @@ const usersPageDomMocks = vi.hoisted(() => ({
       id: 'admin-1',
       email: 'admin@example.com',
       role: 'admin',
+      access: { permissions: ['*:*'] as string[] },
       is_active: true,
       is_approved: true,
       approved_at: '2026-04-20T10:00:00Z',
@@ -503,6 +504,7 @@ afterEach(() => {
       id: 'admin-1',
       email: 'admin@example.com',
       role: 'admin',
+      access: { permissions: ['*:*'] },
       is_active: true,
       is_approved: true,
       approved_at: '2026-04-20T10:00:00Z',
@@ -536,6 +538,25 @@ afterEach(() => {
 })
 
 describe('UsersPage DOM workflows', () => {
+  it('keeps delegated directory readers in an explicit read-only state', () => {
+    usersPageDomMocks.currentUser.data.role = 'viewer'
+    usersPageDomMocks.currentUser.data.access.permissions = ['read:users']
+
+    const view = renderPage()
+    const buttonByLabel = (label: string) =>
+      Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find(
+        (button) => button.textContent?.trim() === label,
+      ) ?? null
+
+    expect(pageText()).toContain('read-only directory access')
+    expect(buttonByLabel('Add local user')).toBeNull()
+    const viewDetails = buttonByLabel('View details')
+    expect(viewDetails).not.toBeNull()
+    act(() => viewDetails?.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+    expect(view.querySelector<HTMLSelectElement>('#user-role-user-1')?.matches(':disabled')).toBe(true)
+    expect(buttonByLabel('Review changes')?.disabled).toBe(true)
+  })
+
   it('progressively discloses mobile create and user management controls', () => {
     const view = renderPage()
     const createForm = view.querySelector<HTMLElement>('#create-user-form')
@@ -1371,6 +1392,7 @@ describe('UsersPage DOM workflows', () => {
         id: 'admin-1',
         email: 'admin@example.com',
         role: 'admin',
+        access: { permissions: ['*:*'] },
         is_active: true,
         is_approved: true,
         approved_at: '2026-04-20T10:00:00Z',
@@ -1564,11 +1586,11 @@ describe('UsersPage DOM workflows', () => {
     expect(pageText()).not.toContain('unsaved account draft is hidden')
   })
 
-  it('describes Viewer alert triage rights without claiming all state is read-only', () => {
+  it('describes Viewer triage rights and read-only notification access accurately', () => {
     renderPage()
 
     expect(pageText()).toContain(
-      'Manage personal alert rules, occurrence triage, notifications, and API tokens',
+      'Manage personal alert rules, occurrence triage, and API tokens; review notifications',
     )
     expect(pageText()).not.toContain('Cannot change feeds, tags, or triage state')
   })

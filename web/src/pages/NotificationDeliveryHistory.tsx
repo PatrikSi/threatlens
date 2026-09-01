@@ -19,7 +19,7 @@ function DeliveryDetails({
   controller: NotificationWebhooksController
   delivery: NotificationWebhookDelivery
 }) {
-  const { canManageWebhooks, isReadOnlyViewer, retryDelivery, setPendingDeliveryRetry } = controller
+  const { canManageWebhooks, isReadOnly, retryDelivery, setPendingDeliveryRetry } = controller
   return (
     <details className="rounded-lg border border-slate/20 bg-white/70 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/70">
       <summary className="cursor-pointer list-none">
@@ -45,7 +45,7 @@ function DeliveryDetails({
 
       <div className="mt-3 space-y-3 text-sm">
         <div className="flex flex-wrap items-center gap-2">
-          {!isReadOnlyViewer && isRetryableDelivery(delivery) ? (
+          {!isReadOnly && isRetryableDelivery(delivery) ? (
             <button
               className="rounded border border-slate/30 px-3 py-1.5 text-xs font-semibold disabled:opacity-50 dark:border-cyan-900/40"
               disabled={retryDelivery.isPending || !canManageWebhooks}

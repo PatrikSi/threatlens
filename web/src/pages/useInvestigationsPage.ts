@@ -5,6 +5,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { apiFetch } from '../api/client'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
+import { hasRequiredPermissions } from '../workspace/workspaceModel'
 import type {
   InvestigationCreateRequest,
   InvestigationDetail,
@@ -84,8 +85,10 @@ export function useInvestigationsPage() {
 
   const canCreate =
     !currentUserQuery.isError &&
-    (currentUserQuery.data?.role === 'admin' ||
-      currentUserQuery.data?.role === 'analyst')
+    hasRequiredPermissions(
+      currentUserQuery.data?.access?.permissions ?? [],
+      ['write:investigations'],
+    )
   const createDraftDirty =
     createDraft.title !== EMPTY_CREATE_DRAFT.title ||
     createDraft.description !== EMPTY_CREATE_DRAFT.description ||

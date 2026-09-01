@@ -15,7 +15,8 @@ const reportingPageMocks = vi.hoisted(() => ({
   apiDownload: vi.fn(),
   navigate: vi.fn(),
   routeReportId: 'report-1' as string | undefined,
-  userRole: 'analyst' as 'admin' | 'analyst',
+  userRole: 'analyst' as 'admin' | 'analyst' | 'viewer',
+  userPermissions: ['write:reports'] as string[],
   anchorClick: vi.fn(),
   createObjectURL: vi.fn(() => 'blob:threatlens-report'),
   revokeObjectURL: vi.fn(),
@@ -33,6 +34,7 @@ vi.mock('../hooks/useCurrentUser', () => ({
       id: 'analyst-1',
       email: 'analyst@example.com',
       role: reportingPageMocks.userRole,
+      access: { permissions: reportingPageMocks.userPermissions },
       is_active: true,
     },
   }),
@@ -289,6 +291,7 @@ beforeEach(() => {
   resetPendingReportingKeys()
   reportingPageMocks.routeReportId = 'report-1'
   reportingPageMocks.userRole = 'analyst'
+  reportingPageMocks.userPermissions = ['write:reports']
   reportingPageMocks.apiFetch.mockImplementation((path: string) => {
     if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
     if (path === '/reports/templates') return Promise.resolve([])
@@ -334,6 +337,67 @@ afterEach(async () => {
 })
 
 describe('ReportingPage detail actions', () => {
+  it('lets a viewer with additive report write access use the report builder', async () => {
+    reportingPageMocks.routeReportId = undefined
+    reportingPageMocks.userRole = 'viewer'
+    reportingPageMocks.userPermissions = ['write:reports']
+    const view = renderPage()
+
+    await act(async () => {
+      await vi.waitFor(() => expect(view.textContent).toContain('Build a report'))
+    })
+
+    expect(view.textContent).not.toContain('Schedules')
+  })
+
+  it('keeps an owned report read-only without report write access', async () => {
+    reportingPageMocks.userRole = 'viewer'
+    reportingPageMocks.userPermissions = ['read:reports']
+    reportingPageMocks.apiFetch.mockImplementation((path: string) => {
+      if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
+      if (path === '/reports/templates') return Promise.resolve([])
+      if (path === '/reports?limit=100') return Promise.resolve([])
+      if (path === '/reports/report-1') return Promise.resolve(reportDetail('error'))
+      return Promise.reject(new Error(`Unexpected API path: ${path}`))
+    })
+    const view = renderPage()
+
+    await waitForReport(view)
+
+    expect(view.textContent).toContain('This report is read-only')
+    expect(Array.from(view.querySelectorAll('button')).some(
+      (entry) => entry.textContent?.trim() === 'Retry',
+    )).toBe(false)
+    expect(Array.from(view.querySelectorAll('button')).some(
+      (entry) => entry.textContent?.trim() === 'Delete',
+    )).toBe(false)
+  })
+
+  it('renders template mutation actions as read-only without report write access', async () => {
+    reportingPageMocks.routeReportId = undefined
+    reportingPageMocks.userRole = 'viewer'
+    reportingPageMocks.userPermissions = ['read:reports']
+    reportingPageMocks.apiFetch.mockImplementation((path: string) => {
+      if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
+      if (path === '/reports/templates') return Promise.resolve([REPORT_TEMPLATE])
+      if (path === '/reports?limit=100') return Promise.resolve([])
+      return Promise.reject(new Error(`Unexpected API path: ${path}`))
+    })
+    const view = renderPage()
+
+    await openReportingTab(view, 'Templates')
+    await act(async () => {
+      await vi.waitFor(() => expect(view.textContent).toContain('Threat landscape'))
+    })
+
+    const template = rowByName(view, 'Threat landscape')
+    expect(view.textContent).toContain('Reporting is read-only')
+    expect(template.textContent).toContain('Read-only')
+    expect(Array.from(template.querySelectorAll('button')).map(
+      (entry) => entry.textContent?.trim(),
+    )).toEqual([])
+  })
+
   it('describes queued work without claiming that generation has started', async () => {
     reportingPageMocks.apiFetch.mockImplementation((path: string) => {
       if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
