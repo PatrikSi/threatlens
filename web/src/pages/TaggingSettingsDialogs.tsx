@@ -32,7 +32,7 @@ function ReapplyTaggingDialog({ controller }: TaggingDialogsProps) {
       confirmTone="primary"
       onCancel={() => setPendingReapplyRequest(null)}
       onConfirm={onConfirmReapplyTagging}
-      confirmDisabled={!pendingReapplyRequest || reapplyTagging.isPending}
+      confirmDisabled={!pendingReapplyRequest || reapplyTagging.isPending || !controller.canManageTagging}
       isConfirming={reapplyTagging.isPending}
     >
       {pendingReapplyRequest && (
@@ -73,7 +73,7 @@ function DeleteRuleDialog({ controller }: TaggingDialogsProps) {
       confirmLabel="Delete rule"
       onCancel={() => setPendingRuleDelete(null)}
       onConfirm={onConfirmDeleteRule}
-      confirmDisabled={deleteRule.isPending}
+      confirmDisabled={deleteRule.isPending || !controller.canManageTagging}
       isConfirming={deleteRule.isPending}
     >
       {pendingRuleDelete && (

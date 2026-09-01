@@ -1,11 +1,23 @@
 export interface AuditLog {
   id: string
   actor_user_id: string | null
+  actor_principal_type: string | null
+  actor_principal_id: string | null
+  actor_label_snapshot: string | null
+  credential_kind: string | null
+  credential_id: string | null
+  request_id: string | null
+  source_ip: string | null
+  authorization_elevation_ids: string[]
+  authorization_approval_id: string | null
+  execution_receipt_id: string | null
   action: string
   resource_type: string
   resource_id: string | null
+  resource_label_snapshot: string | null
   success: boolean
   metadata_json: Record<string, unknown>
+  data_access_redacted: boolean
   created_at: string
 }
 

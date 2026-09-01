@@ -26,7 +26,7 @@ It stores feeds, extracts article text, and gives a single pane of glass to revi
   audit logs
 - OpenID Connect SSO with account linking, verified-email JIT provisioning,
   claim-to-role mapping, revocable sessions, and local TOTP MFA
-- Administrator operations diagnostics plus verified PostgreSQL backup, isolated
+- Permission-gated operations diagnostics plus verified PostgreSQL backup, isolated
   restore-drill, and post-restore quarantine tooling
 - Durable integration outbox, bounded retries, dead-letter replay, circuit breaking, and delivery metrics
 - Optional AI summaries, relevance scoring, task history, and daily briefs

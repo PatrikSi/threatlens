@@ -58,7 +58,7 @@ export function AddFeedPanel({ controller }: { controller: FeedsController }) {
           {mobileFeedToggleLabel(mobileAddFeedOpen)}
         </button>
       </div>
-      {!canManage && <p className="mt-2 text-sm text-amber-600">Viewer role cannot create or modify feeds.</p>}
+      {!canManage && <p className="mt-2 text-sm text-amber-600">Your current access is read-only for feeds.</p>}
       <form
         id="add-feed-form"
         className={`${mobileDisclosureClass(showMobileAddFeedForm)} mt-3 space-y-3 sm:block`}

@@ -229,6 +229,7 @@ def require_roles(*roles: str):
         )
         return user
 
+    _checker._threatlens_required_roles = tuple(roles)
     return _checker
 
 
@@ -548,6 +549,9 @@ def _set_authenticated_log_context(
             "user" if isinstance(principal, User) else "service_account"
         ),
         actor_principal_id=principal.id,
+        actor_label_snapshot=(
+            principal.email if isinstance(principal, User) else principal.name
+        ),
         credential_kind=get_auth_credential_kind(request),
         credential_id=_current_credential_id(request),
         source_ip=resolve_client_ip(request),

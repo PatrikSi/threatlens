@@ -284,7 +284,8 @@ Paths below are relative to the published `/api/v1` base.
 | `/alerts/matches` | authenticated user | `read:alerts` and `read:items` |
 | `/notifications/template-variables`, `/notifications/analytics`, `/notifications/webhooks`, `/notifications/webhooks/{id}/deliveries` | authenticated user | `read:notifications` |
 | `/notifications/webhooks` mutate/test/retry | `admin` or `analyst` | `write:notifications` |
-| `/integrations/*` | `admin` | `read:integrations` / `write:integrations` |
+| `/integrations/*` | effective permission | `read:integrations` / `write:integrations` |
+| `/operations/*` | effective permission | `read:operations` |
 | `/ai/*` | `admin` | `read:ai` / `write:ai` |
 | `/tags` read | authenticated user | `read:tags` |
 | `/tags` create | `admin` or `analyst` | `write:tags` |

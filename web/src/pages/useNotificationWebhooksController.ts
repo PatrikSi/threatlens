@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '../api/client'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
+import { hasRequiredPermissions } from '../workspace/workspaceModel'
 import {
   Feed,
   NotificationAnalyticsResponse,
@@ -36,16 +37,20 @@ export function useNotificationWebhooksController() {
   const [pendingDeliveryRetry, setPendingDeliveryRetry] = useState<NotificationWebhookDelivery | null>(null)
   const [mobileVariablesOpen, setMobileVariablesOpen] = useState(false)
 
-  const currentUserRole = currentUserQuery.data?.role
-  const isReadOnlyViewer = currentUserRole === 'viewer' || (!currentUserRole && !currentUserQuery.isLoading)
-  const canManageWebhooks = currentUserRole === 'admin' || currentUserRole === 'analyst'
+  const baseRoleCanManage = currentUserQuery.data?.role === 'admin' ||
+    currentUserQuery.data?.role === 'analyst'
+  const canManageWebhooks = baseRoleCanManage && hasRequiredPermissions(
+    currentUserQuery.data?.access?.permissions ?? [],
+    ['write:notifications'],
+  )
+  const isReadOnly = !currentUserQuery.isLoading && !canManageWebhooks
   const { availableEventOptions, unavailableDailyBriefSelected, unavailableReportSelected } = resolveNotificationEventAvailability(
     currentUserQuery.data?.features.ai_daily_brief_enabled === true,
     draft.event_type,
     currentUserQuery.data?.features.ai_reporting_enabled === true,
   )
-  const accessNotice = isReadOnlyViewer
-    ? 'Viewer access is read-only. Webhook settings can only be changed by operators.'
+  const accessNotice = isReadOnly
+    ? 'You can review these webhooks, but changes require an Administrator or Analyst base role and permission to manage notifications.'
     : null
 
   const webhooksQuery = useQuery({
@@ -160,7 +165,7 @@ export function useNotificationWebhooksController() {
     'Discard unsaved webhook changes?',
   )
   const showWebhookEditor = canManageWebhooks || Boolean(selectedWebhookId)
-  const webhookEditorBlockedNotice = accessNotice ?? 'Webhook writes are available to admin and analyst accounts.'
+  const webhookEditorBlockedNotice = accessNotice ?? 'Changes require permission to manage notifications.'
 
   useEffect(() => {
     if (sampleFeedId && !testableFeeds.some((feed) => feed.id == sampleFeedId)) {
@@ -246,7 +251,7 @@ export function useNotificationWebhooksController() {
     setPendingDeliveryRetry,
     mobileVariablesOpen,
     setMobileVariablesOpen,
-    isReadOnlyViewer,
+    isReadOnly,
     canManageWebhooks,
     availableEventOptions,
     unavailableDailyBriefSelected,

@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 
 import { ConfirmDialog } from '../components/ConfirmDialog'
+import { CopyableIdentifier } from '../components/CopyableIdentifier'
 import type { AdminUser, User, UserUpdateRequest } from '../types/api'
 import { formatDateTime } from '../utils/datetime'
+import { formatSettingsRoleLabel } from '../workspace/modulePresentation'
 import {
   UserAuthenticationManagement,
   UserMfaChip,
@@ -24,6 +26,7 @@ import {
 
 type UserDirectoryRowProps = {
   user: AdminUser
+  canManage: boolean
   settingsDraft: UserSettingsDraft
   onSettingsDraftChange: (draft: UserSettingsDraft) => void
   passwordDraft: string
@@ -44,6 +47,7 @@ type UserDirectoryRowProps = {
 
 export function UserDirectoryRow({
   user,
+  canManage,
   settingsDraft,
   onSettingsDraftChange,
   passwordDraft,
@@ -115,11 +119,13 @@ export function UserDirectoryRow({
               >
                 {resolveAccountLabel(user)}
               </span>
-              <span className="tl-chip tl-chip-neutral">{user.role}</span>
+              <span className="tl-chip tl-chip-neutral">
+                {formatSettingsRoleLabel(user.role)}
+              </span>
               <span
                 className={`tl-chip ${user.is_active ? 'tl-chip-success' : 'tl-chip-neutral'}`}
               >
-                {user.is_active ? 'Active' : 'Inactive'}
+                {user.is_active ? 'Active' : 'Disabled'}
               </span>
               {!user.is_approved && (
                 <span className="tl-chip tl-chip-warning">
@@ -157,11 +163,11 @@ export function UserDirectoryRow({
             type="button"
             className="shrink-0 rounded border border-slate/20 px-3 py-1.5 text-xs font-semibold dark:border-cyan-900/40"
             aria-expanded={managementOpen}
-            aria-controls={`user-settings-${user.id} user-management-${user.id}`}
-            aria-label={`${managementOpen ? 'Close management controls for' : 'Manage'} ${user.email}`}
+            aria-controls={`user-management-${user.id}`}
+            aria-label={userManagementToggleLabel(managementOpen, canManage, user.email)}
             onClick={() => setManagementOpen((current) => !current)}
           >
-            {managementOpen ? 'Close' : 'Manage'}
+            {userManagementToggleText(managementOpen, canManage)}
           </button>
         </div>
 
@@ -169,6 +175,18 @@ export function UserDirectoryRow({
           id={`user-management-${user.id}`}
           className={`${managementOpen ? 'block' : 'hidden'} mt-3 border-t border-slate/15 pt-3 dark:border-cyan-900/30`}
         >
+          <UserManagementReadOnlyNotice canManage={canManage} />
+          <div className="mb-3 grid gap-1 rounded border border-slate/15 bg-slate/5 px-2.5 py-2 dark:border-cyan-900/30 dark:bg-white/[0.03] sm:grid-cols-[8rem_minmax(0,1fr)] sm:items-center">
+            <p className="text-xs font-semibold text-slate dark:text-slate-300">
+              User ID
+            </p>
+            <CopyableIdentifier label="User ID" value={user.id} />
+          </div>
+          <fieldset
+            disabled={!canManage}
+            className="min-w-0 [&_:disabled]:cursor-not-allowed [&_:disabled]:opacity-60"
+          >
+            <legend className="sr-only">User management controls for {user.email}</legend>
           <UserSettingsConflictNotice
             conflict={settingsConflict}
             onUseServer={onUseServerSettings}
@@ -179,13 +197,13 @@ export function UserDirectoryRow({
             className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(170px,1fr)_auto_auto_auto] xl:items-end"
           >
             <div>
-              <p className="text-xs font-semibold uppercase text-slate dark:text-slate-300">
-                Role
+              <p className="text-xs font-semibold text-slate dark:text-slate-300">
+                Base role
               </p>
               {roleManagedLocally ? (
                 <>
                   <label htmlFor={roleInputId} className="sr-only">
-                    Role for {user.email}
+                    Base role for {user.email}
                   </label>
                   <select
                     id={roleInputId}
@@ -198,14 +216,16 @@ export function UserDirectoryRow({
                     }
                     className="mt-1 w-full rounded border border-slate/30 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
                   >
-                    <option value="viewer">viewer</option>
-                    <option value="analyst">analyst</option>
-                    <option value="admin">admin</option>
+                    <option value="viewer">Viewer</option>
+                    <option value="analyst">Analyst</option>
+                    <option value="admin">Administrator</option>
                   </select>
                 </>
               ) : (
                 <div className="mt-1 text-sm">
-                  <p className="font-semibold">{user.role}</p>
+                  <p className="font-semibold">
+                    {formatSettingsRoleLabel(user.role)}
+                  </p>
                   <p className="text-xs text-slate dark:text-slate-300">
                     Managed by {user.oidc_provider_name || 'SSO'}
                   </p>
@@ -215,7 +235,7 @@ export function UserDirectoryRow({
             <label className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
-                aria-label={`Active account for ${user.email}`}
+                aria-label={`Account enabled for ${user.email}`}
                 checked={editableSettingsDraft.isActive}
                 onChange={(event) =>
                   onSettingsDraftChange({
@@ -224,12 +244,12 @@ export function UserDirectoryRow({
                   })
                 }
               />
-              Active
+              Account enabled
             </label>
             <label className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
-                aria-label={`Approved account for ${user.email}`}
+                aria-label={`Access approved for ${user.email}`}
                 checked={editableSettingsDraft.isApproved}
                 onChange={(event) =>
                   onSettingsDraftChange({
@@ -238,7 +258,7 @@ export function UserDirectoryRow({
                   })
                 }
               />
-              Approved
+              Access approved
             </label>
             <button
               type="button"
@@ -254,8 +274,8 @@ export function UserDirectoryRow({
           </div>
 
           <div className="mt-3 border-t border-slate/15 pt-3 dark:border-cyan-900/30">
-            <p className="text-xs font-semibold uppercase text-slate dark:text-slate-300">
-              Authentication
+            <p className="text-xs font-semibold text-slate dark:text-slate-300">
+              Sign-in methods
             </p>
             <UserAuthenticationManagement
               user={user}
@@ -291,6 +311,7 @@ export function UserDirectoryRow({
               {notice.message}
             </p>
           )}
+          </fieldset>
         </div>
       </div>
 
@@ -312,7 +333,7 @@ export function UserDirectoryRow({
                 {user.email}
               </p>
               <p className="text-xs text-slate dark:text-white/70">
-                Role: {user.role}
+                Base role: {formatSettingsRoleLabel(user.role)}
               </p>
             </div>
             {pendingConfirmation.warnings.length > 0 && (
@@ -334,6 +355,29 @@ export function UserDirectoryRow({
         )}
       </ConfirmDialog>
     </>
+  )
+}
+
+function userManagementToggleLabel(
+  open: boolean,
+  canManage: boolean,
+  email: string,
+) {
+  if (open) return `Close details for ${email}`
+  return canManage ? `Manage ${email}` : `View details for ${email}`
+}
+
+function userManagementToggleText(open: boolean, canManage: boolean) {
+  if (open) return 'Close'
+  return canManage ? 'Manage' : 'View details'
+}
+
+function UserManagementReadOnlyNotice({ canManage }: { canManage: boolean }) {
+  if (canManage) return null
+  return (
+    <p className="mb-3 rounded border border-amber-300/60 bg-amber-50/80 px-3 py-2 text-sm text-amber-900 dark:border-amber-800/40 dark:bg-amber-950/30 dark:text-amber-100">
+      These controls are read-only. User changes require the Administrator base role and user-management permission.
+    </p>
   )
 }
 

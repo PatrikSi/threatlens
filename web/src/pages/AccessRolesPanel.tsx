@@ -34,6 +34,29 @@ const EMPTY_ROLE: RoleDraft = {
   permissions: [],
 }
 
+const PERMISSION_BASE_ROLE_REQUIREMENTS: Readonly<Partial<Record<string, string>>> = {
+  'read:ai': 'Administrator',
+  'write:ai': 'Administrator',
+  'read:health': 'Administrator',
+  'write:users': 'Administrator',
+  'write:notifications': 'Administrator or Analyst',
+}
+
+const ACCESS_UI_PREREQUISITE_PERMISSIONS: ReadonlySet<string> = new Set([
+  'read:service_accounts',
+  'write:service_accounts',
+  'read:elevations',
+  'write:elevations',
+  'approve:elevations',
+  'read:approvals',
+  'write:approvals',
+  'approve:approvals',
+  'read:access_reviews',
+  'write:access_reviews',
+  'read:data_policies',
+  'write:data_policies',
+])
+
 export function AccessRolesPanel({
   catalog,
   canWrite,
@@ -82,7 +105,7 @@ export function AccessRolesPanel({
   const validation = roleValidation(draft, creating)
   const confirmDiscard = useUnsavedChangesWarning(
     dirty,
-    'Discard the unsaved role changes?',
+    'Discard the unsaved access-role changes?',
   )
 
   useEffect(() => {
@@ -141,12 +164,14 @@ export function AccessRolesPanel({
 
   return (
     <section className="tl-surface overflow-hidden rounded-xl" aria-labelledby="roles-heading">
-      <header className="border-b border-slate/15 px-4 py-4 dark:border-white/10 sm:px-5">
+      <header className="border-b border-slate/15 px-3 py-3 dark:border-white/10 sm:px-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h2 id="roles-heading" className="font-display text-xl">Roles and permissions</h2>
+            <h2 id="roles-heading" className="font-display text-xl">Access roles</h2>
             <p className="mt-1 text-sm text-slate dark:text-slate-300">
-              Custom roles are additive. System roles are sealed and shown for reference.
+              A base role (Administrator, Analyst, or Viewer) sets built-in access for each user.
+              Access roles add permission bundles through governance assignments; system
+              roles are sealed.
             </p>
           </div>
           {canWrite && (
@@ -156,39 +181,39 @@ export function AccessRolesPanel({
               onClick={chooseNewRole}
             >
               <Plus className="h-4 w-4" aria-hidden="true" />
-              New role
+              New access role
             </button>
           )}
         </div>
       </header>
 
-      <div className="grid min-h-[620px] lg:grid-cols-[320px_minmax(0,1fr)]">
+      <div className="grid lg:grid-cols-[300px_minmax(0,1fr)]">
         <aside className="border-b border-slate/15 p-3 dark:border-white/10 lg:border-b-0 lg:border-r">
           <label className="relative block">
-            <span className="sr-only">Search roles</span>
+            <span className="sr-only">Search access roles</span>
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate" aria-hidden="true" />
             <input
               type="search"
               className="min-h-11 w-full rounded border border-slate/25 bg-white py-2 pl-9 pr-3 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
-              placeholder="Search roles"
+              placeholder="Search access roles"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
           </label>
-          <ul className="mt-3 max-h-[560px] space-y-1 overflow-y-auto" aria-label="IAM roles">
+          <ul className="mt-2 max-h-[440px] space-y-1 overflow-y-auto" aria-label="Access roles">
             {filteredRoles.map((role) => {
               const selected = role.id === selectedRoleId
               return (
                 <li key={role.id}>
                   <button
                     type="button"
-                    className={`w-full rounded-lg border px-3 py-2.5 text-left ${selected ? 'border-cyan/50 bg-cyan/10' : 'border-transparent hover:border-slate/20 hover:bg-slate/5 dark:hover:border-white/10 dark:hover:bg-white/[0.04]'}`}
+                    className={`w-full rounded-lg border px-2.5 py-2 text-left ${selected ? 'border-cyan/50 bg-cyan/10' : 'border-transparent hover:border-slate/20 hover:bg-slate/5 dark:hover:border-white/10 dark:hover:bg-white/[0.04]'}`}
                     aria-current={selected ? 'true' : undefined}
                     onClick={() => chooseRole(role)}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <span className="font-semibold text-ink dark:text-white">{role.name}</span>
-                      {role.is_system && <LockKeyhole className="mt-0.5 h-4 w-4 shrink-0 text-slate" aria-label="System role" />}
+                      {role.is_system && <LockKeyhole className="mt-0.5 h-4 w-4 shrink-0 text-slate" aria-label="System access role" />}
                     </div>
                     <p className="mt-0.5 font-mono text-xs text-slate dark:text-slate-400">{role.key}</p>
                     <p className="mt-1 text-xs text-slate dark:text-slate-400">
@@ -199,14 +224,14 @@ export function AccessRolesPanel({
               )
             })}
             {filteredRoles.length === 0 && (
-              <li className="px-3 py-6 text-center text-sm text-slate dark:text-slate-400">No roles match this search.</li>
+              <li className="px-3 py-4 text-center text-sm text-slate dark:text-slate-400">No access roles match this search.</li>
             )}
           </ul>
         </aside>
 
-        <div className="min-w-0 p-4 sm:p-5">
+        <div className="min-w-0 p-3 sm:p-4">
           {selectedRoleId === null ? (
-            <p className="text-sm text-slate dark:text-slate-300">Select a role to inspect its effective permission bundle.</p>
+            <p className="text-sm text-slate dark:text-slate-300">Select an access role to inspect its effective permission bundle.</p>
           ) : (
             <form
               onSubmit={(event) => {
@@ -217,9 +242,9 @@ export function AccessRolesPanel({
               }}
             >
               <fieldset disabled={!editable || saveRole.isPending || removeRole.isPending}>
-                <div className="grid gap-4 md:grid-cols-2">
+                <div className="grid gap-3 md:grid-cols-2">
                   <label className="text-sm font-semibold">
-                    Role name
+                    Access role name
                     <input
                       className="mt-1 min-h-11 w-full rounded border border-slate/25 bg-white px-3 py-2 font-normal dark:border-cyan-900/40 dark:bg-[#072019]"
                       value={draft.name}
@@ -238,7 +263,7 @@ export function AccessRolesPanel({
                   <label className="text-sm font-semibold md:col-span-2">
                     Description
                     <textarea
-                      className="mt-1 min-h-24 w-full rounded border border-slate/25 bg-white px-3 py-2 font-normal dark:border-cyan-900/40 dark:bg-[#072019]"
+                      className="mt-1 min-h-20 w-full rounded border border-slate/25 bg-white px-3 py-2 font-normal dark:border-cyan-900/40 dark:bg-[#072019]"
                       value={draft.description}
                       onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))}
                     />
@@ -246,13 +271,13 @@ export function AccessRolesPanel({
                 </div>
 
                 {selectedRole?.is_system && (
-                  <div className="mt-4 flex items-start gap-2 rounded border border-slate/20 bg-slate/5 px-3 py-2 text-sm dark:border-white/10 dark:bg-white/[0.04]">
+                  <div className="mt-3 flex items-start gap-2 rounded border border-slate/20 bg-slate/5 px-3 py-2 text-sm dark:border-white/10 dark:bg-white/[0.04]">
                     <LockKeyhole className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-                    System role definitions are sealed. Create a custom role for a narrower permission bundle.
+                    System access-role definitions are sealed. Create a custom access role for a narrower permission bundle.
                   </div>
                 )}
 
-                <div className="mt-5">
+                <div className="mt-3">
                   <div className="flex items-end justify-between gap-3">
                     <div>
                       <h3 className="font-semibold">Permission bundle</h3>
@@ -262,7 +287,7 @@ export function AccessRolesPanel({
                     </div>
                     <span className="text-xs font-semibold text-slate dark:text-slate-300">{draft.permissions.length} selected</span>
                   </div>
-                  <div className="mt-3 space-y-3">
+                  <div className="mt-2 space-y-2">
                     <UnmatchedPermissionGrants
                       grants={draft.permissions.filter(
                         (grant) =>
@@ -292,26 +317,26 @@ export function AccessRolesPanel({
                 </div>
               </fieldset>
 
-              {validation && editable && <p role="alert" className="mt-4 rounded border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">{validation}</p>}
+              {validation && editable && <p role="alert" className="mt-3 rounded border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">{validation}</p>}
               {editable && !draftDelegable && (
-                <p className="mt-4 rounded border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
-                  Remove permissions outside your durable authority before saving this persistent role. You cannot add them again.
+                <p className="mt-3 rounded border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
+                  Remove permissions outside your durable authority before saving this persistent access role. You cannot add them again.
                 </p>
               )}
               {!creating && !selectedRole && (
-                <p role="alert" className="mt-4 rounded border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
-                  This role changed or was removed while you were editing. Copy any draft details you need, then discard this draft and reload the catalog.
+                <p role="alert" className="mt-3 rounded border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
+                  This access role changed or was removed while you were editing. Copy any draft details you need, then discard this draft and reload the catalog.
                 </p>
               )}
               {mutationError && (
-                <div role="alert" className="mt-4 rounded border border-red-300/60 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-100">
+                <div role="alert" className="mt-3 rounded border border-red-300/60 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-100">
                   <p className="flex items-start gap-2">
                     <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-                    {resolveApiErrorMessage(mutationError, 'Role mutation failed')}
+                    {resolveApiErrorMessage(mutationError, 'Access-role change failed')}
                   </p>
                   {saveOutcomeUnknown && (
                     <>
-                      <p className="mt-2">The outcome is unknown. The catalog was refreshed; review the matching server role before attempting another write.</p>
+                      <p className="mt-2">The outcome is unknown. The catalog was refreshed; review the matching server access role before attempting another write.</p>
                       <button
                         type="button"
                         className="mt-2 font-semibold underline"
@@ -330,7 +355,7 @@ export function AccessRolesPanel({
                 </div>
               )}
 
-              <div className="mt-5 flex flex-col-reverse gap-2 border-t border-slate/15 pt-4 sm:flex-row sm:justify-between dark:border-white/10">
+              <div className="mt-3 flex flex-col-reverse gap-2 border-t border-slate/15 pt-3 sm:flex-row sm:justify-between dark:border-white/10">
                 <div>
                   {selectedRole && !selectedRole.is_system && canWrite && (
                     <button type="button" className="tl-button-danger inline-flex min-h-11 items-center justify-center gap-2 rounded px-3 py-2 text-sm font-semibold disabled:opacity-60 sm:min-h-0" onClick={() => {
@@ -338,7 +363,7 @@ export function AccessRolesPanel({
                       setDeleteRequest({ id: selectedRole.id, name: selectedRole.name, revision: draftRevision! })
                     }} disabled={dirty || saveRole.isPending || removeRole.isPending}>
                       <Trash2 className="h-4 w-4" aria-hidden="true" />
-                      Delete role
+                      Delete access role
                     </button>
                   )}
                 </div>
@@ -348,7 +373,7 @@ export function AccessRolesPanel({
                   disabled={!editable || !dirty || Boolean(validation) || !draftDelegable || saveRole.isPending || saveOutcomeUnknown}
                 >
                   <Save className="h-4 w-4" aria-hidden="true" />
-                  {saveRole.isPending ? 'Saving…' : creating ? 'Create role' : 'Save revision'}
+                  {saveRole.isPending ? 'Saving…' : creating ? 'Create access role' : 'Save revision'}
                 </button>
               </div>
             </form>
@@ -358,9 +383,9 @@ export function AccessRolesPanel({
 
       <ConfirmDialog
         open={deleteRequest !== null}
-        title={`Delete ${deleteRequest?.name ?? 'role'}?`}
-        description="Deletion is rejected while any user, group, service account, OIDC mapping, handling policy, or live elevation still references this role. This action cannot be undone."
-        confirmLabel="Delete role"
+        title={`Delete ${deleteRequest?.name ?? 'access role'}?`}
+        description="Deletion is rejected while any user, group, service account, OIDC mapping, handling policy, or live elevation still references this access role. This action cannot be undone."
+        confirmLabel="Delete access role"
         isConfirming={removeRole.isPending}
         confirmDisabled={removeRole.error != null}
         onConfirm={() => removeRole.mutate()}
@@ -371,7 +396,7 @@ export function AccessRolesPanel({
       >
         {removeRole.error && (
           <p role="alert" className="rounded border border-red-300/60 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-100">
-            {resolveApiErrorMessage(removeRole.error, 'Role deletion failed')}
+            {resolveApiErrorMessage(removeRole.error, 'Access-role deletion failed')}
           </p>
         )}
       </ConfirmDialog>
@@ -394,14 +419,17 @@ function PermissionGroup({
   onToggle: (permissionId: string, checked: boolean) => void
 }) {
   return (
-    <fieldset className="rounded-lg border border-slate/20 p-3 dark:border-white/10">
+    <fieldset className="rounded-lg border border-slate/20 p-2.5 dark:border-white/10">
       <legend className="px-1 text-sm font-semibold">{group}</legend>
-      <div className="grid gap-2 md:grid-cols-2">
+      <div className="grid gap-1.5 md:grid-cols-2">
         {permissions.map((permission) => (
-          <label key={permission.id} className="flex min-h-11 items-start gap-3 rounded px-2 py-2 hover:bg-slate/5 dark:hover:bg-white/[0.04]">
+          <label
+            key={permission.id}
+            className="flex min-h-11 items-start gap-2 rounded px-2 py-1.5 hover:bg-slate/5 sm:min-h-0 dark:hover:bg-white/[0.04]"
+          >
             <input
               type="checkbox"
-              className="mt-0.5 h-5 w-5 shrink-0"
+              className="mt-0.5 h-5 w-5 shrink-0 sm:h-4 sm:w-4"
               checked={selected.has(permission.id)}
               disabled={
                 !permission.delegable ||
@@ -416,7 +444,8 @@ function PermissionGroup({
                 <RiskBadge risk={permission.risk} />
               </span>
               <span className="mt-0.5 block font-mono text-[11px] text-slate dark:text-slate-400">{permission.id}</span>
-              <span className="mt-1 block text-xs text-slate dark:text-slate-300">{permission.description}</span>
+              <span className="mt-0.5 block text-xs text-slate dark:text-slate-300">{permission.description}</span>
+              <PermissionCompatibilityNotes permissionId={permission.id} />
             </span>
           </label>
         ))}
@@ -443,6 +472,29 @@ function UnmatchedPermissionGrants({ grants }: { grants: string[] }) {
         ))}
       </ul>
     </div>
+  )
+}
+
+function PermissionCompatibilityNotes({ permissionId }: { permissionId: string }) {
+  const requiredRoles = PERMISSION_BASE_ROLE_REQUIREMENTS[permissionId]
+  const requiresAccessWorkspace = ACCESS_UI_PREREQUISITE_PERMISSIONS.has(permissionId)
+  if (!requiredRoles && !requiresAccessWorkspace) return null
+
+  return (
+    <span className="mt-1 flex flex-wrap gap-1">
+      {requiredRoles && (
+        <span className="inline-flex items-center gap-1 rounded border border-slate/20 bg-slate/5 px-1.5 py-0.5 text-[10px] font-semibold text-slate dark:border-white/10 dark:bg-white/[0.04] dark:text-slate-300">
+          <LockKeyhole className="h-3 w-3 shrink-0" aria-hidden="true" />
+          Requires base role: {requiredRoles}
+        </span>
+      )}
+      {requiresAccessWorkspace && (
+        <span className="inline-flex items-center gap-1 rounded border border-slate/20 bg-slate/5 px-1.5 py-0.5 text-[10px] font-semibold text-slate dark:border-white/10 dark:bg-white/[0.04] dark:text-slate-300">
+          <LockKeyhole className="h-3 w-3 shrink-0" aria-hidden="true" />
+          Access UI also requires read:iam; direct API access remains independent
+        </span>
+      )}
+    </span>
   )
 }
 
@@ -554,9 +606,9 @@ function normalizeDraft(draft: RoleDraft): RoleDraft {
 }
 
 function roleValidation(draft: RoleDraft, creating: boolean): string | null {
-  if (!draft.name.trim()) return 'Role name is required.'
+  if (!draft.name.trim()) return 'Access role name is required.'
   if (creating && !/^[a-z][a-z0-9-]{1,62}[a-z0-9]$/.test(draft.key.trim().toLowerCase())) {
-    return 'Role key must be 3–64 lowercase letters, numbers, or hyphens and start with a letter.'
+    return 'Access-role key must be 3–64 lowercase letters, numbers, or hyphens and start with a letter.'
   }
   return null
 }

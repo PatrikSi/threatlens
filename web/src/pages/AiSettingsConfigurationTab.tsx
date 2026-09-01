@@ -12,15 +12,15 @@ export function ConfigurationTab(props: AiSettingsConfigurationTabProps) {
   }
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
-      <div className="space-y-4">
+    <div className="grid gap-3 xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
+      <div className="space-y-3">
         {props.isLoading && (
-          <div className="rounded-xl border border-slate/20 bg-white/80 p-4 text-sm dark:border-cyan-900/40 dark:bg-[#041612]/90">
+          <div className="rounded-xl border border-slate/20 bg-white/80 p-3 text-sm dark:border-cyan-900/40 dark:bg-[#041612]/90">
             Loading AI settings...
           </div>
         )}
         {props.isError && (
-          <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-700 dark:text-red-300">
+          <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-700 dark:text-red-300">
             {props.errorMessage}
           </div>
         )}

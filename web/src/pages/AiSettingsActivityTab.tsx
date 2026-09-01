@@ -18,7 +18,7 @@ export function ActivityTab(props: ActivityTabProps) {
   })
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <ActivityFiltersPanel
         days={props.days}
         setDays={props.setDays}
@@ -30,10 +30,10 @@ export function ActivityTab(props: ActivityTabProps) {
       />
 
       <OverviewSection
-        title="Live Operations"
+        title="Live operations"
         description="Use this section to see what is running right now and to queue new brief or reprocess work."
       >
-        <div className="space-y-4">
+        <div className="space-y-3">
           <ActiveTasksPanel
             runs={props.runs}
             live={props.live}

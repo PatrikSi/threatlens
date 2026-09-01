@@ -49,10 +49,10 @@ describe('buildUserSettingsConfirmation', () => {
       },
     })
     expect(confirmation?.details).toEqual([
-      'Role will change from analyst to admin.',
+      'Base role will change from Analyst to Administrator.',
       'This grants full administrative access across user management, global settings, and operational controls.',
-      'Sign-in will be blocked until the account is reactivated.',
-      'The account will return to pending approval.',
+      'Account enabled: No. Sign-in will be blocked until the account is re-enabled.',
+      'Access approved: No. The account will return to pending approval.',
       'All existing browser sessions and API tokens will be revoked so the updated access policy takes effect.',
     ])
   })
@@ -88,9 +88,9 @@ describe('buildUserSettingsConfirmation', () => {
       },
     })
     expect(confirmation?.warnings).toEqual([
-      'You are removing your own admin access. Another admin may need to restore your role before you can manage users, audit logs, AI settings, feeds, or tags again.',
+      'You are removing your own Administrator access. Another Administrator may need to restore your base role before you can manage users, audit logs, AI settings, feeds, or tags again.',
       'You are disabling your own account. Your current session can stop working on the next authorization check.',
-      'You are sending your own account back to pending approval. Another admin must approve it before you can sign in again.',
+      'You are sending your own account back to pending approval. Another Administrator must approve it before you can sign in again.',
     ])
   })
 
@@ -194,10 +194,10 @@ describe('buildCreateUserConfirmation', () => {
       },
     })
     expect(confirmation?.details).toEqual([
-      'Role: admin.',
+      'Base role: Administrator.',
       'This account will have full administrative access on first sign-in.',
-      'Sign-in will stay blocked until an admin enables the account.',
-      'The account will remain pending approval after creation.',
+      'Account enabled: No. Sign-in will stay blocked until an Administrator enables the account.',
+      'Access approved: No. The account will remain pending approval after creation.',
     ])
   })
 })
@@ -335,9 +335,9 @@ describe('syncUserSettingsDrafts', () => {
       overlappingFields: [
         {
           field: 'role',
-          label: 'Role',
-          serverValue: 'viewer',
-          operatorValue: 'admin',
+          label: 'Base role',
+          serverValue: 'Viewer',
+          operatorValue: 'Administrator',
         },
       ],
     })

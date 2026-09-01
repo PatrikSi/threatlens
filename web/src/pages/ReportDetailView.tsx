@@ -15,15 +15,20 @@ export function ReportDetailView({
   report: ReportDetail
 }) {
   const running = report.status === 'queued' || report.status === 'running'
-  const canManage =
-    controller.isAdmin
-    || report.owner_user_id === controller.currentUser.data?.id
+  const canManage = controller.canAuthor && (
+    controller.isAdmin || report.owner_user_id === controller.currentUser.data?.id
+  )
   const warnings = Array.isArray(report.coverage.warnings)
     ? report.coverage.warnings.map(String)
     : []
 
   return (
     <div className="space-y-3 sm:space-y-4">
+      {!controller.canAuthor && (
+        <p className="rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700/40 dark:bg-amber-950/20 dark:text-amber-200">
+          This report is read-only. Retrying or deleting reports requires write access to reports.
+        </p>
+      )}
       <ReportHeader
         controller={controller}
         report={report}

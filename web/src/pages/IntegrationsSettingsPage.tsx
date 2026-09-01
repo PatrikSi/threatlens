@@ -1,5 +1,6 @@
 import { resolveApiErrorMessage } from '../api/errors'
 import { ConfirmDialog } from '../components/ConfirmDialog'
+import { SettingsPageHeader, SettingsReadOnlyNotice } from '../components/SettingsPageHeader'
 import { SMTPHookEditor, SMTPHookList } from './SMTPHookEditor'
 import { SMTPAnalyticsPanel, SMTPDeliveryHistory } from './SMTPIntegrationHistory'
 import { useSMTPIntegrationController } from './useSMTPIntegrationController'
@@ -7,16 +8,16 @@ import { useSMTPIntegrationController } from './useSMTPIntegrationController'
 export function SMTPIntegrationSettingsPage() {
   const controller = useSMTPIntegrationController()
   return (
-    <div className="space-y-4">
-      <SMTPIntegrationHeader loadError={controller.loadError} />
+    <div className="space-y-3">
+      <SMTPIntegrationHeader accessNotice={controller.accessNotice} loadError={controller.loadError} />
       <SMTPAnalyticsPanel
         analytics={controller.analyticsQuery.data}
         loading={controller.analyticsQuery.isLoading}
         error={controller.analyticsQuery.error}
       />
-      <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
+      <div className="grid gap-3 xl:grid-cols-[320px_minmax(0,1fr)]">
         <SMTPHookList controller={controller} />
-        <div className="space-y-4">
+        <div className="space-y-3">
           <SMTPHookEditor controller={controller} />
           <SMTPDeliveryHistory
             hook={controller.selectedHook}
@@ -32,6 +33,7 @@ export function SMTPIntegrationSettingsPage() {
             testRunPage={controller.testRunPage}
             onTestRunPageChange={controller.setTestRunPage}
             replaying={controller.replayDelivery.isPending}
+            canReplay={controller.canManageEmailDelivery}
             onReplay={controller.setPendingReplay}
           />
         </div>
@@ -46,20 +48,30 @@ export function IntegrationsSettingsPage() {
   return <SMTPIntegrationSettingsPage />
 }
 
-function SMTPIntegrationHeader({ loadError }: { loadError: unknown }) {
+function SMTPIntegrationHeader({
+  accessNotice,
+  loadError,
+}: {
+  accessNotice: string | null
+  loadError: unknown
+}) {
   return (
-    <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
-      <p className="text-xs font-semibold uppercase text-slate dark:text-white/55">Automation</p>
-      <h2 className="mt-1 font-display text-xl">SMTP Notifications</h2>
-      <p className="mt-1 text-sm text-slate dark:text-white/75">
-        Route different notification events to independent email destinations while sharing relay credentials where appropriate.
-      </p>
-      {Boolean(loadError) && (
-        <p role="alert" className="mt-3 text-sm text-red-600">
-          {resolveApiErrorMessage(loadError, 'Failed to load SMTP integrations.')}
-        </p>
+    <SettingsPageHeader
+      scope="Organization"
+      title="Email delivery"
+      description="Route organization-wide notification events to email destinations and monitor delivery health."
+    >
+      {(accessNotice || Boolean(loadError)) && (
+        <div className="space-y-3 py-3">
+          {accessNotice && <SettingsReadOnlyNotice permission="permission to manage email delivery" />}
+          {Boolean(loadError) && (
+            <p role="alert" className="text-sm text-red-600">
+              {resolveApiErrorMessage(loadError, 'Failed to load email delivery settings.')}
+            </p>
+          )}
+        </div>
       )}
-    </section>
+    </SettingsPageHeader>
   )
 }
 
@@ -72,14 +84,15 @@ function SMTPConfirmationDialogs({
     <>
       <ConfirmDialog
         open={Boolean(controller.pendingDelete)}
-        title="Delete SMTP hook?"
+        title="Delete email destination?"
         description={controller.pendingDelete
           ? `Delete ${controller.pendingDelete.name}? Delivery history will remain in retained integration records.`
           : undefined}
-        confirmLabel="Delete hook"
+        confirmLabel="Delete destination"
         isConfirming={controller.deleteHook.isPending}
+        confirmDisabled={!controller.canManageEmailDelivery}
         onConfirm={() => {
-          if (!controller.pendingDelete) return
+          if (!controller.pendingDelete || !controller.canManageEmailDelivery) return
           controller.setDeleteError(null)
           controller.deleteHook.mutate(controller.pendingDelete.id)
         }}
@@ -97,12 +110,13 @@ function SMTPConfirmationDialogs({
       <ConfirmDialog
         open={Boolean(controller.pendingReplay)}
         title="Replay dead-letter delivery?"
-        description="This creates a new delivery using the hook's current credentials, recipients, and template."
+        description="This creates a new delivery using the destination's current credentials, recipients, and template."
         confirmLabel="Replay delivery"
         confirmTone="primary"
         isConfirming={controller.replayDelivery.isPending}
+        confirmDisabled={!controller.canManageEmailDelivery}
         onConfirm={() => {
-          if (!controller.pendingReplay || !controller.selectedHookId) return
+          if (!controller.pendingReplay || !controller.selectedHookId || !controller.canManageEmailDelivery) return
           controller.replayDelivery.mutate({
             hookId: controller.selectedHookId,
             deliveryId: controller.pendingReplay.id,

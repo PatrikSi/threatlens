@@ -10,7 +10,7 @@ from app.api.deps import (
     get_authorization_context,
     get_current_auth_session_id,
     is_cookie_session_auth,
-    require_token_scopes,
+    require_permissions,
     resolve_client_ip,
 )
 from app.core.api_errors import ApiHTTPException
@@ -71,14 +71,14 @@ API_TOKEN_CHILD_EXPIRED_DETAIL = (
     "Parent API token is too close to expiry to mint a child token"
 )
 SESSION_TOKEN_SCOPE_DETAIL = (
-    "Requested token scopes exceed the permissions allowed for your role"
+    "Requested token scopes exceed your current durable permissions"
 )
 
 
 @router.get("", response_model=list[ApiTokenResponse])
 def list_tokens(
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_READ_TOKENS)),
+    user: User = Depends(require_permissions(SCOPE_READ_TOKENS)),
     user_id: uuid.UUID | None = Query(default=None),
 ):
     target_user_id = user.id
@@ -100,7 +100,7 @@ def list_tokens(
 @router.get("/inventory", response_model=ApiTokenListResponse)
 def list_token_inventory(
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_READ_TOKENS)),
+    user: User = Depends(require_permissions(SCOPE_READ_TOKENS)),
     user_id: uuid.UUID | None = Query(default=None),
     page: int = Query(default=1, ge=1, le=100_000),
     page_size: int = Query(default=25, ge=1, le=100),
@@ -162,7 +162,7 @@ def create_token(
     payload: ApiTokenCreateRequest,
     response: Response,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_TOKENS)),
+    user: User = Depends(require_permissions(SCOPE_WRITE_TOKENS)),
 ):
     settings = get_settings()
     now = datetime.now(timezone.utc)
@@ -389,9 +389,6 @@ def _enforce_browser_session_step_up(
 def _enforce_requested_token_scopes_authorized(
     request: Request, user: User, scopes: list[str]
 ) -> None:
-    if not is_cookie_session_auth(request):
-        return
-
     authorization = get_authorization_context(request)
     disallowed_scopes = (
         missing_delegable_scopes(authorization.durable_grants, scopes)
@@ -500,7 +497,7 @@ def revoke_token(
     token_id: uuid.UUID,
     response: Response,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_TOKENS)),
+    user: User = Depends(require_permissions(SCOPE_WRITE_TOKENS)),
 ):
     token_owner_id = db.scalar(select(ApiToken.user_id).where(ApiToken.id == token_id))
     if token_owner_id is None:

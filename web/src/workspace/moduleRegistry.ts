@@ -69,6 +69,7 @@ export interface TrustedWorkspaceModule {
   defaultOrder: number
   defaultMobilePriority: number
   mobileBehavior: WorkspaceMobileBehavior
+  requiredBaseRoles: readonly WorkspaceRole[] | null
   isContainer: boolean
   landingEligible: boolean
   policyManaged: boolean
@@ -89,9 +90,10 @@ const ADMIN_ONLY: readonly WorkspaceRole[] = ['admin']
 function moduleDefinition(
   definition: Omit<
     TrustedWorkspaceModule,
-    'section' | 'parentId' | 'isContainer' | 'landingEligible' | 'policyManaged'
+    'section' | 'parentId' | 'requiredBaseRoles' | 'isContainer' | 'landingEligible' | 'policyManaged'
   > & {
     parentId?: TrustedWorkspaceModuleId | null
+    requiredBaseRoles?: readonly WorkspaceRole[] | null
     isContainer?: boolean
     landingEligible?: boolean
     policyManaged?: boolean
@@ -103,6 +105,7 @@ function moduleDefinition(
     ...definition,
     section,
     parentId: definition.parentId ?? (section === 'settings' ? 'primary.settings' : null),
+    requiredBaseRoles: definition.requiredBaseRoles ?? null,
     isContainer,
     landingEligible: definition.landingEligible ?? !isContainer,
     policyManaged: definition.policyManaged ?? true,
@@ -167,7 +170,7 @@ export const TRUSTED_WORKSPACE_MODULES: readonly TrustedWorkspaceModule[] = [
   }),
   moduleDefinition({
     id: 'settings.tokens', label: 'API Tokens', route: '/settings/tokens', icon: KeyRound,
-    requiredPermissions: ['write:tokens'], featureDependency: null, serverFeatureFlag: null,
+    requiredPermissions: ['read:tokens'], featureDependency: null, serverFeatureFlag: null,
     defaultVisibleRoles: ALL_ROLES, defaultOptional: true, defaultOrder: 10,
     defaultMobilePriority: 10, mobileBehavior: 'primary',
   }),
@@ -181,7 +184,7 @@ export const TRUSTED_WORKSPACE_MODULES: readonly TrustedWorkspaceModule[] = [
     id: 'settings.ai', label: 'AI', route: '/settings/ai', icon: Bot,
     requiredPermissions: ['read:ai'], featureDependency: 'ai_enabled', serverFeatureFlag: 'ai_enabled',
     defaultVisibleRoles: ADMIN_ONLY, defaultOptional: true, defaultOrder: 20,
-    defaultMobilePriority: 20, mobileBehavior: 'secondary',
+    defaultMobilePriority: 20, mobileBehavior: 'secondary', requiredBaseRoles: ADMIN_ONLY,
   }),
   moduleDefinition({
     id: 'settings.tagging', label: 'Tagging', route: '/settings/tagging', icon: Tags,
@@ -193,7 +196,7 @@ export const TRUSTED_WORKSPACE_MODULES: readonly TrustedWorkspaceModule[] = [
     id: 'settings.identity', label: 'Identity', route: '/settings/identity', icon: ShieldCheck,
     requiredPermissions: ['read:users'], featureDependency: null, serverFeatureFlag: null,
     defaultVisibleRoles: ADMIN_ONLY, defaultOptional: true, defaultOrder: 40,
-    defaultMobilePriority: 40, mobileBehavior: 'secondary',
+    defaultMobilePriority: 40, mobileBehavior: 'secondary', requiredBaseRoles: ADMIN_ONLY,
   }),
   moduleDefinition({
     id: 'settings.access', label: 'Access', route: '/settings/access', icon: ShieldCheck,
@@ -256,6 +259,12 @@ export const TRUSTED_DASHBOARD_PANEL_BY_ID = new Map(
 
 export function isTrustedWorkspaceModuleId(value: string): value is TrustedWorkspaceModuleId {
   return TRUSTED_WORKSPACE_MODULE_BY_ID.has(value as TrustedWorkspaceModuleId)
+}
+
+export function isTopNavigationModule(
+  module: Pick<TrustedWorkspaceModule, 'section'>,
+): boolean {
+  return module.section === 'primary'
 }
 
 export function isTrustedDashboardPanelId(value: string): value is TrustedDashboardPanelId {

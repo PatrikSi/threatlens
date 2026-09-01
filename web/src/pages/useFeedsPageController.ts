@@ -15,6 +15,7 @@ import {
 } from '../types/api'
 import { resolveFeedHealth } from '../utils/feedHealth'
 import { mapSettledWithConcurrency } from '../utils/boundedConcurrency'
+import { hasRequiredPermissions } from '../workspace/workspaceModel'
 import {
   FeedEditDraft,
   buildFeedUpdatePayload,
@@ -84,9 +85,12 @@ function shouldShowMobileFeedForm(open: boolean, feedCount: number) {
 export function useFeedsPageController() {
   const queryClient = useQueryClient()
   const meQuery = useCurrentUser()
-  const canManage = meQuery.data?.role === 'admin' || meQuery.data?.role === 'analyst'
-  const canDelete = meQuery.data?.role === 'admin'
-  const canBackup = meQuery.data?.role === 'admin'
+  const permissions = meQuery.data?.access?.permissions ?? []
+  const canManage = hasRequiredPermissions(permissions, ['write:feeds'])
+  const canDelete = hasRequiredPermissions(permissions, ['admin:feeds'])
+  const canBackup = canDelete
+  const canInspectEncryptedDataHealth = meQuery.data?.role === 'admin' &&
+    hasRequiredPermissions(permissions, ['read:health'])
   const feedScheduleDraftStorageKey = meQuery.data?.id ? getFeedScheduleDraftStorageKey(meQuery.data.id) : null
 
   const [name, setName] = useState('')
@@ -180,7 +184,7 @@ export function useFeedsPageController() {
         throw error
       }
     },
-    enabled: canDelete,
+    enabled: canInspectEncryptedDataHealth,
     refetchInterval: 60_000,
   })
 

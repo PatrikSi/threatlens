@@ -12,6 +12,7 @@ import type {
 import {
   TRUSTED_DASHBOARD_PANELS,
   TRUSTED_WORKSPACE_MODULES,
+  isTopNavigationModule,
   type TrustedWorkspaceModuleId,
 } from './moduleRegistry'
 import {
@@ -58,6 +59,32 @@ describe('workspace model', () => {
         expect(moduleIndexes.get(module.parentId)!).toBeLessThan(moduleIndexes.get(module.id)!)
       }
     }
+  })
+
+  it('defines the policy-managed top navbar independently from Settings descendants', () => {
+    expect(
+      TRUSTED_WORKSPACE_MODULES
+        .filter((module) => isTopNavigationModule(module) && module.policyManaged)
+        .map((module) => module.id),
+    ).toEqual([
+      'primary.dashboard',
+      'primary.alerts',
+      'primary.investigations',
+      'primary.feeds',
+      'primary.stats',
+      'primary.export',
+      'primary.reporting',
+    ])
+    expect(
+      TRUSTED_WORKSPACE_MODULES
+        .filter((module) => isTopNavigationModule(module) && !module.policyManaged)
+        .map((module) => module.id),
+    ).toEqual(['primary.settings'])
+    expect(
+      TRUSTED_WORKSPACE_MODULES
+        .filter((module) => module.section === 'settings')
+        .every((module) => !isTopNavigationModule(module)),
+    ).toBe(true)
   })
 
   it('removes local-control containers from editable effective preferences while retaining future entries', () => {
@@ -137,7 +164,7 @@ describe('workspace model', () => {
     expect(model.settingsNavigation.map((module) => module.id)).not.toContain('settings.integrations.smtp')
   })
 
-  it('uses canonical permissions instead of legacy role labels for authoritative server modules', () => {
+  it('uses canonical permissions for delegable authoritative server modules', () => {
     const effective = effectiveWorkspace()
     effective.role = 'analyst'
     const model = resolveWorkspaceModel(effective, serverRegistry(), {
@@ -145,9 +172,7 @@ describe('workspace model', () => {
     })
 
     for (const moduleId of [
-      'settings.ai',
       'settings.tagging',
-      'settings.identity',
       'settings.users',
       'settings.audit',
       'settings.operations',
@@ -156,6 +181,25 @@ describe('workspace model', () => {
       const module = model.modules.find((entry) => entry.id === moduleId)
       expect(module).toMatchObject({ visible: true, permissionAllowed: true })
       expect(module?.reasons).not.toContain('route_role_required')
+    }
+  })
+
+  it('keeps sealed administration modules out of non-Administrator navigation', () => {
+    const effective = effectiveWorkspace()
+    effective.role = 'viewer'
+    const model = resolveWorkspaceModel(effective, serverRegistry(), {
+      role: 'viewer', permissions: ['*:*'], features: FEATURES, accountEligible: true,
+    })
+
+    for (const moduleId of ['settings.ai', 'settings.identity']) {
+      const module = model.modules.find((entry) => entry.id === moduleId)
+      expect(module).toMatchObject({
+        visible: false,
+        permissionAllowed: true,
+        roleAllowed: false,
+      })
+      expect(module?.reasons).toContain('route_role_required')
+      expect(model.settingsNavigation.map((entry) => entry.id)).not.toContain(moduleId)
     }
   })
 
@@ -262,7 +306,7 @@ describe('workspace model', () => {
       .toMatchObject({ isContainer: true, landingEligible: false, policyManaged: false })
   })
 
-  it('keeps desktop and mobile settings ordering independent', () => {
+  it('keeps one stable settings order across breakpoints', () => {
     const effective = effectiveWorkspace({
       'settings.ai': { order: 100, mobile_priority: 1 },
       'settings.tagging': { order: 1, mobile_priority: 100 },
@@ -272,9 +316,23 @@ describe('workspace model', () => {
     })
 
     const desktop = model.settingsNavigation.map((module) => module.id)
-    const mobile = model.mobileSettingsNavigation.map((module) => module.id)
     expect(desktop.indexOf('settings.tagging')).toBeLessThan(desktop.indexOf('settings.ai'))
-    expect(mobile.indexOf('settings.ai')).toBeLessThan(mobile.indexOf('settings.tagging'))
+    expect('mobileSettingsNavigation' in model).toBe(false)
+  })
+
+  it('keeps personal desktop main order separate from organization mobile priority', () => {
+    const effective = effectiveWorkspace({
+      'primary.dashboard': { order: 30, mobile_priority: 0 },
+      'primary.alerts': { order: 0, mobile_priority: 30 },
+    })
+    const model = resolveWorkspaceModel(effective, serverRegistry(), {
+      role: 'admin', permissions: ['*:*'], features: FEATURES, accountEligible: true,
+    })
+
+    const desktop = model.primaryNavigation.map((module) => module.id)
+    const mobile = model.mobileNavigation.map((module) => module.id)
+    expect(desktop.indexOf('primary.alerts')).toBeLessThan(desktop.indexOf('primary.dashboard'))
+    expect(mobile.indexOf('primary.dashboard')).toBeLessThan(mobile.indexOf('primary.alerts'))
   })
 
   it('describes a missing registry entry without claiming an effective trusted entry is hidden', () => {

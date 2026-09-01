@@ -91,6 +91,7 @@ const usersPageDomMocks = vi.hoisted(() => ({
       id: 'admin-1',
       email: 'admin@example.com',
       role: 'admin',
+      access: { permissions: ['*:*'] as string[] },
       is_active: true,
       is_approved: true,
       approved_at: '2026-04-20T10:00:00Z',
@@ -503,6 +504,7 @@ afterEach(() => {
       id: 'admin-1',
       email: 'admin@example.com',
       role: 'admin',
+      access: { permissions: ['*:*'] },
       is_active: true,
       is_approved: true,
       approved_at: '2026-04-20T10:00:00Z',
@@ -536,11 +538,30 @@ afterEach(() => {
 })
 
 describe('UsersPage DOM workflows', () => {
+  it('keeps delegated directory readers in an explicit read-only state', () => {
+    usersPageDomMocks.currentUser.data.role = 'viewer'
+    usersPageDomMocks.currentUser.data.access.permissions = ['read:users']
+
+    const view = renderPage()
+    const buttonByLabel = (label: string) =>
+      Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find(
+        (button) => button.textContent?.trim() === label,
+      ) ?? null
+
+    expect(pageText()).toContain('read-only directory access')
+    expect(buttonByLabel('Add local user')).toBeNull()
+    const viewDetails = buttonByLabel('View details')
+    expect(viewDetails).not.toBeNull()
+    act(() => viewDetails?.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+    expect(view.querySelector<HTMLSelectElement>('#user-role-user-1')?.matches(':disabled')).toBe(true)
+    expect(buttonByLabel('Review changes')?.disabled).toBe(true)
+  })
+
   it('progressively discloses mobile create and user management controls', () => {
     const view = renderPage()
     const createForm = view.querySelector<HTMLElement>('#create-user-form')
     const createToggle = Array.from(view.querySelectorAll('button')).find(
-      (button) => button.textContent?.trim() === 'New local user',
+      (button) => button.textContent?.trim() === 'Add local user',
     )
     const userSettings = view.querySelector<HTMLElement>(
       '#user-settings-user-1',
@@ -552,6 +573,8 @@ describe('UsersPage DOM workflows', () => {
       (button) => button.textContent?.trim() === 'Manage',
     )
 
+    expect(view.querySelectorAll('h1')).toHaveLength(1)
+    expect(view.querySelector('h1')?.textContent).toBe('Users')
     expect(createForm?.className).toContain('hidden')
     expect(createToggle?.getAttribute('aria-expanded')).toBe('false')
     expect(userManagement?.className).toContain('hidden')
@@ -568,10 +591,46 @@ describe('UsersPage DOM workflows', () => {
     expect(manageToggle?.getAttribute('aria-expanded')).toBe('true')
   })
 
+  it('shows the stable user ID only in account details and makes it copyable', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    })
+    const view = renderPage()
+    const details = view.querySelector<HTMLElement>('#user-management-user-1')
+
+    expect(details?.className).toContain('hidden')
+    act(() => {
+      Array.from(view.querySelectorAll<HTMLButtonElement>('button'))
+        .find((button) => button.textContent?.trim() === 'Manage')
+        ?.click()
+    })
+
+    const copyUserId = view.querySelector<HTMLButtonElement>(
+      'button[aria-label="Copy user id"]',
+    )
+    expect(details?.className).toContain('block')
+    expect(view.textContent).toContain('User ID')
+    expect(view.textContent).toContain('user-1')
+    expect(copyUserId).not.toBeNull()
+
+    await act(async () => {
+      copyUserId?.click()
+      await flushPromises()
+    })
+    expect(writeText).toHaveBeenCalledWith('user-1')
+    expect(copyUserId?.textContent).toBe('Copied')
+    expect(copyUserId?.getAttribute('aria-label')).toBe('User ID copied')
+    expect(details?.querySelector('[aria-live="polite"]')?.textContent).toBe(
+      'User ID copied to clipboard.',
+    )
+  })
+
   it('labels and restores a create-user draft after the form is closed', () => {
     const view = renderPage()
     const createToggle = Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find(
-      (button) => button.textContent?.trim() === 'New local user',
+      (button) => button.textContent?.trim() === 'Add local user',
     )!
 
     act(() => createToggle.click())
@@ -1087,7 +1146,7 @@ describe('UsersPage DOM workflows', () => {
     expect(view.querySelector('#create-user-form')).toBeNull()
     expect(
       [...view.querySelectorAll('button')].some(
-        (button) => button.textContent === 'New local user',
+        (button) => button.textContent === 'Add local user',
       ),
     ).toBe(false)
     expect(pageText()).not.toContain('No users match')
@@ -1164,7 +1223,7 @@ describe('UsersPage DOM workflows', () => {
     expect(view.querySelector('#user-reset-password-user-1')).toBeNull()
   })
 
-  it('renders accessible admin controls and confirms a role change through the review dialog', () => {
+  it('renders accessible admin controls and confirms a base-role change through the review dialog', () => {
     const view = renderPage()
 
     expect(
@@ -1177,17 +1236,17 @@ describe('UsersPage DOM workflows', () => {
     ).toContain('password')
     expect(
       view.querySelector('label[for="create-user-role"]')?.textContent,
-    ).toContain('Role')
+    ).toContain('Base role')
     expect(
       view.querySelector('label[for="user-directory-search"]')?.textContent,
-    ).toContain('email, role, status, account type, or provider')
+    ).toContain('email, base role, status, account type, or provider')
     expect(
       view.querySelector<HTMLInputElement>('#user-directory-search')
         ?.placeholder,
     ).toBe('Search users...')
     expect(
       view.querySelector('label[for="user-role-user-1"]')?.textContent,
-    ).toContain('Role for analyst@example.com')
+    ).toContain('Base role for analyst@example.com')
     expect(
       view.querySelector('label[for="user-reset-password-user-1"]')
         ?.textContent,
@@ -1212,7 +1271,9 @@ describe('UsersPage DOM workflows', () => {
     })
 
     expect(pageText()).toContain('Apply privileged user changes?')
-    expect(pageText()).toContain('Role will change from analyst to admin.')
+    expect(pageText()).toContain(
+      'Base role will change from Analyst to Administrator.',
+    )
 
     const confirmButton = Array.from(document.querySelectorAll('button')).find(
       (button) => button.textContent?.includes('Apply user changes'),
@@ -1289,11 +1350,11 @@ describe('UsersPage DOM workflows', () => {
 
     expect(view.textContent).toContain('This account changed on the server')
     expect(view.textContent).toContain(
-      'server has viewer; your draft has admin',
+      'server has Viewer; your draft has Administrator',
     )
     expect(
       view.querySelector<HTMLInputElement>(
-        'input[aria-label="Active account for analyst@example.com"]',
+        'input[aria-label="Account enabled for analyst@example.com"]',
       )?.checked,
     ).toBe(false)
     const review = [...view.querySelectorAll<HTMLButtonElement>('button')].find(
@@ -1367,6 +1428,7 @@ describe('UsersPage DOM workflows', () => {
         id: 'admin-1',
         email: 'admin@example.com',
         role: 'admin',
+        access: { permissions: ['*:*'] },
         is_active: true,
         is_approved: true,
         approved_at: '2026-04-20T10:00:00Z',
@@ -1436,7 +1498,9 @@ describe('UsersPage DOM workflows', () => {
     })
 
     expect(pageText()).toContain('Self-access warning')
-    expect(pageText()).toContain('You are removing your own admin access.')
+    expect(pageText()).toContain(
+      'You are removing your own Administrator access.',
+    )
     expect(pageText()).toContain('You are disabling your own account.')
     expect(pageText()).toContain(
       'You are sending your own account back to pending approval.',
@@ -1558,11 +1622,11 @@ describe('UsersPage DOM workflows', () => {
     expect(pageText()).not.toContain('unsaved account draft is hidden')
   })
 
-  it('describes Viewer alert triage rights without claiming all state is read-only', () => {
+  it('describes Viewer triage rights and read-only notification access accurately', () => {
     renderPage()
 
     expect(pageText()).toContain(
-      'Manage personal alert rules, occurrence triage, notifications, and API tokens',
+      'Manage personal alert rules, occurrence triage, and API tokens; review notifications',
     )
     expect(pageText()).not.toContain('Cannot change feeds, tags, or triage state')
   })

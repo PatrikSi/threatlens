@@ -88,6 +88,12 @@ export function ReportingPage() {
         </nav>
       </section>
 
+      {!controller.canAuthor && (
+        <p className="rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700/40 dark:bg-amber-950/20 dark:text-amber-200">
+          Reporting is read-only. Generating reports or changing templates requires write access to reports.
+        </p>
+      )}
+
       <ReportingActionFeedback feedback={controller.feedback} />
 
       {controller.capabilitiesQuery.isLoading && <PageStatus message="Loading reporting capabilities..." />}

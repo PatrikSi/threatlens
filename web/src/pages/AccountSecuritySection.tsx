@@ -502,13 +502,13 @@ export function AccountSecuritySection({
 
   return (
     <section
-      className="space-y-4 lg:col-span-2"
+      className="space-y-3"
       aria-labelledby="account-security-heading"
     >
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h2 id="account-security-heading" className="font-display text-xl">
-            Account Security
+          <h2 id="account-security-heading" className="font-display text-lg">
+            Account security
           </h2>
           <p className="mt-1 text-sm text-slate dark:text-slate-300">
             Protect local sign-in and review browsers that can access this
@@ -529,7 +529,7 @@ export function AccountSecuritySection({
 
       {notice && <SecurityStatusNotice notice={notice} />}
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid items-start gap-3 lg:grid-cols-[minmax(320px,5fr)_minmax(0,7fr)]">
         <MFAWorkspace
           status={mfaQuery.data}
           isLoading={mfaQuery.isLoading}
@@ -746,7 +746,7 @@ function MFAWorkspace({
   onSensitiveAction: (action: SensitiveAction) => void
 }) {
   return (
-    <div className="tl-surface rounded-xl p-4">
+    <div className="tl-surface rounded-xl p-3.5">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h3 className="font-semibold">Multi-factor authentication</h3>
@@ -799,7 +799,7 @@ function MFAWorkspace({
       )}
       {status?.local_mfa_available && !status.enabled && !enrollment && (
         <form
-          className="mt-4"
+          className="mt-3"
           onSubmit={(event: FormEvent) => {
             event.preventDefault()
             if (enrollmentPassword) enrollmentMutation.mutate()
@@ -844,7 +844,7 @@ function MFAWorkspace({
         </form>
       )}
       {status?.local_mfa_available && !status.enabled && enrollment && (
-        <div className="mt-4 space-y-3">
+        <div className="mt-3 space-y-2.5">
           <div>
             <p className="text-sm font-semibold">
               1. Add this account to your authenticator
@@ -926,7 +926,7 @@ function MFAWorkspace({
         </div>
       )}
       {status?.enabled && (
-        <div className="mt-4 space-y-3 text-sm">
+        <div className="mt-3 space-y-2.5 text-sm">
           <dl className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-2">
             <dt className="text-slate dark:text-slate-300">Enabled</dt>
             <dd className="text-right">

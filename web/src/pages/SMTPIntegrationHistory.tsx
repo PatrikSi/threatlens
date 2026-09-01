@@ -26,17 +26,17 @@ export function SMTPAnalyticsPanel({
   error: unknown
 }) {
   return (
-    <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+    <section className="rounded-xl border border-slate/20 bg-white/80 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/90">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h3 className="font-display text-lg">SMTP Analytics</h3>
-          <p className="mt-1 text-sm text-slate dark:text-white/75">Delivery health across all active and retained SMTP hooks.</p>
+          <h2 className="font-display text-lg">Email delivery health</h2>
+          <p className="mt-1 text-sm text-slate dark:text-white/75">Delivery health across all active and retained email destinations.</p>
         </div>
         {loading && <span className="text-sm text-slate dark:text-white/70">Loading analytics...</span>}
       </div>
       {Boolean(error) && (
         <p className="mt-3 text-sm text-red-600">
-          {resolveApiErrorMessage(error, 'Failed to load SMTP analytics.')}
+          {resolveApiErrorMessage(error, 'Failed to load email delivery health.')}
         </p>
       )}
       {analytics && <SMTPAnalyticsDetails analytics={analytics} />}
@@ -46,17 +46,17 @@ export function SMTPAnalyticsPanel({
 
 function SMTPAnalyticsDetails({ analytics }: { analytics: SMTPAnalyticsResponse }) {
   return (
-    <div className="mt-4 space-y-4">
+    <div className="mt-3 space-y-3">
       <div className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-5">
-        <Metric label="Enabled Hooks" value={`${analytics.enabled_hook_count} / ${analytics.hook_count}`} />
-        <Metric label="Total Deliveries" value={String(analytics.total_deliveries)} />
-        <Metric label="Success Rate" value={`${analytics.success_rate_pct.toFixed(1)}%`} />
+        <Metric label="Enabled destinations" value={`${analytics.enabled_hook_count} / ${analytics.hook_count}`} />
+        <Metric label="Total deliveries" value={String(analytics.total_deliveries)} />
+        <Metric label="Success rate" value={`${analytics.success_rate_pct.toFixed(1)}%`} />
         <Metric label="Failures 24h" value={String(analytics.failures_last_24h)} />
-        <Metric label="Queued / Retry" value={`${analytics.pending_deliveries} / ${analytics.retry_wait_deliveries}`} />
+        <Metric label="Queued / retry" value={`${analytics.pending_deliveries} / ${analytics.retry_wait_deliveries}`} />
       </div>
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_280px]">
         <div className="rounded-lg border border-slate/20 px-3 py-3 dark:border-cyan-900/40">
-          <p className="text-sm font-semibold">Event Breakdown</p>
+          <p className="text-sm font-semibold">Event breakdown</p>
           {analytics.events.length ? (
             <div className="mt-2 grid gap-x-5 gap-y-2 sm:grid-cols-2">
               {analytics.events.map((event) => (
@@ -66,10 +66,10 @@ function SMTPAnalyticsDetails({ analytics }: { analytics: SMTPAnalyticsResponse 
                 </div>
               ))}
             </div>
-          ) : <p className="mt-2 text-sm text-slate dark:text-white/70">No SMTP deliveries recorded yet.</p>}
+          ) : <p className="mt-2 text-sm text-slate dark:text-white/70">No email deliveries recorded yet.</p>}
         </div>
         <div className="rounded-lg border border-slate/20 px-3 py-3 dark:border-cyan-900/40">
-          <p className="text-sm font-semibold">Most Failing Hook</p>
+          <p className="text-sm font-semibold">Most failing destination</p>
           <p className="mt-2 truncate text-sm font-semibold">{analytics.most_failing_hook?.hook_name ?? 'None'}</p>
           <p className="mt-1 text-xs text-slate dark:text-white/60">
             {analytics.most_failing_hook
@@ -96,17 +96,18 @@ type SMTPDeliveryHistoryProps = {
   testRunPage: number
   onTestRunPageChange: (page: number) => void
   replaying: boolean
+  canReplay: boolean
   onReplay: (delivery: SMTPDelivery) => void
 }
 
 export function SMTPDeliveryHistory(props: SMTPDeliveryHistoryProps) {
   const [historyView, setHistoryView] = useState<'deliveries' | 'tests'>('deliveries')
   return (
-    <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+    <section className="rounded-xl border border-slate/20 bg-white/80 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/90">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h3 className="font-display text-lg">SMTP History</h3>
-          <p className="mt-1 text-sm text-slate dark:text-white/75">Inspect event deliveries, test diagnostics, retry attempts, and SMTP responses for this hook.</p>
+          <h2 className="font-display text-lg">Email delivery history</h2>
+          <p className="mt-1 text-sm text-slate dark:text-white/75">Inspect deliveries, test diagnostics, retry attempts, and transport responses for this destination.</p>
         </div>
         <HistoryTabs historyView={historyView} onChange={setHistoryView} />
       </div>
@@ -127,7 +128,7 @@ function HistoryTabs({
   const inactiveClass = 'text-slate dark:text-white/75'
   const activeClass = 'bg-ink text-white dark:bg-cyan dark:text-[#053c2e]'
   return (
-    <div role="tablist" aria-label="SMTP history view" className="flex rounded-lg border border-slate/20 p-1 dark:border-cyan-900/40">
+    <div role="tablist" aria-label="Email delivery history view" className="flex rounded-lg border border-slate/20 p-1 dark:border-cyan-900/40">
       <button
         type="button"
         role="tab"
@@ -163,29 +164,30 @@ function SMTPDeliveriesPanel({
   deliveryPage,
   onDeliveryPageChange,
   replaying,
+  canReplay,
   onReplay,
 }: SMTPDeliveryHistoryProps) {
   if (!hook) {
-    return <HistoryMessage panel="deliveries" message="Select a saved SMTP hook to view delivery history." />
+    return <HistoryMessage panel="deliveries" message="Select an email destination to view delivery history." />
   }
   if (deliveryLoading) {
     return <HistoryMessage panel="deliveries" message="Loading delivery history..." />
   }
   if (deliveryError) {
-    return <HistoryError panel="deliveries" error={deliveryError} fallback="Failed to load SMTP delivery history." />
+    return <HistoryError panel="deliveries" error={deliveryError} fallback="Failed to load email delivery history." />
   }
   if (!deliveries?.deliveries.length) {
-    return <HistoryMessage panel="deliveries" message="No deliveries have been recorded for this hook." />
+    return <HistoryMessage panel="deliveries" message="No deliveries have been recorded for this destination." />
   }
   const latest = deliveries.deliveries[0]
-  const metricPrefix = deliveryPage === 1 ? 'Latest' : 'First Shown'
+  const metricPrefix = deliveryPage === 1 ? 'Latest' : 'First shown'
   return (
-    <div id="smtp-deliveries-panel" role="tabpanel" aria-labelledby="smtp-deliveries-tab" className="mt-4 space-y-3">
+    <div id="smtp-deliveries-panel" role="tabpanel" aria-labelledby="smtp-deliveries-tab" className="mt-3 space-y-3">
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Metric label="Deliveries" value={String(deliveries.total)} />
-        <Metric label={`${metricPrefix} Attempts`} value={String(latest.attempt_count)} />
-        <Metric label={`${metricPrefix} Duration`} value={latest.last_duration_ms != null ? `${latest.last_duration_ms} ms` : 'n/a'} />
-        <Metric label={`${metricPrefix} Updated`} value={formatDateTime(latest.updated_at)} />
+        <Metric label={`${metricPrefix} attempts`} value={String(latest.attempt_count)} />
+        <Metric label={`${metricPrefix} duration`} value={latest.last_duration_ms != null ? `${latest.last_duration_ms} ms` : 'n/a'} />
+        <Metric label={`${metricPrefix} updated`} value={formatDateTime(latest.updated_at)} />
       </div>
       {deliveries.deliveries.map((delivery) => (
         <SMTPDeliveryDetails
@@ -193,6 +195,7 @@ function SMTPDeliveriesPanel({
           delivery={delivery}
           feedName={feeds.find((feed) => feed.id === delivery.feed_id)?.name}
           replaying={replaying}
+          canReplay={canReplay}
           onReplay={onReplay}
         />
       ))}
@@ -205,14 +208,16 @@ function SMTPDeliveryDetails({
   delivery,
   feedName,
   replaying,
+  canReplay,
   onReplay,
 }: {
   delivery: SMTPDelivery
   feedName?: string
   replaying: boolean
+  canReplay: boolean
   onReplay: (delivery: SMTPDelivery) => void
 }) {
-  const title = feedName || (delivery.feed_id ? `Feed ${delivery.feed_id.slice(0, 8)}` : 'SMTP delivery')
+  const title = feedName || (delivery.feed_id ? `Feed ${delivery.feed_id.slice(0, 8)}` : 'Email delivery')
   return (
     <details className="rounded-lg border border-slate/20 bg-white/70 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/70">
       <summary className="cursor-pointer list-none">
@@ -232,9 +237,18 @@ function SMTPDeliveryDetails({
           </div>
         </div>
       </summary>
-      <div className="mt-4 space-y-3 text-sm">
+      <div className="mt-3 space-y-3 text-sm">
         {delivery.state === 'dead_letter' && (
-          <button type="button" className="rounded border border-slate/30 px-3 py-1.5 text-xs font-semibold disabled:opacity-50 dark:border-cyan-900/40" disabled={replaying} onClick={() => onReplay(delivery)}>Replay dead letter</button>
+          <button
+            type="button"
+            className="rounded border border-slate/30 px-3 py-1.5 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50 dark:border-cyan-900/40"
+            disabled={replaying || !canReplay}
+            onClick={() => {
+              if (canReplay) onReplay(delivery)
+            }}
+          >
+            Replay dead-letter delivery
+          </button>
         )}
         {delivery.last_error_message && (
           <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-red-700 dark:border-red-900/50 dark:bg-red-950/35 dark:text-red-200">
@@ -276,26 +290,26 @@ function SMTPTestRunsPanel({
   onTestRunPageChange,
 }: SMTPDeliveryHistoryProps) {
   if (!hook) {
-    return <HistoryMessage panel="tests" message="Save this SMTP hook before its tests can be retained in history." />
+    return <HistoryMessage panel="tests" message="Save this email destination before its tests can be retained in history." />
   }
   if (testRunLoading) {
-    return <HistoryMessage panel="tests" message="Loading SMTP test history..." />
+    return <HistoryMessage panel="tests" message="Loading email test history..." />
   }
   if (testRunError) {
-    return <HistoryError panel="tests" error={testRunError} fallback="Failed to load SMTP test history." />
+    return <HistoryError panel="tests" error={testRunError} fallback="Failed to load email test history." />
   }
   if (!testRuns?.runs.length) {
-    return <HistoryMessage panel="tests" message="No SMTP tests have been recorded for this hook yet." />
+    return <HistoryMessage panel="tests" message="No email tests have been recorded for this destination yet." />
   }
   const latest = testRuns.runs[0]
-  const metricPrefix = testRunPage === 1 ? 'Latest' : 'First Shown'
+  const metricPrefix = testRunPage === 1 ? 'Latest' : 'First shown'
   return (
-    <div id="smtp-tests-panel" role="tabpanel" aria-labelledby="smtp-tests-tab" className="mt-4 space-y-3">
+    <div id="smtp-tests-panel" role="tabpanel" aria-labelledby="smtp-tests-tab" className="mt-3 space-y-3">
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Metric label="Tests" value={String(testRuns.total)} />
-        <Metric label={`${metricPrefix} Result`} value={latest.status === 'succeeded' ? 'Succeeded' : 'Failed'} />
-        <Metric label={`${metricPrefix} Duration`} value={latest.duration_ms != null ? `${latest.duration_ms} ms` : 'n/a'} />
-        <Metric label={`${metricPrefix} Tested`} value={formatDateTime(latest.started_at)} />
+        <Metric label={`${metricPrefix} result`} value={latest.status === 'succeeded' ? 'Succeeded' : 'Failed'} />
+        <Metric label={`${metricPrefix} duration`} value={latest.duration_ms != null ? `${latest.duration_ms} ms` : 'n/a'} />
+        <Metric label={`${metricPrefix} tested`} value={formatDateTime(latest.started_at)} />
       </div>
       {testRuns.runs.map((run) => (
         <details key={run.id} open={run.status === 'failed'} className="rounded-lg border border-slate/20 bg-white/70 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/70">
@@ -316,7 +330,7 @@ function SMTPTestRunsPanel({
               </div>
             </div>
           </summary>
-          <div className="mt-4 space-y-3 text-sm">
+          <div className="mt-3 space-y-3 text-sm">
             {(run.error_code || run.error_message) && (
               <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-red-700 dark:border-red-900/50 dark:bg-red-950/35 dark:text-red-200">
                 <p className="font-semibold">{run.error_code || 'SMTP test error'}</p>
@@ -324,7 +338,7 @@ function SMTPTestRunsPanel({
               </div>
             )}
             <div>
-              <p className="text-xs font-semibold uppercase text-slate dark:text-white/60">SMTP Server Response</p>
+              <p className="text-xs font-semibold uppercase text-slate dark:text-white/60">SMTP server response</p>
               {run.server_message
                 ? <code className="mt-2 block whitespace-pre-wrap break-words rounded bg-slate/10 px-3 py-2 text-xs dark:bg-white/5">{run.server_message}</code>
                 : <p className="mt-2 text-xs text-slate dark:text-white/60">No SMTP server response was captured for this test.</p>}

@@ -4,7 +4,6 @@ import logging
 import uuid
 from datetime import datetime, timezone
 import hmac
-from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import RedirectResponse
@@ -19,6 +18,12 @@ from app.api.deps import (
 )
 from app.api.routes.oidc_account import router as account_router
 from app.api.routes.oidc_access_policy import router as access_policy_router
+from app.api.routes.oidc_callback_helpers import (
+    accepts_html as _accepts_html,
+    callback_redirect as _callback_redirect,
+    identity_claim_diagnostics as _identity_claim_diagnostics,
+    oidc_identity_assurance as _oidc_identity_assurance,
+)
 from app.api.routes.oidc_provider import router as provider_router
 from app.core.api_errors import ApiHTTPException
 from app.core.config import get_settings
@@ -33,7 +38,7 @@ from app.schemas.oidc import (
     OIDCReauthenticationStartResponse,
     OIDCStartResponse,
 )
-from app.services.audit import record_audit
+from app.services.audit import normalize_audit_user_agent, record_audit
 from app.services.auth_sessions import (
     AuthSessionStateError,
     auth_session_cookie_ttl_seconds,
@@ -73,7 +78,6 @@ from app.services.oidc_identity import (
 )
 from app.services.oidc_transaction import (
     OIDCTransaction,
-    clear_oidc_transaction_cookie,
     decode_oidc_transaction,
     new_oidc_transaction,
     oidc_session_binding,
@@ -657,13 +661,18 @@ def oidc_callback(
             record_audit(
                 db,
                 actor_user_id=result.user.id,
+                source_ip=resolve_client_ip(request),
                 action="auth.oidc.login",
                 resource_type="user",
                 resource_id=str(result.user.id),
                 success=False,
                 metadata={
                     "provider_id": str(provider.id),
+                    "provider_name": provider.name,
                     "error_code": "approval_required",
+                    "user_agent": normalize_audit_user_agent(
+                        request.headers.get("user-agent")
+                    ),
                 },
             )
             db.commit()
@@ -674,13 +683,18 @@ def oidc_callback(
             record_audit(
                 db,
                 actor_user_id=result.user.id,
+                source_ip=resolve_client_ip(request),
                 action="auth.oidc.login",
                 resource_type="user",
                 resource_id=str(result.user.id),
                 success=False,
                 metadata={
                     "provider_id": str(provider.id),
+                    "provider_name": provider.name,
                     "error_code": "account_inactive",
+                    "user_agent": normalize_audit_user_agent(
+                        request.headers.get("user-agent")
+                    ),
                 },
             )
             db.commit()
@@ -703,14 +717,19 @@ def oidc_callback(
         record_audit(
             db,
             actor_user_id=result.user.id,
+            source_ip=resolve_client_ip(request),
             action="auth.oidc.login",
             resource_type="user",
             resource_id=str(result.user.id),
             metadata={
                 "provider_id": str(provider.id),
+                "provider_name": provider.name,
                 "provisioned": result.provisioned,
                 "auth_method": "oidc",
                 "session_id": str(created_session.session.id),
+                "user_agent": normalize_audit_user_agent(
+                    request.headers.get("user-agent")
+                ),
             },
         )
         db.commit()
@@ -907,10 +926,6 @@ def _prepare_oidc_flow(
         ) from exc
 
     return authorization_url, transaction
-
-
-def _accepts_html(request: Request) -> bool:
-    return "text/html" in request.headers.get("accept", "").lower()
 
 
 def _provider_for_transaction(
@@ -1111,24 +1126,6 @@ def _callback_failure(
     return _callback_redirect(provider, target_path, {query_key: error_code})
 
 
-def _oidc_identity_assurance(claims: OIDCClaims) -> tuple[str | None, list[str]]:
-    acr_claim = claims.claims.get("acr")
-    acr = acr_claim.strip()[:255] if isinstance(acr_claim, str) else None
-    amr_claim = claims.claims.get("amr")
-    amr = (
-        list(
-            dict.fromkeys(
-                value.strip().lower()
-                for value in amr_claim
-                if isinstance(value, str) and value.strip()
-            )
-        )[:32]
-        if isinstance(amr_claim, list)
-        else []
-    )
-    return acr or None, amr
-
-
 def _verify_reauthentication_identity(
     db: Session,
     provider: OIDCProvider,
@@ -1154,38 +1151,6 @@ def _verify_reauthentication_identity(
             "Reauthentication must use the same linked identity as the current account",
             user_id=str(user.id),
         )
-
-
-def _identity_claim_diagnostics(claims: OIDCClaims | None) -> dict[str, object]:
-    if claims is None:
-        return {"claims_available": False}
-
-    email = claims.claims.get("email")
-    email_verified = claims.claims.get("email_verified")
-    return {
-        "claims_available": True,
-        "email_claim_present": "email" in claims.claims,
-        "email_value_present": isinstance(email, str) and bool(email.strip()),
-        "email_claim_type": type(email).__name__ if email is not None else None,
-        "email_verified_claim_present": "email_verified" in claims.claims,
-        "email_verified": email_verified if isinstance(email_verified, bool) else None,
-        "email_verified_claim_type": type(email_verified).__name__
-        if email_verified is not None
-        else None,
-    }
-
-
-def _callback_redirect(
-    provider: OIDCProvider | None, path: str, query: dict[str, str]
-) -> RedirectResponse:
-    base_url = provider.public_base_url.rstrip("/") if provider else ""
-    target = f"{base_url}{path}"
-    if query:
-        target = f"{target}?{urlencode(query)}"
-    response = RedirectResponse(target, status_code=status.HTTP_302_FOUND)
-    clear_oidc_transaction_cookie(response)
-    response.headers["Cache-Control"] = "no-store"
-    return response
 
 
 router = APIRouter(prefix="/auth/oidc", tags=["auth", "oidc"])

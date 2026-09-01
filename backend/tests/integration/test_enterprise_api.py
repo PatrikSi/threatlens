@@ -473,6 +473,61 @@ def test_login_rate_limit_returns_429(client: TestClient, monkeypatch):
     assert response.headers.get("retry-after") == "60"
 
 
+def test_local_login_audit_preserves_identity_and_denial_context(
+    client: TestClient,
+    db_session,
+    seed_users,
+):
+    _ = seed_users
+    failed = client.post(
+        "/auth/login",
+        json={"email": "admin@example.com", "password": "WrongPass123!"},
+        headers={"User-Agent": "ThreatLens Audit Test"},
+    )
+    succeeded = client.post(
+        "/auth/login",
+        json={"email": "admin@example.com", "password": "AdminPass123!"},
+        headers={"User-Agent": "ThreatLens Audit Test"},
+    )
+
+    assert failed.status_code == 401
+    assert succeeded.status_code == 200
+    entries = db_session.scalars(
+        select(AuditLog)
+        .where(AuditLog.action == "auth.login")
+        .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+    ).all()
+    success_entry = next(entry for entry in entries if entry.success)
+    failure_entry = next(entry for entry in entries if not entry.success)
+
+    assert success_entry.actor_principal_type == "user"
+    assert success_entry.actor_label_snapshot == "admin@example.com"
+    assert success_entry.resource_label_snapshot == "admin@example.com"
+    assert success_entry.source_ip == "testclient"
+    assert success_entry.metadata_json["auth_method"] == "local"
+    assert success_entry.metadata_json["user_agent"] == "ThreatLens Audit Test"
+    assert failure_entry.actor_principal_type == "anonymous"
+    assert failure_entry.actor_principal_id is None
+    assert failure_entry.actor_label_snapshot is None
+    assert failure_entry.resource_label_snapshot == "admin@example.com"
+    assert failure_entry.metadata_json == {
+        "auth_method": "local",
+        "reason": "invalid_credentials",
+        "user_agent": "ThreatLens Audit Test",
+    }
+    assert "WrongPass123!" not in str(failure_entry.metadata_json)
+
+    anonymous = client.get(
+        "/audit-logs?actor_principal_type=anonymous&action=auth.login"
+    )
+    assert anonymous.status_code == 200, anonymous.text
+    assert anonymous.json()["total"] >= 1
+    assert all(
+        entry["actor_principal_type"] == "anonymous"
+        for entry in anonymous.json()["logs"]
+    )
+
+
 def test_login_succeeds_when_throttle_backend_is_unavailable(
     client: TestClient, monkeypatch, seed_users
 ):
@@ -1050,7 +1105,7 @@ def test_browser_session_can_create_api_token_after_password_step_up(
     assert access_response.status_code == 200
 
 
-def test_browser_session_token_creation_rejects_scopes_outside_role_envelope(
+def test_browser_session_token_creation_rejects_scopes_outside_durable_permissions(
     client: TestClient, db_session, seed_users
 ):
     _ = seed_users
@@ -1073,7 +1128,7 @@ def test_browser_session_token_creation_rejects_scopes_outside_role_envelope(
     )
     assert token_response.status_code == 403
     assert (
-        "Requested token scopes exceed the permissions allowed for your role"
+        "Requested token scopes exceed your current durable permissions"
         in token_response.json()["detail"]
     )
     assert "write:feeds" in token_response.json()["detail"]
@@ -3659,6 +3714,33 @@ def test_api_token_child_rejects_semantic_write_token_wildcards(
     )
 
 
+def test_api_token_child_cannot_delegate_a_stale_principal_permission(
+    client: TestClient, db_session, seed_users
+):
+    parent_token = _issue_api_token(
+        db_session,
+        seed_users["viewer"],
+        name="stale-scope-delegator",
+        scopes=["write:tags", "write:tokens"],
+        expires_at=datetime.now(timezone.utc) + timedelta(days=1),
+    )
+
+    response = client.post(
+        "/tokens",
+        json={"name": "stale-scope-child", "scopes": ["write:tags"]},
+        headers={"Authorization": f"Bearer {parent_token}"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == (
+        "Requested token scopes exceed your current durable permissions: write:tags"
+    )
+    assert (
+        db_session.scalar(select(ApiToken).where(ApiToken.name == "stale-scope-child"))
+        is None
+    )
+
+
 def test_api_token_auth_rejects_unapproved_user(
     client: TestClient, auth_headers, db_session
 ):
@@ -3883,6 +3965,7 @@ def test_audit_log_endpoint(client: TestClient, auth_headers):
     feed_log = next(log for log in logs if log["action"] == "feeds.create")
     assert feed_log["actor_principal_type"] == "user"
     assert feed_log["actor_principal_id"] == feed_log["actor_user_id"]
+    assert feed_log["actor_label_snapshot"] == "admin@example.com"
     assert feed_log["credential_kind"] == "api_token"
     assert feed_log["credential_id"]
     assert feed_log["request_id"]

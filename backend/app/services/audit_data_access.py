@@ -157,6 +157,7 @@ def project_audit_logs(
                     "authorization_approval_id": None,
                     "execution_receipt_id": None,
                     "resource_id": None,
+                    "resource_label_snapshot": None,
                     "metadata_json": {
                         "data_access_redacted": True,
                         "reason": "handling_label_access_required",

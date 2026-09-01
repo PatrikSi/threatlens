@@ -36,6 +36,46 @@ const overview = {
       checked_at: '2026-08-27T12:00:00Z',
       metrics: {},
     },
+    {
+      key: 'workers',
+      label: 'Workers',
+      status: 'healthy' as const,
+      summary: 'All required queues are covered.',
+      checked_at: '2026-08-27T12:00:00Z',
+      metrics: {
+        worker_count: 2,
+        required_queues: ['ingest', 'processing'],
+        covered_queues: ['ingest', 'processing'],
+        missing_queues: [],
+      },
+    },
+    {
+      key: 'scheduler',
+      label: 'Scheduler',
+      status: 'degraded' as const,
+      summary: 'The direct scheduler heartbeat is stale.',
+      checked_at: '2026-08-27T12:00:00Z',
+      metrics: {
+        scheduler_age_seconds: 240,
+        scheduler_reason: 'stale',
+        worker_round_trip_age_seconds: 2,
+        worker_round_trip_reason: 'healthy',
+        stale_after_seconds: 180,
+      },
+    },
+    {
+      key: 'encrypted_data',
+      label: 'Encrypted data',
+      status: 'healthy' as const,
+      summary: 'All inventoried encrypted fields are readable.',
+      checked_at: '2026-08-27T12:00:00Z',
+      metrics: {
+        total_records: 128,
+        unreadable_fields: 0,
+        scan_complete: true,
+        inventory_scanned_at: '2026-08-27T11:59:58Z',
+      },
+    },
   ],
   storage: [
     {
@@ -46,6 +86,15 @@ const overview = {
       total_bytes: null,
       available_bytes: null,
       percent_used: null,
+    },
+    {
+      key: 'application_filesystem',
+      label: 'Application filesystem',
+      status: 'degraded' as const,
+      used_bytes: 917504,
+      total_bytes: 1048576,
+      available_bytes: 131072,
+      percent_used: 87.5,
     },
   ],
   backlogs: [
@@ -183,7 +232,29 @@ describe('OperationsPage DOM workflows', () => {
     expect(view.textContent).toContain('Check the AI report worker queue.')
     expect(view.textContent).toContain('Latest restore drill')
     expect(view.textContent).toContain('Restore drill')
+    expect(view.textContent).toContain('3/4')
+    expect(view.textContent).toContain('Queue coverage:2/2')
+    expect(view.textContent).toContain('Scheduler heartbeat:4m ago · 3m freshness window · Stale')
+    expect(view.textContent).toContain('Records inspected:128')
+    expect(view.textContent).toContain('Complete inventory')
+    expect(view.textContent).toContain('1.0 MiB logical size')
+    expect(view.textContent).toContain('128 KiB available · 87.5%')
     expect(view.querySelector('table')).not.toBeNull()
+    expect(view.querySelector('[role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('87.5')
+    expect(view.querySelector('h1')?.textContent).toBe('System health')
+    expect(view.firstElementChild?.className).toContain('space-y-3')
+    expect(view.querySelector('#operations-components-heading')?.closest('section')?.className).toContain('py-3')
+    expect(Array.from(view.querySelectorAll('th')).every((heading) => heading.getAttribute('scope') === 'col')).toBe(true)
+    const statusLabels = [...view.querySelectorAll('.tl-chip')].map((chip) => chip.textContent)
+    expect(statusLabels).toEqual(expect.arrayContaining(['Degraded', 'Healthy', 'Warning', 'Succeeded']))
+    expect(statusLabels).toContain('Capacity unknown')
+    const healthyStatus = view.querySelector('[data-status="healthy"]')
+    expect(healthyStatus?.className).toContain('tl-chip-success')
+    expect(healthyStatus?.querySelector('svg[aria-hidden="true"]')).not.toBeNull()
+    expect(view.querySelector('[data-operation-status="succeeded"]')?.className).toContain('tl-chip-success')
+    for (const rawValue of ['degraded', 'healthy', 'warning', 'succeeded']) {
+      expect(statusLabels).not.toContain(rawValue)
+    }
   })
 
   it('keeps the last successful snapshot visible when refresh fails', () => {
@@ -208,7 +279,7 @@ describe('OperationsPage DOM workflows', () => {
 
     expect(view.textContent).toContain('Deployment health is unavailable.')
     const retry = Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find(
-      (button) => button.textContent === 'Retry operations status',
+      (button) => button.textContent === 'Retry system health',
     )
     expect(retry).not.toBeNull()
     act(() => retry?.click())

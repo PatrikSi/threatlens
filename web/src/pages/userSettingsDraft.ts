@@ -1,4 +1,5 @@
 import { User, UserCreateRequest, UserUpdateRequest } from '../types/api'
+import { formatSettingsRoleLabel } from '../workspace/modulePresentation'
 
 export type UserSettingsDraft = {
   role: User['role']
@@ -21,9 +22,9 @@ const USER_SETTINGS_FIELDS: Array<{
   field: keyof UserSettingsDraft
   label: string
 }> = [
-  { field: 'role', label: 'Role' },
-  { field: 'isActive', label: 'Active status' },
-  { field: 'isApproved', label: 'Approval status' },
+  { field: 'role', label: 'Base role' },
+  { field: 'isActive', label: 'Account enabled' },
+  { field: 'isApproved', label: 'Access approved' },
 ]
 
 export type UserConfirmationState = {
@@ -66,7 +67,7 @@ export function resolveSelfLockoutWarnings(
 
   if (draft.role !== user.role) {
     warnings.push(
-      'You are removing your own admin access. Another admin may need to restore your role before you can manage users, audit logs, AI settings, feeds, or tags again.',
+      'You are removing your own Administrator access. Another Administrator may need to restore your base role before you can manage users, audit logs, AI settings, feeds, or tags again.',
     )
   }
 
@@ -78,7 +79,7 @@ export function resolveSelfLockoutWarnings(
 
   if (draft.isApproved !== user.is_approved && !draft.isApproved) {
     warnings.push(
-      'You are sending your own account back to pending approval. Another admin must approve it before you can sign in again.',
+      'You are sending your own account back to pending approval. Another Administrator must approve it before you can sign in again.',
     )
   }
 
@@ -95,7 +96,9 @@ export function buildUserSettingsConfirmation(
 
   if (draft.role !== user.role) {
     payload.role = draft.role
-    details.push(`Role will change from ${user.role} to ${draft.role}.`)
+    details.push(
+      `Base role will change from ${formatSettingsRoleLabel(user.role)} to ${formatSettingsRoleLabel(draft.role)}.`,
+    )
     if (draft.role === 'admin') {
       details.push(
         'This grants full administrative access across user management, global settings, and operational controls.',
@@ -111,8 +114,8 @@ export function buildUserSettingsConfirmation(
     payload.is_active = draft.isActive
     details.push(
       draft.isActive
-        ? 'Sign-in will be re-enabled for this account.'
-        : 'Sign-in will be blocked until the account is reactivated.',
+        ? 'Account enabled: Yes. Sign-in will be re-enabled for this account.'
+        : 'Account enabled: No. Sign-in will be blocked until the account is re-enabled.',
     )
   }
 
@@ -120,8 +123,8 @@ export function buildUserSettingsConfirmation(
     payload.is_approved = draft.isApproved
     details.push(
       draft.isApproved
-        ? 'The account will move out of pending approval.'
-        : 'The account will return to pending approval.',
+        ? 'Access approved: Yes. The account will move out of pending approval.'
+        : 'Access approved: No. The account will return to pending approval.',
     )
   }
 
@@ -141,7 +144,7 @@ export function buildUserSettingsConfirmation(
       ? 'Apply self-access changes?'
       : 'Apply privileged user changes?',
     description: warnings.length
-      ? 'Review these changes carefully. They can remove your own administrative access and may require another admin to recover.'
+      ? 'Review these changes carefully. They can remove your own administrative access and may require another Administrator to recover.'
       : 'Review the account changes below before they are applied.',
     confirmLabel: warnings.length
       ? 'Apply self-access changes'
@@ -302,9 +305,10 @@ function formatUserSetting(
   field: keyof UserSettingsDraft,
   value: UserSettingsDraft[keyof UserSettingsDraft],
 ): string {
-  if (field === 'isActive') return value ? 'Active' : 'Inactive'
-  if (field === 'isApproved') return value ? 'Approved' : 'Pending approval'
-  return String(value)
+  if (field === 'isActive' || field === 'isApproved') {
+    return value ? 'Yes' : 'No'
+  }
+  return formatSettingsRoleLabel(String(value))
 }
 
 export function buildCreateUserConfirmation(
@@ -316,13 +320,13 @@ export function buildCreateUserConfirmation(
   }
 
   const details = [
-    `Role: ${createRequest.role}.`,
+    `Base role: ${formatSettingsRoleLabel(createRequest.role)}.`,
     createRequest.is_active
-      ? 'Sign-in will be enabled immediately.'
-      : 'Sign-in will stay blocked until an admin enables the account.',
+      ? 'Account enabled: Yes. Sign-in will be enabled immediately.'
+      : 'Account enabled: No. Sign-in will stay blocked until an Administrator enables the account.',
     createRequest.is_approved
-      ? 'The account will skip the pending-approval state.'
-      : 'The account will remain pending approval after creation.',
+      ? 'Access approved: Yes. The account will skip the pending-approval state.'
+      : 'Access approved: No. The account will remain pending approval after creation.',
   ]
 
   if (createRequest.role === 'admin') {

@@ -9,8 +9,8 @@
       "identifier": "Apache-2.0",
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
-    "version": "1.9.0",
-    "x-threatlens-contract-sha256": "c45cbe54287a334acdee259eca383ff618e277579730eaeeebee1fc544d8d95d"
+    "version": "1.10.0",
+    "x-threatlens-contract-sha256": "5494056f11d4a9b3457674917cfaa22b27ffd3709d2378a1d05e9c61eda5622d"
   },
   "servers": [
     {
@@ -10335,7 +10335,8 @@
                   "enum": [
                     "user",
                     "service_account",
-                    "system"
+                    "system",
+                    "anonymous"
                   ],
                   "type": "string"
                 },
@@ -10707,7 +10708,8 @@
                   "enum": [
                     "user",
                     "service_account",
-                    "system"
+                    "system",
+                    "anonymous"
                   ],
                   "type": "string"
                 },
@@ -33018,6 +33020,17 @@
             ],
             "title": "Actor Principal Id"
           },
+          "actor_label_snapshot": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Label Snapshot"
+          },
           "credential_kind": {
             "anyOf": [
               {
@@ -33114,6 +33127,17 @@
             ],
             "title": "Resource Id"
           },
+          "resource_label_snapshot": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resource Label Snapshot"
+          },
           "success": {
             "type": "boolean",
             "title": "Success"
@@ -33140,6 +33164,7 @@
           "actor_user_id",
           "actor_principal_type",
           "actor_principal_id",
+          "actor_label_snapshot",
           "credential_kind",
           "credential_id",
           "request_id",
@@ -33150,6 +33175,7 @@
           "action",
           "resource_type",
           "resource_id",
+          "resource_label_snapshot",
           "success",
           "metadata_json",
           "created_at"
@@ -48575,6 +48601,10 @@
               "secondary"
             ],
             "title": "Mobile Behavior"
+          },
+          "policy_managed": {
+            "type": "boolean",
+            "title": "Policy Managed"
           }
         },
         "additionalProperties": false,
@@ -48587,7 +48617,8 @@
           "default_optional",
           "default_order",
           "default_mobile_priority",
-          "mobile_behavior"
+          "mobile_behavior",
+          "policy_managed"
         ],
         "title": "WorkspaceModuleDefinitionResponse"
       },

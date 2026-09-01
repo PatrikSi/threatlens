@@ -74,7 +74,7 @@ EVIDENCE_SOURCE_READ_SCOPES = {
 }
 require_investigation_write = require_permissions(
     SCOPE_WRITE_INVESTIGATIONS,
-    denial_detail="Investigation changes require the analyst or administrator role.",
+    denial_detail="Investigation changes require write access to investigations.",
 )
 
 

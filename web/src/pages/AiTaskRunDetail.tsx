@@ -42,10 +42,10 @@ export function SelectedRunSection(props: SelectedRunSectionProps) {
   return (
     <div ref={props.selectedRunSectionRef}>
       <OverviewSection
-        title="Selected Run"
+        title="Selected run"
         description="Inspect the currently selected run, its event timeline, request metadata, and any related article or daily-brief context."
       >
-        <Panel title="Run Detail" subtitle="Selected run timeline, metadata, and related sources.">
+        <Panel title="Run detail" subtitle="Selected run timeline, metadata, and related sources.">
           <RunDetailContent {...props} />
         </Panel>
 
@@ -83,7 +83,7 @@ function RunDetailContent({
       )}
       {!selectedRun && <EmptyInline>Select a run to inspect it.</EmptyInline>}
       {selectedRun && (
-        <div className="space-y-4">
+        <div className="space-y-3">
           <RunSummary
             run={selectedRun}
             onInspectRun={runState.setInspectedRunId}

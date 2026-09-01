@@ -1,4 +1,7 @@
+from sqlalchemy import update
+
 from app.models.iam import IAMPolicyState
+from app.models.user import User
 from app.services import authorization
 import pytest
 
@@ -61,3 +64,29 @@ def test_authorization_fence_rejects_a_stale_snapshot(db_session, seed_users):
 
     with pytest.raises(authorization.AuthorizationStateUnavailable, match="changed"):
         authorization.fence_authorization_context(db_session, context)
+
+
+def test_authorization_refreshes_base_role_inside_the_revision_snapshot(
+    db_session, seed_users
+):
+    stale_user = seed_users["viewer"]
+    assert stale_user.role == "viewer"
+    db_session.execute(
+        update(User)
+        .where(User.id == stale_user.id)
+        .values(role="analyst")
+        .execution_options(synchronize_session=False)
+    )
+    db_session.execute(
+        update(IAMPolicyState)
+        .where(IAMPolicyState.id == 1)
+        .values(revision=IAMPolicyState.revision + 1)
+        .execution_options(synchronize_session=False)
+    )
+    db_session.flush()
+    assert stale_user.role == "viewer"
+
+    context = authorization.authorization_context_for_user(db_session, stale_user)
+
+    assert context.legacy_role == "analyst"
+    assert context.has("write:items") is True

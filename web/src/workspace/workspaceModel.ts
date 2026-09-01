@@ -16,6 +16,7 @@ import {
   TRUSTED_WORKSPACE_MODULE_BY_ID,
   TRUSTED_WORKSPACE_MODULES,
   isTrustedDashboardPanelId,
+  isTopNavigationModule,
   isTrustedWorkspaceModuleId,
   type TrustedDashboardPanel,
   type TrustedDashboardPanelId,
@@ -36,6 +37,7 @@ export interface ResolvedWorkspaceModule extends TrustedWorkspaceModule {
   order: number
   mobilePriority: number
   permissionAllowed: boolean
+  roleAllowed: boolean
   featureAvailable: boolean
   policyVisible: boolean
   preferenceVisible: boolean
@@ -48,7 +50,6 @@ export interface ResolvedWorkspaceModel {
   primaryNavigation: readonly ResolvedWorkspaceModule[]
   mobileNavigation: readonly ResolvedWorkspaceModule[]
   settingsNavigation: readonly ResolvedWorkspaceModule[]
-  mobileSettingsNavigation: readonly ResolvedWorkspaceModule[]
   landingModuleId: TrustedWorkspaceModuleId | null
   landingPath: string
   dashboardPanelIds: readonly TrustedDashboardPanelId[]
@@ -103,6 +104,7 @@ export function resolveWorkspaceModel(
 
     const localPermissionAllowed = definition.isContainer ||
       hasRequiredPermissions(context.permissions, definition.requiredPermissions)
+    const localRoleAllowed = isWorkspaceModuleRoleAllowed(definition, context.role)
     const localFeatureAvailable = hasRequiredFeature(context.features, definition.featureDependency)
     const parentVisible = definition.parentId === null || resolvedById.get(definition.parentId)?.visible === true
     const resolved = resolveModule({
@@ -111,6 +113,7 @@ export function resolveWorkspaceModel(
       effectiveAvailable: trustedEffective !== undefined,
       context,
       localPermissionAllowed,
+      localRoleAllowed,
       localFeatureAvailable,
       parentVisible,
     })
@@ -120,15 +123,12 @@ export function resolveWorkspaceModel(
 
   const modules = [...resolvedById.values()]
   const primaryNavigation = modules
-    .filter((module) => module.section === 'primary' && module.visible)
+    .filter((module) => isTopNavigationModule(module) && module.visible)
     .sort(byDesktopOrder)
   const mobileNavigation = [...primaryNavigation].sort(byMobileOrder)
   const settingsNavigation = modules
     .filter((module) => module.section === 'settings' && module.visible)
     .sort(byDesktopOrder)
-  const mobileSettingsNavigation = modules
-    .filter((module) => module.section === 'settings' && module.visible)
-    .sort(byMobileOrder)
   const preferredLandingModuleId = trustedEffective?.landing_module_id ?? null
   const landing = resolveLandingModule(modules, preferredLandingModuleId)
   if (preferredLandingModuleId && landing?.id !== preferredLandingModuleId) {
@@ -152,7 +152,6 @@ export function resolveWorkspaceModel(
     primaryNavigation,
     mobileNavigation,
     settingsNavigation,
-    mobileSettingsNavigation,
     landingModuleId: landing?.id ?? null,
     landingPath: landing?.route ?? '/',
     dashboardPanelIds,
@@ -186,6 +185,7 @@ function resolveModule({
   effectiveAvailable,
   context,
   localPermissionAllowed,
+  localRoleAllowed,
   localFeatureAvailable,
   parentVisible,
 }: {
@@ -194,6 +194,7 @@ function resolveModule({
   effectiveAvailable: boolean
   context: WorkspaceUserContext
   localPermissionAllowed: boolean
+  localRoleAllowed: boolean
   localFeatureAvailable: boolean
   parentVisible: boolean
 }): ResolvedWorkspaceModule {
@@ -203,6 +204,7 @@ function resolveModule({
       context.accountEligible !== false &&
       policyVisible &&
       localPermissionAllowed &&
+      localRoleAllowed &&
       localFeatureAvailable &&
       parentVisible,
     )
@@ -213,10 +215,20 @@ function resolveModule({
       order: definition.defaultOrder,
       mobilePriority: definition.defaultMobilePriority,
       permissionAllowed: localPermissionAllowed,
+      roleAllowed: localRoleAllowed,
       featureAvailable: localFeatureAvailable,
       policyVisible,
       preferenceVisible: true,
-      reasons: visible ? [] : localResolutionReasons(context, policyVisible, localPermissionAllowed, localFeatureAvailable, parentVisible),
+      reasons: visible
+        ? []
+        : localResolutionReasons(
+            context,
+            policyVisible,
+            localPermissionAllowed,
+            localRoleAllowed,
+            localFeatureAvailable,
+            parentVisible,
+          ),
       resolutionSource: 'local-control',
     }
   }
@@ -228,6 +240,7 @@ function resolveModule({
       context.accountEligible !== false &&
       policyVisible &&
       localPermissionAllowed &&
+      localRoleAllowed &&
       localFeatureAvailable &&
       parentVisible,
     )
@@ -238,12 +251,20 @@ function resolveModule({
       order: definition.defaultOrder,
       mobilePriority: definition.defaultMobilePriority,
       permissionAllowed: localPermissionAllowed,
+      roleAllowed: localRoleAllowed,
       featureAvailable: localFeatureAvailable,
       policyVisible,
       preferenceVisible: true,
       reasons: effectiveAvailable
         ? ['server_module_missing']
-        : localResolutionReasons(context, policyVisible, localPermissionAllowed, localFeatureAvailable, parentVisible),
+        : localResolutionReasons(
+            context,
+            policyVisible,
+            localPermissionAllowed,
+            localRoleAllowed,
+            localFeatureAvailable,
+            parentVisible,
+          ),
       resolutionSource: 'trusted-fallback',
     }
   }
@@ -259,6 +280,7 @@ function resolveModule({
     serverVisibilityAllowed &&
     context.accountEligible !== false &&
     permissionAllowed &&
+    localRoleAllowed &&
     featureAvailable &&
     serverModule.policy_visible &&
     serverModule.preference_visible &&
@@ -267,6 +289,7 @@ function resolveModule({
   const reasons = new Set(serverModule.reasons)
   if (parentVisible) reasons.delete('parent_hidden')
   if (!localPermissionAllowed) reasons.add('permission_missing')
+  if (!localRoleAllowed) reasons.add('route_role_required')
   if (!localFeatureAvailable) reasons.add('feature_unavailable')
   if (!parentVisible) reasons.add('parent_hidden')
   if (context.accountEligible === false) reasons.add('account_ineligible')
@@ -277,6 +300,7 @@ function resolveModule({
     order: serverModule.order,
     mobilePriority: serverModule.mobile_priority,
     permissionAllowed,
+    roleAllowed: localRoleAllowed,
     featureAvailable,
     policyVisible: serverModule.policy_visible,
     preferenceVisible: serverModule.preference_visible,
@@ -289,12 +313,14 @@ function localResolutionReasons(
   context: WorkspaceUserContext,
   policyVisible: boolean,
   permissionAllowed: boolean,
+  roleAllowed: boolean,
   featureAvailable: boolean,
   parentVisible: boolean,
 ): string[] {
   const reasons: string[] = []
   if (!policyVisible) reasons.push('policy_hidden')
   if (!permissionAllowed) reasons.push('permission_missing')
+  if (!roleAllowed) reasons.push('route_role_required')
   if (!featureAvailable) reasons.push('feature_unavailable')
   if (!parentVisible) reasons.push('parent_hidden')
   if (context.accountEligible === false) reasons.push('account_ineligible')
@@ -355,6 +381,13 @@ export function isDashboardPanelAvailable(panel: TrustedDashboardPanel, context:
     hasRequiredPermissions(context.permissions, panel.requiredPermissions) &&
     hasRequiredFeature(context.features, panel.featureDependency)
   )
+}
+
+export function isWorkspaceModuleRoleAllowed(
+  module: Pick<TrustedWorkspaceModule, 'requiredBaseRoles'>,
+  role: WorkspaceRole,
+): boolean {
+  return module.requiredBaseRoles === null || module.requiredBaseRoles.includes(role)
 }
 
 export function hasRequiredPermissions(

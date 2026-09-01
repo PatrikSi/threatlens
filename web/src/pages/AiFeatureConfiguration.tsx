@@ -4,7 +4,7 @@ import { AiConfigurationDraftProps } from './AiSettingsConfigurationTypes'
 
 export function AiFeatureControls({ draft, setDraft, validation }: AiConfigurationDraftProps) {
   return (
-    <Panel title="Feature Controls" subtitle="Enable the AI features that should run and tune the relevance thresholds they rely on.">
+    <Panel title="Feature controls" subtitle="Enable the AI features that should run and tune the relevance thresholds they rely on.">
       <div className="grid gap-3 md:grid-cols-2">
         <CheckboxRow label="AI article summaries" checked={draft.summary_enabled} onChange={(checked) => updateDraft(setDraft, 'summary_enabled', checked)} />
         <CheckboxRow label="AI relevance scoring" checked={draft.relevance_enabled} onChange={(checked) => updateDraft(setDraft, 'relevance_enabled', checked)} />
@@ -19,7 +19,7 @@ export function AiFeatureControls({ draft, setDraft, validation }: AiConfigurati
           onChange={(checked) => updateDraft(setDraft, 'reporting_enabled', checked)}
         />
         <CheckboxRow label="Auto-enrich new items" checked={draft.auto_enrich_new_items} onChange={(checked) => updateDraft(setDraft, 'auto_enrich_new_items', checked)} />
-        <Field label="Medium Relevance Threshold">
+        <Field label="Medium relevance threshold">
           <input
             className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
             value={draft.relevance_medium_threshold}
@@ -29,7 +29,7 @@ export function AiFeatureControls({ draft, setDraft, validation }: AiConfigurati
           />
           <FieldError message={validation.relevance_medium_threshold} />
         </Field>
-        <Field label="High Relevance Threshold">
+        <Field label="High relevance threshold">
           <input
             className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
             value={draft.relevance_high_threshold}
@@ -54,7 +54,7 @@ export function AiReportingConfiguration({ draft, setDraft, validation }: AiConf
     { key: 'report_context_safety_percent', label: 'Context Safety Margin (%)', note: 'Extra space for tokenizer differences and provider framing.' },
   ]
   return (
-    <Panel title="Report Context Guardrails" subtitle="Bound each stage so local and smaller-context models receive predictable work.">
+    <Panel title="Report context guardrails" subtitle="Bound each stage so local and smaller-context models receive predictable work.">
       <div className="grid gap-3 md:grid-cols-2">
         {fields.map((field) => (
           <Field key={field.key} label={field.label}>
@@ -76,9 +76,9 @@ export function AiReportingConfiguration({ draft, setDraft, validation }: AiConf
 
 export function AiDailyBriefConfiguration({ draft, setDraft, validation }: AiConfigurationDraftProps) {
   return (
-    <Panel title="Daily Brief Settings" subtitle="Control when the scheduled daily brief runs, how much content it reviews, and how much history to keep.">
+    <Panel title="Daily brief settings" subtitle="Control when the scheduled daily brief runs, how much content it reviews, and how much history to keep.">
       <div className="grid gap-3 md:grid-cols-2">
-        <Field label="Daily Brief Run Time (UTC)">
+        <Field label="Daily brief run time (UTC)">
           <input
             type="time"
             className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
@@ -91,7 +91,7 @@ export function AiDailyBriefConfiguration({ draft, setDraft, validation }: AiCon
             Scheduled checks run every 5 minutes and fire after this UTC time. Manual queueing stays available in Operations.
           </span>
         </Field>
-        <Field label="Daily Brief Window Hours">
+        <Field label="Daily brief window (hours)">
           <input
             className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
             value={draft.daily_brief_window_hours}
@@ -104,7 +104,7 @@ export function AiDailyBriefConfiguration({ draft, setDraft, validation }: AiCon
             How far back ThreatLens looks when building the scheduled brief.
           </span>
         </Field>
-        <Field label="Daily Brief Max Articles">
+        <Field label="Maximum daily brief articles">
           <input
             className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
             value={draft.daily_brief_max_items}
@@ -117,7 +117,7 @@ export function AiDailyBriefConfiguration({ draft, setDraft, validation }: AiCon
             Cap how many articles are handed to the model for a single brief.
           </span>
         </Field>
-        <Field label="Retained Daily Briefings">
+        <Field label="Retained daily briefings">
           <input
             className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
             value={draft.daily_brief_history_limit}

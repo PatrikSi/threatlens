@@ -24,7 +24,7 @@ function UnavailableAIEventNotice({ visible, feature }: { visible: boolean; feat
 function BasicRequestFields({ controller }: { controller: NotificationWebhooksController }) {
   const { availableEventOptions, canManageWebhooks, draft, setDraft, unavailableDailyBriefSelected, unavailableReportSelected } = controller
   return (
-    <div className="mt-4 grid gap-4 md:grid-cols-2">
+    <div className="mt-3 grid gap-3 md:grid-cols-2">
       <div>
         <label htmlFor="notification-webhook-name" className="text-sm font-semibold">Name</label>
         <input
@@ -37,7 +37,7 @@ function BasicRequestFields({ controller }: { controller: NotificationWebhooksCo
         />
       </div>
       <div>
-        <label htmlFor="notification-webhook-event-type" className="text-sm font-semibold">Event Type</label>
+        <label htmlFor="notification-webhook-event-type" className="text-sm font-semibold">Event type</label>
         <select
           id="notification-webhook-event-type"
           className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 disabled:bg-slate/5 disabled:text-slate/60 dark:border-cyan-900/40 dark:bg-[#072019] dark:disabled:bg-white/[0.03] dark:disabled:text-white/45"
@@ -48,11 +48,11 @@ function BasicRequestFields({ controller }: { controller: NotificationWebhooksCo
           {availableEventOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
         </select>
         <p className="mt-1 text-xs text-slate dark:text-white/60">{describeEventDescription(draft.event_type)}</p>
-        <UnavailableAIEventNotice visible={unavailableDailyBriefSelected} feature="AI Daily Brief generation" />
+        <UnavailableAIEventNotice visible={unavailableDailyBriefSelected} feature="AI daily brief generation" />
         <UnavailableAIEventNotice visible={unavailableReportSelected} feature="AI reporting" />
       </div>
       <div>
-        <label htmlFor="notification-webhook-method" className="text-sm font-semibold">HTTP Method</label>
+        <label htmlFor="notification-webhook-method" className="text-sm font-semibold">HTTP method</label>
         <select
           id="notification-webhook-method"
           className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 disabled:bg-slate/5 disabled:text-slate/60 dark:border-cyan-900/40 dark:bg-[#072019] dark:disabled:bg-white/[0.03] dark:disabled:text-white/45"
@@ -96,7 +96,7 @@ function BasicRequestFields({ controller }: { controller: NotificationWebhooksCo
         />
       </div>
       <div>
-        <label htmlFor="notification-webhook-body-mode" className="text-sm font-semibold">Body Mode</label>
+        <label htmlFor="notification-webhook-body-mode" className="text-sm font-semibold">Body mode</label>
         <select
           id="notification-webhook-body-mode"
           className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 disabled:bg-slate/5 disabled:text-slate/60 dark:border-cyan-900/40 dark:bg-[#072019] dark:disabled:bg-white/[0.03] dark:disabled:text-white/45"
@@ -111,7 +111,7 @@ function BasicRequestFields({ controller }: { controller: NotificationWebhooksCo
         </select>
       </div>
       <div>
-        <label htmlFor="notification-webhook-content-type" className="text-sm font-semibold">Content Type</label>
+        <label htmlFor="notification-webhook-content-type" className="text-sm font-semibold">Content type</label>
         <input
           id="notification-webhook-content-type"
           className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm disabled:bg-slate/5 disabled:text-slate/60 dark:border-cyan-900/40 dark:bg-[#072019] dark:disabled:bg-white/[0.03] dark:disabled:text-white/45"
@@ -136,10 +136,10 @@ function BasicRequestFields({ controller }: { controller: NotificationWebhooksCo
 function FeedScopeEditor({ controller }: { controller: NotificationWebhooksController }) {
   const { canManageWebhooks, draft, feeds, feedsQuery, setDraft } = controller
   return (
-    <div className="mt-5 rounded-lg border border-slate/20 p-4 dark:border-cyan-900/40">
+    <div className="mt-4 rounded-lg border border-slate/20 p-3 dark:border-cyan-900/40">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h4 className="font-semibold">Feed Scope</h4>
+          <h3 className="font-semibold">Feed scope</h3>
           <p className="mt-1 text-xs text-slate dark:text-white/65">Choose whether this webhook fires for any feed or only selected feeds.</p>
         </div>
         <div
@@ -168,7 +168,7 @@ function FeedScopeEditor({ controller }: { controller: NotificationWebhooksContr
         </div>
       </div>
       {draft.feed_scope === 'selected' && (
-        <div className="mt-4 grid gap-2 md:grid-cols-2">
+        <div className="mt-3 grid gap-2 md:grid-cols-2">
           {feeds.map((feed) => (
             <label
               key={feed.id}
@@ -199,9 +199,9 @@ function RequestPayloadEditors({ controller }: { controller: NotificationWebhook
   const { canManageWebhooks, draft, setDraft } = controller
   return (
     <>
-      <div className="mt-5 grid gap-4 xl:grid-cols-2">
+      <div className="mt-4 grid gap-3 xl:grid-cols-2">
         <KeyValueEditor
-          title="Query Parameters"
+          title="Query parameters"
           description="Append rendered arguments to the webhook URL."
           fields={draft.query_params}
           addLabel="Add parameter"
@@ -222,9 +222,9 @@ function RequestPayloadEditors({ controller }: { controller: NotificationWebhook
         />
       </div>
       {(draft.body_mode === 'json' || draft.body_mode === 'form') && (
-        <div className="mt-4">
+        <div className="mt-3">
           <KeyValueEditor
-            title={draft.body_mode === 'json' ? 'JSON Body Fields' : 'Form Fields'}
+            title={draft.body_mode === 'json' ? 'JSON body fields' : 'Form fields'}
             description={draft.body_mode === 'json' ? 'Use dotted keys like `item.title` to build nested JSON safely.' : 'Rendered form fields are sent as `application/x-www-form-urlencoded`.'}
             fields={draft.body_fields}
             addLabel={draft.body_mode === 'json' ? 'Add JSON field' : 'Add form field'}
@@ -236,11 +236,11 @@ function RequestPayloadEditors({ controller }: { controller: NotificationWebhook
         </div>
       )}
       {draft.body_mode === 'raw' && (
-        <div className="mt-4">
-          <label htmlFor="notification-webhook-raw-body" className="text-sm font-semibold">Raw Body Template</label>
+        <div className="mt-3">
+          <label htmlFor="notification-webhook-raw-body" className="text-sm font-semibold">Raw body template</label>
           <textarea
             id="notification-webhook-raw-body"
-            className="mt-1 h-40 w-full rounded border border-slate/30 bg-white px-3 py-2 font-mono text-sm disabled:bg-slate/5 disabled:text-slate/60 dark:border-cyan-900/40 dark:bg-[#072019] dark:disabled:bg-white/[0.03] dark:disabled:text-white/45"
+            className="mt-1 h-32 w-full rounded border border-slate/30 bg-white px-3 py-2 font-mono text-sm disabled:bg-slate/5 disabled:text-slate/60 dark:border-cyan-900/40 dark:bg-[#072019] dark:disabled:bg-white/[0.03] dark:disabled:text-white/45"
             disabled={!canManageWebhooks}
             value={draft.body_template}
             onChange={(event) => setDraft((current) => ({ ...current, body_template: event.target.value }))}
@@ -257,7 +257,7 @@ function EditorActions({ controller }: { controller: NotificationWebhooksControl
     canManageWebhooks,
     deleteWebhook,
     draft,
-    isReadOnlyViewer,
+    isReadOnly,
     onRequestDeleteWebhook,
     onSave,
     onTest,
@@ -270,9 +270,9 @@ function EditorActions({ controller }: { controller: NotificationWebhooksControl
     testWebhook,
     webhooks,
   } = controller
-  if (!canManageWebhooks || isReadOnlyViewer) return null
+  if (!canManageWebhooks || isReadOnly) return null
   return (
-    <div className="mt-5 flex flex-wrap items-center gap-2">
+    <div className="mt-4 flex flex-wrap items-center gap-2">
       <button className="rounded bg-ink px-3 py-2 text-white disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]" disabled={saveWebhook.isPending} onClick={onSave}>
         {selectedWebhookId ? 'Save changes' : 'Create webhook'}
       </button>
@@ -334,12 +334,9 @@ function EditorNotices({ controller }: { controller: NotificationWebhooksControl
 export function NotificationWebhookEditor({ controller }: { controller: NotificationWebhooksController }) {
   const { canManageWebhooks, draft, selectedWebhookId, setDraft } = controller
   return (
-    <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+    <section className="rounded-xl border border-slate/20 bg-white/80 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/90">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h3 className="font-display text-lg">{selectedWebhookId ? 'Edit Webhook' : 'Create Webhook'}</h3>
-          <p className="mt-1 text-sm text-slate dark:text-white/75">{describeEventDescription(draft.event_type)}</p>
-        </div>
+        <h2 className="font-display text-lg">{selectedWebhookId ? 'Edit webhook' : 'Create webhook'}</h2>
         <label className={`flex items-center gap-2 rounded-full border px-3 py-1 text-sm ${canManageWebhooks ? 'border-slate/20 dark:border-cyan-900/40' : 'border-slate/15 text-slate/70 dark:border-white/10 dark:text-white/55'}`}>
           <input type="checkbox" checked={draft.enabled} disabled={!canManageWebhooks} onChange={(event) => setDraft((current) => ({ ...current, enabled: event.target.checked }))} />
           Enabled
@@ -356,9 +353,9 @@ export function NotificationWebhookEditor({ controller }: { controller: Notifica
 
 export function WebhookEditorUnavailable({ controller }: { controller: NotificationWebhooksController }) {
   return (
-    <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
-      <p className="text-xs font-semibold uppercase text-slate dark:text-white/55">Webhook Editor</p>
-      <h3 className="mt-1 font-display text-lg">Webhook writes unavailable</h3>
+    <section className="rounded-xl border border-slate/20 bg-white/80 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+      <p className="text-xs font-semibold uppercase text-slate dark:text-white/55">Webhook editor</p>
+      <h2 className="mt-1 font-display text-lg">Changes unavailable</h2>
       <p className="mt-2 text-sm text-slate dark:text-white/75">{controller.webhookEditorBlockedNotice}</p>
       {controller.webhooks.length > 0 && (
         <p className="mt-3 text-sm text-slate dark:text-white/70">

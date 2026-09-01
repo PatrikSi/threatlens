@@ -10,6 +10,15 @@ const taggingPageDomMocks = vi.hoisted(() => ({
   queryClient: {
     invalidateQueries: vi.fn(),
   },
+  currentUser: {
+    data: {
+      role: 'admin',
+      access: {
+        permissions: ['write:tagging'],
+      },
+    },
+    isLoading: false,
+  },
   bundleData: {
     settings: {
       id: 'settings-1',
@@ -185,6 +194,10 @@ vi.mock('react-router-dom', async () => {
   }
 })
 
+vi.mock('../hooks/useCurrentUser', () => ({
+  useCurrentUser: () => taggingPageDomMocks.currentUser,
+}))
+
 import { TaggingSettingsPage } from './TaggingSettingsPage'
 
 let root: Root | null = null
@@ -223,9 +236,60 @@ afterEach(() => {
   taggingPageDomMocks.reapplyMutate.mockReset()
   taggingPageDomMocks.saveSettingsMutate.mockReset()
   taggingPageDomMocks.feedsError = false
+  taggingPageDomMocks.currentUser.data.role = 'admin'
+  taggingPageDomMocks.currentUser.data.access.permissions = ['write:tagging']
 })
 
 describe('TaggingSettingsPage DOM workflows', () => {
+  it('keeps content tagging inspectable but disables writes without write:tagging', () => {
+    taggingPageDomMocks.currentUser.data.access.permissions = ['read:tagging']
+    const view = renderPage()
+
+    expect(pageText()).toContain('Read-only access')
+    expect(pageText()).toContain('permission to manage content tagging')
+    expect(view.firstElementChild?.className).toContain('space-y-3')
+    expect(view.querySelector('#tagging-auto-confidence')?.closest('section')?.className).toContain('p-3')
+    expect(view.querySelector<HTMLInputElement>('#tagging-auto-confidence')?.matches(':disabled')).toBe(true)
+    expect(view.querySelector<HTMLInputElement>('#tagging-reapply-days')?.matches(':disabled')).toBe(true)
+
+    const newRuleButton = Array.from(view.querySelectorAll('button')).find((button) =>
+      button.textContent?.trim() === 'New rule',
+    )
+    const savedRuleButton = Array.from(view.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('VPN disclosures'),
+    )
+    expect(newRuleButton?.disabled).toBe(true)
+    expect(savedRuleButton?.disabled).toBe(false)
+
+    act(() => {
+      savedRuleButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(view.querySelector<HTMLInputElement>('#tagging-rule-name')?.value).toBe('VPN disclosures')
+    expect(view.querySelector<HTMLInputElement>('#tagging-rule-name')?.matches(':disabled')).toBe(true)
+    expect(
+      Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Save rule')?.matches(':disabled'),
+    ).toBe(true)
+    expect(
+      Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Delete rule')?.matches(':disabled'),
+    ).toBe(true)
+    expect(
+      Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Queue retagging')?.matches(':disabled'),
+    ).toBe(true)
+  })
+
+  it('allows a custom-role user with write:tagging to manage content tagging', () => {
+    taggingPageDomMocks.currentUser.data.role = 'custom'
+    taggingPageDomMocks.currentUser.data.access.permissions = ['write:tagging']
+    const view = renderPage()
+
+    expect(pageText()).not.toContain('Read-only access')
+    expect(view.querySelector<HTMLInputElement>('#tagging-auto-confidence')?.matches(':disabled')).toBe(false)
+    expect(
+      Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'New rule')?.disabled,
+    ).toBe(false)
+  })
+
   it('preserves a dirty settings draft across rule selection and settings refetches', () => {
     const view = renderPage()
     const confidenceInput = view.querySelector<HTMLInputElement>('#tagging-auto-confidence')
