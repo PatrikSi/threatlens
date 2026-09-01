@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_admin_user, get_data_access_context, require_token_scopes
+from app.api.deps import get_data_access_context, require_permissions
 from app.core.token_scopes import SCOPE_READ_INTEGRATIONS, SCOPE_WRITE_INTEGRATIONS
 from app.db.session import get_db
 from app.models.feed import Feed
@@ -85,8 +85,7 @@ router = APIRouter(prefix="/integrations", tags=["integrations"])
 
 @router.get("/connectors", response_model=list[IntegrationConnectorResponse])
 def get_integration_connectors(
-    _admin: User = Depends(get_admin_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_READ_INTEGRATIONS)),
+    _reader: User = Depends(require_permissions(SCOPE_READ_INTEGRATIONS)),
 ):
     return list_integration_connectors()
 
@@ -94,8 +93,7 @@ def get_integration_connectors(
 @router.get("", response_model=list[IntegrationSummaryResponse])
 def list_integrations(
     db: Session = Depends(get_db),
-    _admin: User = Depends(get_admin_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_READ_INTEGRATIONS)),
+    _reader: User = Depends(require_permissions(SCOPE_READ_INTEGRATIONS)),
 ):
     get_or_create_persisted_smtp_integration(db)
     return list_integration_summaries(db)
@@ -104,8 +102,7 @@ def list_integrations(
 @router.get("/smtp/settings", response_model=SMTPSettingsResponse)
 def get_smtp_settings(
     db: Session = Depends(get_db),
-    _admin: User = Depends(get_admin_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_READ_INTEGRATIONS)),
+    _reader: User = Depends(require_permissions(SCOPE_READ_INTEGRATIONS)),
     data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     instance = get_or_create_smtp_integration(db)
@@ -130,8 +127,7 @@ def get_smtp_settings(
 @router.get("/smtp/hooks", response_model=list[SMTPHookResponse])
 def get_smtp_hooks(
     db: Session = Depends(get_db),
-    _admin: User = Depends(get_admin_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_READ_INTEGRATIONS)),
+    _reader: User = Depends(require_permissions(SCOPE_READ_INTEGRATIONS)),
     data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     get_or_create_smtp_integration(db)
@@ -156,8 +152,7 @@ def get_smtp_hooks(
 def create_smtp_hook_route(
     payload: SMTPHookWrite,
     db: Session = Depends(get_db),
-    admin: User = Depends(get_admin_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_INTEGRATIONS)),
+    actor: User = Depends(require_permissions(SCOPE_WRITE_INTEGRATIONS)),
     data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     _fence_smtp_selected_feed_context(
@@ -182,7 +177,7 @@ def create_smtp_hook_route(
         raise _smtp_hook_http_error(exc) from exc
     record_audit(
         db,
-        actor_user_id=admin.id,
+        actor_user_id=actor.id,
         action="integrations.smtp.hook.create",
         resource_type="integration_instance",
         resource_id=str(instance.id),
@@ -204,8 +199,7 @@ def update_smtp_hook_route(
     hook_id: uuid.UUID,
     payload: SMTPHookWrite,
     db: Session = Depends(get_db),
-    admin: User = Depends(get_admin_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_INTEGRATIONS)),
+    actor: User = Depends(require_permissions(SCOPE_WRITE_INTEGRATIONS)),
     data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     _fence_smtp_selected_feed_context(
@@ -235,7 +229,7 @@ def update_smtp_hook_route(
         raise _smtp_hook_http_error(exc) from exc
     record_audit(
         db,
-        actor_user_id=admin.id,
+        actor_user_id=actor.id,
         action="integrations.smtp.hook.update",
         resource_type="integration_instance",
         resource_id=str(instance.id),
@@ -256,8 +250,7 @@ def update_smtp_hook_route(
 def delete_smtp_hook_route(
     hook_id: uuid.UUID,
     db: Session = Depends(get_db),
-    admin: User = Depends(get_admin_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_INTEGRATIONS)),
+    actor: User = Depends(require_permissions(SCOPE_WRITE_INTEGRATIONS)),
 ):
     lock_smtp_configuration(db)
     try:
@@ -267,7 +260,7 @@ def delete_smtp_hook_route(
         raise _smtp_hook_http_error(exc) from exc
     record_audit(
         db,
-        actor_user_id=admin.id,
+        actor_user_id=actor.id,
         action="integrations.smtp.hook.delete",
         resource_type="integration_instance",
         resource_id=str(instance.id),
@@ -278,8 +271,7 @@ def delete_smtp_hook_route(
 
 @router.get("/smtp/template-defaults", response_model=list[SMTPTemplateDefaultResponse])
 def get_smtp_template_defaults(
-    _admin: User = Depends(get_admin_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_READ_INTEGRATIONS)),
+    _reader: User = Depends(require_permissions(SCOPE_READ_INTEGRATIONS)),
 ):
     return list_smtp_template_defaults()
 
@@ -287,8 +279,7 @@ def get_smtp_template_defaults(
 @router.get("/smtp/analytics", response_model=SMTPAnalyticsResponse)
 def get_smtp_analytics_route(
     db: Session = Depends(get_db),
-    _admin: User = Depends(get_admin_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_READ_INTEGRATIONS)),
+    _reader: User = Depends(require_permissions(SCOPE_READ_INTEGRATIONS)),
     data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     fence_data_access_context(db, data_access)
@@ -313,8 +304,7 @@ def get_smtp_hook_deliveries(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=10, ge=1, le=100),
     db: Session = Depends(get_db),
-    _admin: User = Depends(get_admin_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_READ_INTEGRATIONS)),
+    _reader: User = Depends(require_permissions(SCOPE_READ_INTEGRATIONS)),
     data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     fence_data_access_context(db, data_access)
@@ -349,8 +339,7 @@ def get_smtp_hook_test_runs(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=10, ge=1, le=100),
     db: Session = Depends(get_db),
-    _admin: User = Depends(get_admin_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_READ_INTEGRATIONS)),
+    _reader: User = Depends(require_permissions(SCOPE_READ_INTEGRATIONS)),
 ):
     try:
         instance = get_smtp_hook(db, hook_id)
@@ -367,8 +356,7 @@ def replay_smtp_hook_delivery(
     hook_id: uuid.UUID,
     delivery_id: uuid.UUID,
     db: Session = Depends(get_db),
-    admin: User = Depends(get_admin_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_INTEGRATIONS)),
+    actor: User = Depends(require_permissions(SCOPE_WRITE_INTEGRATIONS)),
     data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     fence_data_access_context(db, data_access)
@@ -409,7 +397,7 @@ def replay_smtp_hook_delivery(
         ) from exc
     record_audit(
         db,
-        actor_user_id=admin.id,
+        actor_user_id=actor.id,
         action="integrations.smtp.delivery.replay",
         resource_type="integration_delivery",
         resource_id=str(replay.id),
@@ -429,8 +417,7 @@ def replay_smtp_hook_delivery(
 def test_smtp_hook(
     payload: SMTPHookTestRequest,
     db: Session = Depends(get_db),
-    admin: User = Depends(get_admin_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_INTEGRATIONS)),
+    actor: User = Depends(require_permissions(SCOPE_WRITE_INTEGRATIONS)),
     data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     instance = None
@@ -505,7 +492,7 @@ def test_smtp_hook(
     audit_metadata["used_shared_credentials"] = credential_source is not None
     record_audit(
         db,
-        actor_user_id=admin.id,
+        actor_user_id=actor.id,
         action="integrations.smtp.hook.test",
         resource_type="integration_instance",
         resource_id=str(instance.id) if instance is not None else "unsaved",
@@ -520,8 +507,7 @@ def test_smtp_hook(
 def update_smtp_settings(
     payload: SMTPSettingsUpdate,
     db: Session = Depends(get_db),
-    admin: User = Depends(get_admin_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_INTEGRATIONS)),
+    actor: User = Depends(require_permissions(SCOPE_WRITE_INTEGRATIONS)),
     data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     _fence_smtp_selected_feed_context(db, payload=payload, data_access=data_access)
@@ -539,7 +525,7 @@ def update_smtp_settings(
     sync_smtp_subscriptions(db, instance)
     record_audit(
         db,
-        actor_user_id=admin.id,
+        actor_user_id=actor.id,
         action="integrations.smtp.update",
         resource_type="integration_instance",
         resource_id=str(instance.id),
@@ -570,8 +556,7 @@ def update_smtp_settings(
 def test_smtp_settings(
     payload: SMTPTestRequest,
     db: Session = Depends(get_db),
-    admin: User = Depends(get_admin_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_INTEGRATIONS)),
+    actor: User = Depends(require_permissions(SCOPE_WRITE_INTEGRATIONS)),
     data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     instance = get_or_create_smtp_integration(db)
@@ -608,7 +593,7 @@ def test_smtp_settings(
     )
     record_audit(
         db,
-        actor_user_id=admin.id,
+        actor_user_id=actor.id,
         action="integrations.smtp.test",
         resource_type="integration_instance",
         resource_id=str(instance.id),
@@ -631,8 +616,7 @@ def test_smtp_settings(
 def replay_integration_delivery(
     delivery_id: uuid.UUID,
     db: Session = Depends(get_db),
-    admin: User = Depends(get_admin_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_INTEGRATIONS)),
+    actor: User = Depends(require_permissions(SCOPE_WRITE_INTEGRATIONS)),
     data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     fence_data_access_context(db, data_access)
@@ -671,7 +655,7 @@ def replay_integration_delivery(
         raise HTTPException(status_code=status_code, detail=message) from exc
     record_audit(
         db,
-        actor_user_id=admin.id,
+        actor_user_id=actor.id,
         action="integrations.delivery.replay",
         resource_type="integration_delivery",
         resource_id=str(replay.id),

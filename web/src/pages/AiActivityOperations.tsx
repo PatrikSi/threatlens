@@ -38,7 +38,7 @@ export function ActiveTasksPanel({
   cancelingRunId: string | null
 }) {
   return (
-    <Panel title="Active Tasks" subtitle="Queued and running top-level AI work plus the current Celery queue snapshot.">
+    <Panel title="Active tasks" subtitle="Queued and running top-level AI work plus the current worker queue snapshot.">
       <div aria-busy={isLoading || isRefreshing}>
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           <MiniStat label="Workers" value={live?.worker_count ?? 0} />
@@ -46,19 +46,19 @@ export function ActiveTasksPanel({
           <MiniStat label="Reserved" value={live?.reserved_count ?? 0} />
           <MiniStat label="Scheduled" value={live?.scheduled_count ?? 0} />
           <MiniStat
-            label="Oldest Queued"
+            label="Oldest queued"
             value={live?.oldest_queued_age_seconds != null ? formatAgeSeconds(live.oldest_queued_age_seconds) : 'n/a'}
           />
         </div>
 
-        <div className="mt-4 space-y-3">
+        <div className="mt-3 space-y-3">
           {errorMessage && (
             <p className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-300">
               {errorMessage}
             </p>
           )}
           {isLoading && !runs.length && (
-            <div className="rounded-xl border border-slate/20 bg-white/70 p-4 text-sm text-slate dark:border-cyan-900/40 dark:bg-[#072019]/80 dark:text-white/70">
+            <div className="rounded-xl border border-slate/20 bg-white/70 p-3 text-sm text-slate dark:border-cyan-900/40 dark:bg-[#072019]/80 dark:text-white/70">
               Checking queued and running AI tasks...
             </div>
           )}
@@ -201,8 +201,8 @@ export function QueueWorkPanel(props: QueueWorkPanelProps) {
   )
 
   return (
-    <Panel title="Queue AI Work" subtitle="Launch daily brief and reprocess jobs from one place, with optional feed, time, and item targeting.">
-      <div className="space-y-4">
+    <Panel title="Queue AI work" subtitle="Launch daily brief and reprocess jobs from one place, with optional feed, time, and item targeting.">
+      <div className="space-y-3">
         {queueWorkBlockedReason && (
           <div
             role="status"
@@ -213,10 +213,10 @@ export function QueueWorkPanel(props: QueueWorkPanelProps) {
             {queueWorkBlockedReason}
           </div>
         )}
-        <div className="rounded-xl border border-slate/20 bg-white/70 p-4 dark:border-cyan-900/40 dark:bg-[#072019]/80">
+        <div className="rounded-xl border border-slate/20 bg-white/70 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/80">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <p className="text-sm font-semibold">Daily Brief</p>
+              <p className="text-sm font-semibold">Daily brief</p>
               <p className="mt-1 text-sm text-slate dark:text-white/70">
                 Reprocess daily briefs for the last X days, ending today. The batch runs sequentially so local models are not flooded.
               </p>
@@ -227,11 +227,11 @@ export function QueueWorkPanel(props: QueueWorkPanelProps) {
               onClick={onQueueDailyBrief}
               disabled={dailyBriefPending || !dailyBriefEnabled || Boolean(dailyBriefValidation) || Boolean(queueWorkBlockedReason)}
             >
-              {dailyBriefPending ? 'Queueing...' : 'Queue Daily Brief'}
+              {dailyBriefPending ? 'Queueing...' : 'Queue daily brief'}
             </button>
           </div>
-          <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,220px)_minmax(0,1fr)]">
-            <Field label="Last X Days">
+          <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,220px)_minmax(0,1fr)]">
+            <Field label="Daily brief lookback (days)">
               <input
                 className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#041612]/90"
                 value={dailyBriefDays}
@@ -249,10 +249,10 @@ export function QueueWorkPanel(props: QueueWorkPanelProps) {
           </div>
         </div>
 
-        <div className="rounded-xl border border-slate/20 bg-white/70 p-4 dark:border-cyan-900/40 dark:bg-[#072019]/80">
+        <div className="rounded-xl border border-slate/20 bg-white/70 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/80">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <p className="text-sm font-semibold">Reprocess Scope</p>
+              <p className="text-sm font-semibold">Reprocess scope</p>
               <p className="mt-1 text-sm text-slate dark:text-white/70">
                 Use a recent lookback, narrow it to feeds or a time range, or select exact articles to re-enrich.
               </p>
@@ -263,7 +263,7 @@ export function QueueWorkPanel(props: QueueWorkPanelProps) {
                 className="rounded border border-slate/30 px-3 py-2 text-sm font-semibold dark:border-cyan-900/40"
                 onClick={onClearScope}
               >
-                Clear Scope
+                Reset scope
               </button>
               <button
                 type="button"
@@ -271,13 +271,13 @@ export function QueueWorkPanel(props: QueueWorkPanelProps) {
                 onClick={onQueueReprocess}
                 disabled={reprocessPending || reprocessQueueDisabled || Boolean(queueWorkBlockedReason)}
               >
-                {reprocessPending ? 'Queueing...' : 'Queue Reprocess'}
+                {reprocessPending ? 'Queueing...' : 'Queue reprocess'}
               </button>
             </div>
           </div>
 
-          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <Field label="Lookback Days">
+          <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <Field label="Reprocess lookback (days)">
               <input
                 className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#041612]/90"
                 value={reprocessDays}
@@ -286,7 +286,7 @@ export function QueueWorkPanel(props: QueueWorkPanelProps) {
               />
               {reprocessValidation.days && <p className="mt-1 text-xs text-red-600">{reprocessValidation.days}</p>}
             </Field>
-            <Field label="Last X Articles">
+            <Field label="Maximum articles">
               <input
                 className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#041612]/90"
                 value={reprocessLimit}
@@ -295,7 +295,7 @@ export function QueueWorkPanel(props: QueueWorkPanelProps) {
               />
               {reprocessValidation.limit && <p className="mt-1 text-xs text-red-600">{reprocessValidation.limit}</p>}
             </Field>
-            <Field label="Start Time">
+            <Field label="Start time">
               <input
                 type="datetime-local"
                 className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#041612]/90"
@@ -303,7 +303,7 @@ export function QueueWorkPanel(props: QueueWorkPanelProps) {
                 onChange={(event) => setReprocessStartTime(event.target.value)}
               />
             </Field>
-            <Field label="End Time">
+            <Field label="End time">
               <input
                 type="datetime-local"
                 className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#041612]/90"
@@ -326,7 +326,7 @@ export function QueueWorkPanel(props: QueueWorkPanelProps) {
             )}
           </div>
 
-          <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,280px)_minmax(0,1fr)]">
+          <div className="mt-3 grid gap-3 xl:grid-cols-[minmax(0,280px)_minmax(0,1fr)]">
             <FeedScope
               feeds={feeds}
               selectedFeedIds={selectedFeedIds}
@@ -346,11 +346,6 @@ export function QueueWorkPanel(props: QueueWorkPanelProps) {
               isReady={itemSearchReady}
             />
           </div>
-
-          <p className="mt-4 text-xs text-slate dark:text-white/60">
-            Selected articles override the lookback window. Without selected articles, ThreatLens uses the time range and feed
-            filters against the last X articles by publication time, falling back to first-seen time for undated feed items.
-          </p>
         </div>
       </div>
     </Panel>

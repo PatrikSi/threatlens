@@ -24,6 +24,9 @@ const integrationsPageDomMocks = vi.hoisted(() => ({
       id: 'admin-1',
       email: 'admin@example.com',
       role: 'admin' as const,
+      access: {
+        permissions: ['write:integrations'],
+      },
       is_active: true,
       is_approved: true,
       approved_at: '2026-04-21T10:00:00Z',
@@ -429,6 +432,7 @@ afterEach(() => {
   integrationsPageDomMocks.deferReplaySuccess = false
   integrationsPageDomMocks.pendingReplaySuccess = null
   integrationsPageDomMocks.currentUser.data.features.ai_daily_brief_enabled = true
+  integrationsPageDomMocks.currentUser.data.access.permissions = ['write:integrations']
   routerMocks.useBlocker.mockReset()
   routerMocks.useBlocker.mockImplementation(() => ({
     state: 'unblocked' as const,
@@ -438,7 +442,37 @@ afterEach(() => {
 })
 
 describe('IntegrationsSettingsPage DOM workflows', () => {
-  it('omits AI Daily Brief from SMTP events and all-events selection when AI is unavailable', () => {
+  it('keeps email delivery inspectable but disables writes without write:integrations', () => {
+    integrationsPageDomMocks.currentUser.data.access.permissions = ['read:integrations']
+    const view = renderPage()
+
+    expect(view.textContent).toContain('Read-only access')
+    expect(view.textContent).toContain('permission to manage email delivery')
+    expect(view.firstElementChild?.className).toContain('space-y-3')
+    expect(view.querySelector('#smtp-hook-name')?.closest('section')?.className).toContain('p-3')
+    expect(view.querySelector<HTMLInputElement>('#smtp-hook-name')?.matches(':disabled')).toBe(true)
+    expect(view.querySelector<HTMLSelectElement>('#smtp-send-for')?.matches(':disabled')).toBe(true)
+    expect(view.querySelector<HTMLInputElement>('#smtp-host')?.matches(':disabled')).toBe(true)
+    expect(view.querySelector<HTMLTextAreaElement>('#smtp-to-emails')?.matches(':disabled')).toBe(true)
+    expect(getButton('New destination')?.disabled).toBe(true)
+    expect(getButton('Save destination')?.matches(':disabled')).toBe(true)
+    expect(getButton('Test connection')?.matches(':disabled')).toBe(true)
+    expect(getButton('Replay dead-letter delivery')?.disabled).toBe(true)
+
+    const backupDestination = getButton('Backup Relay')
+    expect(backupDestination?.disabled).toBe(false)
+    act(() => {
+      backupDestination?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(view.querySelector<HTMLInputElement>('#smtp-hook-name')?.value).toBe('Backup Relay')
+    expect(getButton('Delete destination')?.matches(':disabled')).toBe(true)
+    expect(integrationsPageDomMocks.saveMutate).not.toHaveBeenCalled()
+    expect(integrationsPageDomMocks.testMutate).not.toHaveBeenCalled()
+    expect(integrationsPageDomMocks.replayMutate).not.toHaveBeenCalled()
+  })
+
+  it('omits AI daily brief from email events and all-events selection when AI is unavailable', () => {
     integrationsPageDomMocks.currentUser.data.features.ai_daily_brief_enabled = false
     const view = renderPage()
     const sendFor = view.querySelector<HTMLSelectElement>('#smtp-send-for')
@@ -450,7 +484,7 @@ describe('IntegrationsSettingsPage DOM workflows', () => {
       setSelectValue(sendFor!, 'all')
     })
     act(() => {
-      getButton('Save hook')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      getButton('Save destination')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
     expect(integrationsPageDomMocks.saveMutate).toHaveBeenCalledWith(
@@ -464,7 +498,7 @@ describe('IntegrationsSettingsPage DOM workflows', () => {
     )
   })
 
-  it('keeps the SMTP delete confirmation open and renders failures', () => {
+  it('keeps the email destination delete confirmation open and renders failures', () => {
     integrationsPageDomMocks.deleteShouldFail = true
     renderPage()
 
@@ -472,25 +506,25 @@ describe('IntegrationsSettingsPage DOM workflows', () => {
       getButton('Backup Relay')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
     act(() => {
-      getButton('Delete hook')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      getButton('Delete destination')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
     act(() => {
       Array.from(document.querySelectorAll('button'))
-        .filter((button) => button.textContent?.trim() === 'Delete hook')
+        .filter((button) => button.textContent?.trim() === 'Delete destination')
         .at(-1)
         ?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    expect(document.body.textContent).toContain('Delete SMTP hook?')
+    expect(document.body.textContent).toContain('Delete email destination?')
     expect(document.body.textContent).toContain('Backup Relay')
     expect(document.querySelector('[role="alert"]')?.textContent).toContain('SMTP hook deletion failed.')
   })
 
-  it('renders SMTP settings without exposing the saved password', () => {
+  it('renders email delivery settings without exposing the saved password', () => {
     const view = renderPage()
 
-    expect(view.textContent).toContain('SMTP Notifications')
-    expect(view.textContent).toContain('Saved SMTP Hooks')
+    expect(view.textContent).toContain('Email delivery')
+    expect(view.textContent).toContain('Email destinations')
     expect(view.textContent).toContain('Backup Relay')
     expect(view.textContent).toContain('75.0%')
     const passwordInput = view.querySelector<HTMLInputElement>('#smtp-password')
@@ -517,7 +551,7 @@ describe('IntegrationsSettingsPage DOM workflows', () => {
     })
 
     act(() => {
-      getButton('Test SMTP')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      getButton('Send test email')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
     expect(integrationsPageDomMocks.testMutate).toHaveBeenCalledWith(
@@ -541,7 +575,7 @@ describe('IntegrationsSettingsPage DOM workflows', () => {
       setInputValue(view.querySelector<HTMLInputElement>('#smtp-password')!, 'new-secret')
     })
     act(() => {
-      getButton('Save hook')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      getButton('Save destination')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
     expect(integrationsPageDomMocks.saveMutate).toHaveBeenCalledWith(
@@ -574,7 +608,7 @@ describe('IntegrationsSettingsPage DOM workflows', () => {
     expect(view.textContent).toContain('Backup Relay')
 
     act(() => {
-      getButton('Save hook')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      getButton('Save destination')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
     expect(integrationsPageDomMocks.saveMutate).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -598,7 +632,7 @@ describe('IntegrationsSettingsPage DOM workflows', () => {
     expect(view.textContent).toContain('Relay rejected the message')
 
     act(() => {
-      getButton('Replay dead letter')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      getButton('Replay dead-letter delivery')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
     expect(document.body.textContent).toContain('Replay dead-letter delivery?')
     act(() => {
@@ -640,7 +674,7 @@ describe('IntegrationsSettingsPage DOM workflows', () => {
     renderPage()
 
     act(() => {
-      getButton('Replay dead letter')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      getButton('Replay dead-letter delivery')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
     act(() => {
       getButton('Replay delivery')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))

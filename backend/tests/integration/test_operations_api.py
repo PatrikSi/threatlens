@@ -122,6 +122,40 @@ def test_admin_cookie_session_can_read_operations(
     assert response.headers["cache-control"] == "no-store"
 
 
+def test_custom_operations_reader_permission_reaches_operations_routes(
+    client,
+    auth_headers,
+    seed_users,
+    healthy_operations_probes,
+):
+    _ = healthy_operations_probes
+    role_response = client.post(
+        "/iam/roles",
+        headers=auth_headers["admin"],
+        json={
+            "key": f"operations-reader-{uuid.uuid4().hex}",
+            "name": "Operations reader",
+            "permissions": [SCOPE_READ_OPERATIONS],
+        },
+    )
+    assert role_response.status_code == 201, role_response.text
+    role = role_response.json()
+    assignment = client.post(
+        f"/iam/users/{seed_users['viewer'].id}/role-assignments",
+        headers=auth_headers["admin"],
+        json={
+            "role_id": role["id"],
+            "expected_role_revision": role["revision"],
+        },
+    )
+    assert assignment.status_code == 201, assignment.text
+
+    for path in OPERATIONS_PATHS:
+        response = client.get(path, headers=auth_headers["viewer"])
+        assert response.status_code == 200, response.text
+        assert response.headers["cache-control"] == "no-store"
+
+
 def test_operation_run_history_is_paginated_filtered_and_redacted(
     client,
     auth_headers,

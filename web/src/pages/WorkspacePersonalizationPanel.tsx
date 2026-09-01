@@ -1,18 +1,36 @@
 import { ArrowDown, ArrowUp, RefreshCw, RotateCcw, Save } from 'lucide-react'
+import { useRef, useState } from 'react'
 
 import {
   TRUSTED_DASHBOARD_PANELS,
   TRUSTED_WORKSPACE_MODULE_BY_ID,
+  isTopNavigationModule,
   isTrustedWorkspaceModuleId,
+  type TrustedWorkspaceModule,
 } from '../workspace/moduleRegistry'
-import { isDashboardPanelAvailable } from '../workspace/workspaceModel'
+import {
+  WORKSPACE_NAVIGATION_GROUPS,
+  formatSettingsRoleLabel,
+  workspaceModuleDisplayLabel,
+  workspaceNavigationGroupOrder,
+  workspaceNavigationGroupPresentation,
+} from '../workspace/modulePresentation'
+import {
+  isDashboardPanelAvailable,
+  type ResolvedWorkspaceModule,
+} from '../workspace/workspaceModel'
 import type { WorkspaceSettingsController } from './useWorkspaceSettingsController'
 import {
-  movePersonalModule,
   personalLandingOptions,
+  personalNavigationPreview,
+  reorderPersonalModule,
   toggleStringValue,
   updatePersonalModule,
 } from './workspaceSettingsModel'
+import {
+  NavigationDragHandle,
+  NavigationOrderButton,
+} from './WorkspaceNavigationReorderControls'
 
 export function WorkspacePersonalizationPanel({ controller }: { controller: WorkspaceSettingsController }) {
   const { workspace, personalDraft } = controller
@@ -21,20 +39,32 @@ export function WorkspacePersonalizationPanel({ controller }: { controller: Work
 
   return (
     <section className="tl-surface overflow-hidden rounded-xl" aria-labelledby="personal-workspace-heading">
-      <header className="border-b border-slate/20 px-4 py-4 dark:border-white/10 sm:px-5">
+      <header className="border-b border-slate/20 px-4 py-3.5 dark:border-white/10">
         <h2 id="personal-workspace-heading" className="font-display text-lg">My workspace</h2>
         <p className="mt-1 text-sm text-slate dark:text-slate-300">
-          Personal choices can hide or reorder optional modules, but cannot grant access or override organization policy.
+          Personalize the top navigation, Settings sidebar, start page, and initial dashboard. These preferences cannot grant access or override organization policy.
         </p>
       </header>
 
       {!personalDraft || !effective || !preferences ? (
-        <div className="px-4 py-6 text-sm text-slate dark:text-slate-300">
-          {workspace.error ? 'Personal workspace settings are unavailable until the server can be reached.' : 'Loading personal workspace settings...'}
+        <div className="px-4 py-4 text-sm text-slate dark:text-slate-300">
+          {workspace.error ? 'Personal navigation settings are unavailable until the server can be reached.' : 'Loading personal navigation settings...'}
         </div>
       ) : (
-        <div className="space-y-5 px-4 py-4 sm:px-5">
-          <PersonalModuleList controller={controller} />
+        <div className="space-y-4 px-4 py-3.5">
+          <PersonalModuleList controller={controller} scope="top" />
+          <PersonalNavigationStructurePreview controller={controller} />
+          <details className="rounded-lg border border-slate/20 bg-slate/5 dark:border-white/10 dark:bg-white/[0.03]">
+            <summary className="cursor-pointer px-3 py-2.5 text-sm font-semibold text-ink dark:text-slate-100">
+              Settings sidebar items
+              <span className="ml-2 text-xs font-normal text-slate dark:text-slate-400">
+                Separate from the top navigation
+              </span>
+            </summary>
+            <div className="border-t border-slate/15 px-3 py-3 dark:border-white/10">
+              <PersonalModuleList controller={controller} scope="settings" />
+            </div>
+          </details>
           <PersonalLandingControl controller={controller} />
           <PersonalDashboardControls controller={controller} />
 
@@ -60,7 +90,7 @@ export function WorkspacePersonalizationPanel({ controller }: { controller: Work
             </p>
           )}
 
-          <div className="flex flex-col-reverse gap-2 border-t border-slate/15 pt-4 sm:flex-row sm:justify-end dark:border-white/10">
+          <div className="flex flex-col-reverse gap-2 border-t border-slate/15 pt-3 sm:flex-row sm:justify-end dark:border-white/10">
             <button
               type="button"
               className="inline-flex min-h-11 items-center justify-center gap-2 rounded border border-slate/30 px-3 py-2 text-sm font-semibold disabled:opacity-60 sm:min-h-0 dark:border-cyan-900/40"
@@ -71,7 +101,7 @@ export function WorkspacePersonalizationPanel({ controller }: { controller: Work
               onClick={() => controller.setResetPersonalRequested(true)}
             >
               <RotateCcw className="h-4 w-4" aria-hidden="true" />
-              Reset defaults
+              Reset to organization defaults
             </button>
             <button
               type="button"
@@ -83,7 +113,7 @@ export function WorkspacePersonalizationPanel({ controller }: { controller: Work
               onClick={() => void controller.savePersonal()}
             >
               <Save className="h-4 w-4" aria-hidden="true" />
-              {workspace.isSavingPreferences ? 'Saving...' : 'Save personal workspace'}
+              {workspace.isSavingPreferences ? 'Saving...' : 'Save navigation preferences'}
             </button>
           </div>
         </div>
@@ -92,39 +122,244 @@ export function WorkspacePersonalizationPanel({ controller }: { controller: Work
   )
 }
 
-function PersonalModuleList({ controller }: { controller: WorkspaceSettingsController }) {
+function PersonalModuleList({
+  controller,
+  scope,
+}: {
+  controller: WorkspaceSettingsController
+  scope: 'top' | 'settings'
+}) {
+  const topNavigation = scope === 'top'
+  const instructionsId = topNavigation
+    ? 'personal-navigation-reorder-instructions'
+    : 'personal-settings-navigation-reorder-instructions'
   const draft = controller.personalDraft!
-  const effectiveById = new Map(controller.workspace.effective!.modules.map((module) => [module.id, module]))
-  const ordered = [...draft.modules.entries()].sort(([leftId, left], [rightId, right]) => {
-    const leftSection = TRUSTED_WORKSPACE_MODULE_BY_ID.get(leftId)?.section ?? 'settings'
-    const rightSection = TRUSTED_WORKSPACE_MODULE_BY_ID.get(rightId)?.section ?? 'settings'
-    return leftSection.localeCompare(rightSection) || left.order - right.order || leftId.localeCompare(rightId)
+  const resolvedById = new Map(
+    controller.workspace.model.modules.map((module) => [module.id, module]),
+  )
+  const [draggedModuleId, setDraggedModuleId] = useState<TrustedWorkspaceModule['id'] | null>(null)
+  const [dropTargetModuleId, setDropTargetModuleId] = useState<TrustedWorkspaceModule['id'] | null>(null)
+  const [keyboardGrabbedModuleId, setKeyboardGrabbedModuleId] = useState<TrustedWorkspaceModule['id'] | null>(null)
+  const [reorderStatus, setReorderStatus] = useState(
+    'Order changes remain unsaved until you save navigation preferences.',
+  )
+  const dropHandled = useRef(false)
+  const ordered = [...draft.modules.entries()].filter(([moduleId]) => {
+    const definition = TRUSTED_WORKSPACE_MODULE_BY_ID.get(moduleId)
+    return definition && (topNavigation
+      ? isTopNavigationModule(definition)
+      : definition.section === 'settings')
+  }).sort(([leftId, left], [rightId, right]) => {
+    const leftDefinition = TRUSTED_WORKSPACE_MODULE_BY_ID.get(leftId)
+    const rightDefinition = TRUSTED_WORKSPACE_MODULE_BY_ID.get(rightId)
+    const groupOrder = leftDefinition && rightDefinition
+      ? workspaceNavigationGroupOrder(leftDefinition) - workspaceNavigationGroupOrder(rightDefinition)
+      : 0
+    return groupOrder || left.order - right.order || leftId.localeCompare(rightId)
   })
+
+  function moveModule(moduleId: TrustedWorkspaceModule['id'], direction: -1 | 1) {
+    const definition = TRUSTED_WORKSPACE_MODULE_BY_ID.get(moduleId)
+    if (!definition || !isPersonalModuleAvailable(resolvedById.get(moduleId))) return
+    const groupId = workspaceNavigationGroupPresentation(definition).id
+    const siblings = ordered.filter(
+      ([id]) => {
+        const candidate = TRUSTED_WORKSPACE_MODULE_BY_ID.get(id)
+        return candidate &&
+          isPersonalModuleAvailable(resolvedById.get(id)) &&
+          candidate.parentId === definition.parentId &&
+          workspaceNavigationGroupPresentation(candidate).id === groupId
+      },
+    )
+    const currentIndex = siblings.findIndex(([id]) => id === moduleId)
+    const nextIndex = currentIndex + direction
+    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= siblings.length) return
+
+    controller.setPersonalDraft((current) =>
+      current
+        ? reorderPersonalModule(current, moduleId, siblings[nextIndex]![0])
+        : current,
+    )
+    setReorderStatus(
+      `Moved ${workspaceModuleDisplayLabel(definition)} to position ${nextIndex + 1} of ${siblings.length} in ${workspaceModuleReorderGroupLabel(definition)}. Save navigation preferences to apply this order.`,
+    )
+  }
+
+  function dropModule(
+    sourceId: TrustedWorkspaceModule['id'],
+    targetId: TrustedWorkspaceModule['id'],
+  ) {
+    const sourceDefinition = TRUSTED_WORKSPACE_MODULE_BY_ID.get(sourceId)
+    const targetDefinition = TRUSTED_WORKSPACE_MODULE_BY_ID.get(targetId)
+    if (
+      !sourceDefinition ||
+      !targetDefinition ||
+      !isPersonalModuleAvailable(resolvedById.get(sourceId)) ||
+      !isPersonalModuleAvailable(resolvedById.get(targetId))
+    ) return
+    if (
+      sourceDefinition.parentId !== targetDefinition.parentId ||
+      workspaceNavigationGroupPresentation(sourceDefinition).id !==
+      workspaceNavigationGroupPresentation(targetDefinition).id
+    ) {
+      setReorderStatus(
+        `${workspaceModuleDisplayLabel(sourceDefinition)} can only be moved within ${workspaceModuleReorderGroupLabel(sourceDefinition)}.`,
+      )
+      return
+    }
+
+    const groupId = workspaceNavigationGroupPresentation(sourceDefinition).id
+    const siblings = ordered.filter(([id]) => {
+      const candidate = TRUSTED_WORKSPACE_MODULE_BY_ID.get(id)
+      return candidate &&
+        isPersonalModuleAvailable(resolvedById.get(id)) &&
+        candidate.parentId === sourceDefinition.parentId &&
+        workspaceNavigationGroupPresentation(candidate).id === groupId
+    })
+    const targetIndex = siblings.findIndex(([id]) => id === targetId)
+    if (targetIndex < 0 || sourceId === targetId) {
+      setReorderStatus(`${workspaceModuleDisplayLabel(sourceDefinition)} stayed in its current position.`)
+      return
+    }
+    controller.setPersonalDraft((current) =>
+      current ? reorderPersonalModule(current, sourceId, targetId) : current,
+    )
+    setReorderStatus(
+      `Moved ${workspaceModuleDisplayLabel(sourceDefinition)} to position ${targetIndex + 1} of ${siblings.length} in ${workspaceModuleReorderGroupLabel(sourceDefinition)}. Save navigation preferences to apply this order.`,
+    )
+  }
 
   return (
     <fieldset disabled={controller.personalMutationPending}>
-      <legend className="text-sm font-semibold">Optional modules</legend>
-      <p className="mt-1 text-xs text-slate dark:text-slate-400">
-        Hidden or unavailable modules never become links. Desktop ordering applies among modules with the same parent.
+      <legend className="text-sm font-semibold">
+        {topNavigation ? 'Top navigation items' : 'Settings sidebar items'}
+      </legend>
+      <p id={instructionsId} className="mt-1 text-xs text-slate dark:text-slate-400">
+        {topNavigation
+          ? 'Only customizable items from the top navbar appear here. Items not listed stay fixed; Settings is always fixed. This order applies on desktop; mobile order follows organization defaults. Drag to reorder, or use the earlier and later buttons for keyboard or touch.'
+          : 'These items appear only in the Settings sidebar, not the top navbar. Drag within a Settings group to set its order on every screen size, or use the earlier and later buttons for keyboard or touch.'}
       </p>
-      <div className="mt-3 divide-y divide-slate/15 rounded border border-slate/20 dark:divide-white/10 dark:border-white/10">
+      <p role="status" aria-live="polite" aria-atomic="true" className="mt-1 min-h-4 text-xs text-slate dark:text-slate-400">
+        {reorderStatus}
+      </p>
+      <div className="mt-2 divide-y divide-slate/15 rounded-lg border border-slate/20 dark:divide-white/10 dark:border-white/10">
         {ordered.map(([moduleId, preference]) => {
           const definition = TRUSTED_WORKSPACE_MODULE_BY_ID.get(moduleId)
-          const effective = effectiveById.get(moduleId)
-          if (!definition || !effective) return null
-          const available = effective.policy_visible && effective.permission_allowed && effective.feature_available
+          const resolved = resolvedById.get(moduleId)
+          if (!definition || !resolved) return null
+          const roleAllowed = resolved.roleAllowed
+          const available = isPersonalModuleAvailable(resolved)
           const Icon = definition.icon
+          const displayLabel = workspaceModuleDisplayLabel(definition)
+          const groupId = workspaceNavigationGroupPresentation(definition).id
           const siblingItems = ordered.filter(
-            ([id]) => TRUSTED_WORKSPACE_MODULE_BY_ID.get(id)?.parentId === definition.parentId,
+            ([id]) => {
+              const candidate = TRUSTED_WORKSPACE_MODULE_BY_ID.get(id)
+              return candidate &&
+                isPersonalModuleAvailable(resolvedById.get(id)) &&
+                candidate.parentId === definition.parentId &&
+                workspaceNavigationGroupPresentation(candidate).id === groupId
+            },
           )
           const siblingIndex = siblingItems.findIndex(([id]) => id === moduleId)
+          const reorderDisabled = controller.personalMutationPending ||
+            siblingItems.length < 2 ||
+            !available
+          const keyboardGrabbed = keyboardGrabbedModuleId === moduleId
           return (
-            <div key={moduleId} className="flex flex-wrap items-center gap-3 px-3 py-3">
+            <div
+              key={moduleId}
+              data-navigation-reorder-item={topNavigation ? moduleId : undefined}
+              data-settings-navigation-reorder-item={topNavigation ? undefined : moduleId}
+              className={`flex flex-wrap items-center gap-2 px-2 py-2 transition ${
+                draggedModuleId === moduleId ? 'opacity-50' : ''
+              } ${dropTargetModuleId === moduleId ? 'bg-cyan/10 ring-1 ring-inset ring-cyan/40' : ''}`}
+              onDragOver={(event) => {
+                if (!available || !draggedModuleId || draggedModuleId === moduleId) return
+                const draggedDefinition = TRUSTED_WORKSPACE_MODULE_BY_ID.get(draggedModuleId)
+                if (
+                  !draggedDefinition ||
+                  draggedDefinition.parentId !== definition.parentId ||
+                  workspaceNavigationGroupPresentation(draggedDefinition).id !== groupId
+                ) {
+                  event.dataTransfer.dropEffect = 'none'
+                  setDropTargetModuleId(null)
+                  return
+                }
+                event.preventDefault()
+                event.dataTransfer.dropEffect = 'move'
+                setDropTargetModuleId(moduleId)
+              }}
+              onDrop={(event) => {
+                if (!available) return
+                event.preventDefault()
+                const transferredId = event.dataTransfer.getData('text/plain')
+                const sourceId = draggedModuleId ?? (
+                  isTrustedWorkspaceModuleId(transferredId) ? transferredId : null
+                )
+                dropHandled.current = true
+                setDraggedModuleId(null)
+                setDropTargetModuleId(null)
+                if (sourceId) dropModule(sourceId, moduleId)
+              }}
+            >
+              <NavigationDragHandle
+                active={keyboardGrabbed}
+                count={siblingItems.length}
+                describedBy={instructionsId}
+                disabled={reorderDisabled}
+                label={displayLabel}
+                position={siblingIndex + 1}
+                onToggle={() => {
+                  if (keyboardGrabbed) {
+                    setKeyboardGrabbedModuleId(null)
+                    setReorderStatus(
+                      `Finished reordering ${displayLabel}. Save navigation preferences to apply this order.`,
+                    )
+                  } else {
+                    setKeyboardGrabbedModuleId(moduleId)
+                    setReorderStatus(
+                      `Picked up ${displayLabel}, position ${siblingIndex + 1} of ${siblingItems.length}. Use the Up and Down arrow keys, then press Enter to finish or Escape to stop reordering.`,
+                    )
+                  }
+                }}
+                onStop={() => {
+                  setKeyboardGrabbedModuleId(null)
+                  setReorderStatus(`Stopped reordering ${displayLabel}.`)
+                }}
+                onMove={(direction) => moveModule(moduleId, direction)}
+                onDragStart={(event) => {
+                  dropHandled.current = false
+                  setKeyboardGrabbedModuleId(null)
+                  setDraggedModuleId(moduleId)
+                  event.dataTransfer.effectAllowed = 'move'
+                  event.dataTransfer.setData('text/plain', moduleId)
+                  setReorderStatus(
+                    `Dragging ${displayLabel}. Drop it on another item in ${workspaceModuleReorderGroupLabel(definition)}.`,
+                  )
+                }}
+                onDragEnd={() => {
+                  if (!dropHandled.current) {
+                    setReorderStatus(`Stopped reordering ${displayLabel}.`)
+                  }
+                  dropHandled.current = false
+                  setDraggedModuleId(null)
+                  setDropTargetModuleId(null)
+                }}
+              />
               <Icon className="h-4 w-4 shrink-0 text-cyan" aria-hidden="true" />
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-ink dark:text-slate-100">{definition.label}</p>
-                <p className="break-all text-xs text-slate dark:text-slate-400">{moduleId}</p>
-                {!available && <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">Unavailable under current policy, permissions, or feature settings.</p>}
+                <p className="text-sm font-semibold text-ink dark:text-slate-100">{displayLabel}</p>
+                <p className="text-xs text-slate dark:text-slate-400">{workspaceModuleSectionLabel(definition)}</p>
+                {!roleAllowed ? (
+                  <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                    {definition.requiredBaseRoles?.map(formatSettingsRoleLabel).join(' or ')} base role required.
+                  </p>
+                ) : !available ? (
+                  <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                    Unavailable under current policy, permissions, or feature settings.
+                  </p>
+                ) : null}
               </div>
               <label className="inline-flex min-h-11 items-center gap-2 text-sm sm:min-h-0">
                 <input
@@ -136,8 +371,8 @@ function PersonalModuleList({ controller }: { controller: WorkspaceSettingsContr
                     controller.setPersonalDraft((current) => {
                       if (!current) return current
                       const updated = updatePersonalModule(current, moduleId, { visible })
-                      const landingStillAvailable = personalLandingOptions(
-                        controller.workspace.effective!,
+                      const landingStillAvailable = resolvedPersonalLandingOptions(
+                        controller,
                         updated,
                       ).some((module) => module.id === updated.landingModuleId)
                       return updated.landingModuleId &&
@@ -151,20 +386,20 @@ function PersonalModuleList({ controller }: { controller: WorkspaceSettingsContr
                 Show
               </label>
               <div className="flex shrink-0 gap-1">
-                <OrderButton
-                  label={`Move ${definition.label} earlier`}
-                  disabled={siblingIndex === 0 || controller.personalMutationPending}
-                  onClick={() => controller.setPersonalDraft((current) => current ? movePersonalModule(current, moduleId, -1) : current)}
+                <NavigationOrderButton
+                  label={`Move ${displayLabel} earlier`}
+                  disabled={siblingIndex === 0 || reorderDisabled}
+                  onClick={() => moveModule(moduleId, -1)}
                 >
                   <ArrowUp className="h-4 w-4" aria-hidden="true" />
-                </OrderButton>
-                <OrderButton
-                  label={`Move ${definition.label} later`}
-                  disabled={siblingIndex === siblingItems.length - 1 || controller.personalMutationPending}
-                  onClick={() => controller.setPersonalDraft((current) => current ? movePersonalModule(current, moduleId, 1) : current)}
+                </NavigationOrderButton>
+                <NavigationOrderButton
+                  label={`Move ${displayLabel} later`}
+                  disabled={siblingIndex === siblingItems.length - 1 || reorderDisabled}
+                  onClick={() => moveModule(moduleId, 1)}
                 >
                   <ArrowDown className="h-4 w-4" aria-hidden="true" />
-                </OrderButton>
+                </NavigationOrderButton>
               </div>
             </div>
           )
@@ -174,39 +409,64 @@ function PersonalModuleList({ controller }: { controller: WorkspaceSettingsContr
   )
 }
 
-function OrderButton({
-  label,
-  disabled,
-  onClick,
-  children,
+function PersonalNavigationStructurePreview({
+  controller,
 }: {
-  label: string
-  disabled: boolean
-  onClick: () => void
-  children: React.ReactNode
+  controller: WorkspaceSettingsController
 }) {
+  const items = personalNavigationPreview(
+    controller.workspace.model.modules,
+    controller.personalDraft!,
+  )
+
   return (
-    <button
-      type="button"
-      className="inline-flex h-11 w-11 items-center justify-center rounded border border-slate/25 text-slate disabled:opacity-35 sm:h-10 sm:w-10 dark:border-white/10 dark:text-slate-200"
-      aria-label={label}
-      title={label}
-      disabled={disabled}
-      onClick={onClick}
+    <section
+      className="rounded-lg border border-slate/20 bg-slate/5 p-3 dark:border-white/10 dark:bg-white/[0.03]"
+      aria-labelledby="personal-top-navigation-preview-heading"
     >
-      {children}
-    </button>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 id="personal-top-navigation-preview-heading" className="text-sm font-semibold">
+          Top navigation preview
+        </h3>
+        <span className="rounded border border-slate/20 px-2 py-0.5 text-xs text-slate dark:border-white/10 dark:text-slate-300">
+          Draft
+        </span>
+      </div>
+      <p className="mt-1 text-xs text-slate dark:text-slate-400">
+        Matches the desktop top navbar after save. Settings is always fixed; organization policy determines which other items can be personalized.
+      </p>
+      <ul className="mt-2 flex flex-wrap gap-1.5">
+        {items.map(({ module, fixed }) => {
+          const Icon = module.icon
+          return (
+            <li
+              key={module.id}
+              data-navigation-preview-module={module.id}
+              className="inline-flex min-w-0 items-center gap-1.5 rounded border border-slate/20 bg-white px-2 py-1 text-xs dark:border-white/10 dark:bg-[#072019]"
+            >
+              <Icon className="h-3.5 w-3.5 shrink-0 text-cyan" aria-hidden="true" />
+              <span>{workspaceModuleDisplayLabel(module)}</span>
+              {fixed && (
+                <span className="rounded bg-slate/10 px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate dark:bg-white/10 dark:text-slate-300">
+                  {module.isContainer ? 'Fixed container' : 'Fixed'}
+                </span>
+              )}
+            </li>
+          )
+        })}
+      </ul>
+    </section>
   )
 }
 
 function PersonalLandingControl({ controller }: { controller: WorkspaceSettingsController }) {
   const draft = controller.personalDraft!
-  const options = personalLandingOptions(controller.workspace.effective!, draft)
+  const options = resolvedPersonalLandingOptions(controller, draft)
   const trustedCurrent = draft.landingModuleId === null || options.some((module) => module.id === draft.landingModuleId)
 
   return (
     <label className="block max-w-xl text-sm font-semibold">
-      Landing module
+      Start page
       <select
         className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 font-normal dark:border-cyan-900/40 dark:bg-[#072019]"
         value={draft.landingModuleId ?? ''}
@@ -218,12 +478,25 @@ function PersonalLandingControl({ controller }: { controller: WorkspaceSettingsC
       >
         <option value="">Use organization default</option>
         {!trustedCurrent && draft.landingModuleId && (
-          <option value={draft.landingModuleId}>Unavailable in this frontend (preserved)</option>
+          <option value={draft.landingModuleId}>Unavailable in this version (kept)</option>
         )}
-        {options.map((module) => <option key={module.id} value={module.id}>{module.label}</option>)}
+        {WORKSPACE_NAVIGATION_GROUPS.map((group) => {
+          const groupOptions = options.filter(
+            (module) => workspaceNavigationGroupPresentation(module).id === group.id,
+          )
+          return groupOptions.length > 0 ? (
+            <optgroup key={group.id} label={group.label}>
+              {groupOptions.map((module) => (
+                <option key={module.id} value={module.id}>
+                  {workspaceModuleDisplayLabel(module)}
+                </option>
+              ))}
+            </optgroup>
+          ) : null
+        })}
       </select>
       <span className="mt-1 block text-xs font-normal text-slate dark:text-slate-400">
-        Used after local sign-in and whenever ThreatLens opens the workspace start route.
+        Used after sign-in and whenever ThreatLens opens the workspace start route. Available Settings pages can be selected independently of the top navigation.
       </span>
     </label>
   )
@@ -233,7 +506,7 @@ function PersonalDashboardControls({ controller }: { controller: WorkspaceSettin
   const draft = controller.personalDraft!
   return (
     <fieldset disabled={controller.personalMutationPending}>
-      <legend className="text-sm font-semibold">First-use dashboard defaults</legend>
+      <legend className="text-sm font-semibold">Initial dashboard panels</legend>
       <p className="mt-1 text-xs text-slate dark:text-slate-400">
         These panels seed a new or reset local dashboard. Existing saved layouts are not replaced.
       </p>
@@ -279,4 +552,42 @@ function PersonalDashboardControls({ controller }: { controller: WorkspaceSettin
       )}
     </fieldset>
   )
+}
+
+function workspaceModuleSectionLabel(module: TrustedWorkspaceModule): string {
+  if (isTopNavigationModule(module)) return 'Top navigation'
+  return workspaceNavigationGroupPresentation(module).label
+}
+
+function workspaceModuleReorderGroupLabel(module: TrustedWorkspaceModule): string {
+  if (isTopNavigationModule(module)) return 'top navigation'
+  return workspaceNavigationGroupPresentation(module).label
+}
+
+function isPersonalModuleAvailable(
+  module: ResolvedWorkspaceModule | undefined,
+): boolean {
+  return Boolean(
+    module?.roleAllowed &&
+    module.policyVisible &&
+    module.permissionAllowed &&
+    module.featureAvailable &&
+    !module.reasons.includes('account_ineligible'),
+  )
+}
+
+function resolvedPersonalLandingOptions(
+  controller: WorkspaceSettingsController,
+  draft: NonNullable<WorkspaceSettingsController['personalDraft']>,
+) {
+  const availableIds = new Set(
+    controller.workspace.model.modules
+      .filter(isPersonalModuleAvailable)
+      .map((module) => module.id),
+  )
+  return personalLandingOptions(
+    controller.workspace.effective!,
+    draft,
+    controller.workspace.userContext.role,
+  ).filter((module) => availableIds.has(module.id))
 }

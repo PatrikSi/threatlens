@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { apiFetch } from '../api/client'
+import { useCurrentUser } from '../hooks/useCurrentUser'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import {
   Feed,
@@ -24,9 +25,11 @@ import {
   getRuleDraftValidationError,
   parseTaggingReapplyRequest,
 } from './taggingSettingsModel'
+import { hasRequiredPermissions } from '../workspace/workspaceModel'
 
 export function useTaggingSettingsController() {
   const queryClient = useQueryClient()
+  const currentUserQuery = useCurrentUser()
   const [settingsDraft, setSettingsDraft] = useState<TaggingSettingsDraft>({
     ...DEFAULT_TAGGING_SETTINGS_DRAFT,
     enabled_categories: [...DEFAULT_TAGGING_SETTINGS_DRAFT.enabled_categories],
@@ -40,6 +43,14 @@ export function useTaggingSettingsController() {
   const [pendingRuleDelete, setPendingRuleDelete] = useState<TaggingRule | null>(null)
   const [pendingReapplyRequest, setPendingReapplyRequest] = useState<TaggingReapplyRequest | null>(null)
   const syncedSettingsDraftRef = useRef<TaggingSettingsDraft | null>(null)
+  const canManageTagging = hasRequiredPermissions(
+    currentUserQuery.data?.access?.permissions ?? [],
+    ['write:tagging'],
+  )
+  const isReadOnly = !currentUserQuery.isLoading && !canManageTagging
+  const accessNotice = isReadOnly
+    ? 'You can review content tagging, but changes require permission to manage tagging.'
+    : null
 
   const bundleQuery = useQuery({
     queryKey: ['tagging', 'settings'],
@@ -179,42 +190,50 @@ export function useTaggingSettingsController() {
   }
 
   return {
+    accessNotice,
     bundleQuery,
+    canManageTagging,
     confirmDiscardUnsavedTaggingChanges,
+    currentUserQuery,
     deleteRule,
     feeds: feedsQuery.data ?? [],
     feedsQuery,
     notice,
     onConfirmDeleteRule: () => {
-      if (pendingRuleDelete) {
+      if (pendingRuleDelete && canManageTagging) {
         const ruleId = pendingRuleDelete.id
         setPendingRuleDelete(null)
         deleteRule.mutate(ruleId)
       }
     },
     onConfirmReapplyTagging: () => {
-      if (pendingReapplyRequest) {
+      if (pendingReapplyRequest && canManageTagging) {
         const request = pendingReapplyRequest
         setPendingReapplyRequest(null)
         setNotice(null)
         reapplyTagging.mutate(request)
       }
     },
-    onCreateNewRule: () => selectRule(null),
+    onCreateNewRule: () => {
+      if (canManageTagging) selectRule(null)
+    },
     onPreviewRule: () => submitRuleMutation(previewRule),
     onRequestDeleteRule: (rule: TaggingRule | null) => {
-      if (rule) {
+      if (rule && canManageTagging) {
         confirmDiscardUnsavedTaggingChanges(() => setPendingRuleDelete(rule))
       }
     },
     onRequestReapplyTagging: () => {
-      if (reapplyRequestDraft.request) {
+      if (reapplyRequestDraft.request && canManageTagging) {
         setNotice(null)
         setPendingReapplyRequest(reapplyRequestDraft.request)
       }
     },
-    onSaveRule: () => submitRuleMutation(saveRule),
+    onSaveRule: () => {
+      if (canManageTagging) submitRuleMutation(saveRule)
+    },
     onSaveSettings: () => {
+      if (!canManageTagging) return
       setNotice(null)
       saveSettings.mutate()
     },

@@ -133,7 +133,9 @@ function flushPromises() {
 }
 
 async function clickLogout(view: HTMLDivElement) {
-  const logoutButton = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Logout')
+  const logoutButton = Array.from(view.querySelectorAll('button')).find(
+    (button) => button.textContent?.trim() === 'Sign out',
+  )
   expect(logoutButton).not.toBeNull()
 
   await act(async () => {
@@ -162,7 +164,17 @@ afterEach(async () => {
   resetWorkspaceNavigation()
 })
 
-describe('AppShell logout', () => {
+describe('AppShell', () => {
+  it('provides a single content landmark target without using the brand as a page heading', () => {
+    const view = renderShell()
+
+    expect(view.querySelector('a[href="#main-content"]')?.textContent).toBe('Skip to content')
+    expect(view.querySelector('main#main-content')).not.toBeNull()
+    expect(view.querySelectorAll('h1')).toHaveLength(0)
+    expect(view.querySelectorAll('a[aria-label="ThreatLens home"]')).toHaveLength(2)
+    expect(view.textContent).toContain('analyst@example.com (Analyst)')
+  })
+
   it('opens mobile navigation as a vertical list', () => {
     const view = renderShell()
     const menuButton = view.querySelector<HTMLButtonElement>('[aria-controls="mobile-primary-navigation"]')
@@ -234,7 +246,7 @@ describe('AppShell logout', () => {
     await clickLogout(view)
 
     expect(appShellDomMocks.markLoggedOut).not.toHaveBeenCalled()
-    expect(view.textContent).toContain('Logout could not be completed.')
+    expect(view.textContent).toContain('Sign out could not be completed.')
     expect(view.textContent).not.toContain('Failed to fetch')
     expect(view.textContent).toContain('Dashboard body')
   })
@@ -246,7 +258,9 @@ describe('AppShell logout', () => {
     await clickLogout(view)
 
     expect(appShellDomMocks.markLoggedOut).not.toHaveBeenCalled()
-    expect(view.textContent).toContain('Logout could not be completed. The API encountered an internal or dependency failure.')
+    expect(view.textContent).toContain(
+      'Sign out could not be completed. The API encountered an internal or dependency failure.',
+    )
     expect(view.textContent).toContain('Dashboard body')
   })
 
@@ -257,7 +271,9 @@ describe('AppShell logout', () => {
     await clickLogout(view)
 
     expect(appShellDomMocks.markLoggedOut).not.toHaveBeenCalled()
-    expect(view.textContent).toContain('Logout could not be completed. Missing or invalid CSRF token.')
+    expect(view.textContent).toContain(
+      'Sign out could not be completed. Missing or invalid CSRF token.',
+    )
     expect(view.textContent).toContain('Refresh the page to renew the browser session')
     expect(view.textContent).toContain('Dashboard body')
   })

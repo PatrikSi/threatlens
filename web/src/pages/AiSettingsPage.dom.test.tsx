@@ -592,19 +592,34 @@ afterEach(() => {
 })
 
 describe('AiSettingsPage DOM workflows', () => {
-  it('provides a compact mobile section selector without removing desktop tabs', () => {
+  it('keeps select navigation through large viewports and switches to sidebar tabs at extra large', () => {
     const view = renderPage()
     const mobileSection = view.querySelector<HTMLSelectElement>('#mobile-ai-settings-section')
-    const desktopTabs = view.querySelector<HTMLElement>('[aria-label="AI settings sections"]')
+    const desktopTabs = view.querySelector<HTMLElement>('[aria-label="AI automation sections"]')
+    const navigation = mobileSection?.closest('aside')
+    const compactNavigation = mobileSection?.closest('label')?.parentElement
+    const workspace = navigation?.parentElement
 
     expect(mobileSection).not.toBeNull()
     expect(Array.from(mobileSection?.options ?? []).map((option) => option.textContent)).toEqual([
-      'Status',
+      'Overview',
       'Jobs',
       'Configuration',
     ])
+    expect(mobileSection?.closest('label')?.className).toContain('xl:hidden')
+    expect(mobileSection?.closest('label')?.className).not.toContain('lg:hidden')
+    expect(mobileSection?.previousElementSibling?.className).toContain('sr-only')
+    expect(compactNavigation?.className).toContain('md:grid-cols-[minmax(180px,0.75fr)_minmax(0,1.25fr)]')
+    expect(compactNavigation?.className).toContain('xl:block')
     expect(desktopTabs?.className).toContain('hidden')
-    expect(desktopTabs?.className).toContain('lg:grid')
+    expect(desktopTabs?.className).toContain('xl:grid')
+    expect(desktopTabs?.className).not.toContain('lg:grid')
+    expect(view.firstElementChild?.className).toContain('space-y-3')
+    expect(navigation?.className).toContain('p-3')
+    expect(workspace?.className).toContain('gap-3')
+    expect(workspace?.className).toContain('xl:grid-cols-[280px_minmax(0,1fr)]')
+    expect(workspace?.className).not.toContain('lg:grid-cols-[280px_minmax(0,1fr)]')
+    expect(view.textContent).not.toContain('Review status, work with queued jobs, or change provider and feature settings.')
   })
 
   it('blocks queued AI work when the saved endpoint is not configured', () => {
@@ -615,8 +630,8 @@ describe('AiSettingsPage DOM workflows', () => {
       getButton('Jobs')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    expect(getButton('Queue Daily Brief')?.hasAttribute('disabled')).toBe(true)
-    expect(getButton('Queue Reprocess')?.hasAttribute('disabled')).toBe(true)
+    expect(getButton('Queue daily brief')?.hasAttribute('disabled')).toBe(true)
+    expect(getButton('Queue reprocess')?.hasAttribute('disabled')).toBe(true)
   })
 
   it('blocks queued AI work when settings readiness cannot be loaded', () => {
@@ -628,8 +643,8 @@ describe('AiSettingsPage DOM workflows', () => {
     })
 
     expect(pageText()).toContain('AI settings could not be loaded.')
-    expect(getButton('Queue Daily Brief')?.hasAttribute('disabled')).toBe(true)
-    expect(getButton('Queue Reprocess')?.hasAttribute('disabled')).toBe(true)
+    expect(getButton('Queue daily brief')?.hasAttribute('disabled')).toBe(true)
+    expect(getButton('Queue reprocess')?.hasAttribute('disabled')).toBe(true)
   })
 
   it('blocks saving AI settings when the saved settings failed to load', () => {
@@ -641,7 +656,7 @@ describe('AiSettingsPage DOM workflows', () => {
     })
 
     expect(pageText()).toContain('AI settings could not be loaded. Refresh before saving changes.')
-    expect(getButton('Save Settings')?.hasAttribute('disabled')).toBe(true)
+    expect(getButton('Save changes')?.hasAttribute('disabled')).toBe(true)
   })
 
   it('blocks no-op AI settings saves', () => {
@@ -652,7 +667,7 @@ describe('AiSettingsPage DOM workflows', () => {
     })
 
     expect(pageText()).toContain('No AI settings changes to save.')
-    expect(getButton('Save Settings')?.hasAttribute('disabled')).toBe(true)
+    expect(getButton('Save changes')?.hasAttribute('disabled')).toBe(true)
   })
 
   it('omits blank changed-field labels in AI prompt history', () => {
@@ -695,6 +710,9 @@ describe('AiSettingsPage DOM workflows', () => {
     expect(pageText()).not.toContain('Recent Problems')
     expect(pageText()).not.toContain('The most common failures across requests and task runs.')
     expect(pageText()).toContain('Database-backed snapshot of AI task runs.')
+    const overviewColumnHeaders = [...view.querySelectorAll('th')]
+    expect(overviewColumnHeaders).toHaveLength(5)
+    expect(overviewColumnHeaders.every((heading) => heading.getAttribute('scope') === 'col')).toBe(true)
 
     const jobsTab = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.includes('Jobs'))
     expect(jobsTab).not.toBeNull()
@@ -747,9 +765,9 @@ describe('AiSettingsPage DOM workflows', () => {
     })
 
     const lookbackInput = Array.from(view.querySelectorAll('label'))
-      .find((label) => label.textContent?.includes('Lookback Days'))
+      .find((label) => label.textContent?.includes('Reprocess lookback (days)'))
       ?.querySelector('input')
-    const queueButton = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.includes('Queue Reprocess'))
+    const queueButton = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.includes('Queue reprocess'))
 
     expect(lookbackInput).not.toBeNull()
     expect(queueButton).not.toBeNull()
@@ -770,9 +788,9 @@ describe('AiSettingsPage DOM workflows', () => {
       getButton('Jobs')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    const lookbackInput = getLabeledInput('Lookback Days') as HTMLInputElement | null
-    const startTimeInput = getLabeledInput('Start Time') as HTMLInputElement | null
-    const queueButton = getButton('Queue Reprocess')
+    const lookbackInput = getLabeledInput('Reprocess lookback (days)') as HTMLInputElement | null
+    const startTimeInput = getLabeledInput('Start time') as HTMLInputElement | null
+    const queueButton = getButton('Queue reprocess')
 
     expect(lookbackInput).not.toBeNull()
     expect(startTimeInput).not.toBeNull()
@@ -815,8 +833,8 @@ describe('AiSettingsPage DOM workflows', () => {
       getButton('Jobs')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    const startTimeInput = getLabeledInput('Start Time') as HTMLInputElement | null
-    const queueButton = getButton('Queue Reprocess')
+    const startTimeInput = getLabeledInput('Start time') as HTMLInputElement | null
+    const queueButton = getButton('Queue reprocess')
 
     expect(startTimeInput).not.toBeNull()
     expect(queueButton).not.toBeNull()
@@ -851,7 +869,7 @@ describe('AiSettingsPage DOM workflows', () => {
       getButton('Jobs')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    const startTimeInput = getLabeledInput('Start Time') as HTMLInputElement | null
+    const startTimeInput = getLabeledInput('Start time') as HTMLInputElement | null
     expect(startTimeInput).not.toBeNull()
 
     act(() => {
@@ -876,7 +894,7 @@ describe('AiSettingsPage DOM workflows', () => {
       getButton('Jobs')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    const lookbackInput = getLabeledInput('Lookback Days') as HTMLInputElement | null
+    const lookbackInput = getLabeledInput('Reprocess lookback (days)') as HTMLInputElement | null
     expect(lookbackInput).not.toBeNull()
 
     act(() => {
@@ -886,7 +904,7 @@ describe('AiSettingsPage DOM workflows', () => {
     expect(lookbackInput?.value).toBe('14')
 
     act(() => {
-      getButton('Clear Scope')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      getButton('Reset scope')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
     expect(pageText()).toContain('Clear reprocess scope?')
@@ -1093,7 +1111,7 @@ describe('AiSettingsPage DOM workflows', () => {
     })
 
     const testSavedConnectionButton = Array.from(view.querySelectorAll('button')).find(
-      (button) => button.textContent?.trim() === 'Test Saved Connection',
+      (button) => button.textContent?.trim() === 'Test saved connection',
     ) as HTMLButtonElement | undefined
     expect(testSavedConnectionButton).not.toBeUndefined()
     expect(testSavedConnectionButton?.disabled).toBe(true)
@@ -1109,7 +1127,7 @@ describe('AiSettingsPage DOM workflows', () => {
       getButton('Jobs')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    const dailyBriefDaysInput = getLabeledInput('Last X Days') as HTMLInputElement | null
+    const dailyBriefDaysInput = getLabeledInput('Daily brief lookback (days)') as HTMLInputElement | null
     expect(dailyBriefDaysInput).not.toBeNull()
 
     act(() => {
@@ -1117,7 +1135,7 @@ describe('AiSettingsPage DOM workflows', () => {
     })
 
     const queueDailyBriefButton = Array.from(view.querySelectorAll('button')).find(
-      (button) => button.textContent?.trim() === 'Queue Daily Brief',
+      (button) => button.textContent?.trim() === 'Queue daily brief',
     ) as HTMLButtonElement | undefined
     expect(queueDailyBriefButton).not.toBeUndefined()
     expect(queueDailyBriefButton?.disabled).toBe(true)
@@ -1131,9 +1149,9 @@ describe('AiSettingsPage DOM workflows', () => {
       getButton('Jobs')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    const dailyBriefDaysInput = getLabeledInput('Last X Days') as HTMLInputElement | null
+    const dailyBriefDaysInput = getLabeledInput('Daily brief lookback (days)') as HTMLInputElement | null
     const queueDailyBriefButton = Array.from(view.querySelectorAll('button')).find(
-      (button) => button.textContent?.trim() === 'Queue Daily Brief',
+      (button) => button.textContent?.trim() === 'Queue daily brief',
     ) as HTMLButtonElement | undefined
 
     expect(dailyBriefDaysInput).not.toBeNull()
@@ -1229,7 +1247,7 @@ describe('AiSettingsPage DOM workflows', () => {
     })
 
     const testSavedConnectionButton = Array.from(view.querySelectorAll('button')).find(
-      (button) => button.textContent?.trim() === 'Test Saved Connection',
+      (button) => button.textContent?.trim() === 'Test saved connection',
     ) as HTMLButtonElement | undefined
     expect(testSavedConnectionButton).not.toBeUndefined()
     expect(testSavedConnectionButton?.disabled).toBe(false)
@@ -1246,7 +1264,7 @@ describe('AiSettingsPage DOM workflows', () => {
 
     expect(testSavedConnectionButton?.disabled).toBe(true)
     expect(pageText()).toContain(
-      'Save your draft changes first. Test Saved Connection only checks the last saved provider settings.',
+      'Save your draft changes first. Test saved connection only checks the last saved provider settings.',
     )
   })
 
@@ -1273,11 +1291,11 @@ describe('AiSettingsPage DOM workflows', () => {
     expect(pageText()).toContain(
       'Save your AI settings changes before queueing manual AI work. Queued jobs use the last saved provider configuration.',
     )
-    expect(getButton('Queue Daily Brief')?.hasAttribute('disabled')).toBe(true)
-    expect(getButton('Queue Reprocess')?.hasAttribute('disabled')).toBe(true)
+    expect(getButton('Queue daily brief')?.hasAttribute('disabled')).toBe(true)
+    expect(getButton('Queue reprocess')?.hasAttribute('disabled')).toBe(true)
 
     act(() => {
-      getButton('Queue Reprocess')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      getButton('Queue reprocess')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
     expect(aiSettingsPageDomMocks.reprocessMutate).not.toHaveBeenCalled()

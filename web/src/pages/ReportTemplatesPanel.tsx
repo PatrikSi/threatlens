@@ -54,26 +54,32 @@ function TemplateEntry({ template, controller }: { template: ReportTemplate; con
         </div>
       </dl>
       <div className="mt-3 flex flex-wrap gap-1.5">
-        <button
-          type="button"
-          className="rounded bg-ink px-2.5 py-1.5 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]"
-          disabled={actionPending}
-          onClick={() => {
-            controller.setSelectedTemplateId(template.id)
-            controller.setActiveTab('reports')
-          }}
-        >
-          Use template
-        </button>
-        <button
-          type="button"
-          className="rounded border border-slate/20 px-2.5 py-1.5 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10"
-          disabled={actionPending}
-          onClick={() => { if (!actionPending) controller.cloneTemplateMutation.mutate(template.id) }}
-        >
-          {clonePending ? 'Cloning...' : 'Clone'}
-        </button>
-        {!template.builtin_key && (isOwner || controller.isAdmin) && (
+        {controller.canAuthor ? (
+          <>
+            <button
+              type="button"
+              className="rounded bg-ink px-2.5 py-1.5 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]"
+              disabled={actionPending}
+              onClick={() => {
+                controller.setSelectedTemplateId(template.id)
+                controller.setActiveTab('reports')
+              }}
+            >
+              Use template
+            </button>
+            <button
+              type="button"
+              className="rounded border border-slate/20 px-2.5 py-1.5 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10"
+              disabled={actionPending}
+              onClick={() => { if (!actionPending) controller.cloneTemplateMutation.mutate(template.id) }}
+            >
+              {clonePending ? 'Cloning...' : 'Clone'}
+            </button>
+          </>
+        ) : (
+          <span className="tl-chip tl-chip-neutral">Read-only</span>
+        )}
+        {controller.canAuthor && !template.builtin_key && (isOwner || controller.isAdmin) && (
           <button
             type="button"
             className="rounded border border-red-300 px-2.5 py-1.5 text-xs font-semibold text-red-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-800 dark:text-red-300"

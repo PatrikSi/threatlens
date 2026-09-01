@@ -5,6 +5,7 @@ import { useSearchParams } from 'react-router-dom'
 import { apiFetch } from '../api/client'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
+import { hasRequiredPermissions } from '../workspace/workspaceModel'
 import type {
   InvestigationActivityListResponse,
   InvestigationDetail,
@@ -126,11 +127,12 @@ export function useInvestigationDetail(investigationId: string) {
     refetchOnWindowFocus: true,
   })
   const detail = detailQuery.data
+  const canAuthor = hasRequiredPermissions(
+    currentUserQuery.data?.access?.permissions ?? [],
+    ['write:investigations'],
+  )
   const access = detail
-    ? resolveInvestigationAccess(
-        detail,
-        currentUserQuery.isError ? undefined : currentUserQuery.data?.role,
-      )
+    ? resolveInvestigationAccess(detail, !currentUserQuery.isError && canAuthor)
     : null
   const overviewDirty = !sameOverviewDraft(overviewDraft, overviewBaseline)
   const hasUnsavedChanges =

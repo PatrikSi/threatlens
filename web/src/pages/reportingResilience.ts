@@ -201,7 +201,7 @@ export function resolveReportCreateBlockedReason({
   previewError: unknown
   selectedSourceCount: number | undefined
 }): string | null {
-  if (!canAuthor) return 'The analyst or administrator role is required to generate reports.'
+  if (!canAuthor) return 'Report generation requires write access to reports.'
   if (!reportingEnabled) return 'AI reporting is disabled in AI settings.'
   if (!aiConfigured) return 'Configure and test the AI provider before generating reports.'
   if (validationError) return validationError

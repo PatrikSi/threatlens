@@ -6,6 +6,14 @@ const taggingPageMocks = vi.hoisted(() => ({
   queryClient: {
     invalidateQueries: vi.fn(),
   },
+  currentUser: {
+    data: {
+      access: {
+        permissions: ['write:tagging'],
+      },
+    },
+    isLoading: false,
+  },
   useUnsavedChangesWarning: vi.fn(),
 }))
 
@@ -110,17 +118,21 @@ vi.mock('../hooks/useUnsavedChangesWarning', () => ({
   useUnsavedChangesWarning: taggingPageMocks.useUnsavedChangesWarning,
 }))
 
+vi.mock('../hooks/useCurrentUser', () => ({
+  useCurrentUser: () => taggingPageMocks.currentUser,
+}))
+
 import { TaggingSettingsPage } from './TaggingSettingsPage'
 
 describe('TaggingSettingsPage rendered workflow', () => {
   it('renders labeled tagging controls and wires the discard warning', () => {
     const markup = renderToStaticMarkup(createElement(TaggingSettingsPage))
 
-    expect(markup).toContain('Custom Tagging')
-    expect(markup).toContain('Auto-Tag Defaults')
-    expect(markup).toContain('Reapply Tagging')
-    expect(markup).toContain('Custom Rules')
-    expect(markup).toContain('Rule Name')
+    expect(markup).toContain('Content tagging')
+    expect(markup).toContain('Automatic tagging')
+    expect(markup).toContain('Retag existing content')
+    expect(markup).toContain('Rules')
+    expect(markup).toContain('Rule name')
     expect(markup).toContain('Preview rule')
     expect(taggingPageMocks.useUnsavedChangesWarning).toHaveBeenCalledWith(true, 'Discard unsaved tagging changes?')
   })

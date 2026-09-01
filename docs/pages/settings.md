@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Centralized account, token, and admin operations.
+Centralized account, token, integration, and operational controls.
 
 ## Navigation Items
 
@@ -14,7 +14,8 @@ Default authenticated-user items:
 - Integrations
   - Webhooks
 
-Default administrator-role items (canonical permissions remain authoritative):
+Additional items visible by default to the administrator role (canonical
+permissions remain authoritative):
 
 - AI (`/settings/ai`) when enabled
 - Integrations
@@ -25,6 +26,11 @@ Default administrator-role items (canonical permissions remain authoritative):
 - Users
 - Operations
 - Audit Logs
+
+SMTP and Operations do not require the built-in administrator base role. A
+user with the corresponding canonical read permission can access either surface
+when workspace policy exposes it. AI and Identity remain sealed to the built-in
+administrator role in addition to their canonical permission checks.
 
 The effective workspace policy may reorder or hide modules marked optional. The
 frontend resolves server policy only against its static trusted module registry;
@@ -116,7 +122,11 @@ Legacy route behavior:
   - `GET /notifications/webhooks/{id}/deliveries`
   - `POST /notifications/webhooks/{id}/deliveries/{delivery_id}/retry`
 
-## Integrations: SMTP (Admin)
+## Integrations: SMTP
+
+Viewing SMTP integrations requires `read:integrations`; creating, changing,
+testing, deleting, or replaying them requires `write:integrations`. Neither
+permission requires the built-in administrator base role.
 
 - Multiple configurable outbound SMTP hooks with per-hook delivery statistics and history.
 - Supports enabling/disabling, host, port, security mode, credentials, sender identity, recipient emails, timeout, event types, feed scope, subject template, and HTML template.
@@ -175,9 +185,11 @@ Legacy route behavior:
 
 ## API Tokens Page
 
+- `read:tokens` opens the token inventory; without `write:tokens`, the page is
+  explicitly read-only.
+- `write:tokens` enables the create form and revoke actions.
 - Create token form: name, expiry days, scopes CSV
 - One-time display of created token secret
-- Token inventory and revoke action
 - Admin optional filter by `user_id`
 - API calls:
   - `GET /tokens`
@@ -186,16 +198,32 @@ Legacy route behavior:
 
 ## Workspace Page
 
-- Personal preferences let each user reorder optional primary and Settings
-  modules, hide optional modules, choose an available landing page, and select
-  first-use dashboard panels.
+- Personal workspace controls separate the global top navigation from the
+  contextual Settings sidebar. The top-navigation editor and preview list only
+  trusted primary modules that can appear in the application header; users can
+  reorder or hide optional entries. `Settings` remains structurally fixed;
+  `Dashboard` is fixed by default but can be made optional by organization
+  policy.
+- Optional Settings destinations remain available in a separately labeled,
+  compact Settings-navigation surface. Existing Settings preferences stay in
+  the personal draft and write payload when a user changes only the top
+  navigation, so an unrelated save does not silently discard them.
+- Personal top-navigation order applies to the desktop header. Mobile
+  top-navigation order follows the organization role policy, while the Settings
+  sidebar uses one order at both breakpoints.
+- Start-page selection is independent of top-navigation membership. A user can
+  choose any available trusted landing destination, including a Settings page,
+  or inherit the organization default.
 - Personal controls cannot expose a module hidden by role policy, unavailable to
   the account, disabled by a feature dependency, or blocked by permissions.
-- Principals with durable `write:workspace` authority can edit role policies for `admin`,
-  `analyst`, and `viewer`, including visibility, optionality, desktop order,
-  mobile priority, landing page, and dashboard defaults.
-- Role preview is an inert navigation simulation. It does not impersonate a
-  role, issue requests as another user, or turn preview entries into links.
+- Principals with durable `write:workspace` authority can edit role policies for
+  `admin`, `analyst`, and `viewer`. Top-navigation defaults and Settings-sidebar
+  defaults are presented separately; both support visibility, optionality, and
+  ordering, while mobile priority applies only to the top navigation. Role
+  policies also define the default landing page and first-use dashboard panels.
+- The role top-navigation preview is inert and contains only primary header
+  modules. It does not impersonate a role, issue requests as another user, or
+  turn preview entries into links.
 - Revision conflicts keep the current draft visible and prompt the editor to
   reload before retrying, preventing an older browser from overwriting newer
   policy.
@@ -257,6 +285,8 @@ Policy](../reference/access-governance.md).
 
 - Create user form
 - Search and edit user directory
+- Expandable account details include the stable, copyable User ID used by audit
+  records and API filters.
 - Expandable role definitions for `admin`, `analyst`, and `viewer`
 - Editable fields per user:
   - role
@@ -269,10 +299,23 @@ Policy](../reference/access-governance.md).
 
 ## Audit Logs Page (Admin)
 
-- Filter by `action`
-- Filter by `actor_user_id`
-- Paginated log table
+- Human-readable event and actor labels lead each row while the immutable raw
+  action and stable principal/resource identifiers remain available for
+  correlation.
+- Actor and user labels are event-time snapshots, so later renames or account
+  deletion do not rewrite new audit evidence. Older rows are backfilled only
+  where the historical label can be determined safely.
+- Expandable details expose request and source context, credential and
+  authorization identifiers, outcome, policy-redaction state, and retained event
+  metadata without placing UUIDs in the primary reading path.
+- Local sign-in failures with a validated request shape are recorded as
+  unauthenticated attempts against the claimed account, with stable reason codes;
+  passwords, MFA codes, cookies, and tokens are never stored in audit metadata.
+- Filter by exact `action` or stable `actor_principal_id`.
+- Paginated events are ordered newest first with a deterministic ID tie-breaker.
 - Export filtered logs to JSON (`Export JSON`)
+- Audit identity snapshots can contain account email addresses and follow the
+  configured audit-log retention period. Access requires `read:audit`.
 - API call:
   - `GET /audit-logs`
   - `GET /audit-logs/export`
@@ -290,8 +333,9 @@ Policy](../reference/access-governance.md).
   session.
 - Webhook analytics/list/history are available to authenticated users for their own webhooks.
 - Webhook create/update/test/retry/delete additionally require operator access (`admin` or `analyst`) and write notification access.
-- Restricted settings pages use `PermissionRoute` with the same canonical read
-  permission enforced by their backend APIs. Legacy role names do not override
-  effective IAM grants.
-- AI is nested at `/settings/ai`, requires `read:ai`, and remains available at
-  `/ai` through a backward-compatible redirect.
+- Restricted settings pages use the same canonical read permissions enforced by
+  their backend APIs. SMTP and Operations have no sealed base-role requirement.
+- AI is nested at `/settings/ai`, requires the built-in administrator base role
+  plus `read:ai`, and remains available at `/ai` through a backward-compatible
+  redirect. Identity likewise requires the administrator base role plus
+  `read:users`; mutations require the corresponding write permission.

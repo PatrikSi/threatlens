@@ -12,6 +12,9 @@ const notificationsPageMocks = vi.hoisted(() => ({
       id: 'admin-1',
       email: 'admin@example.com',
       role: 'admin',
+      access: {
+        permissions: ['write:notifications'],
+      },
       is_active: true,
       is_approved: true,
       approved_at: '2026-04-21T10:00:00Z',
@@ -185,9 +188,9 @@ describe('NotificationsPage rendered workflow', () => {
   it('renders labeled webhook configuration controls and wires the discard warning', () => {
     const markup = renderToStaticMarkup(createElement(NotificationsPage))
 
-    expect(markup).toContain('Webhook Notifications')
-    expect(markup).toContain('Notification Analytics')
-    expect(markup).toContain('Saved Webhooks')
+    expect(markup).toContain('My webhooks')
+    expect(markup).toContain('Delivery health')
+    expect(markup).toContain('Configured webhooks')
     expect(markup).toContain('Webhook URL')
     expect(markup).toContain('Test webhook')
     expect(notificationsPageMocks.useUnsavedChangesWarning).toHaveBeenCalledWith(false, 'Discard unsaved webhook changes?')

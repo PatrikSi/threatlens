@@ -74,22 +74,28 @@ export function useWorkspaceSettingsController() {
   const [personalReloadPending, setPersonalReloadPending] = useState(false)
   const [requestedRole, setRequestedRole] = useState<WorkspaceRole | null>(null)
 
-  const canManagePolicies = canManageWorkspacePolicies(
-    meQuery.data?.role,
-    meQuery.data?.access?.permissions,
+  const effectiveAccess = meQuery.data?.access
+  const permissions = effectiveAccess?.permissions ?? []
+  const durablePermissions = effectiveAccess?.durable_permissions ?? (
+    (effectiveAccess?.elevation_ids?.length ?? 0) === 0
+      ? effectiveAccess?.permissions
+      : []
   )
+  const canReadPolicies = hasRequiredPermissions(permissions, ['read:workspace'])
+  const canManagePolicies = canManageWorkspacePolicies(durablePermissions)
   const rolePoliciesQuery = useQuery({
     queryKey: workspaceQueryKeys.rolePolicies,
     queryFn: getWorkspaceRolePolicies,
-    enabled: canManagePolicies,
+    enabled: canReadPolicies,
     staleTime: 30_000,
   })
   const selectedPolicy = rolePoliciesQuery.data?.find((policy) => policy.role === selectedRole)
   const { draft: roleDraft, baseline: roleBaseline } = useMemo(
-    () => resolveRoleEditor(roleEdit, selectedRole, selectedPolicy),
-    [roleEdit, selectedPolicy, selectedRole],
+    () => resolveRoleEditor(canManagePolicies ? roleEdit : null, selectedRole, selectedPolicy),
+    [canManagePolicies, roleEdit, selectedPolicy, selectedRole],
   )
   const setRoleDraft = useCallback<Dispatch<SetStateAction<RolePolicyDraft | null>>>((nextValue) => {
+    if (!canManagePolicies) return
     setRoleEdit((currentEdit) => {
       const currentDraft = currentEdit?.role === selectedRole
         ? currentEdit.draft
@@ -103,7 +109,7 @@ export function useWorkspaceSettingsController() {
       if (!resolved || !baseline || !rolePolicyDraftIsDirty(baseline, resolved)) return null
       return { role: selectedRole, baseline, draft: resolved }
     })
-  }, [selectedPolicy, selectedRole])
+  }, [canManagePolicies, selectedPolicy, selectedRole])
 
   const { draft: personalDraft, baseline: personalBaseline } = useMemo(
     () => resolvePersonalEditor(personalEdit, workspace.effective, workspace.preferences),
@@ -143,6 +149,9 @@ export function useWorkspaceSettingsController() {
 
   const updateRolePolicy = useMutation({
     mutationFn: async () => {
+      if (!canManagePolicies) {
+        throw new Error('Durable workspace-management permission is required to change organization navigation defaults.')
+      }
       if (!roleBaseline || !roleDraft) {
         throw new Error('The selected role policy is not loaded.')
       }
@@ -173,6 +182,9 @@ export function useWorkspaceSettingsController() {
   })
   const resetRolePolicy = useMutation({
     mutationFn: async () => {
+      if (!canManagePolicies) {
+        throw new Error('Durable workspace-management permission is required to reset organization navigation defaults.')
+      }
       if (!roleBaseline) {
         throw new Error('The selected role policy is not loaded.')
       }
@@ -206,7 +218,11 @@ export function useWorkspaceSettingsController() {
 
   const roleDirty = Boolean(roleBaseline && roleDraft && rolePolicyDraftIsDirty(roleBaseline, roleDraft))
   const roleValidation = roleDraft
-    ? rolePolicyDraftValidation(roleDraft, roleBaseline?.landing_module_id)
+    ? rolePolicyDraftValidation(
+        roleDraft,
+        roleBaseline?.landing_module_id,
+        selectedRole,
+      )
     : ''
   const personalDirty = Boolean(
     personalBaseline &&
@@ -321,18 +337,18 @@ export function useWorkspaceSettingsController() {
     setPersonalError('')
     setRoleError('')
     const refreshes: Promise<unknown>[] = [workspace.refresh()]
-    if (canManagePolicies) refreshes.push(rolePoliciesQuery.refetch({ throwOnError: true }))
+    if (canReadPolicies) refreshes.push(rolePoliciesQuery.refetch({ throwOnError: true }))
     try {
       await Promise.all(refreshes)
     } catch (error) {
       const message = resolveApiErrorMessage(error, 'Workspace configuration could not be refreshed')
       setPersonalError(message)
-      if (canManagePolicies) setRoleError(message)
+      if (canReadPolicies) setRoleError(message)
     }
   }
 
   const discardAndReloadRole = async () => {
-    if (!canManagePolicies || roleReloadPending || updateRolePolicy.isPending || resetRolePolicy.isPending) return
+    if (!canReadPolicies || roleReloadPending || updateRolePolicy.isPending || resetRolePolicy.isPending) return
     setRoleReloadPending(true)
     setRoleFeedback('')
     setRoleError('')
@@ -376,7 +392,7 @@ export function useWorkspaceSettingsController() {
   const discardAndReload = async () => {
     await Promise.all([
       discardAndReloadPersonal(),
-      canManagePolicies ? discardAndReloadRole() : Promise.resolve(),
+      canReadPolicies ? discardAndReloadRole() : Promise.resolve(),
     ])
     setDiscardReloadRequested(false)
   }
@@ -389,6 +405,7 @@ export function useWorkspaceSettingsController() {
     roleReloadPending
 
   return {
+    canReadPolicies,
     canManagePolicies,
     meQuery,
     personalDraft,
@@ -511,7 +528,6 @@ function resolvePersonalEditor(
 }
 
 function canManageWorkspacePolicies(
-  _role: string | undefined,
   permissions: readonly string[] | undefined,
 ): boolean {
   return hasRequiredPermissions(permissions ?? [], ['write:workspace'])

@@ -25,6 +25,9 @@ const tokensPageMocks = vi.hoisted(() => ({
         ai_relevance_enabled: true,
         ai_daily_brief_enabled: true,
       },
+      access: {
+        permissions: ['read:tokens', 'write:tokens'],
+      },
     },
     isLoading: false,
     isError: false,
@@ -185,14 +188,18 @@ describe('TokensPage rendered workflow', () => {
   it('renders explicit token-creation controls and warns on legacy unscoped tokens', () => {
     const markup = renderToStaticMarkup(createElement(TokensPage))
 
-    expect(markup).toContain('Create API Token')
-    expect(markup).toContain('Current Password')
-    expect(markup).toContain('Filter by User ID')
+    expect(markup).toContain('API tokens')
+    expect(markup).toContain('Create API token')
+    expect(markup).toContain(
+      'Administrators can also inspect and revoke another user',
+    )
+    expect(markup).toContain('Current password')
+    expect(markup).toContain('Owner user ID')
     expect(markup).toContain(
       'Browser sessions must confirm the current account password',
     )
     expect(markup).toContain('Scoped API routes now reject unscoped tokens')
-    expect(markup).toContain('User ID')
+    expect(markup).toContain('Owner user ID')
     expect(markup).toContain('viewer-2')
   })
 })

@@ -8,6 +8,10 @@ import {
 import { useLocation, useNavigate } from 'react-router-dom'
 
 import { apiFetch } from '../api/client'
+import {
+  SettingsPageHeader,
+  SettingsReadOnlyNotice,
+} from '../components/SettingsPageHeader'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import {
@@ -36,6 +40,7 @@ import {
   getTokenCreateValidationIssue,
   resolveTokenCreateError,
 } from './tokenCreateModel'
+import { hasRequiredPermissions } from '../workspace/workspaceModel'
 
 const CREATE_TOKEN_MUTATION_KEY = ['tokens', 'create'] as const
 const MFA_STATUS_QUERY_KEY = ['auth', 'security', 'mfa'] as const
@@ -66,10 +71,15 @@ export function TokensPage() {
   const passwordInputRef = useRef<HTMLInputElement | null>(null)
   const codeInputRef = useRef<HTMLInputElement | null>(null)
   const isAdmin = !meQuery.isError && meQuery.data?.role === 'admin'
+  const canManageTokens =
+    !meQuery.isError &&
+    hasRequiredPermissions(meQuery.data?.access?.permissions ?? [], [
+      'write:tokens',
+    ])
   const creationAvailable =
-    !meQuery.isError && browserTokenCreationAvailable(meQuery.data)
+    canManageTokens && browserTokenCreationAvailable(meQuery.data)
   const confirmDiscardTokenDraft = useUnsavedChangesWarning(
-    tokenDraftIsDirty(tokenFormState),
+    canManageTokens && tokenDraftIsDirty(tokenFormState),
     tokenFormState.createdToken
       ? 'The one-time API token is still visible. Leave without confirming that it is stored?'
       : 'You have an unfinished API token draft. Leave without creating it?',
@@ -179,6 +189,7 @@ export function TokensPage() {
 
   const onCreateSubmit = (event: FormEvent) => {
     event.preventDefault()
+    if (!canManageTokens) return
     const mfaEnabled = mfaStatusQuery.data?.enabled === true
     const validationIssue = getTokenCreateValidationIssue(
       tokenFormState,
@@ -220,52 +231,99 @@ export function TokensPage() {
   }
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[420px_1fr]">
+    <div className="space-y-3">
       {confirmDiscardTokenDraft.discardDialog}
-      <TokenCreatePanel
-        state={tokenFormState}
-        formError={tokenFormError}
-        requestError={createTokenError}
-        mfaStatus={mfaStatusQuery.data}
-        mfaLoading={mfaStatusQuery.isLoading}
-        mfaError={mfaStatusQuery.error}
-        mfaFetching={mfaStatusQuery.isFetching}
-        creationAvailable={creationAvailable}
-        currentAuthMethod={currentAuthMethod ?? currentSession?.auth_method}
-        oidcRecentlyAuthenticated={!oidcVerificationRequired}
-        oidcReauthPending={oidcReauthentication.isPending}
-        oidcReauthError={oidcReauthentication.error}
-        createPending={createToken.isPending}
-        nameInputRef={nameInputRef}
-        expiryInputRef={expiryInputRef}
-        passwordInputRef={passwordInputRef}
-        codeInputRef={codeInputRef}
-        onSubmit={onCreateSubmit}
-        onNameChange={(value) => updateTokenForm({ type: 'setName', value })}
-        onExpiryChange={(value) =>
-          updateTokenForm({ type: 'setExpiresInDays', value })
-        }
-        onScopesChange={(value) =>
-          updateTokenForm({ type: 'setScopesText', value })
-        }
-        onPasswordChange={(value) =>
-          updateTokenForm({ type: 'setCurrentPassword', value })
-        }
-        onCodeChange={(value) => updateTokenForm({ type: 'setCode', value })}
-        onRetryMfa={() => void mfaStatusQuery.refetch()}
-        onOIDCReauthenticate={() => oidcReauthentication.mutate()}
-        onCreatedTokenStored={(method) => {
-          dispatchTokenForm({ type: 'dismissCreatedToken' })
-          setSecretNotice(
-            method === 'copied'
-              ? 'API token copied and cleared from this page.'
-              : 'API token cleared from this page after storage was acknowledged.',
-          )
-        }}
+      <SettingsPageHeader
+        scope="Personal"
+        title="API tokens"
+        description={tokenPageDescription(isAdmin, canManageTokens)}
+        actions={canManageTokens ? (
+          <a
+            href="#create-api-token"
+            className="inline-flex min-h-11 items-center justify-center rounded bg-ink px-3 py-2 text-sm font-semibold text-white sm:min-h-0 dark:bg-cyan dark:text-[#053c2e]"
+          >
+            Create token
+          </a>
+        ) : undefined}
       />
-      <TokenInventory isAdmin={isAdmin} secretNotice={secretNotice} />
+      {!canManageTokens && (
+        <SettingsReadOnlyNotice permission="permission to manage API tokens" />
+      )}
+      <div
+        className={
+          canManageTokens
+            ? 'grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1fr)_360px]'
+            : 'min-w-0'
+        }
+      >
+        <TokenInventory
+          isAdmin={isAdmin}
+          canManage={canManageTokens}
+          secretNotice={secretNotice}
+        />
+        {canManageTokens && (
+          <div id="create-api-token" className="min-w-0 scroll-mt-4">
+            <TokenCreatePanel
+              state={tokenFormState}
+              formError={tokenFormError}
+              requestError={createTokenError}
+              mfaStatus={mfaStatusQuery.data}
+              mfaLoading={mfaStatusQuery.isLoading}
+              mfaError={mfaStatusQuery.error}
+              mfaFetching={mfaStatusQuery.isFetching}
+              creationAvailable={creationAvailable}
+              currentAuthMethod={currentAuthMethod ?? currentSession?.auth_method}
+              oidcRecentlyAuthenticated={!oidcVerificationRequired}
+              oidcReauthPending={oidcReauthentication.isPending}
+              oidcReauthError={oidcReauthentication.error}
+              createPending={createToken.isPending}
+              nameInputRef={nameInputRef}
+              expiryInputRef={expiryInputRef}
+              passwordInputRef={passwordInputRef}
+              codeInputRef={codeInputRef}
+              onSubmit={onCreateSubmit}
+              onNameChange={(value) =>
+                updateTokenForm({ type: 'setName', value })
+              }
+              onExpiryChange={(value) =>
+                updateTokenForm({ type: 'setExpiresInDays', value })
+              }
+              onScopesChange={(value) =>
+                updateTokenForm({ type: 'setScopesText', value })
+              }
+              onPasswordChange={(value) =>
+                updateTokenForm({ type: 'setCurrentPassword', value })
+              }
+              onCodeChange={(value) =>
+                updateTokenForm({ type: 'setCode', value })
+              }
+              onRetryMfa={() => void mfaStatusQuery.refetch()}
+              onOIDCReauthenticate={() => oidcReauthentication.mutate()}
+              onCreatedTokenStored={(method) => {
+                dispatchTokenForm({ type: 'dismissCreatedToken' })
+                setSecretNotice(
+                  method === 'copied'
+                    ? 'API token copied and cleared from this page.'
+                    : 'API token cleared from this page after storage was acknowledged.',
+                )
+              }}
+            />
+          </div>
+        )}
+      </div>
     </div>
   )
+}
+
+function tokenPageDescription(isAdmin: boolean, canManageTokens: boolean): string {
+  if (canManageTokens) {
+    return isAdmin
+      ? "Create and revoke API credentials issued to your account. Administrators can also inspect and revoke another user's tokens by owner ID."
+      : 'Create and revoke API credentials issued to your account.'
+  }
+  return isAdmin
+    ? "Review API credentials issued to your account or inspect another user's tokens by owner ID."
+    : 'Review API credentials issued to your account.'
 }
 
 function browserTokenCreationAvailable(

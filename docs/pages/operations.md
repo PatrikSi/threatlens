@@ -259,7 +259,7 @@ Verify after creation, after transfer, and before every drill or restore:
       verify \
       --backup /srv/threatlens-backups/threatlens-postgresql-20260827T120000Z-1a2b3c4d
 
-For a release-specific gate, add --expected-app-version 1.9.0.
+For a release-specific gate, add --expected-app-version 1.10.0.
 
 Verification rejects malformed or unsupported manifests, partial directories,
 path traversal, symlinks, non-regular files, missing archives, size differences,

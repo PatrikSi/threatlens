@@ -152,7 +152,9 @@ def list_audit_logs(
     request: Request,
     action: str | None = Query(default=None, max_length=255),
     actor_user_id: uuid.UUID | None = None,
-    actor_principal_type: Literal["user", "service_account", "system"] | None = None,
+    actor_principal_type: Literal[
+        "user", "service_account", "system", "anonymous"
+    ] | None = None,
     actor_principal_id: uuid.UUID | None = None,
     credential_kind: str | None = Query(default=None, max_length=32),
     credential_id: uuid.UUID | None = None,
@@ -196,7 +198,7 @@ def list_audit_logs(
     total = db.scalar(count_stmt) or 0
 
     rows = db.scalars(
-        query.order_by(AuditLog.created_at.desc())
+        query.order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
     ).all()
@@ -224,7 +226,9 @@ def export_audit_logs(
     request: Request,
     action: str | None = Query(default=None, max_length=255),
     actor_user_id: uuid.UUID | None = None,
-    actor_principal_type: Literal["user", "service_account", "system"] | None = None,
+    actor_principal_type: Literal[
+        "user", "service_account", "system", "anonymous"
+    ] | None = None,
     actor_principal_id: uuid.UUID | None = None,
     credential_kind: str | None = Query(default=None, max_length=32),
     credential_id: uuid.UUID | None = None,
@@ -265,7 +269,9 @@ def export_audit_logs(
 
     count_stmt = select(func.count()).select_from(query.subquery())
     total = int(db.scalar(count_stmt) or 0)
-    rows = db.scalars(query.order_by(AuditLog.created_at.desc()).limit(limit)).all()
+    rows = db.scalars(
+        query.order_by(AuditLog.created_at.desc(), AuditLog.id.desc()).limit(limit)
+    ).all()
     projection = project_audit_logs(db, rows, context=data_access)
 
     response = AuditLogExportResponse(

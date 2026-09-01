@@ -30,10 +30,10 @@ export function PasswordManagementSection({
   onSubmit: (event: FormEvent) => void
 }) {
   return (
-    <section className="tl-surface rounded-xl p-4 lg:col-start-2">
-      <h2 className="font-display text-xl">Change Password</h2>
+    <section className="tl-surface rounded-xl p-3.5">
+      <h2 className="font-display text-lg">Password</h2>
       {ssoProvisioned ? (
-        <p className="mt-3 text-sm text-slate dark:text-slate-300">
+        <p className="mt-2 text-sm text-slate dark:text-slate-300">
           Password credentials are managed by{' '}
           {providerName || 'the identity provider'}.
         </p>
@@ -41,13 +41,13 @@ export function PasswordManagementSection({
         <>
           <p
             id="password-change-impact"
-            className="mt-3 rounded border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200"
+            className="mt-2.5 rounded border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200"
           >
             Changing your password revokes every browser session and API token,
             including this browser session. You will need to sign in again.
           </p>
           <form
-            className="mt-3 space-y-3"
+            className="mt-2.5 space-y-2.5"
             onSubmit={onSubmit}
             noValidate
             aria-describedby="password-change-impact"
@@ -130,7 +130,7 @@ export function PasswordManagementSection({
           </form>
         </>
       ) : (
-        <p className="mt-3 text-sm text-slate dark:text-slate-300">
+        <p className="mt-2 text-sm text-slate dark:text-slate-300">
           Local password sign-in is not configured for this account.
         </p>
       )}

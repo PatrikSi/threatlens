@@ -103,7 +103,7 @@ export function UserAuthenticationManagement({
         autoComplete="new-password"
         minLength={8}
         maxLength={256}
-        placeholder="New password (min 8 chars)"
+        placeholder="New password (at least 8 characters)"
         value={passwordDraft}
         onChange={(event) => onPasswordDraftChange(event.target.value)}
         className="w-full rounded border border-slate/30 bg-white px-2 py-1.5 text-sm sm:w-64 dark:border-cyan-900/40 dark:bg-[#072019]"

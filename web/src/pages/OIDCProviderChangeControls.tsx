@@ -17,6 +17,27 @@ import {
 } from './oidcSettingsDraft'
 import type { OIDCCallbackNotice } from './oidcCallbackMessages'
 
+const OIDC_CHANGE_LABELS: Partial<
+  Record<keyof OIDCSettingsDraft, string>
+> = {
+  name: 'Provider name',
+  enabled: 'Single sign-on status',
+  publicBaseUrl: 'Application URL',
+  roleClaim: 'Role claim name',
+  roleMappings: 'Base-role mappings',
+  defaultRole: 'Default base role',
+  jitProvisioningEnabled: 'First-sign-in provisioning',
+  autoApproveUsers: 'Automatic user approval',
+  syncRolesOnLogin: 'Base-role synchronization',
+}
+
+function oidcChangeLabel(
+  field: keyof OIDCSettingsDraft,
+  fallback: string,
+) {
+  return OIDC_CHANGE_LABELS[field] ?? fallback
+}
+
 export type OIDCProviderRevisionConflict = {
   baseline: OIDCProviderSettings
   latest: OIDCProviderSettings | null
@@ -106,7 +127,7 @@ export function OIDCProviderSecurityGate({
         className="rounded border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200"
       >
         Provider changes require a tracked browser session. Sign out and sign in
-        again before editing identity settings.
+        again before editing single sign-on settings.
       </div>
     )
   }
@@ -185,7 +206,7 @@ function LocalProviderVerification({
     <div className="rounded border border-amber-300/60 bg-amber-50 px-3 py-3 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
       <p className="font-semibold">Recent local verification required</p>
       <p className="mt-1">
-        Confirm this session before editing or saving identity-provider policy.
+        Confirm this session before editing or saving single sign-on policy.
         Recovery codes are not accepted here.
       </p>
       <div className="mt-3 grid min-w-0 gap-3 sm:grid-cols-2">
@@ -368,7 +389,9 @@ export function OIDCProviderConflictNotice({
                   key={change.field}
                   className="border-l-2 border-amber-400/60 pl-3"
                 >
-                  <dt className="font-semibold">{change.label}</dt>
+                  <dt className="font-semibold">
+                    {oidcChangeLabel(change.field, change.label)}
+                  </dt>
                   <dd className="break-words">
                     Server: {change.previous} to {change.next}
                   </dd>
@@ -399,7 +422,8 @@ export function OIDCProviderConflictNotice({
               <ul className="mt-1 list-disc space-y-1 pl-4">
                 {overlaps.map((change) => (
                   <li key={change.field}>
-                    {change.label}: server has {change.previous}; your draft has{' '}
+                    {oidcChangeLabel(change.field, change.label)}: server has{' '}
+                    {change.previous}; your draft has{' '}
                     {change.next}
                   </li>
                 ))}
@@ -474,7 +498,7 @@ export function OIDCProviderActions({
   onTest: () => void
 }) {
   return (
-    <section className="tl-surface rounded-xl p-4">
+    <section className="tl-surface rounded-xl p-3.5">
       <OIDCProviderConflictNotice
         conflict={conflict}
         saveError={conflictSaveError}
@@ -498,7 +522,7 @@ export function OIDCProviderActions({
           role="status"
           className="mb-3 text-sm text-green-700 dark:text-green-400"
         >
-          Identity provider settings saved.
+          Single sign-on settings saved.
         </p>
       )}
       {testKeyCount !== null && (
@@ -535,7 +559,7 @@ export function OIDCProviderActions({
           disabled={!providerConfigured || hasUnsavedChanges || testPending}
           onClick={onTest}
         >
-          {testPending ? 'Testing saved discovery...' : 'Test saved discovery'}
+          {testPending ? 'Testing connection...' : 'Test connection'}
         </button>
       </div>
       {hasUnsavedChanges && (
@@ -574,9 +598,9 @@ export function OIDCProviderSaveDialog({
   return (
     <ConfirmDialog
       open={open}
-      title="Apply identity-provider policy changes?"
-      description="Review authentication, provisioning, and access consequences before saving."
-      confirmLabel="Apply identity changes"
+      title="Save single sign-on changes?"
+      description="Review the sign-in, provisioning, and access consequences before saving."
+      confirmLabel="Save single sign-on changes"
       confirmTone={review.requiresAcknowledgement ? 'danger' : 'primary'}
       confirmDisabled={
         !review.changes.length ||
@@ -593,13 +617,15 @@ export function OIDCProviderSaveDialog({
       }}
     >
       <div className="space-y-3 text-sm">
-        <dl className="space-y-2" aria-label="Identity-provider changes">
+        <dl className="space-y-2" aria-label="Single sign-on changes">
           {review.changes.map((change) => (
             <div
               key={change.field}
               className="border-l-2 border-slate/20 pl-3 dark:border-white/20"
             >
-              <dt className="font-semibold">{change.label}</dt>
+              <dt className="font-semibold">
+                {oidcChangeLabel(change.field, change.label)}
+              </dt>
               <dd className="break-words text-slate dark:text-white/75">
                 {change.previous} to {change.next}
               </dd>

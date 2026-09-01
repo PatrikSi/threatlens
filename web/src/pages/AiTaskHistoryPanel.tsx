@@ -37,10 +37,10 @@ export function TaskHistoryPanel(props: TaskHistoryPanelProps) {
 
   return (
     <OverviewSection
-      title="Run History"
+      title="Run history"
       description="Review every AI task across enrichment, daily briefs, connection tests, and reprocess jobs."
     >
-      <Panel title="Task History" subtitle="Filter by type, status, trigger source, and model to find the runs you need.">
+      <Panel title="Task history" subtitle="Filter by type, status, trigger source, and model to find the runs you need.">
         <RunHistoryFilters {...props} />
         <div
           className="mt-3 flex min-h-5 items-center text-xs font-semibold uppercase text-slate dark:text-white/55"
@@ -171,7 +171,7 @@ type TaskHistoryTableProps = {
 
 function TaskHistoryTable(props: TaskHistoryTableProps) {
   return (
-    <div className="mt-4 hidden overflow-x-auto sm:block">
+    <div className="mt-3 hidden overflow-x-auto sm:block">
       <table
         className={`min-w-full text-sm transition-opacity ${props.isPageLoading ? 'opacity-70' : ''}`}
         aria-busy={props.isBusy}
@@ -278,7 +278,7 @@ function RunHistoryPagination({
   history,
 }: Pick<TaskHistoryPanelProps, 'runPage' | 'setRunPage' | 'history'>) {
   return (
-    <div className="mt-4 flex items-center justify-between gap-3 text-sm">
+    <div className="mt-3 flex items-center justify-between gap-3 text-sm">
       <span className="text-slate dark:text-white/60">
         {history.runCount > 0
           ? `Showing ${history.visibleRunOffset + 1}-${history.visibleRunOffset + history.runCount} of ${history.runTotal}`
@@ -293,7 +293,7 @@ function RunHistoryPagination({
         >
           Previous
         </button>
-        <span>Page {runPage + 1} / {history.totalPages}</span>
+        <span>Page {runPage + 1} of {history.totalPages}</span>
         <button
           type="button"
           className="rounded border border-slate/30 px-3 py-2 disabled:opacity-50 dark:border-cyan-900/40"

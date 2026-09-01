@@ -11,6 +11,7 @@ class AuditLogResponse(BaseModel):
     actor_user_id: uuid.UUID | None
     actor_principal_type: str | None
     actor_principal_id: uuid.UUID | None
+    actor_label_snapshot: str | None
     credential_kind: str | None
     credential_id: uuid.UUID | None
     request_id: str | None
@@ -21,6 +22,7 @@ class AuditLogResponse(BaseModel):
     action: str
     resource_type: str
     resource_id: str | None
+    resource_label_snapshot: str | None
     success: bool
     metadata_json: dict
     data_access_redacted: bool = False

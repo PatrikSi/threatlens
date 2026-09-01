@@ -25,6 +25,9 @@ const tokensPageDomMocks = vi.hoisted(() => ({
         ai_relevance_enabled: true,
         ai_daily_brief_enabled: true,
       },
+      access: {
+        permissions: ['read:tokens', 'write:tokens'],
+      },
     },
     isLoading: false,
     isError: false,
@@ -64,6 +67,7 @@ const tokensPageDomMocks = vi.hoisted(() => ({
   tokensError: null as unknown,
   tokensFetching: false,
   tokensPlaceholder: false,
+  inventoryTotal: 2,
   tokensRefetch: vi.fn(),
   tokenQueryKeys: [] as unknown[][],
   revokedDescendantCount: 0,
@@ -167,7 +171,7 @@ vi.mock('@tanstack/react-query', () => ({
         ? undefined
         : {
             tokens: tokenInventory,
-            total: tokenInventory.length,
+            total: tokensPageDomMocks.inventoryTotal,
             page: 1,
             page_size: 25,
           },
@@ -297,14 +301,19 @@ afterEach(() => {
   tokensPageDomMocks.tokensError = null
   tokensPageDomMocks.tokensFetching = false
   tokensPageDomMocks.tokensPlaceholder = false
+  tokensPageDomMocks.inventoryTotal = 2
   tokensPageDomMocks.tokensRefetch.mockReset()
   tokensPageDomMocks.tokenQueryKeys.splice(0)
   tokensPageDomMocks.revokedDescendantCount = 0
   tokensPageDomMocks.nextCreateError = null
   tokensPageDomMocks.currentUser.isError = false
   Object.assign(tokensPageDomMocks.currentUser.data, {
+    role: 'admin',
     password_login_enabled: true,
     provisioning_source: 'local',
+    access: {
+      permissions: ['read:tokens', 'write:tokens'],
+    },
   })
   Reflect.deleteProperty(tokensPageDomMocks.currentUser.data, 'authentication')
   tokensPageDomMocks.mutationRecords.splice(0)
@@ -322,29 +331,101 @@ describe('TokensPage DOM workflows', () => {
     tokensPageDomMocks.currentUser.isError = true
     const view = renderPage()
 
-    expect(pageText()).toContain('Browser token creation is unavailable for this account')
+    expect(pageText()).toContain('Read-only access')
+    expect(pageText()).toContain('permission to manage API tokens')
     expect(view.querySelector('#token-name')).toBeNull()
     expect(view.querySelector('#token-admin-user-filter')).toBeNull()
-    expect(pageText()).not.toContain('User ID:')
+    expect(pageText()).not.toContain('Owner user ID:')
+  })
+
+  it('keeps a Viewer with custom read access on a useful read-only inventory', () => {
+    Object.assign(tokensPageDomMocks.currentUser.data, {
+      role: 'viewer',
+      access: { permissions: ['read:tokens'] },
+    })
+    const view = renderPage()
+
+    expect(pageText()).toContain('Read-only access')
+    expect(pageText()).toContain('permission to manage API tokens')
+    expect(pageText()).toContain('Issued tokens')
+    expect(pageText()).toContain('Legacy automation')
+    expect(pageText()).toContain('Active')
+    expect(view.querySelector('#create-api-token')).toBeNull()
+    expect(view.querySelector('a[href="#create-api-token"]')).toBeNull()
+    expect(
+      Array.from(view.querySelectorAll('button')).some(
+        (button) => button.textContent?.trim() === 'Revoke',
+      ),
+    ).toBe(false)
+    expect(tokensPageDomMocks.createMutate).not.toHaveBeenCalled()
+    expect(tokensPageDomMocks.revokeMutate).not.toHaveBeenCalled()
+  })
+
+  it('enables token creation and revocation for a Viewer with custom write access', () => {
+    Object.assign(tokensPageDomMocks.currentUser.data, {
+      role: 'viewer',
+      access: { permissions: ['write:tokens'] },
+    })
+    const view = renderPage()
+
+    expect(pageText()).not.toContain('Read-only access')
+    expect(view.querySelector('#create-api-token')).not.toBeNull()
+    expect(view.querySelector('a[href="#create-api-token"]')).not.toBeNull()
+    expect(
+      Array.from(view.querySelectorAll('button')).some(
+        (button) => button.textContent?.trim() === 'Revoke',
+      ),
+    ).toBe(true)
+    expect(view.querySelector('#token-admin-user-filter')).toBeNull()
+    expect(pageText()).not.toContain('Owner user ID:')
   })
 
   it('shows token ownership for admins and confirms revocation through the dialog', () => {
     const view = renderPage()
 
+    expect(pageText()).toContain(
+      "Administrators can also inspect and revoke another user's tokens by owner ID.",
+    )
+    expect(pageText()).not.toContain('Organization administration')
     expect(
       view.querySelector('label[for="token-name"]')?.textContent,
-    ).toContain('Name')
+    ).toContain('Token name')
     expect(
       view.querySelector('label[for="token-current-password"]')?.textContent,
-    ).toContain('Current Password')
+    ).toContain('Current password')
     expect(pageText()).toContain('Scoped API routes now reject unscoped tokens')
-    expect(pageText()).toContain('User ID: viewer-2')
+    expect(pageText()).toContain('Owner user ID: viewer-2')
+    const inventoryList = view.querySelector('ul[aria-label="API tokens"]')
+    const inventoryRows = view.querySelectorAll(
+      'ul[aria-label="API tokens"] > li',
+    )
+    expect(inventoryRows).toHaveLength(2)
+    expect(inventoryList?.className).toContain('divide-y')
+    expect(inventoryRows[0]?.className).toContain('py-2.5')
+    expect(inventoryRows[0]?.querySelector('dl')).not.toBeNull()
+    const ownerValue = inventoryRows[0]?.querySelector('dd.font-mono')
+    expect(ownerValue?.previousElementSibling?.className).toContain('block')
+    expect(ownerValue?.className).toContain('block')
+    expect(ownerValue?.className).toContain('sm:inline')
+    expect(pageText()).toContain('2 total')
     expect(
-      view.querySelectorAll('ul[aria-label="API tokens"] > li'),
-    ).toHaveLength(2)
+      view.querySelector('nav[aria-label="Token inventory pages"]'),
+    ).toBeNull()
     expect(
       view.querySelector('ul[aria-label="API tokens"] > li p')?.className,
     ).toContain('[overflow-wrap:anywhere]')
+    const nameInput = view.querySelector<HTMLInputElement>('#token-name')
+    const expiryInput = view.querySelector<HTMLInputElement>(
+      '#token-expiry-days',
+    )
+    expect(
+      view.querySelector('section[aria-labelledby="create-api-token-heading"]'),
+    ).not.toBeNull()
+    expect(nameInput?.className).toContain('min-h-11')
+    expect(nameInput?.className).toContain('sm:min-h-0')
+    expect(expiryInput?.parentElement?.parentElement?.className).toContain(
+      'sm:grid-cols-[minmax(0,1fr)_8rem]',
+    )
 
     const revokeButton = Array.from(view.querySelectorAll('button')).find(
       (button) =>
@@ -359,7 +440,7 @@ describe('TokensPage DOM workflows', () => {
 
     expect(pageText()).toContain('Revoke API token?')
     expect(pageText()).toContain('Partner sync')
-    expect(pageText()).toContain('User ID: viewer-2')
+    expect(pageText()).toContain('Owner user ID: viewer-2')
     expect(pageText()).toContain(
       'recursively revokes every delegated child token',
     )
@@ -385,6 +466,72 @@ describe('TokensPage DOM workflows', () => {
       page_size: 25,
     })
     expect(updated.tokens[1].revoked_at).not.toBeNull()
+  })
+
+  it('shows pagination when the token inventory spans multiple pages', () => {
+    tokensPageDomMocks.inventoryTotal = 26
+    const view = renderPage()
+    const pagination = view.querySelector(
+      'nav[aria-label="Token inventory pages"]',
+    )
+
+    expect(pagination).not.toBeNull()
+    expect(pagination?.textContent).toContain('1-2 of 26 · Page 1 of 2')
+    expect(
+      Array.from(pagination?.querySelectorAll('button') ?? []).map(
+        (button) => button.textContent,
+      ),
+    ).toEqual(['Previous', 'Next'])
+  })
+
+  it('marks an applied owner filter as organization administration scope', () => {
+    const view = renderPage()
+    const ownerId = '00000000-0000-4000-8000-000000000222'
+    const ownerFilter = view.querySelector<HTMLInputElement>(
+      '#token-admin-user-filter',
+    )
+
+    expect(ownerFilter).not.toBeNull()
+    expect(ownerFilter?.closest('form')?.getAttribute('aria-label')).toBe(
+      'Filter token inventory by owner',
+    )
+    expect(ownerFilter?.className).toContain('min-h-11')
+    expect(ownerFilter?.className).toContain('sm:min-h-0')
+    act(() => {
+      setInputValue(ownerFilter!, ownerId)
+      ownerFilter
+        ?.closest('form')
+        ?.dispatchEvent(
+          new Event('submit', { bubbles: true, cancelable: true }),
+        )
+    })
+
+    const scopeNotice = view.querySelector(
+      '[aria-label="Organization token administration scope"]',
+    )
+    expect(view.querySelector('h1')?.closest('header')?.textContent).toContain(
+      'Personal',
+    )
+    expect(scopeNotice?.textContent).toContain('Organization administration')
+    expect(scopeNotice?.textContent).toContain('Owner-scoped token inventory')
+    expect(scopeNotice?.textContent).toContain(ownerId)
+    expect(scopeNotice?.textContent).toContain(
+      "You can inspect and revoke this user's tokens",
+    )
+    expect(tokensPageDomMocks.tokenQueryKeys).toContainEqual([
+      'tokens',
+      'inventory',
+      ownerId,
+      1,
+    ])
+
+    const clear = Array.from(view.querySelectorAll<HTMLButtonElement>('button'))
+      .find((button) => button.textContent === 'Clear')
+    act(() => clear?.click())
+
+    expect(
+      view.querySelector('[aria-label="Organization token administration scope"]'),
+    ).toBeNull()
   })
 
   it('fails closed when recursive revocation cannot refresh descendant state', async () => {
@@ -428,7 +575,7 @@ describe('TokensPage DOM workflows', () => {
     const passwordInput = view.querySelector<HTMLInputElement>(
       '#token-current-password',
     )
-    const form = view.querySelector('form')
+    const form = tokenCreationForm(view)
 
     expect(nameInput).not.toBeNull()
     expect(expiryInput).not.toBeNull()
@@ -482,11 +629,9 @@ describe('TokensPage DOM workflows', () => {
       setInputValue(code, ' recovery-code ')
     })
     await act(async () => {
-      view
-        .querySelector('form')
-        ?.dispatchEvent(
-          new Event('submit', { bubbles: true, cancelable: true }),
-        )
+      tokenCreationForm(view)?.dispatchEvent(
+        new Event('submit', { bubbles: true, cancelable: true }),
+      )
       await flushPromises()
     })
 
@@ -521,8 +666,9 @@ describe('TokensPage DOM workflows', () => {
     )
     expect(pageText()).toContain('mfa-status-123')
     expect(
-      view.querySelector<HTMLButtonElement>('button:not([type="button"])')
-        ?.disabled,
+      tokenCreationForm(view)?.querySelector<HTMLButtonElement>(
+        'button[type="submit"]',
+      )?.disabled,
     ).toBe(true)
     const retry = [...view.querySelectorAll<HTMLButtonElement>('button')].find(
       (button) => button.textContent === 'Retry security check',
@@ -553,11 +699,9 @@ describe('TokensPage DOM workflows', () => {
       )
     })
     act(() =>
-      view
-        .querySelector('form')
-        ?.dispatchEvent(
-          new Event('submit', { bubbles: true, cancelable: true }),
-        ),
+      tokenCreationForm(view)?.dispatchEvent(
+        new Event('submit', { bubbles: true, cancelable: true }),
+      ),
     )
     expect(pageText()).toContain('tl_secret-created')
     expect(tokensPageDomMocks.useBlocker).toHaveBeenLastCalledWith(true)
@@ -644,7 +788,7 @@ describe('TokensPage DOM workflows', () => {
     )
     expect(
       Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find(
-        (button) => button.textContent === 'Generate Token',
+        (button) => button.textContent === 'Create token',
       )?.disabled,
     ).toBe(true)
     act(() => {
@@ -674,7 +818,7 @@ describe('TokensPage DOM workflows', () => {
     const view = renderPage()
     const generate = Array.from(
       view.querySelectorAll<HTMLButtonElement>('button'),
-    ).find((button) => button.textContent === 'Generate Token')
+    ).find((button) => button.textContent === 'Create token')
 
     expect(view.textContent).toContain(
       'confirmed a recent sign-in but did not provide MFA assurance',
@@ -688,11 +832,9 @@ describe('TokensPage DOM workflows', () => {
     expect(generate?.disabled).toBe(true)
 
     act(() => {
-      view
-        .querySelector('form')
-        ?.dispatchEvent(
-          new Event('submit', { bubbles: true, cancelable: true }),
-        )
+      tokenCreationForm(view)?.dispatchEvent(
+        new Event('submit', { bubbles: true, cancelable: true }),
+      )
     })
     expect(tokensPageDomMocks.createMutate).not.toHaveBeenCalled()
   })
@@ -763,7 +905,7 @@ describe('TokensPage DOM workflows', () => {
       if (input) setInputValue(input, 'different draft')
     })
     expect(view.textContent).toContain(
-      'Draft not applied. Results still use user f65e5641-2fb1-4e1f-bbba-a70aef700c73.',
+      'Draft not applied. Results still use owner f65e5641-2fb1-4e1f-bbba-a70aef700c73.',
     )
     expect(tokensPageDomMocks.tokenQueryKeys.at(-1)).toEqual([
       'tokens',
@@ -809,4 +951,10 @@ function setInputValue(input: HTMLInputElement, value: string) {
   )
   descriptor?.set?.call(input, value)
   input.dispatchEvent(new Event('input', { bubbles: true }))
+}
+
+function tokenCreationForm(view: HTMLDivElement) {
+  return (
+    view.querySelector<HTMLInputElement>('#token-name')?.closest('form') ?? null
+  )
 }

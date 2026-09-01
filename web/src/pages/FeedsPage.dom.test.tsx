@@ -18,7 +18,9 @@ const feedsPageDomMocks = vi.hoisted(() => ({
   currentUser: {
     id: 'admin-user',
     role: 'admin',
-  } as { id: string; role: string } | null,
+    access: { permissions: ['*:*'] },
+  } as { id: string; role: string; access: { permissions: string[] } } | null,
+  encryptedDataHealthEnabled: null as boolean | null,
   bulkRefreshResult: null as
     | { attempted: number; succeeded: number; failed: number; failedFeedNames: string[] }
     | null,
@@ -123,7 +125,7 @@ function feedMutationResult(mutate: ReturnType<typeof vi.fn>) {
 
 vi.mock('@tanstack/react-query', () => ({
   useQueryClient: () => feedsPageDomMocks.queryClient,
-  useQuery: ({ queryKey }: { queryKey: unknown[] }) => {
+  useQuery: ({ queryKey, enabled }: { queryKey: unknown[]; enabled?: boolean }) => {
     const [scope, key] = queryKey
     const baseResult = {
       isLoading: false,
@@ -140,6 +142,7 @@ vi.mock('@tanstack/react-query', () => ({
     }
 
     if (scope === 'health' && key === 'encrypted-data') {
+      feedsPageDomMocks.encryptedDataHealthEnabled = enabled ?? true
       return {
         ...baseResult,
         data: {
@@ -373,13 +376,30 @@ afterEach(() => {
   feedsPageDomMocks.currentUser = {
     id: 'admin-user',
     role: 'admin',
+    access: { permissions: ['*:*'] },
   }
+  feedsPageDomMocks.encryptedDataHealthEnabled = null
   routerMocks.blocker.state = 'unblocked'
   routerMocks.blocker.proceed.mockReset()
   routerMocks.blocker.reset.mockReset()
 })
 
 describe('FeedsPage DOM workflows', () => {
+  it('uses additive feed permissions instead of the base role name for controls', () => {
+    feedsPageDomMocks.currentUser = {
+      id: 'delegated-feed-operator',
+      role: 'viewer',
+      access: { permissions: ['write:feeds', 'admin:feeds', 'read:health'] },
+    }
+
+    const view = renderPage()
+
+    expect(view.querySelector<HTMLInputElement>('#feed-rss-url')?.disabled).toBe(false)
+    expect(pageText()).not.toContain('read-only for feeds')
+    expect(pageText()).toContain('Export JSON')
+    expect(feedsPageDomMocks.encryptedDataHealthEnabled).toBe(false)
+  })
+
   it('progressively discloses mobile create and schedule controls', () => {
     const view = renderPage()
     const addForm = view.querySelector<HTMLElement>('#add-feed-form')
@@ -428,6 +448,7 @@ describe('FeedsPage DOM workflows', () => {
     feedsPageDomMocks.currentUser = {
       id: 'admin-user',
       role: 'admin',
+      access: { permissions: ['*:*'] },
     }
     rerenderPage()
 

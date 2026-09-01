@@ -31,12 +31,12 @@ export const SMTP_EVENT_OPTIONS: Array<{
   label: string
   description: string
 }> = [
-  { value: 'rss_item_new', label: 'New RSS Item', description: 'Email each new item received from the selected feeds.' },
-  { value: 'alert_match', label: 'Alert Match', description: 'Email when an item matches one or more alert interests.' },
-  { value: 'feed_failing', label: 'Feed Failing', description: 'Email when a feed reaches the repeated-failure threshold.' },
-  { value: 'webhook_failed', label: 'Webhook Failed', description: 'Email when a webhook delivery reaches a terminal failure.' },
-  { value: 'daily_digest', label: 'AI Daily Brief', description: 'Email the generated AI Daily Brief as soon as it is ready.' },
-  { value: 'report_ready', label: 'Intelligence Report', description: 'Email a scheduled or manually delivered report when generation completes.' },
+  { value: 'rss_item_new', label: 'New RSS item', description: 'Email each new item received from the selected feeds.' },
+  { value: 'alert_match', label: 'Alert match', description: 'Email when an item matches one or more alert interests.' },
+  { value: 'feed_failing', label: 'Feed failing', description: 'Email when a feed reaches the repeated-failure threshold.' },
+  { value: 'webhook_failed', label: 'Webhook failed', description: 'Email when a webhook delivery reaches a terminal failure.' },
+  { value: 'daily_digest', label: 'AI daily brief', description: 'Email the generated AI daily brief as soon as it is ready.' },
+  { value: 'report_ready', label: 'Intelligence report', description: 'Email a scheduled or manually delivered report when generation completes.' },
 ]
 
 export function createNewHookDraft(defaults: SMTPTemplateDefault[]): SMTPHookDraft {
@@ -137,7 +137,7 @@ export function describeEventType(eventType: NotificationEventType) {
 
 export function describeEventDescription(value: SendForValue) {
   if (value === 'all') return 'Send this email template for every currently available notification event.'
-  if (value === 'custom') return 'This upgraded hook retains its existing multi-event selection until you choose a new option.'
+  if (value === 'custom') return 'This upgraded destination retains its existing multi-event selection until you choose a new option.'
   return SMTP_EVENT_OPTIONS.find((option) => option.value === value)?.description
     ?? 'Configure the event that sends this email.'
 }
