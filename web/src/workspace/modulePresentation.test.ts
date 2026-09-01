@@ -57,7 +57,7 @@ describe('settings module presentation', () => {
     ).toEqual({ groupId: 'organization', label: 'Future controls' })
   })
 
-  it('maps modules to the same visible hierarchy used by navigation editors', () => {
+  it('maps modules to the destination groups used by start-page and Settings controls', () => {
     expect(WORKSPACE_NAVIGATION_GROUPS.map((group) => group.label)).toEqual([
       'Main navigation',
       'Personal settings',

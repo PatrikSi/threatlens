@@ -10,6 +10,7 @@ import {
   TRUSTED_WORKSPACE_MODULE_BY_ID,
   TRUSTED_WORKSPACE_MODULES,
   isTrustedDashboardPanelId,
+  isTopNavigationModule,
   isTrustedWorkspaceModuleId,
   type TrustedWorkspaceModule,
   type TrustedWorkspaceModuleId,
@@ -270,7 +271,7 @@ export function personalNavigationPreview(
   }
 
   return TRUSTED_WORKSPACE_MODULES
-    .filter((module) => visibleIds.has(module.id))
+    .filter((module) => visibleIds.has(module.id) && isTopNavigationModule(module))
     .sort((left, right) =>
       workspaceNavigationGroupOrder(left) - workspaceNavigationGroupOrder(right) ||
       (orderById.get(left.id) ?? left.defaultOrder) -

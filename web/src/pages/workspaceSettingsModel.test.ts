@@ -8,6 +8,7 @@ import type {
 import { TRUSTED_WORKSPACE_MODULES } from '../workspace/moduleRegistry'
 import { resolveWorkspaceModel } from '../workspace/workspaceModel'
 import {
+  buildPersonalPreferencePayload,
   buildRolePolicyPayload,
   createPersonalWorkspaceDraft,
   createRolePolicyDraft,
@@ -19,6 +20,7 @@ import {
   reorderRolePolicyModule,
   rolePolicyPreview,
   rolePolicyDraftValidation,
+  updatePersonalModule,
   updateRolePolicyModule,
 } from './workspaceSettingsModel'
 
@@ -125,6 +127,28 @@ describe('workspace settings model', () => {
     expect(rolePolicyDraftValidation(unchanged)).toBe('')
   })
 
+  it('preserves Settings sidebar defaults when a top-navigation role default changes', () => {
+    const policy = rolePolicy()
+    const originalSettingsModules = policy.modules.filter((module) =>
+      module.module_id.startsWith('settings.'),
+    )
+    const draft = updateRolePolicyModule(
+      createRolePolicyDraft(policy),
+      'primary.feeds',
+      { visible: false, order: 5 },
+    )
+
+    const payload = buildRolePolicyPayload(policy, draft)
+
+    expect(payload.modules.find((module) => module.module_id === 'primary.feeds')).toMatchObject({
+      visible: false,
+      order: 5,
+    })
+    expect(
+      payload.modules.filter((module) => module.module_id.startsWith('settings.')),
+    ).toEqual(originalSettingsModules)
+  })
+
   it('preserves an unchanged future landing ID but never offers a local-only control as policy data', () => {
     const futureLanding = createRolePolicyDraft(rolePolicy())
     futureLanding.landingModuleId = 'future.timeline'
@@ -190,6 +214,41 @@ describe('workspace settings model', () => {
     expect(draft.dashboardPanelIds).toEqual(['rss'])
   })
 
+  it('preserves Settings sidebar preferences when a personal top-navigation item changes', () => {
+    const effective = effectiveWorkspace()
+    const originalPreferences: WorkspaceUserPreferenceResponse = {
+      ...preferences(),
+      modules: [
+        { module_id: 'primary.feeds', visible: true, order: 30 },
+        { module_id: 'settings.tokens', visible: false, order: 91 },
+        { module_id: 'settings.integrations.webhooks', visible: true, order: 92 },
+      ],
+    }
+    const draft = updatePersonalModule(
+      createPersonalWorkspaceDraft(effective, originalPreferences),
+      'primary.feeds',
+      { visible: false, order: 5 },
+    )
+
+    const payload = buildPersonalPreferencePayload(originalPreferences, draft)
+
+    expect(payload.modules).toContainEqual({
+      module_id: 'primary.feeds',
+      visible: false,
+      order: 5,
+    })
+    expect(payload.modules).toContainEqual({
+      module_id: 'settings.tokens',
+      visible: false,
+      order: 91,
+    })
+    expect(payload.modules).toContainEqual({
+      module_id: 'settings.integrations.webhooks',
+      visible: true,
+      order: 92,
+    })
+  })
+
   it('offers settings children whose trusted local containers are not server-managed', () => {
     const effective = effectiveWorkspace()
     const draft = createPersonalWorkspaceDraft(effective, {
@@ -208,7 +267,7 @@ describe('workspace settings model', () => {
     ).toBe(true)
   })
 
-  it('previews every visible personal destination and identifies fixed structure', () => {
+  it('previews only top-navigation destinations and identifies fixed structure', () => {
     const effective = effectiveWorkspace()
     const draft = createPersonalWorkspaceDraft(effective, preferences())
     const model = resolveWorkspaceModel(effective, undefined, {
@@ -227,18 +286,18 @@ describe('workspace settings model', () => {
     const preview = personalNavigationPreview(model.modules, draft)
     const fixedIds = preview.filter((item) => item.fixed).map((item) => item.module.id)
 
-    expect(fixedIds).toEqual(expect.arrayContaining([
+    expect(fixedIds).toEqual(['primary.dashboard', 'primary.settings'])
+    expect(preview.map((item) => item.module.id)).toEqual([
       'primary.dashboard',
+      'primary.alerts',
+      'primary.investigations',
+      'primary.feeds',
+      'primary.stats',
+      'primary.export',
+      'primary.reporting',
       'primary.settings',
-      'settings.account',
-      'settings.workspace',
-      'settings.integrations',
-    ]))
-    expect(preview.findIndex((item) => item.module.id === 'settings.users')).toBeLessThan(
-      preview.findIndex((item) => item.module.id === 'settings.ai'),
-    )
-    expect(preview.findIndex((item) => item.module.id === 'settings.integrations.webhooks'))
-      .toBeLessThan(preview.findIndex((item) => item.module.id === 'settings.operations'))
+    ])
+    expect(preview.every((item) => item.module.section === 'primary')).toBe(true)
   })
 
   it('rejects a role policy with no first-use dashboard panels', () => {

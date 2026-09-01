@@ -56,7 +56,7 @@ describe('WorkspaceSettingsPage', () => {
     expect(document.body.textContent).toContain('Personal and organization')
     expect(document.body.textContent).toContain('Navigation')
     expect(document.body.textContent).toContain(
-      'Choose the navigation items, start page, and initial dashboard panels',
+      'Configure the top navigation, Settings sidebar, start page, and initial dashboard panels',
     )
 
     clickButton('Discard and reload')
@@ -107,7 +107,9 @@ describe('WorkspaceSettingsPage', () => {
     act(() => findTab('Role defaults').click())
     expect(findTabPanel('role-defaults-navigation-panel').hidden).toBe(false)
     expect(document.body.textContent).toContain('Role panel')
-    expect(document.body.textContent).toContain('Review the organization navigation defaults')
+    expect(document.body.textContent).toContain(
+      'Review organization top-navigation and Settings-sidebar defaults',
+    )
   })
 
   it('shows one admin editor at a time with an arrow-key accessible tab pattern', () => {
@@ -129,7 +131,7 @@ describe('WorkspaceSettingsPage', () => {
     expect(roleDefaultsTab.tabIndex).toBe(-1)
     expect(personalPanel.hidden).toBe(false)
     expect(roleDefaultsPanel.hidden).toBe(true)
-    expect(document.body.textContent).toContain('Customize your own navigation')
+    expect(document.body.textContent).toContain('Customize your top navigation, Settings sidebar')
 
     act(() => {
       personalTab.focus()
@@ -141,7 +143,9 @@ describe('WorkspaceSettingsPage', () => {
     expect(roleDefaultsTab).toBe(document.activeElement)
     expect(personalPanel.hidden).toBe(true)
     expect(roleDefaultsPanel.hidden).toBe(false)
-    expect(document.body.textContent).toContain('Set organization navigation defaults')
+    expect(document.body.textContent).toContain(
+      'Set organization top-navigation and Settings-sidebar defaults',
+    )
 
     act(() => {
       roleDefaultsTab.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }))

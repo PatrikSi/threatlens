@@ -12,6 +12,7 @@ import type {
 import {
   TRUSTED_DASHBOARD_PANELS,
   TRUSTED_WORKSPACE_MODULES,
+  isTopNavigationModule,
   type TrustedWorkspaceModuleId,
 } from './moduleRegistry'
 import {
@@ -58,6 +59,32 @@ describe('workspace model', () => {
         expect(moduleIndexes.get(module.parentId)!).toBeLessThan(moduleIndexes.get(module.id)!)
       }
     }
+  })
+
+  it('defines the policy-managed top navbar independently from Settings descendants', () => {
+    expect(
+      TRUSTED_WORKSPACE_MODULES
+        .filter((module) => isTopNavigationModule(module) && module.policyManaged)
+        .map((module) => module.id),
+    ).toEqual([
+      'primary.dashboard',
+      'primary.alerts',
+      'primary.investigations',
+      'primary.feeds',
+      'primary.stats',
+      'primary.export',
+      'primary.reporting',
+    ])
+    expect(
+      TRUSTED_WORKSPACE_MODULES
+        .filter((module) => isTopNavigationModule(module) && !module.policyManaged)
+        .map((module) => module.id),
+    ).toEqual(['primary.settings'])
+    expect(
+      TRUSTED_WORKSPACE_MODULES
+        .filter((module) => module.section === 'settings')
+        .every((module) => !isTopNavigationModule(module)),
+    ).toBe(true)
   })
 
   it('removes local-control containers from editable effective preferences while retaining future entries', () => {

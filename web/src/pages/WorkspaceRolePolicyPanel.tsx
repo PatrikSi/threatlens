@@ -4,6 +4,7 @@ import { useRef, useState } from 'react'
 import {
   TRUSTED_DASHBOARD_PANELS,
   TRUSTED_WORKSPACE_MODULE_BY_ID,
+  isTopNavigationModule,
   type TrustedWorkspaceModule,
   type TrustedWorkspaceModuleId,
 } from '../workspace/moduleRegistry'
@@ -36,9 +37,9 @@ export function WorkspaceRolePolicyPanel({ controller }: { controller: Workspace
   return (
     <section className="tl-surface overflow-hidden rounded-xl" aria-labelledby="role-workspace-heading">
       <header className="border-b border-slate/20 px-4 py-3.5 dark:border-white/10">
-        <h2 id="role-workspace-heading" className="font-display text-lg">Navigation defaults by role</h2>
+        <h2 id="role-workspace-heading" className="font-display text-lg">Workspace navigation by role</h2>
         <p className="mt-1 text-sm text-slate dark:text-slate-300">
-          {controller.canManagePolicies ? 'Set' : 'Review'} the default navigation for each built-in role. These choices control presentation only and never grant permissions.
+          {controller.canManagePolicies ? 'Set' : 'Review'} top-navigation and Settings-sidebar defaults for each built-in role. These choices control presentation only and never grant permissions.
         </p>
         <div className="mt-3 inline-flex max-w-full overflow-x-auto rounded border border-slate/20 p-1 dark:border-white/10" role="group" aria-label="Built-in role">
           {controller.roles.map((role) => (
@@ -88,7 +89,23 @@ export function WorkspaceRolePolicyPanel({ controller }: { controller: Workspace
           <RoleModuleEditor
             key={`${controller.selectedRole}:${controller.canManagePolicies ? 'edit' : 'read'}`}
             controller={controller}
+            scope="top"
           />
+          <details className="rounded-lg border border-slate/20 bg-slate/5 dark:border-white/10 dark:bg-white/[0.03]">
+            <summary className="cursor-pointer px-3 py-2.5 text-sm font-semibold text-ink dark:text-slate-100">
+              Settings sidebar defaults
+              <span className="ml-2 text-xs font-normal text-slate dark:text-slate-400">
+                Separate from the top navigation
+              </span>
+            </summary>
+            <div className="border-t border-slate/15 px-3 py-3 dark:border-white/10">
+              <RoleModuleEditor
+                key={`${controller.selectedRole}:${controller.canManagePolicies ? 'edit' : 'read'}:settings`}
+                controller={controller}
+                scope="settings"
+              />
+            </div>
+          </details>
           <RolePolicyControls controller={controller} />
           <RolePolicyPreview controller={controller} />
 
@@ -131,8 +148,17 @@ export function WorkspaceRolePolicyPanel({ controller }: { controller: Workspace
   )
 }
 
-function RoleModuleEditor({ controller }: { controller: WorkspaceSettingsController }) {
-  const instructionsId = 'role-navigation-reorder-instructions'
+function RoleModuleEditor({
+  controller,
+  scope,
+}: {
+  controller: WorkspaceSettingsController
+  scope: 'top' | 'settings'
+}) {
+  const topNavigation = scope === 'top'
+  const instructionsId = topNavigation
+    ? 'role-navigation-reorder-instructions'
+    : 'role-settings-navigation-reorder-instructions'
   const draft = controller.roleDraft!
   const roleLabel = formatSettingsRoleLabel(controller.selectedRole)
   const [draggedModuleId, setDraggedModuleId] = useState<TrustedWorkspaceModuleId | null>(null)
@@ -145,7 +171,12 @@ function RoleModuleEditor({ controller }: { controller: WorkspaceSettingsControl
   )
   const dropHandled = useRef(false)
   const editingDisabled = !controller.canManagePolicies || controller.roleMutationPending
-  const modules = [...draft.modules.entries()].sort(([leftId, left], [rightId, right]) => {
+  const modules = [...draft.modules.entries()].filter(([moduleId]) => {
+    const definition = TRUSTED_WORKSPACE_MODULE_BY_ID.get(moduleId)
+    return definition && (topNavigation
+      ? isTopNavigationModule(definition)
+      : definition.section === 'settings')
+  }).sort(([leftId, left], [rightId, right]) => {
     const leftDefinition = TRUSTED_WORKSPACE_MODULE_BY_ID.get(leftId)
     const rightDefinition = TRUSTED_WORKSPACE_MODULE_BY_ID.get(rightId)
     const groupOrder = leftDefinition && rightDefinition
@@ -229,11 +260,17 @@ function RoleModuleEditor({ controller }: { controller: WorkspaceSettingsControl
 
   return (
     <fieldset disabled={editingDisabled}>
-      <legend className="text-sm font-semibold">Navigation defaults</legend>
+      <legend className="text-sm font-semibold">
+        {topNavigation ? 'Top navigation defaults' : 'Settings sidebar defaults'}
+      </legend>
       <p id={instructionsId} className="mt-1 text-xs text-slate dark:text-slate-400">
-        {controller.canManagePolicies
-          ? 'Structural containers stay fixed. Drag within a named group, or use the earlier and later buttons for keyboard or touch. Main navigation has a separate mobile order within fixed primary and secondary tiers; settings keep their desktop order on every screen size.'
-          : 'Structural containers stay fixed. Main navigation has a separate mobile order within fixed primary and secondary tiers; settings keep their desktop order on every screen size.'}
+        {topNavigation
+          ? controller.canManagePolicies
+            ? 'Only top-navbar items appear here. Settings stays fixed. Drag to change desktop order, or use the earlier and later buttons for keyboard or touch; set mobile order within the fixed primary and secondary tiers.'
+            : 'Only top-navbar items appear here. Settings stays fixed. Desktop and mobile orders are shown separately.'
+          : controller.canManagePolicies
+            ? 'These items appear only in the Settings sidebar. Drag within a Settings group, or use the earlier and later buttons for keyboard or touch. One order applies at every screen size.'
+            : 'These items appear only in the Settings sidebar. One order applies at every screen size.'}
       </p>
       <p role="status" aria-live="polite" aria-atomic="true" className="mt-1 min-h-4 text-xs text-slate dark:text-slate-400">
         {reorderStatus}
@@ -242,11 +279,17 @@ function RoleModuleEditor({ controller }: { controller: WorkspaceSettingsControl
         <table className="w-full text-left text-sm sm:min-w-[760px]">
           <thead className="hidden bg-slate/5 text-xs text-slate dark:bg-white/[0.04] dark:text-slate-300 sm:table-header-group">
             <tr>
-              <th scope="col" className="px-3 py-2 font-semibold">Navigation item</th>
+              <th scope="col" className="px-3 py-2 font-semibold">
+                {topNavigation ? 'Top navigation item' : 'Settings sidebar item'}
+              </th>
               <th scope="col" className="px-3 py-2 font-semibold">Shown by default</th>
               <th scope="col" className="px-3 py-2 font-semibold">Users can customize</th>
-              <th scope="col" className="px-3 py-2 font-semibold">Desktop order in group</th>
-              <th scope="col" className="px-3 py-2 font-semibold">Mobile order in tier</th>
+              <th scope="col" className="px-3 py-2 font-semibold">
+                {topNavigation ? 'Desktop order' : 'Order in group'}
+              </th>
+              <th scope="col" className="px-3 py-2 font-semibold">
+                {topNavigation ? 'Mobile order in tier' : 'Responsive order'}
+              </th>
             </tr>
           </thead>
           <tbody className="block divide-y divide-slate/15 dark:divide-white/10 sm:table-row-group">
@@ -277,7 +320,8 @@ function RoleModuleEditor({ controller }: { controller: WorkspaceSettingsControl
               return (
                 <tr
                   key={moduleId}
-                  data-navigation-reorder-item={moduleId}
+                  data-navigation-reorder-item={topNavigation ? moduleId : undefined}
+                  data-settings-navigation-reorder-item={topNavigation ? undefined : moduleId}
                   className={`grid grid-cols-2 gap-x-3 gap-y-2 px-2 py-2 transition sm:table-row sm:p-0 ${
                     draggedModuleId === moduleId ? 'opacity-50' : ''
                   } ${dropTargetModuleId === moduleId ? 'bg-cyan/10 ring-1 ring-inset ring-cyan/40' : ''}`}
@@ -418,7 +462,9 @@ function RoleModuleEditor({ controller }: { controller: WorkspaceSettingsControl
                     </label>
                   </td>
                   <td className="flex min-w-0 flex-col gap-1 p-0 sm:table-cell sm:px-2 sm:py-2">
-                    <span className="text-xs font-semibold text-slate dark:text-slate-300 sm:hidden">Desktop order in group</span>
+                    <span className="text-xs font-semibold text-slate dark:text-slate-300 sm:hidden">
+                      {topNavigation ? 'Desktop order' : 'Order in group'}
+                    </span>
                     <PolicyNumberInput
                       label={`Desktop order in ${workspaceNavigationGroupPresentation(definition).label} for ${displayLabel}`}
                       value={module.order}
@@ -427,7 +473,9 @@ function RoleModuleEditor({ controller }: { controller: WorkspaceSettingsControl
                     />
                   </td>
                   <td className="flex min-w-0 flex-col gap-1 p-0 sm:table-cell sm:px-2 sm:py-2">
-                    <span className="text-xs font-semibold text-slate dark:text-slate-300 sm:hidden">Mobile order in tier</span>
+                    <span className="text-xs font-semibold text-slate dark:text-slate-300 sm:hidden">
+                      {topNavigation ? 'Mobile order in tier' : 'Responsive order'}
+                    </span>
                     {definition.section === 'primary' ? (
                       <div className="space-y-0.5">
                         <PolicyNumberInput
@@ -527,6 +575,9 @@ function RolePolicyControls({ controller }: { controller: WorkspaceSettingsContr
             ) : null
           })}
         </select>
+        <span className="mt-1 block text-xs font-normal text-slate dark:text-slate-400">
+          Available Settings pages can be selected independently of the top navigation.
+        </span>
       </label>
       <fieldset disabled={editingDisabled}>
         <legend className="text-sm font-semibold">Initial dashboard panels</legend>
@@ -565,30 +616,17 @@ function RolePolicyPreview({ controller }: { controller: WorkspaceSettingsContro
   const preview = rolePolicyPreview(controller.roleDraft!, controller.selectedRole)
   const roleLabel = formatSettingsRoleLabel(controller.selectedRole)
   return (
-    <section className="rounded border border-slate/20 bg-slate/5 p-3 dark:border-white/10 dark:bg-white/[0.03]" aria-label={`${roleLabel} navigation preview`}>
+    <section className="rounded border border-slate/20 bg-slate/5 p-3 dark:border-white/10 dark:bg-white/[0.03]" aria-label={`${roleLabel} top navigation preview`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold">{roleLabel} navigation preview</h3>
+        <h3 className="text-sm font-semibold">{roleLabel} top navigation preview</h3>
         <span className="rounded border border-slate/20 px-2 py-0.5 text-xs text-slate dark:border-white/10 dark:text-slate-300">Preview only</span>
       </div>
       <p className="mt-1 text-xs text-slate dark:text-slate-400">
-        This preview is inert and reflects policy visibility only. User permissions, feature availability, and personal choices can hide more modules.
+        This preview is inert and matches the top navbar at policy level. User permissions, feature availability, and personal choices can hide more items.
       </p>
       <div className="mt-3 space-y-3">
-        <PreviewRow label="Main navigation" modules={preview.primary} />
+        <PreviewRow label="Desktop top navigation" modules={preview.primary} />
         <PreviewRow label="Mobile navigation" modules={preview.mobile} />
-        {WORKSPACE_NAVIGATION_GROUPS.filter((group) => group.id !== 'main').map((group) => {
-          const modules = preview.settings.filter(
-            (module) => workspaceNavigationGroupPresentation(module).id === group.id,
-          )
-          return modules.length > 0 ? (
-            <PreviewRow
-              key={group.id}
-              label={group.label}
-              modules={modules}
-              nested={group.id === 'settings.integrations'}
-            />
-          ) : null
-        })}
       </div>
     </section>
   )
@@ -597,14 +635,12 @@ function RolePolicyPreview({ controller }: { controller: WorkspaceSettingsContro
 function PreviewRow({
   label,
   modules,
-  nested = false,
 }: {
   label: string
   modules: ReturnType<typeof rolePolicyPreview>['primary']
-  nested?: boolean
 }) {
   return (
-    <div className={nested ? 'ml-3 border-l border-slate/20 pl-3 dark:border-white/10' : undefined}>
+    <div>
       <p className="text-xs font-semibold text-slate dark:text-slate-300">{label}</p>
       <div className="mt-1 flex flex-wrap gap-1.5">
         {modules.length === 0 && <span className="text-xs text-slate dark:text-slate-400">No visible modules</span>}
@@ -637,10 +673,12 @@ function clampOrder(value: number): number {
 }
 
 function workspaceModuleSectionLabel(module: TrustedWorkspaceModule): string {
+  if (isTopNavigationModule(module)) return 'Top navigation'
   return workspaceNavigationGroupPresentation(module).label
 }
 
 function workspaceModuleReorderGroupLabel(module: TrustedWorkspaceModule): string {
+  if (isTopNavigationModule(module)) return 'top navigation'
   return workspaceNavigationGroupPresentation(module).label
 }
 

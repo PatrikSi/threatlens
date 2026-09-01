@@ -19,6 +19,28 @@ import { createPersonalWorkspaceDraft } from './workspaceSettingsModel'
 let root: Root | null = null
 let container: HTMLDivElement | null = null
 
+const DEFAULT_PERSONAL_TOP_NAVIGATION_IDS = [
+  'primary.alerts',
+  'primary.investigations',
+  'primary.feeds',
+  'primary.stats',
+  'primary.export',
+  'primary.reporting',
+]
+
+const DEFAULT_PERSONAL_SETTINGS_NAVIGATION_IDS = [
+  'settings.tokens',
+  'settings.ai',
+  'settings.tagging',
+  'settings.identity',
+  'settings.access',
+  'settings.users',
+  'settings.audit',
+  'settings.operations',
+  'settings.integrations.webhooks',
+  'settings.integrations.smtp',
+]
+
 afterEach(() => {
   act(() => root?.unmount())
   root = null
@@ -68,7 +90,7 @@ describe('WorkspacePersonalizationPanel', () => {
     expect(container.textContent).toContain('Discard personal changes and reload')
   })
 
-  it('preserves an unknown future landing when an unrelated trusted module is toggled', () => {
+  it('separates top navigation items from Settings sidebar preferences while preserving start pages', () => {
     const effective = effectiveWorkspace()
     const userPreferences = { ...preferences(), landing_module_id: 'future.timeline' }
     const draft = createPersonalWorkspaceDraft(effective, userPreferences)
@@ -92,22 +114,33 @@ describe('WorkspacePersonalizationPanel', () => {
     expect(container.textContent).toContain('Organization settings')
     expect(container.textContent).not.toContain('settings.account')
     expect(container.textContent).not.toContain('settings.workspace')
-    const preview = container.querySelector<HTMLElement>(
-      '[aria-labelledby="personal-navigation-preview-heading"]',
+    expect(navigationItemIds(container, 'data-navigation-reorder-item')).toEqual(
+      DEFAULT_PERSONAL_TOP_NAVIGATION_IDS,
     )
-    expect(preview?.textContent).toContain('Every destination that will remain visible')
+    expect(
+      sortedNavigationItemIds(container, 'data-settings-navigation-reorder-item'),
+    ).toEqual([...DEFAULT_PERSONAL_SETTINGS_NAVIGATION_IDS].sort())
+    expect(
+      container.querySelector('[data-settings-navigation-reorder-item]')?.closest('details')
+        ?.querySelector('summary')?.textContent,
+    ).toContain('Settings sidebar')
+    const preview = container.querySelector<HTMLElement>(
+      '[aria-labelledby="personal-top-navigation-preview-heading"]',
+    )
+    expect(preview?.textContent).toContain('Top navigation preview')
     expect(preview?.querySelector('[data-navigation-preview-module="primary.dashboard"]')?.textContent)
       .toContain('DashboardFixed')
     expect(preview?.querySelector('[data-navigation-preview-module="primary.settings"]')?.textContent)
       .toContain('SettingsFixed container')
-    expect(preview?.querySelector('[data-navigation-preview-module="settings.account"]')?.textContent)
-      .toContain('My accountFixed')
-    expect(preview?.querySelector('[data-navigation-preview-module="settings.workspace"]')?.textContent)
-      .toContain('NavigationFixed')
-    expect(preview?.querySelector('[data-navigation-preview-module="settings.integrations"]')?.textContent)
-      .toContain('IntegrationsFixed container')
-    expect(preview?.querySelector('[data-navigation-preview-module="settings.integrations.webhooks"]'))
-      .not.toBeNull()
+    expect(
+      [...(preview?.querySelectorAll('[data-navigation-preview-module]') ?? [])]
+        .map((item) => item.getAttribute('data-navigation-preview-module')),
+    ).toEqual([
+      'primary.dashboard',
+      ...DEFAULT_PERSONAL_TOP_NAVIGATION_IDS,
+      'primary.settings',
+    ])
+    expect(preview?.querySelector('[data-navigation-preview-module^="settings."]')).toBeNull()
     expect(
       [...container.querySelectorAll<HTMLOptGroupElement>('select optgroup')].map(
         (group) => group.label,
@@ -139,7 +172,7 @@ describe('WorkspacePersonalizationPanel', () => {
       '[data-navigation-reorder-item="primary.alerts"]',
     )
     const invalidTarget = container.querySelector<HTMLElement>(
-      '[data-navigation-reorder-item="settings.tokens"]',
+      '[data-settings-navigation-reorder-item="settings.tokens"]',
     )
     const earlierButton = container.querySelector<HTMLButtonElement>(
       '[aria-label="Move Feeds earlier"]',
@@ -151,10 +184,10 @@ describe('WorkspacePersonalizationPanel', () => {
       'personal-navigation-reorder-instructions',
     )
     expect(container.textContent).toContain(
-      'Use the earlier and later buttons for keyboard or touch.',
+      'earlier and later buttons for keyboard or touch',
     )
-    expect(container.textContent).toContain(
-      'Main order applies on desktop; mobile main order follows organization defaults.',
+    expect(navigationItemIds(container, 'data-navigation-reorder-item')).toEqual(
+      DEFAULT_PERSONAL_TOP_NAVIGATION_IDS,
     )
     expect(earlierButton).not.toBeNull()
     expect(
@@ -192,9 +225,12 @@ describe('WorkspacePersonalizationPanel', () => {
     )
     expect(target?.className).toContain('py-2')
 
-    const usersHandle = container.querySelector<HTMLButtonElement>('[aria-label^="Drag Users."]')!
+    const usersRow = container.querySelector<HTMLElement>(
+      '[data-settings-navigation-reorder-item="settings.users"]',
+    )!
+    const usersHandle = usersRow.querySelector<HTMLButtonElement>('[aria-label^="Drag Users."]')!
     const aiTarget = container.querySelector<HTMLElement>(
-      '[data-navigation-reorder-item="settings.ai"]',
+      '[data-settings-navigation-reorder-item="settings.ai"]',
     )!
     const settingsTransfer = createDataTransfer()
     act(() => dispatchDragEvent(usersHandle, 'dragstart', settingsTransfer))
@@ -254,7 +290,7 @@ describe('WorkspacePersonalizationPanel', () => {
     act(() => root?.render(<WorkspacePersonalizationPanel controller={controller} />))
 
     const aiRow = container.querySelector<HTMLElement>(
-      '[data-navigation-reorder-item="settings.ai"]',
+      '[data-settings-navigation-reorder-item="settings.ai"]',
     )
     expect(aiRow?.textContent).toContain('Administrator base role required')
     expect(
@@ -265,7 +301,7 @@ describe('WorkspacePersonalizationPanel', () => {
       aiRow?.querySelector<HTMLButtonElement>('[aria-label^="Drag AI automation."]')?.draggable,
     ).toBe(false)
     expect(
-      container.querySelector('[aria-labelledby="personal-navigation-preview-heading"]')?.textContent,
+      container.querySelector('[aria-labelledby="personal-top-navigation-preview-heading"]')?.textContent,
     ).not.toContain('AI automation')
     expect(
       [...container.querySelectorAll('select option')].map((option) => option.textContent),
@@ -273,6 +309,41 @@ describe('WorkspacePersonalizationPanel', () => {
     expect(
       [...container.querySelectorAll('select option')].map((option) => option.textContent),
     ).not.toContain('Stats')
+    expect(navigationItemIds(container, 'data-navigation-reorder-item')).toEqual(
+      DEFAULT_PERSONAL_TOP_NAVIGATION_IDS,
+    )
+    expect(container.querySelector('[data-navigation-reorder-item^="settings."]')).toBeNull()
+  })
+
+  it('shows Dashboard only when organization policy makes it customizable', () => {
+    const initial = effectiveWorkspace()
+    const effective = {
+      ...initial,
+      modules: initial.modules.map((module) =>
+        module.id === 'primary.dashboard'
+          ? { ...module, optional: true }
+          : module,
+      ),
+    }
+    const userPreferences = preferences()
+    const draft = createPersonalWorkspaceDraft(effective, userPreferences)
+    const controller = personalController(effective, userPreferences, draft, vi.fn())
+
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+    act(() => root?.render(<WorkspacePersonalizationPanel controller={controller} />))
+
+    expect(navigationItemIds(container, 'data-navigation-reorder-item')).toEqual([
+      'primary.dashboard',
+      ...DEFAULT_PERSONAL_TOP_NAVIGATION_IDS,
+    ])
+    expect(
+      container.querySelector('[data-navigation-preview-module="primary.dashboard"]')?.textContent,
+    ).toBe('Dashboard')
+    expect(
+      container.querySelector('[data-navigation-preview-module="primary.settings"]')?.textContent,
+    ).toContain('Fixed container')
   })
 
   it('excludes unavailable items from reorder positions and targets', () => {
@@ -452,4 +523,18 @@ function dispatchDragEvent(target: Element, type: string, dataTransfer: DataTran
   Object.defineProperty(event, 'dataTransfer', { value: dataTransfer })
   target.dispatchEvent(event)
   return event
+}
+
+function navigationItemIds(
+  view: ParentNode,
+  attribute: 'data-navigation-reorder-item' | 'data-settings-navigation-reorder-item',
+) {
+  return [...view.querySelectorAll(`[${attribute}]`)].map((item) => item.getAttribute(attribute))
+}
+
+function sortedNavigationItemIds(
+  view: ParentNode,
+  attribute: 'data-navigation-reorder-item' | 'data-settings-navigation-reorder-item',
+) {
+  return navigationItemIds(view, attribute).sort()
 }

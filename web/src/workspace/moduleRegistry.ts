@@ -261,6 +261,12 @@ export function isTrustedWorkspaceModuleId(value: string): value is TrustedWorks
   return TRUSTED_WORKSPACE_MODULE_BY_ID.has(value as TrustedWorkspaceModuleId)
 }
 
+export function isTopNavigationModule(
+  module: Pick<TrustedWorkspaceModule, 'section'>,
+): boolean {
+  return module.section === 'primary'
+}
+
 export function isTrustedDashboardPanelId(value: string): value is TrustedDashboardPanelId {
   return TRUSTED_DASHBOARD_PANEL_BY_ID.has(value as TrustedDashboardPanelId)
 }

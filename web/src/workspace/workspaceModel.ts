@@ -16,6 +16,7 @@ import {
   TRUSTED_WORKSPACE_MODULE_BY_ID,
   TRUSTED_WORKSPACE_MODULES,
   isTrustedDashboardPanelId,
+  isTopNavigationModule,
   isTrustedWorkspaceModuleId,
   type TrustedDashboardPanel,
   type TrustedDashboardPanelId,
@@ -122,7 +123,7 @@ export function resolveWorkspaceModel(
 
   const modules = [...resolvedById.values()]
   const primaryNavigation = modules
-    .filter((module) => module.section === 'primary' && module.visible)
+    .filter((module) => isTopNavigationModule(module) && module.visible)
     .sort(byDesktopOrder)
   const mobileNavigation = [...primaryNavigation].sort(byMobileOrder)
   const settingsNavigation = modules
