@@ -357,7 +357,19 @@ UI elements:
   tabs
 - Owner/editor/viewer object-role controls, final-owner protection, and explicit
   confirmations for destructive changes
-- Item, IOC, report, and alert-occurrence evidence with immutable source snapshots
+- Permission-aware evidence finder for recent item, IOC, report, and
+  alert-occurrence candidates, with text/URL/UUID search, server-detected IOC
+  types, selectable time range and source scope, related-article context, bounded
+  lower-bound result counts, and human-readable previews before attachment. Blank
+  all-source suggestions omit the high-cardinality IOC inventory until the analyst
+  enters a search; selecting Indicators explicitly remains available.
+- Immutable evidence snapshots whose stable source UUIDs are available in a
+  technical-details disclosure instead of being required as primary input
+- Explicit locked-source, loading, no-match, stale-selection, already-attached,
+  failed-search, and failed-attachment states that preserve existing evidence and
+  unfinished analyst context
+- Human-readable activity summaries for evidence and membership changes, with
+  raw event identifiers and payloads retained in a technical-details disclosure
 - Refresh guidance for optimistic conflicts and indistinguishable not-found/private
   access failures
 
@@ -367,6 +379,7 @@ API calls:
 - `GET /investigations/member-candidates`
 - `GET`, `PATCH /investigations/{id}`
 - member add, update, and remove endpoints
+- `POST /investigations/{id}/evidence-candidates` with the analyst query, source scope, time range, page, and stable pagination anchor in a JSON body
 - paginated evidence reads plus evidence add and remove endpoints
 - paginated note reads plus note add, update, and soft-delete endpoints
 - `GET /investigations/{id}/activity`
@@ -711,13 +724,21 @@ role.
 UI elements:
 
 - Overall health summary with accessible icon-and-text healthy, degraded, critical,
-  unavailable, and unknown states
+  unavailable, unknown, and explicit last-known states
 - Prioritized findings with impact and recommended operator action
+- URL-backed Live health, Trends, and Recovery & activity views
 - PostgreSQL, Redis, worker-queue, scheduler, and encrypted-data checks, including
   worker count, queue coverage, heartbeat age, freshness thresholds, scan coverage,
   and unreadable-field counts when reported by the API
+- Worker topology drill-down with independent control-probe quality, responding
+  nodes, capacity and load, queue consumers, execution canary age, likely causes,
+  and bounded copyable Compose verification commands
 - Queue depth, active and stale work, failed-record counts, oldest pending age,
   and the configured warning threshold
+- Five-minute retained health samples across selectable 1-hour through 30-day
+  windows, with explicit coverage and collection gaps, status transitions,
+  accessible charts/table fallbacks, durable-workflow pressure, issue counts, and
+  component and issue-code history, and worker exceptions
 - PostgreSQL logical size plus application-filesystem capacity and available-space
   indicators; host or managed-database capacity remains an external concern
 - Recovery evidence with outcome, recorded time, duration, and source
@@ -726,6 +747,8 @@ UI elements:
 API calls:
 
 - `GET /operations/overview`
+- `GET /operations/workers`
+- `GET /operations/health-history`
 - `GET /operations/runs`
 - `GET /operations/diagnostics`
 
@@ -788,6 +811,7 @@ API calls:
 | `pages/UsersPage.tsx` | `PATCH` | `/users/{id}` |
 | `pages/UsersPage.tsx` | `POST` | `/users/{id}/mfa/reset` |
 | `pages/OperationsPage.tsx` | `GET` | `/operations/overview` |
+| `pages/OperationsPage.tsx` | `GET` | `/operations/workers` and `/operations/health-history` |
 | `pages/OperationsPage.tsx` | `GET` | `/operations/runs` |
 | `pages/OperationsPage.tsx` | `GET` | `/operations/diagnostics` |
 | `pages/accessGovernanceApi.ts` | `GET` | `/iam/permissions`, `/iam/roles`, and `/iam/groups` |

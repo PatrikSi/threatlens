@@ -151,12 +151,13 @@
 | `LOG_SLOW_REQUEST_MS` (`log_slow_request_ms`) | `1000` | Promote successful requests at or above this duration to warning logs. |
 | `LOG_MAX_EVENT_CHARS` (`log_max_event_chars`) | `20000` | Per-message and exception text bound before diagnostic output is truncated. |
 | `LOG_SQL` (`log_sql`) | `false` | Emit SQLAlchemy statements at `INFO`; bound parameter values are always hidden. |
-| `HEALTH_WORKER_PING_TIMEOUT_SECONDS` (`health_worker_ping_timeout_seconds`) | `1.0` | Timeout for Celery worker ping checks on `/health/worker`. |
+| `HEALTH_WORKER_PING_TIMEOUT_SECONDS` (`health_worker_ping_timeout_seconds`) | `1.0` | Timeout for Celery worker ping checks on `/health/worker`, greater than 0 and at most 60 seconds. The six concurrent Operations topology probes cap their effective timeout at 8 seconds. |
+| `OPERATIONS_HEALTH_HISTORY_RETENTION_DAYS` (`operations_health_history_retention_days`) | `30` | Retention window for five-minute System health samples. Must be between 1 and 3650 days; normal history maintenance removes older samples. |
 | `BEAT_HEARTBEAT_KEY` (`beat_heartbeat_key`) | `threatlens:beat:heartbeat` | Redis key where the Beat-to-worker heartbeat task writes timestamps. |
 | `BEAT_SCHEDULER_HEARTBEAT_KEY` (`beat_scheduler_heartbeat_key`) | `threatlens:beat:scheduler-heartbeat` | Redis key updated directly after each successful Celery Beat scheduler tick. |
-| `BEAT_HEARTBEAT_TTL_SECONDS` (`beat_heartbeat_ttl_seconds`) | `180` | Redis TTL for both scheduler and Beat-to-worker heartbeat keys. |
-| `BEAT_HEARTBEAT_STALE_AFTER_SECONDS` (`beat_heartbeat_stale_after_seconds`) | `180` | Max allowed age for both heartbeats; the round trip controls API readiness and the direct scheduler heartbeat controls watchdog recovery. |
-| `BEAT_HEARTBEAT_INTERVAL_SECONDS` (`beat_heartbeat_interval_seconds`) | `60` | Beat schedule interval for heartbeat task emission. |
+| `BEAT_HEARTBEAT_TTL_SECONDS` (`beat_heartbeat_ttl_seconds`) | `360` | Redis TTL for scheduler and Beat-to-worker heartbeat keys, and the minimum retention for queue-execution evidence. It must exceed the stale window. Queue evidence is retained for at least three stale windows so a stopped consumer remains distinguishable from a never-observed consumer. A legacy value equal to the stale window is accepted and normalized to stale window plus interval during upgrade. |
+| `BEAT_HEARTBEAT_STALE_AFTER_SECONDS` (`beat_heartbeat_stale_after_seconds`) | `180` | Max allowed age for scheduler, round-trip, and queue execution evidence. It must cover at least two heartbeat intervals. |
+| `BEAT_HEARTBEAT_INTERVAL_SECONDS` (`beat_heartbeat_interval_seconds`) | `60` | Beat interval for heartbeat and per-queue canary emission. |
 | `BEAT_WATCHDOG_STARTUP_GRACE_SECONDS` (`beat_watchdog_startup_grace_seconds`) | `240` | Grace period after Beat starts before a missing or stale heartbeat forces a restart. |
 | `BEAT_WATCHDOG_CHECK_INTERVAL_SECONDS` (`beat_watchdog_check_interval_seconds`) | `15` | Interval between watchdog heartbeat checks. |
 | `BEAT_WATCHDOG_TERMINATE_TIMEOUT_SECONDS` (`beat_watchdog_terminate_timeout_seconds`) | `10` | Time allowed for Beat to stop before the watchdog force-kills it. |
