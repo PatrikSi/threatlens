@@ -34,6 +34,29 @@ const EMPTY_ROLE: RoleDraft = {
   permissions: [],
 }
 
+const PERMISSION_BASE_ROLE_REQUIREMENTS: Readonly<Partial<Record<string, string>>> = {
+  'read:ai': 'Administrator',
+  'write:ai': 'Administrator',
+  'read:health': 'Administrator',
+  'write:users': 'Administrator',
+  'write:notifications': 'Administrator or Analyst',
+}
+
+const ACCESS_UI_PREREQUISITE_PERMISSIONS: ReadonlySet<string> = new Set([
+  'read:service_accounts',
+  'write:service_accounts',
+  'read:elevations',
+  'write:elevations',
+  'approve:elevations',
+  'read:approvals',
+  'write:approvals',
+  'approve:approvals',
+  'read:access_reviews',
+  'write:access_reviews',
+  'read:data_policies',
+  'write:data_policies',
+])
+
 export function AccessRolesPanel({
   catalog,
   canWrite,
@@ -400,7 +423,10 @@ function PermissionGroup({
       <legend className="px-1 text-sm font-semibold">{group}</legend>
       <div className="grid gap-1.5 md:grid-cols-2">
         {permissions.map((permission) => (
-          <label key={permission.id} className="flex min-h-11 items-start gap-2 rounded px-2 py-1.5 hover:bg-slate/5 sm:min-h-0 dark:hover:bg-white/[0.04]">
+          <label
+            key={permission.id}
+            className="flex min-h-11 items-start gap-2 rounded px-2 py-1.5 hover:bg-slate/5 sm:min-h-0 dark:hover:bg-white/[0.04]"
+          >
             <input
               type="checkbox"
               className="mt-0.5 h-5 w-5 shrink-0 sm:h-4 sm:w-4"
@@ -419,6 +445,7 @@ function PermissionGroup({
               </span>
               <span className="mt-0.5 block font-mono text-[11px] text-slate dark:text-slate-400">{permission.id}</span>
               <span className="mt-0.5 block text-xs text-slate dark:text-slate-300">{permission.description}</span>
+              <PermissionCompatibilityNotes permissionId={permission.id} />
             </span>
           </label>
         ))}
@@ -445,6 +472,29 @@ function UnmatchedPermissionGrants({ grants }: { grants: string[] }) {
         ))}
       </ul>
     </div>
+  )
+}
+
+function PermissionCompatibilityNotes({ permissionId }: { permissionId: string }) {
+  const requiredRoles = PERMISSION_BASE_ROLE_REQUIREMENTS[permissionId]
+  const requiresAccessWorkspace = ACCESS_UI_PREREQUISITE_PERMISSIONS.has(permissionId)
+  if (!requiredRoles && !requiresAccessWorkspace) return null
+
+  return (
+    <span className="mt-1 flex flex-wrap gap-1">
+      {requiredRoles && (
+        <span className="inline-flex items-center gap-1 rounded border border-slate/20 bg-slate/5 px-1.5 py-0.5 text-[10px] font-semibold text-slate dark:border-white/10 dark:bg-white/[0.04] dark:text-slate-300">
+          <LockKeyhole className="h-3 w-3 shrink-0" aria-hidden="true" />
+          Requires base role: {requiredRoles}
+        </span>
+      )}
+      {requiresAccessWorkspace && (
+        <span className="inline-flex items-center gap-1 rounded border border-slate/20 bg-slate/5 px-1.5 py-0.5 text-[10px] font-semibold text-slate dark:border-white/10 dark:bg-white/[0.04] dark:text-slate-300">
+          <LockKeyhole className="h-3 w-3 shrink-0" aria-hidden="true" />
+          Access UI also requires read:iam; direct API access remains independent
+        </span>
+      )}
+    </span>
   )
 }
 

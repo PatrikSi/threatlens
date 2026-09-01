@@ -47,8 +47,8 @@ export function useTaggingSettingsController() {
     currentUserQuery.data?.access?.permissions ?? [],
     ['write:tagging'],
   )
-  const isReadOnlyViewer = !currentUserQuery.isLoading && !canManageTagging
-  const accessNotice = isReadOnlyViewer
+  const isReadOnly = !currentUserQuery.isLoading && !canManageTagging
+  const accessNotice = isReadOnly
     ? 'You can review content tagging, but changes require permission to manage tagging.'
     : null
 

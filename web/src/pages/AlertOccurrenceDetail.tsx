@@ -151,8 +151,8 @@ export function AlertOccurrenceDetail({ controller }: { controller: AlertOccurre
           role="alert"
           className="border-b border-amber-300/50 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700/40 dark:bg-amber-950/20 dark:text-amber-200 sm:px-4"
         >
-          This session can view occurrences but cannot update them. Verify the account role or API
-          token scopes.
+          This session can view occurrences but cannot update them. Verify it has permission to
+          manage alerts; API tokens also need write:alerts.
         </p>
       )}
 

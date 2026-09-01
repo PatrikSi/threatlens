@@ -21,7 +21,7 @@ function NotificationHeader({ controller }: { controller: NotificationWebhooksCo
           Template variables use `{'{{ item.title }}'}` style placeholders.
         </p>
         {controller.accessNotice && (
-          <SettingsReadOnlyNotice permission="permission to manage notifications" />
+          <SettingsReadOnlyNotice permission="an Administrator or Analyst base role and permission to manage notifications" />
         )}
       </div>
     </SettingsPageHeader>

@@ -51,8 +51,8 @@ export function useSMTPIntegrationController() {
     currentUserQuery.data?.access?.permissions ?? [],
     ['write:integrations'],
   )
-  const isReadOnlyViewer = !currentUserQuery.isLoading && !canManageEmailDelivery
-  const accessNotice = isReadOnlyViewer
+  const isReadOnly = !currentUserQuery.isLoading && !canManageEmailDelivery
+  const accessNotice = isReadOnly
     ? 'You can review email delivery, but changes require permission to manage integrations.'
     : null
   const [selectedHookId, setSelectedHookId] = useState<string | null>(null)

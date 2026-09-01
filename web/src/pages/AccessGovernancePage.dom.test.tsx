@@ -90,6 +90,31 @@ import { AccessGovernancePage } from './AccessGovernancePage'
 let root: Root | null = null
 let container: HTMLDivElement | null = null
 
+const accessUiPrerequisitePermissionIds = [
+  'read:service_accounts',
+  'write:service_accounts',
+  'read:elevations',
+  'write:elevations',
+  'approve:elevations',
+  'read:approvals',
+  'write:approvals',
+  'approve:approvals',
+  'read:access_reviews',
+  'write:access_reviews',
+  'read:data_policies',
+  'write:data_policies',
+] as const
+
+const accessUiPrerequisitePermissions: IAMCatalog['permissions'] =
+  accessUiPrerequisitePermissionIds.map((id) => ({
+    id,
+    group: 'Governance',
+    label: id,
+    description: `Exercise ${id} through the API.`,
+    risk: 'standard',
+    delegable: true,
+  }))
+
 const catalog: IAMCatalog = {
   permissions: [
     {
@@ -97,6 +122,47 @@ const catalog: IAMCatalog = {
       group: 'IAM',
       label: 'Read IAM',
       description: 'Inspect access policy',
+      risk: 'standard',
+      delegable: true,
+    },
+    ...accessUiPrerequisitePermissions,
+    {
+      id: 'read:ai',
+      group: 'Administration',
+      label: 'View AI operations',
+      description: 'View AI configuration, usage, and operational history.',
+      risk: 'standard',
+      delegable: true,
+    },
+    {
+      id: 'write:ai',
+      group: 'Administration',
+      label: 'Manage AI',
+      description: 'Change AI configuration and queue administrative AI work.',
+      risk: 'elevated',
+      delegable: true,
+    },
+    {
+      id: 'read:health',
+      group: 'Operations',
+      label: 'View service health',
+      description: 'View worker, scheduler, and encryption health.',
+      risk: 'standard',
+      delegable: true,
+    },
+    {
+      id: 'write:users',
+      group: 'Identity',
+      label: 'Manage users',
+      description: 'Create users and change account access or identity configuration.',
+      risk: 'critical',
+      delegable: true,
+    },
+    {
+      id: 'write:notifications',
+      group: 'Integrations',
+      label: 'Manage notifications',
+      description: 'Configure and test notification webhooks.',
       risk: 'standard',
       delegable: true,
     },
@@ -412,6 +478,54 @@ describe('AccessGovernancePage permission and policy workflows', () => {
     expect(view.textContent).toContain('2 principal assignments')
   })
 
+  it('labels base-role compatibility without disabling assignable permissions', () => {
+    const constrainedPermissions = [
+      'read:ai',
+      'write:ai',
+      'read:health',
+      'write:users',
+      'write:notifications',
+    ]
+    const view = renderPage(['read:iam', 'write:iam', ...constrainedPermissions])
+    click(findButton(view, 'Access roles'))
+
+    for (const permissionId of constrainedPermissions) {
+      const row = findPermissionRow(view, permissionId)
+      expect(row).toBeDefined()
+      expect(row?.querySelector<HTMLInputElement>('input[type="checkbox"]')?.disabled).toBe(false)
+      expect(row?.textContent).toContain(
+        permissionId === 'write:notifications'
+          ? 'Requires base role: Administrator or Analyst'
+          : 'Requires base role: Administrator',
+      )
+    }
+  })
+
+  it('labels every permission whose Access UI workspace also needs read:iam', () => {
+    const view = renderPage([
+      'read:iam',
+      'write:iam',
+      ...accessUiPrerequisitePermissionIds,
+    ])
+    click(findButton(view, 'Access roles'))
+
+    for (const permissionId of accessUiPrerequisitePermissionIds) {
+      const row = findPermissionRow(view, permissionId)
+      expect(row).toBeDefined()
+      expect(row?.textContent).toContain(
+        'Access UI also requires read:iam; direct API access remains independent',
+      )
+      expect(
+        row?.querySelector<HTMLInputElement>('input[type="checkbox"]')
+          ?.disabled,
+      ).toBe(false)
+    }
+
+    expect(findPermissionRow(view, 'read:ai')?.textContent).not.toContain(
+      'Access UI also requires read:iam',
+    )
+  })
+
   it('does not convert temporary IAM elevation into persistent write authority', () => {
     governancePageDomMocks.durablePermissions = ['read:iam']
     governancePageDomMocks.elevationIds = ['elevation-1']
@@ -480,6 +594,14 @@ function findButtonContaining(
 ): HTMLButtonElement | undefined {
   return Array.from(view.querySelectorAll('button')).find(
     (button) => button.textContent?.includes(label),
+  )
+}
+
+function findPermissionRow(view: ParentNode, permissionId: string): HTMLLabelElement | undefined {
+  return Array.from(view.querySelectorAll<HTMLLabelElement>('label')).find((label) =>
+    Array.from(label.querySelectorAll('span')).some(
+      (span) => span.textContent?.trim() === permissionId,
+    ),
   )
 }
 

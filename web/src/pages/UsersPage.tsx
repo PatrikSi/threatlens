@@ -15,11 +15,13 @@ import { SettingsPageHeader } from '../components/SettingsPageHeader'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { usePendingEntityActions } from '../hooks/usePendingEntityActions'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
+import { hasRequiredPermissions } from '../workspace/workspaceModel'
 import {
   AdminMFAResetResponse,
   AdminUser,
   AdminUserUpdateResponse,
   AuthSessionListResponse,
+  CurrentUser,
   MFAStatusResponse,
   User,
   UserCreateRequest,
@@ -117,6 +119,10 @@ export function UsersPage() {
   const location = useLocation()
   const { markLoggedOut } = useAuth()
   const currentUserQuery = useCurrentUser()
+  const canManageUsers = hasUserManagementAccess(
+    currentUserQuery.data,
+    currentUserQuery.isError,
+  )
   const userUpdatePending = usePendingEntityActions()
   const [search, setSearch] = useState('')
   const [roleFilter, setRoleFilter] = useState<UserRoleFilter>('all')
@@ -589,9 +595,13 @@ export function UsersPage() {
 
   const directoryIsUnfiltered =
     !search.trim() && roleFilter === 'all' && accountFilter === 'all'
-  const createUserFormVisible =
-    usersQuery.isSuccess &&
-    (createUserOpen || (directoryIsUnfiltered && usersQuery.data.total === 0))
+  const createUserFormVisible = shouldShowCreateUserForm({
+    canManage: canManageUsers,
+    directoryReady: usersQuery.isSuccess,
+    createUserOpen,
+    directoryIsUnfiltered,
+    totalUsers: usersQuery.data?.total ?? 0,
+  })
 
   return (
     <>
@@ -599,9 +609,10 @@ export function UsersPage() {
         <SettingsPageHeader
           scope="Organization"
           title="Users"
-          description="Manage user lifecycle, base roles, sign-in methods, and account security."
+          description={userDirectoryDescription(canManageUsers)}
         />
         <section className="rounded-xl border border-slate/20 bg-white/80 p-3.5 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+        <UserDirectoryAccessNotice canManage={canManageUsers} />
         <UserDirectoryHeader
           data={usersQuery.data}
           filteredCount={filteredUsers.length}
@@ -610,6 +621,7 @@ export function UsersPage() {
           isSuccess={usersQuery.isSuccess}
           createUserFormVisible={createUserFormVisible}
           hasCreateUserDraft={hasUnsavedCreateUserChanges}
+          canManage={canManageUsers}
           search={search}
           roleFilter={roleFilter}
           accountFilter={accountFilter}
@@ -690,142 +702,16 @@ export function UsersPage() {
           </div>
         )}
 
-        {usersQuery.isSuccess && (
-          <form
-            id="create-user-form"
-            className={`${createUserFormVisible ? 'grid' : 'hidden'} mt-3 gap-3 border-t border-slate/15 pt-3 sm:grid-cols-2 lg:grid-cols-4 dark:border-cyan-900/30`}
-            onSubmit={onCreateSubmit}
-          >
-            <div className="sm:col-span-2 lg:col-span-4">
-              <h3 className="text-sm font-semibold text-slate dark:text-slate-300">
-                Create local user
-              </h3>
-            </div>
-            <div className="lg:col-span-2">
-              <label
-                htmlFor="create-user-email"
-                className="text-sm font-semibold"
-              >
-                Email
-              </label>
-              <input
-                id="create-user-email"
-                value={createForm.email}
-                onChange={(event) =>
-                  updateCreateForm((form) => ({
-                    ...form,
-                    email: event.target.value,
-                  }))
-                }
-                className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
-                type="email"
-                autoComplete="off"
-                required
-              />
-            </div>
-            <div>
-              <label
-                htmlFor="create-user-password"
-                className="text-sm font-semibold"
-              >
-                Initial password
-              </label>
-              <input
-                id="create-user-password"
-                value={createForm.password}
-                onChange={(event) =>
-                  updateCreateForm((form) => ({
-                    ...form,
-                    password: event.target.value,
-                  }))
-                }
-                className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
-                type="password"
-                autoComplete="new-password"
-                minLength={8}
-                required
-              />
-              <p className="mt-1 text-xs text-slate dark:text-slate-300">
-                This password remains valid until the user or an administrator
-                changes it.
-              </p>
-            </div>
-            <div>
-              <label
-                htmlFor="create-user-role"
-                className="text-sm font-semibold"
-              >
-                Base role
-              </label>
-              <select
-                id="create-user-role"
-                value={createForm.role}
-                onChange={(event) =>
-                  updateCreateForm((form) => ({
-                    ...form,
-                    role: event.target.value as User['role'],
-                  }))
-                }
-                className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
-              >
-                <option value="viewer">Viewer</option>
-                <option value="analyst">Analyst</option>
-                <option value="admin">Administrator</option>
-              </select>
-            </div>
-            <div className="flex flex-wrap items-center gap-x-5 gap-y-2 sm:col-span-2 lg:col-span-3">
-              <label className="flex min-h-11 items-center gap-2 text-sm sm:min-h-0">
-                <input
-                  type="checkbox"
-                  className="h-5 w-5 sm:h-4 sm:w-4"
-                  checked={createForm.is_active}
-                  onChange={(event) =>
-                    updateCreateForm((form) => ({
-                      ...form,
-                      is_active: event.target.checked,
-                    }))
-                  }
-                />
-                Account enabled
-              </label>
-              <label className="flex min-h-11 items-center gap-2 text-sm sm:min-h-0">
-                <input
-                  type="checkbox"
-                  className="h-5 w-5 sm:h-4 sm:w-4"
-                  checked={createForm.is_approved}
-                  onChange={(event) =>
-                    updateCreateForm((form) => ({
-                      ...form,
-                      is_approved: event.target.checked,
-                    }))
-                  }
-                />
-                Access approved
-              </label>
-              {createUserError && (
-                <p
-                  role="alert"
-                  aria-live="assertive"
-                  aria-atomic="true"
-                  className="text-sm text-red-600"
-                >
-                  {createUserError}
-                </p>
-              )}
-            </div>
-            <button
-              className="rounded bg-ink px-3 py-2 text-white lg:justify-self-end dark:bg-cyan dark:text-[#053c2e]"
-              disabled={createUser.isPending}
-              aria-label={
-                createForm.email
-                  ? `Review creation of local user ${createForm.email}`
-                  : 'Review local user creation'
-              }
-            >
-              Review local user
-            </button>
-          </form>
-        )}
+        <CreateUserForm
+          canManage={canManageUsers}
+          directoryReady={usersQuery.isSuccess}
+          visible={createUserFormVisible}
+          form={createForm}
+          error={createUserError}
+          pending={createUser.isPending}
+          onSubmit={onCreateSubmit}
+          onChange={updateCreateForm}
+        />
 
         <UserRoleDefinitions />
 
@@ -835,6 +721,7 @@ export function UsersPage() {
               <UserDirectoryRow
                 key={user.id}
                 user={user}
+                canManage={canManageUsers}
                 settingsDraft={
                   settingsDraftsByUserId[user.id] ??
                   createUserSettingsDraft(user)
@@ -1020,6 +907,187 @@ export function UsersPage() {
       />
       {confirmDiscardUnsavedUserSettingsChanges.discardDialog}
     </>
+  )
+}
+
+function hasUserManagementAccess(user: CurrentUser | undefined, queryFailed: boolean) {
+  return Boolean(
+    !queryFailed &&
+    user?.role === 'admin' &&
+    hasRequiredPermissions(user.access?.permissions ?? [], ['write:users']),
+  )
+}
+
+function userDirectoryDescription(canManage: boolean) {
+  return canManage
+    ? 'Manage user lifecycle, base roles, sign-in methods, and account security.'
+    : 'Review user identities, base roles, sign-in methods, and account status.'
+}
+
+function shouldShowCreateUserForm({
+  canManage,
+  directoryReady,
+  createUserOpen,
+  directoryIsUnfiltered,
+  totalUsers,
+}: {
+  canManage: boolean
+  directoryReady: boolean
+  createUserOpen: boolean
+  directoryIsUnfiltered: boolean
+  totalUsers: number
+}) {
+  return canManage &&
+    directoryReady &&
+    (createUserOpen || (directoryIsUnfiltered && totalUsers === 0))
+}
+
+function UserDirectoryAccessNotice({ canManage }: { canManage: boolean }) {
+  if (canManage) return null
+  return (
+    <p className="mb-3 rounded border border-amber-300/60 bg-amber-50/80 px-3 py-2 text-sm text-amber-900 dark:border-amber-800/40 dark:bg-amber-950/30 dark:text-amber-100">
+      You have read-only directory access. User lifecycle and credential changes require the Administrator base role and user-management permission.
+    </p>
+  )
+}
+
+function CreateUserForm({
+  canManage,
+  directoryReady,
+  visible,
+  form,
+  error,
+  pending,
+  onSubmit,
+  onChange,
+}: {
+  canManage: boolean
+  directoryReady: boolean
+  visible: boolean
+  form: UserCreateRequest
+  error: string
+  pending: boolean
+  onSubmit: (event: FormEvent) => void
+  onChange: (updater: (current: UserCreateRequest) => UserCreateRequest) => void
+}) {
+  if (!canManage || !directoryReady) return null
+  return (
+    <form
+      id="create-user-form"
+      className={`${visible ? 'grid' : 'hidden'} mt-3 gap-3 border-t border-slate/15 pt-3 sm:grid-cols-2 lg:grid-cols-4 dark:border-cyan-900/30`}
+      onSubmit={onSubmit}
+    >
+      <div className="sm:col-span-2 lg:col-span-4">
+        <h3 className="text-sm font-semibold text-slate dark:text-slate-300">
+          Create local user
+        </h3>
+      </div>
+      <div className="lg:col-span-2">
+        <label htmlFor="create-user-email" className="text-sm font-semibold">
+          Email
+        </label>
+        <input
+          id="create-user-email"
+          value={form.email}
+          onChange={(event) =>
+            onChange((current) => ({ ...current, email: event.target.value }))
+          }
+          className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
+          type="email"
+          autoComplete="off"
+          required
+        />
+      </div>
+      <div>
+        <label htmlFor="create-user-password" className="text-sm font-semibold">
+          Initial password
+        </label>
+        <input
+          id="create-user-password"
+          value={form.password}
+          onChange={(event) =>
+            onChange((current) => ({ ...current, password: event.target.value }))
+          }
+          className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
+          type="password"
+          autoComplete="new-password"
+          minLength={8}
+          required
+        />
+        <p className="mt-1 text-xs text-slate dark:text-slate-300">
+          This password remains valid until the user or an administrator changes it.
+        </p>
+      </div>
+      <div>
+        <label htmlFor="create-user-role" className="text-sm font-semibold">
+          Base role
+        </label>
+        <select
+          id="create-user-role"
+          value={form.role}
+          onChange={(event) =>
+            onChange((current) => ({
+              ...current,
+              role: event.target.value as User['role'],
+            }))
+          }
+          className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
+        >
+          <option value="viewer">Viewer</option>
+          <option value="analyst">Analyst</option>
+          <option value="admin">Administrator</option>
+        </select>
+      </div>
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 sm:col-span-2 lg:col-span-3">
+        <label className="flex min-h-11 items-center gap-2 text-sm sm:min-h-0">
+          <input
+            type="checkbox"
+            className="h-5 w-5 sm:h-4 sm:w-4"
+            checked={form.is_active}
+            onChange={(event) =>
+              onChange((current) => ({
+                ...current,
+                is_active: event.target.checked,
+              }))
+            }
+          />
+          Account enabled
+        </label>
+        <label className="flex min-h-11 items-center gap-2 text-sm sm:min-h-0">
+          <input
+            type="checkbox"
+            className="h-5 w-5 sm:h-4 sm:w-4"
+            checked={form.is_approved}
+            onChange={(event) =>
+              onChange((current) => ({
+                ...current,
+                is_approved: event.target.checked,
+              }))
+            }
+          />
+          Access approved
+        </label>
+        {error && (
+          <p
+            role="alert"
+            aria-live="assertive"
+            aria-atomic="true"
+            className="text-sm text-red-600"
+          >
+            {error}
+          </p>
+        )}
+      </div>
+      <button
+        className="rounded bg-ink px-3 py-2 text-white lg:justify-self-end dark:bg-cyan dark:text-[#053c2e]"
+        disabled={pending}
+        aria-label={form.email
+          ? `Review creation of local user ${form.email}`
+          : 'Review local user creation'}
+      >
+        Review local user
+      </button>
+    </form>
   )
 }
 

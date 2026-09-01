@@ -274,7 +274,7 @@ function DashboardRssItemActions({
                                             ? 'Unstar'
                                             : 'Star'}
                                       </button>
-                                      {!canManage && <span className="text-xs text-amber-600 dark:text-amber-300">Viewer role is read-only.</span>}
+                                      {!canManage && <span className="text-xs text-amber-600 dark:text-amber-300">Your current access is read-only for intelligence items.</span>}
                                     </div>
                                     {itemActionFeedbackByItemId[detail.id] && (
                                       <p
@@ -430,7 +430,7 @@ function DashboardRssItemArticle({
                                             </span>
                                           )}
                                           {!canManage && (
-                                            <span className="text-xs text-slate dark:text-slate-300">Read-only for viewer role.</span>
+                                            <span className="text-xs text-slate dark:text-slate-300">Your current access is read-only for intelligence items.</span>
                                           )}
                                         </div>
                                       )}
@@ -477,7 +477,7 @@ function DashboardRssItemNotes({
                                         >
                                           {isItemActionPending('note', detail.id) ? 'Saving...' : 'Save Notes'}
                                         </button>
-                                        {!canManage && <span className="text-xs text-slate dark:text-slate-300">Read-only for viewer role.</span>}
+                                        {!canManage && <span className="text-xs text-slate dark:text-slate-300">Your current access is read-only for intelligence items.</span>}
                                       </div>
                                     </div>
   )

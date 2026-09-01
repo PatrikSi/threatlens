@@ -576,7 +576,9 @@ describe('AlertOccurrencesWorkspace operator workflows', () => {
     await click(findButton('Acknowledge'))
 
     expect(document.body.textContent).toContain('cannot update them')
-    expect(document.body.textContent).toContain('Verify the account role or API token scopes')
+    expect(document.body.textContent).toContain(
+      'Verify it has permission to manage alerts; API tokens also need write:alerts',
+    )
     expect(findButton('Acknowledge')?.hasAttribute('disabled')).toBe(true)
   })
 

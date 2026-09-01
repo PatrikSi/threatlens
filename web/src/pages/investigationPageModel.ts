@@ -1,6 +1,5 @@
 import { ApiError } from '../api/client'
 import type {
-  InvestigationAccountRole,
   InvestigationDetail,
   InvestigationDetailTab,
   InvestigationEvidenceType,
@@ -65,16 +64,15 @@ export interface InvestigationAccess {
 
 export function resolveInvestigationAccess(
   investigation: InvestigationDetail,
-  accountRole: InvestigationAccountRole | undefined,
+  canAuthor: boolean,
 ): InvestigationAccess {
-  const canAuthor = accountRole === 'admin' || accountRole === 'analyst'
   const isWriter = investigation.current_user_role === 'owner' || investigation.current_user_role === 'editor'
   const isOwner = investigation.current_user_role === 'owner'
   const archived = investigation.status === 'archived'
   let readOnlyReason: string | null = null
 
   if (!canAuthor) {
-    readOnlyReason = 'Your ThreatLens account role has read-only access to investigations.'
+    readOnlyReason = 'Your current access does not include permission to change investigations.'
   } else if (investigation.current_user_role === null) {
     readOnlyReason = 'This team-visible investigation is read-only until an owner adds you as a member.'
   } else if (investigation.current_user_role === 'viewer') {

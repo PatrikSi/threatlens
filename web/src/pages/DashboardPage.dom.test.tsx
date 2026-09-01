@@ -20,6 +20,7 @@ const dashboardPageDomMocks = vi.hoisted(() => ({
     data: {
       id: 'user-1',
       role: 'admin',
+      access: { permissions: ['*:*'] },
       features: {
         ai_summary_enabled: false,
         ai_relevance_enabled: false,

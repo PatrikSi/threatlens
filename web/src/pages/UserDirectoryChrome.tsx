@@ -26,9 +26,9 @@ const ROLE_DEFINITIONS: Array<{
     summary:
       'Operational user for daily feed management, investigation, and triage workflows.',
     capabilities: [
-      'Manage feeds and perform triage actions',
+      'Manage feeds, investigations, reports, triage actions, and content tags',
       'Configure personal notifications and API tokens',
-      'No access to user administration, audit logs, or global AI/tagging controls',
+      'No built-in access to user administration, audit logs, or global AI controls',
     ],
   },
   {
@@ -37,7 +37,7 @@ const ROLE_DEFINITIONS: Array<{
       'Personal monitoring and alert-triage access without feed-management or administrative control.',
     capabilities: [
       'View dashboard, feeds, available investigations, and other read surfaces',
-      'Manage personal alert rules, occurrence triage, notifications, and API tokens',
+      'Manage personal alert rules, occurrence triage, and API tokens; review notifications',
       'Cannot manage feeds, tags, users, audit logs, or global AI and identity settings',
     ],
   },
@@ -51,6 +51,7 @@ export function UserDirectoryHeader({
   isSuccess,
   createUserFormVisible,
   hasCreateUserDraft,
+  canManage,
   search,
   roleFilter,
   accountFilter,
@@ -66,6 +67,7 @@ export function UserDirectoryHeader({
   isSuccess: boolean
   createUserFormVisible: boolean
   hasCreateUserDraft: boolean
+  canManage: boolean
   search: string
   roleFilter: UserRoleFilter
   accountFilter: UserProvisioningFilter
@@ -108,19 +110,21 @@ export function UserDirectoryHeader({
       </div>
       {isSuccess && (
         <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:justify-end">
-          <button
-            type="button"
-            className="min-h-11 rounded bg-ink px-3 py-2 text-sm font-semibold text-white sm:min-h-0 dark:bg-cyan dark:text-[#053c2e]"
-            aria-expanded={createUserFormVisible}
-            aria-controls="create-user-form"
-            onClick={onToggleCreate}
-          >
-            {createUserFormVisible
-              ? 'Close form'
-              : hasCreateUserDraft
-                ? 'Resume local user draft'
-                : 'Add local user'}
-          </button>
+          {canManage && (
+            <button
+              type="button"
+              className="min-h-11 rounded bg-ink px-3 py-2 text-sm font-semibold text-white sm:min-h-0 dark:bg-cyan dark:text-[#053c2e]"
+              aria-expanded={createUserFormVisible}
+              aria-controls="create-user-form"
+              onClick={onToggleCreate}
+            >
+              {createUserFormVisible
+                ? 'Close form'
+                : hasCreateUserDraft
+                  ? 'Resume local user draft'
+                  : 'Add local user'}
+            </button>
+          )}
           <label htmlFor="user-account-filter" className="sr-only">
             Filter by provisioning source
           </label>
@@ -183,7 +187,8 @@ export function UserRoleDefinitions() {
       </summary>
       <p className="mt-3 text-sm text-slate dark:text-slate-300">
         Every user has one base role. Access roles can add additional
-        permissions through governance assignments.
+        permissions through governance assignments. Sealed administrative
+        controls still require the Administrator base role.
       </p>
       <div className="mt-3 grid gap-3 lg:grid-cols-3">
         {ROLE_DEFINITIONS.map((entry) => (
