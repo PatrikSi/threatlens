@@ -229,6 +229,7 @@ def require_roles(*roles: str):
         )
         return user
 
+    _checker._threatlens_required_roles = tuple(roles)
     return _checker
 
 

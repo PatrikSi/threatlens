@@ -91,6 +91,43 @@ def test_admin_can_manage_smtp_settings_without_secret_leakage(client: TestClien
     assert audit.metadata_json["recipient_count"] == 2
 
 
+def test_custom_integration_operator_permission_reaches_read_and_write_routes(
+    client: TestClient, auth_headers, seed_users
+):
+    role_response = client.post(
+        "/iam/roles",
+        headers=auth_headers["admin"],
+        json={
+            "key": f"smtp-operator-{uuid.uuid4().hex}",
+            "name": "SMTP operator",
+            "permissions": ["write:integrations"],
+        },
+    )
+    assert role_response.status_code == 201, role_response.text
+    role = role_response.json()
+    assignment = client.post(
+        f"/iam/users/{seed_users['viewer'].id}/role-assignments",
+        headers=auth_headers["admin"],
+        json={
+            "role_id": role["id"],
+            "expected_role_revision": role["revision"],
+        },
+    )
+    assert assignment.status_code == 201, assignment.text
+
+    connectors = client.get(
+        "/integrations/connectors", headers=auth_headers["viewer"]
+    )
+    assert connectors.status_code == 200, connectors.text
+    created = client.post(
+        "/integrations/smtp/hooks",
+        headers=auth_headers["viewer"],
+        json=_smtp_hook_payload("Delegated SMTP destination"),
+    )
+    assert created.status_code == 201, created.text
+    assert created.json()["name"] == "Delegated SMTP destination"
+
+
 def test_enabled_smtp_requires_recipient_emails(client: TestClient, auth_headers):
     update_response = client.put(
         "/integrations/smtp/settings",

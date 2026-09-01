@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_admin_user, require_token_scopes
+from app.api.deps import require_permissions
 from app.core.token_scopes import SCOPE_READ_OPERATIONS
 from app.db.session import get_db
 from app.models.user import User
@@ -26,8 +26,7 @@ router = APIRouter(prefix="/operations", tags=["operations"])
 def overview(
     response: Response,
     db: Session = Depends(get_db),
-    _admin: User = Depends(get_admin_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_READ_OPERATIONS)),
+    _reader: User = Depends(require_permissions(SCOPE_READ_OPERATIONS)),
 ):
     response.headers["Cache-Control"] = "no-store"
     return collect_operations_overview(db)
@@ -41,8 +40,7 @@ def runs(
     page: int = Query(default=1, ge=1, le=1_000_000),
     page_size: int = Query(default=50, ge=1, le=100),
     db: Session = Depends(get_db),
-    _admin: User = Depends(get_admin_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_READ_OPERATIONS)),
+    _reader: User = Depends(require_permissions(SCOPE_READ_OPERATIONS)),
 ):
     response.headers["Cache-Control"] = "no-store"
     return list_system_operation_runs(
@@ -58,8 +56,7 @@ def runs(
 def diagnostics(
     response: Response,
     db: Session = Depends(get_db),
-    _admin: User = Depends(get_admin_user),
-    _scope_user: User = Depends(require_token_scopes(SCOPE_READ_OPERATIONS)),
+    _reader: User = Depends(require_permissions(SCOPE_READ_OPERATIONS)),
 ):
     response.headers["Cache-Control"] = "no-store"
     return collect_operations_diagnostics(db)

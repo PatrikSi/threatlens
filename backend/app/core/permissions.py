@@ -52,7 +52,7 @@ PERMISSION_DEFINITIONS: tuple[PermissionDefinition, ...] = (
         "write:feeds",
         "Intelligence",
         "Manage feeds",
-        "Create, update, fetch, and remove feeds.",
+        "Create, update, import, and refresh feeds.",
         risk="elevated",
     ),
     _permission(
@@ -204,8 +204,8 @@ PERMISSION_DEFINITIONS: tuple[PermissionDefinition, ...] = (
     _permission(
         "write:operations",
         "Operations",
-        "Run operations",
-        "Start registered operational actions.",
+        "Reserved operations write access",
+        "Reserved for future operational actions; currently provides read-level Operations access only.",
         risk="critical",
     ),
     _permission(
@@ -225,7 +225,7 @@ PERMISSION_DEFINITIONS: tuple[PermissionDefinition, ...] = (
         "read:users",
         "Identity",
         "View users",
-        "View the user directory and identity-provider configuration.",
+        "View the user directory. Identity-provider configuration also requires the Administrator base role.",
         risk="elevated",
     ),
     _permission(

@@ -802,7 +802,7 @@ def test_private_and_team_visibility_are_membership_aware(
         json={"expected_version": team["version"], "title": "Viewer edit"},
     )
     assert denied_update.status_code == 403
-    assert "analyst or administrator" in denied_update.json()["detail"]
+    assert "write access to investigations" in denied_update.json()["detail"]
 
 
 def test_membership_roles_and_final_owner_invariant(

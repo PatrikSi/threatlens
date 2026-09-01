@@ -57,7 +57,7 @@ _REPORT_ADMIN_DETAIL = (
 )
 require_report_write = require_permissions(
     SCOPE_WRITE_REPORTS,
-    denial_detail="Report generation requires the analyst or administrator role.",
+    denial_detail="Report generation requires write access to reports.",
 )
 require_report_admin_read = require_permission_roles(
     SCOPE_READ_REPORTS,
