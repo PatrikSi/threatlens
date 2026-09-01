@@ -150,22 +150,22 @@ def test_live_manifest_is_the_exact_immutable_canonical_route_contract():
     attestation = validate_route_governance_manifest(app)
 
     assert ROUTE_GOVERNANCE_MANIFEST_VERSION == 1
-    assert len(ROUTE_GOVERNANCE_MANIFEST.entries) == 268
-    assert len({entry.operation for entry in ROUTE_GOVERNANCE_MANIFEST.entries}) == 268
+    assert len(ROUTE_GOVERNANCE_MANIFEST.entries) == 271
+    assert len({entry.operation for entry in ROUTE_GOVERNANCE_MANIFEST.entries}) == 271
     assert ROUTE_GOVERNANCE_MANIFEST_SHA256 == (
-        "f0ad5ce4799de6d4c1f701241e95cc36777906d5d9ad4428869f1b4e571e9bc6"
+        "fbf6f7eb139b1eee1eba91d9badc98323a08943db9a9a4d0aae814d23360cd9e"
     )
     assert attestation.manifest_sha256 == ROUTE_GOVERNANCE_MANIFEST_SHA256
-    assert attestation.declared_operation_count == 268
-    assert attestation.validated_operation_count == 268
-    assert attestation.request_context_operation_count == 108
+    assert attestation.declared_operation_count == 271
+    assert attestation.validated_operation_count == 271
+    assert attestation.request_context_operation_count == 109
     assert attestation.governance_class_counts == (
         ("captured_async", 5),
-        ("control_plane", 143),
+        ("control_plane", 145),
         ("dynamic_target", 7),
         ("egress_fenced", 1),
         ("public", 11),
-        ("request_context", 101),
+        ("request_context", 102),
     )
     with pytest.raises(FrozenInstanceError):
         attestation.manifest_version = 2  # type: ignore[misc]

@@ -52,11 +52,18 @@ def _is_sensitive_query_param(key: str) -> bool:
     lowered = key.lower().replace("-", "_")
     if lowered in SENSITIVE_QUERY_PARAMS:
         return True
-    return any(marker in lowered for marker in ("token", "secret", "password", "credential", "signature", "auth"))
+    return any(
+        marker in lowered
+        for marker in ("token", "secret", "password", "credential", "signature", "auth")
+    )
 
 
 def _normalize_hostname(hostname: str) -> str:
-    return hostname.strip().lower().rstrip(".")
+    normalized = hostname.strip().lower().rstrip(".")
+    try:
+        return str(ipaddress.ip_address(normalized))
+    except ValueError:
+        return normalized
 
 
 def extract_url_domain(url: str | None) -> str | None:
@@ -70,7 +77,14 @@ def extract_url_domain(url: str | None) -> str | None:
     return normalized[:253] or None
 
 
-def _build_netloc(*, scheme: str, hostname: str, port: int | None, username: str | None = None, password: str | None = None) -> str:
+def _build_netloc(
+    *,
+    scheme: str,
+    hostname: str,
+    port: int | None,
+    username: str | None = None,
+    password: str | None = None,
+) -> str:
     credentials = ""
     if username:
         credentials = username
@@ -78,11 +92,12 @@ def _build_netloc(*, scheme: str, hostname: str, port: int | None, username: str
             credentials = f"{credentials}:{password}"
         credentials = f"{credentials}@"
 
+    serialized_hostname = f"[{hostname}]" if ":" in hostname else hostname
     if (scheme == "http" and port == 80) or (scheme == "https" and port == 443):
-        return f"{credentials}{hostname}"
+        return f"{credentials}{serialized_hostname}"
     if port:
-        return f"{credentials}{hostname}:{port}"
-    return f"{credentials}{hostname}"
+        return f"{credentials}{serialized_hostname}:{port}"
+    return f"{credentials}{serialized_hostname}"
 
 
 def _is_ip_allowed(ip: ipaddress._BaseAddress, allow_private_network: bool) -> bool:
@@ -108,7 +123,7 @@ def normalize_url(url: str | None) -> str:
         return ""
 
     scheme = (parts.scheme or "http").lower()
-    hostname = (parts.hostname or "").lower()
+    hostname = _normalize_hostname((parts.hostname or "").lower())
     if not hostname:
         return ""
 
@@ -146,7 +161,7 @@ def normalize_feed_url(url: str | None) -> str:
         return ""
 
     scheme = (parts.scheme or "http").lower()
-    hostname = (parts.hostname or "").lower()
+    hostname = _normalize_hostname((parts.hostname or "").lower())
     if not hostname:
         return ""
 
@@ -267,7 +282,9 @@ def resolve_hostname_ips(hostname: str) -> set[ipaddress._BaseAddress]:
     return resolved
 
 
-def resolve_runtime_allowed_ips(hostname: str, allow_private_network: bool = False) -> list[str]:
+def resolve_runtime_allowed_ips(
+    hostname: str, allow_private_network: bool = False
+) -> list[str]:
     normalized = _normalize_hostname(hostname)
     if not normalized:
         return []
@@ -276,15 +293,22 @@ def resolve_runtime_allowed_ips(hostname: str, allow_private_network: bool = Fal
         ip = ipaddress.ip_address(normalized)
     except ValueError:
         resolved = resolve_hostname_ips(normalized)
-        allowed = [entry for entry in resolved if _is_ip_allowed(entry, allow_private_network)]
-        return [str(entry) for entry in sorted(allowed, key=lambda entry: (entry.version, str(entry)))]
+        allowed = [
+            entry for entry in resolved if _is_ip_allowed(entry, allow_private_network)
+        ]
+        return [
+            str(entry)
+            for entry in sorted(allowed, key=lambda entry: (entry.version, str(entry)))
+        ]
 
     if not _is_ip_allowed(ip, allow_private_network):
         return []
     return [str(ip)]
 
 
-def is_runtime_fetchable_url(url: str | None, allow_private_network: bool = False) -> bool:
+def is_runtime_fetchable_url(
+    url: str | None, allow_private_network: bool = False
+) -> bool:
     if not is_fetchable_url(url, allow_private_network=allow_private_network):
         return False
 
@@ -300,7 +324,11 @@ def is_runtime_fetchable_url(url: str | None, allow_private_network: bool = Fals
     try:
         ip = ipaddress.ip_address(hostname)
     except ValueError:
-        return bool(resolve_runtime_allowed_ips(hostname, allow_private_network=allow_private_network))
+        return bool(
+            resolve_runtime_allowed_ips(
+                hostname, allow_private_network=allow_private_network
+            )
+        )
 
     return _is_ip_allowed(ip, allow_private_network)
 

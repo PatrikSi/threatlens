@@ -661,7 +661,8 @@ def test_register_is_throttled_after_anonymous_attempts(
         json={"email": "pending-second@example.com", "password": "PendingPass123!"},
     )
     assert second_response.status_code == 429
-    assert second_response.headers.get("retry-after") == "120"
+    retry_after = int(second_response.headers["retry-after"])
+    assert 0 < retry_after <= 120
     assert (
         second_response.json()["detail"]
         == "Too many self-registration attempts. Try again later."

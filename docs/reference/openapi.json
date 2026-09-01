@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "1.10.0",
-    "x-threatlens-contract-sha256": "5494056f11d4a9b3457674917cfaa22b27ffd3709d2378a1d05e9c61eda5622d"
+    "x-threatlens-contract-sha256": "eb4337beff2f23d9c2fbdac27f5aa451660acabe67fd5972527c6c4aaabc4459"
   },
   "servers": [
     {
@@ -13315,6 +13315,100 @@
         ]
       }
     },
+    "/v1/investigations/{investigation_id}/evidence-candidates": {
+      "post": {
+        "tags": [
+          "investigations"
+        ],
+        "summary": "Post Investigation Evidence Candidates",
+        "operationId": "post_investigation_evidence_candidates_v1_investigations__investigation_id__evidence_candidates_post",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "investigation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Investigation Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InvestigationEvidenceCandidateSearch"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvestigationEvidenceCandidateListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "write:investigations"
+        ]
+      }
+    },
     "/v1/investigations/{investigation_id}/evidence/{evidence_id}": {
       "delete": {
         "tags": [
@@ -16712,6 +16806,159 @@
             "SessionCookieAuth": []
           }
         ],
+        "x-threatlens-required-token-scopes": [
+          "read:operations"
+        ]
+      }
+    },
+    "/v1/operations/workers": {
+      "get": {
+        "tags": [
+          "operations"
+        ],
+        "summary": "Workers",
+        "operationId": "workers_v1_operations_workers_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationsWorkerTopologyResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "x-threatlens-required-token-scopes": [
+          "read:operations"
+        ]
+      }
+    },
+    "/v1/operations/health-history": {
+      "get": {
+        "tags": [
+          "operations"
+        ],
+        "summary": "Health History",
+        "operationId": "health_history_v1_operations_health_history_get",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "window",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "1h",
+                "6h",
+                "24h",
+                "7d",
+                "30d"
+              ],
+              "type": "string",
+              "default": "24h",
+              "title": "Window"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationsHealthHistoryResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
         "x-threatlens-required-token-scopes": [
           "read:operations"
         ]
@@ -36543,6 +36790,255 @@
         ],
         "title": "InvestigationEvidenceAdd"
       },
+      "InvestigationEvidenceCandidate": {
+        "properties": {
+          "source_type": {
+            "type": "string",
+            "enum": [
+              "item",
+              "ioc",
+              "report",
+              "alert_occurrence"
+            ],
+            "title": "Source Type"
+          },
+          "source_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Source Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          },
+          "observed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observed At"
+          },
+          "source_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Label"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Metadata"
+          },
+          "already_attached": {
+            "type": "boolean",
+            "title": "Already Attached"
+          },
+          "match_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Match Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source_type",
+          "source_id",
+          "title",
+          "description",
+          "url",
+          "observed_at",
+          "source_label",
+          "metadata",
+          "already_attached",
+          "match_reason"
+        ],
+        "title": "InvestigationEvidenceCandidate"
+      },
+      "InvestigationEvidenceCandidateListResponse": {
+        "properties": {
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/InvestigationEvidenceCandidate"
+            },
+            "type": "array",
+            "title": "Candidates"
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total",
+            "description": "Exact candidate count unless total_truncated is true, in which case this is a lower bound."
+          },
+          "total_truncated": {
+            "type": "boolean",
+            "title": "Total Truncated",
+            "description": "Whether candidate counting stopped at a bounded per-source limit."
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Page"
+          },
+          "page_size": {
+            "type": "integer",
+            "maximum": 50.0,
+            "minimum": 1.0,
+            "title": "Page Size"
+          },
+          "query_analysis": {
+            "$ref": "#/components/schemas/InvestigationEvidenceQueryAnalysis"
+          },
+          "source_capabilities": {
+            "items": {
+              "$ref": "#/components/schemas/InvestigationEvidenceSourceCapability"
+            },
+            "type": "array",
+            "title": "Source Capabilities"
+          },
+          "effective_range": {
+            "type": "string",
+            "enum": [
+              "24h",
+              "7d",
+              "30d",
+              "90d"
+            ],
+            "title": "Effective Range"
+          },
+          "effective_since": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Effective Since"
+          },
+          "effective_until": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Effective Until"
+          }
+        },
+        "type": "object",
+        "required": [
+          "candidates",
+          "total",
+          "total_truncated",
+          "page",
+          "page_size",
+          "query_analysis",
+          "source_capabilities",
+          "effective_range",
+          "effective_since",
+          "effective_until"
+        ],
+        "title": "InvestigationEvidenceCandidateListResponse"
+      },
+      "InvestigationEvidenceCandidateSearch": {
+        "properties": {
+          "q": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Q"
+          },
+          "source_types": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "item",
+                "ioc",
+                "report",
+                "alert_occurrence"
+              ]
+            },
+            "type": "array",
+            "maxItems": 4,
+            "title": "Source Types"
+          },
+          "range": {
+            "type": "string",
+            "enum": [
+              "24h",
+              "7d",
+              "30d",
+              "90d"
+            ],
+            "title": "Range",
+            "default": "7d"
+          },
+          "page": {
+            "type": "integer",
+            "maximum": 20.0,
+            "minimum": 1.0,
+            "title": "Page",
+            "default": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "maximum": 50.0,
+            "minimum": 1.0,
+            "title": "Page Size",
+            "default": 20
+          },
+          "as_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "InvestigationEvidenceCandidateSearch"
+      },
       "InvestigationEvidenceListResponse": {
         "properties": {
           "evidence": {
@@ -36577,6 +37073,50 @@
           "page_size"
         ],
         "title": "InvestigationEvidenceListResponse"
+      },
+      "InvestigationEvidenceQueryAnalysis": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "empty",
+              "text",
+              "url",
+              "ioc",
+              "uuid"
+            ],
+            "title": "Kind"
+          },
+          "normalized_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Normalized Value"
+          },
+          "detected_ioc_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detected Ioc Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "normalized_value",
+          "detected_ioc_type"
+        ],
+        "title": "InvestigationEvidenceQueryAnalysis"
       },
       "InvestigationEvidenceResponse": {
         "properties": {
@@ -36674,6 +37214,50 @@
           "created_at"
         ],
         "title": "InvestigationEvidenceResponse"
+      },
+      "InvestigationEvidenceSourceCapability": {
+        "properties": {
+          "source_type": {
+            "type": "string",
+            "enum": [
+              "item",
+              "ioc",
+              "report",
+              "alert_occurrence"
+            ],
+            "title": "Source Type"
+          },
+          "available": {
+            "type": "boolean",
+            "title": "Available"
+          },
+          "unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailable Reason"
+          },
+          "required_permissions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Required Permissions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source_type",
+          "available",
+          "unavailable_reason",
+          "required_permissions"
+        ],
+        "title": "InvestigationEvidenceSourceCapability"
       },
       "InvestigationListResponse": {
         "properties": {
@@ -40377,9 +40961,9 @@
         "properties": {
           "schema_version": {
             "type": "integer",
-            "const": 1,
+            "const": 2,
             "title": "Schema Version",
-            "default": 1
+            "default": 2
           },
           "generated_at": {
             "type": "string",
@@ -40388,6 +40972,12 @@
           },
           "overview": {
             "$ref": "#/components/schemas/OperationsOverviewResponse"
+          },
+          "worker_topology": {
+            "$ref": "#/components/schemas/OperationsWorkerTopologyResponse"
+          },
+          "health_history": {
+            "$ref": "#/components/schemas/OperationsHealthHistoryResponse"
           },
           "recent_runs": {
             "items": {
@@ -40405,10 +40995,464 @@
         "required": [
           "generated_at",
           "overview",
+          "worker_topology",
+          "health_history",
           "recent_runs",
           "recent_runs_truncated"
         ],
         "title": "OperationsDiagnosticsResponse"
+      },
+      "OperationsHealthHistoryCoverage": {
+        "properties": {
+          "requested_start": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Requested Start"
+          },
+          "requested_end": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Requested End"
+          },
+          "first_sample_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Sample At"
+          },
+          "last_sample_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Sample At"
+          },
+          "expected_sample_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Expected Sample Count",
+            "default": 0
+          },
+          "actual_sample_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Actual Sample Count",
+            "default": 0
+          },
+          "returned_sample_count": {
+            "type": "integer",
+            "maximum": 720.0,
+            "minimum": 0.0,
+            "title": "Returned Sample Count",
+            "default": 0
+          },
+          "missing_sample_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Missing Sample Count",
+            "default": 0
+          },
+          "coverage_percent": {
+            "type": "number",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Coverage Percent",
+            "default": 0
+          },
+          "gap_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Gap Count",
+            "default": 0
+          },
+          "returned_gap_interval_count": {
+            "type": "integer",
+            "maximum": 720.0,
+            "minimum": 0.0,
+            "title": "Returned Gap Interval Count",
+            "default": 0
+          },
+          "gap_intervals": {
+            "items": {
+              "$ref": "#/components/schemas/OperationsHealthHistoryGapInterval"
+            },
+            "type": "array",
+            "maxItems": 720,
+            "title": "Gap Intervals"
+          },
+          "gap_intervals_truncated": {
+            "type": "boolean",
+            "title": "Gap Intervals Truncated",
+            "default": false
+          },
+          "largest_gap_seconds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Largest Gap Seconds"
+          },
+          "collection_stale": {
+            "type": "boolean",
+            "title": "Collection Stale",
+            "default": true
+          },
+          "source_anomaly_sample_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Source Anomaly Sample Count",
+            "default": 0
+          },
+          "returned_anomaly_sample_count": {
+            "type": "integer",
+            "maximum": 720.0,
+            "minimum": 0.0,
+            "title": "Returned Anomaly Sample Count",
+            "default": 0
+          },
+          "source_transition_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Source Transition Count",
+            "default": 0
+          },
+          "returned_transition_count": {
+            "type": "integer",
+            "maximum": 720.0,
+            "minimum": 0.0,
+            "title": "Returned Transition Count",
+            "default": 0
+          },
+          "anomaly_evidence_truncated": {
+            "type": "boolean",
+            "title": "Anomaly Evidence Truncated",
+            "default": false
+          },
+          "transition_evidence_truncated": {
+            "type": "boolean",
+            "title": "Transition Evidence Truncated",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "requested_start",
+          "requested_end"
+        ],
+        "title": "OperationsHealthHistoryCoverage"
+      },
+      "OperationsHealthHistoryGapInterval": {
+        "properties": {
+          "start_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Start At"
+          },
+          "end_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "End At"
+          },
+          "duration_seconds": {
+            "type": "integer",
+            "maximum": 3200000.0,
+            "minimum": 0.0,
+            "title": "Duration Seconds"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "leading",
+              "internal",
+              "trailing",
+              "window"
+            ],
+            "title": "Kind"
+          }
+        },
+        "type": "object",
+        "required": [
+          "start_at",
+          "end_at",
+          "duration_seconds",
+          "kind"
+        ],
+        "title": "OperationsHealthHistoryGapInterval"
+      },
+      "OperationsHealthHistoryPoint": {
+        "properties": {
+          "sampled_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Sampled At"
+          },
+          "overall_status": {
+            "type": "string",
+            "enum": [
+              "healthy",
+              "degraded",
+              "critical",
+              "unavailable",
+              "unknown"
+            ],
+            "title": "Overall Status"
+          },
+          "component_statuses": {
+            "additionalProperties": {
+              "type": "string",
+              "enum": [
+                "healthy",
+                "degraded",
+                "critical",
+                "unavailable",
+                "unknown"
+              ]
+            },
+            "type": "object",
+            "maxProperties": 16,
+            "title": "Component Statuses"
+          },
+          "worker_status": {
+            "type": "string",
+            "enum": [
+              "healthy",
+              "degraded",
+              "critical",
+              "unavailable",
+              "unknown"
+            ],
+            "title": "Worker Status"
+          },
+          "worker_reason": {
+            "type": "string",
+            "enum": [
+              "healthy",
+              "no_replies",
+              "probe_failed",
+              "queue_inventory_unavailable",
+              "partial_inventory",
+              "missing_consumers",
+              "canary_dispatch_unavailable",
+              "execution_evidence_missing",
+              "execution_stalled",
+              "saturated"
+            ],
+            "title": "Worker Reason"
+          },
+          "responding_worker_count": {
+            "type": "integer",
+            "maximum": 64.0,
+            "minimum": 0.0,
+            "title": "Responding Worker Count",
+            "default": 0
+          },
+          "observed_worker_count": {
+            "type": "integer",
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Observed Worker Count",
+            "default": 0
+          },
+          "worker_inventory_truncated": {
+            "type": "boolean",
+            "title": "Worker Inventory Truncated",
+            "default": false
+          },
+          "total_capacity": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Capacity"
+          },
+          "active_count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Count"
+          },
+          "reserved_count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reserved Count"
+          },
+          "scheduled_count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scheduled Count"
+          },
+          "missing_queues": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 16,
+            "title": "Missing Queues"
+          },
+          "stale_execution_queues": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 16,
+            "title": "Stale Execution Queues"
+          },
+          "backlog_pending_count": {
+            "type": "integer",
+            "maximum": 2000000000.0,
+            "minimum": 0.0,
+            "title": "Backlog Pending Count",
+            "default": 0
+          },
+          "backlog_stale_count": {
+            "type": "integer",
+            "maximum": 2000000000.0,
+            "minimum": 0.0,
+            "title": "Backlog Stale Count",
+            "default": 0
+          },
+          "critical_issue_count": {
+            "type": "integer",
+            "maximum": 2000000000.0,
+            "minimum": 0.0,
+            "title": "Critical Issue Count",
+            "default": 0
+          },
+          "warning_issue_count": {
+            "type": "integer",
+            "maximum": 2000000000.0,
+            "minimum": 0.0,
+            "title": "Warning Issue Count",
+            "default": 0
+          },
+          "issue_codes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 32,
+            "title": "Issue Codes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sampled_at",
+          "overall_status",
+          "worker_status",
+          "worker_reason"
+        ],
+        "title": "OperationsHealthHistoryPoint"
+      },
+      "OperationsHealthHistoryResponse": {
+        "properties": {
+          "generated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Generated At"
+          },
+          "window": {
+            "type": "string",
+            "enum": [
+              "1h",
+              "6h",
+              "24h",
+              "7d",
+              "30d"
+            ],
+            "title": "Window"
+          },
+          "sample_interval_seconds": {
+            "type": "integer",
+            "const": 300,
+            "title": "Sample Interval Seconds",
+            "default": 300
+          },
+          "effective_resolution_seconds": {
+            "type": "integer",
+            "minimum": 300.0,
+            "title": "Effective Resolution Seconds",
+            "default": 300
+          },
+          "downsampling_strategy": {
+            "type": "string",
+            "enum": [
+              "none",
+              "transition_anomaly_preserving"
+            ],
+            "title": "Downsampling Strategy",
+            "default": "none"
+          },
+          "retention_days": {
+            "type": "integer",
+            "maximum": 3650.0,
+            "minimum": 1.0,
+            "title": "Retention Days"
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/OperationsHealthHistoryCoverage"
+          },
+          "samples": {
+            "items": {
+              "$ref": "#/components/schemas/OperationsHealthHistoryPoint"
+            },
+            "type": "array",
+            "maxItems": 720,
+            "title": "Samples"
+          }
+        },
+        "type": "object",
+        "required": [
+          "generated_at",
+          "window",
+          "retention_days",
+          "coverage"
+        ],
+        "title": "OperationsHealthHistoryResponse"
       },
       "OperationsIssue": {
         "properties": {
@@ -40642,6 +41686,615 @@
           "status"
         ],
         "title": "OperationsStorageIndicator"
+      },
+      "OperationsWorkerNode": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "queues": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 16,
+            "title": "Queues"
+          },
+          "responded_to": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "ping",
+                "active_queues",
+                "stats",
+                "active",
+                "reserved",
+                "scheduled"
+              ]
+            },
+            "type": "array",
+            "maxItems": 6,
+            "title": "Responded To"
+          },
+          "missing_responses": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "ping",
+                "active_queues",
+                "stats",
+                "active",
+                "reserved",
+                "scheduled"
+              ]
+            },
+            "type": "array",
+            "maxItems": 6,
+            "title": "Missing Responses"
+          },
+          "ping_ok": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ping Ok"
+          },
+          "capacity": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capacity"
+          },
+          "active_count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Count"
+          },
+          "reserved_count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reserved Count"
+          },
+          "scheduled_count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scheduled Count"
+          },
+          "processed_total": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1000000000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Processed Total"
+          },
+          "uptime_seconds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1000000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uptime Seconds"
+          },
+          "saturated": {
+            "type": "boolean",
+            "title": "Saturated",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "OperationsWorkerNode"
+      },
+      "OperationsWorkerProbeEvidence": {
+        "properties": {
+          "probe": {
+            "type": "string",
+            "enum": [
+              "ping",
+              "active_queues",
+              "stats",
+              "active",
+              "reserved",
+              "scheduled"
+            ],
+            "title": "Probe"
+          },
+          "quality": {
+            "type": "string",
+            "enum": [
+              "complete",
+              "partial",
+              "no_replies",
+              "failed",
+              "invalid"
+            ],
+            "title": "Quality"
+          },
+          "responder_count": {
+            "type": "integer",
+            "maximum": 64.0,
+            "minimum": 0.0,
+            "title": "Responder Count",
+            "default": 0
+          },
+          "observed_responder_count": {
+            "type": "integer",
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Observed Responder Count",
+            "default": 0
+          },
+          "responses_truncated": {
+            "type": "boolean",
+            "title": "Responses Truncated",
+            "default": false
+          },
+          "missing_responder_count": {
+            "type": "integer",
+            "maximum": 64.0,
+            "minimum": 0.0,
+            "title": "Missing Responder Count",
+            "default": 0
+          },
+          "invalid_response_count": {
+            "type": "integer",
+            "maximum": 64.0,
+            "minimum": 0.0,
+            "title": "Invalid Response Count",
+            "default": 0
+          },
+          "duration_ms": {
+            "type": "integer",
+            "maximum": 120000.0,
+            "minimum": 0.0,
+            "title": "Duration Ms",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "probe",
+          "quality"
+        ],
+        "title": "OperationsWorkerProbeEvidence"
+      },
+      "OperationsWorkerQueue": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Key"
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Label"
+          },
+          "service_hint": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Service Hint"
+          },
+          "required": {
+            "type": "boolean",
+            "title": "Required"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "healthy",
+              "degraded",
+              "critical",
+              "unavailable",
+              "unknown"
+            ],
+            "title": "Status"
+          },
+          "consumers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 64,
+            "title": "Consumers"
+          },
+          "consumer_count": {
+            "type": "integer",
+            "maximum": 64.0,
+            "minimum": 0.0,
+            "title": "Consumer Count",
+            "default": 0
+          },
+          "capacity": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capacity"
+          },
+          "active_count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Count"
+          },
+          "reserved_count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reserved Count"
+          },
+          "scheduled_count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scheduled Count"
+          },
+          "saturated": {
+            "type": "boolean",
+            "title": "Saturated",
+            "default": false
+          },
+          "execution_reason": {
+            "type": "string",
+            "enum": [
+              "fresh",
+              "missing",
+              "stale",
+              "invalid",
+              "future",
+              "redis_unavailable"
+            ],
+            "title": "Execution Reason"
+          },
+          "execution_heartbeat_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Heartbeat At"
+          },
+          "execution_age_seconds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1000000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Age Seconds"
+          },
+          "execution_worker": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Worker"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "label",
+          "service_hint",
+          "required",
+          "status",
+          "execution_reason"
+        ],
+        "title": "OperationsWorkerQueue"
+      },
+      "OperationsWorkerTopologyResponse": {
+        "properties": {
+          "generated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Generated At"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "healthy",
+              "degraded",
+              "critical",
+              "unavailable",
+              "unknown"
+            ],
+            "title": "Status"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "healthy",
+              "no_replies",
+              "probe_failed",
+              "queue_inventory_unavailable",
+              "partial_inventory",
+              "missing_consumers",
+              "canary_dispatch_unavailable",
+              "execution_evidence_missing",
+              "execution_stalled",
+              "saturated"
+            ],
+            "title": "Reason"
+          },
+          "timeout_seconds": {
+            "type": "number",
+            "maximum": 8.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Timeout Seconds"
+          },
+          "duration_ms": {
+            "type": "integer",
+            "maximum": 600000.0,
+            "minimum": 0.0,
+            "title": "Duration Ms",
+            "default": 0
+          },
+          "responding_worker_count": {
+            "type": "integer",
+            "maximum": 64.0,
+            "minimum": 0.0,
+            "title": "Responding Worker Count",
+            "default": 0
+          },
+          "observed_worker_count": {
+            "type": "integer",
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Observed Worker Count",
+            "default": 0
+          },
+          "worker_inventory_truncated": {
+            "type": "boolean",
+            "title": "Worker Inventory Truncated",
+            "default": false
+          },
+          "total_capacity": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Capacity"
+          },
+          "active_count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Count"
+          },
+          "reserved_count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reserved Count"
+          },
+          "scheduled_count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scheduled Count"
+          },
+          "missing_queues": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 16,
+            "title": "Missing Queues"
+          },
+          "stale_execution_queues": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 16,
+            "title": "Stale Execution Queues"
+          },
+          "missing_execution_evidence_queues": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 16,
+            "title": "Missing Execution Evidence Queues"
+          },
+          "canary_dispatch_ok": {
+            "type": "boolean",
+            "title": "Canary Dispatch Ok"
+          },
+          "canary_dispatch_reason": {
+            "type": "string",
+            "enum": [
+              "healthy",
+              "missing",
+              "stale",
+              "invalid",
+              "future",
+              "redis_unavailable"
+            ],
+            "title": "Canary Dispatch Reason"
+          },
+          "canary_dispatch_heartbeat_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Canary Dispatch Heartbeat At"
+          },
+          "canary_dispatch_age_seconds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1000000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Canary Dispatch Age Seconds"
+          },
+          "probes": {
+            "items": {
+              "$ref": "#/components/schemas/OperationsWorkerProbeEvidence"
+            },
+            "type": "array",
+            "maxItems": 6,
+            "title": "Probes"
+          },
+          "workers": {
+            "items": {
+              "$ref": "#/components/schemas/OperationsWorkerNode"
+            },
+            "type": "array",
+            "maxItems": 64,
+            "title": "Workers"
+          },
+          "queues": {
+            "items": {
+              "$ref": "#/components/schemas/OperationsWorkerQueue"
+            },
+            "type": "array",
+            "maxItems": 16,
+            "title": "Queues"
+          }
+        },
+        "type": "object",
+        "required": [
+          "generated_at",
+          "status",
+          "reason",
+          "timeout_seconds",
+          "canary_dispatch_ok",
+          "canary_dispatch_reason"
+        ],
+        "title": "OperationsWorkerTopologyResponse"
       },
       "PermissionResponse": {
         "properties": {

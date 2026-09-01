@@ -1,4 +1,9 @@
-from app.services.url_utils import is_fetchable_url, normalize_feed_url, normalize_url, redact_feed_url
+from app.services.url_utils import (
+    is_fetchable_url,
+    normalize_feed_url,
+    normalize_url,
+    redact_feed_url,
+)
 
 
 def test_normalize_url_removes_tracking_and_sorts_query():
@@ -22,7 +27,10 @@ def test_normalize_feed_url_preserves_userinfo_for_authenticated_feeds():
 def test_redact_feed_url_hides_credentials_and_sensitive_query_values():
     url = "https://alice:secret@example.com:443/path/feed.xml?token=abc123&source=partner&api_key=xyz"
     redacted = redact_feed_url(url)
-    assert redacted == "https://example.com/path/feed.xml?token=REDACTED&source=partner&api_key=REDACTED"
+    assert (
+        redacted
+        == "https://example.com/path/feed.xml?token=REDACTED&source=partner&api_key=REDACTED"
+    )
 
 
 def test_redact_feed_url_leaves_non_urls_unchanged():
@@ -32,6 +40,12 @@ def test_redact_feed_url_leaves_non_urls_unchanged():
 def test_normalize_url_handles_default_and_empty_path():
     url = "http://Example.com"
     assert normalize_url(url) == "http://example.com/"
+
+
+def test_normalize_url_preserves_bracketed_ipv6_authorities():
+    assert normalize_url("https://[2001:0DB8::7]:443/path/") == (
+        "https://[2001:db8::7]/path"
+    )
 
 
 def test_normalize_url_returns_empty_for_invalid_port():

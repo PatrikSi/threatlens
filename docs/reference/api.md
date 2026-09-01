@@ -5,7 +5,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ## Published Contract
 
 - Schema version: `1.10.0`
-- OpenAPI contract anchor: `openapi-sha256:5494056f11d4a9b3457674917cfaa22b27ffd3709d2378a1d05e9c61eda5622d`
+- OpenAPI contract anchor: `openapi-sha256:eb4337beff2f23d9c2fbdac27f5aa451660acabe67fd5972527c6c4aaabc4459`
 - API service base path: `/v1`
 - Web proxy base path: `/api/v1`
 - Bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`.
@@ -1260,6 +1260,14 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `investigation_id` (path, required): string
 - Request body: `application/json` -> InvestigationEvidenceAdd
 - Responses: `200` `application/json` -> InvestigationDetailResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/investigations/{investigation_id}/evidence-candidates`
+- Summary: Post Investigation Evidence Candidates
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:investigations`
+- Parameters:
+  - `investigation_id` (path, required): string
+- Request body: `application/json` -> InvestigationEvidenceCandidateSearch
+- Responses: `200` `application/json` -> InvestigationEvidenceCandidateListResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `DELETE /v1/investigations/{investigation_id}/evidence/{evidence_id}`
 - Summary: Delete Investigation Evidence
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -1497,6 +1505,13 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:operations`
 - Responses: `200` `application/json` -> OperationsDiagnosticsResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `GET /v1/operations/health-history`
+- Summary: Health History
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:operations`
+- Parameters:
+  - `window` (query, optional): string ('1h', '6h', '24h', '7d', '30d')
+- Responses: `200` `application/json` -> OperationsHealthHistoryResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/operations/overview`
 - Summary: Overview
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -1512,6 +1527,11 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `page` (query, optional): integer
   - `page_size` (query, optional): integer
 - Responses: `200` `application/json` -> SystemOperationRunListResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `GET /v1/operations/workers`
+- Summary: Workers
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:operations`
+- Responses: `200` `application/json` -> OperationsWorkerTopologyResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 
 ## Reports
 

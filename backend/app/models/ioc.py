@@ -25,6 +25,14 @@ class IOC(Base):
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
+Index(
+    "ix_iocs_value_norm_trgm",
+    func.lower(IOC.value_norm).label("value_norm_lower"),
+    postgresql_using="gin",
+    postgresql_ops={"value_norm_lower": "gin_trgm_ops"},
+)
+
+
 class ItemIOC(Base):
     __tablename__ = "item_iocs"
 

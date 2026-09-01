@@ -15,6 +15,7 @@ from app.models.audit_log import AuditLog
 from app.models.governance_operation_receipt import GovernanceOperationReceipt
 from app.models.integration import IntegrationRun
 from app.models.report import Report
+from app.models.system_health_sample import SystemHealthSample
 from app.models.tag import TagFeedbackEvent
 from app.services.auth_sessions import cleanup_auth_sessions
 from app.services.audit import record_audit
@@ -52,6 +53,7 @@ class HistoryMaintenanceResult:
     action_approval_requests_deleted: int
     action_execution_receipts_deleted: int
     action_operation_receipts_deleted: int
+    system_health_samples_deleted: int
 
 
 def prune_application_history(
@@ -163,6 +165,19 @@ def prune_application_history(
         action_approval_requests_deleted=approval_requests_deleted,
         action_execution_receipts_deleted=execution_receipts_deleted,
         action_operation_receipts_deleted=action_operation_receipts_deleted,
+        system_health_samples_deleted=_delete_older_than(
+            db,
+            SystemHealthSample,
+            SystemHealthSample.sampled_at,
+            current_time
+            - timedelta(
+                days=max(
+                    1,
+                    int(settings.operations_health_history_retention_days),
+                )
+            ),
+            effective_batch_size,
+        ),
     )
     if deleted.audit_logs_deleted:
         record_audit(
