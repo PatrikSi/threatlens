@@ -710,12 +710,18 @@ role.
 
 UI elements:
 
-- Overall readiness and prioritized issue summary
-- API, PostgreSQL, Redis, Celery Beat, worker-queue, migration, and encryption checks
-- Queue/backlog age and depth projections with explicit unavailable states
-- Storage growth and retained-history estimates
-- Recovery archive, verification, drill, quarantine, and last-operation status
-- On-demand bounded diagnostics with a correlation ID and safe failure details
+- Overall health summary with accessible icon-and-text healthy, degraded, critical,
+  unavailable, and unknown states
+- Prioritized findings with impact and recommended operator action
+- PostgreSQL, Redis, worker-queue, scheduler, and encrypted-data checks, including
+  worker count, queue coverage, heartbeat age, freshness thresholds, scan coverage,
+  and unreadable-field counts when reported by the API
+- Queue depth, active and stale work, failed-record counts, oldest pending age,
+  and the configured warning threshold
+- PostgreSQL logical size plus application-filesystem capacity and available-space
+  indicators; host or managed-database capacity remains an external concern
+- Recovery evidence with outcome, recorded time, duration, and source
+- Paginated operation history and an on-demand bounded, redacted diagnostics export
 
 API calls:
 
