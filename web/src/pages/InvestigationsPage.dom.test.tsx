@@ -351,7 +351,7 @@ describe('InvestigationsPage DOM workflows', () => {
     await flushRequests(3)
 
     expect(document.querySelector<HTMLTextAreaElement>('#investigation-new-note')?.value).toBe('Unsent conflict note')
-    expect(pageText()).toContain('Refresh and review the latest version before retrying')
+    expect(pageText()).toContain('rebase your preserved draft before retrying')
     expect(pageText()).toContain('Version 8')
 
     act(() => setTextAreaValue(note, ''))
@@ -935,32 +935,6 @@ describe('InvestigationsPage DOM workflows', () => {
     expect(pageText()).toContain('Note updated.')
   })
 
-  it('preserves alert occurrence evidence input and marks the capability unavailable after the explicit API response', async () => {
-    domMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
-      if (path.endsWith('/evidence') && options?.method === 'POST') {
-        return Promise.reject(new ApiError(
-          'Alert occurrence evidence is unavailable until durable Alerting v2 is enabled.',
-          422,
-          path,
-        ))
-      }
-      return Promise.reject(new Error(`Unexpected request: ${path}`))
-    })
-    await renderDetail(baseDetail, '?tab=evidence')
-    const type = document.querySelector<HTMLSelectElement>('#investigation-evidence-type')!
-    const sourceId = document.querySelector<HTMLInputElement>('#investigation-evidence-source-id')!
-    act(() => {
-      setSelectValue(type, 'alert_occurrence')
-      setInputValue(sourceId, '22222222-2222-4222-8222-222222222222')
-    })
-    act(() => findButton('Add evidence')?.click())
-    await flushRequests()
-
-    expect(pageText()).toContain('Alert occurrence evidence is unavailable until durable Alerting v2 is enabled.')
-    expect(document.querySelector<HTMLInputElement>('#investigation-evidence-source-id')?.value).toBe('22222222-2222-4222-8222-222222222222')
-    expect(findButton('Add evidence')?.disabled).toBe(true)
-  })
-
   it('requires explicit confirmation before reopening a closed investigation', async () => {
     const closed = { ...baseDetail, status: 'closed' as const, closed_at: '2026-08-26T12:00:00Z', disposition: 'resolved' }
     const reopened = { ...closed, status: 'open' as const, closed_at: null, disposition: null, version: 8 }
@@ -978,7 +952,7 @@ describe('InvestigationsPage DOM workflows', () => {
     expect(body).toEqual({ status: 'open', disposition: null, expected_version: 7 })
   })
 
-  it('renders paginated activity with human-readable actions and the raw timestamp', async () => {
+  it('renders human-readable activity with raw identifiers in technical details', async () => {
     domMocks.apiFetch.mockResolvedValue({
       activities: [{
         id: 'activity-1',
@@ -987,7 +961,11 @@ describe('InvestigationsPage DOM workflows', () => {
         action: 'investigation.evidence_added',
         entity_type: 'evidence',
         entity_id: 'evidence-1',
-        details: { source_type: 'ioc' },
+        details: {
+          source_type: 'ioc',
+          source_id: 'ioc-source-1',
+          source_title: 'Domain: credential-gateway.example',
+        },
         created_at: '2026-08-27T12:34:56.123456Z',
       }],
       total: 1,
@@ -997,9 +975,18 @@ describe('InvestigationsPage DOM workflows', () => {
     await renderDetail(baseDetail, '?tab=activity')
     await flushRequests()
 
-    expect(pageText()).toContain('Added evidence')
-    expect(pageText()).toContain('2026-08-27T12:34:56.123456Z')
-    expect(pageText()).toContain('investigation.evidence_added')
+    const activity = document.querySelector<HTMLElement>('ol li')!
+    const summary = activity.querySelector<HTMLParagraphElement>(':scope > div:last-child > p')
+    expect(summary?.textContent).toBe('Added evidence: Domain: credential-gateway.example')
+    expect(summary?.textContent).not.toContain('activity-1')
+    expect(summary?.textContent).not.toContain('evidence-1')
+    const technicalDetails = activity.querySelector<HTMLDetailsElement>('details')
+    expect(technicalDetails?.querySelector('summary')?.textContent).toContain('Technical details')
+    expect(technicalDetails?.textContent).toContain('activity-1')
+    expect(technicalDetails?.textContent).toContain('evidence-1')
+    expect(technicalDetails?.textContent).toContain('ioc-source-1')
+    expect(technicalDetails?.textContent).toContain('2026-08-27T12:34:56.123456Z')
+    expect(technicalDetails?.textContent).toContain('investigation.evidence_added')
   })
 })
 

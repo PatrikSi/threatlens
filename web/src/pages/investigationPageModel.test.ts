@@ -6,6 +6,7 @@ import {
   buildInvestigationListPath,
   canEditInvestigationNote,
   formatInvestigationActivityAction,
+  formatInvestigationActivitySummary,
   investigationCollectionPageCount,
   isAlertOccurrenceUnavailable,
   isFinalInvestigationOwner,
@@ -114,6 +115,25 @@ describe('investigation page model', () => {
     expect(formatInvestigationActivityAction('investigation.member_added')).toBe('Added an investigation member')
     expect(formatInvestigationActivityAction('investigation.note_removed')).toBe('Removed a note')
     expect(formatInvestigationActivityAction('investigation.custom_review_started')).toBe('Custom review started')
+  })
+
+  it('uses captured titles and member emails for human-readable activity summaries', () => {
+    expect(formatInvestigationActivitySummary({
+      action: 'investigation.evidence_added',
+      details: { source_title: 'Credential theft infrastructure' },
+    })).toBe('Added evidence: Credential theft infrastructure')
+    expect(formatInvestigationActivitySummary({
+      action: 'investigation.member_updated',
+      details: {
+        member_email: 'owner@example.com',
+        from_role: 'editor',
+        to_role: 'owner',
+      },
+    })).toBe('Changed member role: owner@example.com · Editor → Owner')
+    expect(formatInvestigationActivitySummary({
+      action: 'investigation.member_removed',
+      details: {},
+    })).toBe('Removed an investigation member')
   })
 
   it('allows only absolute HTTP(S) evidence links', () => {
