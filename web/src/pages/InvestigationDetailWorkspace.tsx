@@ -166,25 +166,28 @@ export function InvestigationDetailWorkspace({
             <button
               type="button"
               className="min-h-11 rounded border border-amber-400 px-3 py-2 font-semibold md:min-h-0 md:py-1 dark:border-amber-700"
-              onClick={() => void controller.refreshLatest()}
+              onClick={() => void (
+                controller.canRebaseLatestDraft
+                  ? controller.rebaseLatestDraft()
+                  : controller.refreshLatest()
+              )}
             >
-              Refresh latest
+              {controller.canRebaseLatestDraft ? 'Review and rebase draft' : 'Refresh latest'}
             </button>
           </div>
         )}
-        {controller.mutation.isError &&
-          !isInvestigationVersionConflict(controller.mutation.error) && (
-            <InvestigationInlineMessage tone="error">
-              {resolveApiErrorMessage(
-                controller.mutation.error,
-                mutationFallback(controller.mutation.variables),
-                {
-                  retryGuidance:
-                    'Review the submitted values and try again. Unsaved input has been preserved.',
-                },
-              )}
-            </InvestigationInlineMessage>
-          )}
+        {shouldShowWorkspaceMutationError(controller) && (
+          <InvestigationInlineMessage tone="error">
+            {resolveApiErrorMessage(
+              controller.mutation.error,
+              mutationFallback(controller.mutation.variables),
+              {
+                retryGuidance:
+                  'Review the submitted values and try again. Unsaved input has been preserved.',
+              },
+            )}
+          </InvestigationInlineMessage>
+        )}
         {controller.successNotice && (
           <InvestigationInlineMessage tone="success">
             {controller.successNotice}
@@ -197,7 +200,7 @@ export function InvestigationDetailWorkspace({
         )}
       </div>
 
-      <main className="min-w-0 px-3 py-3 sm:px-4 sm:py-4">
+      <div className="min-w-0 px-3 py-3 sm:px-4 sm:py-4">
         {controller.activeTab === 'overview' && (
           <InvestigationOverviewPanel controller={controller} />
         )}
@@ -211,7 +214,7 @@ export function InvestigationDetailWorkspace({
         {controller.activeTab === 'activity' && (
           <InvestigationActivityPanel controller={controller} />
         )}
-      </main>
+      </div>
 
       <LifecycleDialog
         kind={lifecycleConfirmation?.kind ?? null}
@@ -478,4 +481,19 @@ function mutationFallback(operation: InvestigationMutationOperation | undefined)
     'remove-note': 'Note could not be removed',
   }
   return operation ? labels[operation.kind] : 'Investigation change could not be saved'
+}
+
+function shouldShowWorkspaceMutationError(
+  controller: InvestigationDetailController,
+): boolean {
+  if (!controller.mutation.isError) return false
+  if (isInvestigationVersionConflict(controller.mutation.error)) return false
+  const operation = controller.mutation.variables
+  const candidate = controller.selectedEvidenceCandidate
+  return !(
+    controller.evidenceFinderOpen &&
+    operation?.kind === 'add-evidence' &&
+    candidate?.source_type === operation.sourceType &&
+    candidate.source_id === operation.sourceId
+  )
 }

@@ -3,6 +3,8 @@ export type InvestigationSeverity = 'low' | 'medium' | 'high' | 'critical'
 export type InvestigationVisibility = 'private' | 'team'
 export type InvestigationMemberRole = 'owner' | 'editor' | 'viewer'
 export type InvestigationEvidenceType = 'item' | 'ioc' | 'report' | 'alert_occurrence'
+export type InvestigationEvidenceCandidateRange = '24h' | '7d' | '30d' | '90d'
+export type InvestigationEvidenceQueryKind = 'empty' | 'text' | 'url' | 'ioc' | 'uuid'
 export type InvestigationAccountRole = 'admin' | 'analyst' | 'viewer'
 
 export interface InvestigationMember {
@@ -36,6 +38,56 @@ export interface InvestigationEvidence {
   note: string | null
   added_by_user_id: string | null
   created_at: string
+}
+
+export interface InvestigationEvidenceCandidate {
+  source_type: InvestigationEvidenceType
+  source_id: string
+  title: string
+  description: string | null
+  url: string | null
+  observed_at: string | null
+  source_label: string | null
+  metadata: InvestigationEvidenceCandidateMetadata
+  already_attached: boolean
+  match_reason: string | null
+}
+
+export interface InvestigationEvidenceRelatedItem {
+  item_id: string
+  title: string
+  feed_name: string | null
+  first_seen_at: string | null
+}
+
+export interface InvestigationEvidenceCandidateMetadata extends Record<string, unknown> {
+  related_items?: InvestigationEvidenceRelatedItem[]
+}
+
+export interface InvestigationEvidenceQueryAnalysis {
+  kind: InvestigationEvidenceQueryKind
+  normalized_value: string | null
+  detected_ioc_type: string | null
+}
+
+export interface InvestigationEvidenceSourceCapability {
+  source_type: InvestigationEvidenceType
+  available: boolean
+  unavailable_reason: string | null
+  required_permissions: string[]
+}
+
+export interface InvestigationEvidenceCandidateListResponse {
+  candidates: InvestigationEvidenceCandidate[]
+  total: number
+  total_truncated: boolean
+  page: number
+  page_size: number
+  query_analysis: InvestigationEvidenceQueryAnalysis
+  source_capabilities: InvestigationEvidenceSourceCapability[]
+  effective_range: InvestigationEvidenceCandidateRange
+  effective_since: string
+  effective_until: string
 }
 
 export interface InvestigationNote {

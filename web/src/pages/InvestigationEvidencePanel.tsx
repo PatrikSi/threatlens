@@ -1,11 +1,11 @@
-import { FormEvent, useState } from 'react'
+import { useState } from 'react'
 
 import { resolveApiErrorMessage } from '../api/errors'
-import type { InvestigationEvidence, InvestigationEvidenceType } from '../types/investigations'
+import { CopyableIdentifier } from '../components/CopyableIdentifier'
+import type { InvestigationEvidence } from '../types/investigations'
 import { formatDateTime } from '../utils/datetime'
 import {
   formatEvidenceType,
-  INVESTIGATION_EVIDENCE_TYPES,
   isTerminalInvestigationAccessError,
   safeInvestigationExternalUrl,
 } from './investigationPageModel'
@@ -13,11 +13,9 @@ import {
   InvestigationCollectionPagination,
   InvestigationCollectionQueryState,
 } from './InvestigationCollectionPagination'
-import { InvestigationConfirmDialog, InvestigationInlineMessage } from './InvestigationShared'
+import { InvestigationConfirmDialog } from './InvestigationShared'
+import { InvestigationEvidenceFinder } from './InvestigationEvidenceFinder'
 import type { InvestigationDetailController } from './useInvestigationDetail'
-
-const UUID_PATTERN =
-  '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}'
 
 export function InvestigationEvidencePanel({
   controller,
@@ -30,18 +28,12 @@ export function InvestigationEvidencePanel({
     expectedVersion: number
   } | null>(null)
   if (!detail || !controller.access) return null
-  const draft = controller.evidenceDraft
   const terminalCollectionError =
     controller.evidenceQuery.isError &&
     isTerminalInvestigationAccessError(controller.evidenceQuery.error)
   const evidencePage = terminalCollectionError ? undefined : controller.evidenceQuery.data
   const hasEvidencePage = Boolean(evidencePage)
   const evidenceTotal = evidencePage?.total ?? detail.evidence_count
-  const selectedType =
-    INVESTIGATION_EVIDENCE_TYPES.find((entry) => entry.value === draft.sourceType) ??
-    INVESTIGATION_EVIDENCE_TYPES[0]
-  const selectedAlertUnavailable =
-    draft.sourceType === 'alert_occurrence' && controller.alertOccurrenceUnavailable
   const removalError =
     pendingRemoval &&
     controller.mutation.isError &&
@@ -51,23 +43,6 @@ export function InvestigationEvidencePanel({
           retryGuidance: 'Review the latest evidence list and try again.',
         })
       : null
-
-  const submit = (event: FormEvent) => {
-    event.preventDefault()
-    if (
-      !draft.sourceId.trim() ||
-      selectedAlertUnavailable ||
-      controller.evidenceDraftVersion === null
-    )
-      return
-    controller.mutation.mutate({
-      kind: 'add-evidence',
-      sourceType: draft.sourceType,
-      sourceId: draft.sourceId.trim(),
-      note: draft.note,
-      expectedVersion: controller.evidenceDraftVersion,
-    })
-  }
 
   return (
     <section aria-labelledby="investigation-evidence-heading" className="min-w-0">
@@ -82,105 +57,7 @@ export function InvestigationEvidencePanel({
       </div>
 
       {controller.access.canWrite && !terminalCollectionError && (
-        <form className="mt-4 border-y border-slate/15 py-3 dark:border-white/10" onSubmit={submit}>
-          <div className="grid min-w-0 gap-3 sm:grid-cols-2">
-            <div>
-              <label htmlFor="investigation-evidence-type" className="text-sm font-semibold">
-                Evidence type
-              </label>
-              <select
-                id="investigation-evidence-type"
-                className="mt-1 min-h-11 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
-                value={draft.sourceType}
-                disabled={controller.mutation.isPending}
-                onChange={(event) =>
-                  controller.updateEvidenceDraft({
-                    sourceType: event.target.value as InvestigationEvidenceType,
-                    sourceId: '',
-                  })
-                }
-              >
-                {INVESTIGATION_EVIDENCE_TYPES.map((type) => (
-                  <option key={type.value} value={type.value}>
-                    {type.label}
-                    {type.value === 'alert_occurrence' && controller.alertOccurrenceUnavailable
-                      ? ' (unavailable)'
-                      : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label htmlFor="investigation-evidence-source-id" className="text-sm font-semibold">
-                {selectedType.idLabel}
-              </label>
-              <input
-                id="investigation-evidence-source-id"
-                required
-                pattern={UUID_PATTERN}
-                title="Enter a valid UUID."
-                className="mt-1 min-h-11 w-full rounded border border-slate/30 bg-white px-3 py-2 font-mono text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
-                value={draft.sourceId}
-                disabled={controller.mutation.isPending}
-                onChange={(event) =>
-                  controller.updateEvidenceDraft({
-                    sourceId: event.target.value,
-                  })
-                }
-                placeholder="00000000-0000-0000-0000-000000000000"
-              />
-            </div>
-            <div className="sm:col-span-2">
-              <div className="flex items-center justify-between gap-2">
-                <label htmlFor="investigation-evidence-note" className="text-sm font-semibold">
-                  Context note (optional)
-                </label>
-                <span className="text-xs text-slate dark:text-slate-400">
-                  {draft.note.length.toLocaleString()} / 2,000
-                </span>
-              </div>
-              <textarea
-                id="investigation-evidence-note"
-                maxLength={2_000}
-                rows={3}
-                className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
-                value={draft.note}
-                disabled={controller.mutation.isPending}
-                onChange={(event) =>
-                  controller.updateEvidenceDraft({
-                    note: event.target.value,
-                  })
-                }
-                placeholder="Why this evidence matters to the investigation"
-              />
-            </div>
-          </div>
-          {draft.sourceType === 'alert_occurrence' && !controller.alertOccurrenceUnavailable && (
-            <p className="mt-2 text-xs text-slate dark:text-slate-400">
-              The server will verify whether durable Alerting v2 occurrences are available on this
-              deployment.
-            </p>
-          )}
-          {selectedAlertUnavailable && (
-            <div className="mt-2">
-              <InvestigationInlineMessage tone="warning">
-                Alert occurrence evidence is unavailable until durable Alerting v2 is enabled.
-              </InvestigationInlineMessage>
-            </div>
-          )}
-          <button
-            type="submit"
-            className="mt-3 min-h-11 w-full rounded bg-ink px-3 py-2 text-sm font-semibold text-white disabled:opacity-50 sm:w-auto dark:bg-cyan dark:text-[#053c2e]"
-            disabled={
-              controller.mutation.isPending ||
-              controller.evidenceDraftVersion === null ||
-              !draft.sourceId.trim() ||
-              selectedAlertUnavailable
-            }
-          >
-            {controller.mutation.isPending ? 'Adding...' : 'Add evidence'}
-          </button>
-        </form>
+        <InvestigationEvidenceFinder controller={controller} />
       )}
 
       <InvestigationCollectionQueryState
@@ -281,9 +158,6 @@ function EvidenceEntry({
             <span className="tl-chip tl-chip-neutral">
               {formatEvidenceType(evidence.source_type)}
             </span>
-            <span className="break-all font-mono text-[11px] text-slate dark:text-slate-400">
-              {evidence.source_id}
-            </span>
           </div>
           <h3 className="mt-1 break-words font-semibold">{evidence.title_snapshot}</h3>
           {evidence.description_snapshot && (
@@ -326,21 +200,25 @@ function EvidenceEntry({
           <p className="mt-0.5 whitespace-pre-wrap break-words text-sm">{evidence.note}</p>
         </div>
       )}
-      {metadata.length > 0 && (
-        <details className="mt-2 text-xs">
-          <summary className="min-h-11 cursor-pointer py-2 font-semibold text-slate md:min-h-0 md:py-1 dark:text-slate-300">
-            Snapshot metadata
-          </summary>
-          <dl className="mt-1 grid min-w-0 gap-x-4 gap-y-2 sm:grid-cols-2">
-            {metadata.map(([key, value]) => (
-              <div key={key} className="min-w-0">
-                <dt className="break-words text-slate dark:text-slate-400">{humanizeKey(key)}</dt>
-                <dd className="mt-0.5 break-all font-mono">{formatMetadataValue(value)}</dd>
-              </div>
-            ))}
-          </dl>
-        </details>
-      )}
+      <details className="mt-2 text-xs">
+        <summary className="min-h-11 cursor-pointer py-2 font-semibold text-slate md:min-h-0 md:py-1 dark:text-slate-300">
+          Technical details
+        </summary>
+        <dl className="mt-1 grid min-w-0 gap-x-4 gap-y-2 sm:grid-cols-2">
+          <div className="min-w-0">
+            <dt className="text-slate dark:text-slate-400">Source ID</dt>
+            <dd className="mt-0.5">
+              <CopyableIdentifier label="Source ID" value={evidence.source_id} />
+            </dd>
+          </div>
+          {metadata.map(([key, value]) => (
+            <div key={key} className="min-w-0">
+              <dt className="break-words text-slate dark:text-slate-400">{humanizeKey(key)}</dt>
+              <dd className="mt-0.5 break-all font-mono">{formatMetadataValue(value)}</dd>
+            </div>
+          ))}
+        </dl>
+      </details>
       <p className="mt-2 text-xs text-slate dark:text-slate-400">
         Snapshot added{' '}
         <time dateTime={evidence.created_at}>{formatDateTime(evidence.created_at)}</time>
