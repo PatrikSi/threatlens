@@ -1,3 +1,4 @@
+import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -16,6 +17,7 @@ from app.api.deps import (
 )
 from app.core.api_errors import ApiHTTPException
 from app.core.config import get_settings
+from app.core.logging_config import verbose_logging_enabled
 from app.core.security import (
     clear_auth_cookies,
     clear_mfa_challenge_cookie,
@@ -44,7 +46,7 @@ from app.schemas.auth import (
 from app.schemas.auth_security import MFALoginVerifyRequest
 from app.api.access_responses import effective_access_response
 from app.api.sensitive_action_auth import sensitive_browser_session_readiness
-from app.services.audit import record_audit
+from app.services.audit import normalize_audit_user_agent, record_audit
 from app.services.authorization import bump_iam_policy_revision
 from app.services.auth_rate_limit import (
     check_login_throttle,
@@ -77,6 +79,7 @@ from app.services.recent_auth import (
 from app.services.user_access import revoke_user_credentials_with_counts
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+logger = logging.getLogger("app.api.auth")
 
 
 def _resolve_app_features(db: Session | None = None) -> AppFeaturesResponse:
@@ -176,10 +179,15 @@ def register(payload: RegisterRequest, request: Request, db: Session = Depends(g
     record_audit(
         db,
         actor_user_id=user.id,
+        source_ip=client_ip,
         action="auth.register",
         resource_type="user",
         resource_id=str(user.id),
-        metadata={"email": user.email, "is_approved": user.is_approved},
+        metadata={
+            "email": user.email,
+            "is_approved": user.is_approved,
+            "user_agent": normalize_audit_user_agent(request.headers.get("user-agent")),
+        },
     )
     db.commit()
     db.refresh(user)
@@ -224,14 +232,29 @@ def login(
         )
     if user is None or not user.password_login_enabled or not password_valid:
         record_login_failure(email, client_ip)
+        _record_login_denial(
+            db,
+            request=request,
+            email=email,
+            user_id=user.id if user is not None else None,
+            reason="invalid_credentials",
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password"
         )
 
     verified_password_hash = user.password_hash
+    candidate_user_id = user.id
     user = lock_user_auth_state(db, user.id)
     if user is None or user.email != email or not user.password_login_enabled:
         record_login_failure(email, client_ip)
+        _record_login_denial(
+            db,
+            request=request,
+            email=email,
+            user_id=candidate_user_id,
+            reason="account_state_changed",
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password"
         )
@@ -242,18 +265,39 @@ def login(
         )
         if not password_valid:
             record_login_failure(email, client_ip)
+            _record_login_denial(
+                db,
+                request=request,
+                email=email,
+                user_id=user.id,
+                reason="invalid_credentials",
+            )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid email or password",
             )
 
     if not user.is_approved:
+        _record_login_denial(
+            db,
+            request=request,
+            email=email,
+            user_id=user.id,
+            reason="approval_required",
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Your account is pending admin approval.",
         )
 
     if not user.is_active:
+        _record_login_denial(
+            db,
+            request=request,
+            email=email,
+            user_id=user.id,
+            reason="account_inactive",
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Account is inactive"
         )
@@ -275,10 +319,17 @@ def login(
         record_audit(
             db,
             actor_user_id=user.id,
+            source_ip=client_ip,
             action="auth.login.mfa_challenge",
             resource_type="user",
             resource_id=str(user.id),
-            metadata={"email": user.email},
+            metadata={
+                "email": user.email,
+                "auth_method": "local",
+                "user_agent": normalize_audit_user_agent(
+                    request.headers.get("user-agent")
+                ),
+            },
         )
         db.commit()
         clear_auth_cookies(response)
@@ -298,6 +349,7 @@ def login(
     record_audit(
         db,
         actor_user_id=user.id,
+        source_ip=client_ip,
         action="auth.login",
         resource_type="user",
         resource_id=str(user.id),
@@ -305,6 +357,7 @@ def login(
             "email": user.email,
             "auth_method": "local",
             "session_id": str(created_session.session.id),
+            "user_agent": normalize_audit_user_agent(request.headers.get("user-agent")),
         },
     )
     db.commit()
@@ -365,14 +418,22 @@ def verify_mfa_login(
             invalidate_mfa_challenge(db, token=challenge_token)
         record_audit(
             db,
-            actor_user_id=exc.user_id,
+            actor_user_id=None,
+            actor_principal_type="anonymous",
+            source_ip=client_ip,
             action="auth.login.mfa_verify",
             resource_type="user",
             resource_id=str(exc.user_id) if exc.user_id else None,
+            resource_label_snapshot=failed_user.email if failed_user else None,
             success=False,
             metadata={
+                "auth_method": "local",
+                "reason": "rate_limited" if throttled else "invalid_code",
                 "attempts_remaining": exc.attempts_remaining,
                 "throttled": throttled,
+                "user_agent": normalize_audit_user_agent(
+                    request.headers.get("user-agent")
+                ),
             },
         )
         db.commit()
@@ -431,12 +492,21 @@ def verify_mfa_login(
     ):
         record_audit(
             db,
-            actor_user_id=user.id if user else None,
+            actor_user_id=None,
+            actor_principal_type="anonymous",
+            source_ip=resolve_client_ip(request),
             action="auth.login.mfa_verify",
             resource_type="user",
             resource_id=str(challenge.user_id),
+            resource_label_snapshot=user.email if user else None,
             success=False,
-            metadata={"reason": "account_unavailable"},
+            metadata={
+                "auth_method": "local",
+                "reason": "account_unavailable",
+                "user_agent": normalize_audit_user_agent(
+                    request.headers.get("user-agent")
+                ),
+            },
         )
         db.commit()
         raise _mfa_login_http_error(
@@ -458,6 +528,7 @@ def verify_mfa_login(
     record_audit(
         db,
         actor_user_id=user.id,
+        source_ip=resolve_client_ip(request),
         action="auth.login",
         resource_type="user",
         resource_id=str(user.id),
@@ -467,6 +538,7 @@ def verify_mfa_login(
             "mfa_method": verification.method,
             "session_id": str(created_session.session.id),
             "recovery_codes_remaining": verification.recovery_codes_remaining,
+            "user_agent": normalize_audit_user_agent(request.headers.get("user-agent")),
         },
     )
     db.commit()
@@ -683,10 +755,17 @@ def logout(request: Request, response: Response, db: Session = Depends(get_db)):
         record_audit(
             db,
             actor_user_id=user.id,
+            source_ip=resolve_client_ip(request),
             action="auth.logout",
             resource_type="user",
             resource_id=str(user.id),
-            metadata={"session_id": str(opaque_session.id), "session_revoked": revoked},
+            metadata={
+                "session_id": str(opaque_session.id),
+                "session_revoked": revoked,
+                "user_agent": normalize_audit_user_agent(
+                    request.headers.get("user-agent")
+                ),
+            },
         )
         db.commit()
     elif not is_opaque_cookie:
@@ -700,10 +779,16 @@ def logout(request: Request, response: Response, db: Session = Depends(get_db)):
         record_audit(
             db,
             actor_user_id=user.id,
+            source_ip=resolve_client_ip(request),
             action="auth.logout",
             resource_type="user",
             resource_id=str(user.id),
-            metadata={"legacy_sessions_revoked": True},
+            metadata={
+                "legacy_sessions_revoked": True,
+                "user_agent": normalize_audit_user_agent(
+                    request.headers.get("user-agent")
+                ),
+            },
         )
         db.commit()
     if opaque_session is None and is_opaque_cookie:
@@ -712,6 +797,47 @@ def logout(request: Request, response: Response, db: Session = Depends(get_db)):
     clear_auth_cookies(response)
     clear_mfa_challenge_cookie(response)
     return {"status": "ok"}
+
+
+def _record_login_denial(
+    db: Session,
+    *,
+    request: Request,
+    email: str,
+    user_id: uuid.UUID | None,
+    reason: str,
+) -> None:
+    source_ip = resolve_client_ip(request)
+    try:
+        record_audit(
+            db,
+            actor_user_id=None,
+            actor_principal_type="anonymous",
+            source_ip=source_ip,
+            action="auth.login",
+            resource_type="user" if user_id is not None else "authentication",
+            resource_id=str(user_id) if user_id is not None else None,
+            resource_label_snapshot=email,
+            success=False,
+            metadata={
+                "auth_method": "local",
+                "reason": reason,
+                "user_agent": normalize_audit_user_agent(
+                    request.headers.get("user-agent")
+                ),
+            },
+        )
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.error(
+            "login_denial_audit_failed reason=%s user_id=%s source_ip=%s error_type=%s",
+            reason,
+            user_id,
+            source_ip,
+            type(exc).__name__,
+            exc_info=verbose_logging_enabled(get_settings()),
+        )
 
 
 def _resolve_logout_session_user(db: Session, auth_cookie: str | None) -> User | None:

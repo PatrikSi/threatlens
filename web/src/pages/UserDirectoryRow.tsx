@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { ConfirmDialog } from '../components/ConfirmDialog'
+import { CopyableIdentifier } from '../components/CopyableIdentifier'
 import type { AdminUser, User, UserUpdateRequest } from '../types/api'
 import { formatDateTime } from '../utils/datetime'
 import { formatSettingsRoleLabel } from '../workspace/modulePresentation'
@@ -175,6 +176,12 @@ export function UserDirectoryRow({
           className={`${managementOpen ? 'block' : 'hidden'} mt-3 border-t border-slate/15 pt-3 dark:border-cyan-900/30`}
         >
           <UserManagementReadOnlyNotice canManage={canManage} />
+          <div className="mb-3 grid gap-1 rounded border border-slate/15 bg-slate/5 px-2.5 py-2 dark:border-cyan-900/30 dark:bg-white/[0.03] sm:grid-cols-[8rem_minmax(0,1fr)] sm:items-center">
+            <p className="text-xs font-semibold text-slate dark:text-slate-300">
+              User ID
+            </p>
+            <CopyableIdentifier label="User ID" value={user.id} />
+          </div>
           <fieldset
             disabled={!canManage}
             className="min-w-0 [&_:disabled]:cursor-not-allowed [&_:disabled]:opacity-60"

@@ -591,6 +591,42 @@ describe('UsersPage DOM workflows', () => {
     expect(manageToggle?.getAttribute('aria-expanded')).toBe('true')
   })
 
+  it('shows the stable user ID only in account details and makes it copyable', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    })
+    const view = renderPage()
+    const details = view.querySelector<HTMLElement>('#user-management-user-1')
+
+    expect(details?.className).toContain('hidden')
+    act(() => {
+      Array.from(view.querySelectorAll<HTMLButtonElement>('button'))
+        .find((button) => button.textContent?.trim() === 'Manage')
+        ?.click()
+    })
+
+    const copyUserId = view.querySelector<HTMLButtonElement>(
+      'button[aria-label="Copy user id"]',
+    )
+    expect(details?.className).toContain('block')
+    expect(view.textContent).toContain('User ID')
+    expect(view.textContent).toContain('user-1')
+    expect(copyUserId).not.toBeNull()
+
+    await act(async () => {
+      copyUserId?.click()
+      await flushPromises()
+    })
+    expect(writeText).toHaveBeenCalledWith('user-1')
+    expect(copyUserId?.textContent).toBe('Copied')
+    expect(copyUserId?.getAttribute('aria-label')).toBe('User ID copied')
+    expect(details?.querySelector('[aria-live="polite"]')?.textContent).toBe(
+      'User ID copied to clipboard.',
+    )
+  })
+
   it('labels and restores a create-user draft after the form is closed', () => {
     const view = renderPage()
     const createToggle = Array.from(view.querySelectorAll<HTMLButtonElement>('button')).find(

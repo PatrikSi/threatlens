@@ -285,6 +285,8 @@ Policy](../reference/access-governance.md).
 
 - Create user form
 - Search and edit user directory
+- Expandable account details include the stable, copyable User ID used by audit
+  records and API filters.
 - Expandable role definitions for `admin`, `analyst`, and `viewer`
 - Editable fields per user:
   - role
@@ -297,10 +299,23 @@ Policy](../reference/access-governance.md).
 
 ## Audit Logs Page (Admin)
 
-- Filter by `action`
-- Filter by `actor_user_id`
-- Paginated log table
+- Human-readable event and actor labels lead each row while the immutable raw
+  action and stable principal/resource identifiers remain available for
+  correlation.
+- Actor and user labels are event-time snapshots, so later renames or account
+  deletion do not rewrite new audit evidence. Older rows are backfilled only
+  where the historical label can be determined safely.
+- Expandable details expose request and source context, credential and
+  authorization identifiers, outcome, policy-redaction state, and retained event
+  metadata without placing UUIDs in the primary reading path.
+- Local sign-in failures with a validated request shape are recorded as
+  unauthenticated attempts against the claimed account, with stable reason codes;
+  passwords, MFA codes, cookies, and tokens are never stored in audit metadata.
+- Filter by exact `action` or stable `actor_principal_id`.
+- Paginated events are ordered newest first with a deterministic ID tie-breaker.
 - Export filtered logs to JSON (`Export JSON`)
+- Audit identity snapshots can contain account email addresses and follow the
+  configured audit-log retention period. Access requires `read:audit`.
 - API call:
   - `GET /audit-logs`
   - `GET /audit-logs/export`

@@ -94,6 +94,9 @@ class AuditLog(Base):
     actor_principal_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True), nullable=True
     )
+    actor_label_snapshot: Mapped[str | None] = mapped_column(
+        String(320), nullable=True
+    )
     credential_kind: Mapped[str | None] = mapped_column(String(32), nullable=True)
     credential_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True), nullable=True
@@ -127,6 +130,9 @@ class AuditLog(Base):
     action: Mapped[str] = mapped_column(Text, nullable=False)
     resource_type: Mapped[str] = mapped_column(Text, nullable=False)
     resource_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    resource_label_snapshot: Mapped[str | None] = mapped_column(
+        String(320), nullable=True
+    )
     success: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )
