@@ -1050,7 +1050,7 @@ def test_browser_session_can_create_api_token_after_password_step_up(
     assert access_response.status_code == 200
 
 
-def test_browser_session_token_creation_rejects_scopes_outside_role_envelope(
+def test_browser_session_token_creation_rejects_scopes_outside_durable_permissions(
     client: TestClient, db_session, seed_users
 ):
     _ = seed_users
@@ -1073,7 +1073,7 @@ def test_browser_session_token_creation_rejects_scopes_outside_role_envelope(
     )
     assert token_response.status_code == 403
     assert (
-        "Requested token scopes exceed the permissions allowed for your role"
+        "Requested token scopes exceed your current durable permissions"
         in token_response.json()["detail"]
     )
     assert "write:feeds" in token_response.json()["detail"]
@@ -3656,6 +3656,33 @@ def test_api_token_child_rejects_semantic_write_token_wildcards(
     assert (
         response.json()["detail"]
         == "API tokens cannot mint child tokens with write:tokens scope"
+    )
+
+
+def test_api_token_child_cannot_delegate_a_stale_principal_permission(
+    client: TestClient, db_session, seed_users
+):
+    parent_token = _issue_api_token(
+        db_session,
+        seed_users["viewer"],
+        name="stale-scope-delegator",
+        scopes=["write:tags", "write:tokens"],
+        expires_at=datetime.now(timezone.utc) + timedelta(days=1),
+    )
+
+    response = client.post(
+        "/tokens",
+        json={"name": "stale-scope-child", "scopes": ["write:tags"]},
+        headers={"Authorization": f"Bearer {parent_token}"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == (
+        "Requested token scopes exceed your current durable permissions: write:tags"
+    )
+    assert (
+        db_session.scalar(select(ApiToken).where(ApiToken.name == "stale-scope-child"))
+        is None
     )
 
 

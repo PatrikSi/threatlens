@@ -141,9 +141,18 @@ def authorization_context_for_user(
     )
     for _attempt in range(_AUTHORIZATION_SNAPSHOT_ATTEMPTS):
         revision_before = _policy_revision(db)
+        current_user = db.scalar(
+            select(User)
+            .where(User.id == user.id)
+            .execution_options(populate_existing=True)
+        )
+        if current_user is None:
+            raise AuthorizationStateUnavailable(
+                "The user disappeared while effective access was evaluated. Retry authentication."
+            )
         snapshot = _authorization_snapshot_for_user(
             db,
-            user,
+            current_user,
             credential_grants=credential_grants,
             policy_revision=revision_before,
         )
