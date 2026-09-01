@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "1.9.0",
-    "x-threatlens-contract-sha256": "67f88025f793ff47cd8ece73b3f682cd57fd7dd551725b9207e95b8599fe7964"
+    "x-threatlens-contract-sha256": "74b999382541028b18aaa4dbc316c4d89f69a2c3f22f1917b428739c5b6a3566"
   },
   "servers": [
     {
@@ -10335,7 +10335,8 @@
                   "enum": [
                     "user",
                     "service_account",
-                    "system"
+                    "system",
+                    "anonymous"
                   ],
                   "type": "string"
                 },
@@ -10707,7 +10708,8 @@
                   "enum": [
                     "user",
                     "service_account",
-                    "system"
+                    "system",
+                    "anonymous"
                   ],
                   "type": "string"
                 },
@@ -33018,6 +33020,17 @@
             ],
             "title": "Actor Principal Id"
           },
+          "actor_label_snapshot": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Label Snapshot"
+          },
           "credential_kind": {
             "anyOf": [
               {
@@ -33114,6 +33127,17 @@
             ],
             "title": "Resource Id"
           },
+          "resource_label_snapshot": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resource Label Snapshot"
+          },
           "success": {
             "type": "boolean",
             "title": "Success"
@@ -33140,6 +33164,7 @@
           "actor_user_id",
           "actor_principal_type",
           "actor_principal_id",
+          "actor_label_snapshot",
           "credential_kind",
           "credential_id",
           "request_id",
@@ -33150,6 +33175,7 @@
           "action",
           "resource_type",
           "resource_id",
+          "resource_label_snapshot",
           "success",
           "metadata_json",
           "created_at"

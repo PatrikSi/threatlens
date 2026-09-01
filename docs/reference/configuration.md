@@ -182,7 +182,7 @@
 | `INTEGRATION_DELIVERY_RETENTION_DAYS` (`integration_delivery_retention_days`) | `90` | Terminal generic and linked legacy webhook history retention after metric rollup. |
 | `INTEGRATION_EVENT_RETENTION_DAYS` (`integration_event_retention_days`) | `30` | Routed/dead outbox event retention after all deliveries are removed. |
 | `INTEGRATION_METRICS_RETENTION_DAYS` (`integration_metrics_retention_days`) | `730` | Hourly delivery rollup retention. |
-| `AUDIT_LOG_RETENTION_DAYS` (`audit_log_retention_days`) | `730` | Audit log retention before maintenance removes expired records. |
+| `AUDIT_LOG_RETENTION_DAYS` (`audit_log_retention_days`) | `730` | Audit log retention before maintenance removes expired records, including event-time actor and resource identity snapshots. |
 | `ACTION_APPROVAL_RETENTION_DAYS` (`action_approval_retention_days`) | `730` | Terminal or expired action-approval, execution-receipt, and idempotency-receipt retention. Referenced AI runs and provider-attempt receipt operations remain pinned until the approval is eligible for deletion. |
 | `AI_TASK_HISTORY_RETENTION_DAYS` (`ai_task_history_retention_days`) | `180` | Terminal AI task and task-event history retention. |
 | `AI_USAGE_RETENTION_DAYS` (`ai_usage_retention_days`) | `730` | AI usage aggregate retention. |

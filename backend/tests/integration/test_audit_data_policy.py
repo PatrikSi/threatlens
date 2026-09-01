@@ -88,6 +88,7 @@ def _restricted_audit_fixture(db_session, seed_users, *, mode: str):
         action="test.restricted.resource",
         resource_type="feed",
         resource_id=str(feed.id),
+        resource_label_snapshot="Restricted audit source",
         metadata={
             "title": "Restricted source title",
             "url": "https://restricted.example/private",
@@ -132,6 +133,7 @@ def test_audit_history_redacts_durable_restricted_snapshots_after_source_deletio
     assert projected["id"] == str(audit.id)
     assert projected["resource_type"] == "feed"
     assert projected["resource_id"] is None
+    assert projected["resource_label_snapshot"] is None
     assert projected["request_id"] is None
     assert projected["data_access_redacted"] is True
     assert projected["metadata_json"] == {
@@ -180,6 +182,9 @@ def test_audit_history_redacts_durable_restricted_snapshots_after_source_deletio
     )
     assert admin.status_code == 200, admin.text
     assert admin.json()["logs"][0]["resource_id"] == audit.resource_id
+    assert admin.json()["logs"][0]["resource_label_snapshot"] == (
+        "Restricted audit source"
+    )
     assert admin.json()["logs"][0]["metadata_json"]["title"] == (
         "Restricted source title"
     )

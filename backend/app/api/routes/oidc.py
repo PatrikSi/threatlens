@@ -33,7 +33,7 @@ from app.schemas.oidc import (
     OIDCReauthenticationStartResponse,
     OIDCStartResponse,
 )
-from app.services.audit import record_audit
+from app.services.audit import normalize_audit_user_agent, record_audit
 from app.services.auth_sessions import (
     AuthSessionStateError,
     auth_session_cookie_ttl_seconds,
@@ -657,13 +657,18 @@ def oidc_callback(
             record_audit(
                 db,
                 actor_user_id=result.user.id,
+                source_ip=resolve_client_ip(request),
                 action="auth.oidc.login",
                 resource_type="user",
                 resource_id=str(result.user.id),
                 success=False,
                 metadata={
                     "provider_id": str(provider.id),
+                    "provider_name": provider.name,
                     "error_code": "approval_required",
+                    "user_agent": normalize_audit_user_agent(
+                        request.headers.get("user-agent")
+                    ),
                 },
             )
             db.commit()
@@ -674,13 +679,18 @@ def oidc_callback(
             record_audit(
                 db,
                 actor_user_id=result.user.id,
+                source_ip=resolve_client_ip(request),
                 action="auth.oidc.login",
                 resource_type="user",
                 resource_id=str(result.user.id),
                 success=False,
                 metadata={
                     "provider_id": str(provider.id),
+                    "provider_name": provider.name,
                     "error_code": "account_inactive",
+                    "user_agent": normalize_audit_user_agent(
+                        request.headers.get("user-agent")
+                    ),
                 },
             )
             db.commit()
@@ -703,14 +713,19 @@ def oidc_callback(
         record_audit(
             db,
             actor_user_id=result.user.id,
+            source_ip=resolve_client_ip(request),
             action="auth.oidc.login",
             resource_type="user",
             resource_id=str(result.user.id),
             metadata={
                 "provider_id": str(provider.id),
+                "provider_name": provider.name,
                 "provisioned": result.provisioned,
                 "auth_method": "oidc",
                 "session_id": str(created_session.session.id),
+                "user_agent": normalize_audit_user_agent(
+                    request.headers.get("user-agent")
+                ),
             },
         )
         db.commit()
