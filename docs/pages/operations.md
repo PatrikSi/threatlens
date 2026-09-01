@@ -99,6 +99,58 @@ that filesystem with the Docker host, storage platform, or database service and
 alert before free capacity reaches the restore and maintenance headroom required
 by this runbook.
 
+## Diagnose system health
+
+The System health workspace separates current evidence, retained trends, and
+recovery evidence so that one green check cannot mask an unrelated failure. Live
+health refreshes every 30 seconds and organizes PostgreSQL, Redis, scheduler,
+worker, durable-workflow, storage, encryption, and recovery signals by severity.
+Every active finding states the user-visible effect and a next action; selecting a
+signal opens the evidence that produced it. If a refresh fails or the observation
+is older than 90 seconds, the UI labels the response **Last known** instead of
+presenting stale data as current.
+
+Worker diagnostics distinguish these conditions:
+
+| Condition | Meaning |
+|---|---|
+| No replies | No worker answered any Celery control probe; check Redis connectivity and whether worker processes are running. |
+| Probe failed | Topology collection itself failed, so worker availability is unknown rather than confirmed unhealthy. |
+| Queue inventory unavailable or partial | Workers answered, but one or more diagnostic replies are missing or invalid; do not infer full queue coverage. |
+| Missing consumers | Complete inventory shows that a required queue has no consumer, so routed work will wait. |
+| Execution evidence missing | A worker advertises the queue, but that queue has not completed a canary yet; this is expected briefly after upgrade or startup. |
+| Execution stalled | A consumer is advertised but the periodic task executed through that queue has stopped advancing. |
+| Saturated | All observed execution slots are active while reserved work is waiting. |
+
+The detail view shows each worker's subscribed queues, capacity, active, reserved,
+and scheduled tasks, processed total, uptime, and missing probe replies. Queue
+cards keep subscription evidence separate from execution evidence. Beat sends a
+small canary through every required queue at the configured heartbeat interval;
+the canary records only its queue, completion time, and a bounded sanitized worker
+name in Redis. The UI derives safe, copyable `docker compose ps` and bounded
+`docker compose logs --since 15m --tail 200` commands from the affected service
+names. It never executes those commands from the browser.
+
+The Trends view retains one server-recorded sample every five minutes and refreshes
+at that collection cadence; **Refresh** remains available for an immediate read.
+Select 1 hour, 6 hours, 24 hours, 7 days, or 30 days to compare worker capacity and load,
+durable workflow pressure, issue counts, status transitions, and worker
+exceptions. Historical findings retain component failures and issue codes for
+database, Redis, scheduler, storage, and backlog signals. Charts do not
+interpolate missing observations. Coverage, largest gap, effective resolution,
+last-sample time, and collector freshness are shown so
+an operator can distinguish a healthy period from missing telemetry. The default
+retention is 30 days and is configured with
+`OPERATIONS_HEALTH_HISTORY_RETENTION_DAYS`; existing history is pruned by the
+normal application-history maintenance task.
+
+Use **Download diagnostics** when escalating an issue. The bounded JSON snapshot
+contains the current overview, bounded worker topology and probe-quality
+evidence, the retained 24-hour health history, and up to 25 recent recovery or
+diagnostic operation records. It excludes credentials, task arguments, request
+bodies, article content, and raw Celery payloads. Access to live topology, history,
+and diagnostics uses the same `read:operations` permission as the workspace.
+
 ## Prerequisites
 
 - Run on the Docker host as an account permitted to use Docker.
