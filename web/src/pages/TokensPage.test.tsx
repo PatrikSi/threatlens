@@ -25,6 +25,9 @@ const tokensPageMocks = vi.hoisted(() => ({
         ai_relevance_enabled: true,
         ai_daily_brief_enabled: true,
       },
+      access: {
+        permissions: ['read:tokens', 'write:tokens'],
+      },
     },
     isLoading: false,
     isError: false,

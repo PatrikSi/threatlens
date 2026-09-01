@@ -35,6 +35,7 @@ class WorkspaceModuleDefinitionResponse(StrictWorkspaceModel):
     default_order: int = Field(ge=0)
     default_mobile_priority: int = Field(ge=0)
     mobile_behavior: WorkspaceMobileBehavior
+    policy_managed: bool
 
 
 class WorkspaceDashboardPanelDefinitionResponse(StrictWorkspaceModel):

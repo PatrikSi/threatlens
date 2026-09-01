@@ -3,8 +3,11 @@ import { describe, expect, it } from 'vitest'
 import { TRUSTED_WORKSPACE_MODULE_BY_ID, type TrustedWorkspaceModuleId } from './moduleRegistry'
 import {
   SETTINGS_PRESENTATION_GROUPS,
+  WORKSPACE_NAVIGATION_GROUPS,
   formatSettingsRoleLabel,
   settingsModulePresentation,
+  workspaceModuleDisplayLabel,
+  workspaceNavigationGroupPresentation,
 } from './modulePresentation'
 
 describe('settings module presentation', () => {
@@ -52,6 +55,35 @@ describe('settings module presentation', () => {
         'Future controls',
       ),
     ).toEqual({ groupId: 'organization', label: 'Future controls' })
+  })
+
+  it('maps modules to the same visible hierarchy used by navigation editors', () => {
+    expect(WORKSPACE_NAVIGATION_GROUPS.map((group) => group.label)).toEqual([
+      'Main navigation',
+      'Personal settings',
+      'Organization settings',
+      'Automation settings',
+      'Integration settings',
+      'System settings',
+    ])
+
+    const expectedGroups = {
+      'primary.alerts': 'main',
+      'settings.tokens': 'settings.personal',
+      'settings.users': 'settings.organization',
+      'settings.ai': 'settings.automation',
+      'settings.integrations.webhooks': 'settings.integrations',
+      'settings.operations': 'settings.system',
+    } as const
+
+    for (const [moduleId, groupId] of Object.entries(expectedGroups)) {
+      const module = TRUSTED_WORKSPACE_MODULE_BY_ID.get(moduleId as TrustedWorkspaceModuleId)!
+      expect(workspaceNavigationGroupPresentation(module).id).toBe(groupId)
+    }
+
+    const webhooks = TRUSTED_WORKSPACE_MODULE_BY_ID.get('settings.integrations.webhooks')!
+    expect(workspaceModuleDisplayLabel(webhooks)).toBe('My webhooks')
+    expect(webhooks.label).toBe('Webhooks')
   })
 })
 

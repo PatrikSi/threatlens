@@ -25,6 +25,9 @@ const tokensPageDomMocks = vi.hoisted(() => ({
         ai_relevance_enabled: true,
         ai_daily_brief_enabled: true,
       },
+      access: {
+        permissions: ['read:tokens', 'write:tokens'],
+      },
     },
     isLoading: false,
     isError: false,
@@ -305,8 +308,12 @@ afterEach(() => {
   tokensPageDomMocks.nextCreateError = null
   tokensPageDomMocks.currentUser.isError = false
   Object.assign(tokensPageDomMocks.currentUser.data, {
+    role: 'admin',
     password_login_enabled: true,
     provisioning_source: 'local',
+    access: {
+      permissions: ['read:tokens', 'write:tokens'],
+    },
   })
   Reflect.deleteProperty(tokensPageDomMocks.currentUser.data, 'authentication')
   tokensPageDomMocks.mutationRecords.splice(0)
@@ -324,8 +331,51 @@ describe('TokensPage DOM workflows', () => {
     tokensPageDomMocks.currentUser.isError = true
     const view = renderPage()
 
-    expect(pageText()).toContain('Browser token creation is unavailable for this account')
+    expect(pageText()).toContain('Read-only access')
+    expect(pageText()).toContain('permission to manage API tokens')
     expect(view.querySelector('#token-name')).toBeNull()
+    expect(view.querySelector('#token-admin-user-filter')).toBeNull()
+    expect(pageText()).not.toContain('Owner user ID:')
+  })
+
+  it('keeps a Viewer with custom read access on a useful read-only inventory', () => {
+    Object.assign(tokensPageDomMocks.currentUser.data, {
+      role: 'viewer',
+      access: { permissions: ['read:tokens'] },
+    })
+    const view = renderPage()
+
+    expect(pageText()).toContain('Read-only access')
+    expect(pageText()).toContain('permission to manage API tokens')
+    expect(pageText()).toContain('Issued tokens')
+    expect(pageText()).toContain('Legacy automation')
+    expect(pageText()).toContain('Active')
+    expect(view.querySelector('#create-api-token')).toBeNull()
+    expect(view.querySelector('a[href="#create-api-token"]')).toBeNull()
+    expect(
+      Array.from(view.querySelectorAll('button')).some(
+        (button) => button.textContent?.trim() === 'Revoke',
+      ),
+    ).toBe(false)
+    expect(tokensPageDomMocks.createMutate).not.toHaveBeenCalled()
+    expect(tokensPageDomMocks.revokeMutate).not.toHaveBeenCalled()
+  })
+
+  it('enables token creation and revocation for a Viewer with custom write access', () => {
+    Object.assign(tokensPageDomMocks.currentUser.data, {
+      role: 'viewer',
+      access: { permissions: ['write:tokens'] },
+    })
+    const view = renderPage()
+
+    expect(pageText()).not.toContain('Read-only access')
+    expect(view.querySelector('#create-api-token')).not.toBeNull()
+    expect(view.querySelector('a[href="#create-api-token"]')).not.toBeNull()
+    expect(
+      Array.from(view.querySelectorAll('button')).some(
+        (button) => button.textContent?.trim() === 'Revoke',
+      ),
+    ).toBe(true)
     expect(view.querySelector('#token-admin-user-filter')).toBeNull()
     expect(pageText()).not.toContain('Owner user ID:')
   })

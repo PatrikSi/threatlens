@@ -6,6 +6,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { WorkspaceEffectiveResponse, WorkspaceUserPreferenceResponse } from '../types/workspace'
 import { TRUSTED_DASHBOARD_PANELS, TRUSTED_WORKSPACE_MODULES } from '../workspace/moduleRegistry'
+import {
+  resolveWorkspaceModel,
+  type WorkspaceUserContext,
+} from '../workspace/workspaceModel'
 import type { WorkspaceSettingsController } from './useWorkspaceSettingsController'
 import { WorkspacePersonalizationPanel } from './WorkspacePersonalizationPanel'
 import { createPersonalWorkspaceDraft } from './workspaceSettingsModel'
@@ -27,25 +31,16 @@ describe('WorkspacePersonalizationPanel', () => {
   it('disables every editable control while a personal mutation is pending', () => {
     const effective = effectiveWorkspace()
     const userPreferences = preferences()
+    const userContext = workspaceUserContext()
     const controller = {
       workspace: {
         effective,
         preferences: userPreferences,
+        model: resolveWorkspaceModel(effective, undefined, userContext),
         error: null,
         isSavingPreferences: true,
         isResettingPreferences: false,
-        userContext: {
-          role: 'admin',
-          permissions: ['*:*'],
-          features: {
-            ai_enabled: true,
-            ai_configured: true,
-            ai_summary_enabled: true,
-            ai_relevance_enabled: true,
-            ai_daily_brief_enabled: true,
-          },
-          accountEligible: true,
-        },
+        userContext,
       },
       personalDraft: createPersonalWorkspaceDraft(effective, userPreferences),
       personalDirty: true,
@@ -94,8 +89,37 @@ describe('WorkspacePersonalizationPanel', () => {
     expect(container.textContent).toContain('My account')
     expect(container.textContent).toContain('API tokens')
     expect(container.textContent).toContain('Access control')
+    expect(container.textContent).toContain('Organization settings')
     expect(container.textContent).not.toContain('settings.account')
     expect(container.textContent).not.toContain('settings.workspace')
+    const preview = container.querySelector<HTMLElement>(
+      '[aria-labelledby="personal-navigation-preview-heading"]',
+    )
+    expect(preview?.textContent).toContain('Every destination that will remain visible')
+    expect(preview?.querySelector('[data-navigation-preview-module="primary.dashboard"]')?.textContent)
+      .toContain('DashboardFixed')
+    expect(preview?.querySelector('[data-navigation-preview-module="primary.settings"]')?.textContent)
+      .toContain('SettingsFixed container')
+    expect(preview?.querySelector('[data-navigation-preview-module="settings.account"]')?.textContent)
+      .toContain('My accountFixed')
+    expect(preview?.querySelector('[data-navigation-preview-module="settings.workspace"]')?.textContent)
+      .toContain('NavigationFixed')
+    expect(preview?.querySelector('[data-navigation-preview-module="settings.integrations"]')?.textContent)
+      .toContain('IntegrationsFixed container')
+    expect(preview?.querySelector('[data-navigation-preview-module="settings.integrations.webhooks"]'))
+      .not.toBeNull()
+    expect(
+      [...container.querySelectorAll<HTMLOptGroupElement>('select optgroup')].map(
+        (group) => group.label,
+      ),
+    ).toEqual([
+      'Main navigation',
+      'Personal settings',
+      'Organization settings',
+      'Automation settings',
+      'Integration settings',
+      'System settings',
+    ])
   })
 
   it('supports pointer drag reordering with named keyboard and touch fallbacks', () => {
@@ -129,7 +153,13 @@ describe('WorkspacePersonalizationPanel', () => {
     expect(container.textContent).toContain(
       'Use the earlier and later buttons for keyboard or touch.',
     )
+    expect(container.textContent).toContain(
+      'Main order applies on desktop; mobile main order follows organization defaults.',
+    )
     expect(earlierButton).not.toBeNull()
+    expect(
+      container.querySelector<HTMLButtonElement>('[aria-label^="Drag API tokens."]')?.draggable,
+    ).toBe(false)
 
     const transfer = createDataTransfer()
     act(() => dispatchDragEvent(handle!, 'dragstart', transfer))
@@ -161,6 +191,20 @@ describe('WorkspacePersonalizationPanel', () => {
       'Save navigation preferences to apply this order.',
     )
     expect(target?.className).toContain('py-2')
+
+    const usersHandle = container.querySelector<HTMLButtonElement>('[aria-label^="Drag Users."]')!
+    const aiTarget = container.querySelector<HTMLElement>(
+      '[data-navigation-reorder-item="settings.ai"]',
+    )!
+    const settingsTransfer = createDataTransfer()
+    act(() => dispatchDragEvent(usersHandle, 'dragstart', settingsTransfer))
+    let crossSettingsGroupDragOver: Event
+    act(() => {
+      crossSettingsGroupDragOver = dispatchDragEvent(aiTarget, 'dragover', settingsTransfer)
+    })
+    expect(crossSettingsGroupDragOver!.defaultPrevented).toBe(false)
+    expect(aiTarget.className).not.toContain('bg-cyan/10')
+    act(() => dispatchDragEvent(usersHandle, 'dragend', settingsTransfer))
   })
 
   it('does not allow the final first-use dashboard panel to be removed', () => {
@@ -182,6 +226,112 @@ describe('WorkspacePersonalizationPanel', () => {
     expect(container.textContent).toContain('Start page')
     expect(container.textContent).toContain('Existing saved layouts are not replaced')
   })
+
+  it('does not expose sealed navigation controls to a non-Administrator base role', () => {
+    const effective = effectiveWorkspace()
+    const userPreferences = { ...preferences(), role: 'viewer' as const }
+    const draft = createPersonalWorkspaceDraft(effective, userPreferences)
+    const userContext = {
+      ...workspaceUserContext(),
+      role: 'viewer' as const,
+      permissions: [
+        'read:items',
+        'read:workspace',
+        'write:workspace_preferences',
+      ],
+    }
+    const controller = personalController(
+      effective,
+      userPreferences,
+      draft,
+      vi.fn(),
+      userContext,
+    )
+
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+    act(() => root?.render(<WorkspacePersonalizationPanel controller={controller} />))
+
+    const aiRow = container.querySelector<HTMLElement>(
+      '[data-navigation-reorder-item="settings.ai"]',
+    )
+    expect(aiRow?.textContent).toContain('Administrator base role required')
+    expect(
+      [...(aiRow?.querySelectorAll<HTMLInputElement | HTMLButtonElement>('input, button') ?? [])]
+        .every((control) => control.disabled),
+    ).toBe(true)
+    expect(
+      aiRow?.querySelector<HTMLButtonElement>('[aria-label^="Drag AI automation."]')?.draggable,
+    ).toBe(false)
+    expect(
+      container.querySelector('[aria-labelledby="personal-navigation-preview-heading"]')?.textContent,
+    ).not.toContain('AI automation')
+    expect(
+      [...container.querySelectorAll('select option')].map((option) => option.textContent),
+    ).not.toContain('AI automation')
+    expect(
+      [...container.querySelectorAll('select option')].map((option) => option.textContent),
+    ).not.toContain('Stats')
+  })
+
+  it('excludes unavailable items from reorder positions and targets', () => {
+    const initial = effectiveWorkspace()
+    const effective = {
+      ...initial,
+      modules: initial.modules.map((module) =>
+        module.id === 'primary.alerts'
+          ? {
+              ...module,
+              permission_allowed: false,
+              missing_permissions: ['read:alerts'],
+              reasons: ['permission_missing'],
+            }
+          : module,
+      ),
+    }
+    const userPreferences = preferences()
+    const draft = createPersonalWorkspaceDraft(effective, userPreferences)
+    const setPersonalDraft = vi.fn()
+    const controller = personalController(
+      effective,
+      userPreferences,
+      draft,
+      setPersonalDraft,
+    )
+
+    container = document.createElement('div')
+    document.body.appendChild(container)
+    root = createRoot(container)
+    act(() => root?.render(<WorkspacePersonalizationPanel controller={controller} />))
+
+    const alertsHandle = container.querySelector<HTMLButtonElement>(
+      '[aria-label^="Drag Alerts."]',
+    )
+    const feedsHandle = container.querySelector<HTMLButtonElement>(
+      '[aria-label^="Drag Feeds."]',
+    )
+    const feedsEarlier = container.querySelector<HTMLButtonElement>(
+      '[aria-label="Move Feeds earlier"]',
+    )
+
+    expect(alertsHandle?.disabled).toBe(true)
+    expect(alertsHandle?.draggable).toBe(false)
+    expect(feedsHandle?.getAttribute('aria-label')).toContain('Position 2 of 5')
+
+    act(() => feedsEarlier?.click())
+    const update = setPersonalDraft.mock.calls[0]?.[0] as
+      | ((current: typeof draft) => typeof draft)
+      | undefined
+    expect(update).toBeTypeOf('function')
+    const updated = update!(draft)
+    expect(updated.modules.get('primary.feeds')?.order).toBeLessThan(
+      updated.modules.get('primary.investigations')?.order ?? Number.MAX_SAFE_INTEGER,
+    )
+    expect(container.querySelector('[role="status"]')?.textContent).toContain(
+      'position 1 of 5',
+    )
+  })
 })
 
 function personalController(
@@ -189,26 +339,17 @@ function personalController(
   userPreferences: WorkspaceUserPreferenceResponse,
   personalDraft: ReturnType<typeof createPersonalWorkspaceDraft>,
   setPersonalDraft: ReturnType<typeof vi.fn>,
+  userContext = workspaceUserContext(),
 ): WorkspaceSettingsController {
   return {
     workspace: {
       effective,
       preferences: userPreferences,
+      model: resolveWorkspaceModel(effective, undefined, userContext),
       error: null,
       isSavingPreferences: false,
       isResettingPreferences: false,
-      userContext: {
-        role: 'admin',
-        permissions: ['*:*'],
-        features: {
-          ai_enabled: true,
-          ai_configured: true,
-          ai_summary_enabled: true,
-          ai_relevance_enabled: true,
-          ai_daily_brief_enabled: true,
-        },
-        accountEligible: true,
-      },
+      userContext,
     },
     personalDraft,
     personalDirty: true,
@@ -222,6 +363,22 @@ function personalController(
     setPersonalDraft,
     setResetPersonalRequested: vi.fn(),
   } as unknown as WorkspaceSettingsController
+}
+
+function workspaceUserContext(): WorkspaceUserContext {
+  return {
+    role: 'admin' as const,
+    permissions: ['*:*'],
+    features: {
+      ai_enabled: true,
+      ai_configured: true,
+      ai_summary_enabled: true,
+      ai_relevance_enabled: true,
+      ai_daily_brief_enabled: true,
+      ai_reporting_enabled: true,
+    },
+    accountEligible: true,
+  }
 }
 
 function preferences(): WorkspaceUserPreferenceResponse {

@@ -24,9 +24,11 @@ type RevocationNotice = {
 
 export function TokenInventory({
   isAdmin,
+  canManage,
   secretNotice,
 }: {
   isAdmin: boolean
+  canManage: boolean
   secretNotice: string
 }) {
   const queryClient = useQueryClient()
@@ -135,7 +137,7 @@ export function TokenInventory({
 
   useEffect(() => {
     setPendingRevocation(null)
-  }, [adminUserFilter, page])
+  }, [adminUserFilter, canManage, page])
 
   const retryInventory = () => {
     const refresh = tokensQuery.refetch()
@@ -217,8 +219,7 @@ export function TokenInventory({
               <span className="break-all font-mono text-xs">
                 {adminUserFilter}
               </span>
-              . You can inspect and revoke this user's tokens; revocation
-              immediately disables affected clients.
+              . {adminOwnerScopeCapability(canManage)}
             </p>
           </div>
         )}
@@ -282,13 +283,16 @@ export function TokenInventory({
                   key={token.id}
                   token={token}
                   isAdmin={isAdmin}
+                  canManage={canManage}
                   disabled={
                     Boolean(token.revoked_at) ||
                     revokeToken.isPending ||
                     Boolean(pendingRevocation) ||
                     inventoryActionsUnavailable
                   }
-                  onRevoke={() => setPendingRevocation(token)}
+                  onRevoke={() => {
+                    if (canManage) setPendingRevocation(token)
+                  }}
                 />
               ))}
             </ul>
@@ -346,19 +350,29 @@ export function TokenInventory({
       <TokenRevocationDialog
         token={pendingRevocation}
         isAdmin={isAdmin}
+        canManage={canManage}
         actionsUnavailable={inventoryActionsUnavailable}
         isConfirming={revokeToken.isPending}
         notice={revocationNotice}
         onCancel={() => setPendingRevocation(null)}
-        onConfirm={(tokenId) => revokeToken.mutate(tokenId)}
+        onConfirm={(tokenId) => {
+          if (canManage) revokeToken.mutate(tokenId)
+        }}
       />
     </>
   )
 }
 
+function adminOwnerScopeCapability(canManage: boolean): string {
+  return canManage
+    ? "You can inspect and revoke this user's tokens; revocation immediately disables affected clients."
+    : "You can inspect this user's tokens. Revocation requires permission to manage API tokens."
+}
+
 function TokenRevocationDialog({
   token,
   isAdmin,
+  canManage,
   actionsUnavailable,
   isConfirming,
   notice,
@@ -367,6 +381,7 @@ function TokenRevocationDialog({
 }: {
   token: ApiToken | null
   isAdmin: boolean
+  canManage: boolean
   actionsUnavailable: boolean
   isConfirming: boolean
   notice: RevocationNotice | null
@@ -374,12 +389,12 @@ function TokenRevocationDialog({
   onConfirm: (tokenId: string) => void
 }) {
   const confirmRevocation = () => {
-    if (!token || actionsUnavailable) return
+    if (!canManage || !token || actionsUnavailable) return
     onConfirm(token.id)
   }
   return (
     <ConfirmDialog
-      open={Boolean(token)}
+      open={canManage && Boolean(token)}
       title="Revoke API token?"
       description="Revoking a token immediately disables any client using it and recursively revokes every delegated child token in its lineage."
       confirmLabel="Revoke token"
@@ -575,11 +590,13 @@ function AdminTokenFilter({
 function TokenInventoryRow({
   token,
   isAdmin,
+  canManage,
   disabled,
   onRevoke,
 }: {
   token: ApiToken
   isAdmin: boolean
+  canManage: boolean
   disabled: boolean
   onRevoke: () => void
 }) {
@@ -596,6 +613,8 @@ function TokenInventoryRow({
         </div>
         {token.revoked_at ? (
           <span className="tl-chip tl-chip-neutral shrink-0">Revoked</span>
+        ) : !canManage ? (
+          <span className="tl-chip tl-chip-neutral shrink-0">Active</span>
         ) : (
           <button
             type="button"

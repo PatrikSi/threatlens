@@ -36,6 +36,7 @@ afterEach(() => {
   container = null
   document.body.innerHTML = ''
   permissionRouteMocks.currentUser.data.access.permissions = ['read:users']
+  permissionRouteMocks.currentUser.data.role = 'analyst'
 })
 
 describe('PermissionRoute', () => {
@@ -49,21 +50,39 @@ describe('PermissionRoute', () => {
   it('fails closed when the canonical permission is absent', () => {
     permissionRouteMocks.currentUser.data.access.permissions = ['read:items']
 
-    const view = renderRoute(['read:users'])
+    const view = renderRoute(['read:users'], undefined, '/feeds')
 
     expect(view.textContent).toContain('Permission required')
+    expect(view.textContent).not.toContain('Authorized content')
+    expect(view.querySelector('a[href="/settings"]')?.textContent).toContain('Open settings')
+    expect(view.querySelector('a[href="/start"]')?.textContent).toContain('Open workspace start')
+    expect(view.querySelector('a[href="/"]')).toBeNull()
+  })
+
+  it('explains sealed base-role requirements separately from permissions', () => {
+    const view = renderRoute(['read:users'], ['admin'], '/settings/identity')
+
+    expect(view.textContent).toContain('Base role required')
+    expect(view.textContent).toContain('Administrator base role')
+    expect(view.textContent).toContain('Additive custom roles do not unlock')
+    expect(view.querySelector('a[href="/settings"]')?.textContent).toContain('Back to settings')
+    expect(view.querySelector('a[href="/start"]')?.textContent).toContain('Open workspace start')
     expect(view.textContent).not.toContain('Authorized content')
   })
 })
 
-function renderRoute(permissions: readonly string[]) {
+function renderRoute(
+  permissions: readonly string[],
+  roles?: ReadonlyArray<'admin' | 'analyst' | 'viewer'>,
+  pathname = '/',
+) {
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
   act(() => {
     root?.render(
-      <MemoryRouter>
-        <PermissionRoute permissions={permissions}>
+      <MemoryRouter initialEntries={[pathname]}>
+        <PermissionRoute permissions={permissions} roles={roles}>
           <p>Authorized content</p>
         </PermissionRoute>
       </MemoryRouter>,

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Centralized account, token, and admin operations.
+Centralized account, token, integration, and operational controls.
 
 ## Navigation Items
 
@@ -14,7 +14,8 @@ Default authenticated-user items:
 - Integrations
   - Webhooks
 
-Default administrator-role items (canonical permissions remain authoritative):
+Additional items visible by default to the administrator role (canonical
+permissions remain authoritative):
 
 - AI (`/settings/ai`) when enabled
 - Integrations
@@ -25,6 +26,11 @@ Default administrator-role items (canonical permissions remain authoritative):
 - Users
 - Operations
 - Audit Logs
+
+SMTP and Operations do not require the built-in administrator base role. A
+user with the corresponding canonical read permission can access either surface
+when workspace policy exposes it. AI and Identity remain sealed to the built-in
+administrator role in addition to their canonical permission checks.
 
 The effective workspace policy may reorder or hide modules marked optional. The
 frontend resolves server policy only against its static trusted module registry;
@@ -116,7 +122,11 @@ Legacy route behavior:
   - `GET /notifications/webhooks/{id}/deliveries`
   - `POST /notifications/webhooks/{id}/deliveries/{delivery_id}/retry`
 
-## Integrations: SMTP (Admin)
+## Integrations: SMTP
+
+Viewing SMTP integrations requires `read:integrations`; creating, changing,
+testing, deleting, or replaying them requires `write:integrations`. Neither
+permission requires the built-in administrator base role.
 
 - Multiple configurable outbound SMTP hooks with per-hook delivery statistics and history.
 - Supports enabling/disabling, host, port, security mode, credentials, sender identity, recipient emails, timeout, event types, feed scope, subject template, and HTML template.
@@ -175,9 +185,11 @@ Legacy route behavior:
 
 ## API Tokens Page
 
+- `read:tokens` opens the token inventory; without `write:tokens`, the page is
+  explicitly read-only.
+- `write:tokens` enables the create form and revoke actions.
 - Create token form: name, expiry days, scopes CSV
 - One-time display of created token secret
-- Token inventory and revoke action
 - Admin optional filter by `user_id`
 - API calls:
   - `GET /tokens`
@@ -290,8 +302,9 @@ Policy](../reference/access-governance.md).
   session.
 - Webhook analytics/list/history are available to authenticated users for their own webhooks.
 - Webhook create/update/test/retry/delete additionally require operator access (`admin` or `analyst`) and write notification access.
-- Restricted settings pages use `PermissionRoute` with the same canonical read
-  permission enforced by their backend APIs. Legacy role names do not override
-  effective IAM grants.
-- AI is nested at `/settings/ai`, requires `read:ai`, and remains available at
-  `/ai` through a backward-compatible redirect.
+- Restricted settings pages use the same canonical read permissions enforced by
+  their backend APIs. SMTP and Operations have no sealed base-role requirement.
+- AI is nested at `/settings/ai`, requires the built-in administrator base role
+  plus `read:ai`, and remains available at `/ai` through a backward-compatible
+  redirect. Identity likewise requires the administrator base role plus
+  `read:users`; mutations require the corresponding write permission.

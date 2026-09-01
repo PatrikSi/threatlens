@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const appWorkspaceMocks = vi.hoisted(() => ({
   landingPath: '/',
+  role: 'analyst' as 'admin' | 'analyst' | 'viewer',
   permissions: ['*:*'] as string[],
   settingsNavigation: [] as Array<{
     id: string
@@ -15,6 +16,8 @@ const appWorkspaceMocks = vi.hoisted(() => ({
     route: string
     parentId: string
     landingEligible: boolean
+    section?: 'settings'
+    order?: number
   }>,
 }))
 
@@ -40,7 +43,6 @@ vi.mock('./workspace/useWorkspace', () => ({
         { id: 'primary.stats', label: 'Stats', route: '/stats' },
       ],
       settingsNavigation: appWorkspaceMocks.settingsNavigation,
-      mobileSettingsNavigation: appWorkspaceMocks.settingsNavigation,
     },
   }),
 }))
@@ -50,7 +52,7 @@ vi.mock('./hooks/useCurrentUser', () => ({
     data: {
       id: 'user-1',
       email: 'analyst@example.com',
-      role: 'analyst',
+      role: appWorkspaceMocks.role,
       is_active: true,
       is_approved: true,
       approved_at: '2026-04-20T10:00:00Z',
@@ -109,6 +111,22 @@ vi.mock('./pages/TokensPage', () => ({
 
 vi.mock('./pages/WorkspaceSettingsPage', () => ({
   WorkspaceSettingsPage: () => <div>Workspace settings test page</div>,
+}))
+
+vi.mock('./pages/AiSettingsPage', () => ({
+  AiSettingsPage: () => <div>AI settings test page</div>,
+}))
+
+vi.mock('./pages/IdentitySettingsPage', () => ({
+  IdentitySettingsPage: () => <div>Identity settings test page</div>,
+}))
+
+vi.mock('./pages/IntegrationsSettingsPage', () => ({
+  SMTPIntegrationSettingsPage: () => <div>SMTP settings test page</div>,
+}))
+
+vi.mock('./pages/OperationsPage', () => ({
+  OperationsPage: () => <div>Operations settings test page</div>,
 }))
 
 vi.mock('./pages/NotificationsPage', () => ({
@@ -206,6 +224,7 @@ afterEach(async () => {
   window.history.replaceState({}, '', '/')
   window.sessionStorage.clear()
   appWorkspaceMocks.landingPath = '/'
+  appWorkspaceMocks.role = 'analyst'
   appWorkspaceMocks.permissions = ['*:*']
   appWorkspaceMocks.settingsNavigation = []
 })
@@ -258,6 +277,62 @@ describe('App router integration', () => {
     expect(window.location.pathname).not.toBe('/settings/integrations/webhooks')
   })
 
+  it('redirects Settings to the first destination in the displayed presentation groups', async () => {
+    appWorkspaceMocks.settingsNavigation = [
+      {
+        id: 'settings.ai',
+        label: 'AI',
+        route: '/settings/ai',
+        parentId: 'primary.settings',
+        landingEligible: true,
+        section: 'settings',
+        order: 0,
+      },
+      {
+        id: 'settings.workspace',
+        label: 'Workspace',
+        route: '/settings/workspace',
+        parentId: 'primary.settings',
+        landingEligible: true,
+        section: 'settings',
+        order: 15,
+      },
+    ]
+
+    await renderApp('/settings')
+
+    expect(await waitForPath('/settings/workspace')).toBe(true)
+    expect(await waitForText('Workspace settings test page')).toBe(true)
+  })
+
+  it('redirects Settings to a nested integration when it is the only visible destination', async () => {
+    appWorkspaceMocks.settingsNavigation = [
+      {
+        id: 'settings.integrations',
+        label: 'Integrations',
+        route: '/settings/integrations',
+        parentId: 'primary.settings',
+        landingEligible: false,
+        section: 'settings',
+        order: 80,
+      },
+      {
+        id: 'settings.integrations.smtp',
+        label: 'SMTP',
+        route: '/settings/integrations/smtp',
+        parentId: 'settings.integrations',
+        landingEligible: true,
+        section: 'settings',
+        order: 100,
+      },
+    ]
+
+    await renderApp('/settings')
+
+    expect(await waitForPath('/settings/integrations/smtp')).toBe(true)
+    expect(await waitForText('SMTP settings test page')).toBe(true)
+  })
+
   it('leaves an empty Integrations container through a non-container Settings fallback', async () => {
     appWorkspaceMocks.settingsNavigation = [
       {
@@ -282,9 +357,11 @@ describe('App router integration', () => {
   })
 
   it.each([
-    ['/settings/tokens', 'write:tokens', 'Token settings test page'],
+    ['/settings/tokens', 'read:tokens', 'Token settings test page'],
     ['/settings/workspace', 'read:workspace', 'Workspace settings test page'],
     ['/settings/integrations/webhooks', 'read:notifications', 'Webhook settings test page'],
+    ['/settings/integrations/smtp', 'read:integrations', 'SMTP settings test page'],
+    ['/settings/operations', 'read:operations', 'Operations settings test page'],
   ])('allows %s with its exact required permission', async (path, permission, pageText) => {
     appWorkspaceMocks.permissions = [permission]
 
@@ -292,6 +369,33 @@ describe('App router integration', () => {
 
     expect(await waitForText(pageText)).toBe(true)
     expect(document.body.textContent ?? '').not.toContain('Permission required')
+  })
+
+  it.each([
+    ['/settings/identity', 'read:users', 'Identity settings test page'],
+    ['/settings/ai', 'read:ai', 'AI settings test page'],
+  ])('keeps %s sealed to the Administrator base role', async (path, permission, pageText) => {
+    appWorkspaceMocks.role = 'viewer'
+    appWorkspaceMocks.permissions = [permission]
+
+    await renderApp(path)
+
+    expect(await waitForText('Base role required')).toBe(true)
+    expect(document.body.textContent ?? '').toContain('Administrator base role')
+    expect(document.body.textContent ?? '').not.toContain(pageText)
+  })
+
+  it.each([
+    ['/settings/identity', 'read:users', 'Identity settings test page'],
+    ['/settings/ai', 'read:ai', 'AI settings test page'],
+  ])('allows an Administrator to open %s with its exact permission', async (path, permission, pageText) => {
+    appWorkspaceMocks.role = 'admin'
+    appWorkspaceMocks.permissions = [permission]
+
+    await renderApp(path)
+
+    expect(await waitForText(pageText)).toBe(true)
+    expect(document.body.textContent ?? '').not.toContain('Base role required')
   })
 
   it.each([

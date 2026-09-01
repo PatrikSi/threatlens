@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { Link, Outlet, useLocation } from 'react-router-dom'
 
 import { useCurrentUser } from '../hooks/useCurrentUser'
+import { TRUSTED_WORKSPACE_MODULES } from '../workspace/moduleRegistry'
 import {
   SETTINGS_PRESENTATION_GROUPS,
   formatSettingsRoleLabel,
@@ -30,7 +31,14 @@ export function SettingsLayout() {
     '/settings/integrations',
   )
   const showIntegrationsChildren = integrationsActive || integrationsExpanded
-  const activeModule = navigationModules
+  const activeModule = [
+    ...navigationModules,
+    ...TRUSTED_WORKSPACE_MODULES.filter(
+      (module) =>
+        module.section === 'settings' &&
+        !navigationModules.some((visibleModule) => visibleModule.id === module.id),
+    ),
+  ]
     .filter((module) => isSettingsLinkActive(location.pathname, module.route))
     .sort((left, right) => right.route.length - left.route.length)[0]
   const activeSettingsLabel = activeModule
@@ -99,7 +107,7 @@ export function SettingsLayout() {
           </span>
         </div>
         <p className="mt-1 px-1 text-xs leading-5 text-slate dark:text-white/65">
-          Personal and administrative controls.
+          Personal and workspace controls.
         </p>
 
         <nav
