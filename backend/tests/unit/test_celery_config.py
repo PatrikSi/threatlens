@@ -8,6 +8,7 @@ from app.tasks.celery_app import (
     QUEUE_AI_REPORTS,
     QUEUE_DEFAULT,
     QUEUE_INGEST,
+    QUEUE_LIFECYCLE,
     QUEUE_MAINTENANCE,
     QUEUE_NOTIFICATIONS,
     QUEUE_PROCESSING,
@@ -47,6 +48,7 @@ def test_celery_declares_expected_named_queues():
         QUEUE_AI,
         QUEUE_AI_REPORTS,
         QUEUE_MAINTENANCE,
+        QUEUE_LIFECYCLE,
     }
     assert celery_app.conf.task_default_queue == QUEUE_DEFAULT
     assert celery_app.conf.worker_prefetch_multiplier == 1
@@ -78,6 +80,7 @@ def test_system_health_sampling_and_queue_canaries_are_routed_and_scheduled():
         QUEUE_PROCESSING,
         QUEUE_NOTIFICATIONS,
         QUEUE_MAINTENANCE,
+        QUEUE_LIFECYCLE,
     ]
     if settings.ai_enabled:
         required_queues.extend([QUEUE_AI, QUEUE_AI_REPORTS])

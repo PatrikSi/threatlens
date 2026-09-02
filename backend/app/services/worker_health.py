@@ -29,6 +29,7 @@ from app.tasks.celery_app import (
     QUEUE_AI_REPORTS,
     QUEUE_DEFAULT,
     QUEUE_INGEST,
+    QUEUE_LIFECYCLE,
     QUEUE_MAINTENANCE,
     QUEUE_NOTIFICATIONS,
     QUEUE_PROCESSING,
@@ -56,6 +57,7 @@ _QUEUE_PRESENTATION = {
     QUEUE_PROCESSING: ("Item processing", "worker"),
     QUEUE_NOTIFICATIONS: ("Notifications", "worker-notifications"),
     QUEUE_MAINTENANCE: ("Maintenance", "worker-maintenance"),
+    QUEUE_LIFECYCLE: ("Data lifecycle", "worker-maintenance"),
     QUEUE_AI: ("AI enrichment", "worker-ai"),
     QUEUE_AI_REPORTS: ("AI reports", "worker-ai"),
 }

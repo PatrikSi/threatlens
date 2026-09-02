@@ -23,7 +23,7 @@ from app.services.integration_events import (
     reserve_recoverable_integration_events,
     route_integration_event as route_pending_integration_event,
 )
-from app.services.integration_maintenance import run_integration_delivery_maintenance
+from app.services.integration_maintenance import run_integration_delivery_housekeeping
 from app.services.integration_registry import get_integration_connector
 from app.tasks.celery_app import celery_app
 from app.tasks.feed_task_notifications import enqueue_notification_delivery_batches
@@ -251,9 +251,10 @@ def _enqueue_recovery_delivery_processing(
 )
 def maintain_integration_delivery_history():
     with db_session() as db:
-        result = run_integration_delivery_maintenance(db)
+        result = run_integration_delivery_housekeeping(db)
     return {
         "status": "ok",
+        "compatibility_mode": True,
         "rolled_up": result.rolled_up,
         "webhook_deliveries_deleted": result.webhook_deliveries_deleted,
         "deliveries_deleted": result.deliveries_deleted,

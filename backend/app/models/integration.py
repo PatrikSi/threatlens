@@ -68,6 +68,15 @@ class IntegrationInstance(Base):
 
 class IntegrationRun(Base):
     __tablename__ = "integration_runs"
+    __table_args__ = (
+        Index(
+            "ix_integration_runs_lifecycle_finished",
+            "finished_at",
+            "id",
+            postgresql_where=text("finished_at IS NOT NULL"),
+            sqlite_where=text("finished_at IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     integration_id: Mapped[uuid.UUID] = mapped_column(
@@ -136,6 +145,13 @@ class IntegrationEvent(Base):
     __table_args__ = (
         UniqueConstraint("idempotency_key", name="uq_integration_events_idempotency_key"),
         Index("ix_integration_events_routing_due", "routing_state", "available_at", "created_at"),
+        Index(
+            "ix_integration_events_lifecycle_routed",
+            "created_at",
+            "id",
+            postgresql_where=text("routing_state IN ('routed', 'dead_letter')"),
+            sqlite_where=text("routing_state IN ('routed', 'dead_letter')"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -232,6 +248,25 @@ class IntegrationDelivery(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+
+
+Index(
+    "ix_integration_deliveries_lifecycle_terminal",
+    func.coalesce(
+        IntegrationDelivery.completed_at,
+        IntegrationDelivery.dead_lettered_at,
+        IntegrationDelivery.updated_at,
+    ),
+    IntegrationDelivery.id,
+    postgresql_where=text(
+        "state IN ('succeeded', 'failed', 'dead_letter') "
+        "AND metrics_aggregated_at IS NOT NULL"
+    ),
+    sqlite_where=text(
+        "state IN ('succeeded', 'failed', 'dead_letter') "
+        "AND metrics_aggregated_at IS NOT NULL"
+    ),
+)
 
 
 class IntegrationAttempt(Base):

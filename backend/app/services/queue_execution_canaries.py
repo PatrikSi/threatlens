@@ -13,6 +13,7 @@ from app.tasks.celery_app import (
     QUEUE_AI_REPORTS,
     QUEUE_DEFAULT,
     QUEUE_INGEST,
+    QUEUE_LIFECYCLE,
     QUEUE_MAINTENANCE,
     QUEUE_NOTIFICATIONS,
     QUEUE_PROCESSING,
@@ -41,6 +42,7 @@ def required_worker_queues(settings: Settings) -> list[str]:
         QUEUE_PROCESSING,
         QUEUE_NOTIFICATIONS,
         QUEUE_MAINTENANCE,
+        QUEUE_LIFECYCLE,
     ]
     if settings.ai_enabled:
         queues.extend([QUEUE_AI, QUEUE_AI_REPORTS])

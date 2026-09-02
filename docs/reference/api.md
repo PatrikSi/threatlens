@@ -5,7 +5,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ## Published Contract
 
 - Schema version: `1.10.0`
-- OpenAPI contract anchor: `openapi-sha256:eb4337beff2f23d9c2fbdac27f5aa451660acabe67fd5972527c6c4aaabc4459`
+- OpenAPI contract anchor: `openapi-sha256:f5b893c8cf2273b39acf76dbebecedf91022b4ac3b5331397ead1094393412a1`
 - API service base path: `/v1`
 - Web proxy base path: `/api/v1`
 - Bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`.
@@ -707,6 +707,61 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `session_id` (path, required): string
 - Responses: `200` `application/json` -> SessionRevocationResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+
+## Data Lifecycle
+
+### `GET /v1/operations/lifecycle`
+- Summary: Get Lifecycle Overview
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:operations`
+- Responses: `200` `application/json` -> LifecycleOverviewResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `PUT /v1/operations/lifecycle/policies/{target_key}`
+- Summary: Put Lifecycle Policy
+- Auth: SessionCookieAuth
+- Parameters:
+  - `target_key` (path, required): string ('article_content', 'audit_logs', 'action_approval_history', 'ai_task_history', 'ai_usage_history', 'tag_feedback_history', 'integration_run_history', 'inactive_auth_sessions', 'system_health_samples', 'integration_delivery_history', 'integration_event_history', 'integration_metrics', 'closed_alert_history', 'alert_activity_history', 'alert_evaluation_history', 'alert_metrics')
+  - `Idempotency-Key` (header, required): string
+- Request body: `application/json` -> LifecyclePolicyUpdateRequest
+- Responses: `200` `application/json` -> LifecyclePolicyResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/operations/lifecycle/preview`
+- Summary: Post Lifecycle Preview
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:operations`
+- Request body: `application/json` -> LifecyclePreviewRequest
+- Responses: `200` `application/json` -> LifecyclePreviewResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `GET /v1/operations/lifecycle/runs`
+- Summary: Get Lifecycle Runs
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:operations`
+- Parameters:
+  - `page` (query, optional): integer
+  - `page_size` (query, optional): integer
+  - `target_key` (query, optional): Target Key
+  - `status` (query, optional): Status
+  - `trigger_source` (query, optional): Trigger Source
+- Responses: `200` `application/json` -> LifecycleRunListResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/operations/lifecycle/runs`
+- Summary: Post Lifecycle Run
+- Auth: SessionCookieAuth
+- Parameters:
+  - `Idempotency-Key` (header, required): string
+- Request body: `application/json` -> LifecycleRunCreateRequest
+- Responses: `202` `application/json` -> LifecycleRunResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `GET /v1/operations/lifecycle/runs/{run_id}`
+- Summary: Get Lifecycle Run Detail
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:operations`
+- Parameters:
+  - `run_id` (path, required): string
+- Responses: `200` `application/json` -> LifecycleRunResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/operations/lifecycle/runs/{run_id}/cancel`
+- Summary: Post Lifecycle Run Cancel
+- Auth: SessionCookieAuth
+- Parameters:
+  - `run_id` (path, required): string
+  - `Idempotency-Key` (header, required): string
+- Request body: `application/json` -> LifecycleRunCancelRequest
+- Responses: `200` `application/json` -> LifecycleRunResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 
 ## Data Policies
 

@@ -150,18 +150,18 @@ def test_live_manifest_is_the_exact_immutable_canonical_route_contract():
     attestation = validate_route_governance_manifest(app)
 
     assert ROUTE_GOVERNANCE_MANIFEST_VERSION == 1
-    assert len(ROUTE_GOVERNANCE_MANIFEST.entries) == 271
-    assert len({entry.operation for entry in ROUTE_GOVERNANCE_MANIFEST.entries}) == 271
+    assert len(ROUTE_GOVERNANCE_MANIFEST.entries) == 278
+    assert len({entry.operation for entry in ROUTE_GOVERNANCE_MANIFEST.entries}) == 278
     assert ROUTE_GOVERNANCE_MANIFEST_SHA256 == (
-        "fbf6f7eb139b1eee1eba91d9badc98323a08943db9a9a4d0aae814d23360cd9e"
+        "273b6e6cded29b7f4d50bee2e53cea6e095686d0e94cd3b5dfda698e2cb2fa8d"
     )
     assert attestation.manifest_sha256 == ROUTE_GOVERNANCE_MANIFEST_SHA256
-    assert attestation.declared_operation_count == 271
-    assert attestation.validated_operation_count == 271
+    assert attestation.declared_operation_count == 278
+    assert attestation.validated_operation_count == 278
     assert attestation.request_context_operation_count == 109
     assert attestation.governance_class_counts == (
         ("captured_async", 5),
-        ("control_plane", 145),
+        ("control_plane", 152),
         ("dynamic_target", 7),
         ("egress_fenced", 1),
         ("public", 11),

@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
+from app.models.lifecycle import LifecycleCatalogState, LifecyclePolicy
 from app.models.system_health_sample import SystemHealthSample
 from app.schemas.operations import (
     OperationsHealthHistoryCoverage,
@@ -58,6 +59,7 @@ _QUEUE_VALUES = frozenset(
         "processing",
         "notifications",
         "maintenance",
+        "lifecycle-v1",
         "ai",
         "ai-reports-v2",
     }
@@ -216,10 +218,7 @@ def collect_health_history(
         window=window,
         effective_resolution_seconds=HEALTH_SAMPLE_INTERVAL_SECONDS * stride,
         downsampling_strategy=selection.strategy,
-        retention_days=max(
-            1,
-            min(3650, int(active_settings.operations_health_history_retention_days)),
-        ),
+        retention_days=_health_history_retention_days(db, active_settings),
         coverage=OperationsHealthHistoryCoverage(
             requested_start=requested_start,
             requested_end=generated_at,
@@ -255,6 +254,25 @@ def collect_health_history(
         ),
         samples=[_history_point(row) for row in selected],
     )
+
+
+def _health_history_retention_days(db: Session, settings: Settings) -> int:
+    catalog_state = db.get(LifecycleCatalogState, 1)
+    if catalog_state is None or catalog_state.bootstrapped_at is None:
+        return max(
+            1,
+            min(3650, int(settings.operations_health_history_retention_days)),
+        )
+    retention_days = db.scalar(
+        select(LifecyclePolicy.retention_days).where(
+            LifecyclePolicy.target_key == "system_health_samples"
+        )
+    )
+    if retention_days is None:
+        raise RuntimeError(
+            "The bootstrapped lifecycle catalog is missing the system health policy."
+        )
+    return max(1, min(3650, int(retention_days)))
 
 
 def _history_point(row: SystemHealthSample) -> OperationsHealthHistoryPoint:

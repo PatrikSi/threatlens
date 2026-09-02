@@ -90,6 +90,25 @@ def test_ai_worker_consumes_the_versioned_report_queue():
     assert "{'ai', 'ai-reports-v2'} <= names" in compose_text
 
 
+def test_maintenance_worker_consumes_and_health_checks_the_versioned_lifecycle_queue():
+    compose_text = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+
+    assert '"--queues=maintenance,lifecycle-v1"' in compose_text
+    assert "{'maintenance', 'lifecycle-v1'} <= names" in compose_text
+
+
+def test_lifecycle_queue_cutover_documents_the_quiescence_boundary():
+    documentation = (ROOT / "docs/reference/configuration.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "## Lifecycle Queue Cutover" in documentation
+    assert "docker compose stop beat api" in documentation
+    assert "docker compose up -d --wait beat" in documentation
+    assert "After catalog bootstrap, do not start" in documentation
+    assert "maintenance consumer against that database" in documentation
+
+
 def test_configuration_reference_inventories_every_backend_setting():
     documentation = (ROOT / "docs/reference/configuration.md").read_text(
         encoding="utf-8"

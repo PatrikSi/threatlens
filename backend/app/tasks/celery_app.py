@@ -114,6 +114,7 @@ QUEUE_NOTIFICATIONS = "notifications"
 QUEUE_AI = "ai"
 QUEUE_AI_REPORTS = "ai-reports-v2"
 QUEUE_MAINTENANCE = "maintenance"
+QUEUE_LIFECYCLE = "lifecycle-v1"
 
 TASK_ROUTES = {
     "app.tasks.feed_tasks.fetch_feed": {"queue": QUEUE_INGEST},
@@ -188,6 +189,13 @@ TASK_ROUTES = {
     "app.tasks.history_maintenance_tasks.maintain_application_history": {
         "queue": QUEUE_MAINTENANCE
     },
+    "app.tasks.lifecycle_tasks.dispatch_due_lifecycle_runs": {
+        "queue": QUEUE_LIFECYCLE
+    },
+    "app.tasks.lifecycle_tasks.execute_lifecycle_run": {"queue": QUEUE_LIFECYCLE},
+    "app.tasks.lifecycle_tasks.run_lifecycle_housekeeping": {
+        "queue": QUEUE_LIFECYCLE
+    },
     "app.tasks.alert_tasks.process_alert_evaluation": {"queue": QUEUE_PROCESSING},
     "app.tasks.alert_tasks.dispatch_pending_alert_evaluations": {
         "queue": QUEUE_MAINTENANCE
@@ -207,6 +215,7 @@ celery_app = Celery(
         "app.tasks.history_maintenance_tasks",
         "app.tasks.alert_tasks",
         "app.tasks.system_health_tasks",
+        "app.tasks.lifecycle_tasks",
     ],
 )
 
@@ -225,6 +234,7 @@ celery_app.conf.update(
         Queue(QUEUE_AI),
         Queue(QUEUE_AI_REPORTS),
         Queue(QUEUE_MAINTENANCE),
+        Queue(QUEUE_LIFECYCLE),
     ),
     task_routes=TASK_ROUTES,
     worker_prefetch_multiplier=1,
@@ -276,21 +286,17 @@ celery_app.conf.update(
             "task": "app.tasks.feed_tasks.dispatch_pending_integration_deliveries",
             "schedule": 10.0,
         },
-        "maintain-integration-delivery-history": {
-            "task": "app.tasks.feed_tasks.maintain_integration_delivery_history",
-            "schedule": 3600.0,
+        "dispatch-due-lifecycle-runs": {
+            "task": "app.tasks.lifecycle_tasks.dispatch_due_lifecycle_runs",
+            "schedule": 60.0,
         },
-        "maintain-application-history": {
-            "task": "app.tasks.history_maintenance_tasks.maintain_application_history",
-            "schedule": 3600.0,
+        "run-lifecycle-housekeeping": {
+            "task": "app.tasks.lifecycle_tasks.run_lifecycle_housekeeping",
+            "schedule": 900.0,
         },
         "dispatch-pending-alert-evaluations": {
             "task": "app.tasks.alert_tasks.dispatch_pending_alert_evaluations",
             "schedule": 30.0,
-        },
-        "maintain-alert-history": {
-            "task": "app.tasks.alert_tasks.maintain_alert_history",
-            "schedule": 900.0,
         },
         "dispatch-daily-ai-brief-generation": {
             "task": "app.tasks.feed_tasks.dispatch_daily_ai_brief_generation",
@@ -337,6 +343,7 @@ celery_app.conf.update(
                 QUEUE_PROCESSING,
                 QUEUE_NOTIFICATIONS,
                 QUEUE_MAINTENANCE,
+                QUEUE_LIFECYCLE,
                 *((QUEUE_AI, QUEUE_AI_REPORTS) if settings.ai_enabled else ()),
             )
         },

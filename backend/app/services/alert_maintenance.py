@@ -35,6 +35,10 @@ from app.services.data_access_runtime import (
     ensure_alert_occurrence_data_access_envelope,
     lock_data_policy_revision_for_derivation,
 )
+from app.services.lifecycle_dependencies import (
+    lifecycle_parent_scan_limit,
+    select_with_dependent_budget,
+)
 
 
 ALERT_OCCURRENCE_RETENTION_DAYS = 180
@@ -101,24 +105,38 @@ def maintain_alert_history(
     activity_retention_days: int = ALERT_ACTIVITY_RETENTION_DAYS,
     evaluation_retention_days: int = ALERT_EVALUATION_RETENTION_DAYS,
     metric_retention_days: int = ALERT_METRIC_RETENTION_DAYS,
+    occurrence_cutoff_at: datetime | None = None,
+    activity_cutoff_at: datetime | None = None,
+    evaluation_cutoff_at: datetime | None = None,
+    metric_cutoff_at: datetime | None = None,
     max_batches: int = ALERT_MAINTENANCE_MAX_BATCHES,
     max_runtime_seconds: float = ALERT_MAINTENANCE_MAX_RUNTIME_SECONDS,
+    commit: bool = True,
+    prune_expired_previews: bool = True,
+    aggregate_occurrences: bool = True,
+    prune_occurrences: bool = True,
+    prune_activities: bool = True,
+    prune_evaluations: bool = True,
+    prune_metrics: bool = True,
+    max_dependent_rows: int | None = None,
     _clock: Callable[[], float] = time.monotonic,
 ) -> AlertHistoryMaintenanceResult:
     current_time = now or datetime.now(timezone.utc)
     bounded_batch = max(1, min(int(batch_size), 10_000))
     bounded_max_batches = max(1, min(int(max_batches), 100))
     bounded_runtime = max(0.01, min(float(max_runtime_seconds), 300.0))
-    occurrence_cutoff = current_time - timedelta(
+    occurrence_cutoff = occurrence_cutoff_at or current_time - timedelta(
         days=max(1, int(occurrence_retention_days))
     )
-    activity_cutoff = current_time - timedelta(
+    activity_cutoff = activity_cutoff_at or current_time - timedelta(
         days=max(1, int(activity_retention_days))
     )
-    evaluation_cutoff = current_time - timedelta(
+    evaluation_cutoff = evaluation_cutoff_at or current_time - timedelta(
         days=max(1, int(evaluation_retention_days))
     )
-    metric_cutoff = current_time - timedelta(days=max(1, int(metric_retention_days)))
+    metric_cutoff = metric_cutoff_at or current_time - timedelta(
+        days=max(1, int(metric_retention_days))
+    )
 
     started_at = _clock()
     totals: Counter[str] = Counter()
@@ -136,6 +154,14 @@ def maintain_alert_history(
             activity_cutoff=activity_cutoff,
             evaluation_cutoff=evaluation_cutoff,
             metric_cutoff=metric_cutoff,
+            commit=commit,
+            prune_expired_previews=prune_expired_previews,
+            aggregate_occurrences=aggregate_occurrences,
+            prune_occurrences=prune_occurrences,
+            prune_activities=prune_activities,
+            prune_evaluations=prune_evaluations,
+            prune_metrics=prune_metrics,
+            max_dependent_rows=max_dependent_rows,
         )
         batches_processed += 1
         for field_name in (
@@ -159,6 +185,12 @@ def maintain_alert_history(
         activity_cutoff=activity_cutoff,
         evaluation_cutoff=evaluation_cutoff,
         metric_cutoff=metric_cutoff,
+        prune_expired_previews=prune_expired_previews,
+        aggregate_occurrences=aggregate_occurrences,
+        prune_occurrences=prune_occurrences,
+        prune_activities=prune_activities,
+        prune_evaluations=prune_evaluations,
+        prune_metrics=prune_metrics,
     )
     if not backlog_categories:
         stop_reason = "drained"
@@ -187,33 +219,49 @@ def _maintain_alert_history_batch(
     activity_cutoff: datetime,
     evaluation_cutoff: datetime,
     metric_cutoff: datetime,
+    commit: bool = True,
+    prune_expired_previews: bool = True,
+    aggregate_occurrences: bool = True,
+    prune_occurrences: bool = True,
+    prune_activities: bool = True,
+    prune_evaluations: bool = True,
+    prune_metrics: bool = True,
+    max_dependent_rows: int | None = None,
 ) -> _AlertHistoryMaintenanceBatch:
 
-    preview_ids = list(
-        db.scalars(
-            select(AlertBackfillPreview.id)
-            .where(AlertBackfillPreview.expires_at <= current_time)
-            .order_by(AlertBackfillPreview.expires_at.asc())
-            .limit(batch_size)
-            .with_for_update(skip_locked=True)
-        ).all()
+    preview_ids = (
+        list(
+            db.scalars(
+                select(AlertBackfillPreview.id)
+                .where(AlertBackfillPreview.expires_at <= current_time)
+                .order_by(AlertBackfillPreview.expires_at.asc())
+                .limit(batch_size)
+                .with_for_update(skip_locked=True)
+            ).all()
+        )
+        if prune_expired_previews
+        else []
     )
     previews_deleted = _delete_ids(db, AlertBackfillPreview, preview_ids)
 
     policy_revision = lock_data_policy_revision_for_derivation(db)
-    aggregate_rows = list(
-        db.scalars(
-            select(AlertOccurrence)
-            .where(
-                AlertOccurrence.lifecycle_state == "closed",
-                AlertOccurrence.closed_at.is_not(None),
-                AlertOccurrence.closed_at < occurrence_cutoff,
-                AlertOccurrence.metrics_aggregated_at.is_(None),
-            )
-            .order_by(AlertOccurrence.closed_at.asc(), AlertOccurrence.id.asc())
-            .limit(batch_size)
-            .with_for_update(skip_locked=True)
-        ).all()
+    aggregate_rows = (
+        list(
+            db.scalars(
+                select(AlertOccurrence)
+                .where(
+                    AlertOccurrence.lifecycle_state == "closed",
+                    AlertOccurrence.closed_at.is_not(None),
+                    AlertOccurrence.closed_at < occurrence_cutoff,
+                    AlertOccurrence.metrics_aggregated_at.is_(None),
+                )
+                .order_by(AlertOccurrence.closed_at.asc(), AlertOccurrence.id.asc())
+                .limit(batch_size)
+                .with_for_update(skip_locked=True)
+            ).all()
+        )
+        if aggregate_occurrences
+        else []
     )
     public_counts: Counter[tuple[datetime, uuid.UUID, str, str, bool]] = Counter()
     cohort_counts: Counter[
@@ -421,19 +469,23 @@ def _maintain_alert_history_batch(
         db.add(occurrence)
     db.flush()
 
-    occurrence_ids = list(
-        db.scalars(
-            select(AlertOccurrence.id)
-            .where(
-                AlertOccurrence.lifecycle_state == "closed",
-                AlertOccurrence.closed_at.is_not(None),
-                AlertOccurrence.closed_at < occurrence_cutoff,
-                AlertOccurrence.metrics_aggregated_at.is_not(None),
-            )
-            .order_by(AlertOccurrence.closed_at.asc(), AlertOccurrence.id.asc())
-            .limit(batch_size)
-            .with_for_update(skip_locked=True)
-        ).all()
+    occurrence_ids = (
+        list(
+            db.scalars(
+                select(AlertOccurrence.id)
+                .where(
+                    AlertOccurrence.lifecycle_state == "closed",
+                    AlertOccurrence.closed_at.is_not(None),
+                    AlertOccurrence.closed_at < occurrence_cutoff,
+                    AlertOccurrence.metrics_aggregated_at.is_not(None),
+                )
+                .order_by(AlertOccurrence.closed_at.asc(), AlertOccurrence.id.asc())
+                .limit(batch_size)
+                .with_for_update(skip_locked=True)
+            ).all()
+        )
+        if prune_occurrences
+        else []
     )
     occurrences_deleted = _delete_ids(db, AlertOccurrence, occurrence_ids)
     if occurrences_deleted:
@@ -445,56 +497,106 @@ def _maintain_alert_history_batch(
             ),
         )
 
-    activity_ids = list(
-        db.scalars(
-            select(AlertOccurrenceActivity.id)
-            .where(
-                AlertOccurrenceActivity.created_at < activity_cutoff,
-                AlertOccurrenceActivity.action != "created",
-            )
-            .order_by(
-                AlertOccurrenceActivity.created_at.asc(),
-                AlertOccurrenceActivity.id.asc(),
-            )
-            .limit(batch_size)
-        ).all()
+    activity_ids = (
+        list(
+            db.scalars(
+                select(AlertOccurrenceActivity.id)
+                .where(
+                    AlertOccurrenceActivity.created_at < activity_cutoff,
+                    AlertOccurrenceActivity.action != "created",
+                )
+                .order_by(
+                    AlertOccurrenceActivity.created_at.asc(),
+                    AlertOccurrenceActivity.id.asc(),
+                )
+                .limit(batch_size)
+            ).all()
+        )
+        if prune_activities
+        else []
     )
     activities_deleted = _delete_ids(db, AlertOccurrenceActivity, activity_ids)
 
-    evaluation_ids = list(
-        db.scalars(
-            select(AlertEvaluationRequest.id)
-            .where(
-                AlertEvaluationRequest.state.in_(["succeeded", "dead_letter"]),
-                AlertEvaluationRequest.completed_at.is_not(None),
-                AlertEvaluationRequest.completed_at < evaluation_cutoff,
-            )
-            .order_by(
-                AlertEvaluationRequest.completed_at.asc(),
-                AlertEvaluationRequest.id.asc(),
-            )
-            .limit(batch_size)
-            .with_for_update(skip_locked=True)
-        ).all()
+    evaluation_ids = (
+        list(
+            db.scalars(
+                select(AlertEvaluationRequest.id)
+                .where(
+                    AlertEvaluationRequest.state.in_(["succeeded", "dead_letter"]),
+                    AlertEvaluationRequest.completed_at.is_not(None),
+                    AlertEvaluationRequest.completed_at < evaluation_cutoff,
+                )
+                .order_by(
+                    AlertEvaluationRequest.completed_at.asc(),
+                    AlertEvaluationRequest.id.asc(),
+                )
+                .limit(
+                    lifecycle_parent_scan_limit(batch_size)
+                    if max_dependent_rows is not None
+                    else batch_size
+                )
+                .with_for_update(skip_locked=True)
+            ).all()
+        )
+        if prune_evaluations
+        else []
     )
+    if evaluation_ids and max_dependent_rows is not None:
+        evaluation_ids = select_with_dependent_budget(
+            db,
+            model=AlertEvaluationRequest,
+            candidate_ids=evaluation_ids,
+            max_dependent_rows=max_dependent_rows,
+            max_parent_records=batch_size,
+        ).ids
     evaluations_deleted = _delete_terminal_evaluation_ids(
         db,
         evaluation_ids,
         cutoff=evaluation_cutoff,
     )
 
-    metric_ids = list(
-        db.scalars(
-            select(AlertOccurrenceMetric.id)
-            .where(AlertOccurrenceMetric.bucket_start < metric_cutoff)
-            .order_by(
-                AlertOccurrenceMetric.bucket_start.asc(), AlertOccurrenceMetric.id.asc()
-            )
-            .limit(batch_size)
-        ).all()
+    metric_ids = (
+        list(
+            db.scalars(
+                select(AlertOccurrenceMetric.id)
+                .where(AlertOccurrenceMetric.bucket_start < metric_cutoff)
+                .order_by(
+                    AlertOccurrenceMetric.bucket_start.asc(),
+                    AlertOccurrenceMetric.id.asc(),
+                )
+                .limit(
+                    lifecycle_parent_scan_limit(batch_size)
+                    if max_dependent_rows is not None
+                    else batch_size
+                )
+                .with_for_update(skip_locked=True)
+            ).all()
+        )
+        if prune_metrics
+        else []
     )
+    if metric_ids and max_dependent_rows is not None:
+        db.execute(
+            select(AlertOccurrenceMetricCohort.id)
+            .where(AlertOccurrenceMetricCohort.metric_id.in_(metric_ids))
+            .order_by(
+                AlertOccurrenceMetricCohort.metric_id,
+                AlertOccurrenceMetricCohort.id,
+            )
+            .with_for_update()
+        ).close()
+        metric_ids = select_with_dependent_budget(
+            db,
+            model=AlertOccurrenceMetric,
+            candidate_ids=metric_ids,
+            max_dependent_rows=max_dependent_rows,
+            max_parent_records=batch_size,
+        ).ids
     metrics_deleted = _delete_ids(db, AlertOccurrenceMetric, metric_ids)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     return _AlertHistoryMaintenanceBatch(
         previews_deleted=previews_deleted,
         occurrences_aggregated=len(aggregate_rows),
@@ -513,6 +615,12 @@ def _alert_history_backlog_categories(
     activity_cutoff: datetime,
     evaluation_cutoff: datetime,
     metric_cutoff: datetime,
+    prune_expired_previews: bool = True,
+    aggregate_occurrences: bool = True,
+    prune_occurrences: bool = True,
+    prune_activities: bool = True,
+    prune_evaluations: bool = True,
+    prune_metrics: bool = True,
 ) -> tuple[str, ...]:
     checks = (
         (
@@ -557,8 +665,18 @@ def _alert_history_backlog_categories(
             exists().where(AlertOccurrenceMetric.bucket_start < metric_cutoff),
         ),
     )
+    enabled = {
+        "expired_previews": prune_expired_previews,
+        "occurrences_to_aggregate": aggregate_occurrences,
+        "occurrences_to_delete": prune_occurrences,
+        "activities_to_delete": prune_activities,
+        "evaluations_to_delete": prune_evaluations,
+        "metrics_to_delete": prune_metrics,
+    }
     return tuple(
-        name for name, predicate in checks if bool(db.scalar(select(predicate)))
+        name
+        for name, predicate in checks
+        if enabled[name] and bool(db.scalar(select(predicate)))
     )
 
 

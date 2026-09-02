@@ -1,4 +1,4 @@
-from app.services.history_maintenance import prune_application_history
+from app.services.history_maintenance import run_application_security_housekeeping
 from app.tasks.celery_app import celery_app
 from app.tasks.task_session import db_session
 
@@ -10,5 +10,5 @@ from app.tasks.task_session import db_session
 )
 def maintain_application_history():
     with db_session() as db:
-        result = prune_application_history(db)
-    return {"status": "ok", **result.__dict__}
+        result = run_application_security_housekeeping(db)
+    return {"status": "ok", "compatibility_mode": True, **result}
