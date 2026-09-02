@@ -39,7 +39,7 @@ export function WorkspaceRolePolicyPanel({ controller }: { controller: Workspace
       <header className="border-b border-slate/20 px-4 py-3.5 dark:border-white/10">
         <h2 id="role-workspace-heading" className="font-display text-lg">Workspace navigation by role</h2>
         <p className="mt-1 text-sm text-slate dark:text-slate-300">
-          {controller.canManagePolicies ? 'Set' : 'Review'} top-navigation and Settings-sidebar defaults for each built-in role. These choices control presentation only and never grant permissions.
+          {controller.canManagePolicies ? 'Set' : 'Review'} top-navigation and Settings-sidebar defaults for each built-in role. These choices control presentation only and never grant permissions. Custom role grants do not automatically expose a module; its built-in role must also show it here.
         </p>
         <div className="mt-3 inline-flex max-w-full overflow-x-auto rounded border border-slate/20 p-1 dark:border-white/10" role="group" aria-label="Built-in role">
           {controller.roles.map((role) => (

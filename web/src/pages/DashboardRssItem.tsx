@@ -19,6 +19,10 @@ import {
 } from './dashboardSavedViews'
 import type { DashboardPageController } from './useDashboardPageController'
 import type { ItemDetail, ItemListEntry } from '../types/api'
+import {
+  articleFetchActionLabel,
+  articleUnavailableMessage,
+} from './articleLifecyclePresentation'
 
 type DashboardWindow = DashboardPageController['renderedWindows'][number]
 
@@ -393,6 +397,10 @@ function DashboardRssItemArticle({
                                         <div className="tl-rss-detail-reader rss-reader tl-reader-surface mt-2 rounded p-3">
                                           <RichContent content={detail.article.text} itemId={detail.id} section="article" />
                                         </div>
+                                      ) : detail.article?.content_purged_at ? (
+                                        <p className="mt-2 rounded border border-slate/20 bg-white/60 px-3 py-2 text-sm text-slate dark:border-white/10 dark:bg-white/[0.025] dark:text-slate-300">
+                                          {articleUnavailableMessage(detail.article)}
+                                        </p>
                                       ) : (
                                         <p className="mt-2 text-sm text-slate dark:text-slate-300">No extracted article text available yet.</p>
                                       )}
@@ -409,11 +417,10 @@ function DashboardRssItemArticle({
                                             }
                                             onClick={() => retryArticleFetch.mutate({ itemId: detail.id })}
                                           >
-                                            {isItemActionPending('retry', detail.id)
-                                              ? 'Queueing...'
-                                              : detail.article?.error
-                                                ? 'Retry Article Fetch'
-                                                : 'Queue Article Fetch'}
+                                            {articleFetchActionLabel(
+                                              detail.article,
+                                              isItemActionPending('retry', detail.id),
+                                            )}
                                           </button>
                                           {articleRetryFeedbackByItemId[detail.id] && (
                                             <span

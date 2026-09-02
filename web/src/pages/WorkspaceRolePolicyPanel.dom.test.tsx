@@ -34,6 +34,7 @@ const ROLE_SETTINGS_NAVIGATION_IDS = [
   'settings.access',
   'settings.users',
   'settings.audit',
+  'settings.lifecycle',
   'settings.operations',
   'settings.integrations.webhooks',
   'settings.integrations.smtp',
@@ -97,6 +98,9 @@ describe('WorkspaceRolePolicyPanel', () => {
       .map((button) => button.textContent?.trim())
     expect(roleLabels).toEqual(['Administrator', 'Analyst', 'Viewer'])
     expect(container.textContent).toContain('future.timeline is retained for compatibility')
+    expect(container.textContent).toContain(
+      'Custom role grants do not automatically expose a module',
+    )
     expect(
       container.querySelector<HTMLInputElement>('[aria-label="Show AI automation for Analyst"]')?.disabled,
     ).toBe(true)

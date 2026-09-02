@@ -38,6 +38,7 @@ const AccessGovernancePage = lazy(() =>
 const AiSettingsPage = lazy(() => import('./pages/AiSettingsPage').then((module) => ({ default: module.AiSettingsPage })))
 const AlertsPage = lazy(() => import('./pages/AlertsPage').then((module) => ({ default: module.AlertsPage })))
 const AuditLogsPage = lazy(() => import('./pages/AuditLogsPage').then((module) => ({ default: module.AuditLogsPage })))
+const DataLifecyclePage = lazy(() => import('./pages/DataLifecyclePage').then((module) => ({ default: module.DataLifecyclePage })))
 const DashboardPage = lazy(() => import('./pages/DashboardPage').then((module) => ({ default: module.DashboardPage })))
 const ExportPage = lazy(() => import('./pages/ExportPage').then((module) => ({ default: module.ExportPage })))
 const FeedsPage = lazy(() => import('./pages/FeedsPage').then((module) => ({ default: module.FeedsPage })))
@@ -233,6 +234,14 @@ function createAppRouter() {
               element={
                 <WorkspaceModuleRoute moduleId="settings.workspace">
                   {suspenseRoute(<WorkspaceSettingsPage />, 'Loading workspace settings...')}
+                </WorkspaceModuleRoute>
+              }
+            />
+            <Route
+              path="lifecycle"
+              element={
+                <WorkspaceModuleRoute moduleId="settings.lifecycle">
+                  {suspenseRoute(<DataLifecyclePage />, 'Loading data lifecycle settings...')}
                 </WorkspaceModuleRoute>
               }
             />
