@@ -129,6 +129,10 @@ vi.mock('./pages/OperationsPage', () => ({
   OperationsPage: () => <div>Operations settings test page</div>,
 }))
 
+vi.mock('./pages/DataLifecyclePage', () => ({
+  DataLifecyclePage: () => <div>Data lifecycle settings test page</div>,
+}))
+
 vi.mock('./pages/NotificationsPage', () => ({
   NotificationWebhooksSettings: () => <div>Webhook settings test page</div>,
   NotificationsPage: () => <div>Notification settings test page</div>,
@@ -361,6 +365,7 @@ describe('App router integration', () => {
     ['/settings/workspace', 'read:workspace', 'Workspace settings test page'],
     ['/settings/integrations/webhooks', 'read:notifications', 'Webhook settings test page'],
     ['/settings/integrations/smtp', 'read:integrations', 'SMTP settings test page'],
+    ['/settings/lifecycle', 'read:operations', 'Data lifecycle settings test page'],
     ['/settings/operations', 'read:operations', 'Operations settings test page'],
   ])('allows %s with its exact required permission', async (path, permission, pageText) => {
     appWorkspaceMocks.permissions = [permission]

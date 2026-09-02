@@ -69,6 +69,7 @@ const SETTINGS_MODULE_PRESENTATION: Partial<
     groupId: 'automation',
     label: 'Email delivery',
   },
+  'settings.lifecycle': { groupId: 'system', label: 'Data lifecycle' },
   'settings.operations': { groupId: 'system', label: 'System health' },
 }
 

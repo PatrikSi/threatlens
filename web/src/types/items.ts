@@ -37,6 +37,7 @@ export interface Article {
   word_count: number | null
   fetch_ms: number | null
   error: string | null
+  content_purged_at: string | null
 }
 
 export interface ItemState {
