@@ -87,8 +87,8 @@ export function OperationsPage() {
       if (operationStatus) params.set('status', operationStatus)
       return apiFetch<SystemOperationRunListResponse>(`/operations/runs?${params.toString()}`)
     },
-    enabled: activeView === 'recovery',
-    refetchInterval: activeView === 'recovery' ? OVERVIEW_REFRESH_MS : false,
+    enabled: activeView === 'activity',
+    refetchInterval: activeView === 'activity' ? OVERVIEW_REFRESH_MS : false,
     refetchIntervalInBackground: false,
   })
   const diagnostics = useMutation({
@@ -122,6 +122,12 @@ export function OperationsPage() {
   useEffect(() => {
     if (runsQuery.data && runPage > totalRunPages) setRunPage(totalRunPages)
   }, [runPage, runsQuery.data, totalRunPages])
+  useEffect(() => {
+    if (searchParams.get('view') !== 'recovery') return
+    const next = new URLSearchParams(searchParams)
+    next.set('view', 'activity')
+    setSearchParams(next, { replace: true })
+  }, [searchParams, setSearchParams])
 
   const setView = (view: typeof activeView) => {
     const next = new URLSearchParams(searchParams)
@@ -130,8 +136,8 @@ export function OperationsPage() {
     setSearchParams(next, { replace: true })
   }
   const setSignal = (key: string) => {
-    if (key === 'recovery') {
-      setView('recovery')
+    if (key === 'recovery' || key === 'activity') {
+      setView('activity')
       return
     }
     const next = new URLSearchParams(searchParams)
@@ -148,12 +154,12 @@ export function OperationsPage() {
   const refreshActiveView = () => {
     void overviewQuery.refetch()
     if (activeView === 'trends') void historyQuery.refetch()
-    else if (activeView === 'recovery') void runsQuery.refetch()
+    else if (activeView === 'activity') void runsQuery.refetch()
     else if (selectedSignalKey === 'workers') void workerQuery.refetch()
   }
   const activeDatasetFetching = overviewQuery.isFetching ||
     (activeView === 'trends' && historyQuery.isFetching) ||
-    (activeView === 'recovery' && runsQuery.isFetching) ||
+    (activeView === 'activity' && runsQuery.isFetching) ||
     (activeView === 'live' && selectedSignalKey === 'workers' && workerQuery.isFetching)
 
   return (
@@ -415,11 +421,8 @@ function OperationsWorkspace({
           onRetry={onHistoryRetry}
         />
       )}
-      {activeView === 'recovery' && (
+      {activeView === 'activity' && (
         <OperationsRecoveryActivity
-          recovery={overview?.recovery}
-          recoveryLoading={overviewLoading}
-          recoveryError={overviewError}
           runs={runs}
           loading={runsLoading}
           updating={runsUpdating}
@@ -429,7 +432,6 @@ function OperationsWorkspace({
           operationType={operationType}
           operationStatus={operationStatus}
           onPageChange={onRunPageChange}
-          onRetryRecovery={onOverviewRetry}
           onRetry={onRunsRetry}
           onTypeChange={onTypeChange}
           onStatusChange={onStatusChange}

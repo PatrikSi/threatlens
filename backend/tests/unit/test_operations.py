@@ -528,7 +528,7 @@ def test_overview_degrades_without_leaking_probe_errors(db_session, monkeypatch)
     assert components["encrypted_data"].status == "unavailable"
     assert all(issue.effect and issue.recommended_action for issue in overview.issues)
     issue_codes = {issue.code for issue in overview.issues}
-    assert "recovery_history_unavailable" in issue_codes
+    assert "recovery_history_unavailable" not in issue_codes
     assert "backup_not_recorded" not in issue_codes
     assert "restore_drill_not_recorded" not in issue_codes
     for secret in (
@@ -759,7 +759,7 @@ def _operation_run(
     )
 
 
-def test_recovery_readiness_correlates_evidence_to_the_latest_archive(db_session):
+def test_recovery_activity_correlates_evidence_to_the_latest_archive(db_session):
     now = datetime.now(timezone.utc).replace(microsecond=0)
     latest_checksum = "a" * 64
     older_checksum = "b" * 64
@@ -793,12 +793,11 @@ def test_recovery_readiness_correlates_evidence_to_the_latest_archive(db_session
         issues=issues,
         database_ok=True,
     )
-    issue_codes = {entry.code for entry in issues}
-
     assert recovery.latest_backup is not None
     assert recovery.latest_backup.metadata["archive_sha256"] == latest_checksum
-    assert "latest_backup_verify_mismatch" not in issue_codes
-    assert "latest_backup_drill_mismatch" in issue_codes
+    assert recovery.latest_verify is not None
+    assert recovery.latest_restore_drill is None
+    assert issues == []
 
 
 def test_recovery_evidence_is_loaded_from_one_statement_snapshot(db_session):
@@ -839,7 +838,7 @@ def test_recovery_evidence_is_loaded_from_one_statement_snapshot(db_session):
     assert correlation.verify.metadata["archive_sha256"] == checksum
 
 
-def test_recovery_readiness_reports_stale_success_and_incomplete_attempt(db_session):
+def test_recovery_activity_does_not_score_stale_or_incomplete_runs(db_session):
     now = datetime.now(timezone.utc).replace(microsecond=0)
     db_session.add_all(
         [
@@ -860,19 +859,18 @@ def test_recovery_readiness_reports_stale_success_and_incomplete_attempt(db_sess
     db_session.commit()
 
     issues = []
-    operations_projections.collect_recovery_snapshot(
+    recovery = operations_projections.collect_recovery_snapshot(
         db_session,
         issues=issues,
         database_ok=True,
     )
-    issue_codes = {entry.code for entry in issues}
+    assert recovery.latest_backup is not None
+    assert recovery.latest_restore_drill is not None
+    assert recovery.latest_restore_drill.status == "running"
+    assert issues == []
 
-    assert "latest_backup_stale" in issue_codes
-    assert "latest_restore_drill_incomplete" in issue_codes
-    assert "latest_backup_not_verified" in issue_codes
 
-
-def test_recovery_readiness_reports_stale_drill_for_latest_archive(db_session):
+def test_recovery_activity_does_not_score_stale_drill(db_session):
     now = datetime.now(timezone.utc).replace(microsecond=0)
     checksum = "9" * 64
     db_session.add_all(
@@ -906,10 +904,10 @@ def test_recovery_readiness_reports_stale_drill_for_latest_archive(db_session):
         database_ok=True,
     )
 
-    assert "latest_restore_drill_stale" in {entry.code for entry in issues}
+    assert issues == []
 
 
-def test_recovery_readiness_selects_matching_successful_evidence(db_session):
+def test_recovery_activity_selects_matching_successful_evidence(db_session):
     now = datetime.now(timezone.utc).replace(microsecond=0)
     backup_checksum = "d" * 64
     unrelated_checksum = "e" * 64
@@ -955,18 +953,14 @@ def test_recovery_readiness_selects_matching_successful_evidence(db_session):
         issues=issues,
         database_ok=True,
     )
-    issue_codes = {entry.code for entry in issues}
-
     assert recovery.latest_backup is not None
     assert recovery.latest_backup.status == "failed"
-    assert "latest_backup_failed" in issue_codes
-    assert "latest_backup_not_verified" not in issue_codes
-    assert "latest_backup_verify_mismatch" not in issue_codes
-    assert "latest_backup_not_drilled" not in issue_codes
-    assert "latest_backup_drill_mismatch" not in issue_codes
+    assert recovery.latest_verify is not None
+    assert recovery.latest_restore_drill is not None
+    assert issues == []
 
 
-def test_recovery_readiness_ignores_failures_for_older_archives(db_session):
+def test_recovery_activity_ignores_failures_for_older_archives(db_session):
     now = datetime.now(timezone.utc).replace(microsecond=0)
     latest_checksum = "f" * 64
     older_checksum = "0" * 64
@@ -1012,11 +1006,8 @@ def test_recovery_readiness_ignores_failures_for_older_archives(db_session):
         issues=issues,
         database_ok=True,
     )
-    issue_codes = {entry.code for entry in issues}
-
     assert recovery.latest_verify is not None
     assert recovery.latest_verify.status == "succeeded"
     assert recovery.latest_restore_drill is not None
     assert recovery.latest_restore_drill.status == "succeeded"
-    assert "latest_backup_verify_failed" not in issue_codes
-    assert "latest_restore_drill_failed" not in issue_codes
+    assert issues == []

@@ -2,6 +2,7 @@ import type {
   OperationsBacklogSnapshot,
   OperationsComponentCheck,
   OperationsHealthWindow,
+  OperationsHealthHistoryResponse,
   OperationsIssue,
   OperationsOverviewResponse,
   OperationsStatus,
@@ -9,7 +10,7 @@ import type {
   OperationsWorkerReason,
 } from '../types/operations'
 
-export type OperationsView = 'live' | 'trends' | 'recovery'
+export type OperationsView = 'live' | 'trends' | 'activity'
 export type OperationsSignalKind = 'component' | 'workflow' | 'storage'
 
 export interface OperationsSignal {
@@ -25,7 +26,7 @@ export interface OperationsSignal {
 export const OPERATIONS_VIEWS: Array<{ value: OperationsView; label: string }> = [
   { value: 'live', label: 'Live health' },
   { value: 'trends', label: 'Trends' },
-  { value: 'recovery', label: 'Recovery & activity' },
+  { value: 'activity', label: 'Activity' },
 ]
 
 export const OPERATIONS_WINDOWS: Array<{ value: OperationsHealthWindow; label: string }> = [
@@ -45,9 +46,77 @@ export const STATUS_ORDER: Record<OperationsStatus, number> = {
 }
 
 export function readOperationsView(value: string | null): OperationsView {
+  if (value === 'recovery') return 'activity'
   return OPERATIONS_VIEWS.some((entry) => entry.value === value)
     ? value as OperationsView
     : 'live'
+}
+
+const LEGACY_RECOVERY_ISSUE_CODES = new Set([
+  'recovery_history_unavailable',
+  'backup_not_recorded',
+  'restore_drill_not_recorded',
+])
+const LEGACY_CRITICAL_RECOVERY_ISSUE_CODES = new Set([
+  'latest_backup_failed',
+  'latest_backup_incomplete',
+  'latest_backup_verify_failed',
+  'latest_restore_failed',
+  'latest_restore_incomplete',
+  'latest_restore_drill_failed',
+])
+
+function isLegacyRecoveryIssueCode(code: string): boolean {
+  return LEGACY_RECOVERY_ISSUE_CODES.has(code)
+    || code.startsWith('latest_backup_')
+    || code.startsWith('latest_restore_')
+}
+
+export function suppressLegacyRecoveryHealth(
+  history: OperationsHealthHistoryResponse,
+): OperationsHealthHistoryResponse {
+  return {
+    ...history,
+    samples: history.samples.map((sample) => {
+      const legacyIssueCodes = sample.issue_codes.filter(
+        isLegacyRecoveryIssueCode,
+      )
+      if (legacyIssueCodes.length === 0) return sample
+      const issueCodes = sample.issue_codes.filter(
+        (code) => !isLegacyRecoveryIssueCode(code),
+      )
+      const removedCriticalCount = legacyIssueCodes.filter(
+        (code) => LEGACY_CRITICAL_RECOVERY_ISSUE_CODES.has(code),
+      ).length
+      const criticalIssueCount = Math.max(
+        0,
+        sample.critical_issue_count - removedCriticalCount,
+      )
+      const warningIssueCount = Math.max(
+        0,
+        sample.warning_issue_count - (legacyIssueCodes.length - removedCriticalCount),
+      )
+      const observedStatuses: OperationsStatus[] = [
+        sample.worker_status,
+        ...Object.values(sample.component_statuses),
+      ]
+      if (criticalIssueCount > 0) observedStatuses.push('critical')
+      else if (warningIssueCount > 0) observedStatuses.push('degraded')
+      const overallStatus = observedStatuses.reduce<OperationsStatus>(
+        (worst, current) => STATUS_ORDER[current] < STATUS_ORDER[worst]
+          ? current
+          : worst,
+        'healthy',
+      )
+      return {
+        ...sample,
+        issue_codes: issueCodes,
+        overall_status: overallStatus,
+        critical_issue_count: criticalIssueCount,
+        warning_issue_count: warningIssueCount,
+      }
+    }),
+  }
 }
 
 export function readOperationsWindow(value: string | null): OperationsHealthWindow {

@@ -42,20 +42,13 @@ export function OperationsLiveHealth({
   const runtimeHealthy = runtimeComponents.filter((component) => component.status === 'healthy').length
   const healthyWorkflows = overview.backlogs.filter((backlog) => backlog.status === 'healthy').length
   const dataIntegrity = overview.components.find((component) => component.key === 'encrypted_data')
-  const recoveryEvidence = [
-    overview.recovery.latest_backup,
-    overview.recovery.latest_verify,
-    overview.recovery.latest_restore_drill,
-  ]
-  const recoverySucceeded = recoveryEvidence.filter((run) => run?.status === 'succeeded').length
 
   return (
     <div className="divide-y divide-slate/15 dark:divide-white/10">
-      <section className="grid gap-px overflow-hidden bg-slate/15 dark:bg-white/10 sm:grid-cols-2 xl:grid-cols-4" aria-label="Health dimensions">
+      <section className="grid gap-px overflow-hidden bg-slate/15 dark:bg-white/10 sm:grid-cols-3" aria-label="Health dimensions">
         <DimensionSummary label="Runtime" value={`${runtimeHealthy}/${runtimeComponents.length}`} detail="dependencies healthy" status={dimensionStatus(runtimeComponents.map((entry) => entry.status))} />
         <DimensionSummary label="Durable workflows" value={`${healthyWorkflows}/${overview.backlogs.length}`} detail="within threshold" status={dimensionStatus(overview.backlogs.map((entry) => entry.status))} />
         <DimensionSummary label="Data integrity" value={dataIntegrity?.status === 'healthy' ? 'Verified' : 'Attention'} detail={dataIntegrity?.summary ?? 'Not measured'} status={dataIntegrity?.status ?? 'unknown'} />
-        <DimensionSummary label="Recovery posture" value={`${recoverySucceeded}/3`} detail="core checks recorded" status={overview.issues.some((issue) => issue.component === 'recovery') ? 'degraded' : recoverySucceeded === 3 ? 'healthy' : 'unknown'} />
       </section>
 
       <ActiveFindings overview={overview} onSelectSignal={onSelectSignal} />
