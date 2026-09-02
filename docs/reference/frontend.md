@@ -49,6 +49,7 @@ Route tree:
     - `/settings/identity` -> administrator-base-role and `read:users`-gated `IdentitySettingsPage`
     - `/settings/tagging` -> `read:tagging`-gated `TaggingSettingsPage`
     - `/settings/tokens` -> `read:tokens`-gated `TokensPage`
+    - `/settings/lifecycle` -> `read:operations`-gated `DataLifecyclePage` with no sealed base-role requirement
     - `/settings/operations` -> `read:operations`-gated `OperationsPage` with no sealed base-role requirement
     - `/settings/users` -> `read:users`-gated `UsersPage`
     - `/settings/audit-logs` -> `read:audit`-gated `AuditLogsPage`
@@ -715,9 +716,25 @@ API calls:
 - `PATCH /users/{id}`
 - `POST /users/{id}/mfa/reset`
 
+### `DataLifecyclePage`
+
+Permission-gated policy administration under `/settings/lifecycle`. The compact
+policy table groups a fixed server-owned catalog by dataset family and shows
+enablement, cutoff, schedule, next/last execution, safeguards, and bounded run
+size. Aggregate previews disclose counts and estimated article bytes without
+returning record identifiers or content. Policy changes and manual runs use
+optimistic revisions; destructive scope changes and execution require a matching
+fresh preview, typed confirmation, a reason, recent browser authentication, and
+`write:operations`, while execution also carries an idempotency key. Preview
+deadlines use the server observation time rather than trusting the workstation
+clock, and the policy row, expanded editor, and cache share one preview state.
+URL-backed Policies and Run history tabs preserve filters; queued or running work
+exposes cancellation and terminal results distinguish success, partial
+completion, failure, and cancellation.
+
 ### `OperationsPage`
 
-Permission-gated workspace for deployment health and recovery readiness. Access
+Permission-gated workspace for deployment health and operational activity. Access
 requires `read:operations` and does not require the built-in administrator base
 role.
 
@@ -726,7 +743,7 @@ UI elements:
 - Overall health summary with accessible icon-and-text healthy, degraded, critical,
   unavailable, unknown, and explicit last-known states
 - Prioritized findings with impact and recommended operator action
-- URL-backed Live health, Trends, and Recovery & activity views
+- URL-backed Live health, Trends, and Activity views
 - PostgreSQL, Redis, worker-queue, scheduler, and encrypted-data checks, including
   worker count, queue coverage, heartbeat age, freshness thresholds, scan coverage,
   and unreadable-field counts when reported by the API
@@ -741,7 +758,6 @@ UI elements:
   component and issue-code history, and worker exceptions
 - PostgreSQL logical size plus application-filesystem capacity and available-space
   indicators; host or managed-database capacity remains an external concern
-- Recovery evidence with outcome, recorded time, duration, and source
 - Paginated operation history and an on-demand bounded, redacted diagnostics export
 
 API calls:
@@ -814,6 +830,9 @@ API calls:
 | `pages/OperationsPage.tsx` | `GET` | `/operations/workers` and `/operations/health-history` |
 | `pages/OperationsPage.tsx` | `GET` | `/operations/runs` |
 | `pages/OperationsPage.tsx` | `GET` | `/operations/diagnostics` |
+| `pages/lifecycleApi.ts` | `GET` | `/operations/lifecycle` and `/operations/lifecycle/runs` |
+| `pages/lifecycleApi.ts` | `POST` | `/operations/lifecycle/preview`, `/operations/lifecycle/runs`, and lifecycle run cancellation |
+| `pages/lifecycleApi.ts` | `PUT` | `/operations/lifecycle/policies/{target_key}` |
 | `pages/accessGovernanceApi.ts` | `GET` | `/iam/permissions`, `/iam/roles`, and `/iam/groups` |
 | `pages/accessGovernanceApi.ts` | `POST`, `PATCH`, `DELETE` | custom IAM roles and groups, group members, and group-role assignments |
 | `pages/accessGovernanceApi.ts` | `GET` | `/iam/data-policies`, `/iam/service-accounts`, `/iam/access-reviews`, `/iam/elevations`, and `/iam/action-approvals` |
