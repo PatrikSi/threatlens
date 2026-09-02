@@ -24,13 +24,15 @@ permissions remain authoritative):
 - Access
 - Identity
 - Users
-- Operations
 - Audit Logs
+- Data lifecycle
+- System health
 
-SMTP and Operations do not require the built-in administrator base role. A
-user with the corresponding canonical read permission can access either surface
-when workspace policy exposes it. AI and Identity remain sealed to the built-in
-administrator role in addition to their canonical permission checks.
+SMTP, Data lifecycle, and System health do not require the built-in
+administrator base role. A user with the corresponding canonical read permission
+can access those surfaces when workspace policy exposes them. AI and Identity
+remain sealed to the built-in administrator role in addition to their canonical
+permission checks.
 
 The effective workspace policy may reorder or hide modules marked optional. The
 frontend resolves server policy only against its static trusted module registry;
@@ -320,6 +322,73 @@ Policy](../reference/access-governance.md).
   - `GET /audit-logs`
   - `GET /audit-logs/export`
 
+## Data Lifecycle Page
+
+The Data lifecycle module at `/settings/lifecycle` makes retained-data cleanup
+visible and independently configurable. It requires `read:operations`; policy
+changes, manual runs, and cancellation require durable `write:operations` and a
+recent human browser authentication.
+
+Policies are grouped by Intelligence, Detection, Integrations, Security,
+Governance, and System. Each dataset exposes only server-defined controls:
+
+- enabled or paused state;
+- retention in days, with a dataset-specific minimum and maximum;
+- daily or weekly UTC schedule;
+- maximum primary records affected by one run;
+- dataset-specific safeguards;
+- exact timestamp/cutoff semantics, next run, last result, and current aggregate
+  preview.
+
+Existing environment retention values seed the complete fixed catalog atomically
+on first lifecycle access after an upgrade. A durable marker records the captured
+defaults. Once marked, the database catalog is authoritative and any missing,
+partial, extra, or unmarked catalog fails closed for cleanup rather than being
+silently reconstructed. Turning off one policy prevents that dataset from being
+pruned without disabling mandatory MFA cleanup, metric rollups, or access-policy
+lineage repair.
+
+**Fetched article content** removes the extracted body in place while retaining
+the Article and Item identity, source/fetch metadata, and ingestion deduplication
+key. Age uses `published_at`, falling back to `first_seen_at`. Its default
+safeguards preserve starred or noted items, investigation evidence, report
+sources, active alerts, and active AI work. Purged content is not selected by
+automatic repair; an authorized manual article refetch can retrieve it again.
+Failed or empty forced fetches keep the retention tombstone, while usable
+extracted text or an intentional RSS fallback clears it.
+Derived summaries, classifications, reports, investigations, alerts, audit
+evidence, and backups have separate retention contracts and may remain.
+
+Generate a server preview before cleanup. Previews contain aggregate eligible and
+protected counts, protected reasons, cutoff, oldest candidate, approximate
+payload bytes where available, completeness state, generation time, and expiry.
+They never return candidate IDs, titles, URLs, labels, or content. Enabling a
+policy, shortening retention, raising an enabled run cap, or reducing article
+safeguards consumes a matching preview and requires an operational reason plus
+typed `PURGE` confirmation. A manual run additionally requires the current saved
+revision and an idempotency key. Server-observed expiry keeps these controls
+accurate even when the browser clock is skewed.
+
+Runs are asynchronous, bounded, and safe to retry. Run history records scheduled
+or manual trigger, actor, captured policy, cutoff, counts, bytes, remaining
+backlog, stop reason, heartbeat, and sanitized failures. Cancellation stops later
+batches but cannot restore already committed work. Status distinguishes queued,
+running, succeeded, partially completed, failed, and cancelled work.
+The configured cap bounds primary records. Each batch also has a fixed 10,000-row
+budget for cascaded or lineage-dependent records; an individually oversized
+parent is surfaced as protected instead of being deleted through an unbounded
+cascade.
+
+API calls:
+
+- `GET /operations/lifecycle`
+- `POST /operations/lifecycle/preview`
+- `PUT /operations/lifecycle/policies/{target_key}`
+- `GET /operations/lifecycle/runs`
+- `GET /operations/lifecycle/runs/{run_id}`
+- `POST /operations/lifecycle/runs`
+- `POST /operations/lifecycle/runs/{run_id}/cancel`
+
 ## Access Rules
 
 - Protected by authenticated route guard.
@@ -334,7 +403,8 @@ Policy](../reference/access-governance.md).
 - Webhook analytics/list/history are available to authenticated users for their own webhooks.
 - Webhook create/update/test/retry/delete additionally require operator access (`admin` or `analyst`) and write notification access.
 - Restricted settings pages use the same canonical read permissions enforced by
-  their backend APIs. SMTP and Operations have no sealed base-role requirement.
+  their backend APIs. SMTP, Data lifecycle, and System health have no sealed
+  base-role requirement.
 - AI is nested at `/settings/ai`, requires the built-in administrator base role
   plus `read:ai`, and remains available at `/ai` through a backward-compatible
   redirect. Identity likewise requires the administrator base role plus
