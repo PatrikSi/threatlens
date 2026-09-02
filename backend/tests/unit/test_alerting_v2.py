@@ -164,11 +164,11 @@ def test_alert_tasks_are_recoverable_and_routed_to_existing_worker_queues():
         celery_app.conf.beat_schedule["dispatch-pending-alert-evaluations"]["task"]
         == "app.tasks.alert_tasks.dispatch_pending_alert_evaluations"
     )
-    assert (
-        celery_app.conf.beat_schedule["maintain-alert-history"]["task"]
-        == "app.tasks.alert_tasks.maintain_alert_history"
-    )
-    assert celery_app.conf.beat_schedule["maintain-alert-history"]["schedule"] == 900.0
+    assert "maintain-alert-history" not in celery_app.conf.beat_schedule
+    assert celery_app.conf.beat_schedule["run-lifecycle-housekeeping"] == {
+        "task": "app.tasks.lifecycle_tasks.run_lifecycle_housekeeping",
+        "schedule": 900.0,
+    }
 
 
 def test_reconciliation_releases_database_claim_when_publication_fails(

@@ -76,10 +76,18 @@ def store_article_error(
     article.language = None
     article.fetch_ms = fetch_ms
     article.error = error
-    if not apply_article_summary_fallback(article, item, error):
+    used_summary_fallback = apply_article_summary_fallback(article, item, error)
+    if used_summary_fallback:
+        article.content_purged_at = None
+        article.content_purge_run_id = None
+    else:
         article.text = None
-        article.extraction_method = "none"
         article.word_count = None
+        article.extraction_method = (
+            "retention_purged"
+            if article.content_purged_at is not None
+            else "none"
+        )
         item.status = "error"
 
     item.last_error = error

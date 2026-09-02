@@ -140,7 +140,7 @@ def test_worker_topology_reports_allowlisted_capacity_load_and_queue_consumers(
     responses = _responses(
         queues_by_worker={
             "worker@node-1": ["default", "ingest", "processing"],
-            "worker@node-2": ["notifications", "maintenance"],
+            "worker@node-2": ["notifications", "maintenance", "lifecycle-v1"],
         },
         capacity=4,
         active_count=1,
@@ -161,6 +161,9 @@ def test_worker_topology_reports_allowlisted_capacity_load_and_queue_consumers(
     queues = {queue.key: queue for queue in result.queues}
     assert queues["ingest"].consumers == ["worker@node-1"]
     assert queues["notifications"].service_hint == "worker-notifications"
+    assert queues["lifecycle-v1"].label == "Data lifecycle"
+    assert queues["lifecycle-v1"].consumers == ["worker@node-2"]
+    assert queues["lifecycle-v1"].service_hint == "worker-maintenance"
     rendered = result.model_dump_json()
     assert "secret-task-argument" not in rendered
     assert "admin:secret" not in rendered
@@ -171,7 +174,7 @@ def test_worker_topology_distinguishes_partial_inventory(monkeypatch):
     responses = _responses(
         queues_by_worker={
             "worker@node-1": ["ingest", "processing"],
-            "worker@node-2": ["notifications", "maintenance"],
+            "worker@node-2": ["notifications", "maintenance", "lifecycle-v1"],
         }
     )
     responses["active_queues"] = {
@@ -201,7 +204,11 @@ def test_worker_topology_distinguishes_missing_consumers(monkeypatch):
 
     assert result.status == "critical"
     assert result.reason == "missing_consumers"
-    assert result.missing_queues == ["maintenance", "notifications"]
+    assert result.missing_queues == [
+        "lifecycle-v1",
+        "maintenance",
+        "notifications",
+    ]
     queues = {queue.key: queue for queue in result.queues}
     assert queues["maintenance"].status == "critical"
     assert queues["maintenance"].consumer_count == 0
@@ -224,6 +231,7 @@ def test_worker_topology_distinguishes_no_replies_and_failed_inventory(monkeypat
                 "processing",
                 "notifications",
                 "maintenance",
+                "lifecycle-v1",
             ]
         }
     )
@@ -254,6 +262,7 @@ def test_worker_topology_prioritizes_stall_saturation_and_missing_evidence(
                 "processing",
                 "notifications",
                 "maintenance",
+                "lifecycle-v1",
             ]
         },
         capacity=1,
@@ -270,6 +279,7 @@ def test_worker_topology_prioritizes_stall_saturation_and_missing_evidence(
     assert stalled.reason == "execution_stalled"
     assert stalled.stale_execution_queues == [
         "ingest",
+        "lifecycle-v1",
         "maintenance",
         "notifications",
         "processing",
@@ -294,6 +304,7 @@ def test_worker_topology_prioritizes_stall_saturation_and_missing_evidence(
                 "processing",
                 "notifications",
                 "maintenance",
+                "lifecycle-v1",
             ]
         },
         capacity=2,
@@ -304,6 +315,7 @@ def test_worker_topology_prioritizes_stall_saturation_and_missing_evidence(
     assert missing.reason == "execution_evidence_missing"
     assert missing.missing_execution_evidence_queues == [
         "ingest",
+        "lifecycle-v1",
         "maintenance",
         "notifications",
         "processing",
@@ -320,6 +332,7 @@ def test_worker_topology_does_not_claim_saturation_without_reserved_work(
                 "processing",
                 "notifications",
                 "maintenance",
+                "lifecycle-v1",
             ]
         },
         capacity=1,
@@ -345,6 +358,7 @@ def test_worker_topology_cache_expires_after_collection_not_before(
                 "processing",
                 "notifications",
                 "maintenance",
+                "lifecycle-v1",
             ]
         }
     )
@@ -373,7 +387,13 @@ def test_worker_topology_cache_expires_after_collection_not_before(
 
 
 def test_worker_topology_reports_truncated_inventory_as_partial(monkeypatch):
-    queues = ["ingest", "processing", "notifications", "maintenance"]
+    queues = [
+        "ingest",
+        "processing",
+        "notifications",
+        "maintenance",
+        "lifecycle-v1",
+    ]
     responses = _responses(
         queues_by_worker={
             f"worker@node-{index:02d}": queues
@@ -405,7 +425,13 @@ def test_worker_topology_reports_truncated_inventory_as_partial(monkeypatch):
 
 def test_worker_topology_bounds_malformed_worker_and_probe_values(monkeypatch):
     monkeypatch.setattr(worker_health, "MAX_COUNT", 3)
-    queues = ["ingest", "processing", "notifications", "maintenance"]
+    queues = [
+        "ingest",
+        "processing",
+        "notifications",
+        "maintenance",
+        "lifecycle-v1",
+    ]
     responses = _responses(queues_by_worker={"worker /unsafe": queues})
     responses["active_queues"]["worker /unsafe"].append("malformed")
     responses["active"]["worker /unsafe"] = [None] * 4
@@ -436,7 +462,13 @@ def test_worker_topology_bounds_malformed_worker_and_probe_values(monkeypatch):
 
 
 def test_worker_topology_does_not_publish_partial_load_as_zero(monkeypatch):
-    queues = ["ingest", "processing", "notifications", "maintenance"]
+    queues = [
+        "ingest",
+        "processing",
+        "notifications",
+        "maintenance",
+        "lifecycle-v1",
+    ]
     responses = _responses(
         queues_by_worker={
             "worker@node-1": queues,
@@ -479,6 +511,7 @@ def test_worker_topology_marks_missing_stats_capacity_invalid(monkeypatch):
                 "processing",
                 "notifications",
                 "maintenance",
+                "lifecycle-v1",
             ]
         }
     )

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import String, and_, cast, delete, or_, select
+from sqlalchemy import String, and_, cast, delete, or_, select, text
 from sqlalchemy.orm import Session, aliased
 
 from app.core.config import get_settings
@@ -35,6 +35,10 @@ from app.services.local_mfa import (
     cleanup_mfa_challenges,
     cleanup_pending_totp_enrollments,
 )
+from app.services.lifecycle_dependencies import (
+    lifecycle_parent_scan_limit,
+    select_with_dependent_budget,
+)
 
 settings = get_settings()
 
@@ -54,6 +58,32 @@ class HistoryMaintenanceResult:
     action_execution_receipts_deleted: int
     action_operation_receipts_deleted: int
     system_health_samples_deleted: int
+
+
+def run_application_security_housekeeping(
+    db: Session,
+    *,
+    now: datetime | None = None,
+    batch_size: int | None = None,
+) -> dict[str, int]:
+    current_time = now or datetime.now(timezone.utc)
+    effective_batch_size = max(
+        1, int(batch_size or settings.integration_delivery_maintenance_batch_size)
+    )
+    result = {
+        "mfa_challenges_deleted": cleanup_mfa_challenges(
+            db,
+            now=current_time,
+            limit=effective_batch_size,
+        ),
+        "pending_mfa_enrollments_deleted": cleanup_pending_totp_enrollments(
+            db,
+            now=current_time,
+            limit=effective_batch_size,
+        ),
+    }
+    db.commit()
+    return result
 
 
 def prune_application_history(
@@ -257,35 +287,57 @@ def _delete_ai_history_with_envelopes(
     *,
     resource_type: str,
     extra_predicate=None,
+    max_dependent_rows: int | None = None,
 ) -> int:
     query = select(model.id).where(timestamp_column < cutoff)
     if extra_predicate is not None:
         query = query.where(extra_predicate)
+    candidate_limit = (
+        lifecycle_parent_scan_limit(batch_size)
+        if max_dependent_rows is not None
+        else batch_size
+    )
     ordered_query = query.order_by(timestamp_column.asc(), model.id.asc()).limit(
-        batch_size
+        candidate_limit
     )
     if model is AITaskRun:
         # Match provider reservation and approval capture: lock the source run
         # before any of its receipts. The delete predicate is rechecked below
         # after both locks so a concurrent retained approval always wins.
-        ids = list(
-            db.scalars(ordered_query.with_for_update(skip_locked=True)).all()
-        )
+        ids = list(db.scalars(ordered_query.with_for_update(skip_locked=True)).all())
+        if not ids:
+            return 0
+        if max_dependent_rows is not None:
+            dependency_selection = select_with_dependent_budget(
+                db,
+                model=model,
+                candidate_ids=ids,
+                max_dependent_rows=max_dependent_rows,
+                max_parent_records=batch_size,
+            )
+            ids = dependency_selection.ids
+            dependent_rows_budgeted = dependency_selection.dependent_rows
         if not ids:
             return 0
         receipt_locks = db.execute(
             select(AIProviderAttemptReceipt.id)
-            .where(
-                AIProviderAttemptReceipt.task_run_id_snapshot.in_(ids)
-            )
+            .where(AIProviderAttemptReceipt.task_run_id_snapshot.in_(ids))
             .order_by(AIProviderAttemptReceipt.id)
             .with_for_update()
         )
         receipt_locks.close()
     else:
-        ids = list(
-            db.scalars(ordered_query.with_for_update(skip_locked=True)).all()
-        )
+        ids = list(db.scalars(ordered_query.with_for_update(skip_locked=True)).all())
+        if ids and max_dependent_rows is not None:
+            dependency_selection = select_with_dependent_budget(
+                db,
+                model=model,
+                candidate_ids=ids,
+                max_dependent_rows=max_dependent_rows,
+                max_parent_records=batch_size,
+            )
+            ids = dependency_selection.ids
+            dependent_rows_budgeted = dependency_selection.dependent_rows
     if not ids:
         return 0
     delete_query = delete(model).where(model.id.in_(ids))
@@ -304,12 +356,17 @@ def _delete_ai_history_with_envelopes(
     if not deleted_ids:
         return 0
     db.flush()
-    prune_deleted_resource_envelopes(
-        db,
-        resources=(
-            (resource_type, resource_id) for resource_id in deleted_ids
-        ),
+    envelope_budget = (
+        None
+        if max_dependent_rows is None
+        else max(0, max_dependent_rows - dependent_rows_budgeted)
     )
+    if envelope_budget is None or envelope_budget > 0:
+        prune_deleted_resource_envelopes(
+            db,
+            resources=((resource_type, resource_id) for resource_id in deleted_ids),
+            max_dependent_rows=envelope_budget,
+        )
     return len(deleted_ids)
 
 
@@ -354,7 +411,7 @@ def _delete_expired_ai_provider_receipt_ledgers(
         receipt.id
         for receipt in locked_receipts
         if receipt.operation_id in eligible_operation_ids
-    ]
+    ][:batch_size]
     if not receipt_ids:
         return 0
     result = db.execute(
@@ -399,9 +456,7 @@ def _eligible_ai_provider_receipt_operation_ids(
             )
             .where(task_receipt.operation_id == receipt.operation_id)
             .exists(),
-            ~_retained_action_approval_operation_reference(
-                receipt.operation_id
-            ),
+            ~_retained_action_approval_operation_reference(receipt.operation_id),
         )
         .distinct()
         .order_by(receipt.operation_id.asc())
@@ -422,23 +477,30 @@ def _unresolved_ai_provider_receipt(receipt):
 
 def _retained_action_approval_run_reference(run_id_column):
     target_receipt = aliased(AIProviderAttemptReceipt)
-    target_receipt_matches_run = select(target_receipt.id).where(
-        cast(target_receipt.id, String) == ActionApprovalRequest.target_id,
-        target_receipt.task_run_id_snapshot == run_id_column,
-    ).exists()
-    return select(ActionApprovalRequest.id).where(
-        or_(
-            and_(
-                ActionApprovalRequest.data_access_source_type == "ai_task_run",
-                ActionApprovalRequest.data_access_source_id == run_id_column,
-            ),
-            and_(
-                ActionApprovalRequest.target_type
-                == "ai_provider_attempt_receipt",
-                target_receipt_matches_run,
-            ),
+    target_receipt_matches_run = (
+        select(target_receipt.id)
+        .where(
+            cast(target_receipt.id, String) == ActionApprovalRequest.target_id,
+            target_receipt.task_run_id_snapshot == run_id_column,
         )
-    ).exists()
+        .exists()
+    )
+    return (
+        select(ActionApprovalRequest.id)
+        .where(
+            or_(
+                and_(
+                    ActionApprovalRequest.data_access_source_type == "ai_task_run",
+                    ActionApprovalRequest.data_access_source_id == run_id_column,
+                ),
+                and_(
+                    ActionApprovalRequest.target_type == "ai_provider_attempt_receipt",
+                    target_receipt_matches_run,
+                ),
+            )
+        )
+        .exists()
+    )
 
 
 def _retained_action_approval_operation_reference(operation_id_column):
@@ -447,12 +509,10 @@ def _retained_action_approval_operation_reference(operation_id_column):
         select(ActionApprovalRequest.id)
         .join(
             target_receipt,
-            cast(target_receipt.id, String)
-            == ActionApprovalRequest.target_id,
+            cast(target_receipt.id, String) == ActionApprovalRequest.target_id,
         )
         .where(
-            ActionApprovalRequest.target_type
-            == "ai_provider_attempt_receipt",
+            ActionApprovalRequest.target_type == "ai_provider_attempt_receipt",
             target_receipt.operation_id == operation_id_column,
         )
         .exists()
@@ -465,6 +525,7 @@ def _delete_action_approval_history(
     cutoff: datetime,
     now: datetime,
     batch_size: int,
+    max_dependent_rows: int | None = None,
 ) -> tuple[int, int, int]:
     approval_ids = list(
         db.scalars(
@@ -484,13 +545,31 @@ def _delete_action_approval_history(
             )
             .limit(
                 min(
-                    batch_size,
+                    lifecycle_parent_scan_limit(batch_size)
+                    if max_dependent_rows is not None
+                    else batch_size,
                     MAX_TARGETED_DATA_ACCESS_RESOURCES,
                 )
             )
             .with_for_update(skip_locked=True)
         ).all()
     )
+    if not approval_ids:
+        return 0, 0, 0
+    if max_dependent_rows is not None:
+        if db.get_bind().dialect.name == "postgresql":
+            db.execute(text("LOCK TABLE governance_operation_receipts IN SHARE MODE"))
+        dependency_selection = select_with_dependent_budget(
+            db,
+            model=ActionApprovalRequest,
+            candidate_ids=approval_ids,
+            max_dependent_rows=max_dependent_rows,
+            max_parent_records=batch_size,
+        )
+        approval_ids = dependency_selection.ids
+        dependent_rows_budgeted = dependency_selection.dependent_rows
+    else:
+        dependent_rows_budgeted = 0
     if not approval_ids:
         return 0, 0, 0
     operation_receipt_result = db.execute(
@@ -512,13 +591,20 @@ def _delete_action_approval_history(
         .execution_options(synchronize_session=False)
     )
     db.flush()
-    prune_deleted_resource_envelopes(
-        db,
-        resources=(
-            (DATA_ACCESS_RESOURCE_ACTION_APPROVAL, approval_id)
-            for approval_id in approval_ids
-        ),
+    envelope_budget = (
+        None
+        if max_dependent_rows is None
+        else max(0, max_dependent_rows - dependent_rows_budgeted)
     )
+    if envelope_budget is None or envelope_budget > 0:
+        prune_deleted_resource_envelopes(
+            db,
+            resources=(
+                (DATA_ACCESS_RESOURCE_ACTION_APPROVAL, approval_id)
+                for approval_id in approval_ids
+            ),
+            max_dependent_rows=envelope_budget,
+        )
     return (
         int(request_result.rowcount or 0),
         int(receipt_result.rowcount or 0),

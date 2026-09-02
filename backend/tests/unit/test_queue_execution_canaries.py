@@ -130,6 +130,7 @@ def test_canary_read_distinguishes_fresh_stale_missing_and_invalid(monkeypatch):
     assert result["processing"].age_seconds == 181
     assert result["notifications"].reason == "missing"
     assert result["maintenance"].reason == "invalid"
+    assert result["lifecycle-v1"].reason == "missing"
 
 
 def test_canary_read_fails_closed_on_redis_or_mget_shape_failure(monkeypatch):

@@ -99,6 +99,16 @@ def _cached_article_result(
     db, item: Item, item_id: str, force: bool, *, runtime: ModuleType
 ):
     existing_article = db.scalar(select(Article).where(Article.item_id == item.id))
+    if (
+        existing_article is not None
+        and existing_article.content_purged_at is not None
+        and not force
+    ):
+        return {
+            "status": "skipped",
+            "reason": "content_purged_by_lifecycle",
+            "item_id": item_id,
+        }
     if existing_article is None or item.status != "content_fetched" or force:
         return None
     if not existing_article.text:
@@ -370,6 +380,7 @@ def _store_article_success(
         item.canonical_url = canonical
     item.url_domain = r.extract_url_domain(item.canonical_url or item.url)
     _apply_item_fetch_state(article, item, runtime=r)
+    _finalize_article_content_outcome(article)
     db.add(article)
     db.add(item)
     db.commit()
@@ -394,7 +405,7 @@ def _apply_extracted_article(
 def _apply_item_fetch_state(
     article: Article, item: Item, *, runtime: ModuleType
 ) -> None:
-    if article.text:
+    if _has_usable_article_text(article):
         item.status = "content_fetched"
         item.ioc_extraction_state = None
         item.last_error = None
@@ -406,3 +417,22 @@ def _apply_item_fetch_state(
         return
     item.status = "error"
     item.last_error = article.error
+
+
+def _finalize_article_content_outcome(article: Article) -> None:
+    if _has_usable_article_text(article):
+        article.content_purged_at = None
+        article.content_purge_run_id = None
+        return
+    if article.content_purged_at is None:
+        return
+
+    article.title_extracted = None
+    article.text = None
+    article.extraction_method = "retention_purged"
+    article.language = None
+    article.word_count = None
+
+
+def _has_usable_article_text(article: Article) -> bool:
+    return bool((article.text or "").strip())

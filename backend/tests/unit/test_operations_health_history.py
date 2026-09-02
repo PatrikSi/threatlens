@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.models.lifecycle import LifecyclePolicy
 from app.models.system_health_sample import SystemHealthSample
 from app.schemas.operations import (
     OperationsApplicationInfo,
@@ -17,6 +18,7 @@ from app.schemas.operations import (
     OperationsStorageIndicator,
     OperationsWorkerTopologyResponse,
 )
+from app.services.lifecycle import ensure_lifecycle_policies
 from app.services.operations_health_history import (
     HEALTH_HISTORY_MAX_POINTS,
     collect_health_history,
@@ -215,7 +217,11 @@ def test_health_history_reports_coverage_gaps_and_stale_collection(db_session):
                 now - timedelta(minutes=35),
                 worker_status="degraded",
                 worker_reason="execution_stalled",
-                stale_execution_queues_json=["processing", "unknown"],
+                stale_execution_queues_json=[
+                    "processing",
+                    "lifecycle-v1",
+                    "unknown",
+                ],
             ),
         ]
     )
@@ -244,7 +250,10 @@ def test_health_history_reports_coverage_gaps_and_stale_collection(db_session):
     ]
     assert result.coverage.largest_gap_seconds == 2100
     assert result.coverage.collection_stale is True
-    assert result.samples[-1].stale_execution_queues == ["processing"]
+    assert result.samples[-1].stale_execution_queues == [
+        "lifecycle-v1",
+        "processing",
+    ]
 
 
 def test_health_history_downsamples_to_bounded_points_and_keeps_latest(db_session):
@@ -454,6 +463,28 @@ def test_health_history_filters_malformed_or_non_allowlisted_json(db_session):
     }
     assert result.samples[0].issue_codes == ["safe-code"]
     assert "must-not-render" not in result.model_dump_json()
+
+
+def test_health_history_reports_live_lifecycle_policy_retention(db_session):
+    now = datetime.now(timezone.utc)
+    ensure_lifecycle_policies(db_session, now=now, commit_missing=True)
+    policy = db_session.get(LifecyclePolicy, "system_health_samples")
+    assert policy is not None
+    policy.retention_days = 47
+    policy.revision += 1
+    policy.updated_by_label_snapshot = "retention-test@example.test"
+    policy.configuration_updated_at = now + timedelta(seconds=1)
+    db_session.add(policy)
+    db_session.commit()
+
+    result = collect_health_history(
+        db_session,
+        window="1h",
+        now=now,
+        settings=_settings(retention_days=3),
+    )
+
+    assert result.retention_days == 47
 
 
 def test_health_history_rejects_unsupported_window(db_session):

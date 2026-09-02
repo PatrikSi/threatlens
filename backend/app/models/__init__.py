@@ -76,6 +76,12 @@ from app.models.item import Item
 from app.models.item_ai_enrichment import ItemAIEnrichment
 from app.models.item_classification import ItemClassification
 from app.models.item_state import ItemState
+from app.models.lifecycle import (
+    LifecycleCatalogState,
+    LifecyclePolicy,
+    LifecyclePreview,
+    LifecycleRun,
+)
 from app.models.mfa import MFALoginChallenge, UserRecoveryCode, UserTOTPCredential
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
@@ -177,6 +183,10 @@ __all__ = [
     "ItemIOC",
     "ItemClassification",
     "ItemState",
+    "LifecycleCatalogState",
+    "LifecyclePolicy",
+    "LifecyclePreview",
+    "LifecycleRun",
     "MFALoginChallenge",
     "NotificationWebhook",
     "NotificationWebhookDelivery",

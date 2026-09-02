@@ -160,6 +160,12 @@ class AIProviderAttemptReceipt(Base):
             "resource_type",
             "resource_id",
         ),
+        Index(
+            "ix_ai_provider_attempt_receipts_lifecycle_updated",
+            "updated_at",
+            "operation_id",
+            "id",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(

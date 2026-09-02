@@ -13,6 +13,7 @@ from sqlalchemy import (
     UniqueConstraint,
     Uuid,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -52,6 +53,19 @@ class AlertEvaluationRequest(Base):
             "ix_alert_evaluation_requests_retention",
             "state",
             "completed_at",
+        ),
+        Index(
+            "ix_alert_evaluation_requests_lifecycle_terminal",
+            "completed_at",
+            "id",
+            postgresql_where=text(
+                "state IN ('succeeded', 'dead_letter') "
+                "AND completed_at IS NOT NULL"
+            ),
+            sqlite_where=text(
+                "state IN ('succeeded', 'dead_letter') "
+                "AND completed_at IS NOT NULL"
+            ),
         ),
         CheckConstraint(
             "state IN ('pending', 'processing', 'retry_wait', 'succeeded', 'dead_letter')",

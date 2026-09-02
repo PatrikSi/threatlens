@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "1.10.0",
-    "x-threatlens-contract-sha256": "eb4337beff2f23d9c2fbdac27f5aa451660acabe67fd5972527c6c4aaabc4459"
+    "x-threatlens-contract-sha256": "f5b893c8cf2273b39acf76dbebecedf91022b4ac3b5331397ead1094393412a1"
   },
   "servers": [
     {
@@ -16749,6 +16749,706 @@
         ]
       }
     },
+    "/v1/operations/lifecycle": {
+      "get": {
+        "tags": [
+          "data lifecycle"
+        ],
+        "summary": "Get Lifecycle Overview",
+        "operationId": "get_lifecycle_overview_v1_operations_lifecycle_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LifecycleOverviewResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "x-threatlens-required-token-scopes": [
+          "read:operations"
+        ]
+      }
+    },
+    "/v1/operations/lifecycle/preview": {
+      "post": {
+        "tags": [
+          "data lifecycle"
+        ],
+        "summary": "Post Lifecycle Preview",
+        "operationId": "post_lifecycle_preview_v1_operations_lifecycle_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LifecyclePreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LifecyclePreviewResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "x-threatlens-required-token-scopes": [
+          "read:operations"
+        ]
+      }
+    },
+    "/v1/operations/lifecycle/policies/{target_key}": {
+      "put": {
+        "tags": [
+          "data lifecycle"
+        ],
+        "summary": "Put Lifecycle Policy",
+        "operationId": "put_lifecycle_policy_v1_operations_lifecycle_policies__target_key__put",
+        "security": [
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "target_key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "enum": [
+                "article_content",
+                "audit_logs",
+                "action_approval_history",
+                "ai_task_history",
+                "ai_usage_history",
+                "tag_feedback_history",
+                "integration_run_history",
+                "inactive_auth_sessions",
+                "system_health_samples",
+                "integration_delivery_history",
+                "integration_event_history",
+                "integration_metrics",
+                "closed_alert_history",
+                "alert_activity_history",
+                "alert_evaluation_history",
+                "alert_metrics"
+              ],
+              "type": "string",
+              "title": "Target Key"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LifecyclePolicyUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LifecyclePolicyResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/operations/lifecycle/runs": {
+      "get": {
+        "tags": [
+          "data lifecycle"
+        ],
+        "summary": "Get Lifecycle Runs",
+        "operationId": "get_lifecycle_runs_v1_operations_lifecycle_runs_get",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000000,
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 25,
+              "title": "Page Size"
+            }
+          },
+          {
+            "name": "target_key",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "article_content",
+                    "audit_logs",
+                    "action_approval_history",
+                    "ai_task_history",
+                    "ai_usage_history",
+                    "tag_feedback_history",
+                    "integration_run_history",
+                    "inactive_auth_sessions",
+                    "system_health_samples",
+                    "integration_delivery_history",
+                    "integration_event_history",
+                    "integration_metrics",
+                    "closed_alert_history",
+                    "alert_activity_history",
+                    "alert_evaluation_history",
+                    "alert_metrics"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Target Key"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "queued",
+                    "running",
+                    "succeeded",
+                    "partial",
+                    "failed",
+                    "cancelled"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "name": "trigger_source",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "manual",
+                    "scheduled"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Trigger Source"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LifecycleRunListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "read:operations"
+        ]
+      },
+      "post": {
+        "tags": [
+          "data lifecycle"
+        ],
+        "summary": "Post Lifecycle Run",
+        "operationId": "post_lifecycle_run_v1_operations_lifecycle_runs_post",
+        "security": [
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LifecycleRunCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LifecycleRunResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/operations/lifecycle/runs/{run_id}": {
+      "get": {
+        "tags": [
+          "data lifecycle"
+        ],
+        "summary": "Get Lifecycle Run Detail",
+        "operationId": "get_lifecycle_run_detail_v1_operations_lifecycle_runs__run_id__get",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LifecycleRunResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "read:operations"
+        ]
+      }
+    },
+    "/v1/operations/lifecycle/runs/{run_id}/cancel": {
+      "post": {
+        "tags": [
+          "data lifecycle"
+        ],
+        "summary": "Post Lifecycle Run Cancel",
+        "operationId": "post_lifecycle_run_cancel_v1_operations_lifecycle_runs__run_id__cancel_post",
+        "security": [
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LifecycleRunCancelRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LifecycleRunResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/operations/overview": {
       "get": {
         "tags": [
@@ -33144,6 +33844,18 @@
               }
             ],
             "title": "Error"
+          },
+          "content_purged_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Purged At"
           }
         },
         "type": "object",
@@ -38629,6 +39341,1115 @@
           "tag_ids"
         ],
         "title": "ItemTagsUpdateRequest"
+      },
+      "LifecycleOverviewResponse": {
+        "properties": {
+          "generated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Generated At"
+          },
+          "targets": {
+            "items": {
+              "$ref": "#/components/schemas/LifecycleTargetResponse"
+            },
+            "type": "array",
+            "title": "Targets"
+          }
+        },
+        "type": "object",
+        "required": [
+          "generated_at",
+          "targets"
+        ],
+        "title": "LifecycleOverviewResponse"
+      },
+      "LifecyclePolicyDraft": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "retention_days": {
+            "type": "integer",
+            "maximum": 3650.0,
+            "minimum": 1.0,
+            "title": "Retention Days"
+          },
+          "schedule_cadence": {
+            "type": "string",
+            "enum": [
+              "daily",
+              "weekly"
+            ],
+            "title": "Schedule Cadence"
+          },
+          "schedule_hour_utc": {
+            "type": "integer",
+            "maximum": 23.0,
+            "minimum": 0.0,
+            "title": "Schedule Hour Utc"
+          },
+          "schedule_weekday": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 6.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schedule Weekday"
+          },
+          "max_records_per_run": {
+            "type": "integer",
+            "maximum": 100000.0,
+            "minimum": 100.0,
+            "title": "Max Records Per Run"
+          },
+          "options": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "propertyNames": {
+              "enum": [
+                "protect_starred",
+                "protect_notes",
+                "protect_investigations",
+                "protect_reports",
+                "protect_active_alerts"
+              ]
+            },
+            "type": "object",
+            "maxProperties": 5,
+            "title": "Options"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "enabled",
+          "retention_days",
+          "schedule_cadence",
+          "schedule_hour_utc",
+          "max_records_per_run"
+        ],
+        "title": "LifecyclePolicyDraft"
+      },
+      "LifecyclePolicyResponse": {
+        "properties": {
+          "target_key": {
+            "type": "string",
+            "enum": [
+              "article_content",
+              "audit_logs",
+              "action_approval_history",
+              "ai_task_history",
+              "ai_usage_history",
+              "tag_feedback_history",
+              "integration_run_history",
+              "inactive_auth_sessions",
+              "system_health_samples",
+              "integration_delivery_history",
+              "integration_event_history",
+              "integration_metrics",
+              "closed_alert_history",
+              "alert_activity_history",
+              "alert_evaluation_history",
+              "alert_metrics"
+            ],
+            "title": "Target Key"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "retention_days": {
+            "type": "integer",
+            "maximum": 3650.0,
+            "minimum": 1.0,
+            "title": "Retention Days"
+          },
+          "schedule_cadence": {
+            "type": "string",
+            "enum": [
+              "daily",
+              "weekly"
+            ],
+            "title": "Schedule Cadence"
+          },
+          "schedule_hour_utc": {
+            "type": "integer",
+            "maximum": 23.0,
+            "minimum": 0.0,
+            "title": "Schedule Hour Utc"
+          },
+          "schedule_weekday": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 6.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schedule Weekday"
+          },
+          "max_records_per_run": {
+            "type": "integer",
+            "maximum": 100000.0,
+            "minimum": 100.0,
+            "title": "Max Records Per Run"
+          },
+          "options": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "type": "object",
+            "title": "Options"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Revision"
+          },
+          "next_run_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Run At"
+          },
+          "last_run_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Run At"
+          },
+          "last_run_status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "queued",
+                  "running",
+                  "succeeded",
+                  "partial",
+                  "failed",
+                  "cancelled"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Run Status"
+          },
+          "configuration_updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Configuration Updated At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "updated_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 320
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated By"
+          }
+        },
+        "type": "object",
+        "required": [
+          "target_key",
+          "enabled",
+          "retention_days",
+          "schedule_cadence",
+          "schedule_hour_utc",
+          "max_records_per_run",
+          "revision",
+          "next_run_at",
+          "last_run_at",
+          "last_run_status",
+          "configuration_updated_at",
+          "updated_at"
+        ],
+        "title": "LifecyclePolicyResponse"
+      },
+      "LifecyclePolicyUpdateRequest": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "retention_days": {
+            "type": "integer",
+            "maximum": 3650.0,
+            "minimum": 1.0,
+            "title": "Retention Days"
+          },
+          "schedule_cadence": {
+            "type": "string",
+            "enum": [
+              "daily",
+              "weekly"
+            ],
+            "title": "Schedule Cadence"
+          },
+          "schedule_hour_utc": {
+            "type": "integer",
+            "maximum": 23.0,
+            "minimum": 0.0,
+            "title": "Schedule Hour Utc"
+          },
+          "schedule_weekday": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 6.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schedule Weekday"
+          },
+          "max_records_per_run": {
+            "type": "integer",
+            "maximum": 100000.0,
+            "minimum": 100.0,
+            "title": "Max Records Per Run"
+          },
+          "options": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "propertyNames": {
+              "enum": [
+                "protect_starred",
+                "protect_notes",
+                "protect_investigations",
+                "protect_reports",
+                "protect_active_alerts"
+              ]
+            },
+            "type": "object",
+            "maxProperties": 5,
+            "title": "Options"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Revision"
+          },
+          "preview_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preview Id"
+          },
+          "confirmation": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "PURGE"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirmation"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500,
+                "minLength": 10
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "enabled",
+          "retention_days",
+          "schedule_cadence",
+          "schedule_hour_utc",
+          "max_records_per_run",
+          "expected_revision"
+        ],
+        "title": "LifecyclePolicyUpdateRequest"
+      },
+      "LifecyclePreviewRequest": {
+        "properties": {
+          "target_key": {
+            "type": "string",
+            "enum": [
+              "article_content",
+              "audit_logs",
+              "action_approval_history",
+              "ai_task_history",
+              "ai_usage_history",
+              "tag_feedback_history",
+              "integration_run_history",
+              "inactive_auth_sessions",
+              "system_health_samples",
+              "integration_delivery_history",
+              "integration_event_history",
+              "integration_metrics",
+              "closed_alert_history",
+              "alert_activity_history",
+              "alert_evaluation_history",
+              "alert_metrics"
+            ],
+            "title": "Target Key"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Revision"
+          },
+          "draft": {
+            "$ref": "#/components/schemas/LifecyclePolicyDraft"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "target_key",
+          "expected_revision",
+          "draft"
+        ],
+        "title": "LifecyclePreviewRequest"
+      },
+      "LifecyclePreviewResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "target_key": {
+            "type": "string",
+            "enum": [
+              "article_content",
+              "audit_logs",
+              "action_approval_history",
+              "ai_task_history",
+              "ai_usage_history",
+              "tag_feedback_history",
+              "integration_run_history",
+              "inactive_auth_sessions",
+              "system_health_samples",
+              "integration_delivery_history",
+              "integration_event_history",
+              "integration_metrics",
+              "closed_alert_history",
+              "alert_activity_history",
+              "alert_evaluation_history",
+              "alert_metrics"
+            ],
+            "title": "Target Key"
+          },
+          "policy_revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Policy Revision"
+          },
+          "cutoff_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Cutoff At"
+          },
+          "eligible_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Eligible Count"
+          },
+          "protected_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Protected Count"
+          },
+          "protected_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Protected Counts"
+          },
+          "oldest_candidate_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldest Candidate At"
+          },
+          "eligible_bytes": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Eligible Bytes"
+          },
+          "count_is_lower_bound": {
+            "type": "boolean",
+            "title": "Count Is Lower Bound"
+          },
+          "is_partial": {
+            "type": "boolean",
+            "title": "Is Partial"
+          },
+          "generated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Generated At"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At"
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Observed At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "target_key",
+          "policy_revision",
+          "cutoff_at",
+          "eligible_count",
+          "protected_count",
+          "oldest_candidate_at",
+          "count_is_lower_bound",
+          "is_partial",
+          "generated_at",
+          "expires_at",
+          "observed_at"
+        ],
+        "title": "LifecyclePreviewResponse"
+      },
+      "LifecycleRunCancelRequest": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 10,
+            "title": "Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "reason"
+        ],
+        "title": "LifecycleRunCancelRequest"
+      },
+      "LifecycleRunCreateRequest": {
+        "properties": {
+          "target_key": {
+            "type": "string",
+            "enum": [
+              "article_content",
+              "audit_logs",
+              "action_approval_history",
+              "ai_task_history",
+              "ai_usage_history",
+              "tag_feedback_history",
+              "integration_run_history",
+              "inactive_auth_sessions",
+              "system_health_samples",
+              "integration_delivery_history",
+              "integration_event_history",
+              "integration_metrics",
+              "closed_alert_history",
+              "alert_activity_history",
+              "alert_evaluation_history",
+              "alert_metrics"
+            ],
+            "title": "Target Key"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Revision"
+          },
+          "preview_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Preview Id"
+          },
+          "confirmation": {
+            "type": "string",
+            "const": "PURGE",
+            "title": "Confirmation"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 10,
+            "title": "Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "target_key",
+          "expected_revision",
+          "preview_id",
+          "confirmation",
+          "reason"
+        ],
+        "title": "LifecycleRunCreateRequest"
+      },
+      "LifecycleRunListResponse": {
+        "properties": {
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/LifecycleRunResponse"
+            },
+            "type": "array",
+            "title": "Runs"
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "maximum": 1000000.0,
+            "minimum": 1.0,
+            "title": "Page"
+          },
+          "page_size": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Page Size"
+          }
+        },
+        "type": "object",
+        "required": [
+          "runs",
+          "total",
+          "page",
+          "page_size"
+        ],
+        "title": "LifecycleRunListResponse"
+      },
+      "LifecycleRunResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "target_key": {
+            "type": "string",
+            "enum": [
+              "article_content",
+              "audit_logs",
+              "action_approval_history",
+              "ai_task_history",
+              "ai_usage_history",
+              "tag_feedback_history",
+              "integration_run_history",
+              "inactive_auth_sessions",
+              "system_health_samples",
+              "integration_delivery_history",
+              "integration_event_history",
+              "integration_metrics",
+              "closed_alert_history",
+              "alert_activity_history",
+              "alert_evaluation_history",
+              "alert_metrics"
+            ],
+            "title": "Target Key"
+          },
+          "trigger_source": {
+            "type": "string",
+            "enum": [
+              "manual",
+              "scheduled"
+            ],
+            "title": "Trigger Source"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "partial",
+              "failed",
+              "cancelled"
+            ],
+            "title": "Status"
+          },
+          "policy_revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Policy Revision"
+          },
+          "policy_snapshot": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Policy Snapshot"
+          },
+          "cutoff_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Cutoff At"
+          },
+          "scheduled_for": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scheduled For"
+          },
+          "max_records": {
+            "type": "integer",
+            "maximum": 100000.0,
+            "minimum": 100.0,
+            "title": "Max Records"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "requested_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 320
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested By"
+          },
+          "evaluated_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Evaluated Count"
+          },
+          "affected_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Affected Count"
+          },
+          "protected_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Protected Count"
+          },
+          "skipped_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Skipped Count"
+          },
+          "batch_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Batch Count"
+          },
+          "remaining_count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remaining Count"
+          },
+          "affected_bytes": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Affected Bytes"
+          },
+          "details": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Details"
+          },
+          "stop_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Reason"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "cancel_requested": {
+            "type": "boolean",
+            "title": "Cancel Requested"
+          },
+          "cancellation_requested_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cancellation Requested At"
+          },
+          "cancellation_requested_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 320
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cancellation Requested By"
+          },
+          "cancellation_reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cancellation Reason"
+          },
+          "queued_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Queued At"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "heartbeat_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Heartbeat At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "target_key",
+          "trigger_source",
+          "status",
+          "policy_revision",
+          "cutoff_at",
+          "scheduled_for",
+          "max_records",
+          "reason",
+          "evaluated_count",
+          "affected_count",
+          "protected_count",
+          "skipped_count",
+          "batch_count",
+          "stop_reason",
+          "error_code",
+          "error_message",
+          "cancel_requested",
+          "cancellation_requested_at",
+          "queued_at",
+          "started_at",
+          "heartbeat_at",
+          "finished_at",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "LifecycleRunResponse"
+      },
+      "LifecycleSafeguardResponse": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Key"
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Label"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Description"
+          },
+          "default_enabled": {
+            "type": "boolean",
+            "title": "Default Enabled"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "label",
+          "description",
+          "default_enabled"
+        ],
+        "title": "LifecycleSafeguardResponse"
+      },
+      "LifecycleTargetResponse": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "enum": [
+              "article_content",
+              "audit_logs",
+              "action_approval_history",
+              "ai_task_history",
+              "ai_usage_history",
+              "tag_feedback_history",
+              "integration_run_history",
+              "inactive_auth_sessions",
+              "system_health_samples",
+              "integration_delivery_history",
+              "integration_event_history",
+              "integration_metrics",
+              "closed_alert_history",
+              "alert_activity_history",
+              "alert_evaluation_history",
+              "alert_metrics"
+            ],
+            "title": "Key"
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Label"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "intelligence",
+              "detection",
+              "integrations",
+              "security",
+              "governance",
+              "system"
+            ],
+            "title": "Category"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Description"
+          },
+          "action_description": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Action Description"
+          },
+          "cutoff_description": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Cutoff Description"
+          },
+          "min_retention_days": {
+            "type": "integer",
+            "maximum": 3650.0,
+            "minimum": 1.0,
+            "title": "Min Retention Days"
+          },
+          "max_retention_days": {
+            "type": "integer",
+            "maximum": 3650.0,
+            "minimum": 1.0,
+            "title": "Max Retention Days"
+          },
+          "default_retention_days": {
+            "type": "integer",
+            "maximum": 3650.0,
+            "minimum": 1.0,
+            "title": "Default Retention Days"
+          },
+          "safeguards": {
+            "items": {
+              "$ref": "#/components/schemas/LifecycleSafeguardResponse"
+            },
+            "type": "array",
+            "title": "Safeguards"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/LifecyclePolicyResponse"
+          },
+          "latest_preview": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LifecyclePreviewResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "label",
+          "category",
+          "description",
+          "action_description",
+          "cutoff_description",
+          "min_retention_days",
+          "max_retention_days",
+          "default_retention_days",
+          "policy"
+        ],
+        "title": "LifecycleTargetResponse"
       },
       "LoginRequest": {
         "properties": {

@@ -91,6 +91,7 @@ def list_item_ids_missing_articles(
                     ),
                     and_(
                         Article.item_id.is_not(None),
+                        Article.content_purged_at.is_(None),
                         Article.text.is_not(None),
                         Article.retrieved_at.is_not(None),
                         Article.retrieved_at < Item.updated_at,
@@ -99,6 +100,7 @@ def list_item_ids_missing_articles(
                         Item.updated_at <= repair_cutoff,
                     ),
                     and_(
+                        Article.content_purged_at.is_(None),
                         Article.text.is_(None),
                         Article.retrieved_at.is_not(None),
                         Article.retrieved_at >= repair_floor,

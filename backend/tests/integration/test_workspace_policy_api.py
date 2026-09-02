@@ -411,8 +411,8 @@ def test_structural_workspace_containers_are_not_role_policy_managed(
         "module_id": "settings.integrations",
         "visible": True,
         "optional": True,
-        "order": 80,
-        "mobile_priority": 80,
+        "order": 90,
+        "mobile_priority": 90,
     }
     assert {
         "ignored_fixed_policy_module:primary.settings",
@@ -460,8 +460,8 @@ def test_structural_workspace_containers_are_not_role_policy_managed(
     assert stored.modules_json["settings.integrations"] == {
         "visible": True,
         "optional": True,
-        "order": 80,
-        "mobile_priority": 80,
+        "order": 90,
+        "mobile_priority": 90,
     }
 
 
@@ -683,6 +683,7 @@ def test_workspace_registry_matches_frontend_routes_and_panel_ids():
         "settings.access": "/settings/access",
         "settings.users": "/settings/users",
         "settings.audit": "/settings/audit-logs",
+        "settings.lifecycle": "/settings/lifecycle",
         "settings.operations": "/settings/operations",
         "settings.integrations": "/settings/integrations",
         "settings.integrations.webhooks": "/settings/integrations/webhooks",

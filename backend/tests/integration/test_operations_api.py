@@ -448,6 +448,7 @@ def _healthy_worker_topology(now: datetime) -> OperationsWorkerTopologyResponse:
         "processing": ("Item processing", "worker"),
         "notifications": ("Notifications", "worker-notifications"),
         "maintenance": ("Maintenance", "worker-maintenance"),
+        "lifecycle-v1": ("Data lifecycle", "worker-maintenance"),
     }
     return OperationsWorkerTopologyResponse(
         generated_at=now,

@@ -74,28 +74,38 @@ def feed_url_digest_still_current(db: Session, *, feed_id: uuid.UUID, expected_u
 def article_freshness_token_value(
     article_id: uuid.UUID | None,
     retrieved_at: datetime | None,
+    content_purged_at: datetime | None = None,
 ) -> tuple[str | None, str | None]:
     if article_id is None or retrieved_at is None:
         return None, None
 
     if retrieved_at.tzinfo is None:
         retrieved_at = retrieved_at.replace(tzinfo=timezone.utc)
-    return str(article_id), retrieved_at.isoformat()
+    version = retrieved_at.isoformat()
+    if content_purged_at is not None:
+        if content_purged_at.tzinfo is None:
+            content_purged_at = content_purged_at.replace(tzinfo=timezone.utc)
+        version = f"{version}|purged:{content_purged_at.isoformat()}"
+    return str(article_id), version
 
 
 def article_freshness_token(article: Article | None) -> tuple[str | None, str | None]:
     if article is None:
         return None, None
-    return article_freshness_token_value(article.id, article.retrieved_at)
+    return article_freshness_token_value(article.id, article.retrieved_at, article.content_purged_at)
 
 
 def load_article_freshness_token(db: Session, *, item_id: uuid.UUID) -> tuple[str | None, str | None]:
-    row = db.execute(select(Article.id, Article.retrieved_at).where(Article.item_id == item_id)).one_or_none()
+    row = db.execute(
+        select(Article.id, Article.retrieved_at, Article.content_purged_at).where(
+            Article.item_id == item_id
+        )
+    ).one_or_none()
     if row is None:
         return None, None
 
-    article_id, retrieved_at = row
-    return article_freshness_token_value(article_id, retrieved_at)
+    article_id, retrieved_at, content_purged_at = row
+    return article_freshness_token_value(article_id, retrieved_at, content_purged_at)
 
 
 def article_was_refetched(
