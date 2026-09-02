@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from sqlalchemy import and_, func, or_, select, union_all
 from sqlalchemy.orm import Session
@@ -30,10 +30,6 @@ from app.services.integration_delivery import (
 )
 from app.services.operations_common import issue, safe_db_probe, seconds_since
 from app.services.operations_runs import system_operation_run_response
-
-
-_BACKUP_FRESHNESS = timedelta(hours=26)
-_RESTORE_DRILL_FRESHNESS = timedelta(days=31)
 
 
 @dataclass(frozen=True)
@@ -90,6 +86,10 @@ def collect_recovery_snapshot(
     issues: list[OperationsIssue],
     database_ok: bool,
 ) -> OperationsRecoverySnapshot:
+    # Recovery runs are an informational operator ledger, not a service-health
+    # signal. Keep accepting the shared list for compatibility with existing
+    # callers while deliberately leaving it unchanged.
+    _ = issues
     if not database_ok:
         return OperationsRecoverySnapshot()
 
@@ -100,19 +100,8 @@ def collect_recovery_snapshot(
         None,
     )
     if loaded is None:
-        issues.append(
-            issue(
-                "recovery_history_unavailable",
-                "warning",
-                "recovery",
-                "Recovery operation history could not be read.",
-                "Recent backup and restore-drill outcomes cannot be confirmed.",
-                "Check database access and query the operation-run ledger offline.",
-            )
-        )
         return OperationsRecoverySnapshot()
-    recovery, correlation = loaded
-    _append_recovery_issues(recovery, issues, correlation=correlation)
+    recovery, _correlation = loaded
     return recovery
 
 
@@ -342,253 +331,6 @@ def _latest_recovery_candidate(
     return max(matching, key=lambda run: (run.started_at, run.id.int), default=None)
 
 
-def _append_recovery_issues(
-    recovery: OperationsRecoverySnapshot,
-    issues: list[OperationsIssue],
-    *,
-    correlation: _RecoveryCorrelation,
-) -> None:
-    observed_at = datetime.now(timezone.utc)
-    if recovery.latest_backup is None:
-        issues.append(
-            issue(
-                "backup_not_recorded",
-                "warning",
-                "recovery",
-                "No backup run has been recorded.",
-                "The operations view cannot confirm that a recoverable backup exists.",
-                "Run the supported offline backup workflow and verify its archive.",
-            )
-        )
-    elif recovery.latest_backup.status == "failed":
-        issues.append(
-            issue(
-                "latest_backup_failed",
-                "critical",
-                "recovery",
-                "The latest backup run failed.",
-                "Recent durable state may not have a recoverable backup.",
-                "Review the run error code, correct the backup target, and retry offline.",
-            )
-        )
-    elif recovery.latest_backup.status == "running":
-        issues.append(
-            issue(
-                "latest_backup_incomplete",
-                "critical",
-                "recovery",
-                "The latest backup run has not completed.",
-                "No completed archive is proven for the latest backup attempt.",
-                "Inspect the host recovery process and do not treat its partial directory as a backup.",
-            )
-        )
-    elif _run_is_stale(
-        recovery.latest_backup, observed_at=observed_at, maximum_age=_BACKUP_FRESHNESS
-    ):
-        issues.append(
-            issue(
-                "latest_backup_stale",
-                "warning",
-                "recovery",
-                "The latest successful backup is older than 26 hours.",
-                "The recoverable data point may be outside a daily backup objective.",
-                "Run and verify a fresh offline backup, then confirm off-host retention.",
-            )
-        )
-    if recovery.latest_restore_drill is None and correlation.backup is None:
-        issues.append(
-            issue(
-                "restore_drill_not_recorded",
-                "warning",
-                "recovery",
-                "No isolated restore drill has been recorded.",
-                "Archive integrity has not been proven by restoring into an isolated database.",
-                "Run the supported offline restore drill without connecting it to production workers.",
-            )
-        )
-    if (
-        recovery.latest_restore is not None
-        and recovery.latest_restore.status == "failed"
-    ):
-        issues.append(
-            issue(
-                "latest_restore_failed",
-                "critical",
-                "recovery",
-                "The latest restore run failed.",
-                "Recovery may be incomplete and the restored instance may be unsafe to serve.",
-                "Keep outbound work quarantined and complete the documented recovery checks offline.",
-            )
-        )
-    elif (
-        recovery.latest_restore is not None
-        and recovery.latest_restore.status == "running"
-    ):
-        issues.append(
-            issue(
-                "latest_restore_incomplete",
-                "critical",
-                "recovery",
-                "The latest destructive restore has not recorded completion.",
-                "Database identity, quarantine, or connectivity may require operator verification.",
-                "Keep application services stopped and follow the offline rollback inspection runbook.",
-            )
-        )
-    _append_recovery_correlation_issues(
-        correlation,
-        issues,
-        observed_at=observed_at,
-    )
-
-
-def _append_recovery_correlation_issues(
-    correlation: _RecoveryCorrelation,
-    issues: list[OperationsIssue],
-    *,
-    observed_at: datetime,
-) -> None:
-    backup = correlation.backup
-    if backup is None:
-        return
-    backup_checksum = _archive_checksum(backup)
-    if backup_checksum is None:
-        issues.append(
-            issue(
-                "latest_backup_identity_missing",
-                "warning",
-                "recovery",
-                "The latest successful backup has no archive identity metadata.",
-                "Verification and drill evidence cannot be correlated to that backup.",
-                "Create a new backup with the supported host recovery utility.",
-            )
-        )
-        return
-
-    _append_artifact_correlation_issue(
-        backup_checksum=backup_checksum,
-        evidence=correlation.verify,
-        latest_successful_evidence=correlation.latest_successful_verify,
-        missing_code="latest_backup_not_verified",
-        mismatch_code="latest_backup_verify_mismatch",
-        failed_code="latest_backup_verify_failed",
-        incomplete_code="latest_backup_verify_incomplete",
-        evidence_label="verification",
-        observed_at=observed_at,
-        issues=issues,
-    )
-    _append_artifact_correlation_issue(
-        backup_checksum=backup_checksum,
-        evidence=correlation.restore_drill,
-        latest_successful_evidence=correlation.latest_successful_restore_drill,
-        missing_code="latest_backup_not_drilled",
-        mismatch_code="latest_backup_drill_mismatch",
-        failed_code="latest_restore_drill_failed",
-        incomplete_code="latest_restore_drill_incomplete",
-        evidence_label="restore drill",
-        stale_code="latest_restore_drill_stale",
-        stale_after=_RESTORE_DRILL_FRESHNESS,
-        observed_at=observed_at,
-        issues=issues,
-    )
-
-
-def _append_artifact_correlation_issue(
-    *,
-    backup_checksum: str,
-    evidence: SystemOperationRunResponse | None,
-    latest_successful_evidence: SystemOperationRunResponse | None,
-    missing_code: str,
-    mismatch_code: str,
-    failed_code: str,
-    incomplete_code: str,
-    evidence_label: str,
-    observed_at: datetime,
-    stale_code: str | None = None,
-    stale_after: timedelta | None = None,
-    issues: list[OperationsIssue],
-) -> None:
-    if evidence is None:
-        if latest_successful_evidence is not None:
-            issues.append(
-                issue(
-                    mismatch_code,
-                    "warning",
-                    "recovery",
-                    f"The latest successful {evidence_label} covers a different archive.",
-                    "The newest backup cannot inherit evidence from older recovery material.",
-                    f"Run the supported {evidence_label} workflow against the latest backup checksum.",
-                )
-            )
-            return
-        issues.append(
-            issue(
-                missing_code,
-                "warning",
-                "recovery",
-                f"The latest backup has no successful correlated {evidence_label}.",
-                "The newest archive is not proven by the corresponding recovery check.",
-                f"Run the supported {evidence_label} workflow against the latest backup.",
-            )
-        )
-        return
-    if evidence.status == "failed":
-        issues.append(
-            issue(
-                failed_code,
-                "critical",
-                "recovery",
-                f"The latest {evidence_label} for the newest backup failed.",
-                "The current recovery material is not proven by this recovery check.",
-                f"Correct the failure and rerun the supported {evidence_label} workflow against the latest backup.",
-            )
-        )
-        return
-    if evidence.status == "running":
-        issues.append(
-            issue(
-                incomplete_code,
-                "warning",
-                "recovery",
-                f"The latest {evidence_label} for the newest backup has not completed.",
-                "The current recovery material cannot be treated as fully proven yet.",
-                f"Inspect the host process and rerun the supported {evidence_label} workflow if it is no longer active.",
-            )
-        )
-        return
-    evidence_checksum = _archive_checksum(evidence)
-    if evidence_checksum != backup_checksum:
-        issues.append(
-            issue(
-                mismatch_code,
-                "warning",
-                "recovery",
-                f"The latest successful {evidence_label} covers a different archive.",
-                "The newest backup cannot inherit evidence from older recovery material.",
-                f"Run the supported {evidence_label} workflow against the latest backup checksum.",
-            )
-        )
-        return
-    if (
-        stale_code is not None
-        and stale_after is not None
-        and _run_is_stale(
-            evidence,
-            observed_at=observed_at,
-            maximum_age=stale_after,
-        )
-    ):
-        issues.append(
-            issue(
-                stale_code,
-                "warning",
-                "recovery",
-                "The latest successful restore drill for the newest backup is older than 31 days.",
-                "Current images, migrations, and quarantine logic have not been proven recently.",
-                "Run the isolated packaged-code restore drill against a current backup.",
-            )
-        )
-
-
 def _archive_checksum(run: SystemOperationRunResponse) -> str | None:
     value = run.metadata.get("archive_sha256")
     if not isinstance(value, str) or len(value) != 64:
@@ -596,18 +338,6 @@ def _archive_checksum(run: SystemOperationRunResponse) -> str | None:
     if any(character not in "0123456789abcdef" for character in value):
         return None
     return value
-
-
-def _run_is_stale(
-    run: SystemOperationRunResponse,
-    *,
-    observed_at: datetime,
-    maximum_age: timedelta,
-) -> bool:
-    reference = run.finished_at or run.started_at
-    if reference.tzinfo is None:
-        reference = reference.replace(tzinfo=timezone.utc)
-    return observed_at - reference.astimezone(timezone.utc) > maximum_age
 
 
 def _append_backlog_issue(

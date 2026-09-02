@@ -9,6 +9,7 @@ import {
   formatDuration,
   formatWireLabel,
   OPERATIONS_WINDOWS,
+  suppressLegacyRecoveryHealth,
 } from './operationsHealthPresentation'
 import { OperationsStatusChip } from './OperationsStatus'
 
@@ -40,10 +41,11 @@ export function OperationsHealthTrends({
       </div>
     )
   }
-  const coverage = history.coverage
-  const samples = history.samples
+  const displayHistory = suppressLegacyRecoveryHealth(history)
+  const coverage = displayHistory.coverage
+  const samples = displayHistory.samples
   const transitions = statusTransitions(samples)
-  const statusSegments = observedStatusSegments(history)
+  const statusSegments = observedStatusSegments(displayHistory)
   const evidenceTruncated = coverage.anomaly_evidence_truncated ||
     coverage.transition_evidence_truncated
   return (
@@ -200,8 +202,8 @@ export function OperationsHealthTrends({
                 { key: 'warning', label: 'Warning', color: '#d97706', value: (sample) => sample.warning_issue_count },
               ]}
             />
-            <HistoryFindings history={history} evidenceTruncated={evidenceTruncated} />
-            <WorkerHistoryExceptions history={history} evidenceTruncated={evidenceTruncated} />
+            <HistoryFindings history={displayHistory} evidenceTruncated={evidenceTruncated} />
+            <WorkerHistoryExceptions history={displayHistory} evidenceTruncated={evidenceTruncated} />
           </div>
         </>
       )}

@@ -669,14 +669,11 @@ describe('OperationsPage DOM workflows', () => {
     operationsDomMocks.overviewError = new Error('live topology probe timed out')
     const view = renderPage('/settings/operations?view=recovery')
 
-    expect(view.textContent).toContain('Recovery evidence')
+    expect(view.textContent).toContain('Activity')
+    expect(view.textContent).not.toContain('Recovery evidence')
     expect(view.textContent).toContain('live topology probe timed out')
-    expect(view.textContent).toContain('Operation history below remains available.')
     expect(view.textContent).toContain('Operation history')
     expect(view.textContent).toContain('Restore drill')
-
-    act(() => findButton(view, 'Retry recovery summary')?.click())
-    expect(operationsDomMocks.overviewRefetch).toHaveBeenCalledOnce()
   })
 
   it('clamps operation-history pagination when the refreshed total shrinks', () => {
@@ -738,7 +735,7 @@ describe('OperationsPage DOM workflows', () => {
     expect(operationsDomMocks.overviewRefetch).toHaveBeenCalledOnce()
     expect(operationsDomMocks.historyRefetch).toHaveBeenCalledOnce()
 
-    act(() => findButton(view, 'Recovery & activity')?.click())
+    act(() => findButton(view, 'Activity')?.click())
     const runsOptions = [...operationsDomMocks.queryOptions].reverse().find(
       (options) => options.queryKey[1] === 'runs',
     )

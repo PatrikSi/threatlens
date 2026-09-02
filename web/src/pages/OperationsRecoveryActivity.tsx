@@ -1,5 +1,4 @@
 import type {
-  OperationsRecoverySnapshot,
   SystemOperationRun,
   SystemOperationStatus,
   SystemOperationType,
@@ -9,15 +8,9 @@ import {
   formatDuration,
   formatWireLabel,
 } from './operationsHealthPresentation'
-import {
-  OperationRunStatusChip,
-  OperationsStatusChip,
-} from './OperationsStatus'
+import { OperationRunStatusChip } from './OperationsStatus'
 
 export function OperationsRecoveryActivity({
-  recovery,
-  recoveryLoading,
-  recoveryError,
   runs,
   loading,
   updating,
@@ -27,14 +20,10 @@ export function OperationsRecoveryActivity({
   operationType,
   operationStatus,
   onPageChange,
-  onRetryRecovery,
   onRetry,
   onTypeChange,
   onStatusChange,
 }: {
-  recovery?: OperationsRecoverySnapshot
-  recoveryLoading: boolean
-  recoveryError: string
   runs: SystemOperationRun[]
   loading: boolean
   updating: boolean
@@ -44,19 +33,12 @@ export function OperationsRecoveryActivity({
   operationType: SystemOperationType | ''
   operationStatus: SystemOperationStatus | ''
   onPageChange: (page: number) => void
-  onRetryRecovery: () => void
   onRetry: () => void
   onTypeChange: (value: SystemOperationType | '') => void
   onStatusChange: (value: SystemOperationStatus | '') => void
 }) {
   return (
-    <div className="divide-y divide-slate/15 dark:divide-white/10">
-      <RecoveryEvidence
-        recovery={recovery}
-        loading={recoveryLoading}
-        error={recoveryError}
-        onRetry={onRetryRecovery}
-      />
+    <div>
       <OperationHistory
         runs={runs}
         loading={loading}
@@ -71,89 +53,6 @@ export function OperationsRecoveryActivity({
         onTypeChange={onTypeChange}
         onStatusChange={onStatusChange}
       />
-    </div>
-  )
-}
-
-function RecoveryEvidence({
-  recovery,
-  loading,
-  error,
-  onRetry,
-}: {
-  recovery?: OperationsRecoverySnapshot
-  loading: boolean
-  error: string
-  onRetry: () => void
-}) {
-  if (!recovery) {
-    return (
-      <section className="px-3 py-3 sm:px-4 sm:py-4" aria-labelledby="operations-recovery-heading">
-        <h2 id="operations-recovery-heading" className="text-base font-semibold">Recovery evidence</h2>
-        <p className="mt-0.5 text-sm text-slate dark:text-slate-300">Backup, verification, and restore-drill records establish recoverability separately from live runtime health.</p>
-        {loading ? (
-          <p role="status" className="mt-3 rounded border border-dashed border-slate/20 px-3 py-6 text-center text-sm text-slate dark:border-white/10 dark:text-slate-300">
-            Loading the latest recovery summary...
-          </p>
-        ) : (
-          <div role="alert" className="mt-3 rounded border border-amber-300/60 bg-amber-50 px-3 py-3 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
-            <p>{error || 'The latest recovery summary is unavailable.'} Operation history below remains available.</p>
-            <button type="button" className="mt-3 min-h-11 rounded border border-current px-3 py-2 font-semibold" onClick={onRetry}>
-              Retry recovery summary
-            </button>
-          </div>
-        )}
-      </section>
-    )
-  }
-  const entries: Array<[string, SystemOperationRun | null]> = [
-    ['Latest backup', recovery.latest_backup],
-    ['Latest verification', recovery.latest_verify],
-    ['Latest restore drill', recovery.latest_restore_drill],
-    ['Latest restore', recovery.latest_restore],
-  ]
-  return (
-    <section className="px-3 py-3 sm:px-4 sm:py-4" aria-labelledby="operations-recovery-heading">
-      <div>
-        <h2 id="operations-recovery-heading" className="text-base font-semibold">Recovery evidence</h2>
-        <p className="mt-0.5 text-sm text-slate dark:text-slate-300">Backup, verification, and restore-drill records establish recoverability separately from live runtime health.</p>
-      </div>
-      {error && (
-        <div role="alert" className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
-          <span>{error}. Displaying the last successful recovery summary.</span>
-          <button type="button" className="min-h-11 rounded border border-current px-3 py-2 font-semibold md:min-h-0 md:py-1" onClick={onRetry}>Retry summary</button>
-        </div>
-      )}
-      <div className="mt-3 grid gap-px overflow-hidden rounded border border-slate/15 bg-slate/15 sm:grid-cols-2 xl:grid-cols-4 dark:border-white/10 dark:bg-white/10">
-        {entries.map(([label, run]) => (
-          <article key={label} className="bg-white px-3 py-3 dark:bg-[#041612]">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-slate-400">{label}</p>
-            {run ? (
-              <>
-                <div className="mt-2"><OperationRunStatusChip status={run.status} /></div>
-                <dl className="mt-2 space-y-1 text-xs">
-                  <EvidenceRow label="Recorded" value={formatDateTime(run.finished_at ?? run.started_at)} />
-                  <EvidenceRow label="Duration" value={run.finished_at ? formatDuration(runDurationSeconds(run)) : 'In progress'} />
-                  <EvidenceRow label="Source" value={formatWireLabel(run.source)} title={run.source} />
-                  <EvidenceRow label="Initiated by" value={run.initiated_by} title={run.initiated_by} />
-                </dl>
-                {run.error_message && <p className="mt-2 text-xs text-red-700 dark:text-red-300">{run.error_message}</p>}
-              </>
-            ) : (
-              <div className="mt-2"><OperationsStatusChip status="unknown" label="Not recorded" /></div>
-            )}
-          </article>
-        ))}
-      </div>
-    </section>
-  )
-}
-
-function EvidenceRow({ label, value, title }: { label: string; value: string; title?: string }) {
-  return (
-    <div className="flex justify-between gap-3">
-      <dt className="text-slate dark:text-slate-400">{label}</dt>
-      <dd className="truncate text-right font-medium" title={title}>{value}</dd>
     </div>
   )
 }
