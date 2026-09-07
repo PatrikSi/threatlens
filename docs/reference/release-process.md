@@ -26,8 +26,8 @@ The helper keeps these derived files aligned:
 
 - `VERSION`
 - `backend/app/version.py`
-- `backend/Dockerfile`
-- `web/Dockerfile`
+- `docker/backend.Dockerfile`
+- `docker/web.Dockerfile`
 - `docker-compose.build.yml`
 - `web/package.json`
 - `web/package-lock.json`
@@ -116,7 +116,7 @@ BACKEND_IMAGE=$(docker build \
   --build-arg APP_VERSION="$THREATLENS_BUILD_VERSION" \
   --build-arg BUILD_DATE="$BUILD_DATE" \
   --build-arg VCS_REF="$VCS_REF" \
-  -q -f backend/Dockerfile backend)
+  -q -f docker/backend.Dockerfile backend)
 docker run --rm -v "$PWD":/src -w /src "$BACKEND_IMAGE" sh -lc '
   rm -rf /src/docs/reference/backend-runtime-package-legal /src/docs/reference/backend-os-package-legal &&
   cp /usr/share/doc/threatlens/backend-runtime-dependencies.txt /src/docs/reference/backend-runtime-dependencies.txt &&
@@ -128,7 +128,7 @@ WEB_IMAGE=$(docker build \
   --build-arg APP_VERSION="$THREATLENS_BUILD_VERSION" \
   --build-arg BUILD_DATE="$BUILD_DATE" \
   --build-arg VCS_REF="$VCS_REF" \
-  -q -f web/Dockerfile web)
+  -q -f docker/web.Dockerfile web)
 docker run --rm -v "$PWD":/src -w /src "$WEB_IMAGE" sh -lc '
   rm -rf /src/docs/reference/frontend-runtime-package-legal /src/docs/reference/frontend-os-package-legal &&
   cp /usr/share/doc/threatlens/frontend-runtime-dependencies.txt /src/docs/reference/frontend-runtime-dependencies.txt &&

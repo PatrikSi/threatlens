@@ -3,7 +3,7 @@
 
 Backend inventory is generated from the currently running Python environment.
 For release artifacts, run this script inside the built backend image so the
-output matches the redistributed runtime stack from backend/Dockerfile.
+output matches the redistributed runtime stack from docker/backend.Dockerfile.
 
 Frontend inventory is generated from web/package-lock.json and includes only
 runtime packages (entries where package-lock marks "dev" as false or absent).

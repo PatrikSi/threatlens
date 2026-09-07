@@ -4,7 +4,7 @@ This directory mirrors the repository-level release and license artifacts that
 must be present inside web container images.
 
 The web Docker build context is `web/`, so files outside that directory cannot
-be copied into the image during `docker build -f web/Dockerfile web`.
+be copied into the image during `docker build -f docker/web.Dockerfile web`.
 Keep this bundle in sync with:
 
 - repository `LICENSE`

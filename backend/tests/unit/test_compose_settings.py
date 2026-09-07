@@ -23,6 +23,7 @@ NON_BACKEND_ENVIRONMENT_NAMES = {
     "POSTGRES_USER": "bundled PostgreSQL service role",
     "THREATLENS_CSP_CONNECT_SRC": "web container Content-Security-Policy",
     "THREATLENS_CSP_FRAME_SRC": "web container Content-Security-Policy",
+    "THREATLENS_DEV_IMAGE_TAG": "locally built container image selection",
     "THREATLENS_IMAGE_TAG": "published container image selection",
     "THREATLENS_WEB_PORT": "host-to-web container port mapping",
     "WEB_VITE_API_BASE_URL": "web build API base path",
