@@ -381,9 +381,9 @@ internal-only disposable test project:
 To test the current checkout rather than a published backend image, build it and
 pass the resulting immutable image ID to the disposable Compose project:
 
-    docker compose -f docker-compose.yml -f docker-compose.build.yml build api
+    ./docker/build.sh backend
     recovery_image="$(docker image inspect \
-      --format '{{.Id}}' ghcr.io/patriksi/threatlens-backend:latest)"
+      --format '{{.Id}}' "threatlens-backend:${THREATLENS_DEV_IMAGE_TAG:-dev}")"
     THREATLENS_RUN_DOCKER_RECOVERY_E2E=1 \
       RECOVERY_E2E_BACKEND_IMAGE="$recovery_image" \
       python3 -m unittest tests.recovery.test_recovery_docker_e2e -v

@@ -23,6 +23,7 @@ This documentation covers:
 ## Index
 
 - [Configuration and Deployment](./reference/configuration.md)
+- [Development Image Builds](../docker/README.md)
 - [Auth, RBAC, and Token Scopes](./reference/auth-rbac.md)
 - [Access Governance and Data Policy](./reference/access-governance.md)
 - [Backend API Reference](./reference/api.md)

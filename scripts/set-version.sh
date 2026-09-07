@@ -77,7 +77,7 @@ write_text(
     re.sub(r'_DEFAULT_VERSION = "[^"]+"', f'_DEFAULT_VERSION = "{version}"', read_text("backend/app/version.py")),
 )
 
-for dockerfile in ("backend/Dockerfile", "web/Dockerfile"):
+for dockerfile in ("docker/backend.Dockerfile", "docker/web.Dockerfile"):
     write_text(dockerfile, re.sub(r"ARG APP_VERSION=[^\n]+", f"ARG APP_VERSION={version}", read_text(dockerfile)))
 
 write_text(
