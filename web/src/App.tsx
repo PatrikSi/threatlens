@@ -1,4 +1,3 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
   Link,
   Navigate,
@@ -10,10 +9,11 @@ import {
   isRouteErrorResponse,
   useRouteError,
 } from 'react-router-dom'
-import { Component, Suspense, lazy, useEffect, useMemo, useState } from 'react'
+import { Component, Suspense, lazy, useEffect, useState } from 'react'
 
 import { AppShell } from './components/AppShell'
-import { AuthProvider, useAuth } from './components/AuthContext'
+import { AuthProvider } from './components/AuthContext'
+import { SessionQueryProvider } from './components/SessionQueryProvider'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { ThemeProvider } from './components/ThemeContext'
 import { WorkspaceLandingRedirect } from './components/WorkspaceLandingRedirect'
@@ -68,18 +68,6 @@ const UsersPage = lazy(() => import('./pages/UsersPage').then((module) => ({ def
 const WorkspaceSettingsPage = lazy(() =>
   import('./pages/WorkspaceSettingsPage').then((module) => ({ default: module.WorkspaceSettingsPage })),
 )
-
-function createQueryClient() {
-  return new QueryClient({
-    defaultOptions: {
-      queries: {
-        staleTime: 30_000,
-        refetchOnWindowFocus: false,
-        retry: 1,
-      },
-    },
-  })
-}
 
 export default function App() {
   const [router] = useState(() => createAppRouter())
@@ -421,19 +409,5 @@ function AppProviders() {
 }
 
 function SessionScopedProviders() {
-  const { sessionVersion } = useAuth()
-  const queryClient = useMemo(() => createQueryClient(), [])
-
-  useEffect(() => {
-    if (sessionVersion === 0) {
-      return
-    }
-    queryClient.clear()
-  }, [queryClient, sessionVersion])
-
-  return (
-    <QueryClientProvider client={queryClient}>
-      <Outlet />
-    </QueryClientProvider>
-  )
+  return <SessionQueryProvider><Outlet /></SessionQueryProvider>
 }

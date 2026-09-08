@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 
+import { invalidateSession } from '../api/sessionLifecycle'
 import { resetPendingReportingKeys } from '../pages/reportingRequestCoordinator'
 
 interface AuthContextValue {
@@ -45,6 +46,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const oldest = seenRemoteEventsRef.current.values().next().value
         if (oldest) seenRemoteEventsRef.current.delete(oldest)
       }
+      invalidateSession()
       resetPendingReportingKeys()
       setSessionVersion((current) => current + 1)
     }
@@ -130,6 +132,7 @@ function publishAuthStateChange(
   setSessionVersion: React.Dispatch<React.SetStateAction<number>>,
   authChannel: BroadcastChannel | null,
 ) {
+  invalidateSession()
   resetPendingReportingKeys()
   setSessionVersion((current) => current + 1)
   const event = {
