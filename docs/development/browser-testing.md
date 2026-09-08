@@ -76,7 +76,12 @@ The controlled IdP and fixture controls exist only under `web/browser/server/`.
 They are not imported by the production application. Controls require a random
 per-run token; browser network guards allow only that run's app and IdP origins.
 The harness uses loopback HTTP and test-only private-network OIDC allowances.
-It does not start workers or fetch the synthetic feed.
+It does not start a Celery consumer or fetch the synthetic feed. Background export
+tests publish to the disposable Redis broker, then a token-protected fixture
+control invokes the real export worker entrypoint at a chosen time. Generation,
+authorization checks, Redis locking, encrypted PostgreSQL artifacts, status, and
+download use production code; these cases do not establish broker delivery or
+worker restart recovery. Export scratch files use the run's temporary directory.
 
 The server suite verifies:
 
@@ -93,6 +98,10 @@ The server suite verifies:
 - Axe checks of login/error, feed list/editor, account settings, and a dark
   editor, plus explicit labels, error announcements, keyboard activation,
   dialog focus containment, Escape, and focus restoration.
+- Background CSV job acceptance, navigation away while queued, real generation,
+  return and browser download with verified article contents; cancellation;
+  rejection after accepting-session expiry, and isolation from another owner.
+  The rendered export workspace with a ready job also runs the same axe rules.
 
 Axe runs its WCAG 2 A/AA, 2.1 A/AA, and 2.2 AA tagged rules without blanket rule
 exclusions. Reports retain violations and results requiring manual review.
