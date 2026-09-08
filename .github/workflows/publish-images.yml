@@ -68,7 +68,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set image metadata
         run: |
@@ -172,7 +172,7 @@ jobs:
             platform-slug: linux-arm64
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Download platform image digests
         uses: actions/download-artifact@v4
@@ -301,7 +301,7 @@ jobs:
       id-token: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Download platform digests
         uses: actions/download-artifact@v4
@@ -432,7 +432,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Download image digests
         uses: actions/download-artifact@v4
