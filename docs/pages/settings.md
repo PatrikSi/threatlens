@@ -174,7 +174,17 @@ permission requires the built-in administrator base role.
   - optional category requirements
   - all feeds or selected feeds
   - optional minimum classification confidence
-- Rule preview shows current corpus matches before save
+- Rule preview checks up to 200 recent accessible items before save, with a
+  three-second evaluation budget. It shows the scanned scope and explicitly marks
+  incomplete results; a partial zero count does not establish that no item matches.
+- Custom regex compilation and matching run in an isolated process using Python
+  regex syntax. Each rule gets a 50 ms interrupt budget across its selected fields;
+  an item batch shares 400 ms and at most 200 regex rules. A one-second parent
+  timeout kills and reaps a stalled evaluator. Oversized text, invalid patterns,
+  timeouts, and resource failures appear in preview warnings. Simplify the pattern
+  or reduce enabled rules before reapplying. Runtime failures skip the affected
+  custom matches and emit `tagging_rule_evaluation_failed` with the rule ID and
+  error code; built-in classification tags and manual labels continue normally.
 - Reapply tagging queues a background pass for recent items
 - API calls:
   - `GET /tagging/settings`

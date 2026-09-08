@@ -412,12 +412,12 @@ export function TaggingRulePreview({ controller }: TaggingPanelProps) {
         <div>
           <h2 className="font-display text-lg">Rule preview</h2>
           <p className="mt-1 text-sm text-slate dark:text-white/75">
-            See how this rule would match the current corpus before you save it.
+            Test this rule against up to 200 recent accessible items before saving.
           </p>
         </div>
         {previewResult && (
           <span className="tl-chip tl-chip-md tl-chip-info">
-            {previewResult.total} current match{previewResult.total === 1 ? '' : 'es'}
+            {previewResult.total} preview match{previewResult.total === 1 ? '' : 'es'}
           </span>
         )}
       </div>
@@ -427,6 +427,15 @@ export function TaggingRulePreview({ controller }: TaggingPanelProps) {
       )}
       {previewResult && (
         <div className="mt-3 space-y-3">
+          {previewResult.complete === false && (
+            <p role="status" className="text-sm text-amber-800 dark:text-amber-200">
+              Preview incomplete: checked {previewResult.scanned_items} of {previewResult.candidate_items} accessible items.
+              Results cover only the scanned items.
+            </p>
+          )}
+          {previewResult.warnings?.map((warning) => (
+            <p key={warning} role="alert" className="text-sm text-red-700 dark:text-red-200">{warning}</p>
+          ))}
           {previewResult.items.length > 0 ? (
             previewResult.items.map((item) => (
               <article
@@ -460,7 +469,7 @@ export function TaggingRulePreview({ controller }: TaggingPanelProps) {
               </article>
             ))
           ) : (
-            <p className="text-sm text-slate dark:text-white/70">No current items would match this rule.</p>
+            <p className="text-sm text-slate dark:text-white/70">No matches found in the scanned items.</p>
           )}
           {previewResult.total > previewResult.items.length && (
             <p className="text-xs text-slate dark:text-white/60">

@@ -149,7 +149,9 @@ export function useTaggingSettingsController() {
       }),
     onSuccess: (result) => {
       setPreviewResult(result)
-      setNotice({ tone: 'success', message: result.total > 0 ? 'Preview loaded.' : 'No current matches for this rule.' })
+      setNotice({ tone: result.warnings?.length ? 'error' : 'success', message: result.complete === false
+        ? 'Partial preview loaded. Review the result scope and any evaluation warnings.'
+        : result.total > 0 ? 'Preview loaded.' : 'No current matches for this rule.' })
     },
   })
   const reapplyTagging = useMutation({
