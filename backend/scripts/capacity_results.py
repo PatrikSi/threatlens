@@ -98,6 +98,8 @@ def differences(left, right, prefix=""):
 
 def compare_results(baseline, candidate, *, regression_percent=20):
     for run in (baseline, candidate):
+        if run.get("source_dirty"):
+            raise ValueError("commit measurement source before comparing releases")
         if run.get("schema_version") != SCHEMA_VERSION or not run.get(
             "comparison_identity"
         ):
@@ -168,6 +170,9 @@ def compare_results(baseline, candidate, *, regression_percent=20):
         ("memory", "process_rss_increase_bytes"),
         ("queue", "recovery_ms"),
         ("queue", "oldest_pending_age_peak_ms"),
+        ("watchdog", "owned_process_tree_rss_peak_bytes"),
+        ("faults", "worker_recovery_ms"),
+        ("faults", "broker_restart_ms"),
         ("database", "sampled_lock_waiting_query_age_peak_ms"),
     ):
         a, b = baseline.get(group, {}).get(key), candidate.get(group, {}).get(key)

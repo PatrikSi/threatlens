@@ -238,3 +238,79 @@ changes. Outcome counts accompany every comparison so safe rejections are
 visible. Repeated comparable runs and a quiet dedicated host are required
 before interpreting a percentage as a release regression; the shared target
 host can have unrelated contention even when its hardware fingerprint matches.
+
+## Controlled failure recovery
+
+The `recovery` profile runs a separate, small experiment with one real Celery
+prefork child. It first accepts a feed message into its own Redis AOF broker,
+issues `SIGKILL` to that exact container, restarts the same container, and
+verifies that the accepted queued message is unchanged. It then starts the
+worker, holds the local article response, and proves that the task holds its
+Item row lock and has not committed Article content. The harness kills only
+the recorded currently attached prefork child, releases the local response,
+and verifies Celery redelivers the same task to a replacement child. A real
+missing-article dispatcher also runs; completion requires current
+classification, IOC extraction, no queued/unacknowledged messages, and one
+Article per expected Item. The article-repair eligibility delay is explicitly
+zero in this fixture; production keeps its configured delay.
+
+```bash
+backend/.venv/bin/python backend/scripts/run_capacity_baseline.py \
+  --profile recovery --target-id current-host-lab \
+  --output /tmp/threatlens-recovery.json
+```
+
+The expected worker-loss log is evidence of the injected fault. Unexpected
+application failures, changed/lost accepted messages, missing redelivery,
+duplicate records, or recovery beyond 90 seconds fail the test. Redis restart
+has a 30-second acceptance budget. This demonstrates AOF recovery of queued
+work and child-process replacement. It does not simulate host power loss,
+filesystem corruption, replication failover, or Redis loss during an active
+provider request. Provider ambiguity and cancellation require their separate
+receipt/deadline tests. Recovery's parent-process RSS excludes the prefork
+worker; the runner's `watchdog.owned_process_tree_rss_peak_bytes` includes all
+owned worker processes, with shared pages counted per process.
+
+The process supervisor uses Linux subreaper support and retains the group
+leader's wait status until cleanup. Even when the leader exits before a child
+that ignores TERM, cleanup kills and reaps the still-owned group. It never
+signals an unrelated sibling. Process setup runs from the single-threaded CLI;
+embedding this supervisor in a multithreaded process would require replacing
+its `preexec_fn` setup.
+
+## Release trend workflow
+
+The manual **Capacity release comparison** GitHub Actions workflow accepts two
+committed refs and a `baseline` or `sustained` profile. Both refs must include
+the version 2 harness. It builds separate interpreters before measurements,
+then runs both releases sequentially on the same runner with identical caps.
+Its per-job target ID prevents automatic comparison across unrelated hosted
+runners. Results, logs, and compatibility/regression output are retained for
+90 days. Incompatible measurement contracts fail visibly; changing start
+phases, repair cadence, caps, or dataset shape requires a new baseline.
+
+For a target installation, retain the same target ID only while its measured
+hardware and resource allocation remain the same. Commit source first; each
+run captures its starting revision and whether measurement/application source
+was dirty, and the comparison rejects dirty source. Preserve the command,
+artifact, and operational context alongside a release. On a shared host, note
+other workload activity without inspecting or exporting live application data.
+Two sequential hosted runs can still be noisy; the workflow supplies a
+repeatable experiment, not statistical proof or a production capacity claim.
+
+The recorded sustained export lane calls the projection/artifact services. It
+does not measure the newer asynchronous export-job admission, encrypted chunk
+storage, or download route. Adding those stages changes the workload contract
+and requires a new baseline.
+
+The broker fault initially reproduced an application producer deadlock in the
+installed Celery 5.5.3 / redis-py 6.2.0 result-consumer reconnect path: an
+`AsyncResult` finalizer unsubscribed while Redis reconnected and resubscribed
+under its non-reentrant PubSub lock. ThreatLens did not consume those task
+results; progress and completion were already stored in application tables.
+Registered tasks now ignore unused results, and both named feed producers
+explicitly set `ignore_result=True` because Celery `send_task` does not inherit
+that default. The recovery test verifies zero result subscriptions/rows and
+successful post-restart publication without restarting the producer. Future
+features that need Celery result retrieval or chords must design and validate
+that separate result-consumer lifecycle explicitly.

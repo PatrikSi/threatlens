@@ -1,0 +1,87 @@
+name: Capacity release comparison
+
+on:
+  workflow_dispatch:
+    inputs:
+      baseline_ref:
+        description: Committed baseline ref containing the version 2 capacity harness
+        required: true
+        type: string
+      candidate_ref:
+        description: Committed candidate ref containing the same measurement contract
+        required: true
+        type: string
+        default: dev
+      profile:
+        description: Run the same bounded workload for both refs on this runner
+        type: choice
+        options:
+          - baseline
+          - sustained
+        default: baseline
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Prepare isolated release worktrees and interpreters
+        env:
+          BASELINE_REF: ${{ inputs.baseline_ref }}
+          CANDIDATE_REF: ${{ inputs.candidate_ref }}
+        run: |
+          baseline_sha="$(git rev-parse --verify --end-of-options "${BASELINE_REF}^{commit}")"
+          candidate_sha="$(git rev-parse --verify --end-of-options "${CANDIDATE_REF}^{commit}")"
+          git worktree add --detach /tmp/threatlens-capacity-baseline "$baseline_sha"
+          git worktree add --detach /tmp/threatlens-capacity-candidate "$candidate_sha"
+          for release in baseline candidate; do
+            release_dir="/tmp/threatlens-capacity-${release}"
+            python -m venv "/tmp/threatlens-capacity-python-${release}"
+            timeout 10m "/tmp/threatlens-capacity-python-${release}/bin/python" -m pip install -r "${release_dir}/backend/requirements-dev.txt"
+          done
+          mkdir -p capacity-results
+
+      - name: Measure both releases sequentially on this runner
+        env:
+          CAPACITY_PROFILE: ${{ inputs.profile }}
+          CAPACITY_TARGET: github-run-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          profile_args=(--profile "$CAPACITY_PROFILE")
+          if [[ "$CAPACITY_PROFILE" == sustained ]]; then
+            profile_args+=(--duration-seconds 600)
+          fi
+          for release in baseline candidate; do
+            env -u THREATLENS_TEST_DATABASE_URL -u THREATLENS_TEST_REDIS_URL \
+              timeout 15m "/tmp/threatlens-capacity-python-${release}/bin/python" \
+              "/tmp/threatlens-capacity-${release}/backend/scripts/run_capacity_baseline.py" \
+              "${profile_args[@]}" --target-id "$CAPACITY_TARGET" --cpu-count 1 --max-rss-mib 1024 \
+              --output "$GITHUB_WORKSPACE/capacity-results/${release}.json" \
+              > "capacity-results/${release}.log" 2>&1
+          done
+
+      - name: Compare compatible measurement artifacts
+        run: |
+          /tmp/threatlens-capacity-python-candidate/bin/python \
+            /tmp/threatlens-capacity-candidate/backend/scripts/compare_capacity_runs.py \
+            capacity-results/baseline.json capacity-results/candidate.json \
+            --output capacity-results/comparison.json
+
+      - name: Preserve measurements and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: capacity-release-comparison
+          path: capacity-results/
+          if-no-files-found: warn
+          retention-days: 90

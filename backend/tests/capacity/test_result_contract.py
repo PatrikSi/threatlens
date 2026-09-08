@@ -53,7 +53,7 @@ def test_incompatible_hardware_workload_or_target_is_not_compared(field, value):
 
 
 @pytest.mark.parametrize(
-    "mutation", ["schema", "fingerprint", "failed", "budget", "sampler"]
+    "mutation", ["schema", "fingerprint", "failed", "budget", "sampler", "dirty"]
 )
 def test_reject_invalid_or_failed_results(mutation):
     a = run()
@@ -63,6 +63,8 @@ def test_reject_invalid_or_failed_results(mutation):
         a["comparison_identity"]["target_id"] = "tampered"
     elif mutation == "failed":
         a["status"] = "failed"
+    elif mutation == "dirty":
+        a["source_dirty"] = True
     elif mutation == "budget":
         a["budget_violations"] = {"memory": 1}
     else:
