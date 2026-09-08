@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, Index, String, Text, UniqueConstraint, Uuid, func, text
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, Uuid, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -32,6 +32,8 @@ class Item(Base):
             "ix_items_pending_classification", "first_seen_at", "id",
             postgresql_where=text("classification_completed_version < classification_required_version"),
         ),
+        CheckConstraint("tagging_attempts >= 0 AND tagging_attempts <= 5", name="ck_items_tagging_attempts"),
+        Index("ix_items_pending_tagging", "tagging_retry_at", "id", postgresql_where=text("tagging_pending")),
         Index(
             "ix_items_feed_guid_unique_not_null",
             "feed_id",
@@ -61,6 +63,10 @@ class Item(Base):
     classification_completed_version: Mapped[int] = mapped_column(
         BigInteger, nullable=False, default=0, server_default="0",
     )
+    tagging_pending: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    tagging_retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    tagging_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    tagging_error_code: Mapped[str | None] = mapped_column(String(32), nullable=True)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
