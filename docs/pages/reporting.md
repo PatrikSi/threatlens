@@ -54,6 +54,13 @@ Keep AI worker concurrency at `1` for memory-constrained local inference. These 
 
 The exact company context and global instructions are frozen when a report is queued, so later edits do not change the durable snapshot. Before each provider call, ThreatLens builds a bounded working projection from that snapshot. It preserves the objective and global instructions first, then fits custom instructions, topic lists, structured company fields, and profile text into the remaining prompt allowance. Compaction is recorded in report warnings.
 
+Planning reads bounded text and summary prefixes directly from PostgreSQL using
+the configured source token cap. It retains citation metadata and selected
+evidence, discarding body copies and excluded evidence. Candidate payloads share
+a 32 MiB planning budget, with individual database batches capped at 8 MiB;
+exceeding the budget asks you to exclude a source or narrow the selection.
+Text-availability and coverage counts still reflect the original articles.
+
 The worker revalidates the current provider, model, context limits, and model-call ceiling at execution and retry time. If a queued report was planned for a larger model, execution tightens excerpts and omits only lower-ranked sources until the current limits fit, then records the changed coverage. It fails before a provider call only when the required protocol, objective, enabled AI sections, and one evidence unit cannot fit at all. Provider usage, exact planning telemetry, stages, model-call counts, and failures appear in AI task history and worker logs.
 
 ## Templates And Schedules

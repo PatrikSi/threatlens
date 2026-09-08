@@ -60,6 +60,7 @@ class ExportArticleContent:
     language: str | None
     word_count: int | None
     error: str | None
+    text_available: bool = False
 
 
 @dataclass(frozen=True)
