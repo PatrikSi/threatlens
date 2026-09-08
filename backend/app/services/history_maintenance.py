@@ -35,6 +35,10 @@ from app.services.local_mfa import (
     cleanup_mfa_challenges,
     cleanup_pending_totp_enrollments,
 )
+from app.services.lifecycle_scanning import (
+    LifecycleScanStats,
+    lifecycle_candidate_window,
+)
 from app.services.lifecycle_dependencies import (
     lifecycle_parent_scan_limit,
     select_with_dependent_budget,
@@ -288,6 +292,7 @@ def _delete_ai_history_with_envelopes(
     resource_type: str,
     extra_predicate=None,
     max_dependent_rows: int | None = None,
+    scan_stats: LifecycleScanStats | None = None,
 ) -> int:
     query = select(model.id).where(timestamp_column < cutoff)
     if extra_predicate is not None:
@@ -297,49 +302,39 @@ def _delete_ai_history_with_envelopes(
         if max_dependent_rows is not None
         else batch_size
     )
-    ordered_query = query.order_by(timestamp_column.asc(), model.id.asc()).limit(
-        candidate_limit
+    window = lifecycle_candidate_window(
+        db,
+        query,
+        model=model,
+        timestamp=timestamp_column,
+        limit=candidate_limit,
+        durable=max_dependent_rows is not None,
+        stats=scan_stats,
     )
+    ids = window.ids
+    dependent_rows_budgeted = 0
+    if ids and max_dependent_rows is not None:
+        dependency_selection = select_with_dependent_budget(
+            db,
+            model=model,
+            candidate_ids=ids,
+            max_dependent_rows=max_dependent_rows,
+            max_parent_records=batch_size,
+        )
+        window.advance(dependency_selection)
+        ids = dependency_selection.ids
+        dependent_rows_budgeted = dependency_selection.dependent_rows
+    if not ids:
+        return 0
     if model is AITaskRun:
-        # Match provider reservation and approval capture: lock the source run
-        # before any of its receipts. The delete predicate is rechecked below
-        # after both locks so a concurrent retained approval always wins.
-        ids = list(db.scalars(ordered_query.with_for_update(skip_locked=True)).all())
-        if not ids:
-            return 0
-        if max_dependent_rows is not None:
-            dependency_selection = select_with_dependent_budget(
-                db,
-                model=model,
-                candidate_ids=ids,
-                max_dependent_rows=max_dependent_rows,
-                max_parent_records=batch_size,
-            )
-            ids = dependency_selection.ids
-            dependent_rows_budgeted = dependency_selection.dependent_rows
-        if not ids:
-            return 0
-        receipt_locks = db.execute(
+        # Source locks precede receipt locks; retained references are rechecked
+        # after both, matching provider reservation and approval capture.
+        db.execute(
             select(AIProviderAttemptReceipt.id)
             .where(AIProviderAttemptReceipt.task_run_id_snapshot.in_(ids))
             .order_by(AIProviderAttemptReceipt.id)
             .with_for_update()
-        )
-        receipt_locks.close()
-    else:
-        ids = list(db.scalars(ordered_query.with_for_update(skip_locked=True)).all())
-        if ids and max_dependent_rows is not None:
-            dependency_selection = select_with_dependent_budget(
-                db,
-                model=model,
-                candidate_ids=ids,
-                max_dependent_rows=max_dependent_rows,
-                max_parent_records=batch_size,
-            )
-            ids = dependency_selection.ids
-            dependent_rows_budgeted = dependency_selection.dependent_rows
-    if not ids:
-        return 0
+        ).close()
     delete_query = delete(model).where(model.id.in_(ids))
     if extra_predicate is not None:
         # Re-evaluate cross-table retention pins after the row locks were
@@ -526,34 +521,31 @@ def _delete_action_approval_history(
     now: datetime,
     batch_size: int,
     max_dependent_rows: int | None = None,
+    scan_stats: LifecycleScanStats | None = None,
 ) -> tuple[int, int, int]:
-    approval_ids = list(
-        db.scalars(
-            select(ActionApprovalRequest.id)
-            .where(
-                ActionApprovalRequest.created_at < cutoff,
-                (
-                    ActionApprovalRequest.status.in_(
-                        ["denied", "cancelled", "invalidated", "executed"]
-                    )
-                    | (ActionApprovalRequest.expires_at <= now)
-                ),
-            )
-            .order_by(
-                ActionApprovalRequest.created_at.asc(),
-                ActionApprovalRequest.id.asc(),
-            )
-            .limit(
-                min(
-                    lifecycle_parent_scan_limit(batch_size)
-                    if max_dependent_rows is not None
-                    else batch_size,
-                    MAX_TARGETED_DATA_ACCESS_RESOURCES,
+    window = lifecycle_candidate_window(
+        db,
+        select(ActionApprovalRequest.id).where(
+            ActionApprovalRequest.created_at < cutoff,
+            (
+                ActionApprovalRequest.status.in_(
+                    ["denied", "cancelled", "invalidated", "executed"]
                 )
-            )
-            .with_for_update(skip_locked=True)
-        ).all()
+                | (ActionApprovalRequest.expires_at <= now)
+            ),
+        ),
+        model=ActionApprovalRequest,
+        timestamp=ActionApprovalRequest.created_at,
+        limit=min(
+            lifecycle_parent_scan_limit(batch_size)
+            if max_dependent_rows is not None
+            else batch_size,
+            MAX_TARGETED_DATA_ACCESS_RESOURCES,
+        ),
+        durable=max_dependent_rows is not None,
+        stats=scan_stats,
     )
+    approval_ids = window.ids
     if not approval_ids:
         return 0, 0, 0
     if max_dependent_rows is not None:
@@ -566,6 +558,7 @@ def _delete_action_approval_history(
             max_dependent_rows=max_dependent_rows,
             max_parent_records=batch_size,
         )
+        window.advance(dependency_selection)
         approval_ids = dependency_selection.ids
         dependent_rows_budgeted = dependency_selection.dependent_rows
     else:

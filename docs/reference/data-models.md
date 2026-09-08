@@ -119,11 +119,19 @@ content-derived AI task runs and usage require governed envelopes.
 - `content_hash: string(64)`
 - `classification_required_version: bigint` (default `1`)
 - `classification_completed_version: bigint` (default `0`; between `0` and the required revision)
+- `tagging_pending: boolean` (default `false`)
+- `tagging_retry_at: timestamptz?`
+- `tagging_attempts: integer` (between `0` and `5`)
+- `tagging_error_code: string(32)?`
 - `status: string(32)` (default `new`)
 - `last_error: text?`
 - `updated_at: timestamptz`
 
 Indexes include feed/source/canonical/domain/published/first_seen/status/content hash, feed-time composites, PostgreSQL trigram text-search helpers, and partial unique `(feed_id, source_guid)` when GUID exists.
+
+Migration `0089_tagging_recovery` adds independent tagging recovery state and a
+partial pending-work index. Incomplete evaluation preserves existing automatic
+tags; retrying tags does not acknowledge pending classification work.
 
 ### `Article`
 
@@ -506,6 +514,11 @@ for the state machine, reservation accounting, cleanup, and credential expiry.
   scheduled trigger, idempotency, one-active-run exclusion, lease/heartbeat,
   cancellation, monotonic aggregate counters, byte count, backlog, sanitized
   failure, and immutable terminal timestamps and evidence.
+- `LifecycleScanCursor` stores one `(last_timestamp, last_id)` anchor per internal
+  dataset. Both anchor fields are set or cleared together. Cursor changes commit
+  with their deletion batch and survive run and policy changes; reaching the end
+  resets the cursor so later runs revisit earlier protected records. Migration
+  `0090_lifecycle_scan_cursors` adds the table.
 
 Target keys are constrained in both application schemas and PostgreSQL; clients
 cannot supply a database table or query. Scheduled target/tick and manual

@@ -58,6 +58,7 @@ class LifecycleDependencySelection:
     dependent_rows: int
     oversized_count: int
     budget_exhausted: bool
+    completed_prefix_length: int = 0
 
 
 def has_lifecycle_dependants(model) -> bool:
@@ -71,8 +72,14 @@ def select_with_dependent_budget(
     candidate_ids: list[uuid.UUID],
     max_dependent_rows: int = MAX_LIFECYCLE_DEPENDENT_ROWS_PER_BATCH,
     max_parent_records: int | None = None,
+    available_dependent_rows: int | None = None,
 ) -> LifecycleDependencySelection:
     bounded_budget = max(1, int(max_dependent_rows))
+    available_budget = (
+        bounded_budget
+        if available_dependent_rows is None
+        else max(0, min(bounded_budget, int(available_dependent_rows)))
+    )
     counts = lifecycle_dependent_row_counts(
         db,
         model=model,
@@ -83,23 +90,30 @@ def select_with_dependent_budget(
     consumed = 0
     oversized = 0
     budget_exhausted = False
+    completed_prefix_length = 0
+    prefix_open = True
     for parent_id in candidate_ids:
         row_cost = int(counts.get(parent_id, 0))
         if row_cost > bounded_budget:
             oversized += 1
+            completed_prefix_length += int(prefix_open)
             continue
         if max_parent_records is not None and len(selected) >= max_parent_records:
+            prefix_open = False
             continue
-        if consumed + row_cost > bounded_budget:
+        if consumed + row_cost > available_budget:
             budget_exhausted = True
+            prefix_open = False
             continue
         selected.append(parent_id)
         consumed += row_cost
+        completed_prefix_length += int(prefix_open)
     return LifecycleDependencySelection(
         ids=selected,
         dependent_rows=consumed,
         oversized_count=oversized,
         budget_exhausted=budget_exhausted,
+        completed_prefix_length=completed_prefix_length,
     )
 
 
