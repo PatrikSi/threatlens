@@ -7,6 +7,7 @@ import ctypes
 import os
 import signal
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -33,32 +34,54 @@ def process_tree_rss(pid):
     return rss, len(visited)
 
 
-def cleanup_containers(manifest, run_id):
-    if not manifest.exists():
+def cleanup_containers(manifest, run_id, *, wait_for_pending=False):
+    # Only the supervisor-generated UUID label can authorize discovery. A
+    # manifest is useful evidence, but docker run may be interrupted before its
+    # accepted container ID reaches that file.
+    if len(run_id) != 32 or any(char not in "0123456789abcdef" for char in run_id):
         return
-    for container_id in manifest.read_text().splitlines():
-        if len(container_id) != 64 or any(
-            char not in "0123456789abcdef" for char in container_id
-        ):
-            continue
-        result = subprocess.run(
-            [
-                "docker",
-                "inspect",
-                "--format",
-                '{{index .Config.Labels "threatlens.capacity.run_id"}}',
-                container_id,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode == 0 and result.stdout.strip() == run_id:
-            subprocess.run(
-                ["docker", "rm", "-f", "-v", container_id],
-                capture_output=True,
-                timeout=15,
-            )
+    started = time.monotonic()
+    deadline = started + 10
+    discover_until = started + (3 if wait_for_pending else 0)
+    if wait_for_pending:
+        print(f"Capacity cleanup scope: threatlens.capacity.run_id={run_id}", file=sys.stderr)
+    try:
+        targets = set(manifest.read_text().splitlines())
+    except OSError:
+        targets = set()
+
+    def docker(*args):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return None
+        try:
+            return subprocess.run(["docker", *args], capture_output=True, text=True,
+                                  timeout=min(2, remaining))
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+
+    while True:
+        found = docker("ps", "-aq", "--no-trunc", "--filter", f"label=threatlens.capacity.run_id={run_id}")
+        if found is not None and found.returncode == 0:
+            targets.update(found.stdout.splitlines())
+        else:
+            print(f"Capacity container discovery unavailable for run {run_id}; inspect its exact run label.", file=sys.stderr)
+        for container_id in sorted(targets):
+            if len(container_id) != 64 or any(char not in "0123456789abcdef" for char in container_id):
+                continue
+            inspected = docker("inspect", "--format", '{{index .Config.Labels "threatlens.capacity.run_id"}}', container_id)
+            if inspected is not None and inspected.returncode == 0 and inspected.stdout.strip() == run_id:
+                removed = docker("rm", "-f", "-v", container_id)
+                if removed is not None and removed.returncode == 0:
+                    targets.discard(container_id)
+                else:
+                    print(f"Capacity container removal incomplete for run {run_id}: {container_id}", file=sys.stderr)
+        # The killed Docker client cannot cancel a daemon request already in
+        # flight. Allow short, bounded late discovery; never widen the label.
+        remaining = min(discover_until, deadline) - time.monotonic()
+        if remaining <= 0:
+            break
+        time.sleep(min(0.2, remaining))
 
 
 def execute_bounded(command, *, cwd, env, limits, output, manifest, run_id):
@@ -82,7 +105,7 @@ def execute_bounded(command, *, cwd, env, limits, output, manifest, run_id):
         )
     started = time.monotonic()
     process = None
-    peak, process_peak, failure = 0, 0, None
+    peak, process_peak, failure, code = 0, 0, None, None
     try:
         process = subprocess.Popen(
             command, cwd=cwd, env=env, start_new_session=True, preexec_fn=child_limits
@@ -126,7 +149,8 @@ def execute_bounded(command, *, cwd, env, limits, output, manifest, run_id):
                 if child == 0:
                     time.sleep(0.02)
         libc.prctl(36, previous_subreaper.value, 0, 0, 0)
-        cleanup_containers(manifest, run_id)
+        cleanup_containers(manifest, run_id,
+                           wait_for_pending=code != 0 or failure is not None or sys.exc_info()[0] is not None)
     watchdog = {
         "sample_interval_ms": 100,
         "owned_process_tree_rss_peak_bytes": peak,
