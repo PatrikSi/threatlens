@@ -33,7 +33,7 @@ from app.schemas.tagging import (
     TaggingSettingsResponse,
     TaggingSettingsUpdate,
 )
-from app.services.algorithm_tags import evaluate_tagging_rule_match, normalize_tag_name
+from app.services.algorithm_tags import eligible_tagging_rule_fields, evaluate_tagging_rule_match, normalize_tag_name
 from app.services.bounded_regex import ERROR_MESSAGES, MAX_REGEX_TEXT_CHARS, validate_regex
 from app.services.audit import record_audit
 from app.services.data_access_policy import (
@@ -57,6 +57,11 @@ from app.tasks.feed_tasks import (
 
 router = APIRouter(prefix="/tagging", tags=["tagging"])
 logger = logging.getLogger(__name__)
+
+PREVIEW_TITLE_CHARS = 500
+PREVIEW_FEED_NAME_CHARS = 255
+PREVIEW_TAG_CHARS = 64
+PREVIEW_TAGS_PER_ITEM = 25
 
 
 @router.get("/settings", response_model=TaggingSettingsBundleResponse)
@@ -460,11 +465,13 @@ def _build_rule_preview_response(
     query = (
         select(
             Item.id, Item.feed_id,
-            func.substr(Item.title, 1, MAX_REGEX_TEXT_CHARS + 1).label("title"),
+            func.substr(Item.title, 1, (MAX_REGEX_TEXT_CHARS if "title" in selected_fields
+                                       else PREVIEW_TITLE_CHARS) + 1).label("title"),
             Item.first_seen_at,
             (func.substr(Item.summary, 1, MAX_REGEX_TEXT_CHARS + 1)
              if "summary" in selected_fields else literal(None)).label("summary"),
-            Feed.name.label("feed_name"),
+            func.substr(Feed.name, 1, (MAX_REGEX_TEXT_CHARS if "feed_name" in selected_fields
+                                      else PREVIEW_FEED_NAME_CHARS) + 1).label("feed_name"),
             (func.substr(Article.text, 1, MAX_REGEX_TEXT_CHARS + 1)
              if "article_text" in selected_fields else literal(None)).label("article_text"),
             ItemClassification.primary_category.label("primary_category"),
@@ -478,8 +485,7 @@ def _build_rule_preview_response(
         .order_by(Item.first_seen_at.desc(), Item.id.desc())
         .limit(200)
     )
-    matched: list[tuple[object, list[str]]] = []
-    matched_item_ids: list[uuid.UUID] = []
+    matched: list[TaggingRulePreviewItem] = []
     total = scanned = 0
     errors: list[str] = []
     deadline = time.monotonic() + 3.0
@@ -489,8 +495,15 @@ def _build_rule_preview_response(
             if time.monotonic() >= deadline:
                 break
             scanned += 1
+            eligible_fields = eligible_tagging_rule_fields(
+                rule=payload, feed_id=row.feed_id, primary_category=row.primary_category or "",
+                secondary_categories=row.secondary_categories or [],
+                classification_confidence=row.confidence,
+            )
+            if not eligible_fields:
+                continue
             # Contains previews must not silently match a truncated field either.
-            if any(len(value or "") > MAX_REGEX_TEXT_CHARS for value in (row.title, row.summary, row.article_text)):
+            if any(len(getattr(row, field) or "") > MAX_REGEX_TEXT_CHARS for field in eligible_fields):
                 errors.append("input_too_large")
                 break
             matched_sections = evaluate_tagging_rule_match(
@@ -505,33 +518,34 @@ def _build_rule_preview_response(
             if matched_sections:
                 total += 1
                 if len(matched) < payload.limit:
-                    matched.append((row, matched_sections))
-                    matched_item_ids.append(row.id)
+                    # Retain only bounded response metadata, never publisher bodies.
+                    matched.append(TaggingRulePreviewItem(
+                        id=row.id, title=_preview_display_text(row.title, PREVIEW_TITLE_CHARS),
+                        feed_name=_preview_display_text(row.feed_name, PREVIEW_FEED_NAME_CHARS),
+                        classification=row.primary_category, first_seen_at=row.first_seen_at,
+                        current_tags=[], matched_sections=matched_sections,
+                    ))
     finally:
         rows.close()
 
-    current_tags_by_item = _load_tags_for_items(
-        db, matched_item_ids, data_access=data_access
+    current_tags_by_item, truncated_tag_items = _load_tags_for_items(
+        db, [item.id for item in matched], data_access=data_access
     )
+    for item in matched:
+        item.current_tags = current_tags_by_item.get(item.id, [])
+        item.current_tags_truncated = item.id in truncated_tag_items
     return TaggingRulePreviewResponse(
         total=total,
         scanned_items=scanned,
         candidate_items=candidate_count,
         complete=scanned == candidate_count and not errors,
         warnings=[ERROR_MESSAGES[code] for code in dict.fromkeys(errors)],
-        items=[
-            TaggingRulePreviewItem(
-                id=row.id,
-                title=row.title,
-                feed_name=row.feed_name,
-                classification=row.primary_category,
-                first_seen_at=row.first_seen_at,
-                current_tags=current_tags_by_item.get(row.id, []),
-                matched_sections=matched_sections,
-            )
-            for row, matched_sections in matched
-        ],
+        items=matched,
     )
+
+
+def _preview_display_text(value: str, limit: int) -> str:
+    return value[:limit] + "…" if len(value) > limit else value
 
 
 def _load_tags_for_items(
@@ -539,13 +553,20 @@ def _load_tags_for_items(
     item_ids: list[uuid.UUID],
     *,
     data_access: DataAccessContext,
-) -> dict[uuid.UUID, list[str]]:
+) -> tuple[dict[uuid.UUID, list[str]], set[uuid.UUID]]:
     if not item_ids:
-        return {}
+        return {}, set()
 
     tags_by_item: dict[uuid.UUID, list[str]] = {item_id: [] for item_id in item_ids}
-    rows = db.execute(
-        select(ItemTag.item_id, Tag.name)
+    truncated_items: set[uuid.UUID] = set()
+    # Bound both row count and characters in SQL before allocating tag strings.
+    # One sentinel row per item discloses omitted tags without fetching them.
+    ranked_tags = (
+        select(
+            ItemTag.item_id,
+            func.substr(Tag.name, 1, PREVIEW_TAG_CHARS + 1).label("name"),
+            func.row_number().over(partition_by=ItemTag.item_id, order_by=Tag.name).label("position"),
+        )
         .join(Tag, Tag.id == ItemTag.tag_id)
         .join(Item, Item.id == ItemTag.item_id)
         .join(Feed, Feed.id == Item.feed_id)
@@ -553,8 +574,13 @@ def _load_tags_for_items(
             ItemTag.item_id.in_(item_ids),
             handling_label_access_predicate(Feed.handling_label_id, data_access),
         )
-        .order_by(Tag.name.asc())
-    ).all()
-    for item_id, tag_name in rows:
-        tags_by_item[item_id].append(tag_name)
-    return tags_by_item
+        .subquery()
+    )
+    rows = db.execute(select(ranked_tags).where(ranked_tags.c.position <= PREVIEW_TAGS_PER_ITEM + 1)
+                      .order_by(ranked_tags.c.item_id, ranked_tags.c.position))
+    for item_id, tag_name, position in rows:
+        if position > PREVIEW_TAGS_PER_ITEM or len(tag_name) > PREVIEW_TAG_CHARS:
+            truncated_items.add(item_id)
+        if position <= PREVIEW_TAGS_PER_ITEM:
+            tags_by_item[item_id].append(_preview_display_text(tag_name, PREVIEW_TAG_CHARS))
+    return tags_by_item, truncated_items

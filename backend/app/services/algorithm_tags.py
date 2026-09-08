@@ -246,13 +246,9 @@ def build_tag_candidates(
     return sorted(candidates.values(), key=lambda candidate: (-candidate.confidence, candidate.name))
 
 
-def _eligible_tagging_rule_fields(
+def eligible_tagging_rule_fields(
     *,
     rule: _TaggingRuleLike,
-    title: str,
-    summary: str | None,
-    article_text: str | None,
-    feed_name: str | None,
     feed_id: uuid.UUID | None,
     primary_category: str,
     secondary_categories: list[str] | None,
@@ -322,9 +318,8 @@ def evaluate_tagging_rules(
     regex_rules: list[RegexRule] = []
     regex_indexes: list[int] = []
     for index, rule in enumerate(rules):
-        fields = _eligible_tagging_rule_fields(
-            rule=rule, title=title, summary=summary, article_text=article_text,
-            feed_name=feed_name, feed_id=feed_id, primary_category=primary_category,
+        fields = eligible_tagging_rule_fields(
+            rule=rule, feed_id=feed_id, primary_category=primary_category,
             secondary_categories=secondary_categories,
             classification_confidence=classification_confidence,
         )

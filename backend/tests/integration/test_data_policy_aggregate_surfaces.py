@@ -299,6 +299,8 @@ def test_tags_and_preview_only_include_accessible_item_data(
     ]
     assert preview_response.status_code == 200
     assert preview_response.json()["total"] == 1
+    assert preview_response.json()["scanned_items"] == preview_response.json()["candidate_items"] == 1
+    assert preview_response.json()["complete"] is True
     assert [item["id"] for item in preview_response.json()["items"]] == [
         str(visible_item.id)
     ]
@@ -321,6 +323,7 @@ def test_tags_and_preview_only_include_accessible_item_data(
         "policy-visible",
     }
     assert audit_preview.json()["total"] == 4
+    assert audit_preview.json()["scanned_items"] == audit_preview.json()["candidate_items"] == 4
 
 
 def test_tagging_feed_validation_does_not_distinguish_unknown_from_inaccessible(

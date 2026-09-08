@@ -75,6 +75,7 @@ const taggingPageDomMocks = vi.hoisted(() => ({
   previewRuleMutate: vi.fn(),
   reapplyMutate: vi.fn(),
   feedsError: false,
+  previewTagsTruncated: false,
 }))
 
 const routerMocks = vi.hoisted(() => ({
@@ -156,6 +157,7 @@ vi.mock('@tanstack/react-query', () => ({
                 updated_at: '2026-04-21T09:00:00Z',
                 matched_sections: ['title'],
                 current_tags: ['existing-tag'],
+                current_tags_truncated: taggingPageDomMocks.previewTagsTruncated,
                 classification: 'vulnerability',
               },
             ],
@@ -232,6 +234,7 @@ afterEach(() => {
   container = null
   document.body.innerHTML = ''
   taggingPageDomMocks.previewRuleMutate.mockReset()
+  taggingPageDomMocks.previewTagsTruncated = false
   taggingPageDomMocks.deleteRuleMutate.mockReset()
   taggingPageDomMocks.reapplyMutate.mockReset()
   taggingPageDomMocks.saveSettingsMutate.mockReset()
@@ -474,6 +477,7 @@ describe('TaggingSettingsPage DOM workflows', () => {
   })
 
   it('announces tagging save, preview, and reapply feedback through a polite live region', () => {
+    taggingPageDomMocks.previewTagsTruncated = true
     const view = renderPage()
 
     const saveDefaultsButton = Array.from(view.querySelectorAll('button')).find((button) =>
@@ -509,6 +513,7 @@ describe('TaggingSettingsPage DOM workflows', () => {
 
     notice = view.querySelector('[role="status"][aria-live="polite"][aria-atomic="true"]')
     expect(notice?.textContent).toContain('Preview loaded.')
+    expect(view.textContent).toContain('Current tags are abbreviated or limited to the first 25.')
 
     const queueButton = Array.from(view.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Queue retagging'),
