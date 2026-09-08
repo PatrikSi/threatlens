@@ -102,6 +102,22 @@ jobs:
           --cov-report=json:coverage.json
           --cov-fail-under=79
 
+      - name: Run isolated concurrent capacity smoke
+        timeout-minutes: 3
+        run: >-
+          env -u THREATLENS_TEST_DATABASE_URL -u THREATLENS_TEST_REDIS_URL
+          timeout 2m python backend/scripts/run_capacity_baseline.py
+          --profile smoke --output backend/capacity-smoke.json
+
+      - name: Upload capacity smoke measurements
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: capacity-smoke
+          path: backend/capacity-smoke.json
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Enforce critical backend coverage floors
         run: python scripts/check_coverage.py backend/coverage.json
 
