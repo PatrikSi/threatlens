@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import delete, select
+from billiard.exceptions import SoftTimeLimitExceeded
 
 from app.core.config import get_settings
 from app.db import session as session_module
@@ -261,7 +262,7 @@ def _settle_failure(job_id, token, exc):
             reason = "snapshot_changed"
         elif isinstance(exc, ExportJobEmpty):
             reason = "empty_export"
-        elif isinstance(exc, ExportJobTimedOut):
+        elif isinstance(exc, (ExportJobTimedOut, SoftTimeLimitExceeded)):
             reason = "generation_timeout"
         else:
             reason = "generation_failed"

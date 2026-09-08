@@ -58,9 +58,9 @@ Local rendering scratch uses a private directory per job/claim. Normal completio
 | `EXPORT_JOB_MAX_ATTEMPTS` | 3 | Actual worker attempts before terminal failure. |
 | `EXPORT_JOB_MAX_ACTIVE_PER_PRINCIPAL` | 2 | Queued/running jobs per human or service account. |
 | `EXPORT_JOB_MAX_RETAINED` | 1000 | Global job-row admission cap, including tombstones. |
-| `EXPORT_JOB_MAX_RESERVED_BYTES` | 4000000000 | Global conservative reservation for retained encrypted artifacts; each job reserves three times `EXPORT_MAX_UNCOMPRESSED_BYTES` plus 1 MiB. |
+| `EXPORT_JOB_MAX_RESERVED_BYTES` | 4000000000 | Global conservative reservation: three times the file-byte cap, 256 bytes per maximum source item, actual encrypted request/authorization metadata, and 16 KiB row overhead. |
 
-The existing `EXPORT_MAX_ITEMS`, `EXPORT_PDF_MAX_ITEMS`, and `EXPORT_MAX_UNCOMPRESSED_BYTES` also apply. Stored file size is independently capped by `EXPORT_MAX_UNCOMPRESSED_BYTES`. Reservation release and chunk deletion occur in the same transaction. Expiry is checked during retrieval even if housekeeping is delayed; delayed housekeeping keeps its reservations and rejects additional work instead of growing storage without limit.
+The existing `EXPORT_MAX_ITEMS`, `EXPORT_PDF_MAX_ITEMS`, and `EXPORT_MAX_UNCOMPRESSED_BYTES` also apply. Stored file size is independently capped by `EXPORT_MAX_UNCOMPRESSED_BYTES`. Artifact reservation release and chunk deletion occur in the same transaction; encrypted request/authorization metadata stays reserved until its tombstone is deleted. Expiry is checked during retrieval even if housekeeping is delayed; delayed housekeeping keeps its reservations and rejects additional work instead of growing storage without limit.
 
 Investigate queued jobs by checking Beat and the `maintenance`/`processing` queues. For repeatedly interrupted attempts, inspect worker shutdown/OOM events and database/Redis availability. Structured logs report `export_job_publish_deferred` and `export_job_attempt_failed` with job UUID and exception type, without payloads. Acceptance, cancellation, and downloads are audited. Do not manually change claim tokens or mark partial jobs ready.
 

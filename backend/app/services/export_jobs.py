@@ -60,8 +60,13 @@ def create_export_job(db, *, principal, request, authorization, data_access, pay
         ExportJob.principal_type == principal_type, ExportJob.principal_id == principal.id,
         ExportJob.status.in_(ACTIVE),
     ))
-    # Includes base64 + Fernet expansion, bounded row overhead and encrypted input.
-    reservation = settings.export_max_uncompressed_bytes * 3 + 1_048_576
+    encrypted_request = encrypt_json(document)
+    encrypted_authorization = encrypt_json(snapshot)
+    item_limit = settings.export_pdf_max_items if payload.format == "pdf_bundle" else settings.export_max_items
+    # Source membership has three UUIDs per item; 256 bytes each covers JSON,
+    # Fernet expansion and padding. Metadata remains reserved in tombstones.
+    reservation = (settings.export_max_uncompressed_bytes * 3 + item_limit * 256
+                   + _metadata_reservation(encrypted_request, encrypted_authorization))
     if (count >= settings.export_job_max_retained
             or active >= settings.export_job_max_active_per_principal
             or reserved + reservation > settings.export_job_max_reserved_bytes):
@@ -69,7 +74,7 @@ def create_export_job(db, *, principal, request, authorization, data_access, pay
     job = ExportJob(
         principal_type=principal_type, principal_id=principal.id,
         idempotency_key=payload.idempotency_key, request_hash=digest,
-        request_encrypted=encrypt_json(document), authorization_encrypted=encrypt_json(snapshot),
+        request_encrypted=encrypted_request, authorization_encrypted=encrypted_authorization,
         format=payload.format, expires_at=datetime.now(timezone.utc) + timedelta(seconds=settings.export_job_retention_seconds),
         reserved_bytes=reservation,
     )
@@ -80,13 +85,20 @@ def create_export_job(db, *, principal, request, authorization, data_access, pay
 
 def clear_export_job_artifact(db, job):
     db.execute(delete(ExportJobChunk).where(ExportJobChunk.job_id == job.id))
-    job.reserved_bytes = 0
+    job.reserved_bytes = _metadata_reservation(job.request_encrypted, job.authorization_encrypted)
     job.source_encrypted = None
     job.filename = None
     job.media_type = None
     job.file_size = None
     job.item_count = None
     job.completed_items = 0
+
+
+def _metadata_reservation(request_encrypted, authorization_encrypted):
+    return 16_384 + sum(
+        len(json.dumps(value, separators=(",", ":")).encode("utf-8"))
+        for value in (request_encrypted, authorization_encrypted)
+    )
 
 
 def terminal_export_job(db, job, status, error_code=None):

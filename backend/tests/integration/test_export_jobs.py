@@ -215,7 +215,7 @@ def test_storage_admission_expiry_and_deleted_owner_cleanup(export_env, monkeypa
         db.commit()
         maintain_export_jobs(db)
         db.commit()
-        assert db.get(ExportJob, job_id).reserved_bytes == 0
+        assert 0 < db.get(ExportJob, job_id).reserved_bytes < 100_000
         assert db.scalar(select(func.count()).select_from(ExportJobChunk)) == 0
     assert env.client.get(f"/exports/jobs/{job_id}/download", headers=env.headers).status_code == 410
     second, _ = _accept(env)

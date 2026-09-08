@@ -24,7 +24,7 @@ class ExportJob(Base):
     principal_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
     idempotency_key: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
     request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
-    request_encrypted: Mapped[dict] = mapped_column(JSON, nullable=False)
+    request_encrypted: Mapped[dict] = mapped_column(JSON, nullable=False, deferred=True)
     authorization_encrypted: Mapped[dict] = mapped_column(JSON, nullable=False)
     format: Mapped[str] = mapped_column(String(24), nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="queued")
@@ -43,7 +43,7 @@ class ExportJob(Base):
     file_size: Mapped[int | None] = mapped_column(BigInteger)
     filename: Mapped[str | None] = mapped_column(String(255))
     media_type: Mapped[str | None] = mapped_column(String(120))
-    source_encrypted: Mapped[dict | None] = mapped_column(JSON)
+    source_encrypted: Mapped[dict | None] = mapped_column(JSON, deferred=True)
     error_code: Mapped[str | None] = mapped_column(String(64))
 
 
