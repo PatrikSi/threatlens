@@ -56,6 +56,10 @@ export interface TaggingRulePreviewItem {
 export interface TaggingRulePreviewResponse {
   total: number
   items: TaggingRulePreviewItem[]
+  scanned_items?: number
+  candidate_items?: number
+  complete?: boolean
+  warnings?: string[]
 }
 
 export interface TaggingReapplyResponse {

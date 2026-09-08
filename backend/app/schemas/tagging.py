@@ -142,6 +142,10 @@ class TaggingRulePreviewItem(BaseModel):
 class TaggingRulePreviewResponse(BaseModel):
     total: int
     items: list[TaggingRulePreviewItem]
+    scanned_items: int = 0
+    candidate_items: int = 0
+    complete: bool = True
+    warnings: list[str] = Field(default_factory=list)
 
 
 class TaggingRulePreviewRequest(TaggingRuleWrite):
