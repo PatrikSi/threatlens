@@ -1,4 +1,6 @@
 from __future__ import annotations
+from app.services import extraction as _owner_extraction
+from app.tasks import feed_task_runtime as _owner_feed_task_runtime
 
 import uuid
 from contextlib import contextmanager
@@ -42,8 +44,8 @@ def _runtime(monkeypatch, db):
     monkeypatch.setattr(feed_tasks, "db_session", session)
     monkeypatch.setattr(item_processing_tasks, "_sync_classification_tags", lambda *_a, **_kw: None)
     monkeypatch.setattr(item_processing_tasks, "_complete_classification", lambda *_a, **_kw: {"status": "ok"})
-    monkeypatch.setattr(feed_tasks, "extract_canonical_url", lambda _html: None)
-    monkeypatch.setattr(feed_tasks, "extract_readable_text", lambda _html: {
+    monkeypatch.setattr(_owner_extraction, 'extract_canonical_url', lambda _html: None)
+    monkeypatch.setattr(_owner_extraction, 'extract_readable_text', lambda _html: {
         "text": "Refreshed article", "title": "Refreshed", "method": "readable",
         "word_count": 2, "error": None,
     })
@@ -62,7 +64,7 @@ def test_saved_article_and_failed_broker_publish_repair_stale_classification(db_
     _feed, item, article, _parsed = _source(db_session)
     session = _runtime(monkeypatch, db_session)
     item_id = str(item.id)
-    item_processing_tasks.run_classify_item(item_id, runtime=feed_tasks)
+    item_processing_tasks.run_classify_item(item_id, dependencies=feed_tasks._item_processing_dependencies())
     original_hash = db_session.get(ItemClassification, item.id).source_hash
     assert item.classification_completed_version == item.classification_required_version
     monkeypatch.setattr(article_fetch_tasks, "_fetch_candidates", lambda *_a, **_kw:
@@ -74,7 +76,7 @@ def test_saved_article_and_failed_broker_publish_repair_stale_classification(db_
         raise RuntimeError("broker unavailable")
 
     monkeypatch.setattr(feed_tasks.classify_item, "delay", broker_down)
-    result = article_fetch_tasks.run_fetch_article(None, item_id, force=True, runtime=feed_tasks)
+    result = article_fetch_tasks.run_fetch_article(None, item_id, force=True, dependencies=feed_tasks._article_fetch_dependencies())
     db_session.refresh(item)
     db_session.refresh(article)
     assert result == {"status": "ok", "item_id": item_id}
@@ -86,7 +88,7 @@ def test_saved_article_and_failed_broker_publish_repair_stale_classification(db_
     queued = []
     assert _repair(session, lambda value: queued.append(value) or True) == {"queued": 1}
     assert queued == [item_id]
-    item_processing_tasks.run_classify_item(item_id, runtime=feed_tasks)
+    item_processing_tasks.run_classify_item(item_id, dependencies=feed_tasks._item_processing_dependencies())
     assert db_session.get(ItemClassification, item.id).source_hash == compute_classification_source_hash(
         title=item.title, summary=item.summary, article_text=article.text,
     )
@@ -97,7 +99,7 @@ def test_saved_article_and_failed_broker_publish_repair_stale_classification(db_
 def test_feed_source_changes_and_missing_rows_are_repaired_with_bounded_deduplication(db_session, monkeypatch):
     feed, item, _article, parsed = _source(db_session)
     session = _runtime(monkeypatch, db_session)
-    item_processing_tasks.run_classify_item(str(item.id), runtime=feed_tasks)
+    item_processing_tasks.run_classify_item(str(item.id), dependencies=feed_tasks._item_processing_dependencies())
     parsed.summary = "Changed RSS summary"
     upsert_item_from_parsed(db_session, feed, parsed)
     db_session.commit()
@@ -116,9 +118,9 @@ def test_feed_source_changes_and_missing_rows_are_repaired_with_bounded_deduplic
 def test_skipped_classifier_does_not_acknowledge_pending_source(db_session, monkeypatch):
     _feed, item, _article, _ = _source(db_session)
     session = _runtime(monkeypatch, db_session)
-    monkeypatch.setattr(feed_tasks, "_claim_item_article_processing_target", lambda *_a, **_kw:
+    monkeypatch.setattr(_owner_feed_task_runtime, 'claim_item_processing_target', lambda *_a, **_kw:
                         (None, "concurrent_fetch_in_progress"))
-    result = item_processing_tasks.run_classify_item(str(item.id), runtime=feed_tasks)
+    result = item_processing_tasks.run_classify_item(str(item.id), dependencies=feed_tasks._item_processing_dependencies())
     assert result["reason"] == "concurrent_fetch_in_progress"
     queued = []
     assert _repair(session, lambda value: queued.append(value) or True) == {"queued": 1}
@@ -151,7 +153,7 @@ def test_article_and_classification_requirement_rollback_together(db_session, mo
             article_fetch_tasks._store_article_success(
                 db_session, item,
                 article_fetch_tasks.ArticleFetchResult(item.url, 200, "text/html", body=b"html"),
-                1, runtime=feed_tasks,
+                1, dependencies=feed_tasks._article_fetch_dependencies(),
             )
     db_session.rollback()
     db_session.refresh(item)

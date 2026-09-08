@@ -437,7 +437,7 @@ def test_generate_item_ai_enrichment_task_claims_api_started_run_and_skips_dupli
         called.append(item_id)
         return ready_result
 
-    monkeypatch.setattr("app.tasks.feed_tasks.run_item_ai_enrichment", _run_item_ai_enrichment)
+    monkeypatch.setattr('app.services.ai_integration.run_item_ai_enrichment', _run_item_ai_enrichment)
 
     first = generate_item_ai_enrichment_task.apply(
         args=(str(item_id),),
@@ -470,7 +470,7 @@ def test_generate_item_ai_enrichment_task_claims_api_started_run_and_skips_dupli
     db_session.commit()
 
     monkeypatch.setattr(
-        "app.tasks.feed_tasks.run_item_ai_enrichment",
+        'app.services.ai_integration.run_item_ai_enrichment',
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("duplicate redelivery should not execute the body")),
     )
 
@@ -529,11 +529,11 @@ def test_generate_item_ai_enrichment_task_skips_when_item_claim_reports_another_
 
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
     monkeypatch.setattr(
-        "app.tasks.feed_tasks.run_item_ai_enrichment",
+        'app.services.ai_integration.run_item_ai_enrichment',
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("the provider body should not run while the item is locked")),
     )
     monkeypatch.setattr(
-        "app.tasks.feed_tasks._claim_item_ai_enrichment_target",
+        'app.tasks.feed_task_runtime.claim_item_processing_target',
         lambda _db, *, item_id: (None, "already_running"),
     )
 
@@ -701,9 +701,9 @@ def test_reapply_recent_item_tags_skips_when_reapply_lock_is_busy(db_session, mo
         yield False
 
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.tagging_reapply_lock", _tagging_lock_override)
+    monkeypatch.setattr('app.tasks.feed_task_coordination.tagging_reapply_lock', _tagging_lock_override)
     monkeypatch.setattr(
-        "app.tasks.feed_tasks.classify_item_content",
+        'app.services.classification.classify_item_content',
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("busy lock should skip execution")),
     )
 
@@ -734,9 +734,9 @@ def test_fetch_feed_skips_when_feed_is_no_longer_due(db_session, monkeypatch):
         yield True
 
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.feed_lock", _feed_lock_override)
+    monkeypatch.setattr('app.tasks.feed_task_coordination.feed_lock', _feed_lock_override)
     monkeypatch.setattr(
-        "app.tasks.feed_tasks.safe_stream_with_redirects",
+        'app.services.safe_fetch.safe_stream_with_redirects',
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("network fetch should not run for non-due feeds")),
     )
 
@@ -789,9 +789,9 @@ def test_fetch_feed_force_bypasses_due_check(db_session, monkeypatch):
             return False
 
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.feed_lock", _feed_lock_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.build_safe_http_client", lambda *args, **kwargs: _Client())
-    monkeypatch.setattr("app.tasks.feed_tasks.safe_stream_with_redirects", lambda *_args, **_kwargs: _Response())
+    monkeypatch.setattr('app.tasks.feed_task_coordination.feed_lock', _feed_lock_override)
+    monkeypatch.setattr('app.services.safe_fetch.build_safe_http_client', lambda *args, **kwargs: _Client())
+    monkeypatch.setattr('app.services.safe_fetch.safe_stream_with_redirects', lambda *_args, **_kwargs: _Response())
 
     result = fetch_feed.run(str(feed.id), force=True)
 
@@ -841,9 +841,9 @@ def test_fetch_feed_retry_bypasses_dispatch_claim_backoff(db_session, monkeypatc
             return False
 
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.feed_lock", _feed_lock_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.build_safe_http_client", lambda *args, **kwargs: _Client())
-    monkeypatch.setattr("app.tasks.feed_tasks.safe_stream_with_redirects", lambda *_args, **_kwargs: _Response())
+    monkeypatch.setattr('app.tasks.feed_task_coordination.feed_lock', _feed_lock_override)
+    monkeypatch.setattr('app.services.safe_fetch.build_safe_http_client', lambda *args, **kwargs: _Client())
+    monkeypatch.setattr('app.services.safe_fetch.safe_stream_with_redirects', lambda *_args, **_kwargs: _Response())
     monkeypatch.setattr(fetch_feed.request, "retries", 1, raising=False)
 
     result = fetch_feed.run(str(feed.id))
@@ -897,9 +897,9 @@ def test_fetch_feed_runs_when_dispatch_claim_is_active(db_session, monkeypatch):
             return False
 
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.feed_lock", _feed_lock_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.build_safe_http_client", lambda *args, **kwargs: _Client())
-    monkeypatch.setattr("app.tasks.feed_tasks.safe_stream_with_redirects", lambda *_args, **_kwargs: _Response())
+    monkeypatch.setattr('app.tasks.feed_task_coordination.feed_lock', _feed_lock_override)
+    monkeypatch.setattr('app.services.safe_fetch.build_safe_http_client', lambda *args, **kwargs: _Client())
+    monkeypatch.setattr('app.services.safe_fetch.safe_stream_with_redirects', lambda *_args, **_kwargs: _Response())
 
     result = fetch_feed.run(str(feed.id))
 
@@ -957,9 +957,9 @@ def test_fetch_feed_uses_decrypted_url_for_authenticated_feeds(db_session, monke
         return _Response()
 
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.feed_lock", _feed_lock_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.build_safe_http_client", lambda *args, **kwargs: _Client())
-    monkeypatch.setattr("app.tasks.feed_tasks.safe_stream_with_redirects", _safe_stream_with_redirects)
+    monkeypatch.setattr('app.tasks.feed_task_coordination.feed_lock', _feed_lock_override)
+    monkeypatch.setattr('app.services.safe_fetch.build_safe_http_client', lambda *args, **kwargs: _Client())
+    monkeypatch.setattr('app.services.safe_fetch.safe_stream_with_redirects', _safe_stream_with_redirects)
 
     result = fetch_feed.run(str(feed.id), force=True)
 
@@ -1011,12 +1011,12 @@ def test_fetch_feed_skips_stale_response_when_feed_url_changes_mid_fetch(db_sess
         return False
 
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.feed_lock", _feed_lock_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.build_safe_http_client", lambda *args, **kwargs: _Client())
-    monkeypatch.setattr("app.tasks.feed_tasks.safe_stream_with_redirects", lambda *_args, **_kwargs: _Response())
-    monkeypatch.setattr("app.tasks.feed_tasks._feed_url_digest_still_current", _stale_digest_check)
+    monkeypatch.setattr('app.tasks.feed_task_coordination.feed_lock', _feed_lock_override)
+    monkeypatch.setattr('app.services.safe_fetch.build_safe_http_client', lambda *args, **kwargs: _Client())
+    monkeypatch.setattr('app.services.safe_fetch.safe_stream_with_redirects', lambda *_args, **_kwargs: _Response())
+    monkeypatch.setattr('app.tasks.feed_task_runtime.feed_url_digest_still_current', _stale_digest_check)
     monkeypatch.setattr(
-        "app.tasks.feed_tasks.RSSConnector.poll",
+        "app.services.connectors.rss.RSSConnector.poll",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("stale feed response should not be parsed")),
     )
 
@@ -1156,7 +1156,7 @@ def test_fetch_feed_rejects_invalid_feed_ids(db_session, monkeypatch):
         yield True
 
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.feed_lock", _feed_lock_override)
+    monkeypatch.setattr('app.tasks.feed_task_coordination.feed_lock', _feed_lock_override)
 
     result = fetch_feed.run("not-a-uuid")
 
@@ -1203,9 +1203,9 @@ def test_fetch_feed_marks_non_feed_http_200_response_as_failure(db_session, monk
             return False
 
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.feed_lock", _feed_lock_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.build_safe_http_client", lambda *args, **kwargs: _Client())
-    monkeypatch.setattr("app.tasks.feed_tasks.safe_stream_with_redirects", lambda *_args, **_kwargs: _Response())
+    monkeypatch.setattr('app.tasks.feed_task_coordination.feed_lock', _feed_lock_override)
+    monkeypatch.setattr('app.services.safe_fetch.build_safe_http_client', lambda *args, **kwargs: _Client())
+    monkeypatch.setattr('app.services.safe_fetch.safe_stream_with_redirects', lambda *_args, **_kwargs: _Response())
 
     result = fetch_feed.run(str(feed.id), force=True)
 
@@ -1302,12 +1302,12 @@ def test_fetch_feed_persists_new_item_event_when_enqueue_fails(db_session, monke
         return item, True, True
 
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.feed_lock", _feed_lock_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.build_safe_http_client", lambda *args, **kwargs: _Client())
-    monkeypatch.setattr("app.tasks.feed_tasks.safe_stream_with_redirects", lambda *_args, **_kwargs: _Response())
-    monkeypatch.setattr("app.tasks.feed_tasks.RSSConnector.poll", lambda *_args, **_kwargs: ([{"id": "1"}], None))
-    monkeypatch.setattr("app.tasks.feed_tasks._backfill_feed_metadata_from_body", lambda *_args, **_kwargs: False)
-    monkeypatch.setattr("app.tasks.feed_tasks._upsert_item_from_parsed", _upsert_item)
+    monkeypatch.setattr('app.tasks.feed_task_coordination.feed_lock', _feed_lock_override)
+    monkeypatch.setattr('app.services.safe_fetch.build_safe_http_client', lambda *args, **kwargs: _Client())
+    monkeypatch.setattr('app.services.safe_fetch.safe_stream_with_redirects', lambda *_args, **_kwargs: _Response())
+    monkeypatch.setattr("app.services.connectors.rss.RSSConnector.poll", lambda *_args, **_kwargs: ([{"id": "1"}], None))
+    monkeypatch.setattr('app.services.feed_metadata.backfill_feed_metadata_from_body', lambda *_args, **_kwargs: False)
+    monkeypatch.setattr('app.services.feed_pipeline.upsert_item_from_parsed', _upsert_item)
     monkeypatch.setattr("app.tasks.feed_tasks.fetch_article.delay", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         "app.tasks.feed_tasks.route_integration_event.delay",
@@ -1469,12 +1469,12 @@ def test_fetch_feed_reports_article_enqueue_failure_without_rolling_back_items(d
         return item, True, True
 
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.feed_lock", _feed_lock_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.build_safe_http_client", lambda *args, **kwargs: _Client())
-    monkeypatch.setattr("app.tasks.feed_tasks.safe_stream_with_redirects", lambda *_args, **_kwargs: _Response())
-    monkeypatch.setattr("app.tasks.feed_tasks.RSSConnector.poll", lambda *_args, **_kwargs: ([{"id": "1"}], None))
-    monkeypatch.setattr("app.tasks.feed_tasks._backfill_feed_metadata_from_body", lambda *_args, **_kwargs: False)
-    monkeypatch.setattr("app.tasks.feed_tasks._upsert_item_from_parsed", _upsert_item)
+    monkeypatch.setattr('app.tasks.feed_task_coordination.feed_lock', _feed_lock_override)
+    monkeypatch.setattr('app.services.safe_fetch.build_safe_http_client', lambda *args, **kwargs: _Client())
+    monkeypatch.setattr('app.services.safe_fetch.safe_stream_with_redirects', lambda *_args, **_kwargs: _Response())
+    monkeypatch.setattr("app.services.connectors.rss.RSSConnector.poll", lambda *_args, **_kwargs: ([{"id": "1"}], None))
+    monkeypatch.setattr('app.services.feed_metadata.backfill_feed_metadata_from_body', lambda *_args, **_kwargs: False)
+    monkeypatch.setattr('app.services.feed_pipeline.upsert_item_from_parsed', _upsert_item)
     monkeypatch.setattr(
         "app.tasks.feed_tasks.fetch_article.delay",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("broker down")),
@@ -1564,12 +1564,12 @@ def test_dispatch_items_missing_articles_recovers_updated_items_with_existing_ar
         return item, True, False
 
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.feed_lock", _feed_lock_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.build_safe_http_client", lambda *args, **kwargs: _Client())
-    monkeypatch.setattr("app.tasks.feed_tasks.safe_stream_with_redirects", lambda *_args, **_kwargs: _Response())
-    monkeypatch.setattr("app.tasks.feed_tasks.RSSConnector.poll", lambda *_args, **_kwargs: ([{"id": "updated"}], None))
-    monkeypatch.setattr("app.tasks.feed_tasks._backfill_feed_metadata_from_body", lambda *_args, **_kwargs: False)
-    monkeypatch.setattr("app.tasks.feed_tasks._upsert_item_from_parsed", _upsert_updated_item)
+    monkeypatch.setattr('app.tasks.feed_task_coordination.feed_lock', _feed_lock_override)
+    monkeypatch.setattr('app.services.safe_fetch.build_safe_http_client', lambda *args, **kwargs: _Client())
+    monkeypatch.setattr('app.services.safe_fetch.safe_stream_with_redirects', lambda *_args, **_kwargs: _Response())
+    monkeypatch.setattr("app.services.connectors.rss.RSSConnector.poll", lambda *_args, **_kwargs: ([{"id": "updated"}], None))
+    monkeypatch.setattr('app.services.feed_metadata.backfill_feed_metadata_from_body', lambda *_args, **_kwargs: False)
+    monkeypatch.setattr('app.services.feed_pipeline.upsert_item_from_parsed', _upsert_updated_item)
     monkeypatch.setattr(
         "app.tasks.feed_tasks.fetch_article.delay",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("broker down")),
@@ -1612,7 +1612,7 @@ def test_backfill_feed_metadata_rejects_invalid_feed_ids(db_session, monkeypatch
         yield True
 
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.feed_lock", _feed_lock_override)
+    monkeypatch.setattr('app.tasks.feed_task_coordination.feed_lock', _feed_lock_override)
 
     result = backfill_feed_metadata.run("not-a-uuid")
 
@@ -1641,7 +1641,7 @@ def test_backfill_feed_metadata_marks_feeds_with_unreadable_urls(db_session, mon
         yield True
 
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.feed_lock", _feed_lock_override)
+    monkeypatch.setattr('app.tasks.feed_task_coordination.feed_lock', _feed_lock_override)
     monkeypatch.setattr("app.tasks.feed_tasks.enqueue_notification_webhook_delivery_processing", lambda _delivery_ids: True)
 
     result = backfill_feed_metadata.run(str(feed.id))
@@ -1675,7 +1675,7 @@ def test_fetch_feed_marks_feeds_with_unreadable_urls(db_session, monkeypatch):
         yield True
 
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.feed_lock", _feed_lock_override)
+    monkeypatch.setattr('app.tasks.feed_task_coordination.feed_lock', _feed_lock_override)
     monkeypatch.setattr("app.tasks.feed_tasks.enqueue_notification_webhook_delivery_processing", lambda _delivery_ids: True)
 
     result = fetch_feed.run(str(feed.id))
@@ -2696,13 +2696,13 @@ def test_fetch_article_recovers_existing_article_after_soft_failure(db_session, 
     queued: list[str] = []
 
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.domain_slot", _domain_slot_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.build_safe_http_client", lambda *args, **kwargs: _Client())
-    monkeypatch.setattr("app.tasks.feed_tasks.safe_stream_with_redirects", lambda *_args, **_kwargs: _Response())
+    monkeypatch.setattr('app.tasks.feed_task_coordination.domain_slot', _domain_slot_override)
+    monkeypatch.setattr('app.services.safe_fetch.build_safe_http_client', lambda *args, **kwargs: _Client())
+    monkeypatch.setattr('app.services.safe_fetch.safe_stream_with_redirects', lambda *_args, **_kwargs: _Response())
     monkeypatch.setattr("app.tasks.feed_tasks.classify_item.delay", lambda queued_item_id: queued.append(queued_item_id))
-    monkeypatch.setattr("app.tasks.feed_tasks.extract_canonical_url", lambda _html: None)
+    monkeypatch.setattr('app.services.extraction.extract_canonical_url', lambda _html: None)
     monkeypatch.setattr(
-        "app.tasks.feed_tasks.extract_readable_text",
+        'app.services.extraction.extract_readable_text',
         lambda _html: {
             "title": "Recovered item",
             "text": "Recovered readable text.",
@@ -2793,13 +2793,13 @@ def test_fetch_article_uses_rss_summary_when_article_fetch_is_blocked_and_manual
     queued: list[str] = []
 
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.domain_slot", _domain_slot_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.build_safe_http_client", lambda *args, **kwargs: _Client())
-    monkeypatch.setattr("app.tasks.feed_tasks.safe_stream_with_redirects", lambda *_args, **_kwargs: responses.pop(0))
+    monkeypatch.setattr('app.tasks.feed_task_coordination.domain_slot', _domain_slot_override)
+    monkeypatch.setattr('app.services.safe_fetch.build_safe_http_client', lambda *args, **kwargs: _Client())
+    monkeypatch.setattr('app.services.safe_fetch.safe_stream_with_redirects', lambda *_args, **_kwargs: responses.pop(0))
     monkeypatch.setattr("app.tasks.feed_tasks.classify_item.delay", lambda queued_item_id: queued.append(queued_item_id))
-    monkeypatch.setattr("app.tasks.feed_tasks.extract_canonical_url", lambda _html: None)
+    monkeypatch.setattr('app.services.extraction.extract_canonical_url', lambda _html: None)
     monkeypatch.setattr(
-        "app.tasks.feed_tasks.extract_readable_text",
+        'app.services.extraction.extract_readable_text',
         lambda _html: {
             "title": "Recovered article",
             "text": "Full recovered article text.",
@@ -2954,13 +2954,13 @@ def test_fetch_article_falls_back_to_original_url_when_canonical_fetch_fails(db_
         return _Response(url)
 
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.domain_slot", _domain_slot_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.build_safe_http_client", lambda *args, **kwargs: _Client())
-    monkeypatch.setattr("app.tasks.feed_tasks.safe_stream_with_redirects", _safe_stream)
+    monkeypatch.setattr('app.tasks.feed_task_coordination.domain_slot', _domain_slot_override)
+    monkeypatch.setattr('app.services.safe_fetch.build_safe_http_client', lambda *args, **kwargs: _Client())
+    monkeypatch.setattr('app.services.safe_fetch.safe_stream_with_redirects', _safe_stream)
     monkeypatch.setattr("app.tasks.feed_tasks.classify_item.delay", lambda queued_item_id: queued.append(queued_item_id))
-    monkeypatch.setattr("app.tasks.feed_tasks.extract_canonical_url", lambda _html: None)
+    monkeypatch.setattr('app.services.extraction.extract_canonical_url', lambda _html: None)
     monkeypatch.setattr(
-        "app.tasks.feed_tasks.extract_readable_text",
+        'app.services.extraction.extract_readable_text',
         lambda _html: {
             "title": "Recovered article",
             "text": "Readable text.",
@@ -3034,16 +3034,16 @@ def test_fetch_article_keeps_committed_article_state_when_classification_enqueue
             return False
 
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.domain_slot", _domain_slot_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.build_safe_http_client", lambda *args, **kwargs: _Client())
-    monkeypatch.setattr("app.tasks.feed_tasks.safe_stream_with_redirects", lambda *_args, **_kwargs: _Response())
+    monkeypatch.setattr('app.tasks.feed_task_coordination.domain_slot', _domain_slot_override)
+    monkeypatch.setattr('app.services.safe_fetch.build_safe_http_client', lambda *args, **kwargs: _Client())
+    monkeypatch.setattr('app.services.safe_fetch.safe_stream_with_redirects', lambda *_args, **_kwargs: _Response())
     def _raise_enqueue_failure(*_args, **_kwargs):
         raise RuntimeError("broker down")
 
     monkeypatch.setattr("app.tasks.feed_tasks.classify_item.delay", _raise_enqueue_failure)
-    monkeypatch.setattr("app.tasks.feed_tasks.extract_canonical_url", lambda _html: None)
+    monkeypatch.setattr('app.services.extraction.extract_canonical_url', lambda _html: None)
     monkeypatch.setattr(
-        "app.tasks.feed_tasks.extract_readable_text",
+        'app.services.extraction.extract_readable_text',
         lambda _html: {
             "title": "Recovered article",
             "text": "Recovered readable text.",
@@ -3163,7 +3163,7 @@ def test_classify_item_queues_ai_enrichment_when_enabled(db_session, monkeypatch
 
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
     monkeypatch.setattr(
-        "app.tasks.feed_tasks.load_active_ai_settings",
+        'app.services.ai_config.load_active_ai_settings',
         lambda _db: type(
             "ActiveAISettings",
             (),
@@ -3231,7 +3231,7 @@ def test_classify_item_skips_ai_enrichment_for_old_feed_backlog(db_session, monk
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
     monkeypatch.setattr("app.tasks.feed_tasks.settings.ai_auto_enrich_new_item_max_age_hours", 24)
     monkeypatch.setattr(
-        "app.tasks.feed_tasks.load_active_ai_settings",
+        'app.services.ai_config.load_active_ai_settings',
         lambda _db: SimpleNamespace(
             ai_enabled=True,
             ai_configured=True,
@@ -3302,7 +3302,7 @@ def test_classify_item_skips_stale_article_after_refetch(db_session, monkeypatch
 
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
     monkeypatch.setattr(
-        "app.tasks.feed_tasks.load_active_ai_settings",
+        'app.services.ai_config.load_active_ai_settings',
         lambda _db: SimpleNamespace(
             ai_enabled=True,
             ai_configured=True,
@@ -3310,7 +3310,7 @@ def test_classify_item_skips_stale_article_after_refetch(db_session, monkeypatch
             model="local-threat-model",
         ),
     )
-    monkeypatch.setattr("app.tasks.feed_tasks.sync_item_algorithm_tags", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr('app.services.algorithm_tags.sync_item_algorithm_tags', lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         "app.tasks.feed_tasks.extract_item_iocs.delay",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("stale classification should not enqueue IOC extraction")),
@@ -3337,7 +3337,7 @@ def test_classify_item_skips_stale_article_after_refetch(db_session, monkeypatch
             rules_version="v2",
         )
 
-    monkeypatch.setattr("app.tasks.feed_tasks.classify_item_content", _classify_item_content)
+    monkeypatch.setattr('app.services.classification.classify_item_content', _classify_item_content)
 
     result = classify_item.run(str(item.id))
 
@@ -3356,11 +3356,11 @@ def test_classify_item_skips_when_item_lock_is_unavailable(monkeypatch: pytest.M
 
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
     monkeypatch.setattr(
-        "app.tasks.feed_tasks._claim_item_article_processing_target",
+        'app.tasks.feed_task_runtime.claim_item_processing_target',
         lambda _db, *, item_id: (None, "already_running"),
     )
     monkeypatch.setattr(
-        "app.tasks.feed_tasks.classify_item_content",
+        'app.services.classification.classify_item_content',
         lambda **_kwargs: (_ for _ in ()).throw(AssertionError("locked items should not be classified")),
     )
 
@@ -3410,7 +3410,7 @@ def test_classify_item_continues_when_ioc_enqueue_fails(db_session, monkeypatch)
 
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
     monkeypatch.setattr(
-        "app.tasks.feed_tasks.load_active_ai_settings",
+        'app.services.ai_config.load_active_ai_settings',
         lambda _db: type(
             "ActiveAISettings",
             (),
@@ -3481,7 +3481,7 @@ def test_classify_item_continues_when_ai_enqueue_fails(db_session, monkeypatch):
 
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
     monkeypatch.setattr(
-        "app.tasks.feed_tasks.load_active_ai_settings",
+        'app.services.ai_config.load_active_ai_settings',
         lambda _db: type(
             "ActiveAISettings",
             (),
@@ -3584,7 +3584,7 @@ def test_classify_item_persists_alert_evaluation_intent_when_enqueue_fails(db_se
 
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
     monkeypatch.setattr(
-        "app.tasks.feed_tasks.load_active_ai_settings",
+        'app.services.ai_config.load_active_ai_settings',
         lambda _db: type(
             "InactiveAISettings",
             (),
@@ -3596,7 +3596,7 @@ def test_classify_item_persists_alert_evaluation_intent_when_enqueue_fails(db_se
         )(),
     )
     monkeypatch.setattr("app.tasks.feed_tasks.extract_item_iocs.delay", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr("app.tasks.feed_tasks.enqueue_alert_evaluation_requests", lambda _ids: False)
+    monkeypatch.setattr('app.tasks.alert_tasks.enqueue_alert_evaluation_requests', lambda _ids: False)
 
     result = classify_item.run(str(item.id))
 
@@ -4560,7 +4560,7 @@ def test_generate_item_ai_enrichment_task_marks_unexpected_failures_on_task_runs
 
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
     monkeypatch.setattr(
-        "app.tasks.feed_tasks.run_item_ai_enrichment",
+        'app.services.ai_integration.run_item_ai_enrichment',
         lambda db, *, item_id, force=False, task_run_id=None: (_ for _ in ()).throw(RuntimeError("boom")),
     )
 
@@ -4631,7 +4631,7 @@ def test_generate_item_ai_enrichment_task_finishes_canceled_runs_before_work(db_
 
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
     monkeypatch.setattr(
-        "app.tasks.feed_tasks.run_item_ai_enrichment",
+        'app.services.ai_integration.run_item_ai_enrichment',
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("task should not continue after cancellation")),
     )
 
@@ -4688,7 +4688,7 @@ def test_generate_item_ai_enrichment_task_skips_already_terminal_runs_before_wor
 
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
     monkeypatch.setattr(
-        "app.tasks.feed_tasks.run_item_ai_enrichment",
+        'app.services.ai_integration.run_item_ai_enrichment',
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("task should not continue after terminalization")),
     )
 
@@ -5573,7 +5573,7 @@ def test_extract_item_iocs_skips_stale_article_after_refetch(db_session, monkeyp
 
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
     monkeypatch.setattr(
-        "app.tasks.feed_tasks.sync_item_algorithm_tags",
+        'app.services.algorithm_tags.sync_item_algorithm_tags',
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("stale IOC extraction should not retag items")),
     )
 
@@ -5594,7 +5594,7 @@ def test_extract_item_iocs_skips_stale_article_after_refetch(db_session, monkeyp
             )
         ]
 
-    monkeypatch.setattr("app.tasks.feed_tasks.extract_iocs", _extract_iocs)
+    monkeypatch.setattr('app.services.ioc_extraction.extract_iocs', _extract_iocs)
 
     result = extract_item_iocs.run(str(item.id))
 
@@ -5617,11 +5617,11 @@ def test_extract_item_iocs_skips_when_item_lock_is_unavailable(monkeypatch: pyte
 
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
     monkeypatch.setattr(
-        "app.tasks.feed_tasks._claim_item_article_processing_target",
+        'app.tasks.feed_task_runtime.claim_item_processing_target',
         lambda _db, *, item_id: (None, "already_running"),
     )
     monkeypatch.setattr(
-        "app.tasks.feed_tasks.extract_iocs",
+        'app.services.ioc_extraction.extract_iocs',
         lambda **_kwargs: (_ for _ in ()).throw(AssertionError("locked items should not run IOC extraction")),
     )
 
@@ -5688,8 +5688,8 @@ def test_extract_item_iocs_marks_empty_results_terminal_for_dispatch(db_session,
         yield db_session
 
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.extract_iocs", lambda **_kwargs: [])
-    monkeypatch.setattr("app.tasks.feed_tasks.sync_item_algorithm_tags", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr('app.services.ioc_extraction.extract_iocs', lambda **_kwargs: [])
+    monkeypatch.setattr('app.services.algorithm_tags.sync_item_algorithm_tags', lambda *_args, **_kwargs: None)
 
     result = extract_item_iocs.run(str(completed_empty_item.id))
 

@@ -324,26 +324,26 @@ def test_fetch_task_rolls_back_items_and_events_when_fence_is_lost(
 
     enqueued: list[str] = []
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", db_session_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.feed_lock", feed_lock_override)
+    monkeypatch.setattr('app.tasks.feed_task_coordination.feed_lock', feed_lock_override)
     monkeypatch.setattr(
-        "app.tasks.feed_tasks.build_safe_http_client",
+        'app.services.safe_fetch.build_safe_http_client',
         lambda *args, **kwargs: Client(),
     )
     monkeypatch.setattr(
-        "app.tasks.feed_tasks.safe_stream_with_redirects",
+        'app.services.safe_fetch.safe_stream_with_redirects',
         lambda *_args, **_kwargs: Response(),
     )
     monkeypatch.setattr(
-        "app.tasks.feed_tasks.RSSConnector.poll",
+        "app.services.connectors.rss.RSSConnector.poll",
         lambda *_args, **_kwargs: ([{"id": "superseded-item"}], None),
     )
     monkeypatch.setattr(
-        "app.tasks.feed_tasks._backfill_feed_metadata_from_body",
+        'app.services.feed_metadata.backfill_feed_metadata_from_body',
         lambda *_args, **_kwargs: False,
     )
-    monkeypatch.setattr("app.tasks.feed_tasks._upsert_item_from_parsed", upsert_item)
+    monkeypatch.setattr('app.services.feed_pipeline.upsert_item_from_parsed', upsert_item)
     monkeypatch.setattr(
-        "app.tasks.feed_tasks.ensure_feed_fetch_owned",
+        'app.services.feed_fetch_ownership.ensure_feed_fetch_owned',
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             FeedFetchOwnershipLostError("a newer worker owns this feed fetch")
         ),

@@ -3,11 +3,9 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.article import Article
-from app.models.ioc import IOC
 from app.models.item import Item
 from app.services.classification_recovery import require_item_classification
 from app.services.extraction import extract_plain_text
@@ -21,39 +19,6 @@ RSS_SUMMARY_FALLBACK_EXACT_ERRORS = {
     "response_too_large",
 }
 RSS_SUMMARY_FALLBACK_PREFIXES = ("readability_error:",)
-
-
-def get_or_create_ioc(
-    db: Session,
-    *,
-    ioc_type: str,
-    ioc_value_norm: str,
-    ioc_value_raw: str,
-    now: datetime,
-) -> IOC:
-    ioc = db.scalar(select(IOC).where(IOC.type == ioc_type, IOC.value_norm == ioc_value_norm))
-    if ioc is None:
-        candidate = IOC(
-            type=ioc_type,
-            value_raw=ioc_value_raw,
-            value_norm=ioc_value_norm,
-            first_seen_at=now,
-            last_seen_at=now,
-        )
-        try:
-            with db.begin_nested():
-                db.add(candidate)
-                db.flush()
-            return candidate
-        except IntegrityError:
-            ioc = db.scalar(select(IOC).where(IOC.type == ioc_type, IOC.value_norm == ioc_value_norm))
-            if ioc is None:
-                raise
-
-    ioc.last_seen_at = now
-    db.add(ioc)
-    db.flush()
-    return ioc
 
 
 def store_article_error(

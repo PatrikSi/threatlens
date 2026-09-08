@@ -7,6 +7,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.models.ai_task_run import AITaskRun
 from app.models.article import Article
 from app.models.feed import Feed
 from app.models.item import Item
@@ -46,9 +47,15 @@ def safe_article_fetch_error_code(exc: BaseException) -> str:
     return "network_or_rate_limit_error"
 
 
-def claim_item_processing_target(db: Session, *, item_id: uuid.UUID) -> tuple[Item | None, str | None]:
-    item = db.scalar(select(Item).where(Item.id == item_id).with_for_update(skip_locked=True)
-                     .execution_options(populate_existing=True))
+def claim_item_processing_target(
+    db: Session, *, item_id: uuid.UUID
+) -> tuple[Item | None, str | None]:
+    item = db.scalar(
+        select(Item)
+        .where(Item.id == item_id)
+        .with_for_update(skip_locked=True)
+        .execution_options(populate_existing=True)
+    )
     if item is not None:
         return item, None
 
@@ -67,7 +74,9 @@ def resolve_feed_runtime_url(feed: Feed) -> tuple[str | None, str | None]:
     return feed_url, None
 
 
-def feed_url_digest_still_current(db: Session, *, feed_id: uuid.UUID, expected_url_digest: str | None) -> bool:
+def feed_url_digest_still_current(
+    db: Session, *, feed_id: uuid.UUID, expected_url_digest: str | None
+) -> bool:
     current_url_digest = db.scalar(select(Feed.url_digest).where(Feed.id == feed_id))
     return current_url_digest == expected_url_digest
 
@@ -93,10 +102,14 @@ def article_freshness_token_value(
 def article_freshness_token(article: Article | None) -> tuple[str | None, str | None]:
     if article is None:
         return None, None
-    return article_freshness_token_value(article.id, article.retrieved_at, article.content_purged_at)
+    return article_freshness_token_value(
+        article.id, article.retrieved_at, article.content_purged_at
+    )
 
 
-def load_article_freshness_token(db: Session, *, item_id: uuid.UUID) -> tuple[str | None, str | None]:
+def load_article_freshness_token(
+    db: Session, *, item_id: uuid.UUID
+) -> tuple[str | None, str | None]:
     row = db.execute(
         select(Article.id, Article.retrieved_at, Article.content_purged_at).where(
             Article.item_id == item_id
@@ -116,3 +129,13 @@ def article_was_refetched(
     expected_token: tuple[str | None, str | None],
 ) -> bool:
     return load_article_freshness_token(db, item_id=item_id) != expected_token
+
+
+def task_run_claimed_by_current_worker(
+    run: AITaskRun | None, *, celery_task_id: str | None
+) -> bool:
+    if run is None:
+        return False
+    if celery_task_id is None:
+        return True
+    return run.celery_task_id in (None, celery_task_id)
