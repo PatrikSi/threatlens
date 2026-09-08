@@ -89,3 +89,13 @@ class AuthSession(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+
+
+Index(
+    "ix_auth_sessions_lifecycle_terminal",
+    func.coalesce(
+        AuthSession.revoked_at,
+        func.least(AuthSession.idle_expires_at, AuthSession.absolute_expires_at),
+    ),
+    AuthSession.id,
+)

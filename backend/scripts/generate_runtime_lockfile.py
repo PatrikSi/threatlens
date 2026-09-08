@@ -18,7 +18,7 @@ from packaging.version import Version
 
 EXCLUDED = {canonicalize_name(name) for name in {"pip", "setuptools", "wheel"}}
 LOCK_HEADER = (
-    "# Locked backend runtime dependency set used by backend/Dockerfile.\n"
+    "# Locked backend runtime dependency set used by docker/backend.Dockerfile.\n"
     "# Validate with generate_runtime_lockfile.py; pass --upgrade to resolve new pins.\n"
 )
 

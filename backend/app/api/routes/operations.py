@@ -6,8 +6,11 @@ from app.core.token_scopes import SCOPE_READ_OPERATIONS
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.operations import (
+    HealthHistoryWindow,
+    OperationsHealthHistoryResponse,
     OperationsDiagnosticsResponse,
     OperationsOverviewResponse,
+    OperationsWorkerTopologyResponse,
     SystemOperationRunListResponse,
     SystemOperationStatus,
     SystemOperationType,
@@ -17,6 +20,8 @@ from app.services.operations import (
     collect_operations_overview,
     list_system_operation_runs,
 )
+from app.services.operations_health_history import collect_health_history
+from app.services.worker_health import collect_worker_topology
 
 
 router = APIRouter(prefix="/operations", tags=["operations"])
@@ -30,6 +35,26 @@ def overview(
 ):
     response.headers["Cache-Control"] = "no-store"
     return collect_operations_overview(db)
+
+
+@router.get("/workers", response_model=OperationsWorkerTopologyResponse)
+def workers(
+    response: Response,
+    _reader: User = Depends(require_permissions(SCOPE_READ_OPERATIONS)),
+):
+    response.headers["Cache-Control"] = "no-store"
+    return collect_worker_topology()
+
+
+@router.get("/health-history", response_model=OperationsHealthHistoryResponse)
+def health_history(
+    response: Response,
+    window: HealthHistoryWindow = Query(default="24h"),
+    db: Session = Depends(get_db),
+    _reader: User = Depends(require_permissions(SCOPE_READ_OPERATIONS)),
+):
+    response.headers["Cache-Control"] = "no-store"
+    return collect_health_history(db, window=window)
 
 
 @router.get("/runs", response_model=SystemOperationRunListResponse)

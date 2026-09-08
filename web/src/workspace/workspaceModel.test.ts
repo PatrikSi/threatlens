@@ -175,6 +175,7 @@ describe('workspace model', () => {
       'settings.tagging',
       'settings.users',
       'settings.audit',
+      'settings.lifecycle',
       'settings.operations',
       'settings.integrations.smtp',
     ]) {

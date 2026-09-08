@@ -10,7 +10,6 @@ from app.core.rbac import ROLE_ADMIN
 from app.core.token_scopes import SCOPE_WRITE_INVESTIGATIONS
 from app.models.investigation import (
     Investigation,
-    InvestigationActivity,
     InvestigationEvidence,
     InvestigationMember,
     InvestigationNote,
@@ -44,6 +43,11 @@ from app.services.data_access_runtime import (
 from app.services.investigation_evidence import (
     EvidenceSourceError,
     build_evidence_snapshot,
+)
+from app.services.investigation_activity import (
+    evidence_activity_details,
+    member_activity_details,
+    record_investigation_activity as _record_activity,
 )
 from app.services.investigation_owner_eligibility import (
     eligible_investigation_owner_ids_query,
@@ -541,7 +545,7 @@ def add_member(
         action="investigation.member_added",
         entity_type="user",
         entity_id=member_user_id,
-        details={"role": role},
+        details=member_activity_details(member_email=target.email, role=role),
     )
     db.flush()
     return member
@@ -604,7 +608,11 @@ def update_member(
         action="investigation.member_updated",
         entity_type="user",
         entity_id=member_user_id,
-        details={"from_role": old_role, "to_role": role},
+        details=member_activity_details(
+            member_email=target.email,
+            from_role=old_role,
+            to_role=role,
+        ),
     )
     db.flush()
     return member, True
@@ -649,6 +657,7 @@ def remove_member(
         _require_another_owner(db, investigation.id, excluding_user_id=member.user_id)
     if investigation.assignee_user_id == member.user_id:
         investigation.assignee_user_id = None
+    member_email = db.scalar(select(User.email).where(User.id == member_user_id))
     db.delete(member)
     _advance_version(investigation)
     _record_activity(
@@ -658,7 +667,10 @@ def remove_member(
         action="investigation.member_removed",
         entity_type="user",
         entity_id=member_user_id,
-        details={"role": member.role},
+        details=member_activity_details(
+            member_email=member_email,
+            role=member.role,
+        ),
     )
     db.flush()
 
@@ -736,7 +748,11 @@ def add_evidence(
         action="investigation.evidence_added",
         entity_type="evidence",
         entity_id=evidence.id,
-        details={"source_type": source_type, "source_id": str(source_id)},
+        details=evidence_activity_details(
+            source_type=source_type,
+            source_id=source_id,
+            source_title=snapshot.title,
+        ),
     )
     db.flush()
     merge_investigation_evidence_data_access(
@@ -783,6 +799,7 @@ def remove_evidence(
         )
     source_type = evidence.source_type
     source_id = evidence.source_id
+    source_title = evidence.title_snapshot
     db.delete(evidence)
     _advance_version(investigation)
     _record_activity(
@@ -792,7 +809,11 @@ def remove_evidence(
         action="investigation.evidence_removed",
         entity_type="evidence",
         entity_id=evidence_id,
-        details={"source_type": source_type, "source_id": str(source_id)},
+        details=evidence_activity_details(
+            source_type=source_type,
+            source_id=source_id,
+            source_title=source_title,
+        ),
     )
     db.flush()
 
@@ -1055,28 +1076,6 @@ def _lock_for_write(
             "Your investigation membership is read-only."
         )
     return investigation, member
-
-
-def _record_activity(
-    db: Session,
-    *,
-    investigation_id: uuid.UUID,
-    actor_user_id: uuid.UUID | None,
-    action: str,
-    entity_type: str | None,
-    entity_id: uuid.UUID | None,
-    details: dict,
-) -> None:
-    db.add(
-        InvestigationActivity(
-            investigation_id=investigation_id,
-            actor_user_id=actor_user_id,
-            action=action,
-            entity_type=entity_type,
-            entity_id=entity_id,
-            details_json=details,
-        )
-    )
 
 
 def _require_owner(member: InvestigationMember) -> None:

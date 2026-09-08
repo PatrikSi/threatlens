@@ -5,7 +5,7 @@ import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from sqlalchemy import and_, delete, exists, func, or_, select
+from sqlalchemy import and_, delete, exists, func, literal, or_, select
 from sqlalchemy.orm import Session, aliased
 
 from app.models.ai_daily_brief import AIDailyBrief
@@ -13,7 +13,11 @@ from app.models.ai_task_run import AITaskRun
 from app.models.ai_usage_event import AIUsageEvent
 from app.models.action_approval import ActionApprovalRequest
 from app.models.alert_occurrence import AlertOccurrence
-from app.models.data_policy import DataAccessEnvelope, DataAccessEnvelopeSource
+from app.models.data_policy import (
+    DataAccessEnvelope,
+    DataAccessEnvelopeLabel,
+    DataAccessEnvelopeSource,
+)
 from app.models.integration import IntegrationDelivery, IntegrationEvent
 from app.models.investigation import Investigation
 from app.models.report import Report
@@ -61,6 +65,7 @@ def prune_deleted_resource_envelopes(
     db: Session,
     *,
     resources: Iterable[DataAccessResourceRef],
+    max_dependent_rows: int | None = None,
 ) -> int:
     """Delete a bounded set of missing-resource leaves and orphaned ancestors."""
 
@@ -90,6 +95,7 @@ def prune_deleted_resource_envelopes(
             db,
             candidates=candidates,
             max_deletions=remaining_budget,
+            max_dependent_rows=max_dependent_rows,
         )
     return deleted_count
 
@@ -98,6 +104,7 @@ def prune_orphan_data_access_envelopes(
     db: Session,
     *,
     limit: int = 1_000,
+    max_dependent_rows: int | None = None,
 ) -> DataAccessOrphanPruneResult:
     """Bound repair for missing-resource lineage leaves left by older workers."""
 
@@ -131,6 +138,7 @@ def prune_orphan_data_access_envelopes(
         db,
         candidates=candidates,
         max_deletions=bounded_limit,
+        max_dependent_rows=max_dependent_rows,
     )
     backlog_remaining = bool(
         unknown_resource_types
@@ -149,8 +157,12 @@ def _delete_envelope_candidates(
     *,
     candidates: set[uuid.UUID],
     max_deletions: int,
+    max_dependent_rows: int | None = None,
 ) -> int:
+    if max_dependent_rows is not None and int(max_dependent_rows) <= 0:
+        return 0
     deleted_count = 0
+    dependent_rows_deleted = 0
     while candidates and deleted_count < max_deletions:
         remaining_budget = max_deletions - deleted_count
         locked_candidates = set(
@@ -179,7 +191,7 @@ def _delete_envelope_candidates(
             .with_for_update()
         )
         source_locks.close()
-        deletable = set(
+        deletable = list(
             db.scalars(
                 select(DataAccessEnvelope.id)
                 .where(
@@ -192,6 +204,43 @@ def _delete_envelope_candidates(
         )
         if not deletable:
             break
+        if max_dependent_rows is not None:
+            remaining_dependent_budget = max(
+                0,
+                int(max_dependent_rows) - dependent_rows_deleted,
+            )
+            costs = _envelope_dependent_row_costs(
+                db,
+                envelope_ids=deletable,
+                cap=max(1, int(max_dependent_rows)),
+            )
+            selected: list[uuid.UUID] = []
+            drain_candidates: list[uuid.UUID] = []
+            drained = 0
+            for envelope_id in deletable:
+                cost = costs.get(envelope_id, 1)
+                if cost <= remaining_dependent_budget:
+                    selected.append(envelope_id)
+                    remaining_dependent_budget -= cost
+                    dependent_rows_deleted += cost
+                else:
+                    drain_candidates.append(envelope_id)
+            deletable = selected
+            if remaining_dependent_budget and drain_candidates:
+                drained = _drain_envelope_dependants(
+                    db,
+                    envelope_id=drain_candidates[0],
+                    limit=remaining_dependent_budget,
+                )
+                dependent_rows_deleted += drained
+                remaining_dependent_budget -= drained
+            if not deletable and remaining_dependent_budget <= 0:
+                break
+            if not deletable:
+                if not drained:
+                    break
+                candidates = set(drain_candidates)
+                continue
 
         child = aliased(DataAccessEnvelopeSource)
         parent = aliased(DataAccessEnvelopeSource)
@@ -211,6 +260,101 @@ def _delete_envelope_candidates(
         db.flush()
         candidates = _orphan_envelope_ids(db, envelope_ids=ancestor_ids)
     return deleted_count
+
+
+def _envelope_dependent_row_costs(
+    db: Session,
+    *,
+    envelope_ids: list[uuid.UUID],
+    cap: int,
+) -> dict[uuid.UUID, int]:
+    costs = {envelope_id: 1 for envelope_id in envelope_ids}
+    for column in (
+        DataAccessEnvelopeSource.envelope_id,
+        DataAccessEnvelopeLabel.envelope_id,
+    ):
+        limited = (
+            select(literal(1))
+            .where(column == DataAccessEnvelope.id)
+            .limit(cap + 1)
+            .correlate(DataAccessEnvelope)
+            .subquery()
+        )
+        rows = db.execute(
+            select(
+                DataAccessEnvelope.id,
+                select(func.count()).select_from(limited).scalar_subquery(),
+            ).where(DataAccessEnvelope.id.in_(envelope_ids))
+        ).all()
+        for envelope_id, count in rows:
+            costs[envelope_id] += int(count or 0)
+    return costs
+
+
+def _drain_envelope_dependants(
+    db: Session,
+    *,
+    envelope_id: uuid.UUID,
+    limit: int,
+) -> int:
+    remaining = max(0, int(limit))
+    if not remaining:
+        return 0
+    label_ids = list(
+        db.scalars(
+            select(DataAccessEnvelopeLabel.label_id)
+            .where(DataAccessEnvelopeLabel.envelope_id == envelope_id)
+            .order_by(DataAccessEnvelopeLabel.label_id)
+            .limit(remaining)
+            .with_for_update(skip_locked=True)
+        ).all()
+    )
+    deleted = 0
+    if label_ids:
+        result = db.execute(
+            delete(DataAccessEnvelopeLabel)
+            .where(
+                DataAccessEnvelopeLabel.envelope_id == envelope_id,
+                DataAccessEnvelopeLabel.label_id.in_(label_ids),
+            )
+            .execution_options(synchronize_session=False)
+        )
+        deleted += int(result.rowcount or 0)
+        remaining -= int(result.rowcount or 0)
+    if not remaining:
+        return deleted
+    child = aliased(DataAccessEnvelopeSource)
+    source_ids = list(
+        db.scalars(
+            select(DataAccessEnvelopeSource.id)
+            .where(
+                DataAccessEnvelopeSource.envelope_id == envelope_id,
+                ~exists(
+                    select(child.id).where(
+                        child.source_parent_id == DataAccessEnvelopeSource.id
+                    )
+                ),
+            )
+            .order_by(DataAccessEnvelopeSource.id)
+            .limit(remaining)
+            .with_for_update(skip_locked=True)
+        ).all()
+    )
+    if source_ids:
+        result = db.execute(
+            delete(DataAccessEnvelopeSource)
+            .where(
+                DataAccessEnvelopeSource.id.in_(source_ids),
+                ~exists(
+                    select(child.id).where(
+                        child.source_parent_id == DataAccessEnvelopeSource.id
+                    )
+                ),
+            )
+            .execution_options(synchronize_session=False)
+        )
+        deleted += int(result.rowcount or 0)
+    return deleted
 
 
 def _known_orphan_predicate():

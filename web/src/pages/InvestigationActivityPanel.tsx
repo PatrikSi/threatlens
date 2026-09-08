@@ -1,6 +1,8 @@
 import { resolveApiErrorMessage } from '../api/errors'
+import { CopyableIdentifier } from '../components/CopyableIdentifier'
+import type { InvestigationActivity } from '../types/investigations'
 import { formatDateTime } from '../utils/datetime'
-import { formatInvestigationActivityAction } from './investigationPageModel'
+import { formatInvestigationActivitySummary } from './investigationPageModel'
 import { InvestigationPagination } from './InvestigationListWorkspace'
 import { InvestigationRefreshWarning } from './InvestigationShared'
 import type { InvestigationDetailController } from './useInvestigationDetail'
@@ -73,32 +75,15 @@ export function InvestigationActivityPanel({
             >
               <div className="min-w-0 text-xs text-slate dark:text-slate-400">
                 <time dateTime={activity.created_at}>{formatDateTime(activity.created_at)}</time>
-                <code className="mt-1 block break-all text-[10px]">{activity.created_at}</code>
               </div>
               <div className="min-w-0">
-                <p className="font-semibold">
-                  {formatInvestigationActivityAction(activity.action)}
+                <p className="break-words font-semibold">
+                  {formatInvestigationActivitySummary(activity)}
                 </p>
-                <p className="mt-0.5 break-all text-xs text-slate dark:text-slate-400">
-                  Actor: {activity.actor_email ?? 'System or deleted account'} · event:{' '}
-                  <code>{activity.action}</code>
+                <p className="mt-0.5 break-words text-xs text-slate dark:text-slate-400">
+                  Recorded by {activity.actor_email ?? 'System or deleted account'}
                 </p>
-                {(activity.entity_type || activity.entity_id) && (
-                  <p className="mt-1 break-all text-xs text-slate dark:text-slate-400">
-                    Target: {activity.entity_type ?? 'entity'}
-                    {activity.entity_id ? ` ${activity.entity_id}` : ''}
-                  </p>
-                )}
-                {Object.keys(activity.details).length > 0 && (
-                  <details className="mt-1 text-xs">
-                    <summary className="min-h-11 cursor-pointer py-2 font-semibold text-slate md:min-h-0 md:py-1 dark:text-slate-300">
-                      Event details
-                    </summary>
-                    <pre className="mt-1 max-w-full overflow-x-auto whitespace-pre-wrap break-words rounded border border-slate/15 bg-slate/5 p-2 font-mono text-[11px] dark:border-white/10 dark:bg-white/[0.025]">
-                      {JSON.stringify(activity.details, null, 2)}
-                    </pre>
-                  </details>
-                )}
+                <ActivityTechnicalDetails activity={activity} />
               </div>
             </li>
           ))}
@@ -115,5 +100,62 @@ export function InvestigationActivityPanel({
         />
       )}
     </section>
+  )
+}
+
+function ActivityTechnicalDetails({ activity }: { activity: InvestigationActivity }) {
+  const hasPayload = Object.keys(activity.details).length > 0
+  return (
+    <details className="mt-1 text-xs">
+      <summary className="min-h-11 cursor-pointer py-2 font-semibold text-slate md:min-h-0 md:py-1 dark:text-slate-300">
+        Technical details
+      </summary>
+      <dl className="grid min-w-0 gap-x-4 gap-y-2 sm:grid-cols-2">
+        <div className="min-w-0">
+          <dt className="text-slate dark:text-slate-400">Activity ID</dt>
+          <dd className="mt-0.5">
+            <CopyableIdentifier label="Activity ID" value={activity.id} />
+          </dd>
+        </div>
+        <div className="min-w-0">
+          <dt className="text-slate dark:text-slate-400">Event code</dt>
+          <dd className="mt-0.5 break-all font-mono text-[11px]">{activity.action}</dd>
+        </div>
+        <div className="min-w-0">
+          <dt className="text-slate dark:text-slate-400">Recorded timestamp</dt>
+          <dd className="mt-0.5 break-all font-mono text-[11px]">{activity.created_at}</dd>
+        </div>
+        {activity.actor_user_id && (
+          <div className="min-w-0">
+            <dt className="text-slate dark:text-slate-400">Actor user ID</dt>
+            <dd className="mt-0.5">
+              <CopyableIdentifier label="Actor user ID" value={activity.actor_user_id} />
+            </dd>
+          </div>
+        )}
+        {activity.entity_type && (
+          <div className="min-w-0">
+            <dt className="text-slate dark:text-slate-400">Target type</dt>
+            <dd className="mt-0.5 break-all font-mono text-[11px]">{activity.entity_type}</dd>
+          </div>
+        )}
+        {activity.entity_id && (
+          <div className="min-w-0">
+            <dt className="text-slate dark:text-slate-400">Target ID</dt>
+            <dd className="mt-0.5">
+              <CopyableIdentifier label="Target ID" value={activity.entity_id} />
+            </dd>
+          </div>
+        )}
+      </dl>
+      {hasPayload && (
+        <div className="mt-2">
+          <p className="font-semibold text-slate dark:text-slate-300">Event payload</p>
+          <pre className="mt-1 max-w-full overflow-x-auto whitespace-pre-wrap break-words rounded border border-slate/15 bg-slate/5 p-2 font-mono text-[11px] dark:border-white/10 dark:bg-white/[0.025]">
+            {JSON.stringify(activity.details, null, 2)}
+          </pre>
+        </div>
+      )}
+    </details>
   )
 }

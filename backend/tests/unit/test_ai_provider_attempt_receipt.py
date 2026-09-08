@@ -91,4 +91,9 @@ def test_ai_provider_attempt_receipt_model_matches_durable_history_contract():
         "ix_ai_provider_attempt_receipts_task_run_snapshot": (
             "task_run_id_snapshot",
         ),
+        "ix_ai_provider_attempt_receipts_lifecycle_updated": (
+            "updated_at",
+            "operation_id",
+            "id",
+        ),
     }

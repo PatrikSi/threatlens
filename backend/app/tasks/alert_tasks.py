@@ -196,7 +196,16 @@ def dispatch_pending_alert_evaluations():
 )
 def maintain_alert_history_task():
     with db_session() as db:
-        result = maintain_alert_history(db)
+        result = maintain_alert_history(
+            db,
+            occurrence_retention_days=1,
+            prune_expired_previews=True,
+            aggregate_occurrences=True,
+            prune_occurrences=False,
+            prune_activities=False,
+            prune_evaluations=False,
+            prune_metrics=False,
+        )
     if result.backlog_remaining:
         logger.warning(
             "alert_history_maintenance_backlog stop_reason=%s batches=%s elapsed_ms=%s categories=%s",
@@ -211,7 +220,7 @@ def maintain_alert_history_task():
             result.batches_processed,
             result.elapsed_ms,
         )
-    return {"status": "ok", **result.__dict__}
+    return {"status": "ok", "compatibility_mode": True, **result.__dict__}
 
 
 def _parse_uuid(value: str) -> uuid.UUID | None:

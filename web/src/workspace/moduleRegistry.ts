@@ -1,5 +1,6 @@
 import {
   Activity,
+  Archive,
   BellRing,
   Bot,
   ChartNoAxesCombined,
@@ -47,6 +48,7 @@ export type TrustedWorkspaceModuleId =
   | 'settings.identity'
   | 'settings.users'
   | 'settings.audit'
+  | 'settings.lifecycle'
   | 'settings.operations'
   | 'settings.integrations'
   | 'settings.integrations.webhooks'
@@ -217,29 +219,35 @@ export const TRUSTED_WORKSPACE_MODULES: readonly TrustedWorkspaceModule[] = [
     defaultMobilePriority: 60, mobileBehavior: 'secondary',
   }),
   moduleDefinition({
-    id: 'settings.operations', label: 'Operations', route: '/settings/operations', icon: Activity,
+    id: 'settings.lifecycle', label: 'Data lifecycle', route: '/settings/lifecycle', icon: Archive,
     requiredPermissions: ['read:operations'], featureDependency: null, serverFeatureFlag: null,
     defaultVisibleRoles: ADMIN_ONLY, defaultOptional: true, defaultOrder: 70,
     defaultMobilePriority: 70, mobileBehavior: 'secondary',
   }),
   moduleDefinition({
+    id: 'settings.operations', label: 'System health', route: '/settings/operations', icon: Activity,
+    requiredPermissions: ['read:operations'], featureDependency: null, serverFeatureFlag: null,
+    defaultVisibleRoles: ADMIN_ONLY, defaultOptional: true, defaultOrder: 80,
+    defaultMobilePriority: 80, mobileBehavior: 'secondary',
+  }),
+  moduleDefinition({
     id: 'settings.integrations', label: 'Integrations', route: '/settings/integrations', icon: PlugZap,
     requiredPermissions: ['read:notifications'], featureDependency: null, serverFeatureFlag: null,
-    defaultVisibleRoles: ALL_ROLES, defaultOptional: true, defaultOrder: 80,
-    defaultMobilePriority: 80, mobileBehavior: 'secondary', isContainer: true,
+    defaultVisibleRoles: ALL_ROLES, defaultOptional: true, defaultOrder: 90,
+    defaultMobilePriority: 90, mobileBehavior: 'secondary', isContainer: true,
     policyManaged: false,
   }),
   moduleDefinition({
     id: 'settings.integrations.webhooks', label: 'Webhooks', route: '/settings/integrations/webhooks', icon: Webhook,
     requiredPermissions: ['read:notifications'], featureDependency: null, serverFeatureFlag: null,
-    defaultVisibleRoles: ALL_ROLES, defaultOptional: true, defaultOrder: 90,
-    defaultMobilePriority: 90, mobileBehavior: 'secondary', parentId: 'settings.integrations',
+    defaultVisibleRoles: ALL_ROLES, defaultOptional: true, defaultOrder: 100,
+    defaultMobilePriority: 100, mobileBehavior: 'secondary', parentId: 'settings.integrations',
   }),
   moduleDefinition({
     id: 'settings.integrations.smtp', label: 'SMTP', route: '/settings/integrations/smtp', icon: Mail,
     requiredPermissions: ['read:integrations'], featureDependency: null, serverFeatureFlag: null,
-    defaultVisibleRoles: ADMIN_ONLY, defaultOptional: true, defaultOrder: 100,
-    defaultMobilePriority: 100, mobileBehavior: 'secondary', parentId: 'settings.integrations',
+    defaultVisibleRoles: ADMIN_ONLY, defaultOptional: true, defaultOrder: 110,
+    defaultMobilePriority: 110, mobileBehavior: 'secondary', parentId: 'settings.integrations',
   }),
 ]
 

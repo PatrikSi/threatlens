@@ -9,6 +9,10 @@ HASH_SHA256_RE = re.compile(r"\b[a-fA-F0-9]{64}\b")
 HASH_SHA1_RE = re.compile(r"\b[a-fA-F0-9]{40}\b")
 HASH_MD5_RE = re.compile(r"\b[a-fA-F0-9]{32}\b")
 IPV4_RE = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
+IPV6_RE = re.compile(
+    r"(?<![\w:.%])(?:[0-9A-Fa-f]{0,4}:){2,7}"
+    r"[0-9A-Fa-f]{0,4}(?![\w:.%])"
+)
 CVE_RE = re.compile(r"\bCVE-\d{4}-\d{4,7}\b", re.IGNORECASE)
 DOMAIN_RE = re.compile(r"\b(?:(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)\.)+[A-Za-z]{2,24}\b")
 
@@ -78,6 +82,40 @@ class ExtractedIOC:
     confidence: float
 
 
+def normalize_ioc_search_value(value: str) -> tuple[str, str] | None:
+    """Recognize a complete IOC value using the extraction normalizers."""
+
+    candidate = value.strip()
+    if not candidate:
+        return None
+    if HASH_SHA256_RE.fullmatch(candidate):
+        return "hash_sha256", candidate.lower()
+    if HASH_SHA1_RE.fullmatch(candidate):
+        return "hash_sha1", candidate.lower()
+    if HASH_MD5_RE.fullmatch(candidate):
+        return "hash_md5", candidate.lower()
+    if CVE_RE.fullmatch(candidate):
+        return "cve", candidate.upper()
+    normalized_ip = _normalize_ipv4(candidate)
+    if normalized_ip is not None:
+        return "ipv4", normalized_ip
+    normalized_ip = _normalize_ipv6(candidate)
+    if normalized_ip is not None:
+        return "ipv6", normalized_ip
+    if DOMAIN_RE.fullmatch(candidate):
+        normalized_domain = candidate.strip(". ").lower()
+        if normalized_domain.startswith("www."):
+            normalized_domain = normalized_domain[4:]
+        if normalized_domain and "." in normalized_domain:
+            return "domain", normalized_domain
+    lowered = candidate.lower()
+    if lowered in VENDOR_TERMS:
+        return "vendor", lowered
+    if lowered in PROGRAM_TERMS:
+        return "program", lowered
+    return None
+
+
 def extract_iocs(*, title: str, summary: str | None, article_text: str | None) -> list[ExtractedIOC]:
     sections: tuple[tuple[str, str | None], ...] = (
         ("title", title),
@@ -129,6 +167,12 @@ def _extract_from_text(text: str, section: str) -> list[ExtractedIOC]:
         if parsed:
             matches.append(ExtractedIOC(type="ipv4", value_raw=raw, value_norm=parsed, source_section=section, confidence=1.0))
 
+    for match in IPV6_RE.finditer(text):
+        raw = match.group(0)
+        parsed = _normalize_ipv6(raw)
+        if parsed and parsed != "::":
+            matches.append(ExtractedIOC(type="ipv6", value_raw=raw, value_norm=parsed, source_section=section, confidence=1.0))
+
     for match in DOMAIN_RE.finditer(text):
         raw = match.group(0)
         if "@" in raw:
@@ -162,6 +206,21 @@ def _normalize_ipv4(value: str) -> str | None:
     if not isinstance(parsed, ipaddress.IPv4Address):
         return None
     return str(parsed)
+
+
+def _normalize_ipv6(value: str) -> str | None:
+    candidate = value.strip()
+    if candidate.startswith("[") and candidate.endswith("]"):
+        candidate = candidate[1:-1]
+    if "%" in candidate:
+        return None
+    try:
+        parsed = ipaddress.ip_address(candidate)
+    except ValueError:
+        return None
+    if not isinstance(parsed, ipaddress.IPv6Address):
+        return None
+    return parsed.compressed
 
 
 def _is_overlapping(start: int, end: int, spans: list[tuple[int, int]]) -> bool:

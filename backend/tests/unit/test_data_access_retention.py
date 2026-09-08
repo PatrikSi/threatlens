@@ -313,6 +313,79 @@ def test_orphan_sweep_selects_lineage_leaves_instead_of_starving(db_session):
     assert _envelope_resources(db_session, resources) == set()
 
 
+def test_lifecycle_dependent_budget_drains_children_before_envelope_parent(
+    db_session,
+):
+    policy_revision = db_session.get(DataPolicyState, 1).revision
+    resource_id = uuid.uuid4()
+    envelope = DataAccessEnvelope(
+        resource_type=DATA_ACCESS_RESOURCE_REPORT,
+        resource_id=resource_id,
+        source_count=5,
+        policy_revision=policy_revision,
+    )
+    db_session.add(envelope)
+    db_session.flush()
+    db_session.add(
+        DataAccessEnvelopeLabel(
+            envelope_id=envelope.id,
+            label_id=UNRESTRICTED_HANDLING_LABEL_ID,
+            source_count=5,
+        )
+    )
+    db_session.add_all(
+        [
+            DataAccessEnvelopeSource(
+                envelope_id=envelope.id,
+                source_type="system",
+                source_id=f"bounded-retention-{index}",
+                source_version="v1",
+                handling_label_id=UNRESTRICTED_HANDLING_LABEL_ID,
+                captured_policy_revision=policy_revision,
+            )
+            for index in range(5)
+        ]
+    )
+    db_session.flush()
+    envelope_id = envelope.id
+
+    previous_dependants = 6
+    for _ in range(3):
+        deleted = prune_deleted_resource_envelopes(
+            db_session,
+            resources=((DATA_ACCESS_RESOURCE_REPORT, resource_id),),
+            max_dependent_rows=2,
+        )
+        assert deleted == 0
+        assert db_session.get(DataAccessEnvelope, envelope_id) is not None
+        current_dependants = int(
+            db_session.scalar(
+                select(func.count())
+                .select_from(DataAccessEnvelopeSource)
+                .where(DataAccessEnvelopeSource.envelope_id == envelope_id)
+            )
+            or 0
+        ) + int(
+            db_session.scalar(
+                select(func.count())
+                .select_from(DataAccessEnvelopeLabel)
+                .where(DataAccessEnvelopeLabel.envelope_id == envelope_id)
+            )
+            or 0
+        )
+        assert 0 < previous_dependants - current_dependants <= 2
+        previous_dependants = current_dependants
+
+    final = prune_deleted_resource_envelopes(
+        db_session,
+        resources=((DATA_ACCESS_RESOURCE_REPORT, resource_id),),
+        max_dependent_rows=2,
+    )
+    assert final == 1
+    db_session.expire_all()
+    assert db_session.get(DataAccessEnvelope, envelope_id) is None
+
+
 def test_retention_rejects_invalid_target_references(db_session):
     with pytest.raises(ValueError, match="Unsupported"):
         prune_deleted_resource_envelopes(

@@ -959,6 +959,90 @@ def test_evidence_uses_bounded_snapshot_that_survives_source_removal(
     )
 
 
+def test_activity_captures_human_readable_member_and_evidence_context(
+    client: TestClient,
+    auth_headers,
+    db_session,
+    seed_users,
+):
+    investigation = _create_investigation(client, auth_headers["analyst"])
+    member_added = client.post(
+        f"/investigations/{investigation['id']}/members",
+        headers=auth_headers["analyst"],
+        json={
+            "user_id": str(seed_users["admin"].id),
+            "role": "editor",
+            "expected_version": investigation["version"],
+        },
+    )
+    assert member_added.status_code == 200, member_added.text
+    member_updated = client.patch(
+        f"/investigations/{investigation['id']}/members/{seed_users['admin'].id}",
+        headers=auth_headers["analyst"],
+        json={
+            "role": "viewer",
+            "expected_version": member_added.json()["version"],
+        },
+    )
+    assert member_updated.status_code == 200, member_updated.text
+    member_removed = client.delete(
+        f"/investigations/{investigation['id']}/members/{seed_users['admin'].id}",
+        headers=auth_headers["analyst"],
+        params={"expected_version": member_updated.json()["version"]},
+    )
+    assert member_removed.status_code == 200, member_removed.text
+
+    item = _create_item(db_session)
+    evidence_added = client.post(
+        f"/investigations/{investigation['id']}/evidence",
+        headers=auth_headers["analyst"],
+        json={
+            "source_type": "item",
+            "source_id": str(item.id),
+            "expected_version": member_removed.json()["version"],
+        },
+    )
+    assert evidence_added.status_code == 200, evidence_added.text
+    evidence = evidence_added.json()["evidence"][0]
+    item.title = "Changed after the evidence snapshot was attached"
+    db_session.commit()
+    evidence_removed = client.delete(
+        f"/investigations/{investigation['id']}/evidence/{evidence['id']}",
+        headers=auth_headers["analyst"],
+        params={"expected_version": evidence_added.json()["version"]},
+    )
+    assert evidence_removed.status_code == 200, evidence_removed.text
+
+    response = client.get(
+        f"/investigations/{investigation['id']}/activity",
+        headers=auth_headers["analyst"],
+    )
+    assert response.status_code == 200, response.text
+    by_action = {entry["action"]: entry for entry in response.json()["activities"]}
+    assert by_action["investigation.member_added"]["details"] == {
+        "role": "editor",
+        "member_email": seed_users["admin"].email,
+    }
+    assert by_action["investigation.member_updated"]["details"] == {
+        "from_role": "editor",
+        "to_role": "viewer",
+        "member_email": seed_users["admin"].email,
+    }
+    assert by_action["investigation.member_removed"]["details"] == {
+        "role": "viewer",
+        "member_email": seed_users["admin"].email,
+    }
+    for action in (
+        "investigation.evidence_added",
+        "investigation.evidence_removed",
+    ):
+        assert by_action[action]["details"] == {
+            "source_type": "item",
+            "source_id": str(item.id),
+            "source_title": evidence["title_snapshot"],
+        }
+
+
 def test_detail_collections_are_bounded_and_complete_pages_remain_authorized(
     client: TestClient,
     auth_headers,

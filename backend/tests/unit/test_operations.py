@@ -26,6 +26,7 @@ from app.schemas.health import (
     EncryptedDataInventorySummary,
     EncryptedDataStartupScan,
 )
+from app.schemas.operations import OperationsWorkerTopologyResponse
 from app.services import (
     encrypted_data_inventory,
     operations,
@@ -33,6 +34,7 @@ from app.services import (
     operations_projections,
 )
 from app.services.beat_heartbeat import BeatHealthSnapshot, BeatHeartbeatSnapshot
+from app.services.operations_health_history import record_system_health_sample
 
 
 def _healthy_inventory(now: datetime) -> EncryptedDataInventoryResponse:
@@ -63,7 +65,51 @@ def _healthy_operations_inventory(
     )
 
 
+def _worker_topology(
+    now: datetime,
+    *,
+    status: str = "healthy",
+    reason: str = "healthy",
+    worker_count: int = 1,
+    missing_queues: list[str] | None = None,
+    stale_execution_queues: list[str] | None = None,
+    missing_execution_evidence_queues: list[str] | None = None,
+    canary_dispatch_ok: bool = True,
+    canary_dispatch_reason: str = "healthy",
+) -> OperationsWorkerTopologyResponse:
+    return OperationsWorkerTopologyResponse(
+        generated_at=now,
+        status=status,
+        reason=reason,
+        timeout_seconds=1.0,
+        responding_worker_count=worker_count,
+        observed_worker_count=worker_count,
+        worker_inventory_truncated=False,
+        total_capacity=4,
+        active_count=0,
+        reserved_count=0,
+        scheduled_count=0,
+        missing_queues=missing_queues or [],
+        stale_execution_queues=stale_execution_queues or [],
+        missing_execution_evidence_queues=(
+            missing_execution_evidence_queues or []
+        ),
+        canary_dispatch_ok=canary_dispatch_ok,
+        canary_dispatch_reason=canary_dispatch_reason,
+        canary_dispatch_heartbeat_at=now,
+        canary_dispatch_age_seconds=1,
+        probes=[],
+        workers=[],
+        queues=[],
+    )
+
+
 def _install_healthy_probes(monkeypatch: pytest.MonkeyPatch, now: datetime) -> None:
+    monkeypatch.setattr(
+        operations,
+        "collect_worker_topology",
+        lambda *_args, **_kwargs: _worker_topology(now),
+    )
     monkeypatch.setattr(
         operations_probes.health_routes, "_database_health_ok", lambda _db: True
     )
@@ -390,6 +436,17 @@ def test_overview_reports_delivery_and_report_backlogs(db_session, monkeypatch):
 def test_overview_degrades_without_leaking_probe_errors(db_session, monkeypatch):
     now = datetime.now(timezone.utc).replace(microsecond=0)
     monkeypatch.setattr(
+        operations,
+        "collect_worker_topology",
+        lambda *_args, **_kwargs: _worker_topology(
+            now,
+            status="critical",
+            reason="missing_consumers",
+            worker_count=1,
+            missing_queues=["maintenance"],
+        ),
+    )
+    monkeypatch.setattr(
         operations_probes.health_routes, "_database_health_ok", lambda _db: True
     )
     monkeypatch.setattr(
@@ -471,7 +528,7 @@ def test_overview_degrades_without_leaking_probe_errors(db_session, monkeypatch)
     assert components["encrypted_data"].status == "unavailable"
     assert all(issue.effect and issue.recommended_action for issue in overview.issues)
     issue_codes = {issue.code for issue in overview.issues}
-    assert "recovery_history_unavailable" in issue_codes
+    assert "recovery_history_unavailable" not in issue_codes
     assert "backup_not_recorded" not in issue_codes
     assert "restore_drill_not_recorded" not in issue_codes
     for secret in (
@@ -524,6 +581,138 @@ def test_overview_skips_database_dependent_probes_when_database_is_unavailable(
     assert "backup_not_recorded" not in issue_codes
 
 
+@pytest.mark.parametrize(
+    ("reason", "issue_code", "topology_overrides"),
+    [
+        ("saturated", "worker_topology_saturated", {}),
+        (
+            "execution_stalled",
+            "worker_topology_execution_stalled",
+            {"stale_execution_queues": ["processing"]},
+        ),
+        (
+            "execution_evidence_missing",
+            "worker_topology_execution_evidence_missing",
+            {"missing_execution_evidence_queues": ["processing"]},
+        ),
+        (
+            "canary_dispatch_unavailable",
+            "worker_topology_canary_dispatch_unavailable",
+            {
+                "stale_execution_queues": ["processing"],
+                "canary_dispatch_ok": False,
+                "canary_dispatch_reason": "stale",
+            },
+        ),
+    ],
+)
+def test_overview_worker_headline_uses_detailed_topology(
+    db_session,
+    monkeypatch,
+    reason,
+    issue_code,
+    topology_overrides,
+):
+    now = datetime(2026, 9, 1, 12, 0, tzinfo=timezone.utc)
+    _install_healthy_probes(monkeypatch, now)
+    topology = _worker_topology(
+        now,
+        status="degraded",
+        reason=reason,
+        **topology_overrides,
+    )
+    monkeypatch.setattr(
+        operations,
+        "collect_worker_topology",
+        lambda *_args, **_kwargs: topology,
+    )
+    monkeypatch.setattr(
+        operations_probes.health_routes,
+        "_worker_health_snapshot",
+        lambda _settings: (_ for _ in ()).throw(
+            AssertionError("legacy worker snapshot must not run")
+        ),
+    )
+
+    overview = operations.collect_operations_overview(db_session, now=now)
+    workers = next(
+        component for component in overview.components if component.key == "workers"
+    )
+
+    assert overview.overall_status == "degraded"
+    assert workers.status == topology.status
+    assert workers.metrics["topology_reason"] == topology.reason
+    assert issue_code in {entry.code for entry in overview.issues}
+
+
+def test_diagnostics_reuses_one_topology_for_headline_and_detail(
+    db_session,
+    monkeypatch,
+):
+    now = datetime(2026, 9, 1, 12, 0, tzinfo=timezone.utc)
+    _install_healthy_probes(monkeypatch, now)
+    topology = _worker_topology(
+        now,
+        status="degraded",
+        reason="execution_stalled",
+        stale_execution_queues=["processing"],
+    )
+    calls = 0
+
+    def collect(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        return topology
+
+    monkeypatch.setattr(operations, "collect_worker_topology", collect)
+
+    diagnostics = operations.collect_operations_diagnostics(db_session)
+    workers = next(
+        component
+        for component in diagnostics.overview.components
+        if component.key == "workers"
+    )
+
+    assert calls == 1
+    assert diagnostics.worker_topology.reason == "execution_stalled"
+    assert workers.status == diagnostics.worker_topology.status
+    assert workers.metrics["topology_reason"] == diagnostics.worker_topology.reason
+
+
+def test_health_sample_does_not_double_count_overview_worker_issue(
+    db_session,
+    monkeypatch,
+):
+    now = datetime(2026, 9, 1, 12, 0, tzinfo=timezone.utc)
+    _install_healthy_probes(monkeypatch, now)
+    topology = _worker_topology(
+        now,
+        status="degraded",
+        reason="saturated",
+    )
+    monkeypatch.setattr(
+        operations,
+        "collect_worker_topology",
+        lambda *_args, **_kwargs: topology,
+    )
+
+    overview = operations.collect_operations_overview(db_session, now=now)
+    sample, created = record_system_health_sample(
+        db_session,
+        overview=overview,
+        worker_topology=topology,
+    )
+
+    assert created is True
+    assert sample.issue_codes_json.count("worker_topology_saturated") == 1
+    assert sample.warning_issue_count == sum(
+        issue.severity == "warning" for issue in overview.issues
+    )
+    assert sample.critical_issue_count == sum(
+        issue.severity == "critical" for issue in overview.issues
+    )
+
+
 def _report(
     *,
     status: str,
@@ -570,7 +759,7 @@ def _operation_run(
     )
 
 
-def test_recovery_readiness_correlates_evidence_to_the_latest_archive(db_session):
+def test_recovery_activity_correlates_evidence_to_the_latest_archive(db_session):
     now = datetime.now(timezone.utc).replace(microsecond=0)
     latest_checksum = "a" * 64
     older_checksum = "b" * 64
@@ -604,12 +793,11 @@ def test_recovery_readiness_correlates_evidence_to_the_latest_archive(db_session
         issues=issues,
         database_ok=True,
     )
-    issue_codes = {entry.code for entry in issues}
-
     assert recovery.latest_backup is not None
     assert recovery.latest_backup.metadata["archive_sha256"] == latest_checksum
-    assert "latest_backup_verify_mismatch" not in issue_codes
-    assert "latest_backup_drill_mismatch" in issue_codes
+    assert recovery.latest_verify is not None
+    assert recovery.latest_restore_drill is None
+    assert issues == []
 
 
 def test_recovery_evidence_is_loaded_from_one_statement_snapshot(db_session):
@@ -650,7 +838,7 @@ def test_recovery_evidence_is_loaded_from_one_statement_snapshot(db_session):
     assert correlation.verify.metadata["archive_sha256"] == checksum
 
 
-def test_recovery_readiness_reports_stale_success_and_incomplete_attempt(db_session):
+def test_recovery_activity_does_not_score_stale_or_incomplete_runs(db_session):
     now = datetime.now(timezone.utc).replace(microsecond=0)
     db_session.add_all(
         [
@@ -671,19 +859,18 @@ def test_recovery_readiness_reports_stale_success_and_incomplete_attempt(db_sess
     db_session.commit()
 
     issues = []
-    operations_projections.collect_recovery_snapshot(
+    recovery = operations_projections.collect_recovery_snapshot(
         db_session,
         issues=issues,
         database_ok=True,
     )
-    issue_codes = {entry.code for entry in issues}
+    assert recovery.latest_backup is not None
+    assert recovery.latest_restore_drill is not None
+    assert recovery.latest_restore_drill.status == "running"
+    assert issues == []
 
-    assert "latest_backup_stale" in issue_codes
-    assert "latest_restore_drill_incomplete" in issue_codes
-    assert "latest_backup_not_verified" in issue_codes
 
-
-def test_recovery_readiness_reports_stale_drill_for_latest_archive(db_session):
+def test_recovery_activity_does_not_score_stale_drill(db_session):
     now = datetime.now(timezone.utc).replace(microsecond=0)
     checksum = "9" * 64
     db_session.add_all(
@@ -717,10 +904,10 @@ def test_recovery_readiness_reports_stale_drill_for_latest_archive(db_session):
         database_ok=True,
     )
 
-    assert "latest_restore_drill_stale" in {entry.code for entry in issues}
+    assert issues == []
 
 
-def test_recovery_readiness_selects_matching_successful_evidence(db_session):
+def test_recovery_activity_selects_matching_successful_evidence(db_session):
     now = datetime.now(timezone.utc).replace(microsecond=0)
     backup_checksum = "d" * 64
     unrelated_checksum = "e" * 64
@@ -766,18 +953,14 @@ def test_recovery_readiness_selects_matching_successful_evidence(db_session):
         issues=issues,
         database_ok=True,
     )
-    issue_codes = {entry.code for entry in issues}
-
     assert recovery.latest_backup is not None
     assert recovery.latest_backup.status == "failed"
-    assert "latest_backup_failed" in issue_codes
-    assert "latest_backup_not_verified" not in issue_codes
-    assert "latest_backup_verify_mismatch" not in issue_codes
-    assert "latest_backup_not_drilled" not in issue_codes
-    assert "latest_backup_drill_mismatch" not in issue_codes
+    assert recovery.latest_verify is not None
+    assert recovery.latest_restore_drill is not None
+    assert issues == []
 
 
-def test_recovery_readiness_ignores_failures_for_older_archives(db_session):
+def test_recovery_activity_ignores_failures_for_older_archives(db_session):
     now = datetime.now(timezone.utc).replace(microsecond=0)
     latest_checksum = "f" * 64
     older_checksum = "0" * 64
@@ -823,11 +1006,8 @@ def test_recovery_readiness_ignores_failures_for_older_archives(db_session):
         issues=issues,
         database_ok=True,
     )
-    issue_codes = {entry.code for entry in issues}
-
     assert recovery.latest_verify is not None
     assert recovery.latest_verify.status == "succeeded"
     assert recovery.latest_restore_drill is not None
     assert recovery.latest_restore_drill.status == "succeeded"
-    assert "latest_backup_verify_failed" not in issue_codes
-    assert "latest_restore_drill_failed" not in issue_codes
+    assert issues == []

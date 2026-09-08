@@ -138,12 +138,13 @@ x-backend-environment: &backend-environment
   HEALTH_WORKER_PING_TIMEOUT_SECONDS: "${HEALTH_WORKER_PING_TIMEOUT_SECONDS:-1.0}"
   BEAT_HEARTBEAT_KEY: "${BEAT_HEARTBEAT_KEY:-threatlens:beat:heartbeat}"
   BEAT_SCHEDULER_HEARTBEAT_KEY: "${BEAT_SCHEDULER_HEARTBEAT_KEY:-threatlens:beat:scheduler-heartbeat}"
-  BEAT_HEARTBEAT_TTL_SECONDS: "${BEAT_HEARTBEAT_TTL_SECONDS:-180}"
+  BEAT_HEARTBEAT_TTL_SECONDS: "${BEAT_HEARTBEAT_TTL_SECONDS:-360}"
   BEAT_HEARTBEAT_STALE_AFTER_SECONDS: "${BEAT_HEARTBEAT_STALE_AFTER_SECONDS:-180}"
   BEAT_HEARTBEAT_INTERVAL_SECONDS: "${BEAT_HEARTBEAT_INTERVAL_SECONDS:-60}"
   BEAT_WATCHDOG_STARTUP_GRACE_SECONDS: "${BEAT_WATCHDOG_STARTUP_GRACE_SECONDS:-240}"
   BEAT_WATCHDOG_CHECK_INTERVAL_SECONDS: "${BEAT_WATCHDOG_CHECK_INTERVAL_SECONDS:-15}"
   BEAT_WATCHDOG_TERMINATE_TIMEOUT_SECONDS: "${BEAT_WATCHDOG_TERMINATE_TIMEOUT_SECONDS:-10}"
+  OPERATIONS_HEALTH_HISTORY_RETENTION_DAYS: "${OPERATIONS_HEALTH_HISTORY_RETENTION_DAYS:-30}"
   NOTIFICATION_DELIVERY_ENQUEUE_BATCH_SIZE: "${NOTIFICATION_DELIVERY_ENQUEUE_BATCH_SIZE:-100}"
   NOTIFICATION_DELIVERY_RECOVERY_BATCH_SIZE: "${NOTIFICATION_DELIVERY_RECOVERY_BATCH_SIZE:-100}"
   NOTIFICATION_DELIVERY_SENDING_STALE_AFTER_SECONDS: "${NOTIFICATION_DELIVERY_SENDING_STALE_AFTER_SECONDS:-120}"
@@ -343,7 +344,7 @@ services:
         "worker",
         "--loglevel=${LOG_LEVEL:-INFO}",
         "--concurrency=${MAINTENANCE_WORKER_CONCURRENCY:-1}",
-        "--queues=maintenance",
+        "--queues=maintenance,lifecycle-v1",
         "-n",
         "maintenance@%h",
       ]
@@ -351,7 +352,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "python -c \"from app.tasks.celery_app import celery_app; import os, sys; target = f'maintenance@{os.environ[\\\"HOSTNAME\\\"]}'; result = celery_app.control.inspect(timeout=2).ping([target]) or {}; sys.exit(0 if target in result else 1)\"",
+          "python -c \"from app.tasks.celery_app import celery_app; import os, sys; target = f'maintenance@{os.environ[\\\"HOSTNAME\\\"]}'; inspector = celery_app.control.inspect(destination=[target], timeout=2); ping = inspector.ping() or {}; queues = inspector.active_queues() or {}; names = {entry.get('name') for entry in queues.get(target, [])}; sys.exit(0 if target in ping and {'maintenance', 'lifecycle-v1'} <= names else 1)\"",
         ]
       interval: 30s
       timeout: 10s

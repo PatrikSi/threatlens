@@ -138,6 +138,12 @@ Indexes include feed/source/canonical/domain/published/first_seen/status/content
 - `word_count: int?`
 - `fetch_ms: int?`
 - `error: text?`
+- `content_purged_at: timestamptz?`
+- `content_purge_run_id: UUID?` (FK lifecycle runs, set null if the run ledger is removed)
+
+The partial retention index covers only rows whose fetched text remains present.
+Lifecycle cleanup clears extracted payload fields and sets the purge marker while
+retaining the row's fetch outcome and its Item ingestion identity.
 
 ### `ItemState`
 
@@ -455,6 +461,26 @@ evidence, and note changes.
 
 Report schedules use idempotent generation keys. Reports retain source, prompt, and company/global context snapshots so retries do not depend on later item or template changes. Provider credentials, model selection, and context guardrails are revalidated from current AI settings when work executes.
 
+### Data Lifecycle Models
+
+- `LifecyclePolicy` has one row per code-owned target key. It stores enablement,
+  retention days, daily/weekly UTC schedule, per-run record cap, validated target
+  options, optimistic revision, next/last run evidence, a configuration-only
+  timestamp, and a durable update-actor label snapshot.
+- `LifecyclePreview` is a short-lived aggregate calculation bound to a target,
+  policy revision, canonical draft fingerprint, cutoff, requester, eligible and
+  protected counts, protected reasons, optional byte estimate, and expiry. Its
+  evidence is immutable except for one-time consumption and deletion-driven live
+  requester nulling.
+- `LifecycleRun` snapshots the complete policy and cutoff and persists manual or
+  scheduled trigger, idempotency, one-active-run exclusion, lease/heartbeat,
+  cancellation, monotonic aggregate counters, byte count, backlog, sanitized
+  failure, and immutable terminal timestamps and evidence.
+
+Target keys are constrained in both application schemas and PostgreSQL; clients
+cannot supply a database table or query. Scheduled target/tick and manual
+actor/target/idempotency uniqueness prevent duplicate execution records.
+
 ## API Schemas (`backend/app/schemas`)
 
 ### Auth Schemas
@@ -539,6 +565,10 @@ Report schedules use idempotent generation keys. Reports retain source, prompt, 
     schemas
   - data-policy state, handling-label mutation, preflight blocker, route-manifest
     evidence, and mode-transition schemas
+- Data lifecycle:
+  - policy draft/update and fixed target catalog responses
+  - expiring aggregate preview request/response
+  - manual run, cancellation, run detail, and paginated run-history contracts
 
 ## Frontend Type Mirrors (`web/src/types/api.ts`)
 
@@ -551,6 +581,7 @@ The frontend mirrors backend contracts for all major payloads:
 - Stats: `StatsOverviewResponse`, `StatsFeedTimeSeriesResponse`, `StatsActivityHeatmapResponse`, `StatsSignalRadarResponse` and nested types
 - Feeds/import-export metadata: `Feed`, `FeedMetadataResponse`, `FeedImportEntry`, `FeedExportResponse`, `FeedImportResponse`
 - Items/detail/graph: `ItemListEntry`, `ItemListResponse`, `ItemDetail`, `ItemGraphResponse`
+- Data lifecycle: policy, target, preview, run, and paginated run-history mirrors
 - Tags: `Tag`
 - Alerts: `AlertInterest`, `AlertMatchReference`, `AlertMatchEntry`, `AlertMatchListResponse`
 - Notifications: `NotificationTemplateVariable`, `NotificationWebhook`, `NotificationWebhookWriteRequest`, `NotificationWebhookTestResponse`, `NotificationWebhookDelivery`, `NotificationWebhookDeliveryListResponse`

@@ -1,4 +1,5 @@
 import hashlib
+import math
 import re
 import secrets
 from functools import lru_cache
@@ -305,12 +306,13 @@ class Settings(BaseSettings):
     health_worker_ping_timeout_seconds: float = 1.0
     beat_heartbeat_key: str = "threatlens:beat:heartbeat"
     beat_scheduler_heartbeat_key: str = "threatlens:beat:scheduler-heartbeat"
-    beat_heartbeat_ttl_seconds: int = 180
+    beat_heartbeat_ttl_seconds: int = 360
     beat_heartbeat_stale_after_seconds: int = 180
     beat_heartbeat_interval_seconds: int = 60
     beat_watchdog_startup_grace_seconds: int = 240
     beat_watchdog_check_interval_seconds: int = 15
     beat_watchdog_terminate_timeout_seconds: int = 10
+    operations_health_history_retention_days: int = 30
     notification_delivery_enqueue_batch_size: int = 100
     notification_delivery_recovery_batch_size: int = 100
     notification_delivery_sending_stale_after_seconds: int = 120
@@ -697,6 +699,16 @@ class Settings(BaseSettings):
             raise ValueError("Logging limits must be greater than zero")
         return value
 
+    @field_validator("health_worker_ping_timeout_seconds")
+    @classmethod
+    def _validate_worker_probe_timeout(cls, value: float) -> float:
+        if not math.isfinite(value) or value <= 0 or value > 60:
+            raise ValueError(
+                "health_worker_ping_timeout_seconds must be greater than zero "
+                "and at most 60"
+            )
+        return value
+
     @field_validator(
         "beat_heartbeat_ttl_seconds",
         "beat_heartbeat_stale_after_seconds",
@@ -709,6 +721,15 @@ class Settings(BaseSettings):
         if value <= 0:
             raise ValueError(
                 "Beat heartbeat and watchdog timing values must be greater than zero"
+            )
+        return value
+
+    @field_validator("operations_health_history_retention_days")
+    @classmethod
+    def _validate_health_history_retention(cls, value: int) -> int:
+        if value <= 0 or value > 3650:
+            raise ValueError(
+                "operations_health_history_retention_days must be between 1 and 3650"
             )
         return value
 
@@ -729,6 +750,24 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _validate_beat_timing(self):
+        minimum_stale_after = self.beat_heartbeat_interval_seconds * 2
+        if self.beat_heartbeat_stale_after_seconds < minimum_stale_after:
+            raise ValueError(
+                "beat_heartbeat_stale_after_seconds must be at least twice "
+                "beat_heartbeat_interval_seconds to allow scheduling jitter"
+            )
+        if self.beat_heartbeat_ttl_seconds == self.beat_heartbeat_stale_after_seconds:
+            # Preserve the previously shipped 180/180 configuration while
+            # making the effective Redis TTL safely outlive the stale window.
+            self.beat_heartbeat_ttl_seconds += self.beat_heartbeat_interval_seconds
+        elif (
+            self.beat_heartbeat_ttl_seconds
+            < self.beat_heartbeat_stale_after_seconds
+        ):
+            raise ValueError(
+                "beat_heartbeat_ttl_seconds must be greater than "
+                "beat_heartbeat_stale_after_seconds"
+            )
         if (
             self.beat_watchdog_startup_grace_seconds
             < self.beat_heartbeat_interval_seconds

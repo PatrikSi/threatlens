@@ -1,6 +1,6 @@
 ThreatLens frontend OS package legal bundle
 
-This directory is generated from the Alpine runtime image shipped by web/Dockerfile.
+This directory is generated from the Alpine runtime image shipped by docker/web.Dockerfile.
 
 Each package directory contains:
 - APK-INFO: the raw package metadata block copied from /lib/apk/db/installed

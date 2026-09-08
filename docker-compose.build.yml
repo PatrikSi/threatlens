@@ -1,32 +1,41 @@
 services:
   api:
+    image: &backend-image threatlens-backend:${THREATLENS_DEV_IMAGE_TAG:-dev}
     pull_policy: build
     build:
       context: ./backend
+      dockerfile: ../docker/backend.Dockerfile
       args:
         APP_VERSION: ${THREATLENS_BUILD_VERSION:-1.10.0}
         BUILD_DATE: ${BUILD_DATE:-unknown}
         VCS_REF: ${VCS_REF:-unknown}
 
   worker:
+    image: *backend-image
     pull_policy: never
 
   worker-ai:
+    image: *backend-image
     pull_policy: never
 
   worker-maintenance:
+    image: *backend-image
     pull_policy: never
 
   worker-notifications:
+    image: *backend-image
     pull_policy: never
 
   beat:
+    image: *backend-image
     pull_policy: never
 
   web:
+    image: threatlens-web:${THREATLENS_DEV_IMAGE_TAG:-dev}
     pull_policy: build
     build:
       context: ./web
+      dockerfile: ../docker/web.Dockerfile
       args:
         APP_VERSION: ${THREATLENS_BUILD_VERSION:-1.10.0}
         BUILD_DATE: ${BUILD_DATE:-unknown}

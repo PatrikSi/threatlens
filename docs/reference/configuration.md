@@ -9,7 +9,7 @@
 - `api`: FastAPI (internal only on `8000`)
 - `worker`: Celery worker for ingestion and processing queues
 - `worker-ai`: isolated Celery worker for AI enrichment, daily briefs, and report generation; it consumes both `ai` and the rolling-upgrade-safe `ai-reports-v2` report queue
-- `worker-maintenance`: isolated Celery worker for scheduler heartbeats, outbox recovery, and maintenance tasks
+- `worker-maintenance`: isolated Celery worker for scheduler heartbeats, outbox recovery, fixed housekeeping, and policy-driven lifecycle tasks; it consumes both `maintenance` and the versioned `lifecycle-v1` queue
 - `worker-notifications`: isolated Celery worker for integration event routing and outbound deliveries
 - `beat`: Celery beat scheduler
 - `web`: Nginx serving Vite build (`3000`) and reverse proxying only `/api/v1/*` plus `/api/openapi.json` to `api`
@@ -69,7 +69,7 @@
 | `AUTH_SESSION_ABSOLUTE_TTL_SECONDS` (`auth_session_absolute_ttl_seconds`) | `86400` | Maximum lifetime of an opaque browser session, regardless of activity. |
 | `AUTH_SESSION_IDLE_TTL_SECONDS` (`auth_session_idle_ttl_seconds`) | `43200` | Maximum inactivity period for an opaque browser session. Must not exceed the absolute lifetime. |
 | `AUTH_SESSION_ACTIVITY_UPDATE_SECONDS` (`auth_session_activity_update_seconds`) | `300` | Minimum interval between best-effort session activity writes. Must not exceed the idle lifetime. |
-| `AUTH_SESSION_RETENTION_DAYS` (`auth_session_retention_days`) | `30` | Retention period for terminal browser-session history before maintenance removes it. |
+| `AUTH_SESSION_RETENTION_DAYS` (`auth_session_retention_days`) | `30` | Bootstrap retention for the inactive-session lifecycle policy. |
 | `AUTH_MAX_ACTIVE_SESSIONS_PER_USER` (`auth_max_active_sessions_per_user`) | `100` | Maximum concurrently active opaque browser sessions for one account. Creating another session revokes the oldest excess sessions; inactive history is retained separately. |
 | `AUTH_MFA_CHALLENGE_COOKIE_NAME` (`auth_mfa_challenge_cookie_name`) | `threatlens_mfa_challenge` | HttpOnly cookie containing the short-lived local MFA login challenge. Use a name distinct from the auth, CSRF, and OIDC transaction cookies. |
 | `AUTH_MFA_CHALLENGE_TTL_SECONDS` (`auth_mfa_challenge_ttl_seconds`) | `300` | Lifetime of a local MFA login challenge. |
@@ -151,12 +151,13 @@
 | `LOG_SLOW_REQUEST_MS` (`log_slow_request_ms`) | `1000` | Promote successful requests at or above this duration to warning logs. |
 | `LOG_MAX_EVENT_CHARS` (`log_max_event_chars`) | `20000` | Per-message and exception text bound before diagnostic output is truncated. |
 | `LOG_SQL` (`log_sql`) | `false` | Emit SQLAlchemy statements at `INFO`; bound parameter values are always hidden. |
-| `HEALTH_WORKER_PING_TIMEOUT_SECONDS` (`health_worker_ping_timeout_seconds`) | `1.0` | Timeout for Celery worker ping checks on `/health/worker`. |
+| `HEALTH_WORKER_PING_TIMEOUT_SECONDS` (`health_worker_ping_timeout_seconds`) | `1.0` | Timeout for Celery worker ping checks on `/health/worker`, greater than 0 and at most 60 seconds. The six concurrent Operations topology probes cap their effective timeout at 8 seconds. |
+| `OPERATIONS_HEALTH_HISTORY_RETENTION_DAYS` (`operations_health_history_retention_days`) | `30` | Bootstrap retention for the five-minute System health sample lifecycle policy. Must be between 1 and 3650 days. |
 | `BEAT_HEARTBEAT_KEY` (`beat_heartbeat_key`) | `threatlens:beat:heartbeat` | Redis key where the Beat-to-worker heartbeat task writes timestamps. |
 | `BEAT_SCHEDULER_HEARTBEAT_KEY` (`beat_scheduler_heartbeat_key`) | `threatlens:beat:scheduler-heartbeat` | Redis key updated directly after each successful Celery Beat scheduler tick. |
-| `BEAT_HEARTBEAT_TTL_SECONDS` (`beat_heartbeat_ttl_seconds`) | `180` | Redis TTL for both scheduler and Beat-to-worker heartbeat keys. |
-| `BEAT_HEARTBEAT_STALE_AFTER_SECONDS` (`beat_heartbeat_stale_after_seconds`) | `180` | Max allowed age for both heartbeats; the round trip controls API readiness and the direct scheduler heartbeat controls watchdog recovery. |
-| `BEAT_HEARTBEAT_INTERVAL_SECONDS` (`beat_heartbeat_interval_seconds`) | `60` | Beat schedule interval for heartbeat task emission. |
+| `BEAT_HEARTBEAT_TTL_SECONDS` (`beat_heartbeat_ttl_seconds`) | `360` | Redis TTL for scheduler and Beat-to-worker heartbeat keys, and the minimum retention for queue-execution evidence. It must exceed the stale window. Queue evidence is retained for at least three stale windows so a stopped consumer remains distinguishable from a never-observed consumer. A legacy value equal to the stale window is accepted and normalized to stale window plus interval during upgrade. |
+| `BEAT_HEARTBEAT_STALE_AFTER_SECONDS` (`beat_heartbeat_stale_after_seconds`) | `180` | Max allowed age for scheduler, round-trip, and queue execution evidence. It must cover at least two heartbeat intervals. |
+| `BEAT_HEARTBEAT_INTERVAL_SECONDS` (`beat_heartbeat_interval_seconds`) | `60` | Beat interval for heartbeat and per-queue canary emission. |
 | `BEAT_WATCHDOG_STARTUP_GRACE_SECONDS` (`beat_watchdog_startup_grace_seconds`) | `240` | Grace period after Beat starts before a missing or stale heartbeat forces a restart. |
 | `BEAT_WATCHDOG_CHECK_INTERVAL_SECONDS` (`beat_watchdog_check_interval_seconds`) | `15` | Interval between watchdog heartbeat checks. |
 | `BEAT_WATCHDOG_TERMINATE_TIMEOUT_SECONDS` (`beat_watchdog_terminate_timeout_seconds`) | `10` | Time allowed for Beat to stop before the watchdog force-kills it. |
@@ -179,20 +180,26 @@
 | `INTEGRATION_DELIVERY_CIRCUIT_OPEN_SECONDS` (`integration_delivery_circuit_open_seconds`) | `300` | Open-circuit cooldown before a half-open probe. |
 | `INTEGRATION_DELIVERY_METRICS_DELAY_SECONDS` (`integration_delivery_metrics_delay_seconds`) | `60` | Minimum terminal-delivery age before metrics aggregation can consume it. |
 | `INTEGRATION_DELIVERY_MAINTENANCE_BATCH_SIZE` (`integration_delivery_maintenance_batch_size`) | `1000` | Maximum delivery or event records processed per maintenance batch. |
-| `INTEGRATION_DELIVERY_RETENTION_DAYS` (`integration_delivery_retention_days`) | `90` | Terminal generic and linked legacy webhook history retention after metric rollup. |
-| `INTEGRATION_EVENT_RETENTION_DAYS` (`integration_event_retention_days`) | `30` | Routed/dead outbox event retention after all deliveries are removed. |
-| `INTEGRATION_METRICS_RETENTION_DAYS` (`integration_metrics_retention_days`) | `730` | Hourly delivery rollup retention. |
-| `AUDIT_LOG_RETENTION_DAYS` (`audit_log_retention_days`) | `730` | Audit log retention before maintenance removes expired records, including event-time actor and resource identity snapshots. |
-| `ACTION_APPROVAL_RETENTION_DAYS` (`action_approval_retention_days`) | `730` | Terminal or expired action-approval, execution-receipt, and idempotency-receipt retention. Referenced AI runs and provider-attempt receipt operations remain pinned until the approval is eligible for deletion. |
-| `AI_TASK_HISTORY_RETENTION_DAYS` (`ai_task_history_retention_days`) | `180` | Terminal AI task and task-event history retention. |
-| `AI_USAGE_RETENTION_DAYS` (`ai_usage_retention_days`) | `730` | AI usage aggregate retention. |
-| `TAG_FEEDBACK_RETENTION_DAYS` (`tag_feedback_retention_days`) | `730` | User tag-feedback retention for quality analysis. |
-| `INTEGRATION_RUN_RETENTION_DAYS` (`integration_run_retention_days`) | `180` | Terminal integration test and execution run retention. |
+| `INTEGRATION_DELIVERY_RETENTION_DAYS` (`integration_delivery_retention_days`) | `90` | Bootstrap retention for the terminal delivery-history lifecycle policy; aggregation still precedes deletion. |
+| `INTEGRATION_EVENT_RETENTION_DAYS` (`integration_event_retention_days`) | `30` | Bootstrap retention for the routed/dead integration-event lifecycle policy. |
+| `INTEGRATION_METRICS_RETENTION_DAYS` (`integration_metrics_retention_days`) | `730` | Bootstrap retention for the hourly integration-metrics lifecycle policy. |
+| `AUDIT_LOG_RETENTION_DAYS` (`audit_log_retention_days`) | `730` | Bootstrap retention for the audit-log lifecycle policy, including event-time actor and resource identity snapshots. |
+| `ACTION_APPROVAL_RETENTION_DAYS` (`action_approval_retention_days`) | `730` | Bootstrap retention for terminal action approvals and their receipts. Referenced AI runs and unresolved provider-attempt operations remain pinned. |
+| `AI_TASK_HISTORY_RETENTION_DAYS` (`ai_task_history_retention_days`) | `180` | Bootstrap retention for the terminal AI task-history lifecycle policy. |
+| `AI_USAGE_RETENTION_DAYS` (`ai_usage_retention_days`) | `730` | Bootstrap retention for the AI usage-history lifecycle policy. |
+| `TAG_FEEDBACK_RETENTION_DAYS` (`tag_feedback_retention_days`) | `730` | Bootstrap retention for the tag-feedback lifecycle policy. |
+| `INTEGRATION_RUN_RETENTION_DAYS` (`integration_run_retention_days`) | `180` | Bootstrap retention for the terminal integration-run lifecycle policy. |
 | `EXPORT_MAX_ITEMS` (`export_max_items`) | `10000` | Maximum articles in a non-PDF article export. |
 | `EXPORT_PDF_MAX_ITEMS` (`export_pdf_max_items`) | `500` | Maximum articles in a readable PDF bundle. Must not exceed `EXPORT_MAX_ITEMS`. |
 | `EXPORT_PREVIEW_LIMIT` (`export_preview_limit`) | `25` | Maximum representative rows returned by article export preview. Must not exceed `EXPORT_MAX_ITEMS`. |
 | `EXPORT_MAX_UNCOMPRESSED_BYTES` (`export_max_uncompressed_bytes`) | `250000000` | Maximum generated bytes accounted before compression and maximum final artifact size. |
 | `EXPORT_LOCK_TTL_SECONDS` (`export_lock_ttl_seconds`) | `900` | Redis-backed per-user export lock lifetime and abandoned-lock recovery interval. Active exports renew the lock every third of this interval. |
+
+Retention environment values seed the complete fixed lifecycle catalog atomically
+on its first access after upgrade. After the catalog marker is written, change
+live retention, schedule, safeguards, and record caps in **Settings > Data
+lifecycle**. Restarting with different environment values does not overwrite the
+catalog, and missing or partial rows fail closed instead of being recreated.
 
 ## Production Validation Rules
 
@@ -224,19 +231,83 @@ Outside production:
   - `ghcr.io/patriksi/threatlens-backend:${THREATLENS_IMAGE_TAG:-latest}` for `api`, `worker`, `worker-ai`, `worker-maintenance`, `worker-notifications`, and `beat`
   - `ghcr.io/patriksi/threatlens-web:${THREATLENS_IMAGE_TAG:-latest}` for `web`
 - The default compose file pulls fresh ThreatLens application images during `docker compose up`. Source builds require the explicit override: `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build`.
+- Both custom Dockerfiles live under `docker/`, retaining `backend/` and `web/` as their build contexts and using the `.dockerignore` in each context. `./docker/build.sh` builds both images without a runtime `.env`; pass `backend` or `web` to build individually. See [Development Image Builds](../../docker/README.md).
+- The source-build override uses `threatlens-backend:${THREATLENS_DEV_IMAGE_TAG:-dev}` for every backend service and `threatlens-web:${THREATLENS_DEV_IMAGE_TAG:-dev}` for the frontend. `THREATLENS_IMAGE_TAG` selects published images only. Export `THREATLENS_DEV_IMAGE_TAG` when using a custom tag with the helper and Compose together; the helper reads exported variables, while Compose also reads `.env`.
 - `THREATLENS_IMAGE_TAG` defaults to `latest`, which tracks the newest default published image. Set it to an immutable release tag such as `1.0.0` or `v1.0.0`, or to a `sha-<commit>` tag, when you need a pinned deployment.
 - `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `DATABASE_URL`, and `REDIS_URL` are required by compose interpolation unless the generated YAML mapping is pasted into the compose file, so missing values fail the stack instead of silently falling back to weak defaults.
 - `docker-compose.yml` runs migrations on API startup by default and can seed the admin account from the API container when `SEED_ADMIN_ON_STARTUP=true`.
 - On first boot, either set `SEED_ADMIN_ON_STARTUP=true` for the API service or run `docker compose exec api python -m app.scripts.seed_admin` after migrations, then keep `SEED_ADMIN_ON_STARTUP=false` and `SEED_ADMIN_RESET_PASSWORD_ON_STARTUP=false` for steady state.
 - All workers and `beat` depend on healthy `api`, plus healthy DB/Redis, so they start only after schema startup work completes.
 - `beat` runs as a dedicated scheduler service so periodic jobs do not multiply with worker replicas.
-- `worker` consumes `default`, `ingest`, and `processing`; `worker-ai` consumes `ai` and `ai-reports-v2`; `worker-maintenance` consumes only `maintenance`; `worker-notifications` consumes only `notifications`. The versioned report queue keeps newly published fenced report tasks away from pre-fencing AI workers during rolling upgrades.
+- `worker` consumes `default`, `ingest`, and `processing`; `worker-ai` consumes `ai` and `ai-reports-v2`; `worker-maintenance` consumes `maintenance` and `lifecycle-v1`; `worker-notifications` consumes only `notifications`. The versioned queues keep new report and lifecycle task contracts away from workers that predate them. Both maintenance queues are required by readiness and Operations queue-execution checks.
 - Compose worker concurrency defaults to `4`, `1`, `1`, and `4` respectively. Override these with `WORKER_CONCURRENCY`, `AI_WORKER_CONCURRENCY`, `MAINTENANCE_WORKER_CONCURRENCY`, and `NOTIFICATION_WORKER_CONCURRENCY`. Keep AI concurrency at `1` for a memory-constrained local provider unless provider capacity has been measured.
 - The API is not published on a host port by default; use the web service at `http://localhost:3000/api/v1/*` or place the stack behind your own reverse proxy.
 - The published OpenAPI schema is exposed through the web proxy at `http://localhost:3000/api/openapi.json`.
 - The same compose injects secure defaults for `APP_ENV`, `AUTH_COOKIE_SECURE`, `AUTH_REQUIRE_CSRF`, and `REQUIRE_EXPLICIT_DATA_ENCRYPTION_KEY=true`. It intentionally lets Docker allocate project-scoped networks so multiple stacks do not collide. Set `TRUSTED_PROXY_CIDRS` only when you need the API to trust `X-Forwarded-For` from exact reverse-proxy hops you control.
 - `docker-compose.build.yml` forwards exported `THREATLENS_BUILD_VERSION`, `BUILD_DATE`, and `VCS_REF` values into every locally built ThreatLens image as OCI label args. Export them before running the source-build override if you want local image metadata to capture the app version, checked-out revision, and build time; otherwise the version falls back to the checked-in compose default and the provenance labels fall back to `unknown`. The build override deliberately ignores a host or `.env` `APP_VERSION` value so stale runtime metadata cannot silently stamp a new image.
+- `docker/build.sh` fills the version, build date, and revision automatically from `VERSION`, the current UTC time, and the checked-out Git commit; the same exported build variables override these defaults.
 - `WEB_VITE_API_BASE_URL` from `.env` is passed to the web image as `VITE_API_BASE_URL` and defaults to `/api/v1`. For non-proxied deployments, set it to a full versioned API origin such as `https://api.example.com/v1`.
+
+## Lifecycle Queue Cutover
+
+The release that introduces database-backed lifecycle policies has a strict
+quiescence boundary. It is not safe to run an older Beat or a worker consuming
+`maintenance` after the new lifecycle catalog has been bootstrapped: the older
+binary can still publish or execute its environment-driven destructive history
+tasks without consulting the database policies. The `lifecycle-v1` queue blocks
+older workers from consuming new lifecycle runs, but it cannot stop an older
+worker from executing a legacy message from `maintenance`.
+
+For the default Compose deployment, take a verified database backup and then use
+this order:
+
+1. Pull or build the complete target release for every application service.
+2. Stop old publishers first, then warm-stop the old maintenance consumer:
+
+   ```bash
+   docker compose stop beat api
+   docker compose stop -t 300 worker-maintenance
+   docker compose stop worker worker-ai worker-notifications
+   ```
+
+   Stop any custom or replicated worker that consumes `maintenance` as well.
+   Warm shutdown lets active work settle; an interrupted or queued legacy message
+   is safe to redeliver only to the upgraded compatibility task, which performs
+   fixed policy-independent housekeeping without the retired retention deletions.
+
+3. Confirm that no old API, Beat, or worker process remains, then start the new API
+   by itself so migrations finish before any upgraded worker can execute lifecycle
+   tasks:
+
+   ```bash
+   docker compose ps api beat worker worker-ai worker-maintenance worker-notifications
+   docker compose up -d --wait api
+   ```
+
+4. Start the upgraded workers and verify that `worker-maintenance` is healthy. Its
+   active queue inventory must include both `maintenance` and `lifecycle-v1`:
+
+   ```bash
+   docker compose up -d --wait worker worker-ai worker-maintenance worker-notifications
+   docker compose exec worker-maintenance sh -lc 'celery -A app.tasks.celery_app.celery_app inspect active_queues -d "maintenance@$HOSTNAME"'
+   ```
+
+5. Start the upgraded scheduler last. Its first lifecycle dispatch performs the
+   one-time catalog bootstrap through the upgraded worker. Verify System health
+   and inspect **Settings > Data lifecycle** before changing policy defaults:
+
+   ```bash
+   docker compose up -d --wait beat
+   docker compose ps
+   ```
+
+Do not purge the Redis `maintenance` queue during this procedure because it also
+contains durable wake-ups for non-destructive workflows. The upgraded release
+retains safe handlers for legacy task names so queued messages can drain without
+performing the retired retention deletions. After catalog bootstrap, do not start
+an older API, Beat, or maintenance consumer against that database. A rollback
+across this boundary requires the documented database restore procedure while all
+application processes remain stopped.
 
 ## Diagnostic Logging
 
