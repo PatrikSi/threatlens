@@ -1454,7 +1454,8 @@ def test_refresh_feed_queues_force_fetch(
 
     captured: dict[str, object] = {}
 
-    def _send_task(name: str, args=None, kwargs=None):
+    def _send_task(name: str, args=None, kwargs=None, ignore_result=None):
+        captured["ignore_result"] = ignore_result
         captured["name"] = name
         captured["args"] = args
         captured["kwargs"] = kwargs
@@ -1472,6 +1473,7 @@ def test_refresh_feed_queues_force_fetch(
         "name": "app.tasks.feed_tasks.fetch_feed",
         "args": [str(feed.id)],
         "kwargs": {"force": True},
+        "ignore_result": True,
     }
 
 

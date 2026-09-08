@@ -133,3 +133,24 @@ def test_verbose_task_lifecycle_adds_context_without_logging_argument_values(mon
     assert debug_events[1][1] == ("SUCCESS",)
     assert "sensitive-argument" not in repr(debug_events)
     assert "sensitive-key" not in repr(debug_events)
+
+
+def test_registered_task_producers_ignore_unused_results(monkeypatch):
+    from app.tasks import feed_tasks
+    sent = []
+    def send(name, *_args, **kwargs):
+        sent.append((name, kwargs))
+        return SimpleNamespace(id="fixture-task")
+    monkeypatch.setattr(celery_app, "send_task", send)
+    feed_tasks.fetch_feed.delay("fixture-feed")
+    feed_tasks.fetch_feed.apply_async(args=["fixture-feed"])
+    assert len(sent) == 2
+    assert all(options["ignore_result"] is True for _name, options in sent)
+
+
+def test_metadata_named_task_producer_explicitly_ignores_results(monkeypatch):
+    from app.api.routes.feeds import _enqueue_metadata_backfills
+    sent = []
+    monkeypatch.setattr(celery_app, "send_task", lambda name, **kwargs: sent.append((name, kwargs)))
+    assert _enqueue_metadata_backfills(["fixture-feed"], 1) == 1
+    assert sent == [("app.tasks.feed_tasks.backfill_feed_metadata", {"args": ["fixture-feed"], "ignore_result": True})]
