@@ -1,6 +1,7 @@
 import {
   type Dispatch,
   type MouseEvent as ReactMouseEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   type RefObject,
   type SetStateAction,
 } from 'react'
@@ -184,10 +185,36 @@ export function useDashboardWindowActions({
   const bringWindowToFront = (windowId: string) => {
     setWindows((current) => {
       const target = current.find((entry) => entry.id === windowId)
-      if (!target) return current
+      if (!target || current.at(-1) === target) return current
       const rest = current.filter((entry) => entry.id !== windowId)
       return [...rest, target]
     })
+  }
+
+  const handleWindowGeometryKey = (
+    event: ReactKeyboardEvent<HTMLButtonElement>, windowId: string, mode: 'move' | 'resize',
+  ) => {
+    const directions: Record<string, [number, number]> = {
+      ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1],
+    }
+    const direction = directions[event.key]
+    if (!direction || !isWideLayout || event.altKey || event.ctrlKey || event.metaKey) return
+    event.preventDefault()
+    event.stopPropagation()
+    const step = event.shiftKey ? 40 : 10
+    const bounds = getWindowContainerDimensions(rootRef.current)
+    setWindows((current) => current.map((panel) => {
+      if (panel.id !== windowId || panel.snap !== 'free') return panel
+      const rect = resolveWindowRect(panel, bounds.width, bounds.height)
+      const next = mode === 'move'
+        ? { ...rect,
+            x: clamp(rect.x + direction[0] * step, 0, Math.max(0, bounds.width - rect.width)),
+            y: clamp(rect.y + direction[1] * step, 0, Math.max(0, bounds.height - rect.height)) }
+        : { ...rect,
+            width: clamp(rect.width + direction[0] * step, Math.min(WINDOW_MIN_WIDTH, bounds.width - rect.x), bounds.width - rect.x),
+            height: clamp(rect.height + direction[1] * step, Math.min(WINDOW_MIN_HEIGHT, bounds.height - rect.y), bounds.height - rect.y) }
+      return { ...panel, rect: withPanelRectPercentages(next, bounds.width, bounds.height) }
+    }))
   }
 
   const startWindowDrag = (event: ReactMouseEvent<HTMLDivElement>, windowId: string) => {
@@ -318,6 +345,7 @@ export function useDashboardWindowActions({
     bringWindowToFront,
     closeRenameWindow,
     handleToggleItem,
+    handleWindowGeometryKey,
     openRenameWindow,
     removeWindow,
     saveRenamedWindow,
