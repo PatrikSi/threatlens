@@ -28,6 +28,7 @@ from app.core.logging_config import (
     verbose_logging_enabled,
 )
 from app.db import session as db_session
+from app.services.export_transport import ExportTransferDeadlineMiddleware
 from app.api.routes import (
     access_reviews,
     action_approvals,
@@ -253,6 +254,9 @@ async def request_logging_middleware(request: Request, call_next):
         return response
     finally:
         reset_log_context(context_token)
+
+
+app.add_middleware(ExportTransferDeadlineMiddleware)
 
 
 def _request_log_fields(

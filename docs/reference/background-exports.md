@@ -26,6 +26,24 @@ Publication checks original and current access, selected item/feed membership, a
 
 Rendering holds no global IAM or handling-policy lock. The final publication transaction fences both policies; download uses the same final fenced response boundary as synchronous exports. Policy changes during generation discard the artifact rather than publishing a partly authorized result.
 
+Publication and download take the owner lock before the accepting credential,
+matching token revocation and browser-session security operations. A competing
+revocation either completes first and denies publication, or waits for the
+authorized publication/transfer boundary; it cannot deadlock through a reversed
+owner/credential lock order.
+
+Artifact transfers have an absolute `EXPORT_TRANSFER_TIMEOUT_SECONDS` deadline
+(300 seconds by default), including ranges and downstream response backpressure.
+The same limit covers synchronous and background downloads. Preparation is
+outside this allowance: database statement timeouts, item/byte budgets, and
+background worker generation deadlines continue to apply. It is not a total
+synchronous-generation deadline. Expiry aborts the incomplete transfer,
+releases response files and database authorization fences, and records
+`export_transfer_deadline_exceeded` without artifact contents. The API does not
+attempt a second HTTP response after headers were sent. Retry a background
+download or use a narrower range on a slow connection. The transfer limit does
+not remove the ready background artifact.
+
 Artifacts are stored as separately encrypted 256 KiB PostgreSQL chunks, accessible to API and worker replicas without a shared-filesystem requirement. Request filters and source/credential snapshots are also encrypted with the application data key. Retain previous encryption keys until outstanding jobs expire or are deleted; removing a required key makes those exports unavailable. These short-lived chunks are not an archival export store.
 
 ## Worker state, failure, and recovery
