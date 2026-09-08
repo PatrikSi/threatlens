@@ -73,3 +73,78 @@ def test_paced_lane_does_not_catch_up_after_slow_operations():
 
     assert paced_lane(slow_operation, duration_seconds=0.07, interval_seconds=0.01) <= 3
     assert all(b - a >= 0.02 for a, b in zip(starts, starts[1:], strict=False))
+
+
+def test_watchdog_reaps_orphan_that_ignores_term_and_preserves_sibling(tmp_path):
+    import signal
+    from pathlib import Path
+
+    sibling = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(20)"], start_new_session=True
+    )
+    child_file = tmp_path / "child.pid"
+    child_code = (
+        "import os,signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); open("
+        + repr(str(child_file))
+        + ", 'w').write(str(os.getpid())); time.sleep(20)"
+    )
+    leader_code = (
+        "import subprocess,sys,time; subprocess.Popen([sys.executable, '-c', "
+        + repr(child_code)
+        + "]); time.sleep(20)"
+    )
+    try:
+        output = tmp_path / "result.json"
+        execute_bounded(
+            [sys.executable, "-c", leader_code],
+            cwd=tmp_path,
+            env={},
+            limits={
+                "cpu_count": 1,
+                "nice": 0,
+                "max_rss_bytes": 1024**3,
+                "wall_timeout_seconds": 0.75,
+            },
+            output=output,
+            manifest=tmp_path / "absent",
+            run_id="orphan-test",
+        )
+        assert child_file.exists()
+        child_pid = int(child_file.read_text())
+        assert not Path(f"/proc/{child_pid}").exists()
+        assert sibling.poll() is None
+    finally:
+        os.killpg(sibling.pid, signal.SIGKILL)
+        sibling.wait(timeout=5)
+
+
+def test_failed_leader_cannot_leave_owned_orphan_running(tmp_path):
+    from pathlib import Path
+
+    child_file = tmp_path / "child.pid"
+    child_code = (
+        "import os,time; open("
+        + repr(str(child_file))
+        + ", 'w').write(str(os.getpid())); time.sleep(20)"
+    )
+    leader_code = (
+        "import subprocess,sys,time; subprocess.Popen([sys.executable, '-c', "
+        + repr(child_code)
+        + "]); time.sleep(.2); sys.exit(3)"
+    )
+    code = execute_bounded(
+        [sys.executable, "-c", leader_code],
+        cwd=tmp_path,
+        env={},
+        limits={
+            "cpu_count": 1,
+            "nice": 0,
+            "max_rss_bytes": 1024**3,
+            "wall_timeout_seconds": 5,
+        },
+        output=tmp_path / "result.json",
+        manifest=tmp_path / "absent",
+        run_id="failure-test",
+    )
+    assert code == 3
+    assert not Path(f"/proc/{int(child_file.read_text())}").exists()
