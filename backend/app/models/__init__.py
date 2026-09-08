@@ -41,6 +41,7 @@ from app.models.data_policy import (
     HandlingLabel,
 )
 from app.models.feed import Feed
+from app.models.export_job import ExportJob, ExportJobChunk
 from app.models.governance_operation_receipt import GovernanceOperationReceipt
 from app.models.ioc import IOC, ItemIOC
 from app.models.integration import (
@@ -118,6 +119,8 @@ from app.models.user import User
 from app.models.workspace import WorkspaceRolePolicy, WorkspaceUserPreference
 
 __all__ = [
+    "ExportJob",
+    "ExportJobChunk",
     "AIDailyBrief",
     "AIDailyBriefSourceItem",
     "AIProviderAttemptReceipt",

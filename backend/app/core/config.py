@@ -298,6 +298,13 @@ class Settings(BaseSettings):
     export_preview_limit: int = 25
     export_max_uncompressed_bytes: int = 250_000_000
     export_lock_ttl_seconds: int = 900
+    export_job_timeout_seconds: int = 3600
+    export_job_lease_seconds: int = 120
+    export_job_retention_seconds: int = 86_400
+    export_job_max_attempts: int = 3
+    export_job_max_active_per_principal: int = 2
+    export_job_max_retained: int = 1000
+    export_job_max_reserved_bytes: int = 4_000_000_000
 
     log_level: str = "INFO"
     log_level_overrides: Annotated[list[str], NoDecode] = []
@@ -589,6 +596,13 @@ class Settings(BaseSettings):
         "export_preview_limit",
         "export_max_uncompressed_bytes",
         "export_lock_ttl_seconds",
+        "export_job_timeout_seconds",
+        "export_job_lease_seconds",
+        "export_job_retention_seconds",
+        "export_job_max_attempts",
+        "export_job_max_active_per_principal",
+        "export_job_max_retained",
+        "export_job_max_reserved_bytes",
     )
     @classmethod
     def _validate_positive_export_limits(cls, value: int) -> int:

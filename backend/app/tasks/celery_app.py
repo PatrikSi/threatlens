@@ -117,6 +117,8 @@ QUEUE_MAINTENANCE = "maintenance"
 QUEUE_LIFECYCLE = "lifecycle-v1"
 
 TASK_ROUTES = {
+    "app.tasks.export_tasks.generate_export_job": {"queue": QUEUE_PROCESSING},
+    "app.tasks.export_tasks.dispatch_export_jobs": {"queue": QUEUE_MAINTENANCE},
     "app.tasks.feed_tasks.fetch_feed": {"queue": QUEUE_INGEST},
     "app.tasks.feed_tasks.backfill_feed_metadata": {"queue": QUEUE_INGEST},
     "app.tasks.feed_tasks.dispatch_due_feeds": {"queue": QUEUE_MAINTENANCE},
@@ -211,6 +213,7 @@ celery_app = Celery(
     broker=settings.redis_url,
     backend=settings.redis_url,
     include=[
+        "app.tasks.export_tasks",
         "app.tasks.feed_tasks",
         "app.tasks.history_maintenance_tasks",
         "app.tasks.alert_tasks",
@@ -246,6 +249,10 @@ celery_app.conf.update(
     },
     visibility_timeout=settings.celery_visibility_timeout_seconds,
     beat_schedule={
+        "dispatch-export-jobs": {
+            "task": "app.tasks.export_tasks.dispatch_export_jobs",
+            "schedule": 30.0,
+        },
         "dispatch-due-feeds": {
             "task": "app.tasks.feed_tasks.dispatch_due_feeds",
             "schedule": 60.0,
