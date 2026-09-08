@@ -1,6 +1,7 @@
 import uuid
 
 import pytest
+from bs4 import BeautifulSoup
 
 from app.models.article import Article
 from app.models.item import Item
@@ -61,6 +62,27 @@ def test_article_preview_csp_keeps_scripts_forms_and_nested_frames_disabled():
     assert "frame-src 'none'" in ARTICLE_PREVIEW_CSP
     assert "sandbox" in ARTICLE_PREVIEW_CSP
     assert "allow-scripts" not in ARTICLE_PREVIEW_CSP
+
+
+@pytest.mark.parametrize(
+    ("srcset", "expected"),
+    [
+        ("", ""),
+        ("   ", "   "),
+        (",", ","),
+        ("/image.png 1x,", "/image.png 1x,"),
+        (", /image.png 1x", ", /image.png 1x"),
+        ("/image.png 1x,, /large.png 2x", "/image.png 1x,, /large.png 2x"),
+        (", javascript:alert(1) 2x", None),
+        ("/image.png 1x,, javascript:alert(1) 2x", None),
+    ],
+)
+def test_article_preview_handles_empty_srcset_candidates(srcset, expected):
+    sanitized = sanitize_article_preview_html(
+        f'<img srcset="{srcset}">', final_url="https://publisher.example/article"
+    )
+
+    assert BeautifulSoup(sanitized, "html.parser").img.get("srcset") == expected
 
 
 @pytest.mark.parametrize(

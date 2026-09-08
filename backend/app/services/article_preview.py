@@ -218,7 +218,7 @@ def _is_blocked_url_list_value(value: object) -> bool:
     if not isinstance(value, str):
         return False
     for candidate in value.split(","):
-        url_part = candidate.strip().split(maxsplit=1)[0]
-        if _is_blocked_url_value(url_part):
+        parts = candidate.split(maxsplit=1)
+        if parts and _is_blocked_url_value(parts[0]):
             return True
     return False
