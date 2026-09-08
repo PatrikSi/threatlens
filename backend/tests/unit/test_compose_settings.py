@@ -17,6 +17,7 @@ DOCUMENTED_SETTING_PATTERN = re.compile(
 # additions to the public environment inventory deliberate and reviewable.
 NON_BACKEND_ENVIRONMENT_NAMES = {
     "AI_WORKER_CONCURRENCY": "Celery worker process concurrency",
+    "EXPORT_WORKER_CONCURRENCY": "Celery export worker concurrency",
     "MAINTENANCE_WORKER_CONCURRENCY": "Celery maintenance worker concurrency",
     "NOTIFICATION_WORKER_CONCURRENCY": "Celery notification worker concurrency",
     "POSTGRES_DB": "bundled PostgreSQL service database",
