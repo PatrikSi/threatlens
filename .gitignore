@@ -47,3 +47,7 @@ docker-compose.portainer.yml
 docker-compose.private-main.yml
 /web/vite.config.js
 /web/vite.config.d.ts
+
+# Browser test artifacts
+/web/test-results/
+/web/playwright-report/

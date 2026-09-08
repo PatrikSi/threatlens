@@ -110,6 +110,11 @@ jobs:
           python backend/scripts/generate_api_reference.py
           git diff --exit-code -- docs/reference/api.md docs/reference/openapi.json
 
+      - name: Verify browser preview fixture matches backend policy
+        run: |
+          python web/browser/generate_preview_fixture.py
+          git diff --exit-code -- web/browser/preview-response.json
+
       - name: Verify runtime lockfile
         run: |
           timeout 6m python backend/scripts/generate_runtime_lockfile.py --output /tmp/requirements-lock.txt
@@ -154,6 +159,22 @@ jobs:
       - name: Smoke test production frontend
         working-directory: web
         run: timeout 1m npm run test:dist
+
+      - name: Install Chromium for browser workflows
+        working-directory: web
+        run: timeout 5m npx playwright install --with-deps chromium
+
+      - name: Run isolated browser workflows
+        working-directory: web
+        run: timeout 5m npm run test:browser
+
+      - name: Retain browser failure traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-failure-traces
+          path: web/test-results/
+          retention-days: 7
 
       - name: Audit frontend dependencies
         working-directory: web

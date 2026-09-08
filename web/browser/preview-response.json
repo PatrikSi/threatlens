@@ -1,0 +1,17 @@
+{
+  "html": "<!DOCTYPE html>\n<html><head><base href=\"https://publisher.example.test/story\"/>\n<link href=\"https://tracking.example.test/style.css\" rel=\"stylesheet\"/>\n\n</head><body><p>Offline publisher fixture</p>\n<img src=\"https://tracking.example.test/pixel.png\"/>\n\n</body></html>",
+  "blockedHeaders": {
+    "Cache-Control": "no-store",
+    "Content-Security-Policy": "default-src 'none'; base-uri http: https:; img-src data:; style-src 'unsafe-inline'; font-src data:; media-src data:; script-src 'none'; connect-src 'none'; frame-src 'none'; object-src 'none'; form-action 'none'; frame-ancestors 'self'; sandbox allow-popups allow-popups-to-escape-sandbox",
+    "Referrer-Policy": "no-referrer",
+    "X-Content-Type-Options": "nosniff",
+    "X-DNS-Prefetch-Control": "off"
+  },
+  "allowedHeaders": {
+    "Cache-Control": "no-store",
+    "Content-Security-Policy": "default-src 'none'; base-uri http: https:; img-src http: https: data:; style-src http: https: 'unsafe-inline'; font-src http: https: data:; media-src http: https: data:; script-src 'none'; connect-src 'none'; frame-src 'none'; object-src 'none'; form-action 'none'; frame-ancestors 'self'; sandbox allow-popups allow-popups-to-escape-sandbox",
+    "Referrer-Policy": "no-referrer",
+    "X-Content-Type-Options": "nosniff",
+    "X-DNS-Prefetch-Control": "off"
+  }
+}
