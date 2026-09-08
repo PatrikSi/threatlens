@@ -19,6 +19,7 @@ from joserfc.jwk import KeySet
 
 from app.core.config import get_settings
 from app.models.oidc import OIDCProvider
+from app.services.bounded_response import ResponseBodyTooLarge, read_bounded_response
 from app.services.oidc_config import (
     OIDCConfigurationError,
     oidc_callback_url,
@@ -516,14 +517,9 @@ def _exception_chain_contains(
 
 
 def _read_limited_body(response: httpx.Response) -> bytes:
-    max_bytes = get_settings().oidc_max_response_bytes
-    chunks: list[bytes] = []
-    size = 0
-    for chunk in response.iter_bytes():
-        size += len(chunk)
-        if size > max_bytes:
-            raise OIDCProtocolError(
-                "OIDC endpoint response exceeded the configured size limit"
-            )
-        chunks.append(chunk)
-    return b"".join(chunks)
+    try:
+        return read_bounded_response(response, get_settings().oidc_max_response_bytes)
+    except ResponseBodyTooLarge as exc:
+        raise OIDCProtocolError(
+            "OIDC endpoint response exceeded the configured size limit"
+        ) from exc
