@@ -1784,6 +1784,7 @@ def test_health_ready_endpoint_requires_beat_health(
                     {"name": "notifications"},
                     {"name": "maintenance"},
                     {"name": "lifecycle-v1"},
+                    {"name": "exports-v1"},
                 ]
             }
 
@@ -1983,6 +1984,7 @@ def test_health_worker_endpoint_reports_ok(
                     {"name": "notifications"},
                     {"name": "maintenance"},
                     {"name": "lifecycle-v1"},
+                    {"name": "exports-v1"},
                 ]
             }
 
