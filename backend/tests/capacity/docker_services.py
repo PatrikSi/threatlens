@@ -122,5 +122,5 @@ class DockerService:
     def __exit__(self, *_args):
         if self.id:
             subprocess.run(
-                ["docker", "rm", "-f", self.id], capture_output=True, timeout=20
+                ["docker", "rm", "-f", "-v", self.id], capture_output=True, timeout=20
             )

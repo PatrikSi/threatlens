@@ -441,12 +441,16 @@ def test_concurrent_workload(database_engine, test_redis_url, monkeypatch):
                                 ),
                                 duration_seconds=duration,
                                 interval_seconds=profile["service_interval_seconds"],
+                                initial_delay_seconds=profile[
+                                    "governance_phase_seconds"
+                                ],
                             ),
                             executor.submit(
                                 paced_lane,
                                 lambda _: _ai(engine, metrics, 1),
                                 duration_seconds=duration,
                                 interval_seconds=profile["service_interval_seconds"],
+                                initial_delay_seconds=profile["ai_phase_seconds"],
                             ),
                         ]
 

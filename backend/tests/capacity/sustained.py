@@ -3,10 +3,12 @@
 import time
 
 
-def paced_lane(operation, *, duration_seconds, interval_seconds, stop=None):
+def paced_lane(
+    operation, *, duration_seconds, interval_seconds, stop=None, initial_delay_seconds=0
+):
     started = time.monotonic()
     count = 0
-    due = started
+    due = started + initial_delay_seconds
     while time.monotonic() - started < duration_seconds:
         if stop is not None and stop.is_set():
             break
