@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from app.api.routes import health
+from app.services import component_health
 
 
 class _Inspector:
@@ -19,7 +19,7 @@ class _Inspector:
 
 def _install_inspector(monkeypatch, queues_by_worker):
     monkeypatch.setattr(
-        health.celery_app.control,
+        component_health.celery_app.control,
         "inspect",
         lambda timeout: _Inspector(queues_by_worker=queues_by_worker),
     )
@@ -41,7 +41,7 @@ def test_worker_health_requires_all_non_ai_queues(monkeypatch):
     )
     settings = SimpleNamespace(health_worker_ping_timeout_seconds=1.0, ai_enabled=False)
 
-    ok, workers, queue_snapshot = health._worker_health_snapshot(settings)
+    ok, workers, queue_snapshot = component_health.worker_health_snapshot(settings)
 
     assert ok is True
     assert workers == {"worker@test": "pong"}
@@ -57,7 +57,7 @@ def test_worker_health_reports_missing_required_queue(monkeypatch):
     )
     settings = SimpleNamespace(health_worker_ping_timeout_seconds=1.0, ai_enabled=False)
 
-    ok, _workers, queue_snapshot = health._worker_health_snapshot(settings)
+    ok, _workers, queue_snapshot = component_health.worker_health_snapshot(settings)
 
     assert ok is False
     assert queue_snapshot["missing"] == [
@@ -84,7 +84,7 @@ def test_worker_health_requires_ai_queue_when_ai_enabled(monkeypatch):
     )
     settings = SimpleNamespace(health_worker_ping_timeout_seconds=1.0, ai_enabled=True)
 
-    ok, _workers, queue_snapshot = health._worker_health_snapshot(settings)
+    ok, _workers, queue_snapshot = component_health.worker_health_snapshot(settings)
 
     assert ok is False
     assert queue_snapshot["missing"] == ["ai", "ai-reports-v2"]
@@ -107,7 +107,7 @@ def test_worker_health_requires_report_queue_when_ai_enabled(monkeypatch):
     )
     settings = SimpleNamespace(health_worker_ping_timeout_seconds=1.0, ai_enabled=True)
 
-    ok, _workers, queue_snapshot = health._worker_health_snapshot(settings)
+    ok, _workers, queue_snapshot = component_health.worker_health_snapshot(settings)
 
     assert ok is False
     assert queue_snapshot["missing"] == ["ai-reports-v2"]
@@ -132,7 +132,7 @@ def test_worker_health_accepts_merged_worker_when_ai_enabled(monkeypatch):
     )
     settings = SimpleNamespace(health_worker_ping_timeout_seconds=1.0, ai_enabled=True)
 
-    ok, workers, queue_snapshot = health._worker_health_snapshot(settings)
+    ok, workers, queue_snapshot = component_health.worker_health_snapshot(settings)
 
     assert ok is True
     assert workers == {"worker@test": "pong"}
@@ -142,18 +142,18 @@ def test_worker_health_accepts_merged_worker_when_ai_enabled(monkeypatch):
 def test_worker_health_logs_dependency_type_without_standard_traceback(monkeypatch):
     warnings: list[tuple[str, tuple[object, ...], dict[str, object]]] = []
     monkeypatch.setattr(
-        health.celery_app.control,
+        component_health.celery_app.control,
         "inspect",
         lambda timeout: (_ for _ in ()).throw(RuntimeError("sensitive broker detail")),
     )
     monkeypatch.setattr(
-        health.logger,
+        component_health.logger,
         "warning",
         lambda message, *args, **kwargs: warnings.append((message, args, kwargs)),
     )
     settings = SimpleNamespace(health_worker_ping_timeout_seconds=1.0, ai_enabled=False, log_detail="standard")
 
-    ok, workers, queue_snapshot = health._worker_health_snapshot(settings)
+    ok, workers, queue_snapshot = component_health.worker_health_snapshot(settings)
 
     assert ok is False
     assert workers == {}

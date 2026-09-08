@@ -111,14 +111,14 @@ def _install_healthy_probes(monkeypatch: pytest.MonkeyPatch, now: datetime) -> N
         lambda *_args, **_kwargs: _worker_topology(now),
     )
     monkeypatch.setattr(
-        operations_probes.health_routes, "_database_health_ok", lambda _db: True
+        operations_probes.component_health, "database_health_ok", lambda _db: True
     )
     monkeypatch.setattr(
-        operations_probes.health_routes, "_redis_health_ok", lambda _settings: True
+        operations_probes.component_health, "redis_health_ok", lambda _settings: True
     )
 
     def worker_snapshot(settings):
-        required = operations_probes.health_routes._required_worker_queues(settings)
+        required = operations_probes.required_worker_queues(settings)
         return (
             True,
             {"worker@internal-host": "pong"},
@@ -131,11 +131,11 @@ def _install_healthy_probes(monkeypatch: pytest.MonkeyPatch, now: datetime) -> N
         )
 
     monkeypatch.setattr(
-        operations_probes.health_routes, "_worker_health_snapshot", worker_snapshot
+        operations_probes.component_health, "worker_health_snapshot", worker_snapshot
     )
     monkeypatch.setattr(
-        operations_probes.health_routes,
-        "_beat_health_snapshot",
+        operations_probes.component_health,
+        "beat_health_snapshot",
         lambda _settings: BeatHealthSnapshot(
             scheduler=BeatHeartbeatSnapshot(True, now.isoformat(), 1, "healthy"),
             worker_round_trip=BeatHeartbeatSnapshot(
@@ -447,23 +447,23 @@ def test_overview_degrades_without_leaking_probe_errors(db_session, monkeypatch)
         ),
     )
     monkeypatch.setattr(
-        operations_probes.health_routes, "_database_health_ok", lambda _db: True
+        operations_probes.component_health, "database_health_ok", lambda _db: True
     )
     monkeypatch.setattr(
-        operations_probes.health_routes, "_redis_health_ok", lambda _settings: False
+        operations_probes.component_health, "redis_health_ok", lambda _settings: False
     )
     monkeypatch.setattr(
-        operations_probes.health_routes,
-        "_worker_health_snapshot",
+        operations_probes.component_health,
+        "worker_health_snapshot",
         lambda settings: (
             False,
             {"worker@sensitive.internal": "pong"},
             {
-                "required": operations_probes.health_routes._required_worker_queues(
+                "required": operations_probes.required_worker_queues(
                     settings
                 ),
                 "covered": [],
-                "missing": operations_probes.health_routes._required_worker_queues(
+                "missing": operations_probes.required_worker_queues(
                     settings
                 ),
                 "by_worker": {"worker@sensitive.internal": []},
@@ -471,8 +471,8 @@ def test_overview_degrades_without_leaking_probe_errors(db_session, monkeypatch)
         ),
     )
     monkeypatch.setattr(
-        operations_probes.health_routes,
-        "_beat_health_snapshot",
+        operations_probes.component_health,
+        "beat_health_snapshot",
         lambda _settings: (_ for _ in ()).throw(
             RuntimeError("redis://admin:secret@private.internal/0")
         ),
@@ -551,7 +551,7 @@ def test_overview_skips_database_dependent_probes_when_database_is_unavailable(
     now = datetime.now(timezone.utc).replace(microsecond=0)
     _install_healthy_probes(monkeypatch, now)
     monkeypatch.setattr(
-        operations_probes.health_routes, "_database_health_ok", lambda _db: False
+        operations_probes.component_health, "database_health_ok", lambda _db: False
     )
     encrypted_inventory_called = False
 
@@ -627,8 +627,8 @@ def test_overview_worker_headline_uses_detailed_topology(
         lambda *_args, **_kwargs: topology,
     )
     monkeypatch.setattr(
-        operations_probes.health_routes,
-        "_worker_health_snapshot",
+        operations_probes.component_health,
+        "worker_health_snapshot",
         lambda _settings: (_ for _ in ()).throw(
             AssertionError("legacy worker snapshot must not run")
         ),
