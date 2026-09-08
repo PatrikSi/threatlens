@@ -9,6 +9,7 @@
 - `api`: FastAPI (internal only on `8000`)
 - `worker`: Celery worker for ingestion and processing queues
 - `worker-ai`: isolated Celery worker for AI enrichment, daily briefs, and report generation; it consumes both `ai` and the rolling-upgrade-safe `ai-reports-v2` report queue
+- `worker-exports`: isolated Celery worker for background export generation; it consumes only `exports-v1`, with one execution slot by default
 - `worker-maintenance`: isolated Celery worker for scheduler heartbeats, outbox recovery, fixed housekeeping, and policy-driven lifecycle tasks; it consumes both `maintenance` and the versioned `lifecycle-v1` queue
 - `worker-notifications`: isolated Celery worker for integration event routing and outbound deliveries
 - `beat`: Celery beat scheduler
@@ -240,7 +241,7 @@ Outside production:
 - If Postgres logs `Role "threatlens" does not exist`, the `postgres_data` volume was initialized before the matching `.env` values were present. For a disposable local install, run `docker compose down -v` and start again.
 
 - The default ThreatLens application images point at GitHub Container Registry:
-  - `ghcr.io/patriksi/threatlens-backend:${THREATLENS_IMAGE_TAG:-latest}` for `api`, `worker`, `worker-ai`, `worker-maintenance`, `worker-notifications`, and `beat`
+  - `ghcr.io/patriksi/threatlens-backend:${THREATLENS_IMAGE_TAG:-latest}` for `api`, `worker`, `worker-ai`, `worker-exports`, `worker-maintenance`, `worker-notifications`, and `beat`
   - `ghcr.io/patriksi/threatlens-web:${THREATLENS_IMAGE_TAG:-latest}` for `web`
 - The default compose file pulls fresh ThreatLens application images during `docker compose up`. Source builds require the explicit override: `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build`.
 - Both custom Dockerfiles live under `docker/`, retaining `backend/` and `web/` as their build contexts and using the `.dockerignore` in each context. `./docker/build.sh` builds both images without a runtime `.env`; pass `backend` or `web` to build individually. See [Development Image Builds](../../docker/README.md).
@@ -252,7 +253,8 @@ Outside production:
 - All workers and `beat` depend on healthy `api`, plus healthy DB/Redis, so they start only after schema startup work completes.
 - `beat` runs as a dedicated scheduler service so periodic jobs do not multiply with worker replicas.
 - `worker` consumes `default`, `ingest`, and `processing`; `worker-ai` consumes `ai` and `ai-reports-v2`; `worker-maintenance` consumes `maintenance` and `lifecycle-v1`; `worker-notifications` consumes only `notifications`. The versioned queues keep new report and lifecycle task contracts away from workers that predate them. Both maintenance queues are required by readiness and Operations queue-execution checks.
-- Compose worker concurrency defaults to `4`, `1`, `1`, and `4` respectively. Override these with `WORKER_CONCURRENCY`, `AI_WORKER_CONCURRENCY`, `MAINTENANCE_WORKER_CONCURRENCY`, and `NOTIFICATION_WORKER_CONCURRENCY`. Keep AI concurrency at `1` for a memory-constrained local provider unless provider capacity has been measured.
+- `worker-exports` consumes only `exports-v1`; readiness and Operations check its consumer and execution canary. Generation cannot occupy the ordinary worker's slots. A busy export worker can delay its canary; Operations also shows its active/reserved work.
+- Compose concurrency defaults to `4` ordinary, `1` AI, `1` export, `1` maintenance, and `4` notification slots. Override with `WORKER_CONCURRENCY`, `AI_WORKER_CONCURRENCY`, `EXPORT_WORKER_CONCURRENCY`, `MAINTENANCE_WORKER_CONCURRENCY`, and `NOTIFICATION_WORKER_CONCURRENCY`. Keep AI/export concurrency at `1` on a memory-constrained host until capacity is measured. A separate process pool reserves task slots, not dedicated host CPU, memory, or database capacity.
 - The API is not published on a host port by default; use the web service at `http://localhost:3000/api/v1/*` or place the stack behind your own reverse proxy.
 - The published OpenAPI schema is exposed through the web proxy at `http://localhost:3000/api/openapi.json`.
 - The same compose injects secure defaults for `APP_ENV`, `AUTH_COOKIE_SECURE`, `AUTH_REQUIRE_CSRF`, and `REQUIRE_EXPLICIT_DATA_ENCRYPTION_KEY=true`. It intentionally lets Docker allocate project-scoped networks so multiple stacks do not collide. Set `TRUSTED_PROXY_CIDRS` only when you need the API to trust `X-Forwarded-For` from exact reverse-proxy hops you control.
@@ -292,7 +294,7 @@ this order:
    tasks:
 
    ```bash
-   docker compose ps api beat worker worker-ai worker-maintenance worker-notifications
+   docker compose ps api beat worker worker-ai worker-exports worker-maintenance worker-notifications
    docker compose up -d --wait api
    ```
 
@@ -300,7 +302,7 @@ this order:
    active queue inventory must include both `maintenance` and `lifecycle-v1`:
 
    ```bash
-   docker compose up -d --wait worker worker-ai worker-maintenance worker-notifications
+   docker compose up -d --wait worker worker-ai worker-exports worker-maintenance worker-notifications
    docker compose exec worker-maintenance sh -lc 'celery -A app.tasks.celery_app.celery_app inspect active_queues -d "maintenance@$HOSTNAME"'
    ```
 
@@ -346,8 +348,8 @@ Verbose mode does not log request or response bodies, cookies, authorization or 
 Apply logging changes by recreating the backend processes:
 
 ```bash
-docker compose up -d --force-recreate api worker worker-ai worker-maintenance worker-notifications beat
-docker compose logs -f api worker worker-ai worker-maintenance worker-notifications beat
+docker compose up -d --force-recreate api worker worker-ai worker-exports worker-maintenance worker-notifications beat
+docker compose logs -f api worker worker-ai worker-exports worker-maintenance worker-notifications beat
 ```
 
 ## Frontend Runtime Values (`web/src/api/client.ts`)

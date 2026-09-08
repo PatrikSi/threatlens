@@ -18,6 +18,10 @@ services:
     image: *backend-image
     pull_policy: never
 
+  worker-exports:
+    image: *backend-image
+    pull_policy: never
+
   worker-maintenance:
     image: *backend-image
     pull_policy: never

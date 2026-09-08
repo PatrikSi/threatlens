@@ -7,6 +7,7 @@ from app.tasks.celery_app import (
     QUEUE_AI,
     QUEUE_AI_REPORTS,
     QUEUE_DEFAULT,
+    QUEUE_EXPORTS,
     QUEUE_INGEST,
     QUEUE_LIFECYCLE,
     QUEUE_MAINTENANCE,
@@ -37,11 +38,22 @@ def test_celery_routes_smtp_notifications_to_notification_queue():
     assert TASK_ROUTES["app.tasks.feed_tasks.dispatch_smtp_webhook_failed_notification"]["queue"] == QUEUE_NOTIFICATIONS
 
 
+def test_long_exports_route_outside_ingestion_and_processing_pools():
+    router = celery_app.amqp.router
+    export_queue = router.route({}, "app.tasks.export_tasks.generate_export_job")["queue"].name
+    assert export_queue == QUEUE_EXPORTS
+    for task in ("fetch_feed", "fetch_article", "classify_item", "extract_item_iocs"):
+        queue = router.route({}, f"app.tasks.feed_tasks.{task}")["queue"].name
+        assert queue in {QUEUE_INGEST, QUEUE_PROCESSING}
+        assert queue != export_queue
+
+
 def test_celery_declares_expected_named_queues():
     queue_names = {queue.name for queue in celery_app.conf.task_queues}
 
     assert queue_names == {
         QUEUE_DEFAULT,
+        QUEUE_EXPORTS,
         QUEUE_INGEST,
         QUEUE_PROCESSING,
         QUEUE_NOTIFICATIONS,
@@ -76,6 +88,7 @@ def test_system_health_sampling_and_queue_canaries_are_routed_and_scheduled():
 
     required_queues = [
         QUEUE_DEFAULT,
+        QUEUE_EXPORTS,
         QUEUE_INGEST,
         QUEUE_PROCESSING,
         QUEUE_NOTIFICATIONS,

@@ -886,7 +886,7 @@ tlr_restore_command() {
   require_encryption_fingerprint_match "${acknowledge_encryption_mismatch}"
   validate_supported_local_targets
   validate_running_target_configuration
-  require_compose_services db redis api worker worker-ai worker-maintenance worker-notifications beat web
+  require_compose_services db redis api worker worker-ai worker-exports worker-maintenance worker-notifications beat web
   require_running_service db
   require_running_service redis
   require_database_ready

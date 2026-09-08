@@ -446,6 +446,7 @@ def _healthy_worker_topology(now: datetime) -> OperationsWorkerTopologyResponse:
     queue_metadata = {
         "ingest": ("Feed ingestion", "worker"),
         "processing": ("Item processing", "worker"),
+        "exports-v1": ("Background exports", "worker-exports"),
         "notifications": ("Notifications", "worker-notifications"),
         "maintenance": ("Maintenance", "worker-maintenance"),
         "lifecycle-v1": ("Data lifecycle", "worker-maintenance"),
