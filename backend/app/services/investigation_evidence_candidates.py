@@ -20,6 +20,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Session
 
+from app.db.text_projection import preview_text
+
 from app.core.rbac import ROLE_ADMIN
 from app.core.token_scopes import (
     SCOPE_READ_ALERTS,
@@ -658,7 +660,14 @@ def _load_report_candidates(
         predicates.append(match_condition)
     attached = _attached_expression(investigation_id, "report", Report.id)
     base = select(
-        Report,
+        Report.id,
+        preview_text(Report.title, MAX_CANDIDATE_TITLE).label("title"),
+        preview_text(Report.summary_text, MAX_CANDIDATE_DESCRIPTION).label("description"),
+        Report.report_type,
+        Report.status,
+        Report.period_start,
+        Report.period_end,
+        Report.generated_at,
         observed_at.label("observed_at"),
         attached.label("already_attached"),
         match_rank.label("match_rank"),
@@ -675,21 +684,21 @@ def _load_report_candidates(
             RankedCandidate(
                 candidate=InvestigationEvidenceCandidate(
                     source_type="report",
-                    source_id=row.Report.id,
-                    title=_bounded(row.Report.title, MAX_CANDIDATE_TITLE)
+                    source_id=row.id,
+                    title=_bounded(row.title, MAX_CANDIDATE_TITLE)
                     or "Untitled report",
                     description=_bounded(
-                        row.Report.summary_text, MAX_CANDIDATE_DESCRIPTION
+                        row.description, MAX_CANDIDATE_DESCRIPTION
                     ),
                     url=None,
                     observed_at=row.observed_at,
-                    source_label=_humanize(row.Report.report_type),
+                    source_label=_humanize(row.report_type),
                     metadata={
-                        "report_type": row.Report.report_type,
-                        "status": row.Report.status,
-                        "period_start": _isoformat(row.Report.period_start),
-                        "period_end": _isoformat(row.Report.period_end),
-                        "generated_at": _isoformat(row.Report.generated_at),
+                        "report_type": row.report_type,
+                        "status": row.status,
+                        "period_start": _isoformat(row.period_start),
+                        "period_end": _isoformat(row.period_end),
+                        "generated_at": _isoformat(row.generated_at),
                     },
                     already_attached=bool(row.already_attached),
                     match_reason=row.match_reason,

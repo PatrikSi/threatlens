@@ -6,6 +6,7 @@ from typing import Any, Callable
 from sqlalchemy import Date, Select, String, case, cast, func, literal, or_, select, union_all
 from sqlalchemy.orm import Session
 
+from app.db.text_projection import stripped_text
 from app.models.ai_daily_brief import AIDailyBrief
 from app.models.ai_settings import AISettings
 from app.models.ai_task_run import AITaskRun
@@ -164,12 +165,8 @@ def list_ai_failures(
     return [AIFailureGroupResponse(**row._mapping) for row in rows]
 
 
-# Python str.strip() whitespace, including Unicode spaces and ASCII separators.
-_STRIP_CHARACTERS = "\t\n\v\f\r\x1c\x1d\x1e\x1f \u0085\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000"
-
-
 def _normalized_error_expression(column):
-    trimmed = func.btrim(column, _STRIP_CHARACTERS)
+    trimmed = stripped_text(column)
     return case(
         (or_(column.is_(None), column == ""), literal("unknown_error")),
         else_=case((func.char_length(trimmed) > 200, func.substr(trimmed, 1, 197) + "..."), else_=trimmed),
