@@ -290,7 +290,7 @@ def test_fetch_task_rolls_back_items_and_events_when_fence_is_lost(
         headers: dict[str, str] = {}
         url = "https://example.com/superseded.xml"
 
-        def iter_bytes(self):
+        def iter_raw(self):
             yield b"<rss />"
 
         def close(self):
