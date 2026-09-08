@@ -19,3 +19,11 @@ handle. Focus either control and use the arrow keys; hold Shift for larger
 steps. Geometry stays within the workspace and respects minimum sizes. Focusing
 any control inside a panel brings that panel to the front. Existing mouse and
 snap-layout controls continue to work.
+
+## Saves with subsequent edits
+
+Feed details, SMTP destinations and webhook editors apply accepted server values
+only to fields unchanged since that submission. Later edits remain in the draft
+and keep navigation protection active. Completions for another selected record
+update its cached saved configuration without replacing the current editor.
+New-feed submission clears only fields that still match the submitted form.
