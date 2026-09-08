@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { MemoryRouter } from 'react-router-dom'
 import { act } from 'react'
 import { createRoot, Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -268,19 +269,19 @@ import { AlertsPage } from './AlertsPage'
 let root: Root | null = null
 let container: HTMLDivElement | null = null
 
-function renderPage() {
+function renderPage(initialEntry = '/alerts') {
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
   act(() => {
-    root?.render(<AlertsPage />)
+    root?.render(<MemoryRouter initialEntries={[initialEntry]}><AlertsPage /></MemoryRouter>)
   })
   return container
 }
 
 function rerenderPage() {
   act(() => {
-    root?.render(<AlertsPage />)
+    root?.render(<MemoryRouter><AlertsPage /></MemoryRouter>)
   })
 }
 
@@ -356,6 +357,12 @@ afterEach(() => {
 })
 
 describe('AlertsPage DOM workflows', () => {
+  it('opens the occurrence workspace from a shared triage URL', () => {
+    const view = renderPage('/alerts?view=occurrences&occurrence=occurrence-1')
+    expect(view.querySelector('#alert-occurrences-tab')?.getAttribute('aria-selected')).toBe('true')
+    expect(view.textContent).toContain('Occurrence workspace marker')
+  })
+
   it('preserves the rule draft while switching to occurrence triage and back', () => {
     const view = renderPage()
     const nameInput = view.querySelector<HTMLInputElement>('#alert-interest-name')

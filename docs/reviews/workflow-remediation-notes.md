@@ -51,3 +51,13 @@ Dashboard controls wait for local layout or workspace defaults to finish loading
 The waiting state explains when editing will become available; both successful
 initialization and the safe fallback release the controls. This prevents a first
 layout edit from being replaced by the still-pending initial configuration.
+
+## Shareable alert triage
+
+Alert view, server filters, loaded-page search, page size, collection page, selected
+occurrence and activity page are encoded in the URL. Direct links, reload and
+browser history restore this scope. Changing collection scope clears bulk
+selection and obsolete occurrence context. Copy triage link includes the active
+scope and occurrence; recipients still need the same backend access permissions.
+If clipboard access is unavailable, the UI exposes a selectable link for manual
+copy. Invalid enumerated filters and page values fall back to safe defaults.
