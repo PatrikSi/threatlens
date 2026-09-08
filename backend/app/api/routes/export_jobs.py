@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import Sequence
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -51,7 +52,6 @@ from app.services.export_jobs import (
     ExportJobCapacityExceeded,
     ExportJobConflict,
     create_export_job,
-    export_job_response,
     export_job_responses,
     terminal_export_job,
 )
@@ -87,6 +87,28 @@ def _access_changed() -> ApiHTTPException:
             "Export access changed or its accepting credential expired. Start a new export with your current access."
         ),
     )
+
+
+def _status_responses(
+    db: Session,
+    jobs: Sequence[ExportJob],
+    request: Request,
+    data_access: DataAccessContext,
+) -> list[ArticleExportJobResponse]:
+    try:
+        return export_job_responses(
+            db,
+            jobs,
+            current_authorization=get_authorization_context(request),
+            current_access=data_access,
+        )
+    except (AuthorizationStateUnavailable, DataPolicyError) as exc:
+        db.rollback()
+        raise ApiHTTPException(
+            status_code=409,
+            error_code="export_authorization_changed",
+            detail="Export access changed while reading its status. Retry this request with your current access.",
+        ) from exc
 
 
 @router.post(
@@ -154,9 +176,7 @@ def accept_export_job(
         from app.tasks.export_tasks import enqueue_export_job
 
         enqueue_export_job(job.id)
-    return export_job_response(
-        db, job, current_authorization=authorization, current_access=data_access
-    )
+    return _status_responses(db, [job], request, data_access)[0]
 
 
 @router.get("", response_model=ArticleExportJobList)
@@ -179,12 +199,7 @@ def list_export_jobs(
         .limit(limit + 1)
     ).all()
     return ArticleExportJobList(
-        items=export_job_responses(
-            db,
-            jobs[:limit],
-            current_authorization=get_authorization_context(request),
-            current_access=data_access,
-        ),
+        items=_status_responses(db, jobs[:limit], request, data_access),
         has_more=len(jobs) > limit,
     )
 
@@ -197,12 +212,12 @@ def get_export_job(
     principal: AuthenticatedPrincipal = Depends(require_permissions(SCOPE_READ_ITEMS)),
     data_access: DataAccessContext = Depends(get_data_access_context),
 ) -> ArticleExportJobResponse:
-    return export_job_response(
+    return _status_responses(
         db,
-        _job(db, job_id, principal),
-        current_authorization=get_authorization_context(request),
-        current_access=data_access,
-    )
+        [_job(db, job_id, principal)],
+        request,
+        data_access,
+    )[0]
 
 
 @router.post("/{job_id}/cancel", response_model=ArticleExportJobResponse)
@@ -226,12 +241,7 @@ def cancel_export_job(
             resource_id=str(job.id),
         )
         db.commit()
-    return export_job_response(
-        db,
-        job,
-        current_authorization=get_authorization_context(request),
-        current_access=data_access,
-    )
+    return _status_responses(db, [job], request, data_access)[0]
 
 
 @router.get("/{job_id}/download", response_class=DisconnectSafeFileResponse)
