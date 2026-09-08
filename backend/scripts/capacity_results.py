@@ -9,6 +9,10 @@ from pathlib import Path
 
 SCHEMA_VERSION = 2
 MEASUREMENT_CONTRACT = "threatlens-capacity-v2"
+REQUIRED_LATENCIES = {
+    "export:succeeded": 20, "ai_connection:succeeded": 20, "governance": 20,
+    "deadline:dns": 5, "deadline:headers": 5,
+}
 
 
 def fingerprint(value):
@@ -135,7 +139,8 @@ def compare_results(baseline, candidate, *, regression_percent=20):
             "regressions": [],
         }
     metrics = []
-    for name in sorted(set(baseline["latencies"]) | set(candidate["latencies"])):
+    required = {} if baseline.get("profile") == "recovery" else REQUIRED_LATENCIES
+    for name in sorted(set(baseline["latencies"]) | set(candidate["latencies"]) | set(required)):
         before, after = (
             baseline["latencies"].get(name),
             candidate["latencies"].get(name),
@@ -168,9 +173,11 @@ def compare_results(baseline, candidate, *, regression_percent=20):
         )
     for group, key in (
         ("memory", "process_rss_increase_bytes"),
-        ("queue", "recovery_ms"),
-        ("queue", "oldest_pending_age_peak_ms"),
+        ("memory", "process_rss_peak_bytes"),
         ("watchdog", "owned_process_tree_rss_peak_bytes"),
+        ("queue", "recovery_ms"),
+        ("queue", "depth_peak"),
+        ("queue", "oldest_pending_age_peak_ms"),
         ("faults", "worker_recovery_ms"),
         ("faults", "broker_restart_ms"),
         ("database", "sampled_lock_waiting_query_age_peak_ms"),
@@ -185,12 +192,17 @@ def compare_results(baseline, candidate, *, regression_percent=20):
                 "status": "single_run_observation",
                 "baseline": a,
                 "candidate": b,
+                "absolute_change": b - a,
                 "change_percent": round(delta, 3) if delta is not None else None,
                 "regressed": delta is not None and delta > regression_percent,
             }
         )
+    insufficient = [m["name"] for m in metrics
+                    if m["name"] in required and m["status"] == "insufficient_samples"]
     return {
         "compatible": True,
+        "conclusive": not insufficient and bool(required),
+        "insufficient_required_samples": insufficient,
         "baseline_revision": baseline.get("git_revision"),
         "candidate_revision": candidate.get("git_revision"),
         "regression_threshold_percent": regression_percent,

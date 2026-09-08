@@ -27,7 +27,11 @@ def main():
         parser.exit(2, str(exc) + "\n")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
-    return 2 if not result["compatible"] else 1 if result["regressions"] else 0
+    if not result["compatible"]:
+        return 2
+    if result["regressions"]:
+        return 1
+    return 0 if result["conclusive"] else 2
 
 
 if __name__ == "__main__":

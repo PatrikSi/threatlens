@@ -18,7 +18,7 @@ on:
         options:
           - baseline
           - sustained
-        default: baseline
+        default: sustained
 
 permissions:
   contents: read
@@ -26,7 +26,7 @@ permissions:
 jobs:
   compare:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v6
         with:
