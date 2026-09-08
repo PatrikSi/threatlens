@@ -18,6 +18,7 @@ CRITICAL_MODULE_MINIMUMS = {
     "app/services/report_schedules.py": 68.0,
     "app/tasks/feed_fetch_tasks.py": 62.0,
     "app/tasks/feed_task_coordination.py": 68.0,
+    "app/tasks/report_schedule_tasks.py": 66.0,
     "app/tasks/report_tasks.py": 66.0,
 }
 
@@ -41,6 +42,7 @@ def _reporting_paths(files: dict[str, Any]) -> list[str]:
         in {
             "app/api/routes/reports.py",
             "app/services/ai_request_runtime.py",
+            "app/tasks/report_schedule_tasks.py",
             "app/tasks/report_tasks.py",
         }
     )
