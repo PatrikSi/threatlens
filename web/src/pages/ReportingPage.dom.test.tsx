@@ -43,6 +43,7 @@ vi.mock('../hooks/useCurrentUser', () => ({
 vi.mock('react-router-dom', async (importOriginal) => ({
   ...(await importOriginal<typeof import('react-router-dom')>()),
   useNavigate: () => reportingPageMocks.navigate,
+  useBlocker: () => ({ state: 'unblocked', proceed: vi.fn(), reset: vi.fn() }),
   useParams: () => ({ reportId: reportingPageMocks.routeReportId }),
 }))
 
@@ -295,7 +296,7 @@ beforeEach(() => {
   reportingPageMocks.apiFetch.mockImplementation((path: string) => {
     if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
     if (path === '/reports/templates') return Promise.resolve([])
-    if (path === '/reports?limit=100') return Promise.resolve([])
+    if (path.startsWith('/reports?')) return Promise.resolve([])
     if (path === '/reports/report-1') return Promise.resolve(reportDetail())
     return Promise.reject(new Error(`Unexpected API path: ${path}`))
   })
@@ -356,7 +357,7 @@ describe('ReportingPage detail actions', () => {
     reportingPageMocks.apiFetch.mockImplementation((path: string) => {
       if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
       if (path === '/reports/templates') return Promise.resolve([])
-      if (path === '/reports?limit=100') return Promise.resolve([])
+      if (path.startsWith('/reports?')) return Promise.resolve([])
       if (path === '/reports/report-1') return Promise.resolve(reportDetail('error'))
       return Promise.reject(new Error(`Unexpected API path: ${path}`))
     })
@@ -380,7 +381,7 @@ describe('ReportingPage detail actions', () => {
     reportingPageMocks.apiFetch.mockImplementation((path: string) => {
       if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
       if (path === '/reports/templates') return Promise.resolve([REPORT_TEMPLATE])
-      if (path === '/reports?limit=100') return Promise.resolve([])
+      if (path.startsWith('/reports?')) return Promise.resolve([])
       return Promise.reject(new Error(`Unexpected API path: ${path}`))
     })
     const view = renderPage()
@@ -402,7 +403,7 @@ describe('ReportingPage detail actions', () => {
     reportingPageMocks.apiFetch.mockImplementation((path: string) => {
       if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
       if (path === '/reports/templates') return Promise.resolve([])
-      if (path === '/reports?limit=100') return Promise.resolve([])
+      if (path.startsWith('/reports?')) return Promise.resolve([])
       if (path === '/reports/report-1') return Promise.resolve(reportDetail('queued'))
       return Promise.reject(new Error(`Unexpected API path: ${path}`))
     })
@@ -420,7 +421,7 @@ describe('ReportingPage detail actions', () => {
     reportingPageMocks.apiFetch.mockImplementation((path: string) => {
       if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
       if (path === '/reports/templates') return Promise.resolve([])
-      if (path === '/reports?limit=100') return Promise.resolve([])
+      if (path.startsWith('/reports?')) return Promise.resolve([])
       if (path === '/reports/report-1') return Promise.resolve(waitingReport)
       return Promise.reject(new Error(`Unexpected API path: ${path}`))
     })
@@ -486,7 +487,7 @@ describe('ReportingPage detail actions', () => {
     reportingPageMocks.apiFetch.mockImplementation((path: string) => {
       if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
       if (path === '/reports/templates') return Promise.resolve([])
-      if (path === '/reports?limit=100') return Promise.resolve([])
+      if (path.startsWith('/reports?')) return Promise.resolve([])
       if (path === '/reports/report-1') return Promise.resolve(reportDetail())
       if (path === '/reports/report-2') return Promise.resolve(reportDetail('ready', 'report-2'))
       return Promise.reject(new Error(`Unexpected API path: ${path}`))
@@ -548,7 +549,7 @@ describe('ReportingPage detail actions', () => {
     reportingPageMocks.apiFetch.mockImplementation((path: string) => {
       if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
       if (path === '/reports/templates') return Promise.resolve([])
-      if (path === '/reports?limit=100') return Promise.resolve([])
+      if (path.startsWith('/reports?')) return Promise.resolve([])
       if (path === '/reports/report-1') {
         detailRequests += 1
         return detailRequests === 1
@@ -582,7 +583,7 @@ describe('ReportingPage detail actions', () => {
       (path: string, options?: RequestInit) => {
         if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
         if (path === '/reports/templates') return Promise.resolve([])
-        if (path === '/reports?limit=100') return Promise.resolve([])
+        if (path.startsWith('/reports?')) return Promise.resolve([])
         if (path === '/reports/report-1') return Promise.resolve(reportDetail('error'))
         if (path === '/reports/report-1/retry') {
           retryCalls += 1
@@ -632,7 +633,7 @@ describe('ReportingPage detail actions', () => {
       (path: string, options?: RequestInit) => {
         if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
         if (path === '/reports/templates') return Promise.resolve([])
-        if (path === '/reports?limit=100') return Promise.resolve([])
+        if (path.startsWith('/reports?')) return Promise.resolve([])
         if (path === '/reports/report-1') return Promise.resolve(reportDetail('error'))
         if (path === '/reports/report-1/retry') {
           retryCalls += 1
@@ -687,7 +688,7 @@ describe('ReportingPage schedule resilience', () => {
     reportingPageMocks.apiFetch.mockImplementation((path: string) => {
       if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
       if (path === '/reports/templates') return Promise.resolve([REPORT_TEMPLATE])
-      if (path === '/reports?limit=100') return Promise.resolve([])
+      if (path.startsWith('/reports?')) return Promise.resolve([])
       if (path === '/reports/schedules') {
         scheduleRequests += 1
         return scheduleRequests === 1
@@ -720,7 +721,7 @@ describe('ReportingPage schedule resilience', () => {
     reportingPageMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
       if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
       if (path === '/reports/templates') return Promise.resolve([REPORT_TEMPLATE])
-      if (path === '/reports?limit=100') {
+      if (path.startsWith('/reports?')) {
         libraryRequests += 1
         return Promise.resolve([])
       }
@@ -755,7 +756,7 @@ describe('ReportingPage schedule resilience', () => {
     reportingPageMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
       if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
       if (path === '/reports/templates') return Promise.resolve([REPORT_TEMPLATE])
-      if (path === '/reports?limit=100') return Promise.resolve([])
+      if (path.startsWith('/reports?')) return Promise.resolve([])
       if (path === '/reports/schedules') return Promise.resolve([schedule])
       if (path === '/reports/schedules/schedule-1/run' && options?.method === 'POST') {
         runRequests += 1
@@ -808,7 +809,7 @@ describe('ReportingPage schedule resilience', () => {
     reportingPageMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
       if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
       if (path === '/reports/templates') return Promise.resolve([REPORT_TEMPLATE])
-      if (path === '/reports?limit=100') return Promise.resolve([])
+      if (path.startsWith('/reports?')) return Promise.resolve([])
       if (path === '/reports/schedules') {
         scheduleRequests += 1
         return scheduleRequests === 1
@@ -873,7 +874,7 @@ describe('ReportingPage template pending state', () => {
     reportingPageMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
       if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
       if (path === '/reports/templates') return Promise.resolve([REPORT_TEMPLATE, secondTemplate])
-      if (path === '/reports?limit=100') return Promise.resolve([])
+      if (path.startsWith('/reports?')) return Promise.resolve([])
       if (path === '/reports/templates/template-1/clone' && options?.method === 'POST') {
         cloneRequests += 1
         cloneHeaders.push(new Headers(options.headers).get('Idempotency-Key') ?? '')
@@ -927,7 +928,7 @@ describe('ReportingPage resource version refresh', () => {
     reportingPageMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
       if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
       if (path === '/reports/templates') return Promise.resolve([REPORT_TEMPLATE])
-      if (path === '/reports?limit=100') return Promise.resolve([])
+      if (path.startsWith('/reports?')) return Promise.resolve([])
       if (path === '/reports/schedules') {
         scheduleListRequests += 1
         return Promise.resolve([current])
@@ -980,7 +981,7 @@ describe('ReportingPage resource version refresh', () => {
     reportingPageMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
       if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
       if (path === '/reports/templates') return Promise.resolve([REPORT_TEMPLATE])
-      if (path === '/reports?limit=100') return Promise.resolve([])
+      if (path.startsWith('/reports?')) return Promise.resolve([])
       if (path === '/reports/schedules') {
         scheduleListRequests += 1
         return Promise.resolve([current])
@@ -1034,7 +1035,7 @@ describe('ReportingPage resource version refresh', () => {
         templateListRequests += 1
         return Promise.resolve([current])
       }
-      if (path === '/reports?limit=100') return Promise.resolve([])
+      if (path.startsWith('/reports?')) return Promise.resolve([])
       if (path === '/reports/templates/template-1' && options?.method === 'PUT') {
         updateHeaders.push(new Headers(options.headers).get('If-Match') ?? '')
         current = {
@@ -1096,7 +1097,7 @@ describe('ReportingPage resource version refresh', () => {
     reportingPageMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
       if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
       if (path === '/reports/templates') return Promise.resolve([REPORT_TEMPLATE])
-      if (path === '/reports?limit=100') return Promise.resolve([])
+      if (path.startsWith('/reports?')) return Promise.resolve([])
       if (path === '/reports/schedules') return Promise.resolve(deleted ? [] : [schedule])
       if (path === '/reports/schedules/schedule-1' && options?.method === 'DELETE') {
         deleteHeader = new Headers(options.headers).get('If-Match') ?? ''
@@ -1123,7 +1124,7 @@ describe('ReportingPage resource version refresh', () => {
     reportingPageMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
       if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
       if (path === '/reports/templates') return Promise.resolve(deleted ? [] : [template])
-      if (path === '/reports?limit=100') return Promise.resolve([])
+      if (path.startsWith('/reports?')) return Promise.resolve([])
       if (path === '/reports/templates/template-1' && options?.method === 'DELETE') {
         deleteHeader = new Headers(options.headers).get('If-Match') ?? ''
         deleted = true

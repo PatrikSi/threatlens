@@ -27,3 +27,22 @@ only to fields unchanged since that submission. Later edits remain in the draft
 and keep navigation protection active. Completions for another selected record
 update its cached saved configuration without replacing the current editor.
 New-feed submission clears only fields that still match the submitted form.
+
+## Report drafts and library
+
+Template queries initialize a new builder once. Subsequent cache refreshes preserve
+the report draft; a changed or deleted template is shown explicitly. Updates use
+the revision loaded into the builder, so background refresh cannot silently bypass
+an edit conflict. Loading another template or its latest revision requires
+confirmation when the draft is dirty. Browser navigation and reload are protected.
+A queued report opens automatically only when the submitted draft is still current;
+newer edits stay in the builder and the queued report remains in the library.
+
+The report library pages through every report available under the existing data
+access policy, 25 per page, with one extra result to determine whether Next is
+available. It shows the actual range without inventing a total, supports status
+and creation-date filters, and resets to page one when scope changes. The additive
+API parameters `created_from` (inclusive) and `created_before` (exclusive) accept
+timestamps, interpret missing offsets as UTC, and reject reversed or empty ranges.
+The UI's through date includes that full UTC day. Sorting breaks creation-time
+ties by report ID for stable offset paging.
