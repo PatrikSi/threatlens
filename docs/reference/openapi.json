@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "1.10.0",
-    "x-threatlens-contract-sha256": "0a809f56d1b5b56db78dfe412a8ab85b75ee696f9a729b0ff6160e9689dc9c6d"
+    "x-threatlens-contract-sha256": "67fd155a8ceb7c6b28e134c5725c0c3349ffcc9b19672ce7e49b0bd4bda72c44"
   },
   "servers": [
     {
@@ -51140,6 +51140,57 @@
         ],
         "title": "TaggingReapplyResponse"
       },
+      "TaggingRecoveryError": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "count",
+          "message"
+        ],
+        "title": "TaggingRecoveryError"
+      },
+      "TaggingRecoverySummary": {
+        "properties": {
+          "pending": {
+            "type": "integer",
+            "title": "Pending",
+            "default": 0
+          },
+          "retrying": {
+            "type": "integer",
+            "title": "Retrying",
+            "default": 0
+          },
+          "needs_attention": {
+            "type": "integer",
+            "title": "Needs Attention",
+            "default": 0
+          },
+          "errors": {
+            "items": {
+              "$ref": "#/components/schemas/TaggingRecoveryError"
+            },
+            "type": "array",
+            "title": "Errors"
+          }
+        },
+        "type": "object",
+        "title": "TaggingRecoverySummary"
+      },
       "TaggingRulePreviewItem": {
         "properties": {
           "id": {
@@ -51572,6 +51623,9 @@
             },
             "type": "array",
             "title": "Rules"
+          },
+          "tagging_recovery": {
+            "$ref": "#/components/schemas/TaggingRecoverySummary"
           }
         },
         "type": "object",
