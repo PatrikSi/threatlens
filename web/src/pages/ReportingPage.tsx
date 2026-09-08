@@ -5,7 +5,7 @@ import { ReportLibrary } from './ReportLibrary'
 import { ReportSchedulesPanel } from './ReportSchedulesPanel'
 import { ReportTemplatesPanel } from './ReportTemplatesPanel'
 import { ReportingActionFeedback } from './ReportingActionFeedback'
-import { type ReportingTab, useReportingController } from './useReportingController'
+import { type ReportingController, type ReportingTab, useReportingController } from './useReportingController'
 
 const TABS: Array<{ id: ReportingTab; label: string }> = [
   { id: 'reports', label: 'Reports' },
@@ -15,6 +15,10 @@ const TABS: Array<{ id: ReportingTab; label: string }> = [
 
 export function ReportingPage() {
   const controller = useReportingController()
+  return <>{controller.builderDraft.discardDialog}<ReportingContent controller={controller} /></>
+}
+
+function ReportingContent({ controller }: { controller: ReportingController }) {
   const visibleTabs = controller.isAdmin ? TABS : TABS.filter((tab) => tab.id !== 'schedules')
 
   if (controller.reportDetailQuery.isLoading) {

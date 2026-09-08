@@ -489,12 +489,27 @@ def remove_template(
 @router.get("", response_model=list[ReportListItem])
 def list_reports(
     report_status: str | None = Query(default=None, alias="status"),
+    created_from: datetime | None = Query(
+        default=None, description="Inclusive report creation time; timestamps without an offset use UTC."
+    ),
+    created_before: datetime | None = Query(
+        default=None, description="Exclusive report creation time; timestamps without an offset use UTC."
+    ),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
     _user: User = Depends(require_permissions(SCOPE_READ_REPORTS)),
     data_access: DataAccessContext = Depends(get_data_access_context),
 ):
+    if created_from is not None:
+        created_from = created_from.replace(tzinfo=created_from.tzinfo or timezone.utc).astimezone(timezone.utc)
+    if created_before is not None:
+        created_before = created_before.replace(tzinfo=created_before.tzinfo or timezone.utc).astimezone(timezone.utc)
+    if created_from is not None and created_before is not None and created_from >= created_before:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="created_before must be later than created_from",
+        )
     query = select(Report).where(
         data_access_envelope_predicate(
             DATA_ACCESS_RESOURCE_REPORT,
@@ -502,6 +517,10 @@ def list_reports(
             data_access,
         )
     )
+    if created_from is not None:
+        query = query.where(Report.created_at >= created_from)
+    if created_before is not None:
+        query = query.where(Report.created_at < created_before)
     if report_status:
         if report_status not in {"queued", "running", "ready", "error", "skipped"}:
             raise HTTPException(
@@ -510,7 +529,7 @@ def list_reports(
             )
         query = query.where(Report.status == report_status)
     reports = db.scalars(
-        query.order_by(Report.created_at.desc()).offset(offset).limit(limit)
+        query.order_by(Report.created_at.desc(), Report.id.desc()).offset(offset).limit(limit)
     ).all()
     return [report_list_item(report) for report in reports]
 

@@ -9,22 +9,16 @@ import { useCurrentUser } from '../hooks/useCurrentUser'
 import { hasRequiredPermissions } from '../workspace/workspaceModel'
 import type {
   ReportCapabilities,
-  ReportDeliveryMode,
   ReportDetail,
-  ReportListItem,
   ReportPreview,
-  ReportPromptConfig,
   ReportSchedule,
   ReportScheduleWrite,
-  ReportSectionConfig,
   ReportTemplate,
 } from '../types/api'
-import { triggerBrowserDownload, type ExportFilterDraft } from './exportPageModel'
+import { useReportLibrary } from './useReportLibrary'
+import { useReportBuilderDraft } from './useReportBuilderDraft'
+import { triggerBrowserDownload } from './exportPageModel'
 import {
-  DEFAULT_REPORT_PROMPT,
-  DEFAULT_REPORT_SECTIONS,
-  createDefaultExportFilterDraftForReports,
-  reportBuilderFromTemplate,
   reportPeriodFromFilters,
   validateReportBuilder,
 } from './reportingPageModel'
@@ -70,14 +64,6 @@ export function useReportingController() {
   )
   const requestOwnerId = currentUser.data?.id
   const [activeTab, setActiveTab] = useState<ReportingTab>('reports')
-  const [selectedTemplateId, setSelectedTemplateId] = useState('')
-  const [filterDraft, setFilterDraft] = useState<ExportFilterDraft>(createDefaultExportFilterDraftForReports)
-  const [prompt, setPrompt] = useState<ReportPromptConfig>(structuredClone(DEFAULT_REPORT_PROMPT))
-  const [sections, setSections] = useState<ReportSectionConfig[]>(structuredClone(DEFAULT_REPORT_SECTIONS))
-  const [excludedItemIds, setExcludedItemIds] = useState<string[]>([])
-  const [title, setTitle] = useState('')
-  const [deliverWhenReady, setDeliverWhenReady] = useState(false)
-  const [deliveryMode, setDeliveryMode] = useState<ReportDeliveryMode>('summary')
   const [feedback, setFeedback] = useState<ReportingFeedback>(null)
   const selectedReportIdRef = useRef(routeReportId)
   const mountedRef = useRef(true)
@@ -114,11 +100,18 @@ export function useReportingController() {
     queryFn: ({ signal }) => apiFetch<ReportTemplate[]>('/reports/templates', { signal }),
     staleTime: 60_000,
   })
-  const reportsQuery = useQuery({
-    queryKey: ['reports', 'library'],
-    queryFn: ({ signal }) => apiFetch<ReportListItem[]>('/reports?limit=100', { signal }),
-    refetchInterval: 10_000,
-  })
+  const builderDraft = useReportBuilderDraft(templatesQuery.data, canAuthor)
+  const { selectedTemplateId, setSelectedTemplateId, selectedTemplate, filterDraft, setFilterDraft, prompt,
+    setPrompt, sections, setSections, excludedItemIds, setExcludedItemIds, title, setTitle,
+    deliverWhenReady, setDeliverWhenReady, deliveryMode, setDeliveryMode } = builderDraft
+  const [queuedReportToOpen, setQueuedReportToOpen] = useState<string | null>(null)
+  useEffect(() => {
+    if (!queuedReportToOpen || builderDraft.dirty) return
+    setQueuedReportToOpen(null)
+    navigate(`/reporting/${queuedReportToOpen}`)
+  }, [queuedReportToOpen, builderDraft.dirty, navigate])
+  const reportLibrary = useReportLibrary()
+  const reportsQuery = reportLibrary.query
   const schedulesQuery = useQuery({
     queryKey: ['reports', 'schedules'],
     queryFn: ({ signal }) => apiFetch<ReportSchedule[]>('/reports/schedules', { signal }),
@@ -134,34 +127,6 @@ export function useReportingController() {
       return status === 'queued' || status === 'running' ? 3000 : false
     },
   })
-
-  useEffect(() => {
-    const templates = templatesQuery.data
-    if (!templates) return
-    if (!templates.length) {
-      if (selectedTemplateId) setSelectedTemplateId('')
-      return
-    }
-    if (
-      !selectedTemplateId
-      || !templates.some((template) => template.id === selectedTemplateId)
-    ) {
-      setSelectedTemplateId(templates[0].id)
-    }
-  }, [selectedTemplateId, templatesQuery.data])
-
-  useEffect(() => {
-    if (!selectedTemplateId || !templatesQuery.data) return
-    const template = templatesQuery.data.find((entry) => entry.id === selectedTemplateId)
-    if (!template) return
-    const state = reportBuilderFromTemplate(template)
-    setPrompt(state.prompt)
-    setSections(state.sections)
-    if (Object.values(template.default_filters).some((value) => value !== null && (!Array.isArray(value) || value.length))) {
-      setFilterDraft(state.filterDraft)
-    }
-    setExcludedItemIds([])
-  }, [selectedTemplateId, templatesQuery.data])
 
   const validation = useMemo(
     () => validateReportBuilder(filterDraft, prompt, sections),
@@ -220,11 +185,11 @@ export function useReportingController() {
         ),
       )
     },
-    onMutate: () => setFeedback(null),
-    onSuccess: (result) => {
+    onMutate: () => { setFeedback(null); return builderDraft.fingerprint },
+    onSuccess: (result, _variables, submittedFingerprint) => {
       setFeedback(reportQueueFeedback('create', result.status))
       void queryClient.invalidateQueries({ queryKey: ['reports', 'library'] })
-      navigate(`/reporting/${result.report_id}`)
+      if (builderDraft.acceptSubmission(submittedFingerprint)) setQueuedReportToOpen(result.report_id)
     },
     onError: (error) => {
       setFeedback({
@@ -279,7 +244,7 @@ export function useReportingController() {
     mutationKey: ['reports', 'templates', 'save'],
     mutationFn: (payload: { mode: 'create' | 'update'; name: string; visibility: 'private' | 'shared' }) => {
       if (!validation.filters) throw new Error('Report filters are invalid.')
-      const selected = templatesQuery.data?.find((template) => template.id === selectedTemplateId)
+      const selected = selectedTemplate
       const updateTarget = payload.mode === 'update' ? selected : undefined
       if (payload.mode === 'update' && !updateTarget) {
         throw new Error('The selected report template is no longer available. Refresh the template list and try again.')
@@ -342,13 +307,13 @@ export function useReportingController() {
         ),
       )
     },
-    onMutate: () => setFeedback(null),
-    onSuccess: (template) => {
+    onMutate: () => { setFeedback(null); return selectedTemplateId },
+    onSuccess: (template, _payload, submittedTemplateId) => {
       queryClient.setQueryData<ReportTemplate[]>(
         ['reports', 'templates'],
         (templates) => upsertReportingResource(templates, template),
       )
-      setSelectedTemplateId(template.id)
+      builderDraft.adoptSavedTemplate(template, submittedTemplateId)
       setFeedback({ kind: 'success', message: 'Report template saved.' })
       void queryClient.invalidateQueries({ queryKey: ['reports', 'templates'] })
     },
@@ -398,7 +363,7 @@ export function useReportingController() {
     },
     onMutate: () => setFeedback(null),
     onSuccess: (template) => {
-      setSelectedTemplateId(template.id)
+      builderDraft.selectClonedTemplate(template)
       setActiveTab('reports')
       setFeedback({
         kind: 'success',
@@ -700,7 +665,6 @@ export function useReportingController() {
     },
   })
 
-  const selectedTemplate = templatesQuery.data?.find((entry) => entry.id === selectedTemplateId)
   const previewIsCurrent = previewPayload === debouncedPreviewPayload
   const previewErrorBlocksCreate = previewQuery.isError && reportPreviewErrorBlocksCreation(previewQuery.error)
   const previewErrorMessage = previewQuery.isError
@@ -710,7 +674,7 @@ export function useReportingController() {
         { retryGuidance: previewErrorBlocksCreate ? undefined : 'You can retry the estimate or let the server validate the report when it is generated.' },
       )
     : null
-  const createBlockedReason = resolveReportCreateBlockedReason({
+  const createBlockedReason = builderDraft.templateUnavailable ? 'Select an available template before generating this report.' : resolveReportCreateBlockedReason({
     canAuthor,
     reportingEnabled: Boolean(capabilitiesQuery.data?.reporting_enabled),
     aiConfigured: Boolean(capabilitiesQuery.data?.ai_configured),
@@ -732,12 +696,14 @@ export function useReportingController() {
   return {
     activeTab,
     setActiveTab,
+    builderDraft,
     currentUser,
     isAdmin,
     canAuthor,
     capabilitiesQuery,
     templatesQuery,
     reportsQuery,
+    reportLibrary,
     schedulesQuery,
     reportDetailQuery,
     previewQuery,

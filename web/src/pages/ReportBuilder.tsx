@@ -30,9 +30,17 @@ export function ReportBuilder({ controller }: { controller: ReportingController 
             value={controller.selectedTemplateId}
             onChange={(event) => controller.setSelectedTemplateId(event.target.value)}
           >
+            {!controller.selectedTemplateId && <option value="">Select a template</option>}
+            {controller.builderDraft.templateUnavailable && <option value={controller.selectedTemplateId}>{controller.selectedTemplate?.name} (unavailable)</option>}
             {controller.templatesQuery.data?.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
           </select>
         </div>
+        {controller.builderDraft.dirty && <p role="status" className="mt-2 text-xs text-slate dark:text-slate-300">Unsaved report draft</p>}
+        {controller.builderDraft.templateRevisionChanged && <div role="status" className="mt-2 text-sm text-amber-800 dark:text-amber-200">
+          This template has a newer revision. Your draft is preserved.
+          <button type="button" className="ml-2 underline" onClick={controller.builderDraft.reloadTemplate}>Load latest template</button>
+        </div>}
+        {controller.builderDraft.templateUnavailable && <p role="status" className="mt-2 text-sm text-amber-800 dark:text-amber-200">The selected template is no longer available. Your draft is preserved; select another template to continue.</p>}
         <TemplateSaveControls controller={controller} />
       </header>
 
