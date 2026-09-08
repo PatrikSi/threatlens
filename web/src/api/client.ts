@@ -1,3 +1,5 @@
+import { assertSessionActionsAvailable, captureSessionLease } from './sessionLifecycle'
+
 const DEFAULT_API_BASE_URL = import.meta.env.DEV
   ? typeof window !== 'undefined'
     ? `${window.location.protocol}//${window.location.hostname}:8000/v1`
@@ -162,6 +164,7 @@ async function requestApiResponse<T>(
   defaultAccept: string,
   consumeResponse: (response: Response) => Promise<T>,
 ): Promise<T> {
+  const session = captureSessionLease()
   const { timeoutMs, ...requestOptions } = options
   const headers = new Headers(requestOptions.headers)
   const hasBody =
@@ -183,6 +186,7 @@ async function requestApiResponse<T>(
     headers.set('Accept', defaultAccept)
   }
   if (auth && UNSAFE_METHODS.has(method)) {
+    assertSessionActionsAvailable()
     let csrfToken: string | null
     try {
       csrfToken = getCookieValue(CSRF_COOKIE_NAME)
@@ -200,8 +204,9 @@ async function requestApiResponse<T>(
   }
 
   const timeoutController = new AbortController()
+  const callerSession = composeAbortSignals(requestOptions.signal, session.signal)
   const { signal, cleanup } = composeAbortSignals(
-    requestOptions.signal,
+    callerSession.signal,
     timeoutController.signal,
   )
   const requestTimeoutMs = normalizeTimeoutMs(timeoutMs, REQUEST_TIMEOUT_MS)
@@ -243,8 +248,11 @@ async function requestApiResponse<T>(
         },
       )
     }
-    return await consumeResponse(response)
+    const result = await consumeResponse(response)
+    session.assertCurrent()
+    return result
   } catch (error) {
+    session.assertCurrent()
     if (error instanceof ApiError || error instanceof ApiRequestError) {
       throw error
     }
@@ -268,6 +276,7 @@ async function requestApiResponse<T>(
   } finally {
     clearTimeout(timeout)
     cleanup()
+    callerSession.cleanup()
   }
 }
 
