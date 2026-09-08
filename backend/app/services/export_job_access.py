@@ -49,7 +49,6 @@ def capture_export_authorization(request, authorization, data_access) -> dict:
 
 def authorize_export_job(db: Session, job: ExportJob, *, lock: bool = False):
     snapshot = decrypt_json(job.authorization_encrypted)
-    credential = _original_credential(db, job, snapshot, lock=lock)
     model = User if job.principal_type == "user" else ServiceAccount
     statement = select(model).where(model.id == job.principal_id).execution_options(populate_existing=True)
     if lock:
@@ -57,6 +56,10 @@ def authorize_export_job(db: Session, job: ExportJob, *, lock: bool = False):
     principal = db.scalar(statement)
     if principal is None:
         raise ExportJobAccessDenied("The export owner no longer exists")
+    # Authentication mutations lock the owner before its credentials. Keep
+    # that order under the publication/download policy fences too; reversing
+    # it can deadlock with token revocation or browser-session rotation.
+    credential = _original_credential(db, job, snapshot, lock=lock)
     scope_cap = snapshot["permissions"]
     if not has_required_scope(set(scope_cap), SCOPE_READ_ITEMS):
         raise ExportJobAccessDenied("The accepting credential did not grant article access")
