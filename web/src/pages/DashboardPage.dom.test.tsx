@@ -11,6 +11,7 @@ import {
   MAX_DASHBOARD_WINDOWS,
   type DashboardWindow,
 } from './dashboardSavedViews'
+import { invalidateSession } from '../api/sessionLifecycle'
 import type { SavedView } from '../types/api'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -1024,6 +1025,23 @@ describe('DashboardPage DOM workflows', () => {
     expect(pageText()).toContain('Imported 1 saved view before the import stopped: "Alpha View".')
     expect(pageText()).toContain('Failed to import "Bravo View": A saved view with that name already exists.')
     expect(dashboardPageDomMocks.queryClient.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['views'] })
+  })
+
+  it('does not import a file read under a previous account into the next session', async () => {
+    renderPage()
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    act(() => getButton('Views')?.click())
+    const input = document.querySelector<HTMLInputElement>('[aria-label="Import saved dashboard views JSON"]')!
+    let finishRead!: (value: string) => void
+    const file = new File([''], 'views.json', { type: 'application/json' })
+    Object.defineProperty(file, 'text', { value: () => new Promise<string>((resolve) => { finishRead = resolve }) })
+    await uploadFile(input, file)
+    act(() => invalidateSession())
+    await act(async () => finishRead(JSON.stringify({ views: [{ name: 'Old private view', query_json: { windows: [] } }] })))
+    await flushAsyncWork()
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(pageText()).not.toContain('Old private view')
   })
 
   it('wires the Add Panel menu with expanded state and keyboard navigation', () => {

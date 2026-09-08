@@ -14,6 +14,7 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query'
+import { captureSessionLease } from '../api/sessionLifecycle'
 import { ApiError, apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
 import { useCurrentUser } from '../hooks/useCurrentUser'
@@ -983,6 +984,7 @@ export function useDashboardPageController() {
   }
 
   const importViewsFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const lease = captureSessionLease()
     const file = event.target.files?.[0]
     if (!file) {
       return
@@ -1000,6 +1002,7 @@ export function useDashboardPageController() {
 
     try {
       const text = await file.text()
+      lease.assertCurrent()
       const parsed = JSON.parse(text) as unknown
       const entries = parseImportedSavedViews(parsed)
       if (!entries.length) {
@@ -1009,12 +1012,15 @@ export function useDashboardPageController() {
       const importedNames: string[] = []
       for (const entry of entries) {
         try {
+          lease.assertCurrent()
           await apiFetch('/views', {
             method: 'POST',
             body: JSON.stringify(entry),
           })
+          lease.assertCurrent()
           importedNames.push(entry.name)
         } catch (error) {
+          if (lease.signal.aborted) return
           if (importedNames.length) {
             setImportViewsResult(formatSavedViewImportResult(importedNames, true))
             await queryClient.invalidateQueries({ queryKey: ['views'] })
@@ -1027,6 +1033,7 @@ export function useDashboardPageController() {
       setImportViewsResult(formatSavedViewImportResult(importedNames))
       await queryClient.invalidateQueries({ queryKey: ['views'] })
     } catch (error) {
+      if (lease.signal.aborted) return
       setImportViewsError(resolveApiErrorMessage(error, 'Saved dashboard views could not be imported'))
     } finally {
       setIsImportingViews(false)
