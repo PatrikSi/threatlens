@@ -118,6 +118,14 @@ Administrators can schedule weekly or monthly reports with:
 - empty-period handling
 - optional integration delivery and content mode
 
+A schedule editor keeps the resource version captured when editing starts.
+Background list refreshes cannot advance that version underneath unsaved fields.
+If another administrator changes the schedule, the editor warns about the newer
+version, and the server rejects a stale save. The draft remains available after
+a conflict or failed refresh. Cancel and edit again to deliberately load the
+latest values before reapplying local changes. Fields are disabled while a save
+is pending.
+
 Dispatchers recheck retry time and schedule version after acquiring the schedule
 row lock. A failure is recorded only against the version and scheduled tick that
 was attempted; a delayed dispatcher cannot overwrite a newer retry, edit, or
