@@ -41,6 +41,9 @@ with `OR`, exclusions such as `-test`, or an exact report UUID. Search uses the
 PostgreSQL `simple` text configuration (case-insensitive words without stemming).
 Filters cover status, exact report type, trigger, and creation dates. The through
 date includes its full UTC day. Changing filters returns to page one.
+Title/ID search and report type apply when you select **Search reports**.
+Changing status, trigger, or dates preserves unsubmitted search text.
+**Clear report filters** resets both applied filters and unsubmitted search fields.
 
 Navigation uses `(created_at, id)` keysets and a first-page time cutoff, so newer
 reports do not shift later pages and deleting the previous page's last report

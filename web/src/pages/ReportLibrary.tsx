@@ -4,8 +4,9 @@ import type { ReportListItem } from '../types/api'
 import { formatReportDate } from './reportingPageModel'
 import type { ReportingController } from './useReportingController'
 
-export function ReportLibrary({ controller }: { controller: ReportingController }) {
+export function ReportLibrary({ controller }: { controller: Pick<ReportingController, 'reportLibrary' | 'reportsQuery' | 'openReport'> }) {
   const { reportLibrary: library } = controller
+  const [searchResetVersion, setSearchResetVersion] = useState(0)
   const reports = library.reports
   return (
     <section className="rounded-lg border border-slate/20 bg-white/80 dark:border-cyan-900/40 dark:bg-[#041612]/90">
@@ -13,7 +14,7 @@ export function ReportLibrary({ controller }: { controller: ReportingController 
         <div><h2 className="font-display text-lg">Report library</h2><p className="mt-0.5 text-xs text-slate dark:text-slate-400">Reports available to your account, newest first. Created dates use UTC. Refresh to include new reports and restart paging.</p></div>
         <button type="button" className="rounded border border-slate/20 px-3 py-1.5 text-xs font-semibold dark:border-white/10" onClick={library.refresh}>Refresh</button>
       </header>
-      <ReportLibrarySearch library={library} />
+      <ReportLibrarySearch key={searchResetVersion} library={library} />
       <div className="flex flex-wrap items-end gap-3 border-b border-slate/15 p-3 dark:border-white/10">
         <label className="text-xs font-semibold">Status
           <select aria-label="Report status" className="ml-2 rounded border border-slate/30 bg-white p-2 dark:bg-[#072019]" value={library.filters.status} onChange={(event) => library.updateFilters({ status: event.target.value as typeof library.filters.status })}>
@@ -32,7 +33,10 @@ export function ReportLibrary({ controller }: { controller: ReportingController 
         <label className="text-xs font-semibold">Created through
           <input type="date" aria-label="Reports created through" className="ml-2 rounded border border-slate/30 bg-white p-2 dark:bg-[#072019]" value={library.filters.createdThrough} onChange={(event) => library.updateFilters({ createdThrough: event.target.value })} />
         </label>
-        <button type="button" className="rounded border border-slate/30 px-3 py-2 text-xs" onClick={library.clearFilters}>Clear report filters</button>
+        <button type="button" className="rounded border border-slate/30 px-3 py-2 text-xs" onClick={() => {
+          library.clearFilters()
+          setSearchResetVersion((current) => current + 1)
+        }}>Clear report filters</button>
       </div>
       {library.filterError && <p role="alert" className="p-3 text-sm text-red-700 dark:text-red-300">{library.filterError}</p>}
       {controller.reportsQuery.isLoading && <p role="status" className="p-4 text-sm text-slate dark:text-slate-300">Loading reports...</p>}
