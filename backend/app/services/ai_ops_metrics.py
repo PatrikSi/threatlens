@@ -615,20 +615,10 @@ def _build_endpoint_health(events: list[AIUsageEvent]) -> AIEndpointHealthRespon
     recent = [
         event for event in events if _coerce_utc(event.created_at) >= recent_window
     ]
-    median_latency_ms = (
-        round(
-            median(
-                [
-                    event.latency_ms
-                    for event in successful
-                    if event.latency_ms is not None
-                ]
-            ),
-            2,
-        )
-        if successful
-        else 0.0
-    )
+    latency_values = [
+        event.latency_ms for event in successful if event.latency_ms is not None
+    ]
+    median_latency_ms = round(median(latency_values), 2) if latency_values else 0.0
     timeout_failures = sum(
         1 for event in failed if "timeout" in (event.error or "").lower()
     )
