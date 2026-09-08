@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const aiSettingsPageDomMocks = vi.hoisted(() => ({
+  savePending: false,
   currentUser: {
     data: {
       id: 'admin-1',
@@ -359,6 +360,7 @@ vi.mock('@tanstack/react-query', () => ({
     onSettled?: () => void
   }) => {
     const mutationKey = Array.isArray(options?.mutationKey) ? options.mutationKey.join(':') : String(options?.mutationKey ?? '')
+    if (mutationKey === 'ai:settings:save') return { ...aiMutationResult(vi.fn()), isPending: aiSettingsPageDomMocks.savePending }
     if (mutationKey === 'ai:ops:runs:cancel') {
       return aiMutationResult(
         vi.fn((runId: string) => {
@@ -528,6 +530,7 @@ function clearActiveAiWork() {
 }
 
 afterEach(() => {
+  aiSettingsPageDomMocks.savePending = false;
   act(() => {
     root?.unmount()
   })
@@ -592,6 +595,19 @@ afterEach(() => {
 })
 
 describe('AiSettingsPage DOM workflows', () => {
+  it('pauses AI configuration fields while their save is pending', () => {
+    aiSettingsPageDomMocks.savePending = true
+    const view = renderPage()
+    act(() => getButton('Configuration')?.click())
+    const fields = Array.from(view.querySelectorAll('fieldset input, fieldset select, fieldset textarea'))
+    expect(fields.length).toBeGreaterThan(5)
+    expect(fields.every((field) => field.matches(':disabled'))).toBe(true)
+    expect(pageText()).toContain('Saving AI settings. Editing resumes')
+    aiSettingsPageDomMocks.savePending = false
+    act(() => root?.render(<AiSettingsPage />))
+    expect(view.querySelector('fieldset input')?.matches(':disabled')).toBe(false)
+  })
+
   it('keeps select navigation through large viewports and switches to sidebar tabs at extra large', () => {
     const view = renderPage()
     const mobileSection = view.querySelector<HTMLSelectElement>('#mobile-ai-settings-section')
