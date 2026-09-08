@@ -50,6 +50,17 @@ Each attempt has a monotonic generation deadline, plus Celery soft/hard executio
 
 Local rendering scratch uses a private directory per job/claim. Normal completion cleans it immediately. Before starting more rendering on a host, workers remove directories whose durable claim is no longer active, including leftovers from hard exits. Temporary rendering/download disk and PostgreSQL WAL/backups are additional to the retained-artifact byte reservation; size deployment storage accordingly. Generation concurrency is bounded by worker concurrency and per-principal admission.
 
+Background downloads use anonymous, mode-0600 temporary files on Linux. Plaintext
+has no directory entry: the API holds a non-inheritable descriptor until its
+response completes or disconnects, and the kernel releases it after a hard
+process exit. HTTP range downloads remain supported. This requires Linux procfs
+at `/proc/self/fd`; the standard containers provide it. No age-based sweep can
+delete a concurrent active download, and no directory or symlink scan is needed.
+Named `threatlens-export-download-*` files left by older versions are not swept
+automatically: discard the old container's temporary storage after stopping all
+of its API processes, or remove only those legacy files from the stopped
+instance's configured temporary directory.
+
 ## Configuration and operations
 
 | Setting | Default | Bound |

@@ -5,7 +5,6 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from starlette.background import BackgroundTask
 
 from app.api.deps import AuthenticatedPrincipal, get_authorization_context, get_data_access_context, require_permissions
 from app.api.routes.exports import (
@@ -20,7 +19,6 @@ from app.schemas.exports import ArticleExportJobList, ArticleExportJobRequest, A
 from app.services.audit import record_audit
 from app.services.authorization import AuthorizationStateUnavailable, fence_authorization_context
 from app.services.data_access_policy import DataAccessContext, DataPolicyError, fence_data_access_context
-from app.services.export_artifacts import remove_export_artifact
 from app.services.export_job_access import ExportJobAccessDenied
 from app.services.export_job_download import ExportJobArtifactUnavailable, materialize_export_job_download
 from app.services.export_jobs import (
@@ -141,9 +139,9 @@ def download_export_job(
         raise HTTPException(status_code=410, detail="This export has expired. Start a new export.")
     if job.status != "ready":
         raise HTTPException(status_code=409, detail="This export is not ready for download.")
-    path = None
+    download = None
     try:
-        path = materialize_export_job_download(
+        download = materialize_export_job_download(
             db, job, current_authorization=get_authorization_context(request), current_access=data_access,
         )
         record_audit(db, actor_user_id=_human_user_id(principal),
@@ -163,18 +161,17 @@ def download_export_job(
         fence_authorization_context(db, current)
         fence_data_access_context(db, data_access)
         assert_export_sources_visible(db, job, data_access)
-        return DisconnectSafeFileResponse(path, media_type=job.media_type, filename=job.filename,
-            headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "X-Export-Item-Count": str(job.item_count)},
-            background=BackgroundTask(remove_export_artifact, path))
+        return download.response(media_type=job.media_type, filename=job.filename,
+            headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "X-Export-Item-Count": str(job.item_count)})
     except (ExportJobAccessDenied, AuthorizationStateUnavailable, DataPolicyError) as exc:
-        if path is not None:
-            remove_export_artifact(path)
+        if download is not None:
+            download.close()
         raise _access_changed(exc) from exc
     except (ExportJobArtifactUnavailable, ValueError) as exc:
-        if path is not None:
-            remove_export_artifact(path)
+        if download is not None:
+            download.close()
         raise HTTPException(status_code=410, detail="The stored export is unavailable. Start a new export.") from exc
     except Exception:
-        if path is not None:
-            remove_export_artifact(path)
+        if download is not None:
+            download.close()
         raise
