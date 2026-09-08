@@ -134,21 +134,21 @@ def purged_article_case(db_session, monkeypatch):
         return _Response()
 
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.domain_slot", _domain_slot_override)
+    monkeypatch.setattr('app.tasks.feed_task_coordination.domain_slot', _domain_slot_override)
     monkeypatch.setattr(
-        "app.tasks.feed_tasks.build_safe_http_client",
+        'app.services.safe_fetch.build_safe_http_client',
         lambda *_args, **_kwargs: _Client(),
     )
     monkeypatch.setattr(
-        "app.tasks.feed_tasks.safe_stream_with_redirects",
+        'app.services.safe_fetch.safe_stream_with_redirects',
         _safe_stream,
     )
     monkeypatch.setattr(
-        "app.tasks.feed_tasks.extract_canonical_url",
+        'app.services.extraction.extract_canonical_url',
         lambda _html: None,
     )
     monkeypatch.setattr(
-        "app.tasks.feed_tasks.extract_readable_text",
+        'app.services.extraction.extract_readable_text',
         lambda _html: scenario["extracted"],
     )
     monkeypatch.setattr(

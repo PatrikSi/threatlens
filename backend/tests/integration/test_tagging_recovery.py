@@ -1,3 +1,7 @@
+from app.services import algorithm_tags as _owner_algorithm_tags
+from app.services import classification as _owner_classification
+from app.tasks import feed_task_constants as _owner_feed_task_constants
+from app.tasks import feed_task_coordination as _owner_feed_task_coordination
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor
@@ -39,7 +43,7 @@ def _source(db):
                        applies_to_json=["article_text"], feed_scope="selected", feed_ids_json=[str(feed.id)])
     db.add_all([article, rule])
     db.flush()
-    assert item_processing_tasks._reapply_item_tags(db, item.id, runtime=feed_tasks)
+    assert item_processing_tasks._reapply_item_tags(db, item.id, dependencies=feed_tasks._item_processing_dependencies())
     db.commit()
     return feed, item, article, rule
 
@@ -100,7 +104,7 @@ def test_non_retryable_evaluation_waits_for_manual_reapply(db_session, monkeypat
     assert feed_tasks.repair_pending_item_tags.run() == {"processed": 0, "pending": 0}
     rule.enabled = False
     db_session.commit()
-    assert item_processing_tasks._reapply_item_tags(db_session, item.id, runtime=feed_tasks)
+    assert item_processing_tasks._reapply_item_tags(db_session, item.id, dependencies=feed_tasks._item_processing_dependencies())
     db_session.commit()
     assert not item.tagging_pending
     assert rule.tag_name not in _names(db_session, item.id)
@@ -165,7 +169,7 @@ def committed_source(database_engine):
 def test_reapply_refreshes_preloaded_source_and_holds_lock(database_engine, committed_source, monkeypatch):
     _feed_id, item_id, _rule_id, tag_name = committed_source
     snapshot_read, writer_committed, evaluating, release = (Event() for _ in range(4))
-    actual_classify = feed_tasks.classify_item_content
+    actual_classify = _owner_classification.classify_item_content
 
     def inspect_source(**context):
         assert context["article_text"] == "newmarker"
@@ -174,7 +178,7 @@ def test_reapply_refreshes_preloaded_source_and_holds_lock(database_engine, comm
         assert release.wait(10)
         return actual_classify(**context)
 
-    monkeypatch.setattr(feed_tasks, "classify_item_content", inspect_source)
+    monkeypatch.setattr(_owner_classification, 'classify_item_content', inspect_source)
 
     def reapply():
         with Session(database_engine) as db:
@@ -182,7 +186,7 @@ def test_reapply_refreshes_preloaded_source_and_holds_lock(database_engine, comm
                      db.get(ItemClassification, item_id)]
             snapshot_read.set()
             assert writer_committed.wait(10)
-            assert item_processing_tasks._reapply_item_tags(db, item_id, runtime=feed_tasks)
+            assert item_processing_tasks._reapply_item_tags(db, item_id, dependencies=feed_tasks._item_processing_dependencies())
             db.commit()
             assert stale[0].title == "New title"
 
@@ -221,7 +225,7 @@ def test_crashed_repair_rolls_back_and_recovers(database_engine, committed_sourc
         record_incomplete_tagging(item, ("worker_unavailable",))
         item.tagging_retry_at = datetime.now(timezone.utc) - timedelta(seconds=1)
         db.commit()
-    original_sync = feed_tasks.sync_item_algorithm_tags
+    original_sync = _owner_algorithm_tags.sync_item_algorithm_tags
 
     def crash(db, **context):
         original_sync(db, **context)
@@ -233,14 +237,14 @@ def test_crashed_repair_rolls_back_and_recovers(database_engine, committed_sourc
             yield db
 
     monkeypatch.setattr(feed_tasks, "db_session", session)
-    monkeypatch.setattr(feed_tasks, "sync_item_algorithm_tags", crash)
+    monkeypatch.setattr(_owner_algorithm_tags, 'sync_item_algorithm_tags', crash)
     with pytest.raises(RuntimeError, match="terminated"):
         feed_tasks.repair_pending_item_tags.run()
     with Session(database_engine) as db:
         assert db.get(Item, item_id).tagging_pending
         assert db.get(Item, item_id).tagging_attempts == 1
         assert tag_name in _names(db, item_id)
-    monkeypatch.setattr(feed_tasks, "sync_item_algorithm_tags", original_sync)
+    monkeypatch.setattr(_owner_algorithm_tags, 'sync_item_algorithm_tags', original_sync)
     assert feed_tasks.repair_pending_item_tags.run() == {"processed": 1, "pending": 0}
     with Session(database_engine) as db:
         assert not db.get(Item, item_id).tagging_pending
@@ -262,8 +266,8 @@ def test_manual_reapply_keyset_handles_tied_dates_and_limit(db_session, monkeypa
     def lock(**_kwargs):
         yield True
 
-    monkeypatch.setattr(feed_tasks, "tagging_reapply_lock", lock)
-    monkeypatch.setattr(feed_tasks, "TAGGING_REAPPLY_COMMIT_INTERVAL", 2)
+    monkeypatch.setattr(_owner_feed_task_coordination, 'tagging_reapply_lock', lock)
+    monkeypatch.setattr(_owner_feed_task_constants, 'TAGGING_REAPPLY_COMMIT_INTERVAL', 2)
     visited = []
     actual = item_processing_tasks._reapply_item_tags
 

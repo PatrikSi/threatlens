@@ -4,6 +4,8 @@ from typing import Protocol
 
 import feedparser
 
+from app.models.feed import Feed
+
 
 class FeedMetadataTarget(Protocol):
     name: str
@@ -86,3 +88,9 @@ def _clean_text(value: object) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def needs_feed_metadata_backfill(feed: Feed) -> bool:
+    if feed.url_decryption_error:
+        return False
+    return needs_metadata_backfill(feed)
