@@ -90,3 +90,16 @@ def test_coverage_gate_rejects_invalid_document(tmp_path, capsys):
 
     assert check_coverage.main(coverage_path) == 2
     assert "could not read" in capsys.readouterr().err
+
+
+def test_coverage_gate_includes_extracted_schedule_dispatcher(tmp_path, capsys):
+    coverage_path = tmp_path / "coverage.json"
+    _write_coverage(coverage_path)
+    payload = json.loads(coverage_path.read_text(encoding="utf-8"))
+    module = "app/tasks/report_schedule_tasks.py"
+    payload["files"][module] = {"summary": _summary(65, 100)}
+    coverage_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert check_coverage.main(coverage_path) == 1
+    assert f"{module} coverage 65.00% is below 66.00%" in capsys.readouterr().err
+    assert module in check_coverage._reporting_paths(payload["files"])
