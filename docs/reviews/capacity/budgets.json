@@ -23,5 +23,13 @@
     "queue_recovery_ms": 240000,
     "process_rss_increase_bytes": 805306368,
     "sampled_lock_waiting_query_age_peak_ms": 10000
+  },
+  "sustained": {
+    "export_p95_ms": 10000,
+    "governance_p95_ms": 5000,
+    "ai_connection_p95_ms": 5000,
+    "queue_recovery_ms": 60000,
+    "process_rss_increase_bytes": 536870912,
+    "sampled_lock_waiting_query_age_peak_ms": 10000
   }
 }

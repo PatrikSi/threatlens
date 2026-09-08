@@ -5,21 +5,48 @@ from __future__ import annotations
 
 import argparse
 import os
-import subprocess
 import sys
 import tempfile
 import uuid
 import json
 from pathlib import Path
 
+from capacity_process import execute_bounded
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--profile", choices=("smoke", "baseline", "large"), default="smoke"
+        "--profile",
+        choices=("smoke", "baseline", "large", "sustained"),
+        default="smoke",
     )
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--duration-seconds", type=int)
+    parser.add_argument("--target-id", default="unlabeled")
+    parser.add_argument("--cpu-count", type=int, default=1)
+    parser.add_argument("--max-rss-mib", type=int, default=1024)
     args = parser.parse_args()
+    if args.profile == "sustained" and (
+        args.duration_seconds is None or not 10 <= args.duration_seconds <= 3600
+    ):
+        parser.error("sustained requires --duration-seconds between 10 and 3600")
+    if args.profile != "sustained" and args.duration_seconds is not None:
+        parser.error("duration applies only to sustained")
+    if (
+        not 1 <= args.cpu_count <= len(os.sched_getaffinity(0))
+        or not 256 <= args.max_rss_mib <= 4096
+    ):
+        parser.error("invalid CPU count or RSS limit (256..4096 MiB)")
+    limits = {
+        "cpu_count": args.cpu_count,
+        "nice": 10,
+        "max_rss_bytes": args.max_rss_mib * 1024 * 1024,
+        "wall_timeout_seconds": (args.duration_seconds or 0) + 240,
+        "container_cpus": 0.5,
+        "postgres_memory_mib": 512,
+        "redis_memory_mib": 128,
+    }
     # Always ask the fixture to create disposable services. An inherited URL is
     # not sufficient evidence that a database or Redis belongs to this run.
     forbidden = ("THREATLENS_TEST_DATABASE_URL", "THREATLENS_TEST_REDIS_URL")
@@ -50,6 +77,9 @@ def main() -> int:
         THREATLENS_CAPACITY_PROFILE=args.profile,
         THREATLENS_CAPACITY_OUTPUT=str(output),
         THREATLENS_CAPACITY_RUN_ID=run_id,
+        THREATLENS_CAPACITY_TARGET_ID=args.target_id,
+        THREATLENS_CAPACITY_LIMITS=json.dumps(limits),
+        THREATLENS_CAPACITY_DURATION=str(args.duration_seconds or 0),
     )
     backend = Path(__file__).resolve().parents[1]
     # Settings load .env from cwd. A fresh working directory and a small process
@@ -57,19 +87,32 @@ def main() -> int:
     with tempfile.TemporaryDirectory(
         prefix="threatlens-capacity-"
     ) as working_directory:
-        code = subprocess.call(
+        manifest = Path(working_directory) / "owned-containers.txt"
+        env["THREATLENS_CAPACITY_CONTAINER_MANIFEST"] = str(manifest)
+        code = execute_bounded(
             [
                 sys.executable,
                 "-m",
                 "pytest",
                 "-c",
                 str(backend / "pytest.ini"),
-                str(backend / "tests/capacity/test_concurrent_workload.py"),
+                str(
+                    backend
+                    / (
+                        "tests/capacity/test_recovery_workload.py"
+                        if args.profile == "recovery"
+                        else "tests/capacity/test_concurrent_workload.py"
+                    )
+                ),
                 "-q",
                 "-s",
             ],
             cwd=working_directory,
             env=env,
+            limits=limits,
+            output=output,
+            manifest=manifest,
+            run_id=run_id,
         )
     if code == 0 and (
         not output.exists() or json.loads(output.read_text()).get("run_id") != run_id

@@ -115,6 +115,13 @@ def compare_results(baseline, candidate, *, regression_percent=20):
             raise ValueError(
                 "failed or incomplete runs cannot establish a capacity trend"
             )
+    if (
+        baseline["comparison_identity"].get("target_id") == "unlabeled"
+        or candidate["comparison_identity"].get("target_id") == "unlabeled"
+    ):
+        raise ValueError(
+            "label the measured host with --target-id before comparing releases"
+        )
     incompatible = differences(
         baseline["comparison_identity"], candidate["comparison_identity"]
     )
@@ -131,9 +138,18 @@ def compare_results(baseline, candidate, *, regression_percent=20):
             baseline["latencies"].get(name),
             candidate["latencies"].get(name),
         )
-        if not before or not after or min(before["count"], after["count"]) < 20:
+        if (
+            not before
+            or not after
+            or min(before["count"], after["count"])
+            < (5 if name.startswith("deadline:") else 20)
+        ):
             metrics.append(
-                {"name": name, "status": "insufficient_samples", "minimum_samples": 20}
+                {
+                    "name": name,
+                    "status": "insufficient_samples",
+                    "minimum_samples": 5 if name.startswith("deadline:") else 20,
+                }
             )
             continue
         a, b = before["p95_ms"], after["p95_ms"]
