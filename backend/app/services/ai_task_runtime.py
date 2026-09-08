@@ -46,6 +46,7 @@ def get_ai_db_live_status(
         select(AITaskRun.queued_at)
         .where(AITaskRun.status == AI_STATUS_QUEUED, access_predicate)
         .order_by(AITaskRun.queued_at.asc())
+        .limit(1)
     )
     oldest_age = None
     if oldest_queued is not None:
