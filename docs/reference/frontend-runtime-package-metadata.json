@@ -92,6 +92,29 @@
     ]
   },
   {
+    "name": "lucide-react",
+    "version": "1.37.0",
+    "license": "ISC",
+    "description": "A Lucide icon library package for React applications.",
+    "homepage": "https://lucide.dev",
+    "repository": "https://github.com/lucide-icons/lucide.git",
+    "author": "Eric Fennis",
+    "package_path": "node_modules/lucide-react",
+    "license_files": [
+      "LICENSE"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "LICENSE",
+        "source_path": "node_modules/lucide-react/LICENSE",
+        "artifact_path": "lucide-react/1.37.0/LICENSE",
+        "sha256": "b495047bd93a9b06913511076f504daba17d5bbeb3e0650f3bb53a4220329c57"
+      }
+    ]
+  },
+  {
     "name": "react",
     "version": "19.2.5",
     "license": "MIT",
@@ -226,6 +249,29 @@
         "source_path": "node_modules/set-cookie-parser/LICENSE",
         "artifact_path": "set-cookie-parser/2.7.2/LICENSE",
         "sha256": "c5c6c5183a789d122f267c405f685037efb87e27fcde28ab1dd7378a2d2f5962"
+      }
+    ]
+  },
+  {
+    "name": "tabbable",
+    "version": "6.3.0",
+    "license": "MIT",
+    "description": "Returns an array of all tabbable DOM nodes within a containing node.",
+    "homepage": "https://github.com/focus-trap/tabbable#readme",
+    "repository": "git+https://github.com/focus-trap/tabbable.git",
+    "author": "David Clark",
+    "package_path": "node_modules/tabbable",
+    "license_files": [
+      "LICENSE"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "LICENSE",
+        "source_path": "node_modules/tabbable/LICENSE",
+        "artifact_path": "tabbable/6.3.0/LICENSE",
+        "sha256": "8e714750725e75c8b31172ef84c0805f94873f86e3b5cfca8a948553f0778fa1"
       }
     ]
   }

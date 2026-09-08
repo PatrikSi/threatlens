@@ -66,3 +66,30 @@ test('blocks publisher resources by default, allows explicit opt-in, and resets 
   // Unique per-article URLs ensure the second document cannot pass due to cache.
   expect(resourceRequests.every((url) => new URL(url).searchParams.get('article') === 'one')).toBe(true)
 })
+
+
+test('cycles focus around an empty saved-view dialog and ignores hidden controls', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Views', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Manage Saved Views' })
+  await expect(dialog.getByText('No saved views available.')).toBeVisible()
+  const close = dialog.getByRole('button', { name: 'Close dialog' })
+  const importButton = dialog.getByRole('button', { name: 'Import JSON', exact: true })
+  await importButton.focus()
+  await page.keyboard.press('Tab')
+  await expect(close).toBeFocused()
+  await page.keyboard.press('Shift+Tab')
+  await expect(importButton).toBeFocused()
+
+  // A temporarily hidden action must leave the cycle while its element stays mounted.
+  await importButton.evaluate((element) => { element.style.display = 'none' })
+  await close.focus()
+  await page.keyboard.press('Shift+Tab')
+  const exportButton = dialog.getByRole('button', { name: 'Export JSON', exact: true })
+  await expect(exportButton).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(close).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
+  await expect(page.getByRole('button', { name: 'Views', exact: true })).toBeFocused()
+})

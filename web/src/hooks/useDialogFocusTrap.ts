@@ -1,15 +1,11 @@
 import { RefObject, useEffect, useRef } from 'react'
+import { tabbable } from 'tabbable'
 
 import { registerDialogLayer } from './dialogStack'
 
-const DIALOG_FOCUSABLE_SELECTOR =
-  'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-
 type FocusableElement = Pick<HTMLElement, 'focus' | 'hasAttribute' | 'getAttribute'>
 
-type DialogContainer = Pick<HTMLElement, 'contains' | 'focus'> & {
-  querySelectorAll(selectors: string): ArrayLike<HTMLElement>
-}
+type DialogContainer = HTMLElement
 
 type DialogIsolationTarget = Pick<HTMLElement, 'children'>
 
@@ -40,9 +36,9 @@ type UseDialogFocusTrapArgs = {
 }
 
 export function getFocusableDialogElements(container: DialogContainer): FocusableElement[] {
-  return Array.from(container.querySelectorAll(DIALOG_FOCUSABLE_SELECTOR)).filter(
-    (element) => !element.hasAttribute('disabled') && element.getAttribute('aria-hidden') !== 'true',
-  )
+  // Native tab order includes visibility, fieldset/radio semantics and tabindex.
+  // Keep our additional accessibility restriction for explicitly hidden content.
+  return tabbable(container).filter((element) => !element.closest('[aria-hidden="true"]'))
 }
 
 export function resolveDialogInitialFocusTarget({
