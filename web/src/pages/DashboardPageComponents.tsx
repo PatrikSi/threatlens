@@ -1,4 +1,4 @@
-import { type PointerEvent as ReactPointerEvent } from 'react'
+import { useState, type PointerEvent as ReactPointerEvent } from 'react'
 
 import { buildApiUrl } from '../api/client'
 import { looksLikeHtml, parseArticleBlocks, sanitizeHtmlFragment, stripHtml } from './dashboardContent'
@@ -37,7 +37,8 @@ export function ArticlePreviewDrawer({
   onFrameLoad: () => void
   onClose: () => void
 }) {
-  const previewFrameUrl = buildApiUrl(`/items/${encodeURIComponent(preview.itemId)}/article-preview`)
+  const [externalResources, setExternalResources] = useState(false)
+  const previewFrameUrl = buildApiUrl(`/items/${encodeURIComponent(preview.itemId)}/article-preview${externalResources ? '?external_resources=true' : ''}`)
 
   return (
     <aside
@@ -108,6 +109,18 @@ export function ArticlePreviewDrawer({
         </div>
       </div>
 
+      <div className="border-b border-slate/20 px-4 py-2 text-xs dark:border-cyan-900/40">
+        <label className="flex items-center gap-2 font-semibold">
+          <input type="checkbox" checked={externalResources} onChange={(event) => setExternalResources(event.target.checked)} />
+          Load external resources for this preview
+        </label>
+        <p className="mt-1 text-slate dark:text-slate-300">
+          {externalResources
+            ? 'Images, styles, fonts, and media can contact publishers and third parties from your browser.'
+            : 'External resources are blocked. Loading them shares your IP address and viewing activity with their hosts.'}
+        </p>
+      </div>
+
       {frameState !== 'loaded' && (
         <div
           role={frameState === 'possibly_blocked' ? 'status' : undefined}
@@ -125,7 +138,7 @@ export function ArticlePreviewDrawer({
 
       <div className={`min-h-0 flex-1 bg-white dark:bg-[#020b09] ${isResizing ? 'cursor-ew-resize select-none' : ''}`}>
         <iframe
-          key={preview.url}
+          key={previewFrameUrl}
           title={`Original article preview: ${preview.title}`}
           src={previewFrameUrl}
           className={`h-full w-full border-0 bg-white ${isResizing ? 'pointer-events-none' : ''}`}

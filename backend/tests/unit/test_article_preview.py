@@ -7,6 +7,7 @@ from app.models.article import Article
 from app.models.item import Item
 from app.services.article_preview import (
     ARTICLE_PREVIEW_CSP,
+    article_preview_response_headers,
     resolve_article_preview_url,
     sanitize_article_preview_html,
 )
@@ -62,6 +63,24 @@ def test_article_preview_csp_keeps_scripts_forms_and_nested_frames_disabled():
     assert "frame-src 'none'" in ARTICLE_PREVIEW_CSP
     assert "sandbox" in ARTICLE_PREVIEW_CSP
     assert "allow-scripts" not in ARTICLE_PREVIEW_CSP
+
+
+def test_preview_blocks_external_resources_until_explicitly_enabled():
+    for enabled in (False, True):
+        headers = article_preview_response_headers(external_resources=enabled)
+        directives = dict(entry.strip().split(" ", 1) for entry in headers["Content-Security-Policy"].split(";") if entry.strip())
+        for name in ("img-src", "style-src", "font-src", "media-src"):
+            assert ("https:" in directives[name]) is enabled
+            assert ("http:" in directives[name]) is enabled
+        assert directives["script-src"] == "'none'"
+        assert directives["connect-src"] == "'none'"
+        assert headers["Cache-Control"] == "no-store"
+
+
+def test_preview_removes_speculative_connections_but_preserves_opt_in_styles():
+    markup = '<link rel="dns-prefetch" href="//tracker.example"><link rel="preconnect" href="https://tracker.example"><link rel="stylesheet" href="https://publisher.example/style.css">'
+    document = BeautifulSoup(sanitize_article_preview_html(markup, final_url="https://publisher.example/story"), "html.parser")
+    assert [link.get("rel") for link in document.find_all("link")] == [["stylesheet"]]
 
 
 @pytest.mark.parametrize(
