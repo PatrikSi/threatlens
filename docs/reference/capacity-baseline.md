@@ -168,3 +168,73 @@ distributions, tenant and policy counts, sustained traffic, slow real-provider
 behavior, and database/Redis container memory. State the chosen freshness and
 interactive-latency requirements, then find the first violated budget as load
 increases. The checked-in baseline is evidence for the measured workload only.
+
+## Version 2: bounded sustained runs and release comparisons
+
+The version 2 runner additionally supports an explicit duration:
+
+```bash
+backend/.venv/bin/python backend/scripts/run_capacity_baseline.py \
+  --profile sustained --duration-seconds 600 --target-id current-host-lab \
+  --cpu-count 1 --max-rss-mib 1024 \
+  --output /tmp/threatlens-sustained.json
+```
+
+This profile uses 200 retained 8 KiB articles, two worker threads, one export,
+governance and AI lane each paced at two seconds, and an eight-article feed
+batch every ten seconds. Each lane has at most one operation in flight and
+never catches up with a burst after a slow operation. The result records actual
+completed counts; a slower release can complete fewer operations than the
+nominal rate. A 600-second run offers at most 480 new articles. Duration is
+required and bounded to 10–3,600 seconds. Retained synthetic articles start
+with known-empty IOC state. Real missing-IOC repair runs every five seconds;
+this is an explicitly shortened maintenance interval, compared with the
+application's 300-second beat schedule. Sustained `queue.recovery_ms` measures
+the drain after load stops, whereas finite burst profiles include worker
+startup; these profiles cannot be automatically compared.
+
+The runner places only its child process group on the requested count of
+currently allowed CPUs and gives it nice 10. A 100 ms watchdog samples the RSS
+sum of that group's owned process tree; above the configured limit, or after
+the duration plus 240 seconds, it terminates only its own process group and
+writes a failed result with partial measurements. Shared pages are counted for
+each process, so this sum is an upper bound on unique physical memory. This is
+a sampled RSS guard, not a kernel memory cgroup; a spike can occur between
+samples. Each fixture PostgreSQL/Redis container has a hard 0.5 CPU quota and
+512/128 MiB memory limit with no additional swap allowance. Redis uses AOF and
+`appendfsync always`. Ports bind only to loopback. Cleanup records exact created
+container IDs and checks the per-run label before removing them, including
+watchdog exits. These bounds constrain the experiment and are recorded as
+comparison inputs; they are not production sizing recommendations.
+
+Publisher and worker signals record a monotonic publication timestamp in each
+synthetic task header. The result includes publication-to-start queue latencies
+and sampled oldest pending-message age. These are same-host measurements;
+monotonic timestamps cannot be compared across different operating-system
+clock domains. Six delayed DNS and six delayed response-header probes bracket
+the workload. They exercise actual deadline handling and record elapsed time
+until observed timeout, rather than copying nominal settings. DNS delay is
+injected only for the synthetic test hostname; the socket probe uses a real
+loopback server. These probes do not estimate a real provider's performance.
+
+Compare two completed version 2 artifacts:
+
+```bash
+backend/.venv/bin/python backend/scripts/compare_capacity_runs.py \
+  /tmp/previous-release.json /tmp/candidate-release.json \
+  --regression-percent 20 --output /tmp/capacity-comparison.json
+```
+
+Exit 0 means compatible inputs with no flagged regression; 1 means a flagged
+regression; 2 means incompatible, invalid or unlabeled inputs. The comparison
+requires identical target ID, hardware/affinity/cgroup constraints, workload,
+resource bounds, runtime environment, budgets and measurement contract. Source
+revisions can differ. Version 1 artifacts remain descriptive evidence and
+cannot be compared automatically with version 2. Latency p95 requires at least
+20 observations per group (five for deterministic deadline probes); smaller
+samples are reported as insufficient. Peak and recovery deltas are explicitly
+single-run observations, and zero baselines never produce fabricated percentage
+changes. Outcome counts accompany every comparison so safe rejections are
+visible. Repeated comparable runs and a quiet dedicated host are required
+before interpreting a percentage as a release regression; the shared target
+host can have unrelated contention even when its hardware fingerprint matches.

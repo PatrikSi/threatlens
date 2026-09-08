@@ -15,7 +15,13 @@ from types import SimpleNamespace
 import pytest
 import redis
 from celery.contrib.testing.worker import start_worker
-from celery.signals import task_failure, task_postrun, task_prerun
+from celery.signals import (
+    task_failure,
+    task_postrun,
+    task_prerun,
+    before_task_publish,
+    after_task_publish,
+)
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -64,6 +70,9 @@ from app.services.export_query import (
 from app.services.feed_pipeline import upsert_item_from_parsed
 from app.tasks import feed_task_coordination, feed_tasks
 from app.tasks.celery_app import celery_app
+from scripts.capacity_results import seal_result
+from tests.capacity.deadline_probes import observe_deadlines
+from tests.capacity.sustained import paced_lane
 from tests.capacity.workload_support import (
     Measurements,
     PROFILES,
@@ -119,6 +128,7 @@ def _seed(engine, profile, base):
                     published_at=None,
                 ),
             )
+            item.ioc_extraction_state = "completed_empty"
             db.add(
                 Article(item_id=item.id, final_url=item.url, http_status=200, text=body)
             )
@@ -206,10 +216,10 @@ def _export(engine, owner_id, seed_feed_id, settings, metrics, iterations):
         time.sleep(0.015)
 
 
-def _governance(engine, owner_id, label_id, metrics, iterations):
+def _governance(engine, owner_id, label_id, metrics, iterations, offset=0):
     from app.models.data_policy import HandlingLabel
 
-    for index in range(iterations):
+    for index in range(offset, offset + iterations):
         with metrics.operation("governance"):
             with Session(engine) as db:
                 label = db.get(HandlingLabel, label_id)
@@ -267,6 +277,7 @@ def _ai(engine, metrics, iterations):
 def _wait_for_pipeline(
     engine, broker, feed_ids, expected, metrics, started, timeout, jobs
 ):
+    last_repair = started - 5
     while time.monotonic() - started < timeout:
         for job in jobs:
             if job.done():
@@ -286,9 +297,14 @@ def _wait_for_pipeline(
                 )
             )
         depth = sum(broker.llen(queue) for queue in QUEUES) + broker.hlen("unacked")
-        if ready == expected and depth == 0:
+        expected_now = expected() if callable(expected) else expected
+        if ready == expected_now and depth == 0:
             metrics.outcome("ingestion_recovered")
             return round((time.monotonic() - started) * 1000, 3)
+        if depth == 0 and time.monotonic() - last_repair >= 5:
+            feed_tasks.dispatch_items_missing_iocs.delay()
+            metrics.outcome("ioc_repair_dispatches")
+            last_repair = time.monotonic()
         time.sleep(0.05)
     raise AssertionError(
         f"pipeline did not recover: {ready}/{expected} classified articles, queue depth={depth}"
@@ -306,7 +322,10 @@ def test_concurrent_workload(database_engine, test_redis_url, monkeypatch):
         "capacity requires disposable Docker Redis; an in-memory fallback is insufficient"
     )
     profile_name = os.environ["THREATLENS_CAPACITY_PROFILE"]
-    profile = PROFILES[profile_name]
+    profile = dict(PROFILES[profile_name])
+    profile["ioc_repair_interval_seconds"] = 5
+    if profile_name == "sustained":
+        profile["duration_seconds"] = int(os.environ["THREATLENS_CAPACITY_DURATION"])
     budgets = json.loads((ROOT / "docs/reviews/capacity/budgets.json").read_text())[
         profile_name
     ]
@@ -343,7 +362,8 @@ def test_concurrent_workload(database_engine, test_redis_url, monkeypatch):
     task_starts = {}
     task_errors = []
 
-    def before_task(task_id=None, **_kwargs):
+    def before_task(task_id=None, task=None, **_kwargs):
+        metrics.task_started(task_id, task)
         task_starts[task_id] = time.perf_counter()
 
     def after_task(task_id=None, task=None, retval=None, **_kwargs):
@@ -361,6 +381,14 @@ def test_concurrent_workload(database_engine, test_redis_url, monkeypatch):
             {"task": sender.name, "error_type": type(exception).__name__}
         )
 
+    def before_publish(headers=None, **_kwargs):
+        headers["capacity_published_ns"] = time.monotonic_ns()
+
+    def after_publish(headers=None, **_kwargs):
+        metrics.published(headers)
+
+    before_task_publish.connect(before_publish, weak=False)
+    after_task_publish.connect(after_publish, weak=False)
     task_prerun.connect(before_task, weak=False)
     task_postrun.connect(after_task, weak=False)
     task_failure.connect(failed_task, weak=False)
@@ -370,8 +398,10 @@ def test_concurrent_workload(database_engine, test_redis_url, monkeypatch):
     )
     began = time.monotonic()
     try:
-        with local_sources(profile) as base:
+        source_state = {}
+        with local_sources(profile, source_state) as base:
             sampler.start()
+            observe_deadlines(metrics, base)
             owner_id, label_id, seed_feed_id, feed_ids = _seed(engine, profile, base)
             # Consumer outage: publish real application tasks before any worker exists.
             for feed_id in feed_ids:
@@ -392,43 +422,119 @@ def test_concurrent_workload(database_engine, test_redis_url, monkeypatch):
                 without_heartbeat=False,
                 heartbeat_interval=0.2,
             ):
-                with ThreadPoolExecutor(max_workers=3) as executor:
-                    jobs = [
-                        executor.submit(
-                            _export,
+                duration = profile.get("duration_seconds")
+                with ThreadPoolExecutor(max_workers=5) as executor:
+                    if duration:
+                        jobs = [
+                            executor.submit(
+                                paced_lane,
+                                lambda _: _export(
+                                    engine, owner_id, seed_feed_id, settings, metrics, 1
+                                ),
+                                duration_seconds=duration,
+                                interval_seconds=profile["service_interval_seconds"],
+                            ),
+                            executor.submit(
+                                paced_lane,
+                                lambda index: _governance(
+                                    engine, owner_id, label_id, metrics, 1, offset=index
+                                ),
+                                duration_seconds=duration,
+                                interval_seconds=profile["service_interval_seconds"],
+                            ),
+                            executor.submit(
+                                paced_lane,
+                                lambda _: _ai(engine, metrics, 1),
+                                duration_seconds=duration,
+                                interval_seconds=profile["service_interval_seconds"],
+                            ),
+                        ]
+
+                        def publish_batch(index):
+                            if index:
+                                for feed_id in feed_ids:
+                                    feed_tasks.fetch_feed.apply_async(
+                                        args=[str(feed_id)], kwargs={"force": True}
+                                    )
+
+                        feed_job = executor.submit(
+                            paced_lane,
+                            publish_batch,
+                            duration_seconds=duration,
+                            interval_seconds=profile["feed_interval_seconds"],
+                        )
+
+                        def repair_iocs(_index):
+                            feed_tasks.dispatch_items_missing_iocs.delay()
+                            metrics.outcome("ioc_repair_dispatches")
+
+                        repair_job = executor.submit(
+                            paced_lane,
+                            repair_iocs,
+                            duration_seconds=duration,
+                            interval_seconds=5,
+                        )
+                        completed = [job.result(timeout=duration + 120) for job in jobs]
+                        feed_batches = feed_job.result(timeout=120)
+                        repair_job.result(timeout=120)
+
+                        def expected():
+                            return source_state.get("issued_items", 0)
+
+                        drained_started = time.monotonic()
+                        recovery_ms = _wait_for_pipeline(
                             engine,
-                            owner_id,
-                            seed_feed_id,
-                            settings,
+                            broker,
+                            feed_ids,
+                            expected,
                             metrics,
-                            profile["operations"],
-                        ),
-                        executor.submit(
-                            _governance,
+                            drained_started,
+                            budgets["queue_recovery_ms"] / 1000,
+                            jobs,
+                        )
+                        expected = expected()
+                    else:
+                        jobs = [
+                            executor.submit(
+                                _export,
+                                engine,
+                                owner_id,
+                                seed_feed_id,
+                                settings,
+                                metrics,
+                                profile["operations"],
+                            ),
+                            executor.submit(
+                                _governance,
+                                engine,
+                                owner_id,
+                                label_id,
+                                metrics,
+                                profile["operations"],
+                            ),
+                            executor.submit(
+                                _ai, engine, metrics, profile["operations"]
+                            ),
+                        ]
+                        expected = profile["items_per_feed"] * (profile["feeds"] + 2)
+                        recovery_ms = _wait_for_pipeline(
                             engine,
-                            owner_id,
-                            label_id,
+                            broker,
+                            feed_ids,
+                            expected,
                             metrics,
-                            profile["operations"],
-                        ),
-                        executor.submit(_ai, engine, metrics, profile["operations"]),
-                    ]
-                    expected = profile["items_per_feed"] * (profile["feeds"] + 2)
-                    recovery_ms = _wait_for_pipeline(
-                        engine,
-                        broker,
-                        feed_ids,
-                        expected,
-                        metrics,
-                        recovery_started,
-                        budgets["queue_recovery_ms"] / 1000,
-                        jobs,
-                    )
-                    for job in jobs:
-                        job.result(timeout=120)
+                            recovery_started,
+                            budgets["queue_recovery_ms"] / 1000,
+                            jobs,
+                        )
+                        for job in jobs:
+                            job.result(timeout=120)
+                        completed = [profile["operations"]] * 3
+                        feed_batches = 1
                 # Confirm at least one export once the policy revision settles.
                 _export(engine, owner_id, seed_feed_id, settings, metrics, 1)
                 _ai(engine, metrics, 1)
+                observe_deadlines(metrics, base)
             with Session(engine) as db:
                 usage_rows = dict(
                     db.execute(
@@ -492,6 +598,10 @@ def test_concurrent_workload(database_engine, test_redis_url, monkeypatch):
                     "outage_backlog": outage_depth,
                     "recovery_ms": recovery_ms,
                     "expected_ingested_articles": expected,
+                    "feed_batches": feed_batches,
+                    "recovery_scope": "post_load_drain"
+                    if duration
+                    else "consumer_outage_and_startup",
                 }
             )
             observed = {
@@ -518,6 +628,17 @@ def test_concurrent_workload(database_engine, test_redis_url, monkeypatch):
             }
             result["budgets"] = budgets
             result["budget_violations"] = violations
+            result["workload_completed"] = {
+                "exports": completed[0],
+                "governance": completed[1],
+                "ai": completed[2],
+            }
+            result["status"] = "passed"
+            seal_result(
+                result,
+                target_id=os.environ.get("THREATLENS_CAPACITY_TARGET_ID", "unlabeled"),
+                limits=json.loads(os.environ.get("THREATLENS_CAPACITY_LIMITS", "{}")),
+            )
             output = Path(os.environ["THREATLENS_CAPACITY_OUTPUT"])
             output.parent.mkdir(parents=True, exist_ok=True)
             output.write_text(
@@ -531,9 +652,9 @@ def test_concurrent_workload(database_engine, test_redis_url, monkeypatch):
             assert (
                 metrics.outcomes.get("ai_succeeded", 0)
                 + metrics.outcomes.get("ai_policy_conflict", 0)
-                == profile["operations"] + 1
+                == completed[2] + 1
             )
-            assert metrics.outcomes.get("governance_succeeded") == profile["operations"]
+            assert metrics.outcomes.get("governance_succeeded") == completed[1]
             assert usage_rows.get(True) == metrics.outcomes["ai_succeeded"]
             assert receipt_rows.get("succeeded") == metrics.outcomes["ai_succeeded"]
             assert set(receipt_rows) <= {"succeeded", "voided"}
@@ -547,6 +668,8 @@ def test_concurrent_workload(database_engine, test_redis_url, monkeypatch):
         stop.set()
         if sampler.is_alive():
             sampler.join(timeout=3)
+        before_task_publish.disconnect(before_publish)
+        after_task_publish.disconnect(after_publish)
         task_prerun.disconnect(before_task)
         task_postrun.disconnect(after_task)
         task_failure.disconnect(failed_task)
