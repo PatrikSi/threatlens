@@ -77,6 +77,7 @@ from app.models.item import Item
 from app.models.item_ai_enrichment import ItemAIEnrichment
 from app.models.item_classification import ItemClassification
 from app.models.item_state import ItemState
+from app.models.lifecycle_scan import LifecycleScanCursor
 from app.models.lifecycle import (
     LifecycleCatalogState,
     LifecyclePolicy,
@@ -190,6 +191,7 @@ __all__ = [
     "LifecyclePolicy",
     "LifecyclePreview",
     "LifecycleRun",
+    "LifecycleScanCursor",
     "MFALoginChallenge",
     "NotificationWebhook",
     "NotificationWebhookDelivery",

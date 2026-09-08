@@ -45,6 +45,7 @@ HOUSEKEEPING_BATCH_SIZE = 1_000
 MAX_BATCHES_PER_INVOCATION = 3
 MAX_INVOCATION_SECONDS = 5.0
 MAX_NO_PROGRESS_RETRIES = 2
+MAX_SCAN_ADVANCES_PER_RUN = 10_000
 
 
 def dispatch_due_lifecycle_runs(
@@ -302,7 +303,15 @@ def execute_lifecycle_run(
             run.details_json = _merge_details(run.details_json, batch.details)
             run.heartbeat_at = tick
             run.lease_expires_at = tick + RUN_LEASE_TTL
-            if batch.affected_count == 0:
+            scan_advanced = int(batch.details.get("scan_anchors_advanced", 0))
+            if (
+                int(run.details_json.get("scan_anchors_advanced", 0))
+                >= MAX_SCAN_ADVANCES_PER_RUN
+            ):
+                _finish_after_preview(db, run, now=tick, stop_reason="scan_limit")
+                db.commit()
+                return _execution_result(run)
+            if batch.affected_count == 0 and scan_advanced == 0:
                 details = dict(run.details_json or {})
                 details["no_progress_batch_count"] = (
                     int(details.get("no_progress_batch_count") or 0) + 1
@@ -319,6 +328,7 @@ def execute_lifecycle_run(
                 )
                 if (
                     remaining_preview.eligible_count > 0
+                    and not batch.details.get("scan_cycles_completed", 0)
                     and details["no_progress_batch_count"]
                     <= MAX_NO_PROGRESS_RETRIES
                 ):
@@ -570,6 +580,10 @@ def _finish_after_preview(
         or (
             stop_reason == "candidates_locked_or_protected"
             and blocked_by_dependency_limit
+        )
+        or (
+            stop_reason == "scan_limit"
+            and (preview.protected_count > 0 or preview.is_partial)
         )
         else "succeeded"
     )

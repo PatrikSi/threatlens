@@ -35,6 +35,10 @@ from app.services.data_access_runtime import (
     ensure_alert_occurrence_data_access_envelope,
     lock_data_policy_revision_for_derivation,
 )
+from app.services.lifecycle_scanning import (
+    LifecycleScanStats,
+    lifecycle_candidate_window,
+)
 from app.services.lifecycle_dependencies import (
     lifecycle_parent_scan_limit,
     select_with_dependent_budget,
@@ -119,6 +123,7 @@ def maintain_alert_history(
     prune_evaluations: bool = True,
     prune_metrics: bool = True,
     max_dependent_rows: int | None = None,
+    scan_stats: LifecycleScanStats | None = None,
     _clock: Callable[[], float] = time.monotonic,
 ) -> AlertHistoryMaintenanceResult:
     current_time = now or datetime.now(timezone.utc)
@@ -162,6 +167,7 @@ def maintain_alert_history(
             prune_evaluations=prune_evaluations,
             prune_metrics=prune_metrics,
             max_dependent_rows=max_dependent_rows,
+            scan_stats=scan_stats,
         )
         batches_processed += 1
         for field_name in (
@@ -227,6 +233,7 @@ def _maintain_alert_history_batch(
     prune_evaluations: bool = True,
     prune_metrics: bool = True,
     max_dependent_rows: int | None = None,
+    scan_stats: LifecycleScanStats | None = None,
 ) -> _AlertHistoryMaintenanceBatch:
 
     preview_ids = (
@@ -517,64 +524,56 @@ def _maintain_alert_history_batch(
     )
     activities_deleted = _delete_ids(db, AlertOccurrenceActivity, activity_ids)
 
-    evaluation_ids = (
-        list(
-            db.scalars(
-                select(AlertEvaluationRequest.id)
-                .where(
-                    AlertEvaluationRequest.state.in_(["succeeded", "dead_letter"]),
-                    AlertEvaluationRequest.completed_at.is_not(None),
-                    AlertEvaluationRequest.completed_at < evaluation_cutoff,
-                )
-                .order_by(
-                    AlertEvaluationRequest.completed_at.asc(),
-                    AlertEvaluationRequest.id.asc(),
-                )
-                .limit(
-                    lifecycle_parent_scan_limit(batch_size)
-                    if max_dependent_rows is not None
-                    else batch_size
-                )
-                .with_for_update(skip_locked=True)
-            ).all()
+    evaluation_window = None
+    if prune_evaluations:
+        evaluation_window = lifecycle_candidate_window(
+            db,
+            select(AlertEvaluationRequest.id).where(
+                AlertEvaluationRequest.state.in_(["succeeded", "dead_letter"]),
+                AlertEvaluationRequest.completed_at.is_not(None),
+                AlertEvaluationRequest.completed_at < evaluation_cutoff,
+            ),
+            model=AlertEvaluationRequest,
+            timestamp=AlertEvaluationRequest.completed_at,
+            limit=lifecycle_parent_scan_limit(batch_size)
+            if max_dependent_rows is not None
+            else batch_size,
+            durable=max_dependent_rows is not None,
+            stats=scan_stats,
         )
-        if prune_evaluations
-        else []
-    )
+    evaluation_ids = evaluation_window.ids if evaluation_window is not None else []
     if evaluation_ids and max_dependent_rows is not None:
-        evaluation_ids = select_with_dependent_budget(
+        selection = select_with_dependent_budget(
             db,
             model=AlertEvaluationRequest,
             candidate_ids=evaluation_ids,
             max_dependent_rows=max_dependent_rows,
             max_parent_records=batch_size,
-        ).ids
+        )
+        evaluation_window.advance(selection)
+        evaluation_ids = selection.ids
     evaluations_deleted = _delete_terminal_evaluation_ids(
         db,
         evaluation_ids,
         cutoff=evaluation_cutoff,
     )
 
-    metric_ids = (
-        list(
-            db.scalars(
-                select(AlertOccurrenceMetric.id)
-                .where(AlertOccurrenceMetric.bucket_start < metric_cutoff)
-                .order_by(
-                    AlertOccurrenceMetric.bucket_start.asc(),
-                    AlertOccurrenceMetric.id.asc(),
-                )
-                .limit(
-                    lifecycle_parent_scan_limit(batch_size)
-                    if max_dependent_rows is not None
-                    else batch_size
-                )
-                .with_for_update(skip_locked=True)
-            ).all()
+    metric_window = None
+    if prune_metrics:
+        metric_window = lifecycle_candidate_window(
+            db,
+            select(AlertOccurrenceMetric.id).where(
+                AlertOccurrenceMetric.bucket_start < metric_cutoff
+            ),
+            model=AlertOccurrenceMetric,
+            timestamp=AlertOccurrenceMetric.bucket_start,
+            limit=lifecycle_parent_scan_limit(batch_size)
+            if max_dependent_rows is not None
+            else batch_size,
+            durable=max_dependent_rows is not None,
+            stats=scan_stats,
         )
-        if prune_metrics
-        else []
-    )
+    metric_ids = metric_window.ids if metric_window is not None else []
     if metric_ids and max_dependent_rows is not None:
         db.execute(
             select(AlertOccurrenceMetricCohort.id)
@@ -585,13 +584,15 @@ def _maintain_alert_history_batch(
             )
             .with_for_update()
         ).close()
-        metric_ids = select_with_dependent_budget(
+        selection = select_with_dependent_budget(
             db,
             model=AlertOccurrenceMetric,
             candidate_ids=metric_ids,
             max_dependent_rows=max_dependent_rows,
             max_parent_records=batch_size,
-        ).ids
+        )
+        metric_window.advance(selection)
+        metric_ids = selection.ids
     metrics_deleted = _delete_ids(db, AlertOccurrenceMetric, metric_ids)
     if commit:
         db.commit()

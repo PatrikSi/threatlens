@@ -124,6 +124,18 @@ than application service health and cannot be inferred reliably by the UI.
   of causing an unbounded cascade. Article redaction reports payload bytes
   removed, not immediate disk space reclaimed; PostgreSQL vacuum behavior
   remains an operator concern.
+- Dependency-bounded cleanup uses a durable timestamp/ID scan cursor per internal
+  dataset. Oversized parents advance the scan; eligible parents deferred by a
+  batch budget stay ahead of the cursor. Cursor and deletion changes share a
+  transaction. End of scan resets the anchor for a later pass, preserving
+  eventual reconsideration after locks, holds, cutoff changes, or reduced child
+  volume. No protected record is deleted merely to make scan progress.
+- A run treats scan advancement as progress even when a batch deletes nothing.
+  It yields after the existing batch/time budget and stops after reaching 10,000
+  advances (at a bounded batch boundary), leaving its cursor for the next run.
+  Run details expose `scan_anchors_advanced`, `scan_cycles_completed`, and the
+  `scan_limit` stop reason. Previews still describe current candidates, not the
+  cursor position; a pass can finish with protected or newly eligible backlog.
 - Detail history that feeds metrics is aggregated before deletion. Existing pins,
   foreign-key restrictions, data-policy lineage cleanup, and unresolved-operation
   guards remain part of each target handler.
