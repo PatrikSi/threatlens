@@ -133,3 +133,49 @@ def test_article_preview_handles_empty_srcset_candidates(srcset, expected):
 )
 def test_resolve_article_preview_url_prefers_successful_article_final_url(article, expected):
     assert resolve_article_preview_url(_item(), article) == expected
+
+
+@pytest.mark.parametrize("mode", ["html", "compressed_oversize", "deadline"])
+def test_preview_fetch_uses_decoded_cap_and_total_deadline(monkeypatch, mode):
+    import gzip
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+
+    import httpx
+
+    from app.core.config import Settings
+    from app.services import article_preview, outbound_deadline as deadline_module
+
+    clock = [0.0]
+    monkeypatch.setattr(deadline_module, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+
+    class PreviewStream(httpx.SyncByteStream):
+        closed = False
+
+        def __iter__(self):
+            if mode == "compressed_oversize":
+                yield gzip.compress(b"x" * 20_000)
+            else:
+                yield b"<html><body>Preview"
+                if mode == "deadline":
+                    clock[0] = 2.0
+                yield b"</body></html>"
+
+        def close(self):
+            self.closed = True
+
+    stream = PreviewStream()
+    response = httpx.Response(200, request=httpx.Request("GET", "https://example.com/canonical"), headers={
+        "content-type": "text/html", **({"content-encoding": "gzip"} if mode == "compressed_oversize" else {}),
+    }, stream=stream)
+    monkeypatch.setattr(article_preview, "build_safe_http_client", lambda **_kwargs: nullcontext(object()))
+    monkeypatch.setattr(article_preview, "safe_stream_with_redirects", lambda *_args, **_kwargs: response)
+    settings = Settings(_env_file=None, article_max_bytes=10_000, article_total_timeout_seconds=1)
+    if mode == "html":
+        document = article_preview.fetch_article_preview_document(_item(), None, settings=settings)
+        assert "Preview" in document.html
+    else:
+        with pytest.raises(article_preview.ArticlePreviewFetchError) as raised:
+            article_preview.fetch_article_preview_document(_item(), None, settings=settings)
+        assert raised.value.status_code == (413 if mode == "compressed_oversize" else 502)
+    assert stream.closed

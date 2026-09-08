@@ -7,6 +7,8 @@ import feedparser
 import httpx
 
 from app.core.config import get_settings
+from app.services.bounded_response import ResponseBodyTooLarge, read_bounded_response
+from app.services.outbound_deadline import outbound_deadline
 from app.services.safe_fetch import (
     RedirectError,
     SafeFetchError,
@@ -57,7 +59,7 @@ def probe_feed_metadata(
     )
 
     try:
-        with build_safe_http_client(
+        with outbound_deadline(settings.feed_total_timeout_seconds), build_safe_http_client(
             timeout=timeout,
             headers={"User-Agent": settings.fetch_user_agent},
             allow_private_network=settings.allow_private_network_fetch,
@@ -80,17 +82,15 @@ def probe_feed_metadata(
                 last_modified = response.headers.get("last-modified")
                 resolved_url = str(response.url)
 
-                body_chunks: list[bytes] = []
-                body_size = 0
-                for chunk in response.iter_bytes():
-                    _validate_request_guard(request_guard, request_guard_validator)
-                    body_size += len(chunk)
-                    if body_size > settings.feed_max_bytes:
-                        raise FeedProbeError("Feed response exceeds configured size limit")
-                    body_chunks.append(chunk)
-                body = b"".join(body_chunks)
+                body = read_bounded_response(
+                    response,
+                    settings.feed_max_bytes,
+                    check=lambda: _validate_request_guard(request_guard, request_guard_validator),
+                )
             finally:
                 response.close()
+    except ResponseBodyTooLarge as exc:
+        raise FeedProbeError("Feed response exceeds configured size limit") from exc
     except (httpx.HTTPError, SafeFetchError, RedirectError) as exc:
         raise FeedProbeError(f"Unable to fetch feed: {exc}") from exc
 
