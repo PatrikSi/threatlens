@@ -1107,3 +1107,82 @@ def _report(db_session, *, title: str) -> Report:
     db_session.add(report)
     db_session.commit()
     return report
+
+
+def test_total_provider_deadline_releases_task_and_policy_fences(database_engine):
+    import threading
+    import time
+    from sqlalchemy.orm import Session
+    from app.models.iam import IAMPolicyState
+    from app.services.ai_egress_data_policy import enforce_ai_egress_data_policy
+    from app.services.ai_provider_client import call_ai_json
+    from app.services.safe_fetch import build_safe_http_client
+    from tests.unit.test_ai_provider_client import _active_settings
+    from tests.unit.test_outbound_budgets import _slow_server
+
+    db_session = Session(database_engine)
+    run = _task_run(db_session)
+    report_id = run.report_id
+    try:
+        run_id = run.id
+        active = _active_settings()
+        active.request_max_retries = 3
+        active.request_timeout_seconds = 0.2
+        waiters = []
+        completed = []
+        failures = []
+        provider_calls = 0
+
+        def wait_for_fence(model, key):
+            try:
+                with Session(database_engine) as concurrent:
+                    concurrent.scalar(select(model).where(model.id == key).with_for_update())
+                    completed.append(model)
+                    concurrent.commit()
+            except Exception as exc:
+                failures.append(exc)
+
+        def provider(_active, **kwargs):
+            nonlocal provider_calls
+            provider_calls += 1
+            for model, key in ((AITaskRun, run_id), (IAMPolicyState, 1)):
+                thread = threading.Thread(target=wait_for_fence, args=(model, key), daemon=True)
+                waiters.append(thread)
+                thread.start()
+            time.sleep(0.03)
+            assert completed == []  # Both real database fences remain held during I/O.
+
+            def factory(**options):
+                options["allow_private_network"] = True
+                return build_safe_http_client(**options)
+
+            return call_ai_json(_active, client_factory=factory, **kwargs)
+
+        with _slow_server("headers") as url:
+            active.base_url = url
+            began = time.monotonic()
+            try:
+                with pytest.raises(AIProviderAttemptAmbiguousError):
+                    _run_request(db_session, active=active, task_run_id=run_id,
+                                 enforce=enforce_ai_egress_data_policy, call_provider=provider)
+            finally:
+                db_session.rollback()
+                for thread in waiters:
+                    thread.join(timeout=2)
+            assert time.monotonic() - began < 2
+        assert failures == []
+        assert set(completed) == {AITaskRun, IAMPolicyState}
+        assert provider_calls == 1
+        receipt = db_session.scalar(select(AIProviderAttemptReceipt).where(
+            AIProviderAttemptReceipt.task_run_id_snapshot == run_id,
+        ))
+        assert receipt.state == "ambiguous"
+        assert receipt.retryable is False
+    finally:
+        from sqlalchemy import delete
+        db_session.rollback()
+        db_session.execute(delete(AIProviderAttemptReceipt).where(AIProviderAttemptReceipt.task_run_id_snapshot == run.id))
+        db_session.execute(delete(AITaskRun).where(AITaskRun.id == run.id))
+        db_session.execute(delete(Report).where(Report.id == report_id))
+        db_session.commit()
+        db_session.close()

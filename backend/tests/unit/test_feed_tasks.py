@@ -774,7 +774,7 @@ def test_fetch_feed_force_bypasses_due_check(db_session, monkeypatch):
         headers: dict[str, str] = {}
         url = "https://example.com/feed.xml"
 
-        def iter_bytes(self):
+        def iter_raw(self):
             yield b""
 
         def close(self):
@@ -826,7 +826,7 @@ def test_fetch_feed_retry_bypasses_dispatch_claim_backoff(db_session, monkeypatc
         headers: dict[str, str] = {}
         url = "https://example.com/feed.xml"
 
-        def iter_bytes(self):
+        def iter_raw(self):
             yield b""
 
         def close(self):
@@ -882,7 +882,7 @@ def test_fetch_feed_runs_when_dispatch_claim_is_active(db_session, monkeypatch):
         headers: dict[str, str] = {}
         url = "https://example.com/feed.xml"
 
-        def iter_bytes(self):
+        def iter_raw(self):
             yield b""
 
         def close(self):
@@ -936,7 +936,7 @@ def test_fetch_feed_uses_decrypted_url_for_authenticated_feeds(db_session, monke
         headers: dict[str, str] = {}
         url = plaintext_url
 
-        def iter_bytes(self):
+        def iter_raw(self):
             yield b""
 
         def close(self):
@@ -992,7 +992,7 @@ def test_fetch_feed_skips_stale_response_when_feed_url_changes_mid_fetch(db_sess
         headers: dict[str, str] = {}
         url = "https://example.com/feed.xml"
 
-        def iter_bytes(self):
+        def iter_raw(self):
             yield b"<rss><channel><item><title>Stale</title></item></channel></rss>"
 
         def close(self):
@@ -1188,7 +1188,7 @@ def test_fetch_feed_marks_non_feed_http_200_response_as_failure(db_session, monk
         headers: dict[str, str] = {}
         url = "https://example.com/feed.xml"
 
-        def iter_bytes(self):
+        def iter_raw(self):
             yield b"<html><body>not a feed</body></html>"
 
         def close(self):
@@ -1265,7 +1265,7 @@ def test_fetch_feed_persists_new_item_event_when_enqueue_fails(db_session, monke
         headers: dict[str, str] = {}
         url = "https://example.com/feed.xml"
 
-        def iter_bytes(self):
+        def iter_raw(self):
             yield b"<rss />"
 
         def close(self):
@@ -1432,7 +1432,7 @@ def test_fetch_feed_reports_article_enqueue_failure_without_rolling_back_items(d
         headers: dict[str, str] = {}
         url = "https://example.com/feed.xml"
 
-        def iter_bytes(self):
+        def iter_raw(self):
             yield b"<rss />"
 
         def close(self):
@@ -1539,7 +1539,7 @@ def test_dispatch_items_missing_articles_recovers_updated_items_with_existing_ar
         headers: dict[str, str] = {}
         url = "https://example.com/updated.xml"
 
-        def iter_bytes(self):
+        def iter_raw(self):
             yield b"<rss />"
 
         def close(self):
@@ -2679,7 +2679,7 @@ def test_fetch_article_recovers_existing_article_after_soft_failure(db_session, 
         headers = {"content-type": "text/html; charset=utf-8"}
         url = item.url
 
-        def iter_bytes(self):
+        def iter_raw(self):
             yield b"<html><body><article><p>Recovered readable text.</p></article></body></html>"
 
         def close(self):
@@ -2764,7 +2764,7 @@ def test_fetch_article_uses_rss_summary_when_article_fetch_is_blocked_and_manual
         headers = {"content-type": "text/html; charset=utf-8"}
         url = item.url
 
-        def iter_bytes(self):
+        def iter_raw(self):
             yield b"<html><title>Just a moment...</title><body>Cloudflare challenge</body></html>"
 
         def close(self):
@@ -2775,7 +2775,7 @@ def test_fetch_article_uses_rss_summary_when_article_fetch_is_blocked_and_manual
         headers = {"content-type": "text/html; charset=utf-8"}
         url = item.url
 
-        def iter_bytes(self):
+        def iter_raw(self):
             yield b"<html><body><article><p>Full recovered article text.</p></article></body></html>"
 
         def close(self):
@@ -2932,7 +2932,7 @@ def test_fetch_article_falls_back_to_original_url_when_canonical_fetch_fails(db_
             self.headers = {"content-type": "text/html; charset=utf-8"}
             self.url = url
 
-        def iter_bytes(self):
+        def iter_raw(self):
             yield b"<html><body><article><h1>Recovered article</h1><p>Readable text.</p></article></body></html>"
 
         def close(self):
@@ -3019,7 +3019,7 @@ def test_fetch_article_keeps_committed_article_state_when_classification_enqueue
         headers = {"content-type": "text/html; charset=utf-8"}
         url = item.url
 
-        def iter_bytes(self):
+        def iter_raw(self):
             yield b"<html><body><article><p>Recovered readable text.</p></article></body></html>"
 
         def close(self):

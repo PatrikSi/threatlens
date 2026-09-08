@@ -11,6 +11,7 @@ import redis
 
 from app.core.config import get_settings
 from app.core.redis_client import redis_client_from_url
+from app.services.outbound_deadline import check_outbound_deadline, remaining_timeout
 
 
 logger = logging.getLogger(__name__)
@@ -344,7 +345,9 @@ def domain_slot(domain: str, max_wait_seconds: int = 30):
     acquired_key: str | None = None
 
     while time.monotonic() < deadline and acquired_key is None:
+        check_outbound_deadline()
         for slot_number in range(1, concurrency_limit + 1):
+            check_outbound_deadline()
             key = _domain_slot_key(domain, slot_number)
             try:
                 acquired = bool(redis_client.set(key, token, nx=True, ex=DOMAIN_SLOT_TTL_SECONDS))
@@ -368,13 +371,14 @@ def domain_slot(domain: str, max_wait_seconds: int = 30):
                 break
 
         if acquired_key is None:
-            time.sleep(DOMAIN_SLOT_WAIT_INTERVAL_SECONDS)
+            time.sleep(remaining_timeout(DOMAIN_SLOT_WAIT_INTERVAL_SECONDS))
 
     if acquired_key is None:
         logger.warning("coordination_domain_slot_timeout domain=%s", domain)
         raise DomainSlotUnavailableError(f"domain slot timeout for {domain}")
 
     try:
+        check_outbound_deadline()
         with _redis_lease_heartbeat(
             acquired_key,
             DOMAIN_SLOT_TTL_SECONDS,

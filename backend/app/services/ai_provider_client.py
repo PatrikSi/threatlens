@@ -14,6 +14,8 @@ from app.services.ai_config import ActiveAISettings, is_shared_ai_base_url_allow
 from app.services.ai_normalization import coerce_optional_int, normalize_optional_text
 from app.services.ai_provider_exchange import sanitize_provider_exchange
 from app.services.safe_fetch import SafeFetchError
+from app.services.bounded_response import ResponseBodyTooLarge, read_bounded_response
+from app.services.outbound_deadline import outbound_deadline
 
 
 AIProviderIOOutcome = Literal["not_sent", "response_received", "ambiguous"]
@@ -130,13 +132,31 @@ def call_ai_json(
         pool=active.request_timeout_seconds,
     )
     try:
-        with client_factory(
+        with outbound_deadline(active.request_timeout_seconds), client_factory(
             timeout=timeout,
             headers={"User-Agent": runtime_settings.fetch_user_agent},
             allow_private_network=runtime_settings.allow_private_network_ai,
         ) as client:
-            response = client.post(request_url, headers=headers, json=request_payload)
-            response.raise_for_status()
+            with client.stream("POST", request_url, headers=headers, json=request_payload) as streamed:
+                body = read_bounded_response(streamed, runtime_settings.ai_response_max_bytes)
+                # The capped body is already decoded. Preserve JSON charset handling
+                # without applying Content-Encoding a second time.
+                response_headers = dict(streamed.headers)
+                response_headers.pop("content-encoding", None)
+                response = httpx.Response(
+                    streamed.status_code, headers=response_headers, content=body,
+                    request=streamed.request,
+                )
+                response.raise_for_status()
+    except ResponseBodyTooLarge as exc:
+        raise AIIntegrationError(
+            "AI response exceeds configured byte cap",
+            request_url=request_url,
+            request_payload=request_payload,
+            status_code=streamed.status_code,
+            retryable=False,
+            provider_io_outcome=AI_PROVIDER_IO_RESPONSE_RECEIVED,
+        ) from exc
     except httpx.HTTPStatusError as exc:
         response_body = exc.response.text
         try:

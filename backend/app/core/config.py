@@ -6,7 +6,7 @@ from functools import lru_cache
 from typing import Annotated
 from urllib.parse import quote, urlsplit, urlunsplit
 
-from pydantic import PrivateAttr, field_validator, model_validator
+from pydantic import Field, PrivateAttr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 _PLACEHOLDER_SECRET_PREFIXES = (
@@ -176,6 +176,7 @@ class Settings(BaseSettings):
     allow_legacy_unscoped_tokens: bool = False
     allow_self_registration: bool = False
     default_api_token_expiry_days: int = 90
+    ai_response_max_bytes: int = Field(default=2_000_000, ge=1024, le=16_000_000)
     ai_enabled: bool = False
     ai_api_key: str | None = None
     public_app_url: str | None = None
@@ -224,9 +225,11 @@ class Settings(BaseSettings):
     fetch_user_agent: str = "ThreatLensBot/1.0 (+https://localhost)"
     feed_connect_timeout_seconds: int = 5
     feed_read_timeout_seconds: int = 15
+    feed_total_timeout_seconds: float = Field(default=60, gt=0, le=300)
     feed_max_bytes: int = 2_000_000
     article_connect_timeout_seconds: int = 5
     article_read_timeout_seconds: int = 20
+    article_total_timeout_seconds: float = Field(default=90, gt=0, le=300)
     article_max_bytes: int = 4_000_000
     allow_private_network_fetch: bool = False
     allow_private_network_ai: bool = False

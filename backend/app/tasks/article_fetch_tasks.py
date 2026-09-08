@@ -10,6 +10,8 @@ from sqlalchemy import select
 
 from app.models.article import Article
 from app.models.item import Item
+from app.services.outbound_deadline import outbound_deadline
+from app.services.bounded_response import read_bounded_response
 
 
 ARTICLE_FETCH_MAX_RETRIES = 3
@@ -51,7 +53,8 @@ def run_fetch_article(task, item_id: str, force: bool = False, *, runtime: Modul
             return _record_missing_url(db, item, item_id, runtime=r)
 
         started_at = time.perf_counter()
-        result = _fetch_candidates(task, item_id, candidate_urls, runtime=r)
+        with outbound_deadline(r.settings.article_total_timeout_seconds):
+            result = _fetch_candidates(task, item_id, candidate_urls, runtime=r)
         fetch_ms = int((time.perf_counter() - started_at) * 1000)
         if not result.succeeded:
             r._store_article_error(
@@ -229,7 +232,7 @@ def _fetch_candidate(target_url: str, *, runtime: ModuleType) -> ArticleFetchRes
         write=r.settings.article_read_timeout_seconds,
         pool=r.settings.article_connect_timeout_seconds,
     )
-    with r.build_safe_http_client(
+    with outbound_deadline(r.settings.article_total_timeout_seconds), r.build_safe_http_client(
         timeout=timeout,
         headers={"User-Agent": r.settings.fetch_user_agent},
         allow_private_network=r.settings.allow_private_network_fetch,
@@ -273,16 +276,11 @@ def _read_capped_body(
     lease=None,
     runtime: ModuleType | None = None,
 ) -> bytes:
-    chunks: list[bytes] = []
-    body_size = 0
-    for chunk in response.iter_bytes():
+    def check():
         if runtime is not None:
             runtime.ensure_lease_owned(lease)
-        body_size += len(chunk)
-        if body_size > max_bytes:
-            raise too_large_error("response body exceeds configured cap")
-        chunks.append(chunk)
-    return b"".join(chunks)
+
+    return read_bounded_response(response, max_bytes, check=check, too_large_error=too_large_error)
 
 
 def _response_error(status_code: int, content_type: str | None) -> str | None:
