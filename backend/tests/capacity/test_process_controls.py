@@ -148,3 +148,16 @@ def test_failed_leader_cannot_leave_owned_orphan_running(tmp_path):
     )
     assert code == 3
     assert not Path(f"/proc/{int(child_file.read_text())}").exists()
+
+
+def test_fixture_container_identity_excludes_image_pull_stderr(monkeypatch):
+    from tests.capacity.docker_services import DockerService
+
+    monkeypatch.setenv("THREATLENS_CAPACITY_RUN_ID", "fixture")
+
+    def output(command, **kwargs):
+        assert kwargs["stderr"] == subprocess.PIPE
+        return "a" * 64 + "\n"
+
+    monkeypatch.setattr(subprocess, "check_output", output)
+    assert DockerService("redis").command("run", "fixture-image") == "a" * 64

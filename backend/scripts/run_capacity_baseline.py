@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import subprocess
 import sys
 import tempfile
 import uuid
@@ -18,7 +19,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--profile",
-        choices=("smoke", "baseline", "large", "sustained"),
+        choices=("smoke", "baseline", "large", "sustained", "recovery"),
         default="smoke",
     )
     parser.add_argument("--output", type=Path, required=True)
@@ -73,10 +74,48 @@ def main() -> int:
     }
     run_id = uuid.uuid4().hex
     output = args.output.resolve()
+    backend = Path(__file__).resolve().parents[1]
+    revision = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=backend, text=True
+    ).strip()
+    source_dirty = (
+        subprocess.run(
+            [
+                "git",
+                "diff",
+                "--quiet",
+                "HEAD",
+                "--",
+                "app",
+                "tests/capacity",
+                "scripts",
+            ],
+            cwd=backend,
+        ).returncode
+        != 0
+    )
+    source_dirty = source_dirty or bool(
+        subprocess.check_output(
+            [
+                "git",
+                "ls-files",
+                "--others",
+                "--exclude-standard",
+                "--",
+                "app",
+                "tests/capacity",
+                "scripts",
+            ],
+            cwd=backend,
+            text=True,
+        ).strip()
+    )
     env.update(
         THREATLENS_CAPACITY_PROFILE=args.profile,
         THREATLENS_CAPACITY_OUTPUT=str(output),
         THREATLENS_CAPACITY_RUN_ID=run_id,
+        THREATLENS_CAPACITY_SOURCE_REVISION=revision,
+        THREATLENS_CAPACITY_SOURCE_DIRTY="true" if source_dirty else "false",
         THREATLENS_CAPACITY_TARGET_ID=args.target_id,
         THREATLENS_CAPACITY_LIMITS=json.dumps(limits),
         THREATLENS_CAPACITY_DURATION=str(args.duration_seconds or 0),

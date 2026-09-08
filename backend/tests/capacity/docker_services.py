@@ -24,7 +24,7 @@ class DockerService:
 
     def command(self, *args):
         return subprocess.check_output(
-            ["docker", *args], text=True, stderr=subprocess.STDOUT, timeout=90
+            ["docker", *args], text=True, stderr=subprocess.PIPE, timeout=90
         ).strip()
 
     def __enter__(self):

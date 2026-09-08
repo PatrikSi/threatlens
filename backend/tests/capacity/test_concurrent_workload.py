@@ -574,7 +574,10 @@ def test_concurrent_workload(database_engine, test_redis_url, monkeypatch):
                     "run_id": os.environ.get("THREATLENS_CAPACITY_RUN_ID"),
                     "profile": profile_name,
                     "workload": profile,
-                    "git_revision": subprocess.check_output(
+                    "git_revision": os.environ.get(
+                        "THREATLENS_CAPACITY_SOURCE_REVISION"
+                    )
+                    or subprocess.check_output(
                         ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
                     ).strip(),
                     "recorded_at": datetime.now(timezone.utc).isoformat(),
@@ -638,6 +641,9 @@ def test_concurrent_workload(database_engine, test_redis_url, monkeypatch):
                 "ai": completed[2],
             }
             result["status"] = "passed"
+            result["source_dirty"] = (
+                os.environ.get("THREATLENS_CAPACITY_SOURCE_DIRTY") == "true"
+            )
             seal_result(
                 result,
                 target_id=os.environ.get("THREATLENS_CAPACITY_TARGET_ID", "unlabeled"),

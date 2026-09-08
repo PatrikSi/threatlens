@@ -242,6 +242,11 @@ def local_sources(profile, state=None):
             pass
 
         def do_GET(self):
+            if self.path.startswith("/article/") and state.get("article_started"):
+                state["article_started"].set()
+                if not state["article_release"].wait(timeout=30):
+                    self.send_error(504)
+                    return
             if self.path.startswith("/deadline/headers"):
                 time.sleep(0.4)
             if self.path.startswith("/feed/"):
