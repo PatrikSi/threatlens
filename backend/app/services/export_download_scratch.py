@@ -1,7 +1,10 @@
 """Anonymous plaintext downloads whose lifetime is owned by the API response."""
+
 import os
 import tempfile
+from collections.abc import Mapping
 from pathlib import Path
+from typing import BinaryIO
 
 from starlette.types import Receive, Scope, Send
 
@@ -16,31 +19,59 @@ class ExportDownloadScratch:
     process-local descriptor path preserves FileResponse's range support.
     """
 
-    def __init__(self):
-        self.file = tempfile.TemporaryFile(mode="w+b", prefix="threatlens-export-download-")
+    def __init__(self) -> None:
+        self.file: BinaryIO = tempfile.TemporaryFile(
+            mode="w+b", prefix="threatlens-export-download-"
+        )
         try:
             descriptor = self.file.fileno()
             self.path = Path(f"/proc/self/fd/{descriptor}")
             metadata = os.fstat(descriptor)
             visible = self.path.stat()
-            if metadata.st_nlink != 0 or (metadata.st_dev, metadata.st_ino) != (visible.st_dev, visible.st_ino):
-                raise RuntimeError("Anonymous export downloads require Linux process-local descriptors")
+            if metadata.st_nlink != 0 or (metadata.st_dev, metadata.st_ino) != (
+                visible.st_dev,
+                visible.st_ino,
+            ):
+                raise RuntimeError(
+                    "Anonymous export downloads require Linux process-local descriptors"
+                )
         except BaseException:
             self.close()
             raise
 
-    def close(self):
+    def close(self) -> None:
         self.file.close()
 
-    def response(self, *, media_type, filename, headers):
+    def response(
+        self,
+        *,
+        media_type: str,
+        filename: str,
+        headers: Mapping[str, str],
+    ) -> DisconnectSafeFileResponse:
         self.file.flush()
-        return _DownloadResponse(self, media_type=media_type, filename=filename, headers=headers)
+        return _DownloadResponse(
+            self, media_type=media_type, filename=filename, headers=headers
+        )
 
 
 class _DownloadResponse(DisconnectSafeFileResponse):
-    def __init__(self, scratch, **kwargs):
+    def __init__(
+        self,
+        scratch: ExportDownloadScratch,
+        *,
+        media_type: str,
+        filename: str,
+        headers: Mapping[str, str],
+    ) -> None:
         self.scratch = scratch
-        super().__init__(scratch.path, stat_result=os.fstat(scratch.file.fileno()), **kwargs)
+        super().__init__(
+            scratch.path,
+            stat_result=os.fstat(scratch.file.fileno()),
+            media_type=media_type,
+            filename=filename,
+            headers=headers,
+        )
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         try:

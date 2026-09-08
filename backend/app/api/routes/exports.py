@@ -1,5 +1,4 @@
 import logging
-import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import exists, func, select
@@ -55,6 +54,9 @@ from app.services.export_lock import (
     acquire_export_lock,
 )
 from app.services.export_transport import DisconnectSafeFileResponse
+from app.services.export_principals import (
+    export_user_id, export_principal_type, require_supported_export_state,
+)
 from app.services.export_query import (
     ExportTextProjection,
     ExportAuthorizationChangedError,
@@ -204,9 +206,9 @@ def preview_export(
     data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     settings = get_settings()
-    _require_supported_machine_state_options(principal, filters=payload.filters)
+    require_supported_export_state(principal, filters=payload.filters)
     context = build_export_query_context(
-        user_id=_human_user_id(principal),
+        user_id=export_user_id(principal),
         filters=payload.filters,
         data_access=data_access,
     )
@@ -262,13 +264,13 @@ def download_export(
     data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     settings = get_settings()
-    _require_supported_machine_state_options(
+    require_supported_export_state(
         principal,
         filters=payload.filters,
         include_user_state=payload.options.include_user_state,
     )
     context = build_export_query_context(
-        user_id=_human_user_id(principal),
+        user_id=export_user_id(principal),
         filters=payload.filters,
         data_access=data_access,
     )
@@ -288,7 +290,7 @@ def download_export(
     artifact: ExportArtifact | None = None
     try:
         with acquire_export_lock(
-            principal_type=_principal_type(principal),
+            principal_type=export_principal_type(principal),
             principal_id=principal.id,
             settings=settings,
         ):
@@ -383,8 +385,8 @@ def download_export(
             )
         record_audit(
             db,
-            actor_user_id=_human_user_id(principal),
-            actor_principal_type=_principal_type(principal),
+            actor_user_id=export_user_id(principal),
+            actor_principal_type=export_principal_type(principal),
             actor_principal_id=principal.id,
             action="exports.download",
             resource_type="article_export",
@@ -472,8 +474,8 @@ def _record_failed_export(
     try:
         record_audit(
             db,
-            actor_user_id=_human_user_id(principal),
-            actor_principal_type=_principal_type(principal),
+            actor_user_id=export_user_id(principal),
+            actor_principal_type=export_principal_type(principal),
             actor_principal_id=principal.id,
             action="exports.download",
             resource_type="article_export",
@@ -490,44 +492,12 @@ def _record_failed_export(
         logger.error(
             "article_export_failure_audit_failed principal_type=%s "
             "principal_id=%s reason=%s error_type=%s",
-            _principal_type(principal),
+            export_principal_type(principal),
             principal.id,
             reason,
             type(exc).__name__,
             exc_info=verbose_logging_enabled(get_settings()),
         )
-
-
-def _human_user_id(principal: AuthenticatedPrincipal) -> uuid.UUID | None:
-    return principal.id if isinstance(principal, User) else None
-
-
-def _principal_type(principal: AuthenticatedPrincipal) -> str:
-    return "user" if isinstance(principal, User) else "service_account"
-
-
-def _require_supported_machine_state_options(
-    principal: AuthenticatedPrincipal,
-    *,
-    filters,
-    include_user_state: bool = False,
-) -> None:
-    if isinstance(principal, User):
-        return
-    if (
-        filters.is_read is None
-        and filters.is_starred is None
-        and not include_user_state
-    ):
-        return
-    raise ApiHTTPException(
-        status_code=status.HTTP_400_BAD_REQUEST,
-        detail=(
-            "Service accounts do not have personal read, starred, or note state. "
-            "Remove user-state filters and disable user-state export fields."
-        ),
-        error_code="service_account_user_state_unsupported",
-    )
 
 
 def _filter_audit_summary(payload: ArticleExportRequest) -> dict[str, object]:

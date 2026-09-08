@@ -24,6 +24,18 @@ The encrypted accepting snapshot records the principal, credential ID, effective
 
 Publication checks original and current access, selected item/feed membership, and source handling labels again. Download additionally checks the current requesting credential's data access. A restricted credential cannot use another credential's job to bypass handling policy. Deleted or moved source items invalidate retrieval. Revoked status/list responses omit filenames, item counts, and file sizes. Error messages contain no article text, filters, credentials, or raw exception details.
 
+Status pages group identical accepting authorization snapshots within one
+request. They share source identity/label lookups in 500-item batches with a
+20,000-identity cache, then discard that cache. Each job still checks its own
+captured handling labels, accepting scope, current requesting scope, and expected
+feed membership. Grouped authorization is rechecked after source evaluation to
+observe credential expiry during the request. Metadata does not hydrate article
+bodies or retain every job's decoded source snapshot at once. No permission or
+source-membership result is cached across requests, and download performs its
+own fresh checks. Disjoint large exports still require work proportional to
+their distinct source identities while request authorization fences are held;
+use the bounded page size and monitor status-query latency under that workload.
+
 Rendering holds no global IAM or handling-policy lock. The final publication transaction fences both policies; download uses the same final fenced response boundary as synchronous exports. Policy changes during generation discard the artifact rather than publishing a partly authorized result.
 
 Publication and download take the owner lock before the accepting credential,
@@ -50,7 +62,23 @@ Artifacts are stored as separately encrypted 256 KiB PostgreSQL chunks, accessib
 
 The durable state machine is `queued → running → ready`, with `failed`, `cancelled`, and `expired` terminal states. Each running attempt owns a random claim token and renewable lease. Duplicate messages cannot acquire an active claim. A stale or cancelled worker cannot append chunks or publish completion, including after lease takeover. The existing per-principal Redis export lock coordinates background jobs with synchronous exports.
 
-`app.tasks.export_tasks.generate_export_job` runs on `processing`; `dispatch_export_jobs` runs on `maintenance` every 30 seconds through Beat. Keep both workers and Beat running. Reconciliation republishes queued rows after lost broker publication, repairs expired running leases, removes incomplete encrypted chunks before retry, expires artifacts, and removes jobs whose owners were deleted. Dispatch batches and retries are bounded. A worker crash after artifact storage but before completion leaves an invisible partial artifact that reconciliation replaces. A crash after completion does not rerender the ready job.
+`app.tasks.export_tasks.generate_export_job` runs on `exports-v1`, consumed by the
+dedicated `worker-exports` service (`EXPORT_WORKER_CONCURRENCY=1` by default).
+`dispatch_export_jobs` runs on `maintenance` every 30 seconds through Beat. Keep
+both workers and Beat running. Export generation does not consume the default
+ingestion/processing execution slots, although workers still share host and
+database capacity. Reconciliation republishes queued rows after lost broker
+publication, repairs expired running leases, removes incomplete encrypted chunks
+before retry, expires artifacts, and removes jobs whose owners were deleted.
+Dispatch batches and retries are bounded. A worker crash after artifact storage
+but before completion leaves an invisible partial artifact that reconciliation
+replaces. A crash after completion does not rerender the ready job.
+
+When upgrading from the shared processing queue, quiesce old Beat/worker
+processes and drain their queued export tasks before switching, or allow durable
+claim expiry and dispatch repair to enqueue current jobs on `exports-v1`. Do not
+run old producers concurrently with the new queue topology. Retain the existing
+claim and idempotency records during rollout.
 
 Export publication uses a dedicated broker connection with `REDIS_CONNECT_TIMEOUT_SECONDS` and `REDIS_SOCKET_TIMEOUT_SECONDS` (both 2 seconds by default). Library publication retries are disabled; the durable dispatcher retries later. These bound individual socket operations, not a wall-clock deadline across every broker command or a peer that continually trickles data. Worker consumer connection settings are unaffected.
 
