@@ -70,6 +70,11 @@ Administrators can schedule weekly or monthly reports with:
   `latest` uses the most recent scheduled time, so rolling periods do not drift
   with dispatcher latency. An already attempted tick keeps its bounded retries
   even after the five-minute grace; manual runs remain available for every policy.
+
+Dispatchers recheck retry time and schedule version after acquiring the schedule
+row lock. A failure is recorded only against the version and scheduled tick that
+was attempted; a delayed dispatcher cannot overwrite a newer retry, edit, or
+successful reservation.
 - optional schedule-specific instructions
 - empty-period handling
 - optional integration delivery and content mode

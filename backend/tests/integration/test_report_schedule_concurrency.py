@@ -4,11 +4,13 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from threading import Event
 
+import pytest
 from sqlalchemy import delete, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models.report_schedule import ReportSchedule
 from app.models.report_template import ReportTemplate
+from app.services.report_schedules import record_schedule_failure, reserve_schedule_runs
 
 
 def test_old_schedule_writer_cannot_move_version_backward(database_engine):
@@ -136,3 +138,73 @@ def _wait_for_lock_wait(database_engine, *, pid: int, timeout: float = 3.0) -> N
             return
         time.sleep(0.01)
     raise AssertionError(f"Database session {pid} did not enter a lock wait.")
+
+
+@pytest.mark.parametrize("operation", ["retry_gate", "reservation_version", "failure_version"])
+def test_dispatcher_rechecks_state_after_waiting_for_schedule_lock(database_engine, operation):
+    factory = sessionmaker(bind=database_engine, expire_on_commit=False)
+    now = datetime.now(timezone.utc)
+    with factory.begin() as db:
+        template = ReportTemplate(
+            name="Concurrent eligibility", report_type="weekly", visibility="shared",
+            audience="security_team", objective="Test eligibility", tone="analytical",
+            detail_level="standard", use_company_context=False,
+        )
+        db.add(template)
+        db.flush()
+        schedule = ReportSchedule(
+            template_id=template.id, name="Concurrent eligibility", enabled=True,
+            cadence="weekly", day_of_week=0, hour=9, minute=0, timezone="UTC",
+            window_type="previous_complete_week", next_run_at=now - timedelta(minutes=1),
+        )
+        db.add(schedule)
+        db.flush()
+        schedule_id, template_id = schedule.id, template.id
+    first, second = factory(), factory()
+    try:
+        # Keep the old identity-map entry alive: reservation must refresh it
+        # after obtaining the lock, even with expire_on_commit disabled.
+        old_schedule = second.get(ReportSchedule, schedule_id)
+        old_version, old_due = old_schedule.updated_at, old_schedule.next_run_at
+        second.execute(text("SET LOCAL lock_timeout = '3s'"))
+        second_pid = second.scalar(text("SELECT pg_backend_pid()"))
+        newer = first.get(ReportSchedule, schedule_id)
+        newer.updated_at = now + timedelta(hours=1)
+        if operation == "retry_gate":
+            newer.retry_at = now + timedelta(minutes=5)
+            newer.failure_state = "retrying"
+        elif operation == "failure_version":
+            newer.next_run_at = now + timedelta(days=7)
+        first.flush()
+
+        def stale_dispatcher():
+            if operation == "failure_version":
+                result = record_schedule_failure(
+                    second, schedule_id=schedule_id, now=now, error=RuntimeError("stale failure"),
+                    expected_version=old_version, expected_next_run_at=old_due,
+                )
+            else:
+                result = reserve_schedule_runs(
+                    second, schedule_id=schedule_id, now=now,
+                    expected_version=old_version if operation == "reservation_version" else None,
+                )
+            second.commit()
+            return result
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(stale_dispatcher)
+            _wait_for_lock_wait(database_engine, pid=second_pid)
+            first.commit()
+            assert future.result(timeout=5) == (None if operation == "failure_version" else [])
+        with factory() as db:
+            stored = db.get(ReportSchedule, schedule_id)
+            assert stored.enabled is True
+            assert stored.failure_count == 0
+            assert stored.updated_at >= now + timedelta(hours=1)
+            assert stored.failure_state == ("retrying" if operation == "retry_gate" else "healthy")
+    finally:
+        first.close()
+        second.close()
+        with factory.begin() as db:
+            db.execute(delete(ReportSchedule).where(ReportSchedule.id == schedule_id))
+            db.execute(delete(ReportTemplate).where(ReportTemplate.id == template_id))

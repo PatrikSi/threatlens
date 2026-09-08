@@ -12,7 +12,7 @@ from app.models.report_generation_lease import ReportGenerationLease
 from app.services.ai_ops import queue_ai_task_run
 from app.services.ai_ops_common import AI_TASK_TYPE_REPORT
 from app.services.report_generation import ReportGenerationError
-from app.tasks import report_tasks
+from app.tasks import report_schedule_tasks, report_tasks
 
 
 def _report(*, lease_token: str | None = None) -> Report:
@@ -62,6 +62,7 @@ def _use_test_session(monkeypatch, db_session) -> None:
             raise
 
     monkeypatch.setattr(report_tasks, "db_session", _session)
+    monkeypatch.setattr(report_schedule_tasks, "db_session", _session)
 
 
 def test_report_task_retries_redelivery_while_another_lease_is_active(
@@ -369,6 +370,7 @@ def test_report_task_uses_only_committed_claim_for_exhaustion(
             raise
 
     monkeypatch.setattr(report_tasks, "db_session", _session)
+    monkeypatch.setattr(report_schedule_tasks, "db_session", _session)
 
     result = report_tasks.generate_intelligence_report.apply(
         args=[str(report.id), str(run.id)],
@@ -414,6 +416,7 @@ def test_report_task_recovers_when_claim_commit_succeeds_then_raises(
             raise
 
     monkeypatch.setattr(report_tasks, "db_session", _session)
+    monkeypatch.setattr(report_schedule_tasks, "db_session", _session)
 
     result = report_tasks.generate_intelligence_report.apply(
         args=[str(report.id), str(run.id)],
@@ -600,7 +603,7 @@ def test_schedule_dispatch_defers_without_advancing_when_reporting_unavailable(
 ):
     _use_test_session(monkeypatch, db_session)
     monkeypatch.setattr(
-        report_tasks,
+        report_schedule_tasks,
         "load_active_ai_settings",
         lambda _db: SimpleNamespace(
             ai_enabled=False,
@@ -636,31 +639,34 @@ def test_schedule_dispatch_isolates_reservation_failures(db_session, monkeypatch
     recorded_failures = []
     enqueued = []
     _use_test_session(monkeypatch, db_session)
-    monkeypatch.setattr(report_tasks, "load_active_ai_settings", lambda _db: object())
+    monkeypatch.setattr(report_schedule_tasks, "load_active_ai_settings", lambda _db: object())
     monkeypatch.setattr(
-        report_tasks,
+        report_schedule_tasks,
         "ensure_reporting_available",
         lambda _settings: None,
     )
     monkeypatch.setattr(
-        report_tasks,
-        "list_due_schedule_ids",
-        lambda _db, *, now: [successful_schedule_id, failing_schedule_id],
+        report_schedule_tasks,
+        "list_due_schedule_candidates",
+        lambda _db, *, now: [
+            SimpleNamespace(schedule_id=schedule_id, resource_version=now, due_at=now)
+            for schedule_id in (successful_schedule_id, failing_schedule_id)
+        ],
     )
 
-    def reserve(_db, *, schedule_id, now):
+    def reserve(_db, *, schedule_id, now, expected_version):
         if schedule_id == failing_schedule_id:
             raise RuntimeError("invalid schedule state")
         return [queued_report, skipped_report]
 
-    monkeypatch.setattr(report_tasks, "reserve_schedule_runs", reserve)
+    monkeypatch.setattr(report_schedule_tasks, "reserve_schedule_runs", reserve)
     monkeypatch.setattr(
         report_tasks,
         "create_report_task_run",
         lambda *_args, **_kwargs: task_run,
     )
     monkeypatch.setattr(
-        report_tasks,
+        report_schedule_tasks,
         "record_schedule_failure",
         lambda _db, **kwargs: recorded_failures.append(kwargs),
     )
