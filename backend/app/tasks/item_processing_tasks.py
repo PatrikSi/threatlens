@@ -2,13 +2,17 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from types import ModuleType
 
-from sqlalchemy import select
+from sqlalchemy import select, tuple_
 
 from app.models.article import Article
 from app.models.feed import Feed
 from app.models.item import Item
 from app.models.item_classification import ItemClassification
 from app.services.ioc_storage import replace_item_iocs
+from app.services.algorithm_tags import TaggingEvaluationIncomplete
+from app.services.tagging_recovery import (
+    TAGGING_REPAIR_BATCH_SIZE, clear_incomplete_tagging, record_incomplete_tagging,
+)
 
 
 def run_classify_item(item_id: str, *, runtime: ModuleType):
@@ -84,6 +88,9 @@ def run_classify_item(item_id: str, *, runtime: ModuleType):
         _sync_classification_tags(
             db, item, article, feed_name, feed_url, row, runtime=r
         )
+        # Alert acceptance reloads the locked Item; flush tagging state first so
+        # that refresh cannot discard this transaction's incomplete-work marker.
+        db.flush()
         if feed is not None:
             evaluation_intent = r.persist_alert_evaluation_intent(
                 db,
@@ -164,9 +171,8 @@ def _sync_classification_tags(
         db,
         tag_names=[row.primary_category, *(row.secondary_categories or [])],
     )
-    runtime.sync_item_algorithm_tags(
-        db,
-        item_id=item.id,
+    _settle_algorithm_tags(
+        db, item, runtime=runtime,
         primary_category=row.primary_category,
         secondary_categories=row.secondary_categories,
         feed_id=item.feed_id,
@@ -334,9 +340,8 @@ def _sync_ioc_tags(
     feedback_adjustments = runtime.load_feedback_adjustments(
         db, tag_names=feedback_hints
     )
-    runtime.sync_item_algorithm_tags(
-        db,
-        item_id=item.id,
+    _settle_algorithm_tags(
+        db, item, runtime=runtime,
         primary_category=classification.primary_category
         if classification
         else "threat_intelligence_research",
@@ -355,6 +360,17 @@ def _sync_ioc_tags(
     )
 
 
+
+def _settle_algorithm_tags(db, item: Item, *, runtime: ModuleType, **context) -> None:
+    try:
+        runtime.sync_item_algorithm_tags(db, item_id=item.id, **context)
+    except TaggingEvaluationIncomplete as exc:
+        record_incomplete_tagging(item, exc.errors)
+    else:
+        clear_incomplete_tagging(item)
+    db.add(item)
+
+
 def run_reapply_recent_item_tags(
     days: int = 30,
     limit: int = 0,
@@ -367,71 +383,92 @@ def run_reapply_recent_item_tags(
         return {"status": "skipped", "reason": "invalid_days", "days": days}
     if limit < 0:
         return {"status": "skipped", "reason": "invalid_limit", "limit": limit}
-
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-    processed = 0
+    processed = pending = scanned = 0
+    before = None
     try:
         with r.tagging_reapply_lock(token=dispatch_token) as acquired:
             if not acquired:
-                return {
-                    "status": "skipped",
-                    "reason": "already_running",
-                    "days": days,
-                    "limit": limit,
-                }
-            with r.db_session() as db:
-                for item_id in db.scalars(_recent_item_query(cutoff, limit)):
-                    item_processed = _reapply_item_tags(db, item_id, runtime=r)
-                    if item_processed:
-                        processed += 1
-                    if (
-                        item_processed
-                        and processed % r.TAGGING_REAPPLY_COMMIT_INTERVAL == 0
-                    ):
+                return {"status": "skipped", "reason": "already_running", "days": days, "limit": limit}
+            while not limit or scanned < limit:
+                page_size = min(r.TAGGING_REAPPLY_COMMIT_INTERVAL, limit - scanned) if limit else r.TAGGING_REAPPLY_COMMIT_INTERVAL
+                with r.db_session() as db:
+                    page = db.execute(_recent_item_query(cutoff, page_size, before=before)).all()
+                if not page:
+                    break
+                for item_id, first_seen_at in page:
+                    # Commit each item independently: a regex or article-fetch wait
+                    # must not retain locks on the previous page of items.
+                    with r.db_session() as db:
+                        if _reapply_item_tags(db, item_id, runtime=r):
+                            processed += 1
+                            pending += int(db.get(Item, item_id).tagging_pending)
                         db.commit()
-                        db.expire_all()
-                db.commit()
+                    scanned += 1
+                    before = (first_seen_at, item_id)
     except r.CoordinationUnavailableError:
-        return {
-            "status": "error",
-            "reason": "coordination_unavailable",
-            "days": days,
-            "limit": limit,
-        }
-    return {"status": "ok", "days": days, "limit": limit, "processed": processed}
+        return {"status": "error", "reason": "coordination_unavailable", "days": days, "limit": limit}
+    return {"status": "ok", "days": days, "limit": limit, "processed": processed, "pending": pending}
 
 
-def _recent_item_query(cutoff: datetime, limit: int):
-    query = (
-        select(Item.id)
-        .where(Item.first_seen_at >= cutoff)
-        .order_by(Item.first_seen_at.desc())
-    )
-    return query.limit(limit) if limit else query
+def _recent_item_query(cutoff: datetime, limit: int, *, before=None):
+    query = select(Item.id, Item.first_seen_at).where(Item.first_seen_at >= cutoff)
+    if before is not None:
+        query = query.where(tuple_(Item.first_seen_at, Item.id) < tuple_(before[0], before[1]))
+    return query.order_by(Item.first_seen_at.desc(), Item.id.desc()).limit(limit)
 
 
-def _reapply_item_tags(db, item_id: uuid.UUID, *, runtime: ModuleType) -> bool:
-    item = db.scalar(select(Item).where(Item.id == item_id))
+def run_repair_pending_item_tags(*, runtime: ModuleType):
+    now = datetime.now(timezone.utc)
+    with runtime.db_session() as db:
+        item_ids = db.scalars(select(Item.id).where(
+            Item.tagging_pending.is_(True), Item.tagging_retry_at <= now,
+        ).order_by(Item.tagging_retry_at, Item.id).limit(TAGGING_REPAIR_BATCH_SIZE)).all()
+    processed = pending = 0
+    for item_id in item_ids:
+        with runtime.db_session() as db:
+            if _reapply_item_tags(db, item_id, only_pending=True, runtime=runtime):
+                processed += 1
+                pending += int(db.get(Item, item_id).tagging_pending)
+            db.commit()
+    return {"processed": processed, "pending": pending}
+
+
+def _reapply_item_tags(db, item_id: uuid.UUID, *, runtime: ModuleType, only_pending: bool = False) -> bool:
+    query = select(Item).where(Item.id == item_id)
+    if only_pending:
+        query = query.where(Item.tagging_pending.is_(True), Item.tagging_retry_at <= datetime.now(timezone.utc))
+    # Manual reapply waits for a source writer and then reads its committed state;
+    # automatic repair can skip a busy item because its durable intent survives.
+    item = db.scalar(query.with_for_update(skip_locked=only_pending).execution_options(populate_existing=True))
     if item is None:
         return False
-    article = db.scalar(select(Article).where(Article.item_id == item.id))
-    classification = db.scalar(
-        select(ItemClassification).where(ItemClassification.item_id == item.id)
-    )
-    feed = db.scalar(select(Feed).where(Feed.id == item.feed_id))
+    article = db.scalar(select(Article).where(Article.item_id == item.id).execution_options(populate_existing=True))
+    classification = db.scalar(select(ItemClassification).where(
+        ItemClassification.item_id == item.id,
+    ).execution_options(populate_existing=True))
+    feed = db.scalar(select(Feed).where(Feed.id == item.feed_id).execution_options(populate_existing=True))
     if feed is None:
         return False
-    if classification is None:
+    if not only_pending:
+        item.tagging_attempts = 0
+    # Retention deliberately preserves existing classification after raw-content
+    # erasure. Other source changes must not reuse an obsolete category snapshot.
+    if classification is None or article is None or article.content_purged_at is None:
         result = runtime.classify_item_content(
-            title=item.title,
-            summary=item.summary,
-            article_text=article.text if article else None,
-            feed_name=feed.name,
+            title=item.title, summary=item.summary,
+            article_text=article.text if article else None, feed_name=feed.name,
         )
-        classification = ItemClassification(item_id=item.id)
-        _apply_classification_result(classification, result)
-        db.add(classification)
-    _sync_classification_tags(
-        db, item, article, feed.name, feed.url, classification, runtime=runtime
-    )
+        if classification is None:
+            classification = ItemClassification(item_id=item.id)
+        if (
+            classification.source_hash != result.source_hash
+            or classification.rules_version != result.rules_version
+            or item.classification_completed_version < item.classification_required_version
+        ):
+            _apply_classification_result(classification, result)
+            db.add(classification)
+    _sync_classification_tags(db, item, article, feed.name, feed.url, classification, runtime=runtime)
+    # Classification recovery still owns its version acknowledgement and alert
+    # intents; reapply must not consume that independent durable obligation.
     return True

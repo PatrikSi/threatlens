@@ -83,6 +83,7 @@ from app.tasks.item_processing_tasks import (
     run_classify_item as _run_classify_item,
     run_extract_item_iocs as _run_extract_item_iocs,
     run_reapply_recent_item_tags as _run_reapply_recent_item_tags,
+    run_repair_pending_item_tags as _run_repair_pending_item_tags,
 )
 from app.tasks.report_tasks import (
     dispatch_due_report_schedules,
@@ -748,6 +749,15 @@ def reapply_recent_item_tags(
         dispatch_token,
         runtime=sys.modules[__name__],
     )
+
+
+@celery_app.task(
+    name="app.tasks.feed_tasks.repair_pending_item_tags",
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
+def repair_pending_item_tags():
+    return _run_repair_pending_item_tags(runtime=sys.modules[__name__])
 
 
 # Extracted runners resolve these through this module so legacy monkeypatch and import paths keep working.
