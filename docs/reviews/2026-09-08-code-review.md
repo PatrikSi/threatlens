@@ -1,10 +1,13 @@
 # Comprehensive code review — 2026-09-08
 
+This is the historical review before remediation. R01–R21 have since been
+implemented on `dev`; see the [remediation results and remaining assessment](2026-09-08-remediation.md).
+
 Reviewed `569299d` on `main`, including the development image-build changes in
 `dcf1523`. This report covers architecture, backend correctness, security,
 resilience, frontend state, accessibility, product workflows, capacity, delivery,
 and verification. Two small defensive fixes were committed during the review;
-the larger findings remain open.
+the larger findings were left open at that point.
 
 ThreatLens has a substantial foundation: explicit permission and data-policy
 boundaries, durable asynchronous work, migration checks, and extensive tests.

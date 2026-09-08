@@ -28,6 +28,7 @@ This documentation covers:
 - [Concurrent Capacity Baseline](./reference/capacity-baseline.md)
 - [Outbound Request Budgets](./reference/outbound-request-budgets.md)
 - [Comprehensive Code Review — 2026-09-08](./reviews/2026-09-08-code-review.md)
+- [R01–R21 Remediation and Remaining Assessment — 2026-09-08](./reviews/2026-09-08-remediation.md)
 - [Auth, RBAC, and Token Scopes](./reference/auth-rbac.md)
 - [Access Governance and Data Policy](./reference/access-governance.md)
 - [Backend API Reference](./reference/api.md)

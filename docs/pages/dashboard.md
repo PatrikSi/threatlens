@@ -87,7 +87,7 @@ workspace defaults finish loading, so initialization cannot overwrite a first ed
 
 - Expand/collapse article row
 - Open source link
-- Preview original article in a right-side iframe drawer when the source allows embedding
+- Preview a backend-fetched, sanitized copy of the original article in a right-side iframe drawer
 - Mark read/unread
 - Star/unstar
 - Edit note
@@ -97,6 +97,13 @@ workspace defaults finish loading, so initialization cannot overwrite a first ed
   - AI summary text
   - relevance label / score
   - relevance reasons or AI error when enrichment failed
+
+Original previews block external resources in the browser by default. Select
+**Load external resources for this preview** to allow publisher images, styles,
+and other permitted resources; that choice resets when selecting another article
+or reopening the preview. Scripts, forms, and nested frames remain blocked.
+Opening the preview still fetches the publisher page from the backend; the
+consent control governs subsequent requests from the analyst's browser.
 
 ## Alerts Window
 
