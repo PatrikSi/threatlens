@@ -23,6 +23,13 @@ All API paths on this page are relative to the published `/api/v1` base.
 - Usage, latency, token, relevance, freshness, and storage KPIs
 - Failure summaries and recent active tasks
 
+Overview totals, model/day summaries, token efficiency, relevance distribution,
+and latency percentiles are aggregated in PostgreSQL with the current access
+predicates. Daily buckets use UTC. The application receives aggregates rather
+than every underlying event; database scan cost still depends on the selected
+history volume. The separate failure-history endpoint is not part of this
+aggregation change.
+
 ### Activity / Operations
 
 - Live queued/running AI task panel

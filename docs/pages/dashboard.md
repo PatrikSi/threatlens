@@ -48,6 +48,12 @@ All API paths on this page are relative to the published `/api/v1` base. Dashboa
   - nearby window edge threshold: `12px`
   - viewport midline threshold: `8px`
 - Snapped windows render flush (no side/bottom margin).
+- In layout edit mode, focus **Move** or the resize handle and use arrow keys;
+  Shift makes larger steps. Geometry stays inside the workspace and respects
+  minimum sizes. Focus inside a panel brings it to the front.
+
+Layout editing and saved-view controls wait until the existing local layout or
+workspace defaults finish loading, so initialization cannot overwrite a first edit.
 
 ### Per-window controls
 

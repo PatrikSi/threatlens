@@ -22,6 +22,11 @@ Actions:
 - Detect metadata (`POST /feeds/metadata`)
 - Submit new feed (`POST /feeds`)
 
+Edits made while a feed save is pending remain in the draft. The accepted server
+response updates fields that still match the submitted values, and later edits
+keep navigation protection active. Switching records prevents an earlier save
+from replacing the newly selected editor.
+
 ## Feed Inventory
 
 ### Controls

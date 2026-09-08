@@ -1,13 +1,5 @@
 # Auth, RBAC, and Token Scopes
 
-Webhook delivery history uses the same secret-read permissions as webhook
-configuration: an admin or analyst role plus `write:notifications` for scoped
-credentials. Read-only credentials and viewers can inspect delivery state,
-status, timing, and source metadata, but the complete destination URL, configured
-header/query values, and free-form diagnostics are withheld. Request and response
-bodies remain withheld for every role. Common credential aliases are redacted
-even in privileged delivery previews.
-
 ## Published Paths
 
 - Public/browser-facing API paths are versioned under `/api/v1/*`
@@ -325,6 +317,11 @@ Paths below are relative to the published `/api/v1` base.
 - `ALLOW_LEGACY_UNSCOPED_TOKENS=true` weakens token authorization by allowing empty-scope legacy tokens to bypass scope checks. Production settings reject this mode.
 - Notification webhook targets are validated on create, update, test, retry, and delivery. Public targets must use `https`; private-network or internal-only targets require `ALLOW_PRIVATE_NETWORK_WEBHOOKS=true`.
 - Viewer-role access and API tokens without `write:notifications` receive webhook configuration with secret-bearing values redacted. Operator cookie sessions and write-scoped operator tokens retain the existing editable response.
+- Webhook delivery history uses those same secret-read permissions. Restricted
+  credentials can inspect status, timing, and source metadata, while the complete
+  destination URL, configured header/query values, and free-form diagnostics are
+  withheld. Request and response bodies remain withheld for every role, and
+  common credential aliases are redacted in privileged delivery previews.
 - User updates are serialized around the active-admin invariant; concurrent demotions cannot remove the final active, approved admin.
 - Non-admin token revocation is owner-constrained and returns the same not-found response for foreign and nonexistent token IDs.
 - OIDC role synchronization and admin user edits share the same serialized final-admin invariant.

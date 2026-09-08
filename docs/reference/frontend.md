@@ -10,7 +10,7 @@ Providers (outer to inner):
 
 1. `ThemeProvider`
 2. `AuthProvider`
-3. `QueryClientProvider`
+3. `SessionQueryProvider`, with a fresh `QueryClientProvider` per session
 
 The authenticated route branch additionally wraps `AppShell` in
 `WorkspaceProvider`, which resolves navigation and first-use dashboard defaults
@@ -21,6 +21,13 @@ React Query defaults:
 - `staleTime: 30000`
 - `refetchOnWindowFocus: false`
 - `retry: 1`
+
+Authentication changes synchronously invalidate request leases, then remount the
+session cache. Stale mutation completions cannot publish success into the next
+session. A transient session-check outage preserves the workspace and drafts
+behind a blocking verification dialog; protected actions resume after recovery.
+Confirmed expiry removes protected content. See [browser workflow tests and
+session completion rules](../development/browser-testing.md).
 
 Route tree:
 
@@ -68,6 +75,8 @@ Route tree:
 - Parses the compatible top-level `detail` field and the structured API error envelope, including stable code, retry hint, request ID, and `Retry-After` timing.
 - Rejects malformed successful responses and summarizes non-JSON proxy failures without rendering HTML response bodies in the UI.
 - Returns `undefined` for `204` responses.
+- JSON and download transports reject completions from an invalidated session,
+  including when an underlying transport ignores cancellation.
 - `LoginPage` and self-registration calls pass `auth=false`; after login the app relies on the server-set session cookies rather than persisting any bearer token in browser storage.
 
 ### Error presentation (`web/src/api/errors.ts`)
@@ -219,6 +228,9 @@ Window behaviors:
 - The toolbar search reflects a shared cross-panel search only when searchable panels are aligned; otherwise it shows a mixed-state placeholder
 - RSS expanded item detail stays panel-scoped, while note drafts follow the item across panels until saved
 - RSS expanded item detail can open a right-side original article preview drawer with a sandboxed iframe and new-tab fallback
+- Original preview resources are blocked by default. **Load external resources
+  for this preview** explicitly permits publisher/third-party browser requests;
+  consent resets per article. The backend still retrieves the source document.
 - Daily Brief window selection is isolated per window and preserved in saved views
 
 RSS filter values:

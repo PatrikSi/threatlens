@@ -26,6 +26,21 @@ The builder supports:
 
 The live preview reports matching and selected source counts, total source tokens, the exact estimated peak input for one serialized provider call, batch count, model-call count, coverage, and omission warnings. Generation remains blocked while the preview is stale, invalid, empty, unavailable, or over a configured guardrail.
 
+Template refreshes preserve the current draft. If the loaded template changes or
+disappears, the builder shows that state; **Load latest** or deliberate template
+selection refreshes the draft after confirming unsaved changes. Template saves
+use the loaded revision. A generation response opens its report automatically
+only when the submitted draft is still current; otherwise newer edits remain
+open and the generated report is available in the library.
+
+## Report Library
+
+The library pages through every report the account can access, 25 at a time. It
+shows the visible range and Next/Previous controls, with filters for status and
+creation dates. The through date includes its full UTC day. Changing filters
+returns to page one. The API accepts `created_from` inclusively and
+`created_before` exclusively; invalid or empty ranges return HTTP 422.
+
 ## Local-Model Guardrails
 
 Reporting does not place the full corpus into one prompt. It:
@@ -77,14 +92,14 @@ Administrators can schedule weekly or monthly reports with:
   `latest` uses the most recent scheduled time, so rolling periods do not drift
   with dispatcher latency. An already attempted tick keeps its bounded retries
   even after the five-minute grace; manual runs remain available for every policy.
+- optional schedule-specific instructions
+- empty-period handling
+- optional integration delivery and content mode
 
 Dispatchers recheck retry time and schedule version after acquiring the schedule
 row lock. A failure is recorded only against the version and scheduled tick that
 was attempted; a delayed dispatcher cannot overwrite a newer retry, edit, or
 successful reservation.
-- optional schedule-specific instructions
-- empty-period handling
-- optional integration delivery and content mode
 
 Calendar windows are calculated in the configured time zone, including daylight-saving transitions. Generation keys make scheduled periods idempotent.
 

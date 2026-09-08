@@ -8,6 +8,11 @@ This page documents worker behavior, processing stages, and internal value sets 
 - Notification webhooks are a separate outbound boundary. User-configured request templates are rendered server-side, stored encrypted at rest, and retried from the saved rendered request snapshot.
 - AI enrichment, daily-brief generation, and report generation are an admin-controlled outbound boundary. ThreatLens records usage data and sanitized provider-exchange metadata for those calls.
 
+Outbound HTTP uses total monotonic deadlines as well as per-operation timeouts.
+Feed, article, preview, metadata, and AI response readers bound encoded and
+decoded bytes. Only global unicast destinations are accepted by default; see
+[outbound request budgets](outbound-request-budgets.md) for limits and opt-ins.
+
 ## Celery Tasks
 
 Defined in `backend/app/tasks/feed_tasks.py`:
@@ -75,6 +80,14 @@ Defined in `backend/app/services/classification.py`.
 
 - Rules version constant: `CLASSIFICATION_RULES_VERSION = "v2"`
 - Article text scoring trim: first `8000` chars after whitespace normalization
+
+Each item persists required and completed classification revisions. Changes to
+feed title/summary or extracted/fallback article text advance the required
+revision in the same transaction. Classification acknowledges it while holding
+the item lock. Maintenance recovers both missing classifications and pending
+revisions, including a refresh whose Celery publication failed. Migration
+`0086_classification_versions` also identifies historical hash mismatches;
+quiesce source writers for its [documented cutover](outbound-request-budgets.md).
 
 ### Classification categories
 

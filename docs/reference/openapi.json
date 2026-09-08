@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "1.10.0",
-    "x-threatlens-contract-sha256": "f5b893c8cf2273b39acf76dbebecedf91022b4ac3b5331397ead1094393412a1"
+    "x-threatlens-contract-sha256": "0061a18e0da8085f3cfc791342cb526b483333c10294eabccb908489b5ef3b9f"
   },
   "servers": [
     {
@@ -3176,6 +3176,44 @@
             }
           },
           {
+            "name": "created_from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Inclusive report creation time; timestamps without an offset use UTC.",
+              "title": "Created From"
+            },
+            "description": "Inclusive report creation time; timestamps without an offset use UTC."
+          },
+          {
+            "name": "created_before",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Exclusive report creation time; timestamps without an offset use UTC.",
+              "title": "Created Before"
+            },
+            "description": "Exclusive report creation time; timestamps without an offset use UTC."
+          },
+          {
             "name": "limit",
             "in": "query",
             "required": false,
@@ -5496,6 +5534,18 @@
               "format": "uuid",
               "title": "Item Id"
             }
+          },
+          {
+            "name": "external_resources",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Allow this preview to load publisher and third-party resources in the browser.",
+              "default": false,
+              "title": "External Resources"
+            },
+            "description": "Allow this preview to load publisher and third-party resources in the browser."
           }
         ],
         "responses": {
