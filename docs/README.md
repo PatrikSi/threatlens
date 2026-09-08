@@ -32,6 +32,7 @@ This documentation covers:
 - [Comprehensive Code Review — 2026-09-08](./reviews/2026-09-08-code-review.md)
 - [R01–R21 Remediation and Remaining Assessment — 2026-09-08](./reviews/2026-09-08-remediation.md)
 - [Follow-up Implementation and Current Assessment — 2026-09-08](./reviews/2026-09-08-follow-up.md)
+- [Renewed Code and Maintainability Review — 2026-09-08](./reviews/2026-09-08-maintainability-review.md)
 - [Auth, RBAC, and Token Scopes](./reference/auth-rbac.md)
 - [Access Governance and Data Policy](./reference/access-governance.md)
 - [Backend API Reference](./reference/api.md)
