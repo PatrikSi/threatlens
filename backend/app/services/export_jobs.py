@@ -94,10 +94,20 @@ def clear_export_job_artifact(db, job):
     job.completed_items = 0
 
 
-def _metadata_reservation(request_encrypted, authorization_encrypted):
+def _metadata_reservation(*encrypted_values):
     return 16_384 + sum(
         len(json.dumps(value, separators=(",", ":")).encode("utf-8"))
-        for value in (request_encrypted, authorization_encrypted)
+        for value in encrypted_values
+    )
+
+
+def retained_export_job_reservation(db, job):
+    """Account retained logical bytes after generation has finished under its row lock."""
+    chunks = db.scalar(select(func.coalesce(func.sum(
+        func.octet_length(ExportJobChunk.ciphertext) + 128,
+    ), 0)).where(ExportJobChunk.job_id == job.id))
+    return chunks + _metadata_reservation(
+        job.request_encrypted, job.authorization_encrypted, job.source_encrypted,
     )
 
 
