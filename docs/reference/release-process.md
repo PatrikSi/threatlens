@@ -11,6 +11,12 @@ Before publishing a public tag, image, or source release:
 3. Verify that the OpenAPI contract anchor in `docs/reference/openapi.json` (`info.x-threatlens-contract-sha256`) is the one expected for the release. The tag workflow copies it into the generated GitHub release notes.
 4. Verify that bundled license texts and package legal inventories still match the shipped runtime stack and assets.
 5. Refresh the image build-context mirrors under `backend/compliance/` and `web/compliance/`.
+6. For capacity-sensitive changes, run the manual **Capacity release comparison**
+   workflow against two committed refs with the same measurement contract, or
+   run both refs sequentially on the target host. Keep the result artifacts and
+   review outcome counts, queue/deadline/lock observations, and memory alongside
+   latency. Insufficient successful samples are inconclusive. See the
+   [capacity runbook](capacity-baseline.md#release-trend-workflow).
 
 ## Version Metadata
 
