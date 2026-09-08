@@ -236,6 +236,8 @@ permission requires the built-in administrator base role.
 - The role top-navigation preview is inert and contains only primary header
   modules. It does not impersonate a role, issue requests as another user, or
   turn preview entries into links.
+- Leaving navigation settings with unsaved personal preferences or role defaults
+  opens a discard confirmation. Cancel keeps both the draft and the current page.
 - Revision conflicts keep the current draft visible and prompt the editor to
   reload before retrying, preventing an older browser from overwriting newer
   policy.

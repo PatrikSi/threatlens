@@ -229,7 +229,7 @@ export function useWorkspaceSettingsController() {
     personalDraft &&
     personalDraftIsDirty(personalBaseline.effective, personalBaseline.preferences, personalDraft),
   )
-  useUnsavedChangesWarning(
+  const confirmDiscardChanges = useUnsavedChangesWarning(
     roleDirty || personalDirty,
     'You have unsaved workspace changes. Leave without saving?',
   )
@@ -405,6 +405,7 @@ export function useWorkspaceSettingsController() {
     roleReloadPending
 
   return {
+    discardDialog: confirmDiscardChanges.discardDialog,
     canReadPolicies,
     canManagePolicies,
     meQuery,
