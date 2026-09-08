@@ -103,7 +103,9 @@ def _build_netloc(
 def _is_ip_allowed(ip: ipaddress._BaseAddress, allow_private_network: bool) -> bool:
     if allow_private_network:
         return True
-    return not (
+    # Shared address space (100.64.0.0/10), for example, is neither private
+    # nor global. Only global unicast addresses are safe by default.
+    return ip.is_global and not (
         ip.is_private
         or ip.is_loopback
         or ip.is_link_local
@@ -246,13 +248,10 @@ def is_fetchable_url(url: str | None, allow_private_network: bool = False) -> bo
     if any(hostname.endswith(suffix) for suffix in BLOCKED_HOSTNAME_SUFFIXES):
         return allow_private_network
 
-    if not allow_private_network and "." not in hostname:
-        return False
-
     try:
         ip = ipaddress.ip_address(hostname)
     except ValueError:
-        return True
+        return allow_private_network or "." in hostname
 
     return _is_ip_allowed(ip, allow_private_network)
 
