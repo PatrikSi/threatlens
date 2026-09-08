@@ -1203,6 +1203,41 @@ describe('DashboardPage DOM workflows', () => {
     expect(document.querySelector('[aria-label="Resize panel"]')).not.toBeNull()
   })
 
+  it('moves and resizes floating panels with keyboard steps within workspace bounds', () => {
+    const bounds = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      x: 0, y: 0, left: 0, top: 0, right: 1000, bottom: 700, width: 1000, height: 700,
+      toJSON: () => ({}),
+    })
+    const view = renderPage()
+    act(() => getButton('Edit Layout')?.click())
+    const layout = view.querySelector<HTMLSelectElement>('[aria-label="RSS Panel 1 panel layout"]')!
+    act(() => setSelectValue(layout, 'free'))
+    const panel = view.querySelector<HTMLElement>('[aria-label="RSS Panel 1 dashboard panel"]')!
+    const resize = panel.querySelector<HTMLButtonElement>('[aria-label="Resize panel"]')!
+    const move = panel.querySelector<HTMLButtonElement>('[aria-label="Move RSS Panel 1 panel"]')!
+    const width = Number.parseFloat(panel.style.width)
+    const height = Number.parseFloat(panel.style.height)
+    const press = (button: HTMLButtonElement, key: string, shiftKey = false) => act(() => {
+      button.focus()
+      button.dispatchEvent(new KeyboardEvent('keydown', { key, shiftKey, bubbles: true, cancelable: true }))
+    })
+    press(resize, 'ArrowLeft', true)
+    press(resize, 'ArrowUp', true)
+    expect(Number.parseFloat(panel.style.width)).toBe(width - 40)
+    expect(Number.parseFloat(panel.style.height)).toBe(height - 40)
+    const left = Number.parseFloat(panel.style.left)
+    press(move, 'ArrowRight')
+    expect(Number.parseFloat(panel.style.left)).toBe(left + 10)
+    press(move, 'ArrowRight', true)
+    press(move, 'ArrowRight', true)
+    expect(Number.parseFloat(panel.style.left)).toBe(40)
+    press(move, 'ArrowLeft', true)
+    press(move, 'ArrowLeft', true)
+    expect(Number.parseFloat(panel.style.left)).toBe(0)
+    expect(document.activeElement).toBe(move)
+    bounds.mockRestore()
+  })
+
   it('uses subtle semantic chip tones for starred, tagged, and AI relevance item state', () => {
     dashboardPageDomMocks.currentUser.data.features.ai_relevance_enabled = true
     dashboardPageDomMocks.itemsData = [

@@ -11,3 +11,11 @@ Scripts, forms, embedded frames, and direct script connections remain blocked.
 
 The preview API accepts `external_resources=true` to opt in to this behavior.
 Existing item permissions and handling-label access checks apply to both modes.
+
+## Dashboard layout
+
+In layout edit mode, floating panels expose a **Move** button and a resize
+handle. Focus either control and use the arrow keys; hold Shift for larger
+steps. Geometry stays within the workspace and respects minimum sizes. Focusing
+any control inside a panel brings that panel to the front. Existing mouse and
+snap-layout controls continue to work.
