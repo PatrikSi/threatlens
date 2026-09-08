@@ -15,7 +15,7 @@ The test server binds port 4173 and refuses to reuse an existing process. To sel
 
 Coverage includes a dirty feed editor through failed session polling and recovery, confirmed expiry, cross-tab identity changes, nested browser Back/discard dialogs, edits made during a pending feed save, keyboard panel movement and resizing, and per-article consent for external preview resources. These checks complement the real QueryClient regression tests in `SessionQueryProvider.test.tsx` and `SessionVerificationBoundary.test.tsx`. Browser tests use `*.browser.ts` filenames so Vitest does not collect them.
 
-The preview response fixture is generated from the actual backend sanitizer and response headers. Regenerate it with the backend development dependencies available:
+The preview response fixture is generated from the actual backend sanitizer and response headers. From the repository root (return there if you ran `cd web` above), regenerate it with the backend development dependencies available:
 
 ```sh
 python web/browser/generate_preview_fixture.py

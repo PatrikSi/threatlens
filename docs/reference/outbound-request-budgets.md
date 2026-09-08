@@ -47,6 +47,11 @@ uses bounded output allocations, so a small gzip body cannot expand into an
 unbounded temporary HTTPX buffer. Socket reads still have the transport's bounded
 chunk allocation in addition to the configured body budget.
 
+OIDC responses use the same bounded decoder with `OIDC_MAX_RESPONSE_BYTES`.
+Webhook diagnostics retain at most a 4,000-byte decoded prefix, stopping the
+stream once that prefix is complete. Preview decoding errors do not replace an
+already observed final HTTP status or make an ambiguous delivery safe to retry.
+
 A provider timeout after entering the HTTP path is ambiguous and non-retryable.
 Its durable attempt receipt prevents replay after worker redelivery. An oversized
 provider response is a received, non-retryable failure with its HTTP status and no
