@@ -93,6 +93,10 @@ def run_classify_item(item_id: str, *, runtime: ModuleType):
             if evaluation_intent.created:
                 alert_evaluation_request_ids.append(evaluation_intent.request_id)
         primary_category = row.primary_category
+        # The Item processing lock prevents a source writer from advancing the
+        # required revision until this classification and its alert intent commit.
+        item.classification_completed_version = item.classification_required_version
+        db.add(item)
         db.commit()
 
     return _complete_classification(

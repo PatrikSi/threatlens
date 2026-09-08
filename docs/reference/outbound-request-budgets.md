@@ -46,3 +46,29 @@ provider response is a received, non-retryable failure with its HTTP status and 
 retained oversized diagnostics. Normal bounded provider error responses retain
 the existing status-based retry policy. Raising a byte or time limit does not make
 an ambiguous provider attempt safe to repeat.
+
+# Classification recovery after source persistence
+
+Each item retains a required and completed classification revision. Feed title or
+summary changes and stored article-text changes advance the requirement in the
+same transaction as the source write. SQL performs the increment, so a writer
+that loaded an older item cannot overwrite a newer revision. The classifier
+acknowledges the revision while holding the existing Item processing lock, in the
+same commit as classification and durable alert-evaluation intent. Skipped work
+and failed broker publication never acknowledge a revision.
+
+The periodic unclassified-item dispatcher repairs both missing classification
+rows and pending revisions. Each candidate branch and publication pass use
+`DISPATCH_UNCLASSIFIED_ITEMS_BATCH_SIZE`; duplicate candidates are removed.
+Successful duplicate classifier deliveries remain idempotent by source hash and
+rules version. Repeated broker failures leave the durable requirement available
+for the next repair pass.
+
+Migration `0086_classification_versions` compares existing classification hashes
+with the current title, summary and article text in PostgreSQL, without returning
+article bodies to Python. Already-current results are acknowledged; stale or
+missing results remain pending. Classifications retained after an explicit
+lifecycle content purge are preserved. The one-time reconciliation scans retained
+source content and should be included in the maintenance window for a large
+catalog. Stop ingestion and classification workers for the migration and replace
+them together: older worker code cannot advance the new source revision fields.

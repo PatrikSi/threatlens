@@ -18,6 +18,7 @@ from app.services.article_recovery import (
     article_soft_retryable_error_filter,
 )
 from app.services.dedupe import content_hash, dedupe_key
+from app.services.classification_recovery import require_item_classification
 from app.services.url_utils import extract_url_domain, normalize_url
 
 logger = logging.getLogger(__name__)
@@ -152,6 +153,8 @@ def upsert_item_from_parsed(db: Session, feed: Feed, parsed) -> tuple[Item, bool
             raise RuntimeError(f"item conflict recovery failed for dedupe key {key}")
 
     if item.content_hash != hash_value:
+        if item.title != parsed.title or item.summary != parsed.summary:
+            require_item_classification(item)
         item.url = item_url or item.url
         item.url_domain = item_domain or item.url_domain
         item.title = parsed.title

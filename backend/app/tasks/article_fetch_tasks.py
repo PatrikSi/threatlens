@@ -12,6 +12,7 @@ from app.models.article import Article
 from app.models.item import Item
 from app.services.outbound_deadline import outbound_deadline
 from app.services.bounded_response import read_bounded_response
+from app.services.classification_recovery import require_item_classification
 
 
 ARTICLE_FETCH_MAX_RETRIES = 3
@@ -370,6 +371,7 @@ def _store_article_success(
         article = Article(
             item_id=item.id, final_url=result.final_url, http_status=result.http_status
         )
+    previous_text = article.text
     _apply_extracted_article(article, result, extracted, fetch_ms)
 
     if canonical and r.is_fetchable_url(
@@ -379,6 +381,8 @@ def _store_article_success(
     item.url_domain = r.extract_url_domain(item.canonical_url or item.url)
     _apply_item_fetch_state(article, item, runtime=r)
     _finalize_article_content_outcome(article)
+    if article.text != previous_text:
+        require_item_classification(item)
     db.add(article)
     db.add(item)
     db.commit()
