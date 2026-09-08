@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint, Uuid, func
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint, Uuid, func, literal_column
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -96,3 +96,7 @@ Index(
     "ix_reports_observed_at",
     func.coalesce(Report.generated_at, Report.created_at).label("observed_at"),
 )
+
+Index("ix_reports_created_id", Report.created_at, Report.id)
+Index("ix_reports_title_search", func.to_tsvector(literal_column("'simple'::regconfig"), Report.title),
+      postgresql_using="gin")

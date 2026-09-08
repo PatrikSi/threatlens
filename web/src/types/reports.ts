@@ -5,6 +5,13 @@ export type ReportTone = 'analytical' | 'concise' | 'executive' | 'technical'
 export type ReportDetailLevel = 'brief' | 'standard' | 'detailed'
 export type ReportDeliveryMode = 'link' | 'summary' | 'full'
 
+export interface ReportLibraryPage {
+  items: ReportListItem[]
+  current_cursor: string
+  next_cursor: string | null
+  as_of: string
+}
+
 export interface ReportPromptConfig {
   audience: string
   objective: string

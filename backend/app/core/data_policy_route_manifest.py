@@ -318,6 +318,7 @@ _REQUEST_CONTEXT_OPERATIONS: tuple[OperationLiteral, ...] = (
     ('GET', '/v1/reports', 'list_reports'),
     ('POST', '/v1/reports', 'create_report'),
     ('GET', '/v1/reports/capabilities', 'get_report_capabilities'),
+    ('GET', '/v1/reports/library', 'list_report_library'),
     ('POST', '/v1/reports/preview', 'preview_report'),
     ('DELETE', '/v1/reports/{report_id}', 'remove_report', '/v1/reports/{report_id:uuid}'),
     ('GET', '/v1/reports/{report_id}', 'get_report', '/v1/reports/{report_id:uuid}'),
@@ -619,6 +620,7 @@ _ENDPOINT_NAMES_BY_MODULE: Final[dict[str, tuple[str, ...]]] = {
         "runs",
         "workers",
     ),
+    "app.api.routes.report_library": ("list_report_library",),
     "app.api.routes.reports": (
         "clone_template",
         "create_report",

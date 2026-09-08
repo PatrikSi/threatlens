@@ -35,11 +35,30 @@ open and the generated report is available in the library.
 
 ## Report Library
 
-The library pages through every report the account can access, 25 at a time. It
-shows the visible range and Next/Previous controls, with filters for status and
-creation dates. The through date includes its full UTC day. Changing filters
-returns to page one. The API accepts `created_from` inclusively and
-`created_before` exclusively; invalid or empty ranges return HTTP 422.
+The library pages through every report the account can access, 25 at a time,
+using Next/Previous controls. Search title words, `"quoted phrases"`, alternatives
+with `OR`, exclusions such as `-test`, or an exact report UUID. Search uses the
+PostgreSQL `simple` text configuration (case-insensitive words without stemming).
+Filters cover status, exact report type, trigger, and creation dates. The through
+date includes its full UTC day. Changing filters returns to page one.
+
+Navigation uses `(created_at, id)` keysets and a first-page time cutoff, so newer
+reports do not shift later pages and deleting the previous page's last report
+does not break continuation. **Refresh** returns to page one with a new cutoff.
+The page shows its current result count, without an expensive global count.
+Polling updates report statuses; current permissions, deletions, status changes,
+and deliberately backdated inserts can still change membership. This is not a
+database snapshot held open across browser requests.
+
+`GET /v1/reports/library` returns `items`, `current_cursor`, `next_cursor`, and
+`as_of`. Send `next_cursor` unchanged with the same filters to continue; retain
+each page's `current_cursor` to revisit it. Cursors describe positions, not access
+grants: every request checks current permissions. Changed filters or principal,
+malformed cursors, and invalid date ranges return HTTP 422. `created_from` is
+inclusive and `created_before` exclusive. Limits are 25 by default, at most 100.
+The original offset-based `GET /v1/reports` remains available for existing clients.
+Migration `0088_report_library_indexes` adds keyset and GIN title-search indexes;
+plan for index-build I/O and a write lock when upgrading a large report library.
 
 ## Local-Model Guardrails
 
