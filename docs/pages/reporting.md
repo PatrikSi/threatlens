@@ -64,7 +64,12 @@ Administrators can schedule weekly or monthly reports with:
 
 - an IANA time zone and local execution time
 - previous complete week, previous complete month, or rolling-day windows
-- latest-only, skip, or bounded catch-up behavior (maximum four runs)
+- latest-only, skip, or bounded catch-up behavior (maximum four runs). `skip`
+  still dispatches a normal tick up to five minutes late, including a current
+  tick reached after older missed ticks. Older unstarted ticks are skipped.
+  `latest` uses the most recent scheduled time, so rolling periods do not drift
+  with dispatcher latency. An already attempted tick keeps its bounded retries
+  even after the five-minute grace; manual runs remain available for every policy.
 - optional schedule-specific instructions
 - empty-period handling
 - optional integration delivery and content mode

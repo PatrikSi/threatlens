@@ -58,6 +58,7 @@ from app.services.resource_versions import next_resource_version, resource_versi
 
 
 MAX_CATCH_UP_RUNS = 4
+SCHEDULE_DISPATCH_GRACE = timedelta(minutes=5)
 PERMANENT_SCHEDULE_FAILURE_ATTEMPTS = 3
 
 
@@ -269,16 +270,7 @@ def reserve_schedule_runs(
         )
         return []
 
-    due_times = [_as_utc(now) if force else _as_utc(schedule.next_run_at)]
-    if not force and schedule.missed_run_policy == "all":
-        cursor = next_schedule_run(schedule, after=due_times[0])
-        while cursor <= _as_utc(now) and len(due_times) < MAX_CATCH_UP_RUNS:
-            due_times.append(cursor)
-            cursor = next_schedule_run(schedule, after=cursor)
-    elif not force and schedule.missed_run_policy == "skip":
-        due_times = []
-    elif not force and schedule.missed_run_policy == "latest":
-        due_times = [_as_utc(now)]
+    due_times = _schedule_due_times(schedule, now=_as_utc(now), force=force)
 
     reports: list[Report] = []
     for due_at in due_times:
@@ -303,6 +295,35 @@ def reserve_schedule_runs(
     schedule.updated_at = next_resource_version(schedule.updated_at)
     db.add(schedule)
     return reports
+
+
+def _schedule_due_times(
+    schedule: ReportSchedule, *, now: datetime, force: bool,
+) -> list[datetime]:
+    if force:
+        return [now]
+    due_at = _as_utc(schedule.next_run_at)
+    if schedule.missed_run_policy == "all":
+        due_times = [due_at]
+        cursor = next_schedule_run(schedule, after=due_at)
+        while cursor <= now and len(due_times) < MAX_CATCH_UP_RUNS:
+            due_times.append(cursor)
+            cursor = next_schedule_run(schedule, after=cursor)
+        return due_times
+    # A failed reservation is already an attempted tick. Honor its backoff and
+    # retry budget even when it outlives the grace for previously unstarted work.
+    if schedule.retry_at is not None:
+        return [due_at]
+    lookback = timedelta(days=8 if schedule.cadence == "weekly" else 35)
+    latest = next_schedule_run(schedule, after=now - lookback)
+    cursor = next_schedule_run(schedule, after=latest)
+    while cursor <= now:
+        latest = cursor
+        cursor = next_schedule_run(schedule, after=cursor)
+    latest = max(due_at, latest)
+    if schedule.missed_run_policy == "skip" and now - latest > SCHEDULE_DISPATCH_GRACE:
+        return []
+    return [latest]
 
 
 def _create_one_scheduled_report(
