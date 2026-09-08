@@ -24,6 +24,7 @@ This documentation covers:
 
 - [Configuration and Deployment](./reference/configuration.md)
 - [Development Image Builds](../docker/README.md)
+- [Comprehensive Code Review — 2026-09-08](./reviews/2026-09-08-code-review.md)
 - [Auth, RBAC, and Token Scopes](./reference/auth-rbac.md)
 - [Access Governance and Data Policy](./reference/access-governance.md)
 - [Backend API Reference](./reference/api.md)
