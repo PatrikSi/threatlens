@@ -11,7 +11,8 @@
     "test": "vitest run",
     "test:dist": "node scripts/smoke_production_bundle.mjs",
     "test:watch": "vitest",
-    "preview": "vite preview --host 0.0.0.0 --port 3000"
+    "preview": "vite preview --host 0.0.0.0 --port 3000",
+    "test:browser": "tsc -p tsconfig.browser.json && playwright test"
   },
   "dependencies": {
     "@noble/hashes": "^2.0.1",
@@ -23,6 +24,8 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "1.63.0",
+    "@types/node": "22.20.1",
     "@types/react": "^19.1.10",
     "@types/react-dom": "^19.1.7",
     "@vitejs/plugin-react": "^5.0.2",
