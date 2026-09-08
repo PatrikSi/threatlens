@@ -1,5 +1,7 @@
 import { RefObject, useEffect, useRef } from 'react'
 
+import { registerDialogLayer } from './dialogStack'
+
 const DIALOG_FOCUSABLE_SELECTOR =
   'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
 
@@ -9,16 +11,7 @@ type DialogContainer = Pick<HTMLElement, 'contains' | 'focus'> & {
   querySelectorAll(selectors: string): ArrayLike<HTMLElement>
 }
 
-type InertCapableElement = HTMLElement & { inert?: boolean }
-
 type DialogIsolationTarget = Pick<HTMLElement, 'children'>
-
-type DialogIsolationSnapshot = {
-  element: InertCapableElement
-  ariaHidden: string | null
-  hadInertAttribute: boolean
-  inertValue: boolean
-}
 
 type DialogKeyDownEvent = Pick<KeyboardEvent, 'key' | 'shiftKey' | 'preventDefault'>
 
@@ -111,39 +104,8 @@ export function applyDialogDocumentIsolation(
     return () => undefined
   }
 
-  const snapshots: DialogIsolationSnapshot[] = []
-  for (const child of Array.from(isolationTarget.children)) {
-    if (!(child instanceof HTMLElement) || child === dialogRoot) {
-      continue
-    }
-
-    const element = child as InertCapableElement
-    snapshots.push({
-      element,
-      ariaHidden: element.getAttribute('aria-hidden'),
-      hadInertAttribute: element.hasAttribute('inert'),
-      inertValue: Boolean(element.inert),
-    })
-    element.setAttribute('aria-hidden', 'true')
-    element.setAttribute('inert', '')
-    element.inert = true
-  }
-
-  return () => {
-    for (const snapshot of snapshots) {
-      if (snapshot.ariaHidden === null) {
-        snapshot.element.removeAttribute('aria-hidden')
-      } else {
-        snapshot.element.setAttribute('aria-hidden', snapshot.ariaHidden)
-      }
-      if (snapshot.hadInertAttribute) {
-        snapshot.element.setAttribute('inert', '')
-      } else {
-        snapshot.element.removeAttribute('inert')
-      }
-      snapshot.element.inert = snapshot.inertValue
-    }
-  }
+  const layer = registerDialogLayer(dialogRoot, isolationTarget)
+  return () => layer.release(false)
 }
 
 export function useDialogFocusTrap({
@@ -154,7 +116,6 @@ export function useDialogFocusTrap({
   dismissDisabled,
   onClose,
 }: UseDialogFocusTrapArgs) {
-  const previousFocusRef = useRef<HTMLElement | null>(null)
   const dismissDisabledRef = useRef(dismissDisabled)
   const onCloseRef = useRef(onClose)
 
@@ -171,9 +132,11 @@ export function useDialogFocusTrap({
       return
     }
 
-    previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    const restoreIsolation = applyDialogDocumentIsolation(dialogRef.current?.parentElement ?? null)
-    window.requestAnimationFrame(() => {
+    const dialogRoot = dialogRef.current?.parentElement
+    if (!dialogRoot) return
+    const layer = registerDialogLayer(dialogRoot)
+    const frame = window.requestAnimationFrame(() => {
+      if (!layer.isTop()) return
       const focusTarget = resolveDialogInitialFocusTarget({
         dialog: dialogRef.current,
         closeButton: closeButtonRef.current,
@@ -184,7 +147,7 @@ export function useDialogFocusTrap({
     })
 
     const onKeyDown = (event: KeyboardEvent) => {
-      if (!dialogRef.current) {
+      if (!layer.isTop() || event.defaultPrevented || !dialogRef.current) {
         return
       }
 
@@ -200,11 +163,8 @@ export function useDialogFocusTrap({
     document.addEventListener('keydown', onKeyDown)
     return () => {
       document.removeEventListener('keydown', onKeyDown)
-      restoreIsolation()
-      if (previousFocusRef.current?.isConnected) {
-        previousFocusRef.current.focus()
-      }
-      previousFocusRef.current = null
+      window.cancelAnimationFrame(frame)
+      layer.release()
     }
   }, [closeButtonRef, dialogRef, initialFocusRef, open])
 }
