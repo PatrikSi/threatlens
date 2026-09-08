@@ -1,4 +1,4 @@
-import { test, expect, openFeedEditor, revalidateSession } from './fixtures'
+import { test, expect, feed, openFeedEditor, revalidateSession } from './fixtures'
 
 test('retains feed draft through session outage and returns keyboard focus after recovery', async ({ page, api }) => {
   const editor = await openFeedEditor(page)
@@ -68,4 +68,25 @@ test('cross-tab identity changes retire the old editor and cached feed', async (
   await expect(page.locator('#feed-edit-name')).toHaveCount(0)
   await page.getByRole('button', { name: 'Edit', exact: true }).click()
   await expect(page.getByLabel('Name', { exact: true })).not.toHaveValue('Private account A draft')
+})
+
+test('a completed feed save preserves edits made while its response was pending', async ({ page }) => {
+  let release!: () => void
+  const pending = new Promise<void>((resolve) => { release = resolve })
+  await page.route('**/api/v1/feeds/browser-feed', async (route) => {
+    await pending
+    await route.fulfill({ json: { ...feed, name: 'Submitted name' } })
+  })
+  try {
+    const editor = await openFeedEditor(page)
+    const name = editor.getByLabel('Name', { exact: true })
+    await name.fill('Submitted name')
+    await editor.getByRole('button', { name: 'Save feed', exact: true }).click()
+    await expect(editor.getByRole('button', { name: 'Saving...' })).toBeVisible()
+    await name.fill('Newer unsaved name')
+    release()
+    await expect(editor.getByRole('button', { name: 'Save feed', exact: true })).toBeEnabled()
+    await expect(name).toHaveValue('Newer unsaved name')
+    await expect(editor.getByText('Unsaved feed edits.')).toBeVisible()
+  } finally { release() }
 })
