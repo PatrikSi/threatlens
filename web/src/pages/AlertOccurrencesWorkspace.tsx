@@ -65,6 +65,7 @@ export function AlertOccurrencesWorkspace({ active = true }: { active?: boolean 
             >
               {occurrencesQuery.isFetching ? 'Refreshing...' : 'Refresh'}
             </button>
+            <button type="button" className="min-h-10 rounded border border-slate/30 px-3 py-1.5 text-sm font-semibold dark:border-white/15" onClick={() => void controller.copyTriageLink()}>Copy triage link</button>
             {canBackfill && (
               <button
                 type="button"
@@ -77,6 +78,10 @@ export function AlertOccurrencesWorkspace({ active = true }: { active?: boolean 
           </div>
         </div>
 
+        {controller.shareFeedback && <div className="mt-2 text-xs text-slate dark:text-slate-300">
+          <p role="status">{controller.shareFeedback}</p>
+          <input aria-label="Shareable triage link" className="mt-1 w-full rounded border border-slate/30 bg-white p-2 dark:bg-[#072019]" readOnly value={controller.shareUrl} onFocus={(event) => event.target.select()} />
+        </div>}
         <OccurrenceStats controller={controller} />
         <OccurrenceFilters controller={controller} activeFilterCount={activeFilterCount} />
 
