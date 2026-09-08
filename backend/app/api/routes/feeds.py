@@ -549,6 +549,7 @@ def refresh_feed(
             "app.tasks.feed_tasks.fetch_feed",
             args=[str(feed_id)],
             kwargs={"force": True},
+            ignore_result=True,
         )
     except Exception as exc:
         logger.warning(
@@ -640,7 +641,9 @@ def _enqueue_metadata_backfills(
     for target_id in feed_ids[:max_tasks]:
         try:
             celery_app.send_task(
-                "app.tasks.feed_tasks.backfill_feed_metadata", args=[target_id]
+                "app.tasks.feed_tasks.backfill_feed_metadata",
+                args=[target_id],
+                ignore_result=True,
             )
         except Exception:
             logger.warning(

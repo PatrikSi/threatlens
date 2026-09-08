@@ -223,6 +223,10 @@ celery_app = Celery(
 )
 
 celery_app.conf.update(
+    # Completion and progress live in application rows. Avoid unused Redis
+    # result subscriptions, including their reconnect/finalizer failure path.
+    task_ignore_result=True,
+    task_store_errors_even_if_ignored=False,
     task_serializer="json",
     accept_content=["json"],
     result_serializer="json",
