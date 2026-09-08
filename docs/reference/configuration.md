@@ -43,6 +43,7 @@
 | `DEFAULT_API_TOKEN_EXPIRY_DAYS` (`default_api_token_expiry_days`) | `90` | Default token lifetime if not supplied. |
 | `AI_ENABLED` (`ai_enabled`) | `false` | Enables AI routes, nav visibility, enrichment, and daily-brief features. |
 | `AI_API_KEY` (`ai_api_key`) | _(empty)_ | Optional bearer key for the configured AI endpoint. May remain blank for local unauthenticated OpenAI-compatible endpoints. |
+| `AI_RESPONSE_MAX_BYTES` (`ai_response_max_bytes`) | `2000000` | Cap on encoded and decoded provider response bytes, including errors; 1,024–16,000,000. See [outbound budgets](outbound-request-budgets.md). |
 | `PUBLIC_APP_URL` (`public_app_url`) | _(empty)_ | Optional public browser URL, without credentials/query/fragment, used to make report integration links absolute. |
 | `EXPOSE_API_DOCS_IN_PRODUCTION` (`expose_api_docs_in_production`) | `false` | Keeps `/docs` and `/redoc` disabled by default in production. |
 | `EXPOSE_OPENAPI_SCHEMA_IN_PRODUCTION` (`expose_openapi_schema_in_production`) | `true` | Keeps the machine-readable OpenAPI contract available at `/openapi.json` by default. Set to `false` if the schema is distributed only as a checked-in artifact. |
@@ -51,9 +52,11 @@
 | `FETCH_USER_AGENT` (`fetch_user_agent`) | `ThreatLensBot/1.0 (+https://localhost)` | User-Agent for feed/article HTTP requests. |
 | `FEED_CONNECT_TIMEOUT_SECONDS` (`feed_connect_timeout_seconds`) | `5` | Feed HTTP connect timeout. |
 | `FEED_READ_TIMEOUT_SECONDS` (`feed_read_timeout_seconds`) | `15` | Feed HTTP read timeout. |
+| `FEED_TOTAL_TIMEOUT_SECONDS` (`feed_total_timeout_seconds`) | `60` | Total feed HTTP deadline across DNS, connection, headers, redirects, and body; greater than zero and at most 300 seconds. |
 | `FEED_MAX_BYTES` (`feed_max_bytes`) | `2000000` | Max feed response size before rejection. |
 | `ARTICLE_CONNECT_TIMEOUT_SECONDS` (`article_connect_timeout_seconds`) | `5` | Article HTTP connect timeout. |
 | `ARTICLE_READ_TIMEOUT_SECONDS` (`article_read_timeout_seconds`) | `20` | Article HTTP read timeout. |
+| `ARTICLE_TOTAL_TIMEOUT_SECONDS` (`article_total_timeout_seconds`) | `90` | Total article HTTP deadline including fallback attempts and domain-slot waits; greater than zero and at most 300 seconds. |
 | `ARTICLE_MAX_BYTES` (`article_max_bytes`) | `4000000` | Max article response size before rejection. |
 | `ALLOW_PRIVATE_NETWORK_FETCH` (`allow_private_network_fetch`) | `false` | Allows feed and article fetches to private-network or internal-only hosts when explicitly enabled. |
 | `ALLOW_PRIVATE_NETWORK_AI` (`allow_private_network_ai`) | `false` | Allows AI requests to private-network or internal-only hosts when explicitly enabled. Publicly routable AI endpoints must still use `https`. |
