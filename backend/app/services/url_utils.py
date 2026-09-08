@@ -2,6 +2,8 @@ import ipaddress
 import socket
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+from app.services.outbound_deadline import deadline_getaddrinfo
+
 TRACKING_PARAMS = {
     "fbclid",
     "gclid",
@@ -262,7 +264,7 @@ def resolve_hostname_ips(hostname: str) -> set[ipaddress._BaseAddress]:
         return set()
 
     try:
-        infos = socket.getaddrinfo(normalized, None, type=socket.SOCK_STREAM)
+        infos = deadline_getaddrinfo(normalized)
     except socket.gaierror:
         return set()
     except OSError:

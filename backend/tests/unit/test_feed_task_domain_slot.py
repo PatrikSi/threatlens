@@ -119,7 +119,7 @@ def test_article_stream_aborts_when_domain_lease_is_replaced(
         extensions: dict[str, object] = {}
         guard_context = None
 
-        def iter_bytes(self):
+        def iter_raw(self):
             yield b"<html>"
             yield b"article</html>"
 

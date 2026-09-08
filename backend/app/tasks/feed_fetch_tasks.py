@@ -9,6 +9,8 @@ from sqlalchemy import select
 
 from app.models.feed import Feed
 from app.models.item import Item
+from app.services.outbound_deadline import outbound_deadline
+from app.services.bounded_response import read_bounded_response
 
 
 FETCH_TASK_MAX_RETRIES = 3
@@ -461,7 +463,7 @@ def _read_feed_response(
         write=r.settings.feed_read_timeout_seconds,
         pool=r.settings.feed_connect_timeout_seconds,
     )
-    with r.build_safe_http_client(
+    with outbound_deadline(r.settings.feed_total_timeout_seconds), r.build_safe_http_client(
         timeout=timeout,
         headers={"User-Agent": r.settings.fetch_user_agent},
         allow_private_network=r.settings.allow_private_network_fetch,
@@ -517,20 +519,11 @@ def _read_capped_body(
     additional_lease=None,
     runtime: ModuleType | None = None,
 ) -> bytes:
-    body_chunks: list[bytes] = []
-    body_size = 0
-    for chunk in response.iter_bytes():
+    def check():
         if runtime is not None:
-            _ensure_fetch_leases_owned(
-                lease,
-                additional_lease,
-                runtime=runtime,
-            )
-        body_size += len(chunk)
-        if body_size > max_bytes:
-            raise too_large_error("feed response exceeds configured cap")
-        body_chunks.append(chunk)
-    return b"".join(body_chunks)
+            _ensure_fetch_leases_owned(lease, additional_lease, runtime=runtime)
+
+    return read_bounded_response(response, max_bytes, check=check, too_large_error=too_large_error)
 
 
 def _ensure_fetch_leases_owned(

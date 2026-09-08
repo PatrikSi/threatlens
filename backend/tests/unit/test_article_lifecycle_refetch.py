@@ -115,7 +115,7 @@ def purged_article_case(db_session, monkeypatch):
         def status_code(self):
             return scenario["status_code"]
 
-        def iter_bytes(self):
+        def iter_raw(self):
             yield b"<html><body><article>Lifecycle refetch</article></body></html>"
 
         def close(self):
