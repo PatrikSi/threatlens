@@ -57,6 +57,7 @@ from app.services.export_lock import (
     acquire_export_lock,
 )
 from app.services.export_query import (
+    ExportTextProjection,
     ExportAuthorizationChangedError,
     ExportSnapshotChangedError,
     assert_export_authorization_unchanged,
@@ -153,6 +154,16 @@ FORMAT_CAPABILITIES = (
 )
 
 
+def _export_needs_article_text(payload: ArticleExportRequest) -> bool:
+    if payload.format == "stix":
+        return False
+    if payload.format == "csv":
+        return payload.options.csv_include_article_text
+    if payload.format == "pdf_bundle":
+        return payload.options.pdf_include_article_text
+    return payload.options.include_article_text
+
+
 @router.get("/capabilities", response_model=ArticleExportCapabilitiesResponse)
 def get_export_capabilities(
     db: Session = Depends(get_db),
@@ -229,10 +240,24 @@ def preview_export(
                 item_ids=item_ids,
                 context=context,
                 include_iocs=True,
+                text_projection=ExportTextProjection(
+                    include_article_text=False, include_summaries=False
+                ),
+                max_payload_bytes=8 * 1024 * 1024,
             )
         )
     except ExportAuthorizationChangedError as exc:
         raise _export_authorization_changed_error() from exc
+    except ExportSnapshotChangedError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="Matching articles changed. Refresh the preview and try again.",
+        ) from exc
+    except ExportSizeLimitError as exc:
+        raise HTTPException(
+            status_code=413,
+            detail="The preview exceeds its memory budget. Narrow the selection.",
+        ) from exc
     return ArticleExportPreviewResponse(
         total_matches=counts.total,
         articles_with_text=counts.with_article_text,
@@ -295,6 +320,9 @@ def download_export(
                 item_ids=item_ids,
                 context=context,
                 include_iocs=payload.options.include_iocs,
+                text_projection=ExportTextProjection(
+                    include_article_text=_export_needs_article_text(payload),
+                ),
             )
             artifact = generate_export_artifact(
                 records,

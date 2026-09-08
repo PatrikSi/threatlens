@@ -92,6 +92,16 @@ The readable bundle is a ZIP with `manifest.json` and one PDF per article under 
 
 Only one generated export per user can run at a time. Results are loaded in bounded batches and written to disk rather than assembled completely in memory. A changing result set, exhausted size budget, unavailable Redis lock, or competing export produces a clear failure instead of a partial artifact. Narrow filters and retry after the current export finishes.
 
+Database batches contain at most 200 records and an estimated 8 MiB of encoded
+payload, including text, metadata, tags, and IOCs. A single record above that
+budget returns HTTP 413 before its body is loaded; omit article text or narrow
+the selection. Full-text exports preserve the complete selected text. Previews
+fetch text-availability flags without article bodies or summaries and have an
+8 MiB aggregate payload guard. These are payload budgets, not exact process RSS
+limits: Python objects, serialization, database drivers, and PDF rendering add
+overhead. Payload growth between sizing and loading produces HTTP 409 so the
+caller can refresh and retry.
+
 ## API
 
 - `GET /api/v1/exports/capabilities` returns formats, filter options, and deployment limits.

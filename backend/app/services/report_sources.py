@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import uuid
+import math
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 
 from sqlalchemy.orm import Session
@@ -26,7 +27,9 @@ from app.services.ai_context_budget import (
 from app.services.ai_prompting import build_company_context
 from app.services.data_access_policy import DataAccessContext
 from app.services.export_models import ExportRecord
+from app.services.export_artifacts import ExportSizeLimitError
 from app.services.export_query import (
+    ExportTextProjection,
     build_export_query_context,
     build_preview_items,
     iter_export_records,
@@ -42,6 +45,7 @@ from app.services.report_prompt_budget import (
 
 
 DETERMINISTIC_SECTION_KEYS = frozenset({"scope_evidence", "observables", "sources"})
+REPORT_SOURCE_PAYLOAD_MAX_BYTES = 32 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -127,8 +131,17 @@ def build_report_source_plan(
     excluded_ids = set(excluded_item_ids)
     load_limit = min(2000, active.report_max_sources + len(excluded_ids) + 250)
     item_ids = load_export_item_ids(db, context=context, limit=load_limit)
-    records = list(
-        iter_export_records(db, item_ids=item_ids, context=context, include_iocs=True)
+    records = _iter_report_records(
+        db,
+        item_ids=item_ids,
+        context=context,
+        text_projection=ExportTextProjection(
+            # The estimator charges at least one token per 3.2 characters. One
+            # extra character guarantees oversized sources retain the existing
+            # explicit truncation marker without fetching their complete body.
+            character_limit=math.ceil(active.report_source_token_cap * 3.2) + 1,
+            excluded_item_ids=frozenset(excluded_ids),
+        ),
     )
 
     model_section_count = sum(
@@ -150,20 +163,22 @@ def build_report_source_plan(
 
     for record in records:
         citation_key = f"S{len(planned) + 1}"
-        evidence, _truncated = fit_evidence_to_stage(
-            _build_evidence_text(record, citation_key=citation_key),
-            source_token_cap=active.report_source_token_cap,
-            prompt=prompt_payload,
-            generation_context=generation_context,
-            budget=budget,
-        )
-        token_count = estimate_tokens(evidence)
+        evidence = ""
+        token_count = 0
         reason: str | None = None
         if record.id in excluded_ids:
             reason = "excluded_by_user"
         elif selected_count >= active.report_max_sources:
             reason = "source_limit"
         else:
+            evidence, _truncated = fit_evidence_to_stage(
+                _build_evidence_text(record, citation_key=citation_key),
+                source_token_cap=active.report_source_token_cap,
+                prompt=prompt_payload,
+                generation_context=generation_context,
+                budget=budget,
+            )
+            token_count = estimate_tokens(evidence)
             candidate_plan = extend_evidence_message_batch_plan(
                 batch_plan,
                 evidence,
@@ -180,9 +195,9 @@ def build_report_source_plan(
                 batch_plan = candidate_plan
         planned.append(
             PlannedReportSource(
-                record=record,
+                record=_compact_source_record(record),
                 citation_key=citation_key,
-                evidence_text=evidence,
+                evidence_text=evidence if reason is None else "",
                 estimated_tokens=token_count,
                 included=reason is None,
                 exclusion_reason=reason,
@@ -193,9 +208,9 @@ def build_report_source_plan(
     warnings: list[str] = []
     if batch_plan.context_compacted:
         warnings.append(CONTEXT_COMPACTION_WARNING)
-    if counts.total > len(records):
+    if counts.total > len(planned):
         warnings.append(
-            f"Only the highest-ranked {len(records):,} candidates were inspected; {counts.total - len(records):,} were outside the planning window."
+            f"Only the highest-ranked {len(planned):,} candidates were inspected; {counts.total - len(planned):,} were outside the planning window."
         )
     if selected_count >= active.report_max_sources and counts.total > selected_count:
         warnings.append(
@@ -211,7 +226,7 @@ def build_report_source_plan(
         if source.included
     ):
         warnings.append(
-            "Long source text is represented by bounded excerpts; titles, metadata, summaries, and citations remain intact."
+            "Long source text and summaries are represented by bounded excerpts; titles, metadata, and citations remain intact."
         )
     if not selected_count and counts.total:
         warnings.append("No articles fit the current exclusions and context budget.")
@@ -233,6 +248,30 @@ def build_report_source_plan(
         ),
         largest_batch_input_tokens=batch_plan.largest_batch_input_tokens,
         data_policy_revision=data_access.policy_revision,
+    )
+
+
+def _iter_report_records(db: Session, **kwargs):
+    try:
+        yield from iter_export_records(
+            db,
+            include_iocs=True,
+            max_payload_bytes=REPORT_SOURCE_PAYLOAD_MAX_BYTES,
+            **kwargs,
+        )
+    except ExportSizeLimitError as exc:
+        raise AIContextBudgetError(
+            "A source exceeds the report planning byte budget. Exclude the source or narrow the selection."
+        ) from exc
+
+
+def _compact_source_record(record: ExportRecord) -> ExportRecord:
+    """Keep citation/preview metadata, with evidence as the sole retained body."""
+    return replace(
+        record,
+        summary=None,
+        article=replace(record.article, text=None) if record.article else None,
+        ai=replace(record.ai, summary=None) if record.ai else None,
     )
 
 
@@ -333,7 +372,11 @@ def _build_metrics(records: list[ExportRecord]) -> dict:
     return {
         "article_count": len(records),
         "articles_with_extracted_text": sum(
-            bool(record.article and record.article.text) for record in records
+            bool(
+                record.article
+                and (record.article.text_available or record.article.text)
+            )
+            for record in records
         ),
         "articles_with_iocs": sum(bool(record.iocs) for record in records),
         "ioc_count": sum(len(record.iocs) for record in records),
