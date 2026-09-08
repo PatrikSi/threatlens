@@ -27,8 +27,11 @@ Overview totals, model/day summaries, token efficiency, relevance distribution,
 and latency percentiles are aggregated in PostgreSQL with the current access
 predicates. Daily buckets use UTC. The application receives aggregates rather
 than every underlying event; database scan cost still depends on the selected
-history volume. The separate failure-history endpoint is not part of this
-aggregation change.
+history volume. Failure history also groups usage and task errors in PostgreSQL,
+applies both permission predicates before grouping, and returns only the requested
+top groups. Error normalization retains Python whitespace/200-character grouping
+semantics; ties have a stable order. Task last-seen time uses the latest available
+finish/update time, including unfinished failures.
 
 ### Activity / Operations
 

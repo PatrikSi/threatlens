@@ -43,7 +43,7 @@ from app.services.ai_ops import (
     list_ai_prompt_history,
     queue_ai_task_run,
 )
-from app.services.ai_ops_metrics import build_ai_ops_overview
+from app.services.ai_ops_metrics import build_ai_ops_overview, list_ai_failures
 from app.services.ai_persistence import record_usage_event
 from app.services.ai_task_runtime import (
     get_ai_db_live_status,
@@ -1197,3 +1197,23 @@ def test_ai_telemetry_retention_keeps_then_prunes_copied_run_ancestor(
         resource_type=DATA_ACCESS_RESOURCE_AI_TASK_RUN,
         resource_id=run_id,
     ) is None
+
+
+def test_failure_aggregation_keeps_usage_and_task_governance_scopes(db_session, seed_users):
+    seeded = _seed_retained_telemetry(db_session, actor_user_id=seed_users["admin"].id)
+    seeded["restricted_run"].error = "restricted run failure"
+    seeded["system_run"].error = "system run failure"
+    seeded["system_usage"].success = False
+    seeded["system_usage"].error = "system usage failure"
+    db_session.flush()
+    context = _context(db_session, mode="enforced", principal_id=seed_users["admin"].id)
+    result = list_ai_failures(db_session, data_access=context)
+    assert len(result) == 2
+    assert {row.model for row in result} == {"system-model"}
+    assert {row.error for row in result} == {"system run failure", "system usage failure"}
+
+    broader = _context(db_session, mode="enforced", principal_id=seed_users["admin"].id,
+                       allowed_label_ids=frozenset({UNRESTRICTED_HANDLING_LABEL_ID, seeded["label"].id}))
+    assert len(list_ai_failures(db_session, data_access=broader)) == 4
+    denied = _context(db_session, mode="enforced", principal_id=seed_users["admin"].id, eligible=False)
+    assert list_ai_failures(db_session, data_access=denied) == []
