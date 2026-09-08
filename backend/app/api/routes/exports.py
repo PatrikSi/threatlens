@@ -2,11 +2,9 @@ import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from fastapi.responses import FileResponse
 from sqlalchemy import exists, func, select
 from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
-from starlette.types import Receive, Scope, Send
 
 from app.api.deps import (
     AuthenticatedPrincipal,
@@ -56,6 +54,7 @@ from app.services.export_lock import (
     ExportLockUnavailableError,
     acquire_export_lock,
 )
+from app.services.export_transport import DisconnectSafeFileResponse
 from app.services.export_query import (
     ExportTextProjection,
     ExportAuthorizationChangedError,
@@ -70,24 +69,6 @@ from app.services.export_query import (
 
 router = APIRouter(prefix="/exports", tags=["exports"])
 logger = logging.getLogger(__name__)
-
-
-class DisconnectSafeFileResponse(FileResponse):
-    """Run artifact cleanup even when response streaming is interrupted."""
-
-    async def __call__(
-        self,
-        scope: Scope,
-        receive: Receive,
-        send: Send,
-    ) -> None:
-        background = self.background
-        self.background = None
-        try:
-            await super().__call__(scope, receive, send)
-        finally:
-            if background is not None:
-                await background()
 
 
 FORMAT_CAPABILITIES = (

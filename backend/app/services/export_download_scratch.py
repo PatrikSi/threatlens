@@ -3,8 +3,9 @@ import os
 import tempfile
 from pathlib import Path
 
-from starlette.responses import FileResponse
 from starlette.types import Receive, Scope, Send
+
+from app.services.export_transport import DisconnectSafeFileResponse
 
 
 class ExportDownloadScratch:
@@ -36,17 +37,13 @@ class ExportDownloadScratch:
         return _DownloadResponse(self, media_type=media_type, filename=filename, headers=headers)
 
 
-class _DownloadResponse(FileResponse):
+class _DownloadResponse(DisconnectSafeFileResponse):
     def __init__(self, scratch, **kwargs):
         self.scratch = scratch
         super().__init__(scratch.path, stat_result=os.fstat(scratch.file.fileno()), **kwargs)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        # A process-local FD must be consumed here, not handed to an ASGI
-        # path-send implementation that might defer reading until after return.
-        extensions = dict(scope.get("extensions", {}))
-        extensions.pop("http.response.pathsend", None)
         try:
-            await super().__call__({**scope, "extensions": extensions}, receive, send)
+            await super().__call__(scope, receive, send)
         finally:
             self.scratch.close()
