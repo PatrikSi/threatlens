@@ -134,6 +134,7 @@ TASK_ROUTES = {
     "app.tasks.feed_tasks.dispatch_items_missing_iocs": {"queue": QUEUE_PROCESSING},
     "app.tasks.feed_tasks.extract_item_iocs": {"queue": QUEUE_PROCESSING},
     "app.tasks.feed_tasks.reapply_recent_item_tags": {"queue": QUEUE_PROCESSING},
+    "app.tasks.feed_tasks.repair_pending_item_tags": {"queue": QUEUE_PROCESSING},
     "app.tasks.feed_tasks.dispatch_new_item_notification_webhooks": {
         "queue": QUEUE_NOTIFICATIONS
     },
@@ -275,6 +276,10 @@ celery_app.conf.update(
         "dispatch-items-missing-iocs": {
             "task": "app.tasks.feed_tasks.dispatch_items_missing_iocs",
             "schedule": 300.0,
+        },
+        "repair-pending-item-tags": {
+            "task": "app.tasks.feed_tasks.repair_pending_item_tags",
+            "schedule": 60.0,
         },
         "dispatch-items-missing-ai-enrichment": {
             "task": "app.tasks.feed_tasks.dispatch_items_missing_ai_enrichment",

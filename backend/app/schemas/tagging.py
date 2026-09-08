@@ -124,9 +124,23 @@ class TaggingRuleResponse(BaseModel):
     updated_at: datetime
 
 
+class TaggingRecoveryError(BaseModel):
+    code: str
+    count: int
+    message: str
+
+
+class TaggingRecoverySummary(BaseModel):
+    pending: int = 0
+    retrying: int = 0
+    needs_attention: int = 0
+    errors: list[TaggingRecoveryError] = Field(default_factory=list)
+
+
 class TaggingSettingsBundleResponse(BaseModel):
     settings: TaggingSettingsResponse
     rules: list[TaggingRuleResponse]
+    tagging_recovery: TaggingRecoverySummary = Field(default_factory=TaggingRecoverySummary)
 
 
 class TaggingRulePreviewItem(BaseModel):

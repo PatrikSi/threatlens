@@ -48,6 +48,7 @@ from app.services.tagging_config import (
     tagging_rule_response_from_model,
     tagging_settings_response_from_model,
 )
+from app.services.tagging_recovery import tagging_recovery_summary
 from app.tasks.feed_tasks import reapply_recent_item_tags
 from app.tasks.feed_tasks import (
     claim_tagging_reapply_dispatch,
@@ -74,6 +75,7 @@ def get_tagging_settings_bundle(
     rules = list_tagging_rules(db)
     return TaggingSettingsBundleResponse(
         settings=tagging_settings_response_from_model(settings),
+        tagging_recovery=tagging_recovery_summary(db, data_access),
         rules=_visible_tagging_rule_responses(
             db,
             rules=rules,

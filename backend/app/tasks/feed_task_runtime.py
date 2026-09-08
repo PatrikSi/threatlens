@@ -47,7 +47,8 @@ def safe_article_fetch_error_code(exc: BaseException) -> str:
 
 
 def claim_item_processing_target(db: Session, *, item_id: uuid.UUID) -> tuple[Item | None, str | None]:
-    item = db.scalar(select(Item).where(Item.id == item_id).with_for_update(skip_locked=True))
+    item = db.scalar(select(Item).where(Item.id == item_id).with_for_update(skip_locked=True)
+                     .execution_options(populate_existing=True))
     if item is not None:
         return item, None
 

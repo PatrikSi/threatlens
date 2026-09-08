@@ -34,10 +34,28 @@ budget, excess input, exhausted resources, and an unavailable/stalled evaluator.
 The scan includes up to 200 recent accessible items, including items excluded by
 the rule's feed, category, or confidence conditions. Excluded items cannot trigger
 an input-size failure; only selected matching fields on eligible items are checked.
-At ingestion, affected custom matches are skipped and structured warnings record
-only the rule ID and error code, never publisher text or the pattern. A later
-successful evaluation or explicit reapply computes current custom tags; manual
-tags are preserved.
+At ingestion, an unresolved eligible regex preserves the previous automatic-tag
+snapshot and records independent pending tagging work on the item. Classification
+and IOC extraction can complete without falsely acknowledging that tag evaluation.
+Structured warnings contain only the rule ID and error code, never publisher text
+or the pattern. Manual tags remain analyst-owned.
+
+Beat runs `app.tasks.feed_tasks.repair_pending_item_tags` every minute, processing
+at most 50 due items. Unavailable/stalled workers and process resource failures
+retry after 60, 120, 240 and 480 seconds; five failed evaluations exhaust automatic
+retry. Rule timeouts, aggregate/input budgets and invalid patterns immediately
+require attention. The item remains explicitly incomplete after exhaustion.
+`GET /tagging/settings` reports handling-access-filtered pending/retrying/attention
+counts and known error messages, which the tagging settings page displays.
+
+Correct the rule or source and use Reapply over the affected time window and
+limit to retry items requiring attention. Manual reapply resets the retry allowance;
+a complete evaluation clears the pending state and removes tags for deliberately
+disabled, deleted or nonmatching rules. Both paths lock and reload the current item
+and article. Manual reapply pages IDs with a stable date/ID cursor and commits each
+item separately; automatic repair skips busy items whose durable intent remains.
+A worker crash rolls back only its current item, leaving pending work recoverable.
+Existing classifications retained after lifecycle content erasure remain retained.
 
 Tests exercise catastrophic backtracking, a healthy rule after a timed-out one,
 shared budgets, compiler nesting/overflow, exact Python matching semantics,

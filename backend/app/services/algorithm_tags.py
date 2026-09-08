@@ -50,6 +50,14 @@ class TagCandidate:
     rules_version: str = TAGGING_RULES_VERSION
 
 
+class TaggingEvaluationIncomplete(Exception):
+    """No tag snapshot may be settled when one eligible rule is unresolved."""
+
+    def __init__(self, errors: list[str]):
+        self.errors = tuple(sorted(set(errors)))
+        super().__init__(",".join(self.errors))
+
+
 def normalize_algorithm_tag_names(primary_category: str, secondary_categories: list[str] | None) -> list[str]:
     desired: set[str] = set()
     for raw in [primary_category, *(secondary_categories or [])]:
@@ -80,6 +88,7 @@ def sync_item_algorithm_tags(
 ) -> list[str]:
     runtime_settings = load_active_tagging_settings(db)
     custom_rules = list_enabled_tagging_rules(db)
+    errors: list[str] = []
     candidates = build_tag_candidates(
         primary_category=primary_category,
         secondary_categories=secondary_categories,
@@ -94,7 +103,12 @@ def sync_item_algorithm_tags(
         feedback_adjustments=feedback_adjustments,
         active_settings=runtime_settings,
         custom_rules=custom_rules,
+        errors=errors,
     )
+    if errors:
+        # An unavailable evaluator is not a negative match. Preserve the entire
+        # previous snapshot until the worker records and retries incomplete work.
+        raise TaggingEvaluationIncomplete(errors)
     effective_min_confidence = runtime_settings.min_auto_tag_confidence if runtime_settings else min_auto_tag_confidence
     desired = [candidate for candidate in candidates if candidate.confidence >= effective_min_confidence]
     desired_by_name = {candidate.name: candidate for candidate in desired}
@@ -184,6 +198,7 @@ def build_tag_candidates(
     feedback_adjustments: dict[str, float] | None,
     active_settings: ActiveTaggingSettings | None = None,
     custom_rules: list[_TaggingRuleLike] | None = None,
+    errors: list[str] | None = None,
 ) -> list[TagCandidate]:
     feedback_adjustments = feedback_adjustments or {}
     candidates: dict[str, TagCandidate] = {}
@@ -230,6 +245,7 @@ def build_tag_candidates(
         feed_name=feed_name, feed_id=feed_id, primary_category=primary_category,
         secondary_categories=secondary_categories,
         classification_confidence=classification_confidence,
+        errors=errors,
     )
     for rule, matched_sections in zip(rules, matches, strict=True):
         if not matched_sections:
