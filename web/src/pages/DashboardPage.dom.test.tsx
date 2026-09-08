@@ -506,6 +506,10 @@ describe('DashboardPage DOM workflows', () => {
     })
     const storageKey = 'threatlens.dashboard.windows.v2:user-1'
     expect(window.localStorage.getItem(storageKey)).toBeNull()
+    expect(getButton('Edit Layout')?.disabled).toBe(true)
+    expect(pageText()).toContain('Loading dashboard configuration')
+    act(() => getButton('Edit Layout')?.click())
+    expect(pageText()).not.toContain('Cancel Edit')
 
     dashboardPageDomMocks.workspaceDefaultsAvailable = true
     await act(async () => {
@@ -518,6 +522,7 @@ describe('DashboardPage DOM workflows', () => {
 
     const stored = JSON.parse(window.localStorage.getItem(storageKey) ?? '[]') as DashboardWindow[]
     expect(stored.map((windowLayout) => windowLayout.type)).toEqual(['notes'])
+    expect(getButton('Edit Layout')?.disabled).toBe(false)
   })
 
   it('loads a valid existing dashboard layout while workspace defaults are unavailable', async () => {

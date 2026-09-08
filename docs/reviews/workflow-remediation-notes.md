@@ -46,3 +46,8 @@ API parameters `created_from` (inclusive) and `created_before` (exclusive) accep
 timestamps, interpret missing offsets as UTC, and reject reversed or empty ranges.
 The UI's through date includes that full UTC day. Sorting breaks creation-time
 ties by report ID for stable offset paging.
+
+Dashboard controls wait for local layout or workspace defaults to finish loading.
+The waiting state explains when editing will become available; both successful
+initialization and the safe fallback release the controls. This prevents a first
+layout edit from being replaced by the still-pending initial configuration.

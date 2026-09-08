@@ -11,7 +11,7 @@ export function DashboardToolbar({ controller }: { controller: DashboardPageCont
     activeSavedViewId, addWindow, addWindowActionRefs, addWindowMenuId, addWindowMenuRef, addWindowTriggerRef,
     aiDailyBriefEnabled, alertWindowCount, applyDashboardSavedViewState, applyGlobalSearch, canAddWindow,
     captureCurrentDashboardViewState, clearActiveSavedViewSelection, closeAddWindowMenu,
-    confirmDiscardUnsavedDashboardChanges, dailyBriefWindowCount, dashboardCustomSinceDate,
+    confirmDiscardUnsavedDashboardChanges, dashboardReady, dailyBriefWindowCount, dashboardCustomSinceDate,
     dashboardCustomUntilDate, dashboardRollingDays, dashboardTimeRange, editSessionSnapshot,
     globalSearchState, handleAddWindowMenuKeyDown, handleAddWindowTriggerKeyDown, hasUnsavedDashboardChanges,
     isEditMode, mobileDashboardViewsOpen, notesWindowCount, openAddWindowMenu,
@@ -207,7 +207,9 @@ export function DashboardToolbar({ controller }: { controller: DashboardPageCont
             <button
               type="button"
               className="h-8 w-full rounded border border-slate/20 px-3 text-xs font-semibold sm:w-auto dark:border-cyan-900/40"
+              disabled={!dashboardReady}
               onClick={() => {
+                if (!dashboardReady) return
                 setEditSessionSnapshot({
                   activeSavedViewId,
                   savedViewName,
