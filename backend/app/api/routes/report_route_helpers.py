@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import HTTPException, Request, Response, status
 from sqlalchemy import select
@@ -265,3 +265,22 @@ def require_report_owner_or_admin(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You can only retry or delete reports that you generated.",
         )
+
+
+def normalize_report_creation_range(
+    created_from: datetime | None,
+    created_before: datetime | None,
+) -> tuple[datetime | None, datetime | None]:
+    """Normalize report library bounds to inclusive/exclusive UTC timestamps."""
+    def as_utc(value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        return value.replace(tzinfo=value.tzinfo or timezone.utc).astimezone(timezone.utc)
+
+    lower, upper = as_utc(created_from), as_utc(created_before)
+    if lower is not None and upper is not None and lower >= upper:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="created_before must be later than created_from",
+        )
+    return lower, upper
