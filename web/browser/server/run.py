@@ -113,6 +113,7 @@ def main() -> int:
             }
             server_env = {
                 **browser_env,
+                "TMPDIR": temporary,
                 "PYTHONPATH": str(ROOT / "backend"),
                 "APP_ENV": "test",
                 "DATABASE_URL": f"postgresql+psycopg://browser:{database_password}@127.0.0.1:{pg_port}/browser",

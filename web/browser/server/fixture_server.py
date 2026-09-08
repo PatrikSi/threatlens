@@ -22,15 +22,17 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from joserfc import jwt
 from joserfc.jwk import RSAKey
-from sqlalchemy import text, update
+from sqlalchemy import select, text, update
 import uvicorn
 
 from app.core.security import get_password_hash
 from app.db.session import SessionLocal, engine
 from app.main import app as application
 from app.models.auth_session import AuthSession
+from app.models.article import Article
 from app.models.data_policy import UNRESTRICTED_HANDLING_LABEL_ID
 from app.models.feed import Feed
+from app.models.item import Item
 from app.models.oidc import OIDCProvider
 from app.models.user import User
 
@@ -90,6 +92,36 @@ def create_user():
         db.add(user)
         db.flush()
         return {"id": str(user.id), "email": user.email, "password": PASSWORD}
+
+
+@harness.post("/__browser__/export-item", dependencies=[Depends(require_control)])
+def create_export_item():
+    with SessionLocal.begin() as db:
+        feed = db.scalar(select(Feed).limit(1))
+        identity = uuid.uuid4()
+        item = Item(
+            id=identity, feed_id=feed.id, source_guid=str(identity),
+            url=f"https://source.example.com/{identity}",
+            canonical_url=f"https://source.example.com/{identity}",
+            title=f"Browser export proof {identity}",
+            summary="Synthetic browser export summary", dedupe_key=str(identity),
+            content_hash="a" * 64, status="content_fetched",
+        )
+        db.add(item)
+        db.flush()
+        db.add(Article(item_id=item.id, final_url=item.url, http_status=200,
+                       text="Synthetic complete article for a real background export."))
+        return {"id": str(item.id), "title": item.title}
+
+
+@harness.post("/__browser__/run-export/{job_id}", dependencies=[Depends(require_control)])
+def run_export(job_id: uuid.UUID):
+    # Exercise the unchanged generation/authorization/Redis/artifact path while
+    # choosing precisely when the accepted job runs. No scheduler or fetch task
+    # consumes the disposable broker; this is not a broker-delivery assertion.
+    from app.services.export_job_worker import execute_export_job
+
+    return execute_export_job(job_id)
 
 
 @harness.post("/__browser__/expire", dependencies=[Depends(require_control)])
