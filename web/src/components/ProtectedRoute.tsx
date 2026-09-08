@@ -3,6 +3,7 @@ import { Navigate, useLocation } from 'react-router-dom'
 import { ApiError } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
 import { useCurrentUser } from '../hooks/useCurrentUser'
+import { SessionVerificationBoundary } from './SessionVerificationBoundary'
 import { SessionIssueState } from './SessionIssueState'
 
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -36,7 +37,7 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
       </div>
     )
   }
-  if (meQuery.error) {
+  if (meQuery.error && !meQuery.data) {
     return (
       <SessionIssueState
         title="Session check unavailable"
@@ -54,7 +55,11 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
     return <Navigate to="/login" replace state={{ authMessage: 'Sign in to continue.', ...returnState }} />
   }
 
-  return <>{children}</>
+  return (
+    <SessionVerificationBoundary unavailable={Boolean(meQuery.error)} onRetry={() => void meQuery.refetch()}>
+      {children}
+    </SessionVerificationBoundary>
+  )
 }
 
 function isWorkspaceEntry(pathname: string) {

@@ -151,6 +151,12 @@ export function useDialogFocusTrap({
         return
       }
 
+      if (event.key === 'Escape') {
+        // Background page listeners must not dismiss previews or editors beneath a modal.
+        event.stopImmediatePropagation()
+        event.preventDefault()
+      }
+
       handleDialogSurfaceKeyDown({
         event,
         dialog: dialogRef.current,
@@ -160,9 +166,9 @@ export function useDialogFocusTrap({
       })
     }
 
-    document.addEventListener('keydown', onKeyDown)
+    document.addEventListener('keydown', onKeyDown, true)
     return () => {
-      document.removeEventListener('keydown', onKeyDown)
+      document.removeEventListener('keydown', onKeyDown, true)
       window.cancelAnimationFrame(frame)
       layer.release()
     }

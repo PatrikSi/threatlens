@@ -5,6 +5,7 @@ import { resolveApiErrorMessage } from '../api/errors'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import type { User } from '../types/identity'
 import { hasRequiredPermissions } from '../workspace/workspaceModel'
+import { SessionVerificationBoundary } from './SessionVerificationBoundary'
 import { SessionIssueState } from './SessionIssueState'
 
 interface PermissionRouteProps {
@@ -37,7 +38,7 @@ export function PermissionRoute({ permissions, roles, children }: PermissionRout
       </div>
     )
   }
-  if (meQuery.error) {
+  if (meQuery.error && !meQuery.data) {
     return (
       <SessionIssueState
         title="Permission check unavailable"
@@ -89,7 +90,11 @@ export function PermissionRoute({ permissions, roles, children }: PermissionRout
     )
   }
 
-  return <>{children}</>
+  return (
+    <SessionVerificationBoundary unavailable={Boolean(meQuery.error)} onRetry={() => void meQuery.refetch()}>
+      {children}
+    </SessionVerificationBoundary>
+  )
 }
 
 function formatRoleLabel(role: User['role']) {
