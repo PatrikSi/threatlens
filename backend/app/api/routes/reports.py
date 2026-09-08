@@ -61,6 +61,7 @@ from app.api.routes.report_request_idempotency import (
     retry_request_identity,
     schedule_run_request_identity,
 )
+from app.api.routes.report_library import router as report_library_router
 from app.core.token_scopes import SCOPE_READ_REPORTS
 from app.db.session import get_db
 from app.models.feed import Feed
@@ -137,6 +138,7 @@ from app.tasks.report_tasks import create_report_task_run, enqueue_report_task
 
 
 router = APIRouter(prefix="/reports", tags=["reports"])
+router.include_router(report_library_router)
 logger = logging.getLogger(__name__)
 
 
