@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.models.article import Article
 from app.models.ioc import IOC
 from app.models.item import Item
+from app.services.classification_recovery import require_item_classification
 from app.services.extraction import extract_plain_text
 
 
@@ -67,6 +68,7 @@ def store_article_error(
     article = db.scalar(select(Article).where(Article.item_id == item.id))
     if article is None:
         article = Article(item_id=item.id, final_url=final_url, http_status=http_status)
+    previous_text = article.text
 
     article.final_url = final_url
     article.retrieved_at = datetime.now(timezone.utc)
@@ -91,6 +93,9 @@ def store_article_error(
         item.status = "error"
 
     item.last_error = error
+
+    if article.text != previous_text:
+        require_item_classification(item)
 
     db.add(article)
     db.add(item)

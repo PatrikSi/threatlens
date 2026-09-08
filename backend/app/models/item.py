@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Text, UniqueConstraint, Uuid, func, text
+from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, Index, String, Text, UniqueConstraint, Uuid, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -23,6 +23,15 @@ class Item(Base):
         Index("ix_items_feed_published_at", "feed_id", "published_at"),
         Index("ix_items_content_hash", "content_hash"),
         Index("ix_items_ioc_extraction_state", "ioc_extraction_state"),
+        CheckConstraint(
+            "classification_required_version >= 1 AND classification_completed_version >= 0 "
+            "AND classification_completed_version <= classification_required_version",
+            name="ck_items_classification_versions",
+        ),
+        Index(
+            "ix_items_pending_classification", "first_seen_at", "id",
+            postgresql_where=text("classification_completed_version < classification_required_version"),
+        ),
         Index(
             "ix_items_feed_guid_unique_not_null",
             "feed_id",
@@ -46,6 +55,12 @@ class Item(Base):
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="new", server_default="new")
     ioc_extraction_state: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    classification_required_version: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=1, server_default="1",
+    )
+    classification_completed_version: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default="0",
+    )
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
