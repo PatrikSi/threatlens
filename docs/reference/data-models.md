@@ -117,6 +117,8 @@ content-derived AI task runs and usage require governed envelopes.
 - `first_seen_at: timestamptz`
 - `dedupe_key: text` (unique)
 - `content_hash: string(64)`
+- `classification_required_version: bigint` (default `1`)
+- `classification_completed_version: bigint` (default `0`; between `0` and the required revision)
 - `status: string(32)` (default `new`)
 - `last_error: text?`
 - `updated_at: timestamptz`

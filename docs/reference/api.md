@@ -5,7 +5,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ## Published Contract
 
 - Schema version: `1.10.0`
-- OpenAPI contract anchor: `openapi-sha256:f5b893c8cf2273b39acf76dbebecedf91022b4ac3b5331397ead1094393412a1`
+- OpenAPI contract anchor: `openapi-sha256:0061a18e0da8085f3cfc791342cb526b483333c10294eabccb908489b5ef3b9f`
 - API service base path: `/v1`
 - Web proxy base path: `/api/v1`
 - Bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`.
@@ -1432,6 +1432,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Token scopes: `read:items`
 - Parameters:
   - `item_id` (path, required): string
+  - `external_resources` (query, optional): boolean
 - Responses: `200` `text/html` -> string, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/items/{item_id}/graph`
 - Summary: Get Item Graph
@@ -1596,6 +1597,8 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Token scopes: `read:reports`
 - Parameters:
   - `status` (query, optional): Status
+  - `created_from` (query, optional): Created From
+  - `created_before` (query, optional): Created Before
   - `limit` (query, optional): integer
   - `offset` (query, optional): integer
 - Responses: `200` `application/json` -> array[ReportListItem], `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse

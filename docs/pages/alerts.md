@@ -15,6 +15,12 @@ The page has three workspaces:
 - **Operations** is administrator-only and exposes evaluation health, retained
   metrics, dead-letter details, activity, and replay.
 
+The URL retains the active workspace, filters, loaded-page search, page size,
+collection page, selected occurrence, and activity page. Reload and browser
+Back/Forward restore this context. **Copy triage link** shares the current
+occurrence and scope; recipients still need permission to read it. If clipboard
+access is unavailable, a selectable link supports manual copying.
+
 ## Rules
 
 An `AlertInterest` belongs to one user and contains:
