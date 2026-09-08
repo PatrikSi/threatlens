@@ -10,8 +10,10 @@ from typing import Any
 MINIMUM_TOTAL_COVERAGE = 79.0
 MINIMUM_REPORTING_COVERAGE = 63.0
 CRITICAL_MODULE_MINIMUMS = {
+    "app/api/routes/export_jobs.py": 85.0,
     "app/services/ai_request_runtime.py": 85.0,
     "app/services/bounded_regex.py": 88.0,
+    "app/services/export_download_scratch.py": 95.0,
     "app/services/export_job_access.py": 80.0,
     "app/services/export_job_download.py": 85.0,
     "app/services/export_job_worker.py": 88.0,
