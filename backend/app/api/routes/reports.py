@@ -32,6 +32,7 @@ from app.api.resource_preconditions import (
 )
 from app.api.routes.report_route_helpers import (
     active_reporting_settings as _active_reporting_settings,
+    normalize_report_creation_range,
     REPORT_PREVIEW_LIMIT,
     RESOURCE_PRECONDITION_RESPONSES,
     get_accessible_report as _get_accessible_report,
@@ -501,15 +502,7 @@ def list_reports(
     _user: User = Depends(require_permissions(SCOPE_READ_REPORTS)),
     data_access: DataAccessContext = Depends(get_data_access_context),
 ):
-    if created_from is not None:
-        created_from = created_from.replace(tzinfo=created_from.tzinfo or timezone.utc).astimezone(timezone.utc)
-    if created_before is not None:
-        created_before = created_before.replace(tzinfo=created_before.tzinfo or timezone.utc).astimezone(timezone.utc)
-    if created_from is not None and created_before is not None and created_from >= created_before:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="created_before must be later than created_from",
-        )
+    created_from, created_before = normalize_report_creation_range(created_from, created_before)
     query = select(Report).where(
         data_access_envelope_predicate(
             DATA_ACCESS_RESOURCE_REPORT,
