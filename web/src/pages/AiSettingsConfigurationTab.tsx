@@ -12,7 +12,8 @@ export function ConfigurationTab(props: AiSettingsConfigurationTabProps) {
   }
 
   return (
-    <div className="grid gap-3 xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
+    <fieldset disabled={props.savePending} className="grid min-w-0 gap-3 xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
+      {props.savePending && <p role="status" className="text-sm text-slate dark:text-slate-300 xl:col-span-2">Saving AI settings. Editing resumes when the save completes.</p>}
       <div className="space-y-3">
         {props.isLoading && (
           <div className="rounded-xl border border-slate/20 bg-white/80 p-3 text-sm dark:border-cyan-900/40 dark:bg-[#041612]/90">
@@ -50,6 +51,6 @@ export function ConfigurationTab(props: AiSettingsConfigurationTabProps) {
         saveDisabledReason={props.saveDisabledReason}
         onSave={props.onSave}
       />
-    </div>
+    </fieldset>
   )
 }
