@@ -161,3 +161,41 @@ def test_fixture_container_identity_excludes_image_pull_stderr(monkeypatch):
 
     monkeypatch.setattr(subprocess, "check_output", output)
     assert DockerService("redis").command("run", "fixture-image") == "a" * 64
+
+
+def test_cli_sigterm_unwinds_owned_process_cleanup(tmp_path):
+    import signal
+    from pathlib import Path
+
+    scripts = Path(__file__).resolve().parents[2] / "scripts"
+    child_file = tmp_path / "owned.pid"
+    child_code = f"import os,time; open({str(child_file)!r},'w').write(str(os.getpid())); time.sleep(30)"
+    code = f"""
+import sys
+sys.path.insert(0, {str(scripts)!r})
+import run_capacity_baseline as runner
+original = runner.execute_bounded
+def substitute(command, **kwargs):
+    return original([sys.executable, '-c', {child_code!r}], **kwargs)
+runner.execute_bounded = substitute
+sys.argv = ['capacity', '--output', {str(tmp_path / 'output.json')!r}]
+runner.main()
+"""
+    sibling = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], start_new_session=True)
+    supervisor = subprocess.Popen([sys.executable, "-c", code], cwd=tmp_path, start_new_session=True)
+    try:
+        until = time.monotonic() + 10
+        while not child_file.exists() and time.monotonic() < until:
+            assert supervisor.poll() is None
+            time.sleep(0.02)
+        assert child_file.exists()
+        supervisor.send_signal(signal.SIGTERM)
+        assert supervisor.wait(timeout=10) == 143
+        assert not Path(f"/proc/{int(child_file.read_text())}").exists()
+        assert sibling.poll() is None
+    finally:
+        if supervisor.poll() is None:
+            supervisor.send_signal(signal.SIGTERM)
+            supervisor.wait(timeout=10)
+        sibling.terminate()
+        sibling.wait(timeout=5)

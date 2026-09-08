@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import signal
 import subprocess
 import sys
 import tempfile
@@ -16,6 +17,9 @@ from capacity_process import execute_bounded
 
 
 def main() -> int:
+    # External CI/timeout termination must unwind the supervisor's finally
+    # block so its owned processes and fixture containers are removed.
+    signal.signal(signal.SIGTERM, lambda *_args: sys.exit(143))
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--profile",
