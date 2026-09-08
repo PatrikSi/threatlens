@@ -54,7 +54,7 @@ def cleanup_containers(manifest, run_id):
         )
         if result.returncode == 0 and result.stdout.strip() == run_id:
             subprocess.run(
-                ["docker", "rm", "-f", container_id], capture_output=True, timeout=15
+                ["docker", "rm", "-f", "-v", container_id], capture_output=True, timeout=15
             )
 
 

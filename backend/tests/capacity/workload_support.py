@@ -41,6 +41,8 @@ PROFILES = {
         "service_interval_seconds": 2,
         "feed_interval_seconds": 10,
         "arrival_model": "paced_closed_loop",
+        "governance_phase_seconds": 0.5,
+        "ai_phase_seconds": 0.25,
     },
     "large": {
         "seed_items": 2000,
