@@ -25,6 +25,7 @@ This documentation covers:
 - [Configuration and Deployment](./reference/configuration.md)
 - [Development Image Builds](../docker/README.md)
 - [Browser Workflow Tests](./development/browser-testing.md)
+- [Concurrent Capacity Baseline](./reference/capacity-baseline.md)
 - [Outbound Request Budgets](./reference/outbound-request-budgets.md)
 - [Comprehensive Code Review — 2026-09-08](./reviews/2026-09-08-code-review.md)
 - [Auth, RBAC, and Token Scopes](./reference/auth-rbac.md)

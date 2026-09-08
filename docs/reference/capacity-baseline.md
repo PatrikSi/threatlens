@@ -121,6 +121,27 @@ fixture provisioning and migrations happen before that timer.
 
 ## Interpreting and extending a baseline
 
+The [2026-09-08 integrated baseline](../reviews/capacity/2026-09-08-integrated-baseline.json)
+at source revision `0209678` passed all provisional budgets. It used 500 retained
+32 KiB articles and a 60-article ingest burst while the three service loops ran.
+
+| Observed measurement | Result |
+| --- | ---: |
+| Successful export p95 (11 successes) | 711 ms |
+| Successful AI connection p95 (21 successes) | 497 ms |
+| Governance update p95 (20 updates) | 216 ms |
+| Backlog recovery | 17.83 s |
+| Process RSS increase / sampled peak | 66.1 MiB / 312.9 MiB |
+| Peak sampled age of a lock-waiting query | 2.03 s |
+| Export policy conflicts | 10 of 21 attempts |
+
+All 60 articles completed classification/IOC processing, and every successful AI
+call had matching durable usage and receipt records. There were no unexpected
+task/sampler errors. The export conflicts are expected safe rejections under
+continuous policy changes; they are included in the JSON rather than counted
+as successful fast exports. PostgreSQL 16.14, Redis 7.4.9, Python, CPU count,
+platform, worker pool, and connection settings are captured in the artifact.
+
 Keep the workload and budgets in version control. Commit the harness first,
 then run `baseline` on the exact source revision to be compared and save its
 JSON under `docs/reviews/capacity/`. Compare outcome counts and error states
