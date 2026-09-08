@@ -6,9 +6,9 @@ from sqlalchemy import select
 
 from app.models.article import Article
 from app.models.feed import Feed
-from app.models.ioc import ItemIOC
 from app.models.item import Item
 from app.models.item_classification import ItemClassification
+from app.services.ioc_storage import replace_item_iocs
 
 
 def run_classify_item(item_id: str, *, runtime: ModuleType):
@@ -294,7 +294,6 @@ def run_extract_item_iocs(item_id: str, *, runtime: ModuleType):
             summary=item.summary,
             article_text=article.text if article else None,
         )
-        by_key = _aggregate_iocs(extracted)
         if r._article_was_refetched(
             db, item_id=parsed_item_id, expected_token=freshness_token
         ):
@@ -307,76 +306,16 @@ def run_extract_item_iocs(item_id: str, *, runtime: ModuleType):
                 "item_id": item_id,
             }
 
-        linked_ioc_ids, values_by_type = _store_item_iocs(
-            db, parsed_item_id, by_key, runtime=r
-        )
-        _remove_stale_item_iocs(db, parsed_item_id, linked_ioc_ids)
+        stored = replace_item_iocs(db, item_id=parsed_item_id, extracted=extracted)
         item.ioc_extraction_state = (
             r.IOC_EXTRACTION_STATE_COMPLETED
-            if linked_ioc_ids
+            if stored.count
             else r.IOC_EXTRACTION_STATE_COMPLETED_EMPTY
         )
         db.add(item)
-        _sync_ioc_tags(db, item, article, values_by_type, runtime=r)
+        _sync_ioc_tags(db, item, article, stored.values_by_type, runtime=r)
         db.commit()
-    return {"status": "ok", "item_id": item_id, "ioc_count": len(by_key)}
-
-
-def _aggregate_iocs(extracted) -> dict[tuple[str, str], dict[str, object]]:
-    by_key: dict[tuple[str, str], dict[str, object]] = {}
-    for match in extracted:
-        key = (match.type, match.value_norm)
-        record = by_key.get(key)
-        if record is None:
-            by_key[key] = {
-                "value_raw": match.value_raw,
-                "source_sections": {match.source_section},
-                "occurrences": 1,
-                "confidence": match.confidence,
-            }
-            continue
-        record["source_sections"] = set(record["source_sections"]).union(
-            {match.source_section}
-        )
-        record["occurrences"] = int(record["occurrences"]) + 1
-        record["confidence"] = max(float(record["confidence"]), match.confidence)
-    return by_key
-
-
-def _store_item_iocs(db, item_id: uuid.UUID, by_key, *, runtime: ModuleType):
-    linked_ioc_ids: set[uuid.UUID] = set()
-    values_by_type: dict[str, list[str]] = {}
-    now = datetime.now(timezone.utc)
-    for (ioc_type, normalized_value), info in by_key.items():
-        values_by_type.setdefault(ioc_type, []).append(normalized_value)
-        ioc = runtime._get_or_create_ioc(
-            db,
-            ioc_type=ioc_type,
-            ioc_value_norm=normalized_value,
-            ioc_value_raw=str(info["value_raw"]),
-            now=now,
-        )
-        linked_ioc_ids.add(ioc.id)
-        link = db.scalar(
-            select(ItemIOC).where(ItemIOC.item_id == item_id, ItemIOC.ioc_id == ioc.id)
-        )
-        if link is None:
-            link = ItemIOC(item_id=item_id, ioc_id=ioc.id)
-        link.source_section = ",".join(sorted(set(info["source_sections"])))
-        link.occurrences = int(info["occurrences"])
-        link.confidence = float(info["confidence"])
-        db.add(link)
-    return linked_ioc_ids, values_by_type
-
-
-def _remove_stale_item_iocs(
-    db, item_id: uuid.UUID, linked_ioc_ids: set[uuid.UUID]
-) -> None:
-    query = db.query(ItemIOC).filter(ItemIOC.item_id == item_id)
-    if linked_ioc_ids:
-        query = query.filter(ItemIOC.ioc_id.notin_(linked_ioc_ids))
-    query.delete(synchronize_session=False)
-
+    return {"status": "ok", "item_id": item_id, "ioc_count": stored.count}
 
 def _sync_ioc_tags(
     db, item: Item, article: Article | None, values_by_type, *, runtime: ModuleType
