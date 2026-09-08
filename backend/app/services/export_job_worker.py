@@ -22,7 +22,7 @@ from app.services.export_job_access import (
     ExportJobAccessDenied, authorize_export_job, export_source_snapshot,
     fence_export_job_access,
 )
-from app.services.export_jobs import terminal_export_job
+from app.services.export_jobs import retained_export_job_reservation, terminal_export_job
 from app.services.export_job_scratch import clean_local_export_scratch, export_scratch_directory
 from app.services.export_lock import ExportAlreadyRunningError, ExportLockUnavailableError, acquire_export_lock
 from app.services.export_query import (
@@ -237,6 +237,12 @@ def _publish(job_id, token, artifact):
         job = _owned_job(db, job_id, token)
         authorization, access = authorize_export_job(db, job)
         fence_export_job_access(db, job, authorization, access)
+        retained = retained_export_job_reservation(db, job)
+        if retained > job.reserved_bytes:
+            raise ExportSizeLimitError("Retained artifact exceeds reservation")
+        # Settlement only releases capacity. The same row lock and terminal
+        # claim transition prevent another attempt from appending afterward.
+        job.reserved_bytes = retained
         job.status = "ready"
         job.completed_at = datetime.now(timezone.utc)
         job.completed_items = artifact.item_count
