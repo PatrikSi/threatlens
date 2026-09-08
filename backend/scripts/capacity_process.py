@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import ctypes
 import os
 import signal
 import subprocess
@@ -54,7 +55,9 @@ def cleanup_containers(manifest, run_id):
         )
         if result.returncode == 0 and result.stdout.strip() == run_id:
             subprocess.run(
-                ["docker", "rm", "-f", "-v", container_id], capture_output=True, timeout=15
+                ["docker", "rm", "-f", "-v", container_id],
+                capture_output=True,
+                timeout=15,
             )
 
 
@@ -66,13 +69,32 @@ def execute_bounded(command, *, cwd, env, limits, output, manifest, run_id):
             )
         os.nice(limits.get("nice", 0))
 
+    # The CLI is single-threaded at fork. Keep the leader unreaped until its
+    # whole group is dead, preventing PID/group reuse during final cleanup.
+    libc = ctypes.CDLL(None, use_errno=True)
+    previous_subreaper = ctypes.c_int()
+    if (
+        libc.prctl(37, ctypes.byref(previous_subreaper), 0, 0, 0) != 0
+        or libc.prctl(36, 1, 0, 0, 0) != 0
+    ):
+        raise OSError(
+            ctypes.get_errno(), "cannot supervise orphaned capacity descendants"
+        )
     started = time.monotonic()
-    process = subprocess.Popen(
-        command, cwd=cwd, env=env, start_new_session=True, preexec_fn=child_limits
-    )
+    process = None
     peak, process_peak, failure = 0, 0, None
     try:
-        while process.poll() is None:
+        process = subprocess.Popen(
+            command, cwd=cwd, env=env, start_new_session=True, preexec_fn=child_limits
+        )
+
+        def leader_exited():
+            return (
+                os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+                is not None
+            )
+
+        while not leader_exited():
             rss, count = process_tree_rss(process.pid)
             peak, process_peak = max(peak, rss), max(process_peak, count)
             if rss > limits["max_rss_bytes"]:
@@ -81,17 +103,29 @@ def execute_bounded(command, *, cwd, env, limits, output, manifest, run_id):
                 failure = "wall_time_limit"
             if failure:
                 os.killpg(process.pid, signal.SIGTERM)
-                try:
-                    process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    os.killpg(process.pid, signal.SIGKILL)
+                grace = time.monotonic() + 5
+                while not leader_exited() and time.monotonic() < grace:
+                    time.sleep(0.05)
                 break
             time.sleep(0.1)
-        code = process.wait()
     finally:
-        if process.poll() is None:
-            os.killpg(process.pid, signal.SIGKILL)
-            process.wait()
+        if process is not None:
+            # A leader can exit while a child ignores TERM, or leave children
+            # behind on ordinary failure. Kill the still-owned group either way.
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            code = process.wait()
+            reap_until = time.monotonic() + 5
+            while time.monotonic() < reap_until:
+                try:
+                    child, _status = os.waitpid(-process.pid, os.WNOHANG)
+                except ChildProcessError:
+                    break
+                if child == 0:
+                    time.sleep(0.02)
+        libc.prctl(36, previous_subreaper.value, 0, 0, 0)
         cleanup_containers(manifest, run_id)
     watchdog = {
         "sample_interval_ms": 100,
