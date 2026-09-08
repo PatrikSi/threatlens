@@ -4,6 +4,7 @@ import {
   type SetStateAction,
   useEffect,
   useRef,
+  useState,
 } from 'react'
 
 import { safeLocalStorage } from '../utils/safeStorage'
@@ -69,6 +70,7 @@ export function useDashboardWorkspacePersistence({
   windows,
   workspaceDefaultsSettled,
 }: WorkspacePersistenceOptions) {
+  const [hydratedUserId, setHydratedUserId] = useState<string | null>(null)
   const initializedDashboardUserRef = useRef<string | null>(null)
   const windowPersistenceTimeoutRef = useRef<number | null>(null)
   const pendingWindowPersistenceRef = useRef<{ userId: string; serialized: string } | null>(null)
@@ -200,6 +202,7 @@ export function useDashboardWorkspacePersistence({
 
     if (!userId) {
       initializedDashboardUserRef.current = null
+      setHydratedUserId(null)
       setWindows([createWindowLayout('rss', 1, 1380, 760, 'full')])
       setWindowSeenAt({})
       setRssLastOpenedAt('')
@@ -228,6 +231,7 @@ export function useDashboardWorkspacePersistence({
     setRssLastOpenedAt(loadStoredTimestamp(storageKeys.lastOpenedAt))
     safeLocalStorage.setItem(storageKeys.lastOpenedAt, new Date().toISOString())
     initializedDashboardUserRef.current = userId
+    setHydratedUserId(userId)
   }, [
     rootRef,
     defaultPanelIds,
@@ -282,4 +286,6 @@ export function useDashboardWorkspacePersistence({
       return normalizeDashboardWindows(filtered, width, height)
     })
   }, [aiDailyBriefEnabled, rootRef, setWindows])
+
+  return Boolean(userId && hydratedUserId === userId)
 }

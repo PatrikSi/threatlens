@@ -188,7 +188,7 @@ export function useDashboardPageController() {
       : 'You have unsaved dashboard note drafts. Leave without saving?',
   )
 
-  useDashboardWorkspacePersistence({
+  const dashboardReady = useDashboardWorkspacePersistence({
     aiDailyBriefEnabled,
     defaultPanelIds: workspace.model.dashboardPanelIds,
     expandedItemIdsByWindowId,
@@ -1093,7 +1093,7 @@ export function useDashboardPageController() {
     articlePreviewFrameState, articlePreviewWidth, articleRetryFeedbackByItemId, availableAlertCategories, bringWindowToFront,
     canAddWindow: windows.length < MAX_DASHBOARD_WINDOWS, canManage, captureCurrentDashboardViewState,
     clearActiveSavedViewSelection, closeAddWindowMenu, closeArticlePreview,
-    closeRenameWindow, confirmDiscardUnsavedDashboardChanges, containerDimensions, dailyBriefHistoryQuery, dailyBriefWindowCount,
+    closeRenameWindow, confirmDiscardUnsavedDashboardChanges, containerDimensions, dashboardReady, dailyBriefHistoryQuery, dailyBriefWindowCount,
     dashboardCustomSinceDate, dashboardCustomUntilDate, dashboardRollingDays, dashboardTimeFilter, dashboardTimeRange,
     deleteView, detailQueriesByWindowId, editSessionSnapshot, expandedItemIdsByWindowId, exportAllViews,
     feedsQuery, globalSearchState, handleAddWindowMenuKeyDown, handleAddWindowTriggerKeyDown, handleOpenArticlePreview,
