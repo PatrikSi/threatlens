@@ -457,15 +457,20 @@ export function TaggingRulePreview({ controller }: TaggingPanelProps) {
                       matched in {formatTaggingField(section)}
                     </span>
                   ))}
-                  {item.current_tags.map((tagName) => (
+                  {item.current_tags.map((tagName, tagIndex) => (
                     <span
-                      key={`${item.id}-${tagName}`}
+                      key={`${item.id}-${tagIndex}`}
                       className="rounded-full border border-slate/25 bg-slate/10 px-2 py-0.5 text-[11px] text-slate-700 dark:border-white/10 dark:bg-white/5 dark:text-white/70"
                     >
                       current: {tagName}
                     </span>
                   ))}
                 </div>
+                {item.current_tags_truncated && (
+                  <p role="status" className="mt-2 text-xs text-slate dark:text-white/70">
+                    Current tags are abbreviated or limited to the first 25. Open the item to inspect all tags.
+                  </p>
+                )}
               </article>
             ))
           ) : (

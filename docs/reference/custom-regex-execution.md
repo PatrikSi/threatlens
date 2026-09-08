@@ -20,6 +20,8 @@ permissions. The fixed evaluator program remains trusted code.
 | 1 s parent wait | A stalled child is killed and reaped before the caller continues. |
 | 256 MiB address space / 2 s process CPU | OS resource limits protect the parent from compiler/matcher memory and CPU exhaustion. Core dumps are disabled. |
 | 200 preview items / 3 s evaluation | Preview reads selected SQL projections incrementally, counts accessible candidates separately, and discloses partial results. |
+| 25 returned preview matches | Only compact display metadata survives matching. Titles and feed names display at most 500 and 255 characters respectively, followed by an ellipsis when abbreviated. |
+| 25 current tags per preview match / 64 characters per tag | SQL bounds tag rows and text before materialization. The preview discloses omitted or abbreviated tags; these display limits do not change rule matching. |
 
 The supported deployment is Linux. Failure to start or enforce the isolated
 evaluator fails closed for custom regex matches. Parent timeout cleanup and OS
@@ -29,6 +31,9 @@ computation remains after evaluation.
 
 Preview warnings distinguish an invalid expression, a rule timeout, a batch
 budget, excess input, exhausted resources, and an unavailable/stalled evaluator.
+The scan includes up to 200 recent accessible items, including items excluded by
+the rule's feed, category, or confidence conditions. Excluded items cannot trigger
+an input-size failure; only selected matching fields on eligible items are checked.
 At ingestion, affected custom matches are skipped and structured warnings record
 only the rule ID and error code, never publisher text or the pattern. A later
 successful evaluation or explicit reapply computes current custom tags; manual

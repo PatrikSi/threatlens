@@ -136,6 +136,7 @@ class TaggingRulePreviewItem(BaseModel):
     classification: str | None
     first_seen_at: datetime
     current_tags: list[str]
+    current_tags_truncated: bool = False
     matched_sections: list[str]
 
 

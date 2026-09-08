@@ -50,6 +50,7 @@ export interface TaggingRulePreviewItem {
   classification: string | null
   first_seen_at: string
   current_tags: string[]
+  current_tags_truncated?: boolean
   matched_sections: string[]
 }
 
