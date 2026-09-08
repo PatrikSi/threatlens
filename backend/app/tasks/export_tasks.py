@@ -17,10 +17,21 @@ logger = logging.getLogger(__name__)
 def enqueue_export_job(job_id):
     settings = get_settings()
     try:
-        generate_export_job.apply_async(
-            args=[str(job_id)], soft_time_limit=settings.export_job_timeout_seconds,
-            time_limit=settings.export_job_timeout_seconds + 60,
-        )
+        # Durable dispatch owns retries. A dedicated producer avoids changing
+        # worker BRPOP behavior or waiting on a pooled publisher connection.
+        options = dict(celery_app.conf.broker_transport_options or {})
+        options.update(socket_connect_timeout=settings.redis_connect_timeout_seconds,
+                       socket_timeout=settings.redis_socket_timeout_seconds,
+                       max_retries=0)
+        with celery_app.connection_for_write(
+            connect_timeout=settings.redis_connect_timeout_seconds,
+            transport_options=options,
+        ) as connection:
+            generate_export_job.apply_async(
+                args=[str(job_id)], connection=connection, retry=False, ignore_result=True,
+                soft_time_limit=settings.export_job_timeout_seconds,
+                time_limit=settings.export_job_timeout_seconds + 60,
+            )
         return True
     except Exception as exc:
         logger.warning("export_job_publish_deferred job_id=%s error_type=%s", job_id, type(exc).__name__)

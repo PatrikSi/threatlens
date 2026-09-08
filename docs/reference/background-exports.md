@@ -34,6 +34,8 @@ The durable state machine is `queued → running → ready`, with `failed`, `can
 
 `app.tasks.export_tasks.generate_export_job` runs on `processing`; `dispatch_export_jobs` runs on `maintenance` every 30 seconds through Beat. Keep both workers and Beat running. Reconciliation republishes queued rows after lost broker publication, repairs expired running leases, removes incomplete encrypted chunks before retry, expires artifacts, and removes jobs whose owners were deleted. Dispatch batches and retries are bounded. A worker crash after artifact storage but before completion leaves an invisible partial artifact that reconciliation replaces. A crash after completion does not rerender the ready job.
 
+Export publication uses a dedicated broker connection with `REDIS_CONNECT_TIMEOUT_SECONDS` and `REDIS_SOCKET_TIMEOUT_SECONDS` (both 2 seconds by default). Library publication retries are disabled; the durable dispatcher retries later. These bound individual socket operations, not a wall-clock deadline across every broker command or a peer that continually trickles data. Worker consumer connection settings are unaffected.
+
 | Failure | Outcome and recovery |
 | --- | --- |
 | Broker unavailable after accepting commit | Return the accepted queued job; Beat retries publication. |
@@ -44,7 +46,7 @@ The durable state machine is `queued → running → ready`, with `failed`, `can
 | Cancellation/expiry during generation | Invalidate claim and remove stored chunks; the old worker cannot publish. |
 | Deleted owner | Reconciliation deletes job metadata and chunks. |
 
-Each attempt has a monotonic generation deadline, plus Celery soft/hard execution limits. The default one-hour deadline supports workloads beyond five minutes without keeping an HTTP request open. Database statements and coordination calls retain their own shorter operation limits. API status is authoritative; task result messages are diagnostic.
+Each attempt has a monotonic generation deadline, plus Celery soft/hard execution limits. The default one-hour deadline supports workloads beyond five minutes without keeping an HTTP request open. Database statements and coordination calls retain their own shorter operation limits. API status is authoritative; publication does not subscribe to a Celery task-result channel.
 
 Local rendering scratch uses a private directory per job/claim. Normal completion cleans it immediately. Before starting more rendering on a host, workers remove directories whose durable claim is no longer active, including leftovers from hard exits. Temporary rendering/download disk and PostgreSQL WAL/backups are additional to the retained-artifact byte reservation; size deployment storage accordingly. Generation concurrency is bounded by worker concurrency and per-principal admission.
 
