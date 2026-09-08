@@ -174,6 +174,14 @@ def test_cli_sigterm_unwinds_owned_process_cleanup(tmp_path):
 import sys
 sys.path.insert(0, {str(scripts)!r})
 import run_capacity_baseline as runner
+import subprocess
+# This process-lifetime test has no Docker resources; keep discovery isolated.
+real_run = subprocess.run
+def isolated_run(command, **kwargs):
+    if command[0] == 'docker':
+        return subprocess.CompletedProcess(command, 0, '', '')
+    return real_run(command, **kwargs)
+subprocess.run = isolated_run
 original = runner.execute_bounded
 def substitute(command, **kwargs):
     return original([sys.executable, '-c', {child_code!r}], **kwargs)

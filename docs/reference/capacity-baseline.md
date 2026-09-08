@@ -207,6 +207,16 @@ container IDs and checks the per-run label before removing them, including
 watchdog exits. These bounds constrain the experiment and are recorded as
 comparison inputs; they are not production sizing recommendations.
 
+Cleanup also discovers containers by the supervisor's exact random run label,
+then verifies that label on each container before removal. This covers a Docker
+request accepted before its returned ID reaches the manifest. Interrupted runs
+allow three seconds for late daemon completion, with a ten-second total cleanup
+budget and two-second command bounds. The run label is printed for recovery.
+A daemon request completing after that bounded grace, an unavailable daemon,
+or a hard-killed supervisor can still require manual cleanup: inspect only
+`label=threatlens.capacity.run_id=<that-run-id>`, never a broad name prefix or
+unrelated deployment resources.
+
 Publisher and worker signals record a monotonic publication timestamp in each
 synthetic task header. The result includes publication-to-start queue latencies
 and sampled oldest pending-message age. These are same-host measurements;
