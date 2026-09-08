@@ -168,6 +168,9 @@ interface will report the brief API outage until the matching release starts.
 The first upgrade to database-backed lifecycle policies requires the ordered,
 quiesced [lifecycle queue cutover](docs/reference/configuration.md#lifecycle-queue-cutover)
 so an older maintenance process cannot race the new policies.
+Migration `0086_classification_versions` also requires the stopped-writer
+[classification recovery cutover](docs/reference/pipeline.md#classification-recovery-cutover)
+and scans retained article text once to reconcile historical processing state.
 
 Check services:
 

@@ -86,8 +86,23 @@ feed title/summary or extracted/fallback article text advance the required
 revision in the same transaction. Classification acknowledges it while holding
 the item lock. Maintenance recovers both missing classifications and pending
 revisions, including a refresh whose Celery publication failed. Migration
-`0086_classification_versions` also identifies historical hash mismatches;
-quiesce source writers for its [documented cutover](outbound-request-budgets.md).
+`0086_classification_versions` also identifies historical hash mismatches.
+
+### Classification recovery cutover
+
+Stop ingestion and classification writers for migration
+`0086_classification_versions` and replace workers together: older code cannot
+advance the new revision fields. The migration compares current title, summary,
+and article text against classification hashes inside PostgreSQL. Current
+results are acknowledged; stale or missing results remain pending. Explicitly
+purged article content keeps its retained classification. The one-time scan
+belongs in the maintenance window; measure its duration on a representative
+copy for a large catalog.
+
+After cutover, `DISPATCH_UNCLASSIFIED_ITEMS_BATCH_SIZE` bounds recovery candidate
+selection and publication. Duplicate candidates are removed and successful
+classification deliveries remain idempotent by source hash and rules version.
+Failed publication leaves the required revision available for another pass.
 
 ### Classification categories
 
