@@ -37,12 +37,18 @@ test('blocks publisher resources by default, allows explicit opt-in, and resets 
   await page.route('**/api/v1/items?*', (route) => route.fulfill({ json: { items, total: 2, page: 1, page_size: 100 } }))
   await page.route('https://tracking.example.test/**', (route) => {
     resourceRequests.push(route.request().url())
-    return route.fulfill({ contentType: route.request().url().endsWith('.css') ? 'text/css' : 'image/png', body: '' })
+    const stylesheet = new URL(route.request().url()).pathname.endsWith('.css')
+    return route.fulfill({ contentType: stylesheet ? 'text/css' : 'image/png', body: stylesheet ? 'body { color: rgb(20, 30, 40); }' : Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64') })
   })
-  await page.route('**/api/v1/items/*/article-preview*', (route) => route.fulfill({
-    contentType: 'text/html', body: previewResponse.html,
-    headers: route.request().url().includes('external_resources=true') ? previewResponse.allowedHeaders : previewResponse.blockedHeaders,
-  }))
+  await page.route('**/api/v1/items/*/article-preview*', (route) => {
+    const article = route.request().url().includes('/one/') ? 'one' : 'two'
+    return route.fulfill({
+      contentType: 'text/html', body: previewResponse.html
+        .replaceAll('tracking.example.test/pixel.png', `tracking.example.test/pixel.png?article=${article}`)
+        .replaceAll('tracking.example.test/style.css', `tracking.example.test/style.css?article=${article}`),
+      headers: route.request().url().includes('external_resources=true') ? previewResponse.allowedHeaders : previewResponse.blockedHeaders,
+    })
+  })
   await page.goto('/')
   await page.locator('article').filter({ hasText: 'Article one' }).getByRole('button', { name: 'Preview Original' }).click()
   const preview = page.getByRole('dialog', { name: 'Original article' })
@@ -50,11 +56,13 @@ test('blocks publisher resources by default, allows explicit opt-in, and resets 
   await expect(page.frameLocator('iframe').getByText('Offline publisher fixture')).toBeVisible()
   expect(resourceRequests).toEqual([])
   await consent.check()
-  await expect.poll(() => resourceRequests.length).toBe(2)
-  expect(resourceRequests.map((url) => new URL(url).pathname).sort()).toEqual(['/pixel.png', '/style.css'])
+  // Browsers may request a stylesheet more than once. Verify allowed targets,
+  // rather than a browser-specific number of network attempts.
+  await expect.poll(() => [...new Set(resourceRequests.map((url) => new URL(url).pathname))].sort()).toEqual(['/pixel.png', '/style.css'])
   await preview.getByRole('button', { name: 'Close original article preview' }).click()
   await page.locator('article').filter({ hasText: 'Article two' }).getByRole('button', { name: 'Preview Original' }).click()
   await expect(consent).not.toBeChecked()
   await expect(page.frameLocator('iframe').getByText('Offline publisher fixture')).toBeVisible()
-  expect(resourceRequests).toHaveLength(2)
+  // Unique per-article URLs ensure the second document cannot pass due to cache.
+  expect(resourceRequests.every((url) => new URL(url).searchParams.get('article') === 'one')).toBe(true)
 })
