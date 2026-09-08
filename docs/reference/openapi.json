@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "1.10.0",
-    "x-threatlens-contract-sha256": "0061a18e0da8085f3cfc791342cb526b483333c10294eabccb908489b5ef3b9f"
+    "x-threatlens-contract-sha256": "0a809f56d1b5b56db78dfe412a8ab85b75ee696f9a729b0ff6160e9689dc9c6d"
   },
   "servers": [
     {
@@ -2485,6 +2485,640 @@
         ],
         "x-threatlens-required-token-scopes": [
           "read:items"
+        ]
+      }
+    },
+    "/v1/exports/jobs": {
+      "post": {
+        "tags": [
+          "exports"
+        ],
+        "summary": "Accept Export Job",
+        "operationId": "accept_export_job_v1_exports_jobs_post",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArticleExportJobRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArticleExportJobResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "read:items"
+        ]
+      },
+      "get": {
+        "tags": [
+          "exports"
+        ],
+        "summary": "List Export Jobs",
+        "operationId": "list_export_jobs_v1_exports_jobs_get",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 25,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArticleExportJobList"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "read:items"
+        ]
+      }
+    },
+    "/v1/exports/jobs/{job_id}": {
+      "get": {
+        "tags": [
+          "exports"
+        ],
+        "summary": "Get Export Job",
+        "operationId": "get_export_job_v1_exports_jobs__job_id__get",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArticleExportJobResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "read:items"
+        ]
+      }
+    },
+    "/v1/exports/jobs/{job_id}/cancel": {
+      "post": {
+        "tags": [
+          "exports"
+        ],
+        "summary": "Cancel Export Job",
+        "operationId": "cancel_export_job_v1_exports_jobs__job_id__cancel_post",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArticleExportJobResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "read:items"
+        ]
+      }
+    },
+    "/v1/exports/jobs/{job_id}/download": {
+      "get": {
+        "tags": [
+          "exports"
+        ],
+        "summary": "Download Export Job",
+        "operationId": "download_export_job_v1_exports_jobs__job_id__download_get",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "read:items"
+        ]
+      }
+    },
+    "/v1/reports/library": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "List Report Library",
+        "operationId": "list_report_library_v1_reports_library_get",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "description": "Title words, quoted phrases, OR, exclusions, or an exact report UUID.",
+              "default": "",
+              "title": "Q"
+            },
+            "description": "Title words, quoted phrases, OR, exclusions, or an exact report UUID."
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "queued",
+                    "running",
+                    "ready",
+                    "error",
+                    "skipped"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "name": "report_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Report Type"
+            }
+          },
+          {
+            "name": "trigger_source",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "manual",
+                    "scheduled",
+                    "retry"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Trigger Source"
+            }
+          },
+          {
+            "name": "created_from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Created From"
+            }
+          },
+          {
+            "name": "created_before",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Created Before"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 2048
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 25,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportLibraryPage"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "read:reports"
         ]
       }
     },
@@ -33501,6 +34135,216 @@
         "type": "object",
         "title": "ArticleExportFilters"
       },
+      "ArticleExportJobList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ArticleExportJobResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "has_more": {
+            "type": "boolean",
+            "title": "Has More"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "items",
+          "has_more"
+        ],
+        "title": "ArticleExportJobList"
+      },
+      "ArticleExportJobRequest": {
+        "properties": {
+          "format": {
+            "type": "string",
+            "enum": [
+              "csv",
+              "jsonl",
+              "threat_bundle",
+              "stix",
+              "misp",
+              "pdf_bundle"
+            ],
+            "title": "Format"
+          },
+          "filters": {
+            "$ref": "#/components/schemas/ArticleExportFilters"
+          },
+          "options": {
+            "$ref": "#/components/schemas/ArticleExportOptions"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Idempotency Key"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "format",
+          "idempotency_key"
+        ],
+        "title": "ArticleExportJobRequest"
+      },
+      "ArticleExportJobResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "csv",
+              "jsonl",
+              "threat_bundle",
+              "stix",
+              "misp",
+              "pdf_bundle"
+            ],
+            "title": "Format"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "ready",
+              "failed",
+              "cancelled",
+              "expired"
+            ],
+            "title": "Status"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "attempts": {
+            "type": "integer",
+            "title": "Attempts"
+          },
+          "completed_items": {
+            "type": "integer",
+            "title": "Completed Items"
+          },
+          "item_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Count"
+          },
+          "file_size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Size"
+          },
+          "filename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filename"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "download_available": {
+            "type": "boolean",
+            "title": "Download Available"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "format",
+          "status",
+          "created_at",
+          "expires_at",
+          "started_at",
+          "completed_at",
+          "attempts",
+          "completed_items",
+          "item_count",
+          "file_size",
+          "filename",
+          "error_code",
+          "message",
+          "download_available"
+        ],
+        "title": "ArticleExportJobResponse"
+      },
       "ArticleExportOptions": {
         "properties": {
           "include_article_text": {
@@ -45105,6 +45949,45 @@
         ],
         "title": "ReportDetailResponse"
       },
+      "ReportLibraryPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ReportListItem"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "current_cursor": {
+            "type": "string",
+            "title": "Current Cursor"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date-time",
+            "title": "As Of"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "current_cursor",
+          "next_cursor",
+          "as_of"
+        ],
+        "title": "ReportLibraryPage"
+      },
       "ReportListItem": {
         "properties": {
           "id": {
@@ -50295,6 +51178,11 @@
             "type": "array",
             "title": "Current Tags"
           },
+          "current_tags_truncated": {
+            "type": "boolean",
+            "title": "Current Tags Truncated",
+            "default": false
+          },
           "matched_sections": {
             "items": {
               "type": "string"
@@ -50432,6 +51320,28 @@
             },
             "type": "array",
             "title": "Items"
+          },
+          "scanned_items": {
+            "type": "integer",
+            "title": "Scanned Items",
+            "default": 0
+          },
+          "candidate_items": {
+            "type": "integer",
+            "title": "Candidate Items",
+            "default": 0
+          },
+          "complete": {
+            "type": "boolean",
+            "title": "Complete",
+            "default": true
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
           }
         },
         "type": "object",

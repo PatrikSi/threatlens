@@ -5,7 +5,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ## Published Contract
 
 - Schema version: `1.10.0`
-- OpenAPI contract anchor: `openapi-sha256:0061a18e0da8085f3cfc791342cb526b483333c10294eabccb908489b5ef3b9f`
+- OpenAPI contract anchor: `openapi-sha256:0a809f56d1b5b56db78dfe412a8ab85b75ee696f9a729b0ff6160e9689dc9c6d`
 - API service base path: `/v1`
 - Web proxy base path: `/api/v1`
 - Bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`.
@@ -880,6 +880,41 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:items`
 - Responses: `200` `application/json` -> ArticleExportCapabilitiesResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `GET /v1/exports/jobs`
+- Summary: List Export Jobs
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:items`
+- Parameters:
+  - `limit` (query, optional): integer
+  - `offset` (query, optional): integer
+- Responses: `200` `application/json` -> ArticleExportJobList, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/exports/jobs`
+- Summary: Accept Export Job
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:items`
+- Request body: `application/json` -> ArticleExportJobRequest
+- Responses: `202` `application/json` -> ArticleExportJobResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `GET /v1/exports/jobs/{job_id}`
+- Summary: Get Export Job
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:items`
+- Parameters:
+  - `job_id` (path, required): string
+- Responses: `200` `application/json` -> ArticleExportJobResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/exports/jobs/{job_id}/cancel`
+- Summary: Cancel Export Job
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:items`
+- Parameters:
+  - `job_id` (path, required): string
+- Responses: `200` `application/json` -> ArticleExportJobResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `GET /v1/exports/jobs/{job_id}/download`
+- Summary: Download Export Job
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:items`
+- Parameters:
+  - `job_id` (path, required): string
+- Responses: `200`, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/exports/preview`
 - Summary: Preview Export
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -1615,6 +1650,20 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:reports`
 - Responses: `200` `application/json` -> ReportCapabilitiesResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `GET /v1/reports/library`
+- Summary: List Report Library
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:reports`
+- Parameters:
+  - `q` (query, optional): string
+  - `status` (query, optional): Status
+  - `report_type` (query, optional): Report Type
+  - `trigger_source` (query, optional): Trigger Source
+  - `created_from` (query, optional): Created From
+  - `created_before` (query, optional): Created Before
+  - `cursor` (query, optional): Cursor
+  - `limit` (query, optional): integer
+- Responses: `200` `application/json` -> ReportLibraryPage, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/reports/preview`
 - Summary: Preview Report
 - Auth: ApiTokenBearer or SessionCookieAuth
