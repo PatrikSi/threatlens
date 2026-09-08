@@ -17,6 +17,13 @@ The workspace supports:
 
 The default window is the latest 30 calendar days. Preview counts and rows refresh after a short input debounce. Export remains disabled while the preview is stale, unavailable, empty, invalid, or above the selected format's item limit.
 
+The browser allows five minutes for an export download request. The bundled
+nginx proxy allows 310 seconds while waiting for export response data, including
+artifact preparation before headers. Configure any additional reverse proxy or
+load balancer to allow at least that window. Large exports remain subject to the
+configured item and uncompressed-byte limits; narrow the filters or omit full
+article text if an export cannot complete within the browser budget.
+
 Preview rows show the source, effective publication time, classification, tags, AI relevance, and IOC count. The preview is representative rather than exhaustive; `EXPORT_PREVIEW_LIMIT` controls the number of visible rows while the counters cover the complete matching result.
 
 ## Formats
