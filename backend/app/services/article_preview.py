@@ -13,13 +13,13 @@ from app.services.safe_fetch import RedirectError, SafeFetchError, build_safe_ht
 from app.services.url_utils import is_fetchable_url, normalize_url
 
 
-ARTICLE_PREVIEW_CSP = (
+_ARTICLE_PREVIEW_CSP_TEMPLATE = (
     "default-src 'none'; "
     "base-uri http: https:; "
-    "img-src http: https: data:; "
-    "style-src http: https: 'unsafe-inline'; "
-    "font-src http: https: data:; "
-    "media-src http: https: data:; "
+    "img-src {external}data:; "
+    "style-src {external}'unsafe-inline'; "
+    "font-src {external}data:; "
+    "media-src {external}data:; "
     "script-src 'none'; "
     "connect-src 'none'; "
     "frame-src 'none'; "
@@ -28,13 +28,27 @@ ARTICLE_PREVIEW_CSP = (
     "frame-ancestors 'self'; "
     "sandbox allow-popups allow-popups-to-escape-sandbox"
 )
+ARTICLE_PREVIEW_CSP = _ARTICLE_PREVIEW_CSP_TEMPLATE.format(external="")
 ARTICLE_PREVIEW_RESPONSE_HEADERS = {
     "Cache-Control": "no-store",
     "Content-Security-Policy": ARTICLE_PREVIEW_CSP,
     "Referrer-Policy": "no-referrer",
     "X-Content-Type-Options": "nosniff",
+    "X-DNS-Prefetch-Control": "off",
 }
+
+
+def article_preview_response_headers(*, external_resources: bool = False) -> dict[str, str]:
+    return {
+        **ARTICLE_PREVIEW_RESPONSE_HEADERS,
+        "Content-Security-Policy": _ARTICLE_PREVIEW_CSP_TEMPLATE.format(
+            external="http: https: " if external_resources else ""
+        ),
+    }
+
+
 _BLOCKED_TAGS = {"script", "iframe", "frame", "frameset", "object", "embed", "applet"}
+_SPECULATIVE_LINK_RELATIONS = {"dns-prefetch", "preconnect", "prefetch", "prerender", "modulepreload"}
 _BLOCKED_META_HTTP_EQUIV = {
     "content-security-policy",
     "content-security-policy-report-only",
@@ -160,6 +174,10 @@ def sanitize_article_preview_html(html: str, *, final_url: str) -> str:
 
     for base in soup.find_all("base"):
         base.decompose()
+
+    for link in soup.find_all("link"):
+        if _SPECULATIVE_LINK_RELATIONS.intersection(link.get("rel", [])):
+            link.decompose()
 
     head = soup.head
     if head is not None:

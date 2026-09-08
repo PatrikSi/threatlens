@@ -74,6 +74,7 @@ export function DashboardWorkspace({ controller }: { controller: DashboardPageCo
 
       {articlePreview && (
         <ArticlePreviewDrawer
+          key={articlePreview.itemId}
           preview={articlePreview}
           frameState={articlePreviewFrameState}
           width={articlePreviewWidth}

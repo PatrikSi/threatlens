@@ -41,7 +41,7 @@ from app.schemas.item import (
 )
 from app.services.audit import record_audit
 from app.services.article_preview import (
-    ARTICLE_PREVIEW_RESPONSE_HEADERS,
+    article_preview_response_headers,
     ArticlePreviewFetchError,
     fetch_article_preview_document,
 )
@@ -460,6 +460,10 @@ def get_item_graph(
 )
 def get_item_article_preview(
     item_id: uuid.UUID,
+    external_resources: bool = Query(
+        default=False,
+        description="Allow this preview to load publisher and third-party resources in the browser.",
+    ),
     db: Session = Depends(get_db),
     _principal: AuthenticatedPrincipal = Depends(require_permissions(SCOPE_READ_ITEMS)),
     data_access: DataAccessContext = Depends(get_data_access_context),
@@ -488,7 +492,7 @@ def get_item_article_preview(
 
     return HTMLResponse(
         content=preview.html,
-        headers=ARTICLE_PREVIEW_RESPONSE_HEADERS,
+        headers=article_preview_response_headers(external_resources=external_resources),
     )
 
 
