@@ -108,6 +108,7 @@ export function FeedsPage() {
               ref={importFileInputRef}
               type="file"
               accept="application/json"
+              aria-label="Import feed JSON"
               className="sr-only"
               onChange={onImportFile}
               disabled={!canManage}
