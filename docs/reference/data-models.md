@@ -463,6 +463,34 @@ evidence, and note changes.
 
 Report schedules use idempotent generation keys. Reports retain source, prompt, and company/global context snapshots so retries do not depend on later item or template changes. Provider credentials, model selection, and context guardrails are revalidated from current AI settings when work executes.
 
+The library projects `ReportListItem` fields, with bounded errors, and uses the
+`(created_at, id)` index for descending keyset navigation. A GIN index on
+`to_tsvector('simple'::regconfig, title)` supports title words and phrases.
+`ReportLibraryPage` adds opaque current/next positions and a creation cutoff;
+it carries no authorization grant or long-lived database snapshot.
+
+### Background Export Models
+
+- `ExportJob` belongs to a human or service-account principal. Its unique
+  `(principal_type, principal_id, idempotency_key)` identifies an accepted
+  request, with a canonical request hash rejecting mismatched retries.
+- Request filters/options, the accepting credential/permission snapshot, and
+  selected source lineage are encrypted with the application data key.
+  Large request/source columns are deferred until needed. Status, progress,
+  attempts, dispatch/backoff timestamps, lease token/expiry, retention expiry,
+  and reserved bytes support durable repair and bounded admission.
+- `ExportJobChunk` has a `(job_id, position)` primary key and cascading job
+  foreign key. Each row stores an encrypted artifact chunk of at most 256 KiB
+  decoded bytes, with a separate database ciphertext-size constraint. Partial
+  chunks are never exposed as a ready artifact.
+- Principal IDs intentionally span two owner tables; maintenance deletes jobs
+  whose corresponding principal was removed. There is no public cross-owner
+  lookup. Current credentials, handling policy, and source visibility are
+  checked before generation, publication, status details, and download.
+
+Migration `0087_async_exports` creates both tables. See [background exports](background-exports.md)
+for the state machine, reservation accounting, cleanup, and credential expiry.
+
 ### Data Lifecycle Models
 
 - `LifecyclePolicy` has one row per code-owned target key. It stores enablement,
