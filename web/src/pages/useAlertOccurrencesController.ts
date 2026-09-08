@@ -70,10 +70,10 @@ export function useAlertOccurrencesController(active = true) {
   const queryClient = useQueryClient()
   const currentUserQuery = useCurrentUser()
   const urlState = useAlertUrlState()
-  const { filters, page, pageSize, loadedPageSearch, selectedOccurrenceId, activityPage } = urlState
+  const { filters, page, pageSize, loadedPageSearch, selectedOccurrenceId, activityPage, update: updateUrlState } = urlState
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
   const [shareFeedback, setShareFeedback] = useState<string | null>(null)
-  const setActivityPage = (value: number) => urlState.update({ activityPage: value }, true)
+  const setActivityPage = (value: number) => updateUrlState({ activityPage: value }, true)
   const [actionError, setActionError] = useState<string | null>(null)
   const [actionFeedback, setActionFeedback] = useState<string | null>(null)
   const [conflictNotice, setConflictNotice] = useState<string | null>(null)
@@ -263,8 +263,8 @@ export function useAlertOccurrencesController(active = true) {
   useEffect(() => {
     if (!data || occurrencesQuery.isPlaceholderData) return
     const finalPage = alertOccurrencePageCount(data.total, data.page_size)
-    if (page > finalPage) urlState.update({ page: finalPage }, true)
-  }, [data, occurrencesQuery.isPlaceholderData, page])
+    if (page > finalPage) updateUrlState({ page: finalPage }, true)
+  }, [data, occurrencesQuery.isPlaceholderData, page, updateUrlState])
 
   useEffect(() => {
     setSelectedIds(new Set())
@@ -293,19 +293,19 @@ export function useAlertOccurrencesController(active = true) {
     setConflictNotice(null)
   }
   const updateFilters = (changes: Partial<AlertOccurrenceFilters>) => {
-    urlState.update({ filters: { ...filters, ...changes }, page: 1, selectedOccurrenceId: null, activityPage: 1 })
+    updateUrlState({ filters: { ...filters, ...changes }, page: 1, selectedOccurrenceId: null, activityPage: 1 })
     resetCollectionContext()
   }
   const setPage = (nextPage: number) => {
-    urlState.update({ page: Math.max(1, Math.min(nextPage, pageCount)), selectedOccurrenceId: null, activityPage: 1 })
+    updateUrlState({ page: Math.max(1, Math.min(nextPage, pageCount)), selectedOccurrenceId: null, activityPage: 1 })
     resetCollectionContext()
   }
   const setPageSize = (nextPageSize: number) => {
-    urlState.update({ pageSize: nextPageSize, page: 1, selectedOccurrenceId: null, activityPage: 1 })
+    updateUrlState({ pageSize: nextPageSize, page: 1, selectedOccurrenceId: null, activityPage: 1 })
     resetCollectionContext()
   }
   const setLoadedPageSearch = (value: string) => {
-    urlState.update({ loadedPageSearch: value.slice(0, 255) }, true)
+    updateUrlState({ loadedPageSearch: value.slice(0, 255) }, true)
     setSelectedIds(new Set())
   }
   const refreshCollection = () => {
@@ -349,7 +349,7 @@ export function useAlertOccurrencesController(active = true) {
     returnTarget?: HTMLButtonElement | null,
   ) => {
     if (occurrenceId && returnTarget) detailReturnTargetRef.current = returnTarget
-    urlState.update({ selectedOccurrenceId: occurrenceId, activityPage: 1 })
+    updateUrlState({ selectedOccurrenceId: occurrenceId, activityPage: 1 })
     setActionError(null)
     setConflictNotice(null)
   }

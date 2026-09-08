@@ -1,4 +1,4 @@
-import { useMemo, useRef } from 'react'
+import { useCallback, useMemo, useRef } from 'react'
 import { useLocation, useSearchParams } from 'react-router-dom'
 import { ALERT_OCCURRENCE_PAGE_SIZES, ALERT_OCCURRENCE_STATES, ALERT_SEVERITIES, DEFAULT_ALERT_OCCURRENCE_FILTERS, type AlertOccurrenceFilters } from './alertOccurrenceModel'
 
@@ -66,16 +66,17 @@ export function useAlertUrlState() {
   const paramsRef = useRef(params)
   paramsRef.current = params
   const state = useMemo(() => readAlertUrlState(params), [params])
+  const update = useCallback((changes: Partial<AlertUrlState>, replace = false) => {
+    const next = writeAlertUrlState(paramsRef.current, changes)
+    paramsRef.current = next
+    setParams(next, { replace, preventScrollReset: true })
+  }, [setParams])
   const shareParams = new URLSearchParams(params)
   shareParams.set('view', 'occurrences')
   return {
     ...state,
     shareUrl: `${window.location.origin}${location.pathname}?${writeAlertUrlState(shareParams, state)}`,
-    update: (changes: Partial<AlertUrlState>, replace = false) => {
-      const next = writeAlertUrlState(paramsRef.current, changes)
-      paramsRef.current = next
-      setParams(next, { replace, preventScrollReset: true })
-    },
+    update,
     reset: () => setParams(writeAlertUrlState(params, { filters: DEFAULT_ALERT_OCCURRENCE_FILTERS, page: 1, pageSize: 25, loadedPageSearch: '', selectedOccurrenceId: null, activityPage: 1 }), { preventScrollReset: true }),
   }
 }
