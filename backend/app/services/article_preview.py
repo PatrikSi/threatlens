@@ -9,6 +9,8 @@ from bs4 import BeautifulSoup
 from app.core.config import Settings
 from app.models.article import Article
 from app.models.item import Item
+from app.services.bounded_response import ResponseBodyTooLarge, read_bounded_response
+from app.services.outbound_deadline import outbound_deadline
 from app.services.safe_fetch import RedirectError, SafeFetchError, build_safe_http_client, safe_stream_with_redirects
 from app.services.url_utils import is_fetchable_url, normalize_url
 
@@ -113,7 +115,7 @@ def fetch_article_preview_document(
         pool=settings.article_connect_timeout_seconds,
     )
     try:
-        with build_safe_http_client(
+        with outbound_deadline(settings.article_total_timeout_seconds), build_safe_http_client(
             timeout=timeout,
             headers={"User-Agent": settings.fetch_user_agent},
             allow_private_network=settings.allow_private_network_fetch,
@@ -137,21 +139,17 @@ def fetch_article_preview_document(
                 if "text/html" not in (content_type or "").lower():
                     raise ArticlePreviewFetchError("Article preview source is not an HTML page", status_code=415)
 
-                body_chunks: list[bytes] = []
-                body_size = 0
-                for chunk in response.iter_bytes():
-                    body_size += len(chunk)
-                    if body_size > settings.article_max_bytes:
-                        raise ArticlePreviewFetchError("Article preview source exceeds the configured size limit", status_code=413)
-                    body_chunks.append(chunk)
+                body = read_bounded_response(response, settings.article_max_bytes)
             finally:
                 response.close()
+    except ResponseBodyTooLarge as exc:
+        raise ArticlePreviewFetchError("Article preview source exceeds the configured size limit", status_code=413) from exc
     except ArticlePreviewFetchError:
         raise
     except (httpx.HTTPError, TimeoutError, SafeFetchError, RedirectError) as exc:
         raise ArticlePreviewFetchError("Article preview source could not be fetched", status_code=502) from exc
 
-    html = b"".join(body_chunks).decode("utf-8", errors="replace")
+    html = body.decode("utf-8", errors="replace")
     return ArticlePreviewDocument(
         html=sanitize_article_preview_html(html, final_url=final_url),
         source_url=source_url,
