@@ -1,5 +1,6 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
+import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 
 const alertsPageMocks = vi.hoisted(() => ({
@@ -99,7 +100,7 @@ import { AlertsPage } from './AlertsPage'
 
 describe('AlertsPage rendered workflow', () => {
   it('renders labeled alert controls and wires the discard warning', () => {
-    const markup = renderToStaticMarkup(createElement(AlertsPage))
+    const markup = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(AlertsPage)))
 
     expect(markup).toContain('Alert Interests')
     expect(markup).toContain('role="tablist"')
