@@ -48,8 +48,8 @@ def _is_tracking_param(key: str) -> bool:
     return lowered.startswith("utm_") or lowered in TRACKING_PARAMS
 
 
-def _is_sensitive_query_param(key: str) -> bool:
-    lowered = key.lower().replace("-", "_")
+def is_sensitive_query_param(key: str) -> bool:
+    lowered = key.strip().lower().replace("-", "_")
     if lowered in SENSITIVE_QUERY_PARAMS:
         return True
     return any(
@@ -143,7 +143,7 @@ def normalize_url(url: str | None) -> str:
     query_pairs = [
         (k, v)
         for k, v in parse_qsl(parts.query, keep_blank_values=True)
-        if not _is_tracking_param(k) and not _is_sensitive_query_param(k)
+        if not _is_tracking_param(k) and not is_sensitive_query_param(k)
     ]
     query_pairs.sort(key=lambda kv: (kv[0], kv[1]))
     query = urlencode(query_pairs, doseq=True)
@@ -216,7 +216,7 @@ def redact_feed_url(url: str | None) -> str:
             path = "/"
 
     query_pairs = [
-        (key, "REDACTED" if _is_sensitive_query_param(key) else value)
+        (key, "REDACTED" if is_sensitive_query_param(key) else value)
         for key, value in parse_qsl(parts.query, keep_blank_values=True)
     ]
     query = urlencode(query_pairs, doseq=True)

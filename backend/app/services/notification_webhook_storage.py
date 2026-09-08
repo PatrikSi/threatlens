@@ -20,7 +20,7 @@ from app.services.secret_storage import (
     encrypt_text,
     encrypt_text_if_legacy,
 )
-from app.services.url_utils import redact_feed_url
+from app.services.url_utils import is_sensitive_query_param, redact_feed_url
 
 SENSITIVE_HEADER_NAMES = frozenset(
     {
@@ -102,7 +102,7 @@ def is_sensitive_header_name(header_name: str) -> bool:
     lowered = header_name.strip().lower().replace("_", "-")
     if lowered in SENSITIVE_HEADER_NAMES:
         return True
-    return any(marker in lowered for marker in ("token", "secret", "password", "signature", "credential", "auth"))
+    return is_sensitive_query_param(lowered)
 
 
 def redact_notification_field_values(fields: list[NotificationWebhookField]) -> list[NotificationWebhookField]:
@@ -116,8 +116,7 @@ def redact_notification_field_values(fields: list[NotificationWebhookField]) -> 
 def redact_notification_query_params(fields: list[NotificationWebhookField]) -> list[NotificationWebhookField]:
     redacted: list[NotificationWebhookField] = []
     for field in fields:
-        lowered = field.key.strip().lower().replace("-", "_")
-        if any(marker in lowered for marker in ("token", "secret", "password", "credential", "signature", "auth")):
+        if is_sensitive_query_param(field.key):
             redacted.append(NotificationWebhookField(key=field.key, value="REDACTED"))
             continue
         redacted.append(field)
@@ -214,10 +213,14 @@ def notification_webhook_response_from_model(
 
 def notification_webhook_delivery_response_from_model(
     delivery: NotificationWebhookDelivery,
+    *,
+    redact_secrets: bool = True,
 ) -> NotificationWebhookDeliveryResponse:
     upgrade_notification_webhook_delivery_secret_storage(delivery)
-    rendered_headers = redact_notification_field_values(notification_fields_from_storage(delivery.rendered_headers_json))
-    rendered_query_params = redact_notification_query_params(
+    header_redactor = redact_notification_config_fields if redact_secrets else redact_notification_field_values
+    query_redactor = redact_notification_config_fields if redact_secrets else redact_notification_query_params
+    rendered_headers = header_redactor(notification_fields_from_storage(delivery.rendered_headers_json))
+    rendered_query_params = query_redactor(
         notification_fields_from_storage(delivery.rendered_query_params_json)
     )
     return NotificationWebhookDeliveryResponse(
@@ -238,13 +241,13 @@ def notification_webhook_delivery_response_from_model(
         status_code=delivery.status_code,
         duration_ms=delivery.duration_ms,
         timeout_seconds=delivery.timeout_seconds,
-        rendered_url=redact_feed_url(decrypt_notification_text(delivery.rendered_url)),
+        rendered_url="REDACTED" if redact_secrets else redact_feed_url(decrypt_notification_text(delivery.rendered_url)),
         rendered_method=delivery.rendered_method,
         rendered_headers=rendered_headers,
         rendered_query_params=rendered_query_params,
         rendered_body=redact_delivery_body_preview(decrypt_notification_text(delivery.rendered_body)),
         response_body_preview=redact_delivery_body_preview(decrypt_notification_text(delivery.response_body_preview)),
-        error=notification_error_for_display(delivery.error),
+        error=("Delivery diagnostics withheld" if redact_secrets and delivery.error else notification_error_for_display(delivery.error)),
         attempted_at=delivery.attempted_at,
     )
 

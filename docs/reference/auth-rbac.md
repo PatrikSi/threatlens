@@ -1,5 +1,13 @@
 # Auth, RBAC, and Token Scopes
 
+Webhook delivery history uses the same secret-read permissions as webhook
+configuration: an admin or analyst role plus `write:notifications` for scoped
+credentials. Read-only credentials and viewers can inspect delivery state,
+status, timing, and source metadata, but the complete destination URL, configured
+header/query values, and free-form diagnostics are withheld. Request and response
+bodies remain withheld for every role. Common credential aliases are redacted
+even in privileged delivery previews.
+
 ## Published Paths
 
 - Public/browser-facing API paths are versioned under `/api/v1/*`
