@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
+import { invalidateSession } from '../api/sessionLifecycle'
 import { apiFetch } from '../api/client'
 import { useFeedsPageController } from './useFeedsPageController'
 import { useSMTPIntegrationController } from './useSMTPIntegrationController'
@@ -71,6 +72,23 @@ describe('save completion draft isolation', () => {
     await settle()
     expect(get().name).toBe('Next feed draft')
     expect(get().url).toBe('')
+  })
+
+  it('does not dispatch remaining feed batch requests under a replacement session', async () => {
+    const releases: Array<() => void> = []
+    vi.mocked(apiFetch).mockImplementation((path, init) => init?.method === 'POST'
+      ? new Promise((resolve) => { releases.push(() => resolve({} as never)) })
+      : Promise.resolve(path === '/feeds' ? [feed] : {}) as never)
+    const get = mount(useFeedsPageController)
+    await settle()
+    act(() => get().bulkRefreshFeeds.mutate(Array.from({ length: 8 }, (_, i) => ({ ...feed, id: `batch-${i}` }))))
+    await settle()
+    expect(releases).toHaveLength(5)
+    act(() => invalidateSession())
+    await act(async () => releases.forEach((release) => release()))
+    await settle()
+    expect(releases).toHaveLength(5)
+    expect(get().bulkRefreshFeeds.isError).toBe(true)
   })
 
   it('preserves SMTP edits and their dirty state after a delayed save', async () => {

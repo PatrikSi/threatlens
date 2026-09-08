@@ -1,6 +1,7 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
+import { captureSessionLease } from '../api/sessionLifecycle'
 import { ApiError, apiFetch } from '../api/client'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { rebaseSavedDraft } from '../hooks/rebaseSavedDraft'
@@ -318,9 +319,13 @@ export function useFeedsPageController() {
   const bulkRefreshFeeds = useMutation({
     mutationKey: ['feeds', 'bulk-refresh'],
     mutationFn: async (feeds: Feed[]) => {
-      const settled = await mapSettledWithConcurrency(feeds, BULK_FEED_REQUEST_CONCURRENCY, (feed) =>
-        apiFetch(`/feeds/${feed.id}/refresh`, { method: 'POST' }),
+      const lease = captureSessionLease()
+      const settled = await mapSettledWithConcurrency(feeds, BULK_FEED_REQUEST_CONCURRENCY, (feed) => {
+        lease.assertCurrent()
+        return apiFetch(`/feeds/${feed.id}/refresh`, { method: 'POST' })
+      },
       )
+      lease.assertCurrent()
       return summarizeBulkResults(feeds, settled)
     },
     onSuccess: (result) => {
@@ -336,15 +341,19 @@ export function useFeedsPageController() {
   const bulkSetEnabled = useMutation({
     mutationKey: ['feeds', 'bulk-set-enabled'],
     mutationFn: async (payload: { feeds: Feed[]; enabled: boolean }) => {
+      const lease = captureSessionLease()
       const settled = await mapSettledWithConcurrency(
         payload.feeds,
         BULK_FEED_REQUEST_CONCURRENCY,
-        (feed) =>
-          apiFetch<Feed>(`/feeds/${feed.id}`, {
+        (feed) => {
+          lease.assertCurrent()
+          return apiFetch<Feed>(`/feeds/${feed.id}`, {
             method: 'PATCH',
             body: JSON.stringify({ enabled: payload.enabled }),
-          }),
+          })
+        },
       )
+      lease.assertCurrent()
       return { enabled: payload.enabled, ...summarizeBulkResults(payload.feeds, settled) }
     },
     onSuccess: (result) => {
@@ -357,9 +366,13 @@ export function useFeedsPageController() {
   const bulkDeleteFeeds = useMutation({
     mutationKey: ['feeds', 'bulk-delete'],
     mutationFn: async (feeds: Feed[]) => {
-      const settled = await mapSettledWithConcurrency(feeds, BULK_FEED_REQUEST_CONCURRENCY, (feed) =>
-        apiFetch<void>(`/feeds/${feed.id}`, { method: 'DELETE' }),
+      const lease = captureSessionLease()
+      const settled = await mapSettledWithConcurrency(feeds, BULK_FEED_REQUEST_CONCURRENCY, (feed) => {
+        lease.assertCurrent()
+        return apiFetch<void>(`/feeds/${feed.id}`, { method: 'DELETE' })
+      },
       )
+      lease.assertCurrent()
       return summarizeBulkResults(feeds, settled)
     },
   })
@@ -617,6 +630,7 @@ export function useFeedsPageController() {
   }
 
   const onImportFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const lease = captureSessionLease()
     const file = event.target.files?.[0]
     if (!file) return
 
@@ -634,6 +648,7 @@ export function useFeedsPageController() {
 
     try {
       const text = await file.text()
+      lease.assertCurrent()
       const parsed = JSON.parse(text) as unknown
       const entries = parseImportEntries(parsed)
       const duplicateUrls = findDuplicateUrls(entries)
@@ -643,6 +658,7 @@ export function useFeedsPageController() {
         setImportWarning(`Duplicate feed URLs in import file: ${duplicateUrls.join(', ')}`)
       }
     } catch (error) {
+      if (lease.signal.aborted) return
       setImportData(null)
       setImportFilename('')
       setImportError((error as Error).message)
@@ -652,6 +668,7 @@ export function useFeedsPageController() {
   }
 
   const persistFeedSchedule = async (feedId: string, draft: FeedScheduleDraft) => {
+    const lease = captureSessionLease()
     const feed = (feedsQuery.data ?? []).find((entry) => entry.id === feedId)
     if (!feed) return
 
@@ -689,9 +706,11 @@ export function useFeedsPageController() {
         method: 'PATCH',
         body: JSON.stringify(body),
       })
+      lease.assertCurrent()
       setFeedSaveState((previous) => ({ ...previous, [feedId]: { status: 'saved' } }))
       await queryClient.invalidateQueries({ queryKey: ['feeds'] })
     } catch (error) {
+      if (lease.signal.aborted) return
       setFeedSaveState((previous) => ({
         ...previous,
         [feedId]: { status: 'error', message: resolveMutationError(error, 'Feed schedule could not be updated') },
