@@ -13,7 +13,7 @@ npm run test:browser
 
 The test server binds port 4173 and refuses to reuse an existing process. To select a workflow, pass Playwright arguments after `--`, for example `npm run test:browser -- --grep 'session outage'`. Use `npx playwright show-trace test-results/<failed-test>/trace.zip` to inspect a failure. CI installs Chromium, runs this suite in the frontend quality gate, and keeps failure traces for seven days.
 
-Coverage includes a dirty feed editor through failed session polling and recovery, confirmed expiry, cross-tab identity changes, nested browser Back/discard dialogs, keyboard panel movement and resizing, and per-article consent for external preview resources. These checks complement the real QueryClient regression tests in `SessionQueryProvider.test.tsx` and `SessionVerificationBoundary.test.tsx`. Browser tests use `*.browser.ts` filenames so Vitest does not collect them.
+Coverage includes a dirty feed editor through failed session polling and recovery, confirmed expiry, cross-tab identity changes, nested browser Back/discard dialogs, edits made during a pending feed save, keyboard panel movement and resizing, and per-article consent for external preview resources. These checks complement the real QueryClient regression tests in `SessionQueryProvider.test.tsx` and `SessionVerificationBoundary.test.tsx`. Browser tests use `*.browser.ts` filenames so Vitest does not collect them.
 
 The preview response fixture is generated from the actual backend sanitizer and response headers. Regenerate it with the backend development dependencies available:
 
