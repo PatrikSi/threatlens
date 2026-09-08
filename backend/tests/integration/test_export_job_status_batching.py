@@ -4,19 +4,23 @@ import time
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import event, insert
+import pytest
+from sqlalchemy import event, insert, select, text
 from sqlalchemy.orm import Session
 from starlette.requests import Request
 
 from app.api.routes.export_jobs import list_export_jobs
+from app.api.routes import export_jobs as export_routes
 from app.models.api_token import ApiToken
 from app.models.data_policy import (
     QUARANTINE_HANDLING_LABEL_ID,
     UNRESTRICTED_HANDLING_LABEL_ID,
+    DataPolicyState,
 )
 from app.models.export_job import ExportJob
 from app.models.feed import Feed
 from app.models.item import Item
+from app.models.iam import IAMPolicyState
 from app.models.user import User
 from app.services import export_job_access, export_job_status
 from app.services.export_job_access import authorize_export_job
@@ -88,6 +92,54 @@ def _contexts(db, job):
         }
     )
     return request, authorization, access
+
+
+@pytest.mark.parametrize("policy_model", [IAMPolicyState, DataPolicyState])
+@pytest.mark.parametrize("action", ["accept", "cancel"])
+def test_status_policy_revision_races_return_retryable_conflict(
+    export_env, monkeypatch, policy_model, action
+):
+    env = export_env
+    job_id, payload = _accept(env)
+    if action == "accept":
+        payload = {**payload, "idempotency_key": str(uuid.uuid4())}
+    original = export_routes.export_job_responses
+
+    def change_policy_before_status(db, jobs, **kwargs):
+        # Mutation commit released the dependency's policy fences. A separate
+        # transaction changes the revision before status serialization.
+        with Session(env.engine) as other:
+            other.execute(text("SET LOCAL lock_timeout = '2s'"))
+            other.get(policy_model, 1).revision += 1
+            other.commit()
+        return original(db, jobs, **kwargs)
+
+    monkeypatch.setattr(
+        export_routes, "export_job_responses", change_policy_before_status
+    )
+
+    def request():
+        if action == "accept":
+            return env.client.post("/exports/jobs", json=payload, headers=env.headers)
+        return env.client.post(f"/exports/jobs/{job_id}/cancel", headers=env.headers)
+
+    response = request()
+    assert response.status_code == 409, response.text
+    assert response.json()["error"]["code"] == "export_authorization_changed"
+    assert "filename" not in response.json()
+    assert "Retry this request" in response.json()["detail"]
+    # Status failure must not lose a successful acceptance/cancellation or
+    # create duplicates when the caller retries with its idempotency key.
+    with Session(env.engine) as db:
+        jobs = db.scalars(
+            select(ExportJob).where(ExportJob.principal_id == env.owner_id)
+        ).all()
+        assert len(jobs) == (2 if action == "accept" else 1)
+        if action == "cancel":
+            assert jobs[0].status == "cancelled"
+    monkeypatch.setattr(export_routes, "export_job_responses", original)
+    retry = request()
+    assert retry.status_code == (202 if action == "accept" else 200), retry.text
 
 
 def test_large_overlapping_status_page_bounds_membership_queries(export_env):

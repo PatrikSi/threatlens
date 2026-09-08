@@ -35,6 +35,10 @@ source-membership result is cached across requests, and download performs its
 own fresh checks. Disjoint large exports still require work proportional to
 their distinct source identities while request authorization fences are held;
 use the bounded page size and monitor status-query latency under that workload.
+If a policy revision changes after accepting or cancelling a job commits but
+before its status is returned, the API responds with a retryable
+`export_authorization_changed` conflict. The committed job state remains durable;
+retry acceptance with the same idempotency key or reload the job list.
 
 Rendering holds no global IAM or handling-policy lock. The final publication transaction fences both policies; download uses the same final fenced response boundary as synchronous exports. Policy changes during generation discard the artifact rather than publishing a partly authorized result.
 
