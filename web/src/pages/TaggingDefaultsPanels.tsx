@@ -23,6 +23,7 @@ export function TaggingPageHeader({ controller }: TaggingPanelProps) {
           </div>
         )}
       </SettingsPageHeader>
+      <TaggingRecoveryStatus controller={controller} />
 
       {notice && (
         <p
@@ -39,6 +40,30 @@ export function TaggingPageHeader({ controller }: TaggingPanelProps) {
         </p>
       )}
     </>
+  )
+}
+
+function TaggingRecoveryStatus({ controller }: TaggingPanelProps) {
+  const recovery = controller.bundleQuery.data?.tagging_recovery
+  if (!recovery?.pending) return null
+
+  return (
+    <section aria-label="Incomplete tagging" className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+      <p role="status">
+        Tagging is incomplete for {recovery.pending} accessible items: {recovery.retrying} awaiting automatic retry,
+        {' '}{recovery.needs_attention} need attention.
+      </p>
+      <p className="mt-2">Previous automatic tags are retained until evaluation completes and may be out of date.</p>
+      {recovery.errors.length > 0 && (
+        <ul className="mt-2 list-disc pl-5">
+          {recovery.errors.map((error) => <li key={error.code}>{error.message} ({error.count} items)</li>)}
+        </ul>
+      )}
+      <p className="mt-2">
+        Correct the reported rule, source, or worker issue, then queue retagging for the affected time window.
+        Items that need attention are included when they fall within that window and its limit.
+      </p>
+    </section>
   )
 }
 

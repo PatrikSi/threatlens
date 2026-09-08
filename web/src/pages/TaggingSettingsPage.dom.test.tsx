@@ -132,7 +132,7 @@ vi.mock('@tanstack/react-query', () => ({
       data: undefined,
     }
   },
-  useMutation: (options: { mutationKey?: unknown; onSuccess?: (result: unknown) => void }) => {
+  useMutation: (options: { mutationKey?: unknown; onSuccess?: (result: unknown, variables?: unknown) => void }) => {
     const mutationKey = Array.isArray(options?.mutationKey) ? options.mutationKey.join(':') : String(options?.mutationKey ?? '')
     if (mutationKey === 'tagging:rules:preview') {
       return taggingMutationResult(
@@ -161,7 +161,7 @@ vi.mock('@tanstack/react-query', () => ({
                 classification: 'vulnerability',
               },
             ],
-          })
+          }, payload)
         }),
       )
     }
@@ -368,7 +368,9 @@ describe('TaggingSettingsPage DOM workflows', () => {
       previewButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    expect(taggingPageDomMocks.previewRuleMutate).toHaveBeenCalledWith({
+    expect(taggingPageDomMocks.previewRuleMutate).toHaveBeenCalledWith(expect.objectContaining({
+      ruleId: 'rule-1',
+      draft: {
       name: 'VPN disclosures',
       tag_name: 'vpn',
       enabled: true,
@@ -379,8 +381,9 @@ describe('TaggingSettingsPage DOM workflows', () => {
       required_categories: [],
       feed_scope: 'all',
       feed_ids: [],
-      min_classification_confidence: null,
-    })
+      min_classification_confidence: '',
+      },
+    }))
   })
 
   it('protects unsaved rule changes before opening the delete confirmation', () => {
@@ -436,7 +439,7 @@ describe('TaggingSettingsPage DOM workflows', () => {
       confirmDeleteButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    expect(taggingPageDomMocks.deleteRuleMutate).toHaveBeenCalledWith('rule-1')
+    expect(taggingPageDomMocks.deleteRuleMutate).toHaveBeenCalledWith(expect.objectContaining({ ruleId: 'rule-1' }))
   })
 
   it('requires an explicit confirmation before queueing a full retagging pass', () => {

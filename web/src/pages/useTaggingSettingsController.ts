@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { apiFetch } from '../api/client'
@@ -16,15 +16,13 @@ import {
   DEFAULT_TAGGING_SETTINGS_DRAFT,
   TaggingNotice,
   TaggingReapplyRequest,
-  TaggingRuleDraft,
   TaggingSettingsDraft,
-  createDefaultRuleDraft,
-  createDraftFromRule,
   createRuleRequestFromDraft,
   createSettingsDraft,
   getRuleDraftValidationError,
   parseTaggingReapplyRequest,
 } from './taggingSettingsModel'
+import { useTaggingRuleDraft, type TaggingRuleSubmission } from './useTaggingRuleDraft'
 import { hasRequiredPermissions } from '../workspace/workspaceModel'
 
 export function useTaggingSettingsController() {
@@ -34,9 +32,10 @@ export function useTaggingSettingsController() {
     ...DEFAULT_TAGGING_SETTINGS_DRAFT,
     enabled_categories: [...DEFAULT_TAGGING_SETTINGS_DRAFT.enabled_categories],
   })
-  const [selectedRuleId, setSelectedRuleId] = useState<string | null>(null)
-  const [ruleDraft, setRuleDraft] = useState<TaggingRuleDraft>(() => createDefaultRuleDraft())
-  const [previewResult, setPreviewResult] = useState<TaggingRulePreviewResponse | null>(null)
+  const ruleEditor = useTaggingRuleDraft()
+  const { selectedRuleId, selectedRule, ruleDraft, setRuleDraft, baselineRuleDraft } = ruleEditor
+  const [preview, setPreview] = useState<{ result: TaggingRulePreviewResponse; submission: TaggingRuleSubmission } | null>(null)
+  const previewResult = preview && ruleEditor.isCurrentSubmission(preview.submission) ? preview.result : null
   const [notice, setNotice] = useState<TaggingNotice | null>(null)
   const [reapplyDays, setReapplyDays] = useState('30')
   const [reapplyLimit, setReapplyLimit] = useState('0')
@@ -73,28 +72,9 @@ export function useTaggingSettingsController() {
     syncedSettingsDraftRef.current = nextServerDraft
   }, [bundleQuery.data?.settings])
 
-  useEffect(() => {
-    if (!bundleQuery.data) {
-      return
-    }
-    const availableRuleIds = new Set(bundleQuery.data.rules.map((rule) => rule.id))
-    if (selectedRuleId && !availableRuleIds.has(selectedRuleId)) {
-      setSelectedRuleId(null)
-      setRuleDraft(createDefaultRuleDraft())
-      setPreviewResult(null)
-    }
-  }, [bundleQuery.data, selectedRuleId])
-
-  useEffect(() => setPreviewResult(null), [ruleDraft])
-
-  const selectedRule = useMemo(
-    () => bundleQuery.data?.rules.find((rule) => rule.id === selectedRuleId) ?? null,
-    [bundleQuery.data, selectedRuleId],
-  )
   const baselineSettingsDraft = bundleQuery.data
     ? createSettingsDraft(bundleQuery.data.settings)
     : DEFAULT_TAGGING_SETTINGS_DRAFT
-  const baselineRuleDraft = selectedRule ? createDraftFromRule(selectedRule) : createDefaultRuleDraft()
   const hasUnsavedTaggingChanges =
     !draftsEqual(settingsDraft, baselineSettingsDraft) || !draftsEqual(ruleDraft, baselineRuleDraft)
   const hasUnsavedRuleDraftChanges = !draftsEqual(ruleDraft, baselineRuleDraft)
@@ -121,34 +101,48 @@ export function useTaggingSettingsController() {
   })
   const saveRule = useMutation({
     mutationKey: ['tagging', 'rules', 'save'],
-    mutationFn: (payload: TaggingRuleWriteRequest) => saveRuleRequest(selectedRuleId, payload),
-    onSuccess: (saved) => {
-      setSelectedRuleId(saved.id)
-      setRuleDraft(createDraftFromRule(saved))
-      setNotice({ tone: 'success', message: selectedRuleId ? 'Tagging rule updated.' : 'Tagging rule created.' })
+    mutationFn: (submission: TaggingRuleSubmission) =>
+      saveRuleRequest(submission.ruleId, createRuleRequestFromDraft(submission.draft)),
+    onSuccess: (saved, submission) => {
+      // Cancel an older inventory request before inserting the accepted server rule.
+      void queryClient.cancelQueries({ queryKey: ['tagging', 'settings'] })
+      queryClient.setQueryData<TaggingSettingsBundleResponse>(['tagging', 'settings'], (current) => current ? {
+        ...current,
+        rules: [...current.rules.filter((rule) => rule.id !== saved.id), saved],
+      } : current)
+      ruleEditor.acceptSavedRule(saved, submission)
+      if (ruleEditor.isSelectedSubmission(submission)) {
+        setNotice({ tone: 'success', message: submission.ruleId ? 'Tagging rule updated.' : 'Tagging rule created.' })
+      }
       void queryClient.invalidateQueries({ queryKey: ['tagging', 'settings'] })
     },
   })
   const deleteRule = useMutation({
     mutationKey: ['tagging', 'rules', 'delete'],
-    mutationFn: (ruleId: string) => apiFetch<void>(`/tagging/rules/${ruleId}`, { method: 'DELETE' }),
-    onSuccess: () => {
-      setSelectedRuleId(null)
-      setRuleDraft(createDefaultRuleDraft())
-      setPreviewResult(null)
-      setNotice({ tone: 'success', message: 'Tagging rule deleted.' })
+    mutationFn: (submission: TaggingRuleSubmission) => apiFetch<void>(`/tagging/rules/${submission.ruleId}`, { method: 'DELETE' }),
+    onSuccess: (_result, submission) => {
+      void queryClient.cancelQueries({ queryKey: ['tagging', 'settings'] })
+      queryClient.setQueryData<TaggingSettingsBundleResponse>(['tagging', 'settings'], (current) => current ? {
+        ...current, rules: current.rules.filter((rule) => rule.id !== submission.ruleId),
+      } : current)
+      if (ruleEditor.isSelectedSubmission(submission)) {
+        ruleEditor.replaceRuleDraft(null)
+        setPreview(null)
+        setNotice({ tone: 'success', message: 'Tagging rule deleted.' })
+      }
       void queryClient.invalidateQueries({ queryKey: ['tagging', 'settings'] })
     },
   })
   const previewRule = useMutation({
     mutationKey: ['tagging', 'rules', 'preview'],
-    mutationFn: (payload: TaggingRuleWriteRequest) =>
+    mutationFn: (submission: TaggingRuleSubmission) =>
       apiFetch<TaggingRulePreviewResponse>('/tagging/rules/preview', {
         method: 'POST',
-        body: JSON.stringify({ ...payload, limit: 5 }),
+        body: JSON.stringify({ ...createRuleRequestFromDraft(submission.draft), limit: 5 }),
       }),
-    onSuccess: (result) => {
-      setPreviewResult(result)
+    onSuccess: (result, submission) => {
+      if (!ruleEditor.isCurrentSubmission(submission)) return
+      setPreview({ result, submission })
       setNotice({ tone: result.warnings?.length ? 'error' : 'success', message: result.complete === false
         ? 'Partial preview loaded. Review the result scope and any evaluation warnings.'
         : result.total > 0 ? 'Preview loaded.' : 'No current matches for this rule.' })
@@ -167,9 +161,8 @@ export function useTaggingSettingsController() {
   const ruleValidationError = getRuleDraftValidationError(ruleDraft)
   const reapplyRequestDraft = parseTaggingReapplyRequest(reapplyDays, reapplyLimit)
   const replaceRuleDraft = (rule: TaggingRule | null) => {
-    setSelectedRuleId(rule?.id ?? null)
-    setRuleDraft(rule ? createDraftFromRule(rule) : createDefaultRuleDraft())
-    setPreviewResult(null)
+    ruleEditor.replaceRuleDraft(rule)
+    setPreview(null)
     setNotice(null)
   }
   const selectRule = (rule: TaggingRule | null) => {
@@ -188,7 +181,7 @@ export function useTaggingSettingsController() {
       return
     }
     setNotice(null)
-    mutation.mutate(createRuleRequestFromDraft(ruleDraft))
+    mutation.mutate(ruleEditor.captureSubmission())
   }
 
   return {
@@ -205,7 +198,7 @@ export function useTaggingSettingsController() {
       if (pendingRuleDelete && canManageTagging) {
         const ruleId = pendingRuleDelete.id
         setPendingRuleDelete(null)
-        deleteRule.mutate(ruleId)
+        deleteRule.mutate({ ...ruleEditor.captureSubmission(), ruleId })
       }
     },
     onConfirmReapplyTagging: () => {
@@ -219,9 +212,11 @@ export function useTaggingSettingsController() {
     onCreateNewRule: () => {
       if (canManageTagging) selectRule(null)
     },
-    onPreviewRule: () => submitRuleMutation(previewRule),
+    onPreviewRule: () => {
+      if (canManageTagging) submitRuleMutation(previewRule)
+    },
     onRequestDeleteRule: (rule: TaggingRule | null) => {
-      if (rule && canManageTagging) {
+      if (rule && canManageTagging && !saveRule.isPending) {
         confirmDiscardUnsavedTaggingChanges(() => setPendingRuleDelete(rule))
       }
     },
@@ -232,7 +227,7 @@ export function useTaggingSettingsController() {
       }
     },
     onSaveRule: () => {
-      if (canManageTagging) submitRuleMutation(saveRule)
+      if (canManageTagging && !deleteRule.isPending) submitRuleMutation(saveRule)
     },
     onSaveSettings: () => {
       if (!canManageTagging) return

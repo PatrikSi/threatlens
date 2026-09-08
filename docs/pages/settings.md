@@ -174,6 +174,11 @@ permission requires the built-in administrator base role.
   - optional category requirements
   - all feeds or selected feeds
   - optional minimum classification confidence
+- Rule saves retain edits made while a request is pending and reconcile accepted
+  fields against the submitted draft. Changing the selected rule starts a new
+  editor baseline; earlier saves and previews cannot replace it. Accepted new
+  rules stay selected during inventory refreshes. A preview applies only to the
+  same selected rule and input values that were submitted.
 - Rule preview checks up to 200 recent accessible items before save, with a
   three-second evaluation budget. It shows the scanned scope and explicitly marks
   incomplete results; a partial zero count does not establish that no item matches.
@@ -182,10 +187,16 @@ permission requires the built-in administrator base role.
   an item batch shares 400 ms and at most 200 regex rules. A one-second parent
   timeout kills and reaps a stalled evaluator. Oversized text, invalid patterns,
   timeouts, and resource failures appear in preview warnings. Simplify the pattern
-  or reduce enabled rules before reapplying. Runtime failures skip the affected
-  custom matches and emit `tagging_rule_evaluation_failed` with the rule ID and
-  error code; built-in classification tags and manual labels continue normally.
-- Reapply tagging queues a background pass for recent items
+  or reduce enabled rules before reapplying. Incomplete evaluations retain previous
+  automatic tags, which may be out of date, and persist recovery state. Manual
+  labels are preserved, and classification/IOC processing proceeds independently.
+- Content tagging shows pending, automatically retrying, and needs-attention
+  counts restricted to items the current account can access, with bounded error
+  messages. Transient worker failures retry with backoff up to five failed
+  attempts. Rule/input limit failures require correction and deliberate reapply.
+- Reapply tagging queues a background pass using current sources and rules,
+  including needs-attention items within the selected time window and limit.
+  Complete evaluation clears recovery state and reconciles automatic tags.
 - API calls:
   - `GET /tagging/settings`
   - `PUT /tagging/settings`
