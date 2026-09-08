@@ -258,6 +258,11 @@ _REQUEST_CONTEXT_OPERATIONS: tuple[OperationLiteral, ...] = (
     ('POST', '/v1/exports', 'download_export'),
     ('GET', '/v1/exports/capabilities', 'get_export_capabilities'),
     ('POST', '/v1/exports/preview', 'preview_export'),
+    ('POST', '/v1/exports/jobs', 'accept_export_job'),
+    ('GET', '/v1/exports/jobs', 'list_export_jobs'),
+    ('GET', '/v1/exports/jobs/{job_id}', 'get_export_job'),
+    ('POST', '/v1/exports/jobs/{job_id}/cancel', 'cancel_export_job'),
+    ('GET', '/v1/exports/jobs/{job_id}/download', 'download_export_job'),
     ('GET', '/v1/feeds', 'list_feeds'),
     ('POST', '/v1/feeds', 'create_feed'),
     ('GET', '/v1/feeds/export', 'export_feeds_sanitized'),
@@ -464,6 +469,10 @@ _ENDPOINT_NAMES_BY_MODULE: Final[dict[str, tuple[str, ...]]] = {
         "download_export",
         "get_export_capabilities",
         "preview_export",
+    ),
+    "app.api.routes.export_jobs": (
+        "accept_export_job", "list_export_jobs", "get_export_job",
+        "cancel_export_job", "download_export_job",
     ),
     "app.api.routes.feeds": (
         "create_feed",

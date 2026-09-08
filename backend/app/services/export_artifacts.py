@@ -71,13 +71,14 @@ def generate_export_artifact(
     filters: ArticleExportFilters,
     options: ArticleExportOptions,
     max_uncompressed_bytes: int,
+    artifact_directory: Path | None = None,
 ) -> ExportArtifact:
     suffix, media_type = FORMAT_DETAILS[export_format]
     exported_at = datetime.now(timezone.utc)
     filename = _build_export_filename(options.filename_prefix, exported_at=exported_at, suffix=suffix)
     budget = ExportSizeBudget(maximum=max_uncompressed_bytes)
 
-    with _temporary_artifact_path(suffix=f".{suffix}") as path:
+    with _temporary_artifact_path(suffix=f".{suffix}", directory=artifact_directory) as path:
         if export_format == "csv":
             _write_csv(path, records=records, options=options, budget=budget)
         elif export_format == "jsonl":
@@ -218,7 +219,7 @@ def _write_threat_bundle(
     if include_ioc_csv:
         file_names.append("iocs.csv")
 
-    with tempfile.TemporaryDirectory(prefix="threatlens-export-bundle-") as directory:
+    with tempfile.TemporaryDirectory(prefix="threatlens-export-bundle-", dir=path.parent) as directory:
         inner_dir = Path(directory)
         jsonl_path = inner_dir / "articles.jsonl"
         csv_path = inner_dir / "articles.csv"
@@ -317,8 +318,8 @@ def _build_export_filename(prefix: str | None, *, exported_at: datetime, suffix:
 
 
 @contextmanager
-def _temporary_artifact_path(*, suffix: str):
-    descriptor, raw_path = tempfile.mkstemp(prefix="threatlens-export-", suffix=suffix)
+def _temporary_artifact_path(*, suffix: str, directory: Path | None = None):
+    descriptor, raw_path = tempfile.mkstemp(prefix="threatlens-export-", suffix=suffix, dir=directory)
     os.close(descriptor)
     path = Path(raw_path)
     try:
