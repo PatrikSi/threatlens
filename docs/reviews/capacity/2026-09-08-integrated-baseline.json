@@ -1,0 +1,150 @@
+{
+  "ai_connection_runs_by_status": {
+    "ready": 21
+  },
+  "ai_receipts_by_state": {
+    "succeeded": 21
+  },
+  "ai_usage_rows_by_success": {
+    "true": 21
+  },
+  "budget_violations": {},
+  "budgets": {
+    "ai_connection_p95_ms": 5000,
+    "export_p95_ms": 10000,
+    "governance_p95_ms": 5000,
+    "process_rss_increase_bytes": 536870912,
+    "queue_recovery_ms": 120000,
+    "sampled_lock_waiting_query_age_peak_ms": 10000
+  },
+  "cpu_count": 4,
+  "database": {
+    "lock_wait_samples": 85,
+    "sampled_lock_waiting_query_age_peak_ms": 2034.64,
+    "waiting_sessions_peak": 2
+  },
+  "elapsed_seconds": 20.067,
+  "environment": {
+    "celery_heartbeat_seconds": 0.2,
+    "celery_pool": "threads",
+    "database_max_overflow": 10,
+    "database_pool_size": 5,
+    "postgres_version": "16.14 (Debian 16.14-1.pgdg13+1)",
+    "redis_version": "7.4.9"
+  },
+  "git_revision": "020967893a9acf57e57a2b8dd1d2affe31fd3c76",
+  "latencies": {
+    "ai_connection": {
+      "count": 21,
+      "max_ms": 523.705,
+      "p50_ms": 244.373,
+      "p95_ms": 496.868
+    },
+    "ai_connection:succeeded": {
+      "count": 21,
+      "max_ms": 523.705,
+      "p50_ms": 244.373,
+      "p95_ms": 496.868
+    },
+    "export": {
+      "count": 21,
+      "max_ms": 710.993,
+      "p50_ms": 243.934,
+      "p95_ms": 677.476
+    },
+    "export:policy_conflict": {
+      "count": 10,
+      "max_ms": 280.067,
+      "p50_ms": 171.841,
+      "p95_ms": 280.067
+    },
+    "export:succeeded": {
+      "count": 11,
+      "max_ms": 710.993,
+      "p50_ms": 301.632,
+      "p95_ms": 710.993
+    },
+    "governance": {
+      "count": 20,
+      "max_ms": 2095.96,
+      "p50_ms": 36.617,
+      "p95_ms": 216.396
+    },
+    "task:classify_item": {
+      "count": 60,
+      "max_ms": 157.465,
+      "p50_ms": 112.391,
+      "p95_ms": 141.165
+    },
+    "task:extract_item_iocs": {
+      "count": 60,
+      "max_ms": 57.021,
+      "p50_ms": 32.752,
+      "p95_ms": 52.859
+    },
+    "task:fetch_article": {
+      "count": 60,
+      "max_ms": 123.967,
+      "p50_ms": 62.326,
+      "p95_ms": 119.97
+    },
+    "task:fetch_feed": {
+      "count": 4,
+      "max_ms": 2369.416,
+      "p50_ms": 1234.667,
+      "p95_ms": 2369.416
+    },
+    "task:process_alert_evaluation": {
+      "count": 60,
+      "max_ms": 45.876,
+      "p50_ms": 28.237,
+      "p95_ms": 41.845
+    },
+    "task:route_integration_event": {
+      "count": 60,
+      "max_ms": 122.306,
+      "p50_ms": 46.624,
+      "p95_ms": 107.475
+    }
+  },
+  "memory": {
+    "process_rss_increase_bytes": 69332992,
+    "process_rss_peak_bytes": 328060928,
+    "process_rss_start_bytes": 258727936
+  },
+  "outcomes": {
+    "ai_succeeded": 21,
+    "exports_policy_conflict": 10,
+    "exports_succeeded": 11,
+    "governance_succeeded": 20,
+    "ingestion_recovered": 1
+  },
+  "platform": "Linux-6.8.0-137-generic-x86_64-with-glibc2.39",
+  "policy_mode": "enforced",
+  "profile": "baseline",
+  "python": "3.12.3",
+  "queue": {
+    "depth_peak": 118,
+    "expected_ingested_articles": 60,
+    "outage_backlog": 4,
+    "recovery_ms": 17834.892
+  },
+  "recorded_at": "2026-09-08T07:31:57.315879+00:00",
+  "run_id": "62c4cb9524624f77bbb71fcb5341d07b",
+  "sampler": {
+    "errors": [],
+    "interval_ms": 20,
+    "samples": 712
+  },
+  "schema_version": 1,
+  "task_errors": [],
+  "workload": {
+    "article_bytes": 32768,
+    "feeds": 4,
+    "items_per_feed": 10,
+    "operations": 20,
+    "provider_delay_seconds": 0.1,
+    "seed_items": 500,
+    "worker_concurrency": 4
+  }
+}
