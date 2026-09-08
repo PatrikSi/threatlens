@@ -137,100 +137,106 @@ function ScheduleEditor({
   }
 
   return (
-    <form className="grid gap-3 border-b border-slate/15 p-3 dark:border-white/10 sm:grid-cols-2 lg:grid-cols-4" aria-busy={isSubmitting} onSubmit={(event) => { event.preventDefault(); if (!isSubmitting) onSubmit(payload) }}>
-      <label className="text-xs font-semibold">
-        Name
-        <input required maxLength={255} className={INPUT_CLASS} value={name} onChange={(event) => setName(event.target.value)} />
-      </label>
-      <label className="text-xs font-semibold">
-        Template
-        <select
-          required
-          className={INPUT_CLASS}
-          value={templateId}
-          onChange={(event) => {
-            const nextId = event.target.value
-            setTemplateId(nextId)
-            setFilters(templates.find((template) => template.id === nextId)?.default_filters ?? emptyFilters())
-          }}
-        >
-          {templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
-        </select>
-      </label>
-      <label className="text-xs font-semibold">
-        Cadence
-        <select className={INPUT_CLASS} value={cadence} onChange={(event) => changeCadence(event.target.value as ReportSchedule['cadence'])}>
-          <option value="weekly">Weekly</option>
-          <option value="monthly">Monthly</option>
-        </select>
-      </label>
-      <label className="text-xs font-semibold">
-        {cadence === 'weekly' ? 'Day of week' : 'Day of month'}
-        {cadence === 'weekly' ? (
-          <select className={INPUT_CLASS} value={dayOfWeek} onChange={(event) => setDayOfWeek(Number(event.target.value))}>
-            {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map((label, index) => <option key={label} value={index}>{label}</option>)}
+    <form aria-busy={isSubmitting} onSubmit={(event) => { event.preventDefault(); if (!isSubmitting) onSubmit(payload) }}>
+      <fieldset disabled={isSubmitting} className="m-0 grid min-w-0 gap-3 border-0 border-b border-slate/15 p-3 dark:border-white/10 sm:grid-cols-2 lg:grid-cols-4">
+        <label className="text-xs font-semibold">
+          Name
+          <input required maxLength={255} className={INPUT_CLASS} value={name} onChange={(event) => setName(event.target.value)} />
+        </label>
+        <label className="text-xs font-semibold">
+          Template
+          <select
+            required
+            className={INPUT_CLASS}
+            value={templateId}
+            onChange={(event) => {
+              const nextId = event.target.value
+              setTemplateId(nextId)
+              setFilters(templates.find((template) => template.id === nextId)?.default_filters ?? emptyFilters())
+            }}
+          >
+            {templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
           </select>
-        ) : (
-          <input className={INPUT_CLASS} type="number" min={1} max={28} value={dayOfMonth} onChange={(event) => setDayOfMonth(Number(event.target.value))} />
+        </label>
+        <label className="text-xs font-semibold">
+          Cadence
+          <select className={INPUT_CLASS} value={cadence} onChange={(event) => changeCadence(event.target.value as ReportSchedule['cadence'])}>
+            <option value="weekly">Weekly</option>
+            <option value="monthly">Monthly</option>
+          </select>
+        </label>
+        <label className="text-xs font-semibold">
+          {cadence === 'weekly' ? 'Day of week' : 'Day of month'}
+          {cadence === 'weekly' ? (
+            <select className={INPUT_CLASS} value={dayOfWeek} onChange={(event) => setDayOfWeek(Number(event.target.value))}>
+              {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map((label, index) => <option key={label} value={index}>{label}</option>)}
+            </select>
+          ) : (
+            <input className={INPUT_CLASS} type="number" min={1} max={28} value={dayOfMonth} onChange={(event) => setDayOfMonth(Number(event.target.value))} />
+          )}
+        </label>
+        <label className="text-xs font-semibold">
+          Local time
+          <input className={INPUT_CLASS} type="time" required value={time} onChange={(event) => setTime(event.target.value)} />
+        </label>
+        <label className="text-xs font-semibold">
+          IANA time zone
+          <input className={INPUT_CLASS} required maxLength={64} value={timezone} onChange={(event) => setTimezone(event.target.value)} />
+        </label>
+        <label className="text-xs font-semibold">
+          Source window
+          <select className={INPUT_CLASS} value={windowType} onChange={(event) => setWindowType(event.target.value as ReportSchedule['window_type'])}>
+            {cadence === 'weekly' && <option value="previous_complete_week">Previous complete week</option>}
+            {cadence === 'monthly' && <option value="previous_complete_month">Previous complete month</option>}
+            <option value="rolling_days">Rolling days</option>
+          </select>
+        </label>
+        {windowType === 'rolling_days' && (
+          <label className="text-xs font-semibold">
+            Rolling days
+            <input className={INPUT_CLASS} type="number" min={1} max={365} value={rollingDays} onChange={(event) => setRollingDays(Number(event.target.value))} />
+          </label>
         )}
-      </label>
-      <label className="text-xs font-semibold">
-        Local time
-        <input className={INPUT_CLASS} type="time" required value={time} onChange={(event) => setTime(event.target.value)} />
-      </label>
-      <label className="text-xs font-semibold">
-        IANA time zone
-        <input className={INPUT_CLASS} required maxLength={64} value={timezone} onChange={(event) => setTimezone(event.target.value)} />
-      </label>
-      <label className="text-xs font-semibold">
-        Source window
-        <select className={INPUT_CLASS} value={windowType} onChange={(event) => setWindowType(event.target.value as ReportSchedule['window_type'])}>
-          {cadence === 'weekly' && <option value="previous_complete_week">Previous complete week</option>}
-          {cadence === 'monthly' && <option value="previous_complete_month">Previous complete month</option>}
-          <option value="rolling_days">Rolling days</option>
-        </select>
-      </label>
-      {windowType === 'rolling_days' && (
         <label className="text-xs font-semibold">
-          Rolling days
-          <input className={INPUT_CLASS} type="number" min={1} max={365} value={rollingDays} onChange={(event) => setRollingDays(Number(event.target.value))} />
-        </label>
-      )}
-      <label className="text-xs font-semibold">
-        Missed runs
-        <select className={INPUT_CLASS} value={missedRunPolicy} onChange={(event) => setMissedRunPolicy(event.target.value as ReportSchedule['missed_run_policy'])}>
-          <option value="latest">Generate latest only</option>
-          <option value="skip">Skip missed runs</option>
-          <option value="all">Catch up, maximum four</option>
-        </select>
-      </label>
-      <label className="text-xs font-semibold sm:col-span-2 lg:col-span-3">
-        Additional instructions
-        <textarea className={`${INPUT_CLASS} min-h-20 resize-y`} maxLength={4000} value={customInstructions} onChange={(event) => setCustomInstructions(event.target.value)} placeholder="Optional schedule-specific emphasis" />
-      </label>
-      <div className="grid gap-2 sm:grid-cols-2 lg:col-span-4 lg:grid-cols-4">
-        <Toggle label="Enabled" checked={enabled} onChange={setEnabled} />
-        <Toggle label="Skip periods with no sources" checked={skipEmpty} onChange={setSkipEmpty} />
-        <Toggle label="Deliver when ready" checked={deliveryEnabled} onChange={setDeliveryEnabled} />
-        <label className="text-xs font-semibold">
-          Delivery content
-          <select className={INPUT_CLASS} disabled={!deliveryEnabled} value={deliveryMode} onChange={(event) => setDeliveryMode(event.target.value as ReportSchedule['delivery_mode'])}>
-            <option value="link">Ready notice</option>
-            <option value="summary">Summary</option>
-            <option value="full">Full report</option>
+          Missed runs
+          <select className={INPUT_CLASS} value={missedRunPolicy} onChange={(event) => setMissedRunPolicy(event.target.value as ReportSchedule['missed_run_policy'])}>
+            <option value="latest">Generate latest only</option>
+            <option value="skip">Skip missed runs</option>
+            <option value="all">Catch up, maximum four</option>
           </select>
         </label>
-      </div>
-      <div className="flex gap-1.5 sm:col-span-2 lg:col-span-4 lg:justify-end">
-        <button type="button" className="min-h-10 rounded border border-slate/20 px-3 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10" disabled={isSubmitting} onClick={onCancel}>Cancel</button>
-        <button type="submit" className="min-h-10 rounded bg-ink px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]" disabled={isSubmitting}>{isSubmitting ? submittingLabel : submitLabel}</button>
-      </div>
+        <label className="text-xs font-semibold sm:col-span-2 lg:col-span-3">
+          Additional instructions
+          <textarea className={`${INPUT_CLASS} min-h-20 resize-y`} maxLength={4000} value={customInstructions} onChange={(event) => setCustomInstructions(event.target.value)} placeholder="Optional schedule-specific emphasis" />
+        </label>
+        <div className="grid gap-2 sm:grid-cols-2 lg:col-span-4 lg:grid-cols-4">
+          <Toggle label="Enabled" checked={enabled} onChange={setEnabled} />
+          <Toggle label="Skip periods with no sources" checked={skipEmpty} onChange={setSkipEmpty} />
+          <Toggle label="Deliver when ready" checked={deliveryEnabled} onChange={setDeliveryEnabled} />
+          <label className="text-xs font-semibold">
+            Delivery content
+            <select className={INPUT_CLASS} disabled={!deliveryEnabled} value={deliveryMode} onChange={(event) => setDeliveryMode(event.target.value as ReportSchedule['delivery_mode'])}>
+              <option value="link">Ready notice</option>
+              <option value="summary">Summary</option>
+              <option value="full">Full report</option>
+            </select>
+          </label>
+        </div>
+        <div className="flex gap-1.5 sm:col-span-2 lg:col-span-4 lg:justify-end">
+          <button type="button" className="min-h-10 rounded border border-slate/20 px-3 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10" disabled={isSubmitting} onClick={onCancel}>Cancel</button>
+          <button type="submit" className="min-h-10 rounded bg-ink px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]" disabled={isSubmitting}>{isSubmitting ? submittingLabel : submitLabel}</button>
+        </div>
+      </fieldset>
     </form>
   )
 }
 
 function ScheduleRow({ schedule, templates, controller }: { schedule: ReportSchedule; templates: ReportTemplate[]; controller: ReportingController }) {
-  const [editing, setEditing] = useState(false)
+  // The original version belongs to the editor's fields, never to a refreshed row.
+  const [editingBaseline, setEditingBaseline] = useState<ReportSchedule | null>(null)
+  const editing = editingBaseline !== null
+  const baselineChanged = editingBaseline !== null &&
+    (editingBaseline.resource_version ?? editingBaseline.updated_at) !== (schedule.resource_version ?? schedule.updated_at)
   const failureState = schedule.failure_state ?? 'healthy'
   const updatePending = useIsMutating({
     mutationKey: ['reports', 'schedules', 'update'],
@@ -272,7 +278,7 @@ function ScheduleRow({ schedule, templates, controller }: { schedule: ReportSche
             type="button"
             className="rounded border border-slate/20 px-2.5 py-1.5 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10"
             disabled={actionPending}
-            onClick={() => setEditing((current) => !current)}
+            onClick={() => setEditingBaseline((current) => current ? null : schedule)}
           >
             {editing ? 'Close' : 'Edit'}
           </button>
@@ -315,17 +321,23 @@ function ScheduleRow({ schedule, templates, controller }: { schedule: ReportSche
           </button>
         </div>
       </div>
-      {editing && (
+      {baselineChanged && (
+        <p role="status" className="px-3 pb-3 text-sm text-amber-800 dark:text-amber-200 sm:px-4">
+          This schedule changed on the server. Your draft keeps its original version so saving cannot overwrite
+          those changes. Cancel and edit again to load the latest schedule.
+        </p>
+      )}
+      {editingBaseline && (
         <ScheduleEditor
           templates={templates}
-          initial={schedule}
+          initial={editingBaseline}
           submitLabel="Save schedule"
           submittingLabel="Saving..."
           isSubmitting={updatePending}
-          onCancel={() => setEditing(false)}
+          onCancel={() => setEditingBaseline(null)}
           onSubmit={(payload) => controller.updateScheduleMutation.mutate(
-            { ...schedule, ...payload },
-            { onSuccess: () => setEditing(false) },
+            { ...editingBaseline, ...payload },
+            { onSuccess: () => setEditingBaseline(null) },
           )}
         />
       )}

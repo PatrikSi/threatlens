@@ -1141,3 +1141,82 @@ describe('ReportingPage resource version refresh', () => {
     })
   })
 })
+
+it.each(['resource_version', 'updated_at'] as const)(
+  'keeps a schedule draft with its original %s through a conflict and reloads deliberately',
+  async (versionField) => {
+    reportingPageMocks.routeReportId = undefined
+    reportingPageMocks.userRole = 'admin'
+    const original = {
+      ...reportSchedule('schedule-1', 'Original schedule'),
+      [versionField]: '2026-09-08T09:00:00Z',
+      custom_instructions: 'Original shared instructions',
+    }
+    let current = original
+    const writes: Array<{ header: string | null; body: Record<string, unknown> }> = []
+    let rejectStale!: () => void
+    reportingPageMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
+      if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
+      if (path === '/reports/templates') return Promise.resolve([REPORT_TEMPLATE])
+      if (path.startsWith('/reports/library?')) return Promise.resolve({ items: [], current_cursor: 'first', next_cursor: null, as_of: '2026-09-08T00:00:00Z' })
+      if (path === '/reports/schedules') return Promise.resolve([current])
+      if (path === '/reports/schedules/schedule-1' && options?.method === 'PUT') {
+        const written = { header: new Headers(options.headers).get('If-Match'), body: JSON.parse(String(options.body)) }
+        writes.push(written)
+        if (written.header !== `"${current[versionField]}"`) {
+          return new Promise((_resolve, reject) => {
+            rejectStale = () => reject(new ApiError('The report schedule changed after you loaded it.', 412, path))
+          })
+        }
+        current = { ...current, ...written.body, [versionField]: '2026-09-08T11:00:00Z' }
+        return Promise.resolve(current)
+      }
+      return Promise.reject(new Error(`Unexpected API path: ${path}`))
+    })
+    const view = renderPage()
+    await openReportingTab(view, 'Schedules')
+    act(() => rowButton(rowByName(view, 'Original schedule'), 'Edit').click())
+    const name = view.querySelector('form input') as HTMLInputElement
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(name, 'My draft name')
+      name.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    current = { ...original, [versionField]: '2026-09-08T10:00:00Z', custom_instructions: 'Another administrator updated this' }
+    await act(async () => {
+      await queryClient!.refetchQueries({ queryKey: ['reports', 'schedules'] })
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    })
+    expect((view.querySelector('form textarea') as HTMLTextAreaElement).value).toBe('Original shared instructions')
+    expect(view.textContent).toContain('Your draft keeps its original version')
+    await act(async () => {
+      view.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+      await vi.waitFor(() => expect(writes).toHaveLength(1))
+    })
+    expect(writes[0]).toEqual({
+      header: '"2026-09-08T09:00:00Z"',
+      body: expect.objectContaining({ name: 'My draft name', custom_instructions: 'Original shared instructions' }),
+    })
+    expect(name.matches(':disabled')).toBe(true)
+    await act(async () => {
+      rejectStale()
+      await vi.waitFor(() => expect(view.textContent).toContain('changed after you loaded it'))
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    })
+    expect(name.isConnected).toBe(true)
+    expect(name.matches(':disabled')).toBe(false)
+    expect(name.value).toBe('My draft name')
+    expect((view.querySelector('form textarea') as HTMLTextAreaElement).value).toBe('Original shared instructions')
+
+    act(() => rowButton(rowByName(view, 'Original schedule'), 'Cancel').click())
+    act(() => rowButton(rowByName(view, 'Original schedule'), 'Edit').click())
+    expect((view.querySelector('form textarea') as HTMLTextAreaElement).value).toBe('Another administrator updated this')
+    await act(async () => {
+      view.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+      await vi.waitFor(() => expect(writes).toHaveLength(2))
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    })
+    expect(writes[1].header).toBe('"2026-09-08T10:00:00Z"')
+    expect(writes[1].body.custom_instructions).toBe('Another administrator updated this')
+    expect(view.querySelector('form')).toBeNull()
+  },
+)

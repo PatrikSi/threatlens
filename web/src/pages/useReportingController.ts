@@ -496,7 +496,8 @@ export function useReportingController() {
         error,
         'The report schedule could not be updated',
       )
-      await queryClient.resetQueries({
+      // Retain mounted editors and their original preconditions while refreshing.
+      await queryClient.invalidateQueries({
         queryKey: ['reports', 'schedules'],
         exact: true,
       })
@@ -533,7 +534,7 @@ export function useReportingController() {
         'The report schedule could not be deleted',
       )
       if (isResourceVersionConflict(error)) {
-        await queryClient.resetQueries({
+        await queryClient.invalidateQueries({
           queryKey: ['reports', 'schedules'],
           exact: true,
         })
@@ -591,7 +592,7 @@ export function useReportingController() {
     onError: async (error) => {
       setFeedback({ kind: 'error', message: resolveReportQueueError(error) })
       if (isResourceVersionConflict(error)) {
-        await queryClient.resetQueries({
+        await queryClient.invalidateQueries({
           queryKey: ['reports', 'schedules'],
           exact: true,
         })
