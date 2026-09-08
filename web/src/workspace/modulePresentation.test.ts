@@ -33,7 +33,8 @@ describe('settings module presentation', () => {
     ['settings.integrations', 'Integrations', 'automation', 'Integrations'],
     ['settings.integrations.webhooks', 'Webhooks', 'automation', 'My webhooks'],
     ['settings.integrations.smtp', 'SMTP', 'automation', 'Email delivery'],
-    ['settings.operations', 'Operations', 'system', 'System health'],
+    ['settings.lifecycle', 'Data lifecycle', 'system', 'Data lifecycle'],
+    ['settings.operations', 'System health', 'system', 'System health'],
   ] as const)(
     'maps %s from %s to %s / %s without changing its canonical definition',
     (moduleId, canonicalLabel, groupId, presentationLabel) => {

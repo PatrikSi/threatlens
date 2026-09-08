@@ -28,6 +28,8 @@ It stores feeds, extracts article text, and gives a single pane of glass to revi
   claim-to-role mapping, revocable sessions, and local TOTP MFA
 - Permission-gated operations diagnostics plus verified PostgreSQL backup, isolated
   restore-drill, and post-restore quarantine tooling
+- Selective data lifecycle policies with aggregate previews, safeguards, bounded
+  cleanup, cancellation, and auditable run history
 - Durable integration outbox, bounded retries, dead-letter replay, circuit breaking, and delivery metrics
 - Optional AI summaries, relevance scoring, task history, and daily briefs
 - Prompted, sourced intelligence reports with templates, schedules, context-safe chunking, and Markdown/HTML/PDF artifacts
@@ -62,11 +64,24 @@ THREATLENS_IMAGE_TAG=1.0.0 docker compose pull
 THREATLENS_IMAGE_TAG=1.0.0 docker compose up -d
 ```
 
-Or build the images locally from source:
+Or build and start local development images from source:
 
 ```bash
 THREATLENS_BUILD_VERSION="$(cat VERSION)" docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 ```
+
+Both custom Dockerfiles live in [`docker/`](docker/README.md). To build images
+without starting services or configuring `.env`:
+
+```bash
+./docker/build.sh           # Both images
+./docker/build.sh backend   # API, workers, and scheduler image
+./docker/build.sh web       # Web frontend image
+```
+
+These commands produce `threatlens-backend:dev` and `threatlens-web:dev`, which
+the source-build Compose override uses. See the [image build guide](docker/README.md)
+for running existing builds, custom tags, and rebuilding individual services.
 
 Open the app:
 
@@ -150,6 +165,9 @@ THREATLENS_IMAGE_TAG=1.0.0 docker compose up -d
 Stopping every API and worker process before recreation is required for schema
 compatibility. PostgreSQL, Redis, and the web proxy may remain running; the web
 interface will report the brief API outage until the matching release starts.
+The first upgrade to database-backed lifecycle policies requires the ordered,
+quiesced [lifecycle queue cutover](docs/reference/configuration.md#lifecycle-queue-cutover)
+so an older maintenance process cannot race the new policies.
 
 Check services:
 
@@ -214,7 +232,7 @@ Worker and scheduler:
 cd backend
 ./.venv/bin/celery -A app.tasks.celery_app.celery_app worker --loglevel="${LOG_LEVEL:-INFO}" --queues=default,ingest,processing -n 'worker@%h'
 ./.venv/bin/celery -A app.tasks.celery_app.celery_app worker --loglevel="${LOG_LEVEL:-INFO}" --concurrency=1 --queues=ai,ai-reports-v2 -n 'ai@%h'
-./.venv/bin/celery -A app.tasks.celery_app.celery_app worker --loglevel="${LOG_LEVEL:-INFO}" --queues=maintenance -n 'maintenance@%h'
+./.venv/bin/celery -A app.tasks.celery_app.celery_app worker --loglevel="${LOG_LEVEL:-INFO}" --queues=maintenance,lifecycle-v1 -n 'maintenance@%h'
 ./.venv/bin/celery -A app.tasks.celery_app.celery_app worker --loglevel="${LOG_LEVEL:-INFO}" --queues=notifications -n 'notifications@%h'
 ./.venv/bin/python -m app.tasks.beat_watchdog
 ```

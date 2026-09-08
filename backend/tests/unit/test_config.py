@@ -140,6 +140,35 @@ def test_report_task_infrastructure_retry_backoff_must_be_bounded():
         )
 
 
+@pytest.mark.parametrize("retention_days", [0, -1, 3651])
+def test_operations_health_history_retention_is_bounded(retention_days: int):
+    with pytest.raises(
+        ValueError,
+        match="operations_health_history_retention_days",
+    ):
+        isolated_settings(
+            operations_health_history_retention_days=retention_days,
+        )
+
+
+def test_operations_health_history_retention_defaults_to_thirty_days():
+    assert isolated_settings().operations_health_history_retention_days == 30
+
+
+@pytest.mark.parametrize("timeout_seconds", [0, -1, 60.1, float("nan")])
+def test_worker_probe_timeout_is_positive_and_bounded(timeout_seconds: float):
+    with pytest.raises(ValueError, match="health_worker_ping_timeout_seconds"):
+        isolated_settings(
+            health_worker_ping_timeout_seconds=timeout_seconds,
+        )
+
+
+def test_legacy_worker_probe_timeout_remains_valid():
+    settings = isolated_settings(health_worker_ping_timeout_seconds=60)
+
+    assert settings.health_worker_ping_timeout_seconds == 60
+
+
 def test_allowed_hosts_parses_csv_from_env(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("ALLOWED_HOSTS", "api, threatlens.example.com")
     settings = Settings(_env_file=None)
@@ -337,6 +366,32 @@ def test_beat_watchdog_grace_must_cover_one_heartbeat_interval():
             beat_heartbeat_interval_seconds=60,
             beat_watchdog_startup_grace_seconds=59,
         )
+
+
+def test_beat_stale_window_allows_two_emission_intervals_for_jitter():
+    with pytest.raises(ValueError, match="at least twice"):
+        isolated_settings(
+            beat_heartbeat_interval_seconds=60,
+            beat_heartbeat_stale_after_seconds=119,
+        )
+
+
+def test_beat_heartbeat_ttl_rejects_values_below_stale_window():
+    with pytest.raises(ValueError, match="must be greater"):
+        isolated_settings(
+            beat_heartbeat_stale_after_seconds=180,
+            beat_heartbeat_ttl_seconds=179,
+        )
+
+
+def test_legacy_equal_beat_ttl_is_normalized_above_stale_window():
+    settings = isolated_settings(
+        beat_heartbeat_interval_seconds=60,
+        beat_heartbeat_stale_after_seconds=180,
+        beat_heartbeat_ttl_seconds=180,
+    )
+
+    assert settings.beat_heartbeat_ttl_seconds == 240
 
 
 def test_redis_password_is_applied_to_passwordless_redis_url():

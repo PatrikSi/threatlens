@@ -29,7 +29,13 @@ def test_worker_health_requires_all_non_ai_queues(monkeypatch):
     _install_inspector(
         monkeypatch,
         {
-            "worker@test": ["ingest", "processing", "notifications", "maintenance"],
+            "worker@test": [
+                "ingest",
+                "processing",
+                "notifications",
+                "maintenance",
+                "lifecycle-v1",
+            ],
         },
     )
     settings = SimpleNamespace(health_worker_ping_timeout_seconds=1.0, ai_enabled=False)
@@ -53,14 +59,24 @@ def test_worker_health_reports_missing_required_queue(monkeypatch):
     ok, _workers, queue_snapshot = health._worker_health_snapshot(settings)
 
     assert ok is False
-    assert queue_snapshot["missing"] == ["maintenance", "notifications"]
+    assert queue_snapshot["missing"] == [
+        "lifecycle-v1",
+        "maintenance",
+        "notifications",
+    ]
 
 
 def test_worker_health_requires_ai_queue_when_ai_enabled(monkeypatch):
     _install_inspector(
         monkeypatch,
         {
-            "worker@test": ["ingest", "processing", "notifications", "maintenance"],
+            "worker@test": [
+                "ingest",
+                "processing",
+                "notifications",
+                "maintenance",
+                "lifecycle-v1",
+            ],
         },
     )
     settings = SimpleNamespace(health_worker_ping_timeout_seconds=1.0, ai_enabled=True)
@@ -80,6 +96,7 @@ def test_worker_health_requires_report_queue_when_ai_enabled(monkeypatch):
                 "processing",
                 "notifications",
                 "maintenance",
+                "lifecycle-v1",
                 "ai",
             ],
         },
@@ -102,6 +119,7 @@ def test_worker_health_accepts_merged_worker_when_ai_enabled(monkeypatch):
                 "processing",
                 "notifications",
                 "maintenance",
+                "lifecycle-v1",
                 "ai",
                 "ai-reports-v2",
             ],
@@ -134,7 +152,13 @@ def test_worker_health_logs_dependency_type_without_standard_traceback(monkeypat
 
     assert ok is False
     assert workers == {}
-    assert queue_snapshot["missing"] == ["ingest", "processing", "notifications", "maintenance"]
+    assert queue_snapshot["missing"] == [
+        "ingest",
+        "processing",
+        "notifications",
+        "maintenance",
+        "lifecycle-v1",
+    ]
     assert warnings == [
         (
             "worker_health_check_failed error_type=%s",

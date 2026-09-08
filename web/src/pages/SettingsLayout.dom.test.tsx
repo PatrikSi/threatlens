@@ -72,6 +72,7 @@ vi.mock('../workspace/useWorkspace', () => ({
     const ai = module('settings.ai', '/settings/ai', 'AI')
     const tagging = module('settings.tagging', '/settings/tagging', 'Tagging')
     const operations = module('settings.operations', '/settings/operations', 'Operations')
+    const lifecycle = module('settings.lifecycle', '/settings/lifecycle', 'Data lifecycle')
     const children = settingsLayoutMocks.integrationChildrenVisible
       ? settingsLayoutMocks.currentUserError ? [webhooks] : [webhooks, smtp]
       : []
@@ -82,6 +83,7 @@ vi.mock('../workspace/useWorkspace', () => ({
           ai,
           tagging,
           integrations,
+          lifecycle,
           operations,
         ]
     return {
@@ -183,9 +185,10 @@ describe('SettingsLayout navigation', () => {
       'Integrations',
     ])
     expect(groupNavigationLabels(desktopNavigation, 'desktop', 'system')).toEqual([
+      'Data lifecycle',
       'System health',
     ])
-    expect(desktopNavigation?.querySelectorAll('[data-testid="settings-module-icon"]')).toHaveLength(11)
+    expect(desktopNavigation?.querySelectorAll('[data-testid="settings-module-icon"]')).toHaveLength(12)
     expect(desktopNavigation?.textContent).not.toContain('API Tokens')
     expect(desktopNavigation?.textContent).not.toContain('Audit Logs')
   })
@@ -296,6 +299,7 @@ describe('SettingsLayout navigation', () => {
     expect(view.textContent).not.toContain('Single sign-on')
     expect(view.textContent).not.toContain('Users')
     expect(view.textContent).not.toContain('Audit log')
+    expect(view.textContent).not.toContain('Data lifecycle')
     expect(view.textContent).not.toContain('System health')
     expect(view.textContent).not.toContain('Email delivery')
   })

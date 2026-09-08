@@ -17,6 +17,7 @@ from app.schemas.operations import (
     OperationsComponentCheck,
     OperationsIssue,
     OperationsStorageIndicator,
+    OperationsWorkerTopologyResponse,
 )
 from app.services.encrypted_data_inventory import (
     get_operations_encrypted_data_inventory,
@@ -35,6 +36,7 @@ def collect_component_checks(
     settings: Settings,
     checked_at: datetime,
     issues: list[OperationsIssue],
+    worker_topology: OperationsWorkerTopologyResponse | None = None,
 ) -> tuple[bool, list[OperationsComponentCheck]]:
     database_ok = health_routes._database_health_ok(db)
     components = [_database_component(database_ok, checked_at)]
@@ -52,7 +54,11 @@ def collect_component_checks(
     components.extend(
         [
             _redis_component(settings, checked_at, issues),
-            _worker_component(settings, checked_at, issues),
+            (
+                _worker_component_from_topology(worker_topology, issues)
+                if worker_topology is not None
+                else _worker_component(settings, checked_at, issues)
+            ),
             _beat_component(settings, checked_at, issues),
             _encrypted_data_component(
                 db,
@@ -275,7 +281,11 @@ def _worker_component(
         key="workers",
         label="Workers",
         status="healthy" if worker_ok else "critical",
-        summary="All required queues are covered." if worker_ok else "Required queue coverage is incomplete.",
+        summary=(
+            "All required queues are covered."
+            if worker_ok
+            else "Required queue coverage is incomplete."
+        ),
         checked_at=checked_at,
         metrics={
             "worker_count": worker_count,
@@ -286,11 +296,133 @@ def _worker_component(
     )
 
 
+def _worker_component_from_topology(
+    topology: OperationsWorkerTopologyResponse,
+    issues: list[OperationsIssue],
+) -> OperationsComponentCheck:
+    reason_copy = {
+        "healthy": (
+            "All required queues have responsive consumers and fresh execution evidence.",
+            "Background work is executing normally.",
+            "No action is required.",
+        ),
+        "no_replies": (
+            "No Celery workers answered the topology probes.",
+            "Queued background work may not execute.",
+            "Restore broker connectivity and the required worker services.",
+        ),
+        "probe_failed": (
+            "One or more worker topology probes failed.",
+            "Worker load or capacity cannot be assessed completely.",
+            "Check Redis and Celery control-channel connectivity, then retry.",
+        ),
+        "queue_inventory_unavailable": (
+            "Worker queue inventory is unavailable.",
+            "Required queue coverage cannot be confirmed.",
+            "Restore the Celery control channel and inspect active queue bindings.",
+        ),
+        "partial_inventory": (
+            "Worker topology evidence is incomplete.",
+            "Some worker capacity or queue ownership may be hidden.",
+            "Inspect the incomplete probes and unreachable worker processes.",
+        ),
+        "missing_consumers": (
+            "One or more required queues have no responding consumer.",
+            "Work routed to a missing queue will remain pending.",
+            "Start the reported worker service with the required queue binding.",
+        ),
+        "canary_dispatch_unavailable": (
+            "Queue canary dispatch is unavailable because the scheduler heartbeat is unhealthy.",
+            "Stale or missing canaries cannot identify a worker execution stall.",
+            "Restore Beat scheduler dispatch, then wait for fresh per-queue canaries.",
+        ),
+        "execution_evidence_missing": (
+            "One or more required queues have no usable execution canary.",
+            "Queue consumers are advertised, but recent task execution is unproven.",
+            "Inspect Redis evidence and wait for the next scheduled queue canary.",
+        ),
+        "execution_stalled": (
+            "One or more queue canaries are stale while scheduler dispatch is healthy.",
+            "Advertised consumers may not be executing queued work.",
+            "Inspect the affected worker process and its downstream dependencies.",
+        ),
+        "saturated": (
+            "Worker capacity is fully active with reserved work waiting.",
+            "Background work may experience increasing queue delay.",
+            "Inspect long-running tasks and add capacity if the pressure persists.",
+        ),
+    }
+    summary, effect, recommended_action = reason_copy[topology.reason]
+    if topology.status != "healthy":
+        critical = topology.status in {"critical", "unavailable"}
+        issue_code = (
+            "required_workers_unavailable"
+            if topology.reason
+            in {"no_replies", "queue_inventory_unavailable", "missing_consumers"}
+            else f"worker_topology_{topology.reason}"
+        )
+        issues.append(
+            issue(
+                issue_code,
+                "critical" if critical else "warning",
+                "workers",
+                summary,
+                effect,
+                recommended_action,
+            )
+        )
+
+    required_queues = [queue.key for queue in topology.queues if queue.required]
+    covered_queues = [
+        queue.key
+        for queue in topology.queues
+        if queue.required and queue.consumer_count > 0
+    ]
+    incomplete_probes = [
+        f"{probe.probe}:{probe.quality}"
+        for probe in topology.probes
+        if probe.quality != "complete"
+    ]
+    saturated_queues = [queue.key for queue in topology.queues if queue.saturated]
+    return OperationsComponentCheck(
+        key="workers",
+        label="Workers",
+        status=topology.status,
+        summary=summary,
+        checked_at=topology.generated_at,
+        metrics={
+            "worker_count": topology.responding_worker_count,
+            "observed_worker_count": topology.observed_worker_count,
+            "worker_inventory_truncated": topology.worker_inventory_truncated,
+            "required_queues": required_queues,
+            "covered_queues": covered_queues,
+            "missing_queues": list(topology.missing_queues),
+            "active_count": topology.active_count,
+            "reserved_count": topology.reserved_count,
+            "scheduled_count": topology.scheduled_count,
+            "total_capacity": topology.total_capacity,
+            "topology_reason": topology.reason,
+            "incomplete_probes": incomplete_probes,
+            "stale_execution_queues": list(topology.stale_execution_queues),
+            "missing_execution_evidence_queues": list(
+                topology.missing_execution_evidence_queues
+            ),
+            "saturated_queues": saturated_queues,
+            "canary_dispatch_reason": topology.canary_dispatch_reason,
+            "canary_dispatch_age_seconds": topology.canary_dispatch_age_seconds,
+        },
+    )
+
+
 def _normalize_worker_snapshot(raw: object) -> tuple[bool, int, dict]:
     if not isinstance(raw, tuple) or len(raw) != 3:
         raise ValueError("Invalid worker health snapshot")
     worker_ok, workers, queues = raw
-    if not isinstance(worker_ok, bool) or not isinstance(workers, dict) or not isinstance(queues, dict):
+    if (
+        not isinstance(worker_ok, bool)
+        or not isinstance(workers, dict)
+        or not isinstance(queues, dict)
+    ):
         raise ValueError("Invalid worker health snapshot")
     return worker_ok, len(workers), queues
 

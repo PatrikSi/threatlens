@@ -168,12 +168,42 @@ The classifier uses weighted regex/token rules for each category and applies fee
   data-policy scope from the receipt's exact task run. Governed lineage is copied
   into the approval; missing lineage is quarantined.
 
-## Application History Maintenance
+## Data Lifecycle and Fixed Housekeeping
 
-`app.tasks.history_maintenance_tasks.maintain_application_history` runs hourly on
-the maintenance queue. It prunes bounded batches of expired audit, AI, tag
-feedback, integration-run, session, MFA, and action-approval history according to
-the configured retention periods.
+The lifecycle dispatcher publishes to the versioned `lifecycle-v1` queue, which
+the maintenance worker consumes alongside the general `maintenance` queue, and
+materializes due work from the database-backed policies visible under
+**Settings > Data lifecycle**.
+Each target can be enabled independently, scheduled daily or weekly, bounded by a
+per-run record cap, previewed before execution, and inspected through durable run
+history. Workers process short, repeatable batches and recheck policy revision,
+eligibility, safeguards, cancellation, and lease ownership between commits.
+
+The fixed target catalog covers fetched article payloads and bounded operational,
+security, AI, integration, alert, and audit history. It does not accept arbitrary
+tables or predicates. Fetched article retention clears stored body and extracted
+content while retaining item identity and deduplication metadata; ordinary repair
+does not silently retrieve lifecycle-purged content again.
+
+Short-lived security artifacts, expired previews, metric rollups required before
+detail deletion, and orphan-envelope repair remain fixed housekeeping rather than
+optional retention policies. Existing retention environment values bootstrap a
+complete empty catalog atomically on first lifecycle access, after which the
+persisted catalog is the live source of truth. A marked partial or otherwise
+invalid catalog stops dispatch and active lifecycle work instead of falling back
+to environment cleanup.
+
+The configured run cap counts primary records. Cascade and data-lineage
+dependants are counted separately before parent deletion and must fit within a
+fixed 10,000-row budget for each batch. Oversized parents remain protected and
+are reported in preview and run evidence. Selector-aligned indexes keep cutoff
+scans and ordering predictable as retained history grows.
+
+The first lifecycle-enabled deployment must use the coordinated, quiesced
+[lifecycle queue cutover](configuration.md#lifecycle-queue-cutover). Do not leave
+an older Beat or maintenance consumer running after the lifecycle catalog is
+bootstrapped; versioned routing prevents old workers from consuming new runs but
+does not make legacy maintenance publishers policy-aware.
 
 Action approvals default to a longer retention window than AI task history. A
 retained approval therefore pins any AI task run referenced by its captured

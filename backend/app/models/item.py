@@ -76,3 +76,8 @@ Index(
     postgresql_using="gin",
     postgresql_ops={"canonical_url_lower": "gin_trgm_ops"},
 )
+Index(
+    "ix_items_lifecycle_age",
+    func.coalesce(Item.published_at, Item.first_seen_at),
+    Item.id,
+)

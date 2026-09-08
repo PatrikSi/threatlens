@@ -18,9 +18,8 @@ def test_permission_catalog_describes_partial_and_reserved_access_boundaries():
             "the Administrator base role.",
         ),
         SCOPE_WRITE_OPERATIONS: (
-            "Reserved operations write access",
-            "Reserved for future operational actions; currently provides read-level "
-            "Operations access only.",
+            "Manage operations",
+            "Manage data lifecycle policies and initiate or cancel maintenance runs.",
         ),
     }
 

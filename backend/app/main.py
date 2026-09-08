@@ -44,6 +44,7 @@ from app.api.routes import (
     integrations,
     investigations,
     items,
+    lifecycle,
     notifications,
     oidc,
     operations,
@@ -83,6 +84,7 @@ OPENAPI_REQUIRED_TOKEN_SCOPES_FIELD = "x-threatlens-required-token-scopes"
 OPENAPI_BROWSER_SESSION_ONLY_FIELD = "x-threatlens-browser-session-only"
 PUBLIC_BROWSER_RESPONSE_HEADERS = (
     "Content-Disposition",
+    "Idempotency-Replayed",
     "Retry-After",
     "X-Current-Revision",
     "X-Current-Row-Version",
@@ -119,6 +121,7 @@ API_ROUTERS: tuple[APIRouter, ...] = (
     notifications.router,
     ai.router,
     stats.router,
+    lifecycle.router,
     operations.router,
     health.router,
     iam.router,

@@ -23,6 +23,7 @@ This documentation covers:
 ## Index
 
 - [Configuration and Deployment](./reference/configuration.md)
+- [Development Image Builds](../docker/README.md)
 - [Auth, RBAC, and Token Scopes](./reference/auth-rbac.md)
 - [Access Governance and Data Policy](./reference/access-governance.md)
 - [Backend API Reference](./reference/api.md)
@@ -39,6 +40,7 @@ This documentation covers:
 - [Bounded AI Report Generation ADR](./architecture/0002-bounded-ai-report-generation.md)
 - [Operations, Investigations, Alerting V2, and IAM Hardening ADR](./architecture/0003-operations-investigations-alerting-iam.md)
 - [Access Governance and Workspace Policy ADR](./architecture/0004-access-governance-and-workspace-policy.md)
+- [Policy-Driven Data Lifecycle Management ADR](./architecture/0005-data-lifecycle-management.md)
 - [Bundled OFL Text](./licenses/OFL-1.1.txt)
 - [Bundled MIT Text](./licenses/MIT.txt)
 - [Bundled BSD-2-Clause Text](./licenses/BSD-2-Clause.txt)

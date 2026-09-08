@@ -199,13 +199,13 @@ PERMISSION_DEFINITIONS: tuple[PermissionDefinition, ...] = (
         "read:operations",
         "Operations",
         "View operations",
-        "View backup, recovery, and operational readiness.",
+        "View system health, data lifecycle policies, and operational activity.",
     ),
     _permission(
         "write:operations",
         "Operations",
-        "Reserved operations write access",
-        "Reserved for future operational actions; currently provides read-level Operations access only.",
+        "Manage operations",
+        "Manage data lifecycle policies and initiate or cancel maintenance runs.",
         risk="critical",
     ),
     _permission(

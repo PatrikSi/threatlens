@@ -8,6 +8,7 @@ from app.tasks.celery_app import (
     QUEUE_AI_REPORTS,
     QUEUE_DEFAULT,
     QUEUE_INGEST,
+    QUEUE_LIFECYCLE,
     QUEUE_MAINTENANCE,
     QUEUE_NOTIFICATIONS,
     QUEUE_PROCESSING,
@@ -47,6 +48,7 @@ def test_celery_declares_expected_named_queues():
         QUEUE_AI,
         QUEUE_AI_REPORTS,
         QUEUE_MAINTENANCE,
+        QUEUE_LIFECYCLE,
     }
     assert celery_app.conf.task_default_queue == QUEUE_DEFAULT
     assert celery_app.conf.worker_prefetch_multiplier == 1
@@ -61,6 +63,43 @@ def test_daily_brief_generation_checks_due_time_on_utc_minute_boundaries():
     assert isinstance(generation_schedule, crontab)
     assert generation_schedule.minute == set(range(60))
     assert reconciliation_schedule == 300.0
+
+
+def test_system_health_sampling_and_queue_canaries_are_routed_and_scheduled():
+    sampler_task = "app.tasks.system_health_tasks.collect_system_health_sample"
+    canary_task = "app.tasks.system_health_tasks.record_queue_execution_canary"
+    assert TASK_ROUTES[sampler_task]["queue"] == QUEUE_MAINTENANCE
+    assert celery_app.conf.beat_schedule["collect-system-health-sample"] == {
+        "task": sampler_task,
+        "schedule": 300.0,
+    }
+
+    required_queues = [
+        QUEUE_DEFAULT,
+        QUEUE_INGEST,
+        QUEUE_PROCESSING,
+        QUEUE_NOTIFICATIONS,
+        QUEUE_MAINTENANCE,
+        QUEUE_LIFECYCLE,
+    ]
+    if settings.ai_enabled:
+        required_queues.extend([QUEUE_AI, QUEUE_AI_REPORTS])
+    for queue_name in required_queues:
+        schedule = celery_app.conf.beat_schedule[
+            f"record-{queue_name}-execution-canary"
+        ]
+        assert schedule["task"] == canary_task
+        assert schedule["args"] == (queue_name,)
+        assert schedule["options"] == {
+            "queue": queue_name,
+            "expires": 120.0,
+        }
+        assert schedule["options"]["expires"] <= (
+            settings.beat_heartbeat_interval_seconds * 2
+        )
+        assert schedule["options"]["expires"] <= (
+            settings.beat_heartbeat_stale_after_seconds
+        )
 
 
 def test_verbose_task_lifecycle_adds_context_without_logging_argument_values(monkeypatch):

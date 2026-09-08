@@ -270,6 +270,7 @@ jobs:
       - name: Build the recovery backend image
         run: >-
           timeout 20m docker build
+          --file docker/backend.Dockerfile
           --build-arg APP_VERSION="$(cat VERSION)"
           --tag "$RECOVERY_E2E_BACKEND_IMAGE"
           backend
@@ -309,6 +310,8 @@ jobs:
 
   container-smoke:
     name: Container smoke and image scan
+    env:
+      THREATLENS_DEV_IMAGE_TAG: dev
     # Direct push/PR runs have no input (`null`); only a reusable caller's
     # explicit false disables this job.
     if: >-
@@ -367,7 +370,7 @@ jobs:
       - name: Scan backend image
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: ghcr.io/patriksi/threatlens-backend:latest
+          image-ref: threatlens-backend:${{ env.THREATLENS_DEV_IMAGE_TAG }}
           format: table
           exit-code: "1"
           ignore-unfixed: true
@@ -376,7 +379,7 @@ jobs:
       - name: Scan web image
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: ghcr.io/patriksi/threatlens-web:latest
+          image-ref: threatlens-web:${{ env.THREATLENS_DEV_IMAGE_TAG }}
           format: table
           exit-code: "1"
           ignore-unfixed: true

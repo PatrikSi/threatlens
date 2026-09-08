@@ -80,6 +80,9 @@ export function InvestigationCollectionPagination({
   fetching,
   disabled = false,
   disabledReason,
+  maxPages,
+  limitMessage,
+  totalTruncated = false,
   onPageChange,
 }: {
   label: string
@@ -90,19 +93,26 @@ export function InvestigationCollectionPagination({
   fetching: boolean
   disabled?: boolean
   disabledReason?: string
+  maxPages?: number
+  limitMessage?: string
+  totalTruncated?: boolean
   onPageChange: (page: number) => void
 }) {
   if (total === 0) return null
-  const pages = investigationCollectionPageCount(total, pageSize)
+  const naturalPages = investigationCollectionPageCount(total, pageSize)
+  const pages = maxPages == null ? naturalPages : Math.min(naturalPages, maxPages)
   const controlsDisabled = fetching || disabled
   const disabledReasonId = `investigation-${label.replaceAll(/[^a-z0-9]+/gi, '-').toLowerCase()}-pagination-disabled`
+  const resultRange = totalTruncated && itemCount > 0
+    ? `${(page - 1) * pageSize + 1}-${(page - 1) * pageSize + itemCount} of at least ${total.toLocaleString()}`
+    : investigationResultRange(total, page, pageSize, itemCount)
   return (
     <nav
       aria-label={`${sentenceCase(label)} pagination`}
       className="mt-3 flex flex-col gap-2 text-sm sm:flex-row sm:flex-wrap sm:items-center sm:justify-between"
     >
       <p className="text-center text-slate sm:text-left dark:text-slate-300" aria-live="polite">
-        {investigationResultRange(total, page, pageSize, itemCount)} · Page {page} of {pages}
+        {resultRange} · Page {page} of {pages}
       </p>
       {pages > 1 && (
         <div className="grid grid-cols-2 gap-2 sm:flex">
@@ -136,6 +146,11 @@ export function InvestigationCollectionPagination({
           className="text-center text-xs text-slate sm:order-3 sm:w-full dark:text-slate-400"
         >
           {disabledReason}
+        </span>
+      )}
+      {limitMessage && (totalTruncated || naturalPages > pages) && (
+        <span className="text-center text-xs text-amber-700 sm:order-3 sm:w-full dark:text-amber-300">
+          {limitMessage}
         </span>
       )}
     </nav>

@@ -88,6 +88,7 @@ class ArticleResponse(BaseModel):
     word_count: int | None
     fetch_ms: int | None
     error: str | None
+    content_purged_at: datetime | None = None
 
     @field_validator("final_url", mode="before")
     @classmethod

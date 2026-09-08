@@ -38,6 +38,19 @@ from app.services.data_access_runtime import (
 )
 
 
+def _search_candidates(client, path: str, *, params, headers):
+    payload: dict[str, object] = {}
+    entries = params.items() if isinstance(params, dict) else params
+    for key, value in entries:
+        if key == "source_types":
+            sources = payload.setdefault("source_types", [])
+            assert isinstance(sources, list)
+            sources.append(value)
+        else:
+            payload[key] = value
+    return client.post(path, json=payload, headers=headers)
+
+
 def _create_investigation(client, headers, *, title: str) -> dict:
     response = client.post(
         "/investigations",
@@ -789,3 +802,166 @@ def test_restricted_investigation_access_remains_allowed_outside_enforcement(
     )
     assert note.status_code == 200, note.text
     assert note.json()["note_count"] == 1
+
+
+def test_evidence_candidates_scope_items_and_ioc_aggregates_to_accessible_labels(
+    client,
+    auth_headers,
+    seed_users,
+    db_session,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    investigation = _create_investigation(
+        client,
+        auth_headers["analyst"],
+        title="Candidate data-policy target",
+    )
+    unrestricted = db_session.get(
+        HandlingLabel,
+        UNRESTRICTED_HANDLING_LABEL_ID,
+    )
+    assert unrestricted is not None
+    restricted = _create_restricted_label(db_session, seed_users)
+    _visible_feed, visible_item = _create_item(
+        db_session,
+        unrestricted,
+        title="Visible candidate observation",
+    )
+    _hidden_feed, hidden_item = _create_item(
+        db_session,
+        restricted,
+        title="Hidden candidate observation",
+    )
+    visible_item.first_seen_at = datetime.now(timezone.utc) - timedelta(hours=2)
+    hidden_item.first_seen_at = datetime.now(timezone.utc) - timedelta(hours=1)
+    shared_ioc = IOC(
+        type="domain",
+        value_raw="shared-candidate.example",
+        value_norm="shared-candidate.example",
+    )
+    hidden_ioc = IOC(
+        type="domain",
+        value_raw="hidden-candidate.example",
+        value_norm="hidden-candidate.example",
+    )
+    db_session.add_all([shared_ioc, hidden_ioc])
+    db_session.flush()
+    db_session.add_all(
+        [
+            ItemIOC(item_id=visible_item.id, ioc_id=shared_ioc.id),
+            ItemIOC(item_id=hidden_item.id, ioc_id=shared_ioc.id),
+            ItemIOC(item_id=hidden_item.id, ioc_id=hidden_ioc.id),
+        ]
+    )
+    db_session.commit()
+    visible_report = _create_report_source(
+        db_session,
+        owner=seed_users["analyst"],
+        feed=_visible_feed,
+        item=visible_item,
+    )
+    hidden_report = _create_report_source(
+        db_session,
+        owner=seed_users["analyst"],
+        feed=_hidden_feed,
+        item=hidden_item,
+    )
+    visible_alert = _create_alert_source(
+        db_session,
+        owner=seed_users["analyst"],
+        item=visible_item,
+    )
+    hidden_alert = _create_alert_source(
+        db_session,
+        owner=seed_users["analyst"],
+        item=hidden_item,
+    )
+    _set_policy_mode(
+        db_session,
+        seed_users,
+        monkeypatch,
+        mode="enforced",
+    )
+
+    response = _search_candidates(
+        client,
+        f"/investigations/{investigation['id']}/evidence-candidates",
+        params=[
+            ("source_types", "item"),
+            ("source_types", "ioc"),
+            ("source_types", "report"),
+            ("source_types", "alert_occurrence"),
+            ("range", "7d"),
+        ],
+        headers=auth_headers["analyst"],
+    )
+
+    assert response.status_code == 200, response.text
+    candidates = response.json()["candidates"]
+    identities = {
+        (candidate["source_type"], candidate["source_id"]) for candidate in candidates
+    }
+    assert ("item", str(visible_item.id)) in identities
+    assert ("item", str(hidden_item.id)) not in identities
+    assert ("ioc", str(shared_ioc.id)) in identities
+    assert ("ioc", str(hidden_ioc.id)) not in identities
+    assert ("report", str(visible_report.id)) in identities
+    assert ("report", str(hidden_report.id)) not in identities
+    assert ("alert_occurrence", str(visible_alert.id)) in identities
+    assert ("alert_occurrence", str(hidden_alert.id)) not in identities
+    shared = next(
+        candidate
+        for candidate in candidates
+        if candidate["source_type"] == "ioc"
+        and candidate["source_id"] == str(shared_ioc.id)
+    )
+    assert shared["metadata"]["observation_count"] == 1
+    assert shared["metadata"]["first_seen_at"] == (
+        visible_item.first_seen_at.isoformat().replace("+00:00", "Z")
+    )
+    assert shared["metadata"]["last_seen_at"] == (
+        visible_item.first_seen_at.isoformat().replace("+00:00", "Z")
+    )
+    assert shared["metadata"]["related_items"] == []
+
+    typed_ioc = _search_candidates(
+        client,
+        f"/investigations/{investigation['id']}/evidence-candidates",
+        params={
+            "q": "shared-candidate.example",
+            "source_types": "ioc",
+            "range": "7d",
+        },
+        headers=auth_headers["analyst"],
+    )
+    assert typed_ioc.status_code == 200, typed_ioc.text
+    typed_shared = typed_ioc.json()["candidates"][0]
+    assert typed_shared["source_id"] == str(shared_ioc.id)
+    assert typed_shared["metadata"]["observation_count"] == 1
+    assert [
+        related["item_id"] for related in typed_shared["metadata"]["related_items"]
+    ] == [str(visible_item.id)]
+
+    hidden_exact = _search_candidates(
+        client,
+        f"/investigations/{investigation['id']}/evidence-candidates",
+        params={
+            "q": str(hidden_ioc.id),
+            "source_types": "ioc",
+            "range": "7d",
+        },
+        headers=auth_headers["analyst"],
+    )
+    missing_exact = _search_candidates(
+        client,
+        f"/investigations/{investigation['id']}/evidence-candidates",
+        params={
+            "q": str(uuid.uuid4()),
+            "source_types": "ioc",
+            "range": "7d",
+        },
+        headers=auth_headers["analyst"],
+    )
+    assert hidden_exact.status_code == missing_exact.status_code == 200
+    assert hidden_exact.json()["candidates"] == missing_exact.json()["candidates"] == []
+    assert hidden_exact.json()["total"] == missing_exact.json()["total"] == 0

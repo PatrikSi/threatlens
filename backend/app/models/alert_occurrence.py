@@ -41,6 +41,11 @@ class AlertOccurrence(Base):
             "severity_snapshot",
             "created_at",
         ),
+        Index(
+            "ix_alert_occurrences_owner_created",
+            "owner_user_id",
+            "created_at",
+        ),
         Index("ix_alert_occurrences_item_id", "item_id"),
         Index("ix_alert_occurrences_rule_id", "alert_interest_id"),
         Index(

@@ -4,7 +4,7 @@ This directory mirrors the repository-level release and license artifacts that
 must be present inside backend container images.
 
 The backend Docker build context is `backend/`, so files outside that directory
-cannot be copied into the image during `docker build -f backend/Dockerfile backend`.
+cannot be copied into the image during `docker build -f docker/backend.Dockerfile backend`.
 Keep this bundle in sync with:
 
 - repository `LICENSE`

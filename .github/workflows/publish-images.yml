@@ -44,25 +44,25 @@ jobs:
           - name: backend
             image: threatlens-backend
             context: ./backend
-            dockerfile: ./backend/Dockerfile
+            dockerfile: ./docker/backend.Dockerfile
             platform: linux/amd64
             platform-slug: linux-amd64
           - name: backend
             image: threatlens-backend
             context: ./backend
-            dockerfile: ./backend/Dockerfile
+            dockerfile: ./docker/backend.Dockerfile
             platform: linux/arm64
             platform-slug: linux-arm64
           - name: web
             image: threatlens-web
             context: ./web
-            dockerfile: ./web/Dockerfile
+            dockerfile: ./docker/web.Dockerfile
             platform: linux/amd64
             platform-slug: linux-amd64
           - name: web
             image: threatlens-web
             context: ./web
-            dockerfile: ./web/Dockerfile
+            dockerfile: ./docker/web.Dockerfile
             platform: linux/arm64
             platform-slug: linux-arm64
 

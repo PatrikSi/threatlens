@@ -31,6 +31,42 @@ Evidence can reference these source types:
 - `report`: a generated threat report
 - `alert_occurrence`: a durable Alerting v2 occurrence
 
+The evidence finder uses human-readable discovery instead of requiring an analyst
+to know a source UUID. With an empty all-source search it suggests recent accessible
+articles, reports, and alert occurrences without running a high-cardinality IOC
+inventory; selecting Indicators explicitly still browses recent IOCs. Entering a
+query searches article titles and URLs, indicators, reports, and alert occurrences.
+Select a 24-hour, 7-day, 30-day, or 90-day observation window and one source family,
+or search all accessible sources, to bound the search. ThreatLens recognizes URLs,
+IPv4 and IPv6 addresses, domains, CVEs, and common hash lengths server-side, shows
+the detected indicator type, and correlates IOC matches with recent accessible
+articles. A plain text query remains a normal title/value search, while an exact
+UUID is accepted as a technical fallback. Exact UUID
+lookups address the stable source ID directly, so they are not limited by the
+selected observation window; investigation membership, source permissions, data
+labels, and source ownership are still enforced.
+
+Candidate counts stop after 1,000 matches per source. When a source exceeds that
+bound, the finder labels the result count as a lower bound and asks the analyst to
+narrow the query, source scope, or time range instead of performing an unrestricted
+count over the tenant's retained corpus.
+
+Search results display source names, observed time, match reason, related article
+context, and whether the record is already attached. Stable source IDs are kept in
+the technical-details disclosure and used only after the analyst selects a result.
+Unavailable source families are shown as permission-locked capabilities; they do
+not return result counts, titles, or timing metadata. Candidate results are hints,
+and the attach request revalidates investigation membership, source permissions,
+data labels, source ownership, and the investigation version before storing a
+snapshot. A search failure does not hide evidence already attached to the
+investigation, and failed attachment preserves the analyst's selection and context
+note for a safe retry.
+
+Candidate discovery uses a `POST` body so analyst-entered URLs, indicators, hashes,
+and free-text terms do not appear in normal reverse-proxy or application access-log
+query strings. Searches are read-only and do not attach evidence until the analyst
+confirms a selected result.
+
 Adding evidence requires both investigation write access and read access to the
 source type. ThreatLens stores a bounded display snapshot with the source ID,
 title, description, URL, and selected metadata. It does not copy full article text
@@ -76,6 +112,9 @@ mutation only after reviewing the refreshed record.
 - A failed mutation rolls back its activity entry and all aggregate changes.
 - Truncated note and activity collections are labeled; older activity remains
   available through the paginated activity endpoint.
+- Activity foregrounds evidence titles, member email addresses, and readable
+  changes; stable IDs, event codes, exact timestamps, and payloads remain available
+  in a technical-details disclosure for correlation.
 - Every successful mutation records both investigation activity and an
   administrator audit event where applicable.
 
@@ -88,6 +127,8 @@ also exposes the same routes at `/v1/investigations`.
 - `GET, PATCH /investigations/{id}`
 - `GET /investigations/member-candidates`
 - `POST, PATCH, DELETE /investigations/{id}/members[...]`
+- `POST /investigations/{id}/evidence-candidates`
+- `GET /investigations/{id}/evidence`
 - `POST, DELETE /investigations/{id}/evidence[...]`
 - `POST, PATCH, DELETE /investigations/{id}/notes[...]`
 - `GET /investigations/{id}/activity`

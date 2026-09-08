@@ -76,6 +76,12 @@ from app.models.item import Item
 from app.models.item_ai_enrichment import ItemAIEnrichment
 from app.models.item_classification import ItemClassification
 from app.models.item_state import ItemState
+from app.models.lifecycle import (
+    LifecycleCatalogState,
+    LifecyclePolicy,
+    LifecyclePreview,
+    LifecycleRun,
+)
 from app.models.mfa import MFALoginChallenge, UserRecoveryCode, UserTOTPCredential
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
@@ -99,6 +105,7 @@ from app.models.service_account import (
     ServiceAccountCredential,
     ServiceAccountRoleAssignment,
 )
+from app.models.system_health_sample import SystemHealthSample
 from app.models.system_operation_run import SystemOperationRun
 from app.models.tag import ItemTag, Tag, TagFeedbackEvent
 from app.models.tagging_rule import TaggingRule
@@ -176,6 +183,10 @@ __all__ = [
     "ItemIOC",
     "ItemClassification",
     "ItemState",
+    "LifecycleCatalogState",
+    "LifecyclePolicy",
+    "LifecyclePreview",
+    "LifecycleRun",
     "MFALoginChallenge",
     "NotificationWebhook",
     "NotificationWebhookDelivery",
@@ -196,6 +207,7 @@ __all__ = [
     "ServiceAccountCredential",
     "ServiceAccountRoleAssignment",
     "SystemOperationRun",
+    "SystemHealthSample",
     "Tag",
     "ItemTag",
     "TagFeedbackEvent",

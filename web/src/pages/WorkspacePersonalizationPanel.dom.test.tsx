@@ -36,6 +36,7 @@ const DEFAULT_PERSONAL_SETTINGS_NAVIGATION_IDS = [
   'settings.access',
   'settings.users',
   'settings.audit',
+  'settings.lifecycle',
   'settings.operations',
   'settings.integrations.webhooks',
   'settings.integrations.smtp',

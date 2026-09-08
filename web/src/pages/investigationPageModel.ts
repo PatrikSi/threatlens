@@ -1,5 +1,6 @@
 import { ApiError } from '../api/client'
 import type {
+  InvestigationActivity,
   InvestigationDetail,
   InvestigationDetailTab,
   InvestigationEvidenceType,
@@ -182,6 +183,51 @@ export function formatInvestigationActivityAction(action: string): string {
   if (known) return known
   const readable = action.split('.').at(-1)?.replaceAll('_', ' ').trim() ?? ''
   return readable ? `${readable.charAt(0).toUpperCase()}${readable.slice(1)}` : 'Recorded activity'
+}
+
+export function formatInvestigationActivitySummary(
+  activity: Pick<InvestigationActivity, 'action' | 'details'>,
+): string {
+  const fallback = formatInvestigationActivityAction(activity.action)
+  const sourceTitle = activityDetailText(activity.details, 'source_title')
+  if (activity.action === 'investigation.evidence_added' && sourceTitle) {
+    return `Added evidence: ${sourceTitle}`
+  }
+  if (activity.action === 'investigation.evidence_removed' && sourceTitle) {
+    return `Removed evidence: ${sourceTitle}`
+  }
+
+  const memberEmail = activityDetailText(activity.details, 'member_email')
+  if (activity.action === 'investigation.member_added' && memberEmail) {
+    const role = activityRoleLabel(activity.details.role)
+    return `Added member: ${memberEmail}${role ? ` · ${role}` : ''}`
+  }
+  if (activity.action === 'investigation.member_updated' && memberEmail) {
+    const fromRole = activityRoleLabel(activity.details.from_role)
+    const toRole = activityRoleLabel(activity.details.to_role)
+    const transition = fromRole && toRole ? `${fromRole} → ${toRole}` : toRole
+    return `Changed member role: ${memberEmail}${transition ? ` · ${transition}` : ''}`
+  }
+  if (activity.action === 'investigation.member_removed' && memberEmail) {
+    const role = activityRoleLabel(activity.details.role)
+    return `Removed member: ${memberEmail}${role ? ` · ${role}` : ''}`
+  }
+  return fallback
+}
+
+function activityDetailText(details: Record<string, unknown>, key: string): string | null {
+  const value = details[key]
+  if (typeof value !== 'string') return null
+  const normalized = value.trim()
+  if (!normalized) return null
+  const limit = 512
+  return normalized.length <= limit ? normalized : `${normalized.slice(0, limit - 3).trimEnd()}...`
+}
+
+function activityRoleLabel(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const normalized = value.trim().replaceAll('_', ' ')
+  return normalized ? `${normalized.charAt(0).toUpperCase()}${normalized.slice(1)}` : null
 }
 
 export function isInvestigationVersionConflict(error: unknown): error is ApiError {
