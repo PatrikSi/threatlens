@@ -94,7 +94,7 @@ export function TaggingRuleEditor({ controller }: TaggingPanelProps) {
 
   return (
     <section className="rounded-xl border border-slate/20 bg-white/80 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/90">
-      <fieldset disabled={!controller.canManageTagging} className="m-0 min-w-0 border-0 p-0">
+      <fieldset disabled={!controller.canManageTagging || deleteRule.isPending} className="m-0 min-w-0 border-0 p-0">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="font-display text-lg">{selectedRule ? 'Edit rule' : 'Create rule'}</h2>
@@ -143,7 +143,7 @@ export function TaggingRuleEditor({ controller }: TaggingPanelProps) {
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <button
             className="rounded bg-ink px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]"
-            disabled={saveRule.isPending || Boolean(ruleValidationError) || !controller.canManageTagging}
+            disabled={saveRule.isPending || deleteRule.isPending || Boolean(ruleValidationError) || !controller.canManageTagging}
             onClick={onSaveRule}
           >
             {selectedRule ? 'Save rule' : 'Create rule'}
@@ -158,7 +158,7 @@ export function TaggingRuleEditor({ controller }: TaggingPanelProps) {
           {selectedRule && (
             <button
               className="rounded border border-red-300 px-3 py-2 text-sm font-semibold text-red-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-900/60 dark:text-red-300"
-              disabled={deleteRule.isPending || Boolean(pendingRuleDelete) || !controller.canManageTagging}
+              disabled={saveRule.isPending || deleteRule.isPending || Boolean(pendingRuleDelete) || !controller.canManageTagging}
               onClick={() => onRequestDeleteRule(selectedRule)}
             >
               Delete rule

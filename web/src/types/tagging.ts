@@ -27,6 +27,12 @@ export interface TaggingRule {
 export interface TaggingSettingsBundleResponse {
   settings: TaggingSettings
   rules: TaggingRule[]
+  tagging_recovery?: {
+    pending: number
+    retrying: number
+    needs_attention: number
+    errors: Array<{ code: string; count: number; message: string }>
+  }
 }
 
 export interface TaggingRuleWriteRequest {
