@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-from statistics import median
 from typing import Any, Callable
 
-from sqlalchemy import Select, func, or_, select
+from sqlalchemy import Date, Select, case, cast, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.ai_daily_brief import AIDailyBrief
@@ -39,8 +37,6 @@ from app.services.ai_ops_common import (
     AI_TASK_TYPE_ITEM_ENRICHMENT,
     AI_TASK_TYPE_REPORT,
     AI_TRIGGER_AUTO,
-    _coerce_utc,
-    _percentile,
 )
 from app.services.ai_telemetry_data_policy import (
     ai_task_run_access_predicate,
@@ -65,27 +61,21 @@ def build_ai_ops_overview(
 ) -> AIOpsOverviewResponse:
     now = datetime.now(timezone.utc)
     since = now - timedelta(days=max(1, days))
-    usage_events = list(
-        db.scalars(
-            select(AIUsageEvent).where(
-                AIUsageEvent.created_at >= since,
-                _usage_access_predicate(data_access),
-            )
-        )
-    )
+    usage_filters = _usage_filters(since, data_access)
+    totals = db.execute(
+        select(
+            func.count().label("requests"),
+            func.count().filter(AIUsageEvent.success.is_(True)).label("successes"),
+            func.sum(AIUsageEvent.total_tokens).label("tokens"),
+            func.avg(AIUsageEvent.latency_ms)
+            .filter(AIUsageEvent.success.is_(True))
+            .label("latency"),
+        ).where(*usage_filters)
+    ).one()
     live = live_status_loader(db)
-
-    successful_events = [event for event in usage_events if event.success]
-    total_requests = len(usage_events)
-    success_rate = (
-        (len(successful_events) / total_requests * 100.0) if total_requests else 0.0
+    p95_latency = db.scalar(
+        _latency_percentiles(since, data_access, successful_only=True)
     )
-    latency_values = [
-        float(event.latency_ms)
-        for event in successful_events
-        if event.latency_ms is not None
-    ]
-    total_tokens = sum(int(event.total_tokens or 0) for event in usage_events)
     last_successful_run_at = db.scalar(
         select(AITaskRun.finished_at)
         .where(
@@ -93,18 +83,15 @@ def build_ai_ops_overview(
             _run_access_predicate(data_access),
         )
         .order_by(AITaskRun.finished_at.desc())
+        .limit(1)
     )
 
     kpis = AIOverviewKpiResponse(
-        total_requests=total_requests,
-        success_rate_pct=round(success_rate, 2),
-        total_tokens=total_tokens,
-        average_latency_ms=round(sum(latency_values) / len(latency_values), 2)
-        if latency_values
-        else 0.0,
-        p95_latency_ms=round(_percentile(latency_values, 0.95), 2)
-        if latency_values
-        else 0.0,
+        total_requests=totals.requests,
+        success_rate_pct=_percentage(totals.successes, totals.requests),
+        total_tokens=int(totals.tokens or 0),
+        average_latency_ms=_rounded(totals.latency),
+        p95_latency_ms=_rounded(p95_latency),
         active_runs=live.active_count,
         queued_runs=live.queued_count,
         last_successful_run_at=last_successful_run_at,
@@ -113,21 +100,24 @@ def build_ai_ops_overview(
     return AIOpsOverviewResponse(
         kpis=kpis,
         live=live,
-        per_model=_build_per_model_usage(usage_events),
+        per_model=_build_per_model_usage(db, since=since, data_access=data_access),
         time_series=_build_time_series(
-            usage_events,
             db,
             since=since,
             now=now,
             data_access=data_access,
         ),
-        token_efficiency=_build_token_efficiency(usage_events),
+        token_efficiency=_build_token_efficiency(
+            db, since=since, data_access=data_access
+        ),
         relevance_distribution=_build_relevance_distribution(
             db, data_access=data_access
         ),
         coverage=_build_coverage_stats(db, data_access=data_access),
         failures=[],
-        endpoint_health=_build_endpoint_health(usage_events),
+        endpoint_health=_build_endpoint_health(
+            db, since=since, now=now, data_access=data_access
+        ),
         feature_health=_build_feature_health(db, data_access=data_access),
         storage=_build_storage_stats(db, data_access=data_access),
         cache=_build_cache_stats(db, data_access=data_access),
@@ -217,179 +207,202 @@ def list_ai_failures(
     ]
 
 
+def _usage_filters(since: datetime, data_access: DataAccessContext | None):
+    return AIUsageEvent.created_at >= since, _usage_access_predicate(data_access)
+
+
+def _rounded(value, digits: int = 2) -> float:
+    return round(float(value or 0), digits)
+
+
+def _percentage(numerator: int, denominator: int) -> float:
+    return round(numerator / denominator * 100.0, 2) if denominator else 0.0
+
+
+def _utc_day(column):
+    # TIMESTAMPTZ grouping must not depend on the connection's session timezone.
+    return cast(func.timezone("UTC", column), Date)
+
+
+def _latency_percentiles(
+    since: datetime,
+    data_access: DataAccessContext | None,
+    *,
+    successful_only: bool = False,
+    by_day: bool = False,
+):
+    day = _utc_day(AIUsageEvent.created_at)
+    partition = day if by_day else None
+    ranked = select(
+        AIUsageEvent.latency_ms.label("latency"),
+        day.label("day"),
+        func.row_number()
+        .over(partition_by=partition, order_by=AIUsageEvent.latency_ms)
+        .label("rank"),
+        func.count().over(partition_by=partition).label("count"),
+    ).where(*_usage_filters(since, data_access), AIUsageEvent.latency_ms.is_not(None))
+    if successful_only:
+        ranked = ranked.where(AIUsageEvent.success.is_(True))
+    values = ranked.subquery()
+    # Preserve _percentile's round((n - 1) * .95) zero-based rank, including
+    # Python's ties-to-even rule. percentile_disc(.95) differs for e.g. n=31.
+    numerator = (values.c.count - 1) * 19
+    lower = func.floor(numerator / 20)
+    remainder = func.mod(numerator, 20)
+    rounded = lower + case(
+        (remainder > 10, 1),
+        (remainder == 10, func.mod(lower, 2)),
+        else_=0,
+    )
+    columns = (values.c.day, values.c.latency) if by_day else (values.c.latency,)
+    return select(*columns).where(values.c.rank == rounded + 1)
+
+
 def _build_per_model_usage(
-    events: list[AIUsageEvent],
+    db: Session,
+    *,
+    since: datetime,
+    data_access: DataAccessContext | None = None,
 ) -> list[AIOverviewPerModelResponse]:
-    buckets: dict[str, dict[str, Any]] = {}
-    for event in events:
-        key = event.model or "unknown"
-        bucket = buckets.setdefault(
-            key,
-            {
-                "total_requests": 0,
-                "successful_requests": 0,
-                "failed_requests": 0,
-                "total_tokens": 0,
-                "latencies": [],
-                "last_request_at": None,
-            },
+    model = func.coalesce(func.nullif(AIUsageEvent.model, ""), "unknown")
+    rows = db.execute(
+        select(
+            model.label("model"),
+            func.count().label("requests"),
+            func.count().filter(AIUsageEvent.success.is_(True)).label("successes"),
+            func.sum(AIUsageEvent.total_tokens).label("tokens"),
+            func.avg(AIUsageEvent.latency_ms).label("latency"),
+            func.max(AIUsageEvent.created_at).label("last_request"),
         )
-        bucket["total_requests"] += 1
-        bucket["successful_requests"] += 1 if event.success else 0
-        bucket["failed_requests"] += 0 if event.success else 1
-        bucket["total_tokens"] += int(event.total_tokens or 0)
-        if event.latency_ms is not None:
-            bucket["latencies"].append(float(event.latency_ms))
-        if bucket["last_request_at"] is None or (
-            event.created_at and event.created_at > bucket["last_request_at"]
-        ):
-            bucket["last_request_at"] = event.created_at
-    results: list[AIOverviewPerModelResponse] = []
-    for model, bucket in buckets.items():
-        total_requests = int(bucket["total_requests"])
-        results.append(
-            AIOverviewPerModelResponse(
-                model=model,
-                total_requests=total_requests,
-                successful_requests=int(bucket["successful_requests"]),
-                failed_requests=int(bucket["failed_requests"]),
-                success_rate_pct=round(
-                    (bucket["successful_requests"] / total_requests * 100.0)
-                    if total_requests
-                    else 0.0,
-                    2,
-                ),
-                total_tokens=int(bucket["total_tokens"]),
-                average_latency_ms=(
-                    round(sum(bucket["latencies"]) / len(bucket["latencies"]), 2)
-                    if bucket["latencies"]
-                    else 0.0
-                ),
-                last_request_at=bucket["last_request_at"],
-            )
+        .where(*_usage_filters(since, data_access))
+        .group_by(model)
+        .order_by(
+            func.coalesce(func.sum(AIUsageEvent.total_tokens), 0).desc(),
+            model,
         )
-    return sorted(results, key=lambda entry: entry.total_tokens, reverse=True)
+    )
+    return [
+        AIOverviewPerModelResponse(
+            model=row.model,
+            total_requests=row.requests,
+            successful_requests=row.successes,
+            failed_requests=row.requests - row.successes,
+            success_rate_pct=_percentage(row.successes, row.requests),
+            total_tokens=int(row.tokens or 0),
+            average_latency_ms=_rounded(row.latency),
+            last_request_at=row.last_request,
+        )
+        for row in rows
+    ]
 
 
 def _build_time_series(
-    events: list[AIUsageEvent],
     db: Session,
     *,
     since: datetime,
     now: datetime,
     data_access: DataAccessContext | None = None,
 ) -> list[AITimeSeriesPointResponse]:
-    buckets: dict[str, dict[str, Any]] = {}
+    buckets: dict[str, AITimeSeriesPointResponse] = {}
     cursor = since.date()
     while cursor <= now.date():
         key = cursor.isoformat()
-        buckets[key] = _empty_time_series_bucket()
+        buckets[key] = _empty_time_series_bucket(key)
         cursor += timedelta(days=1)
-
-    for event in events:
-        bucket_key = _coerce_utc(event.created_at).date().isoformat()
-        bucket = buckets.setdefault(bucket_key, _empty_time_series_bucket())
-        bucket["requests"] += 1
-        bucket["failures"] += 0 if event.success else 1
-        bucket["total_tokens"] += int(event.total_tokens or 0)
-        if event.latency_ms is not None:
-            bucket["latencies"].append(float(event.latency_ms))
-
-    daily_runs = list(
-        db.scalars(
-            select(AITaskRun).where(
-                AITaskRun.task_type == AI_TASK_TYPE_DAILY_BRIEF,
-                AITaskRun.created_at >= since,
-                _run_access_predicate(data_access),
-            )
+    day = _utc_day(AIUsageEvent.created_at)
+    for row in db.execute(
+        select(
+            day.label("day"),
+            func.count().label("requests"),
+            func.count().filter(AIUsageEvent.success.is_(False)).label("failures"),
+            func.sum(AIUsageEvent.total_tokens).label("tokens"),
+            func.avg(AIUsageEvent.latency_ms).label("latency"),
         )
-    )
-    for run in daily_runs:
-        bucket_key = _coerce_utc(run.created_at).date().isoformat()
-        bucket = buckets.setdefault(bucket_key, _empty_time_series_bucket())
-        if run.status == AI_STATUS_READY:
-            bucket["daily_brief_successes"] += 1
-        elif run.status == AI_STATUS_ERROR:
-            bucket["daily_brief_failures"] += 1
-        elif run.status == AI_STATUS_SKIPPED:
-            bucket["daily_brief_skips"] += 1
-
-    return [
-        AITimeSeriesPointResponse(
-            bucket=key,
-            requests=int(value["requests"]),
-            failures=int(value["failures"]),
-            total_tokens=int(value["total_tokens"]),
-            average_latency_ms=(
-                round(sum(value["latencies"]) / len(value["latencies"]), 2)
-                if value["latencies"]
-                else 0.0
-            ),
-            p95_latency_ms=round(_percentile(value["latencies"], 0.95), 2)
-            if value["latencies"]
-            else 0.0,
-            daily_brief_successes=int(value["daily_brief_successes"]),
-            daily_brief_failures=int(value["daily_brief_failures"]),
-            daily_brief_skips=int(value["daily_brief_skips"]),
+        .where(*_usage_filters(since, data_access))
+        .group_by(day)
+    ):
+        key = row.day.isoformat()
+        bucket = buckets.setdefault(key, _empty_time_series_bucket(key))
+        bucket.requests = row.requests
+        bucket.failures = row.failures
+        bucket.total_tokens = int(row.tokens or 0)
+        bucket.average_latency_ms = _rounded(row.latency)
+    for day_value, latency in db.execute(
+        _latency_percentiles(since, data_access, by_day=True)
+    ):
+        buckets[day_value.isoformat()].p95_latency_ms = _rounded(latency)
+    run_day = _utc_day(AITaskRun.created_at)
+    for row in db.execute(
+        select(
+            run_day.label("day"),
+            func.count().filter(AITaskRun.status == AI_STATUS_READY).label("successes"),
+            func.count().filter(AITaskRun.status == AI_STATUS_ERROR).label("failures"),
+            func.count().filter(AITaskRun.status == AI_STATUS_SKIPPED).label("skips"),
         )
-        for key, value in sorted(buckets.items())
-    ]
+        .where(
+            AITaskRun.task_type == AI_TASK_TYPE_DAILY_BRIEF,
+            AITaskRun.created_at >= since,
+            _run_access_predicate(data_access),
+        )
+        .group_by(run_day)
+    ):
+        key = row.day.isoformat()
+        bucket = buckets.setdefault(key, _empty_time_series_bucket(key))
+        bucket.daily_brief_successes = row.successes
+        bucket.daily_brief_failures = row.failures
+        bucket.daily_brief_skips = row.skips
+    return [buckets[key] for key in sorted(buckets)]
 
 
-def _empty_time_series_bucket() -> dict[str, Any]:
-    return {
-        "requests": 0,
-        "failures": 0,
-        "total_tokens": 0,
-        "latencies": [],
-        "daily_brief_successes": 0,
-        "daily_brief_failures": 0,
-        "daily_brief_skips": 0,
-    }
-
-
-def _build_token_efficiency(events: list[AIUsageEvent]) -> AITokenEfficiencyResponse:
-    prompt_tokens = [
-        int(event.prompt_tokens or 0)
-        for event in events
-        if event.prompt_tokens is not None
-    ]
-    completion_tokens = [
-        int(event.completion_tokens or 0)
-        for event in events
-        if event.completion_tokens is not None
-    ]
-    total_tokens = [
-        int(event.total_tokens or 0)
-        for event in events
-        if event.total_tokens is not None
-    ]
-    by_feature: dict[str, list[int]] = defaultdict(list)
-    for event in events:
-        if event.total_tokens is not None:
-            by_feature[event.feature_type].append(int(event.total_tokens))
-    top_feature = None
-    top_feature_avg = 0.0
-    for feature, values in by_feature.items():
-        avg = sum(values) / len(values)
-        if avg > top_feature_avg:
-            top_feature = feature
-            top_feature_avg = avg
-    avg_prompt = sum(prompt_tokens) / len(prompt_tokens) if prompt_tokens else 0.0
-    avg_completion = (
-        sum(completion_tokens) / len(completion_tokens) if completion_tokens else 0.0
+def _empty_time_series_bucket(key: str) -> AITimeSeriesPointResponse:
+    return AITimeSeriesPointResponse(
+        bucket=key,
+        requests=0,
+        failures=0,
+        total_tokens=0,
+        average_latency_ms=0.0,
+        p95_latency_ms=0.0,
+        daily_brief_successes=0,
+        daily_brief_failures=0,
+        daily_brief_skips=0,
     )
+
+
+def _build_token_efficiency(
+    db: Session,
+    *,
+    since: datetime,
+    data_access: DataAccessContext | None = None,
+) -> AITokenEfficiencyResponse:
+    row = db.execute(
+        select(
+            func.avg(AIUsageEvent.prompt_tokens).label("prompt"),
+            func.avg(AIUsageEvent.completion_tokens).label("completion"),
+            func.avg(AIUsageEvent.total_tokens).label("total"),
+        ).where(*_usage_filters(since, data_access))
+    ).one()
+    top = db.execute(
+        select(
+            AIUsageEvent.feature_type,
+            func.avg(AIUsageEvent.total_tokens).label("average"),
+        )
+        .where(*_usage_filters(since, data_access))
+        .group_by(AIUsageEvent.feature_type)
+        .having(
+            func.avg(AIUsageEvent.total_tokens) > 0,
+        )
+        .order_by(func.avg(AIUsageEvent.total_tokens).desc(), AIUsageEvent.feature_type)
+        .limit(1)
+    ).first()
     return AITokenEfficiencyResponse(
-        average_prompt_tokens=round(avg_prompt, 2),
-        average_completion_tokens=round(avg_completion, 2),
-        average_total_tokens=round(sum(total_tokens) / len(total_tokens), 2)
-        if total_tokens
+        average_prompt_tokens=_rounded(row.prompt),
+        average_completion_tokens=_rounded(row.completion),
+        average_total_tokens=_rounded(row.total),
+        prompt_to_completion_ratio=_rounded(row.prompt / row.completion)
+        if row.prompt and row.completion
         else 0.0,
-        prompt_to_completion_ratio=round(avg_prompt / avg_completion, 2)
-        if avg_completion
-        else 0.0,
-        top_expensive_feature=top_feature,
-        top_expensive_feature_avg_tokens=round(top_feature_avg, 2),
+        top_expensive_feature=top.feature_type if top else None,
+        top_expensive_feature_avg_tokens=_rounded(top.average) if top else 0.0,
     )
 
 
@@ -398,80 +411,56 @@ def _build_relevance_distribution(
     *,
     data_access: DataAccessContext | None = None,
 ) -> AIRelevanceDistributionResponse:
-    enrichments = list(
-        db.execute(
-            select(
-                ItemAIEnrichment.relevance_label,
-                ItemAIEnrichment.relevance_score,
-                Feed.name,
-            )
-            .join(Item, Item.id == ItemAIEnrichment.item_id)
-            .join(Feed, Feed.id == Item.feed_id)
-            .where(
-                ItemAIEnrichment.status == AI_STATUS_READY,
-                ItemAIEnrichment.relevance_label.is_not(None),
-                _feed_access_predicate(data_access),
-            )
+    counts = (
+        select(
+            func.count().label("items"),
+            func.count()
+            .filter(ItemAIEnrichment.relevance_label == "high")
+            .label("high"),
+            func.count()
+            .filter(ItemAIEnrichment.relevance_label == "medium")
+            .label("medium"),
+            func.count().filter(ItemAIEnrichment.relevance_label == "low").label("low"),
+            func.avg(ItemAIEnrichment.relevance_score).label("score"),
+        )
+        .select_from(ItemAIEnrichment)
+        .join(Item, Item.id == ItemAIEnrichment.item_id)
+        .join(
+            Feed,
+            Feed.id == Item.feed_id,
+        )
+        .where(
+            ItemAIEnrichment.status == AI_STATUS_READY,
+            ItemAIEnrichment.relevance_label.is_not(None),
+            _feed_access_predicate(data_access),
         )
     )
-    high_count = medium_count = low_count = 0
-    total_score = 0.0
-    score_count = 0
-    by_feed: dict[str, dict[str, Any]] = {}
-    for label, score, feed_name in enrichments:
-        if label == "high":
-            high_count += 1
-        elif label == "medium":
-            medium_count += 1
-        elif label == "low":
-            low_count += 1
-        if score is not None:
-            total_score += float(score)
-            score_count += 1
-        bucket = by_feed.setdefault(
-            feed_name,
-            {
-                "total_items": 0,
-                "high_count": 0,
-                "medium_count": 0,
-                "low_count": 0,
-                "score_total": 0.0,
-                "score_count": 0,
-            },
+    totals = db.execute(counts).one()
+    feeds = db.execute(
+        counts.add_columns(Feed.name)
+        .group_by(Feed.name)
+        .order_by(
+            func.count().desc(),
+            Feed.name,
         )
-        bucket["total_items"] += 1
-        if label == "high":
-            bucket["high_count"] += 1
-        elif label == "medium":
-            bucket["medium_count"] += 1
-        elif label == "low":
-            bucket["low_count"] += 1
-        if score is not None:
-            bucket["score_total"] += float(score)
-            bucket["score_count"] += 1
-    feed_rows = [
-        AIRelevanceFeedResponse(
-            feed_name=feed_name,
-            total_items=int(bucket["total_items"]),
-            high_count=int(bucket["high_count"]),
-            medium_count=int(bucket["medium_count"]),
-            low_count=int(bucket["low_count"]),
-            average_score=(
-                round(bucket["score_total"] / bucket["score_count"], 3)
-                if bucket["score_count"]
-                else 0.0
-            ),
-        )
-        for feed_name, bucket in sorted(
-            by_feed.items(), key=lambda entry: entry[1]["total_items"], reverse=True
-        )[:10]
-    ]
+        .limit(10)
+    )
     return AIRelevanceDistributionResponse(
-        high_count=high_count,
-        medium_count=medium_count,
-        low_count=low_count,
-        average_score=round(total_score / score_count, 3) if score_count else 0.0,
-        by_feed=feed_rows,
+        high_count=totals.high,
+        medium_count=totals.medium,
+        low_count=totals.low,
+        average_score=_rounded(totals.score, 3),
+        by_feed=[
+            AIRelevanceFeedResponse(
+                feed_name=row.name,
+                total_items=row.items,
+                high_count=row.high,
+                medium_count=row.medium,
+                low_count=row.low,
+                average_score=_rounded(row.score, 3),
+            )
+            for row in feeds
+        ],
     )
 
 
@@ -536,6 +525,7 @@ def _build_coverage_stats(
             _feed_access_predicate(data_access),
         )
         .order_by(ItemAIEnrichment.generated_at.asc())
+        .limit(1)
     )
     last_successful_enrichment_at = db.scalar(
         select(ItemAIEnrichment.generated_at)
@@ -546,6 +536,7 @@ def _build_coverage_stats(
             _feed_access_predicate(data_access),
         )
         .order_by(ItemAIEnrichment.generated_at.desc())
+        .limit(1)
     )
     last_successful_daily_brief_at = db.scalar(
         select(AIDailyBrief.generated_at)
@@ -554,11 +545,13 @@ def _build_coverage_stats(
             _brief_access_predicate(data_access),
         )
         .order_by(AIDailyBrief.generated_at.desc())
+        .limit(1)
     )
     last_ai_run_at = db.scalar(
         select(AITaskRun.finished_at)
         .where(_run_access_predicate(data_access))
         .order_by(AITaskRun.finished_at.desc())
+        .limit(1)
     )
     skip_counts = _load_skip_counts(db, data_access=data_access)
     return AICoverageStatsResponse(
@@ -602,55 +595,64 @@ def _load_skip_counts(
     return {reason: int(count) for reason, count in rows if reason}
 
 
-def _build_endpoint_health(events: list[AIUsageEvent]) -> AIEndpointHealthResponse:
-    successful = [event for event in events if event.success]
-    failed = [event for event in events if not event.success]
-    last_success_at = max((event.created_at for event in successful), default=None)
-    last_error_event = max(
-        failed,
-        key=lambda event: event.created_at or datetime.min.replace(tzinfo=timezone.utc),
-        default=None,
-    )
-    recent_window = datetime.now(timezone.utc) - timedelta(hours=24)
-    recent = [
-        event for event in events if _coerce_utc(event.created_at) >= recent_window
-    ]
-    latency_values = [
-        event.latency_ms for event in successful if event.latency_ms is not None
-    ]
-    median_latency_ms = round(median(latency_values), 2) if latency_values else 0.0
-    timeout_failures = sum(
-        1 for event in failed if "timeout" in (event.error or "").lower()
-    )
-    last_auth_error = next(
-        (
-            event.error
-            for event in sorted(
-                failed,
-                key=lambda row: (
-                    row.created_at or datetime.min.replace(tzinfo=timezone.utc)
-                ),
-                reverse=True,
-            )
-            if _looks_like_auth_error(event.error)
-        ),
-        None,
+def _build_endpoint_health(
+    db: Session,
+    *,
+    since: datetime,
+    now: datetime,
+    data_access: DataAccessContext | None = None,
+) -> AIEndpointHealthResponse:
+    filters = _usage_filters(since, data_access)
+    recent = AIUsageEvent.created_at >= now - timedelta(hours=24)
+    failed = AIUsageEvent.success.is_(False)
+    row = db.execute(
+        select(
+            func.max(AIUsageEvent.created_at)
+            .filter(AIUsageEvent.success.is_(True))
+            .label("last_success"),
+            func.count().filter(recent).label("recent"),
+            func.count().filter(recent, failed).label("recent_failures"),
+            func.percentile_cont(0.5)
+            .within_group(AIUsageEvent.latency_ms)
+            .filter(AIUsageEvent.success.is_(True))
+            .label("median"),
+            func.count()
+            .filter(failed, func.lower(AIUsageEvent.error).contains("timeout"))
+            .label("timeouts"),
+        ).where(*filters)
+    ).one()
+    last_error = db.execute(
+        select(AIUsageEvent.created_at, AIUsageEvent.error)
+        .where(
+            *filters,
+            failed,
+        )
+        .order_by(AIUsageEvent.created_at.desc(), AIUsageEvent.id)
+        .limit(1)
+    ).first()
+    last_auth_error = db.scalar(
+        select(AIUsageEvent.error)
+        .where(
+            *filters,
+            failed,
+            or_(
+                *(
+                    func.lower(AIUsageEvent.error).contains(fragment)
+                    for fragment in ("401", "403", "unauthorized", "forbidden", "auth")
+                )
+            ),
+        )
+        .order_by(AIUsageEvent.created_at.desc(), AIUsageEvent.id)
+        .limit(1)
     )
     return AIEndpointHealthResponse(
-        last_success_at=last_success_at,
-        last_error_at=last_error_event.created_at if last_error_event else None,
-        rolling_failure_rate_pct=(
-            round(
-                (sum(1 for event in recent if not event.success) / len(recent) * 100.0),
-                2,
-            )
-            if recent
-            else 0.0
-        ),
-        median_latency_ms=median_latency_ms,
-        timeout_failures=timeout_failures,
+        last_success_at=row.last_success,
+        last_error_at=last_error.created_at if last_error else None,
+        rolling_failure_rate_pct=_percentage(row.recent_failures, row.recent),
+        median_latency_ms=_rounded(row.median),
+        timeout_failures=row.timeouts,
         last_auth_error=last_auth_error,
-        last_provider_error=last_error_event.error if last_error_event else None,
+        last_provider_error=last_error.error if last_error else None,
     )
 
 
@@ -692,16 +694,16 @@ def _build_feature_health(
     }
     rows: list[AIFeatureHealthRowResponse] = []
     for feature_key, query in feature_to_filters.items():
-        last_run = db.scalar(query.order_by(AITaskRun.created_at.desc()))
+        last_run = db.scalar(query.order_by(AITaskRun.created_at.desc()).limit(1))
         last_success = db.scalar(
-            query.where(AITaskRun.status == AI_STATUS_READY).order_by(
-                AITaskRun.finished_at.desc()
-            )
+            query.where(AITaskRun.status == AI_STATUS_READY)
+            .order_by(AITaskRun.finished_at.desc())
+            .limit(1)
         )
         last_failure = db.scalar(
-            query.where(AITaskRun.status == AI_STATUS_ERROR).order_by(
-                AITaskRun.finished_at.desc()
-            )
+            query.where(AITaskRun.status == AI_STATUS_ERROR)
+            .order_by(AITaskRun.finished_at.desc())
+            .limit(1)
         )
         rows.append(
             AIFeatureHealthRowResponse(
