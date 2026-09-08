@@ -101,6 +101,10 @@ Additional proxies must honor the [export timeout window](../pages/export.md).
 
 ## Remaining assessment
 
+This section records the earlier checkpoint. Its seven follow-up priorities
+are addressed in the [follow-up implementation and current assessment](2026-09-08-follow-up.md),
+which contains the later verification and remaining deployment limits.
+
 The modular monolith remains a suitable architecture for a shared self-hosted
 installation. Bounded I/O, durable processing intent, database aggregation, and
 session-scoped client state address the immediate cross-cutting defects without
