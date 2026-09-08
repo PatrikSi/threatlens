@@ -95,6 +95,7 @@
 | `OIDC_METADATA_CACHE_SECONDS` (`oidc_metadata_cache_seconds`) | `300` | In-process cache lifetime for validated provider discovery metadata. |
 | `OIDC_CONNECT_TIMEOUT_SECONDS` (`oidc_connect_timeout_seconds`) | `5` | Connect timeout for discovery, token, JWKS, and UserInfo requests. |
 | `OIDC_READ_TIMEOUT_SECONDS` (`oidc_read_timeout_seconds`) | `10` | Read/write timeout for OIDC provider requests. |
+| `OIDC_TOTAL_TIMEOUT_SECONDS` (`oidc_total_timeout_seconds`) | `30` | Total deadline for each discovery, token, JWKS, or UserInfo HTTP exchange including DNS and redirects; greater than zero and at most 300 seconds. |
 | `OIDC_MAX_RESPONSE_BYTES` (`oidc_max_response_bytes`) | `1000000` | Maximum accepted response size for each OIDC provider endpoint. |
 | `CORS_ORIGINS` (`cors_origins`) | `http://localhost:3000,http://127.0.0.1:3000` | Allowed browser origins. Supports CSV parsing. |
 | `TRUSTED_PROXY_CIDRS` (`trusted_proxy_cidrs`) | _(empty)_ | Trusted proxy CIDRs permitted to append `X-Forwarded-For`. Leave empty unless the API is behind a reverse proxy whose container or network CIDR you explicitly control; broad Docker bridge or private-network ranges let sibling containers spoof client IPs. |

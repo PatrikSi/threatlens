@@ -8,6 +8,13 @@ positive number up to 300 seconds. Article fallback URLs share the same budget.
 The configured AI provider `request_timeout_seconds` is also its total budget.
 Existing connect/read settings remain shorter limits for individual operations.
 
+Each OIDC discovery, token, JWKS, and UserInfo exchange has a 30-second total
+deadline (`OIDC_TOTAL_TIMEOUT_SECONDS`, positive and at most 300). A webhook's
+configured timeout covers its complete redirect chain and response preview.
+If a webhook's final success status is already observed, a preview timeout does
+not turn delivery into a retry; a timeout before final headers preserves the
+existing ambiguous-attempt protection.
+
 The synchronous pinned transport recomputes the remaining timeout before every
 socket read, including partial response headers. Socket writes use `sendall` so
 partial sends cannot restart the timeout. The original hostname remains the TLS
