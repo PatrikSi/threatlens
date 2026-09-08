@@ -21,6 +21,7 @@ from app.services.safe_fetch import (
     build_safe_http_client,
 )
 from app.services.url_utils import ensure_runtime_fetchable_url
+from app.services.outbound_deadline import outbound_deadline
 
 settings = get_settings()
 MAX_RESPONSE_PREVIEW_CHARS = 4000
@@ -193,7 +194,7 @@ def send_rendered_notification_request(
 
     try:
         _renew_notification_operation_lease(rendered.timeout_seconds)
-        with build_safe_http_client(
+        with outbound_deadline(rendered.timeout_seconds), build_safe_http_client(
             timeout=timeout,
             headers={"User-Agent": settings.fetch_user_agent},
             allow_private_network=settings.allow_private_network_webhooks,

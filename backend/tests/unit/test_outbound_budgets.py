@@ -80,6 +80,46 @@ def test_dns_timeout_does_not_start_an_http_request(monkeypatch):
         assert returned.wait(1)
 
 
+@pytest.mark.parametrize("mode", ["headers", "body"])
+def test_oidc_exchange_has_a_total_deadline(mode, monkeypatch):
+    from app.core.config import get_settings
+    from app.services import oidc_client
+
+    monkeypatch.setenv("ALLOW_PRIVATE_NETWORK_OIDC", "true")
+    monkeypatch.setenv("OIDC_TOTAL_TIMEOUT_SECONDS", "0.15")
+    get_settings.cache_clear()
+    with _slow_server(mode) as url:
+        began = time.monotonic()
+        with pytest.raises(oidc_client.OIDCProtocolError, match="timed out"):
+            oidc_client._fetch_json("GET", url)
+        assert time.monotonic() - began < 0.8
+
+
+@pytest.mark.parametrize("mode", ["headers", "body"])
+def test_webhook_deadline_preserves_observed_status_and_ambiguous_attempts(mode, monkeypatch):
+    from types import SimpleNamespace
+    from app.services import notification_webhook_http as webhooks
+
+    monkeypatch.setattr(webhooks.settings, "allow_private_network_webhooks", True)
+    calls = []
+    with _slow_server(mode) as url, webhooks.notification_delivery_external_io_marker(lambda: calls.append(True)):
+        rendered = SimpleNamespace(
+            timeout_seconds=0.15, url=url, method="POST", headers=[], query_params=[], body=None,
+            headers_dict={}, query_param_pairs=[], json_body=None, form_body=None, raw_body=None,
+        )
+        began = time.monotonic()
+        if mode == "headers":
+            with pytest.raises(webhooks.WebhookAmbiguousResponseError):
+                webhooks.send_rendered_notification_request(rendered)
+        else:
+            result = webhooks.send_rendered_notification_request(rendered)
+            assert result.status_code == 200
+            assert result.success
+            assert "unavailable" in result.response_body_preview.lower()
+        assert time.monotonic() - began < 0.8
+        assert calls == [True]
+
+
 @contextmanager
 def _slow_server(mode):
     stop = threading.Event()

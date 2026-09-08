@@ -255,6 +255,7 @@ class Settings(BaseSettings):
     oidc_metadata_cache_seconds: int = 300
     oidc_connect_timeout_seconds: float = 5
     oidc_read_timeout_seconds: float = 10
+    oidc_total_timeout_seconds: float = Field(default=30, gt=0, le=300)
     oidc_max_response_bytes: int = 1_000_000
 
     probe_feed_metadata_on_create: bool = False

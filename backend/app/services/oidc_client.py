@@ -32,6 +32,7 @@ from app.services.safe_fetch import (
     safe_stream_with_redirects,
 )
 from app.services.secret_storage import decrypt_text
+from app.services.outbound_deadline import outbound_deadline
 from app.services.url_utils import (
     ensure_runtime_fetchable_url,
     is_fetchable_url,
@@ -404,14 +405,14 @@ def _fetch_json(
         **(headers or {}),
     }
     try:
-        _ensure_oidc_runtime_fetchable_url(
-            url, allow_private_network=settings.allow_private_network_oidc
-        )
-        with build_safe_http_client(
+        with outbound_deadline(settings.oidc_total_timeout_seconds), build_safe_http_client(
             timeout=timeout,
             headers=request_headers,
             allow_private_network=settings.allow_private_network_oidc,
         ) as client:
+            _ensure_oidc_runtime_fetchable_url(
+                url, allow_private_network=settings.allow_private_network_oidc
+            )
             if allow_redirects and method.upper() == "GET":
                 response = safe_stream_with_redirects(
                     client,
