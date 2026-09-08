@@ -51,6 +51,11 @@ bound, the finder labels the result count as a lower bound and asks the analyst 
 narrow the query, source scope, or time range instead of performing an unrestricted
 count over the tenant's retained corpus.
 
+Report candidate queries select display metadata and database-bounded titles and
+summaries; full generation context is not materialized for previews. Search still
+matches the complete permitted summary, including text beyond the displayed
+600-character excerpt.
+
 Search results display source names, observed time, match reason, related article
 context, and whether the record is already attached. Stable source IDs are kept in
 the technical-details disclosure and used only after the analyst selects a result.
