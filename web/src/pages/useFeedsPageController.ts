@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { ApiError, apiFetch } from '../api/client'
 import { useCurrentUser } from '../hooks/useCurrentUser'
+import { rebaseSavedDraft } from '../hooks/rebaseSavedDraft'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import {
   EncryptedDataInventoryResponse,
@@ -124,6 +125,8 @@ export function useFeedsPageController() {
   const [feedStatusPollUntil, setFeedStatusPollUntil] = useState(() => Date.now() + FEED_STATUS_BOOTSTRAP_POLL_MS)
   const [detectedMetadata, setDetectedMetadata] = useState<DetectedFeedMetadata | null>(null)
   const [editingFeedId, setEditingFeedId] = useState<string | null>(null)
+  const editingFeedIdRef = useRef(editingFeedId)
+  editingFeedIdRef.current = editingFeedId
   const [feedEditDraft, setFeedEditDraft] = useState<FeedEditDraft | null>(null)
   const [mobileAddFeedOpen, setMobileAddFeedOpen] = useState(false)
   const [mobileBulkActionsOpen, setMobileBulkActionsOpen] = useState(false)
@@ -228,30 +231,30 @@ export function useFeedsPageController() {
   })
 
   const createFeed = useMutation({
-    mutationFn: () =>
+    mutationFn: (submitted: Parameters<typeof isNewFeedFormDirty>[0]) =>
       apiFetch<Feed>('/feeds', {
         method: 'POST',
         body: JSON.stringify({
-          name: name.trim() || null,
-          url,
-          description: description.trim() || null,
-          site_url: siteUrl.trim() || null,
-          language: language.trim() || null,
-          fetch_mode: fetchMode,
-          fetch_interval_seconds: fetchMode === 'interval' ? interval : null,
-          schedule_cron: fetchMode === 'schedule' ? scheduleCron.trim() : null,
+          name: submitted.name.trim() || null,
+          url: submitted.url,
+          description: submitted.description.trim() || null,
+          site_url: submitted.siteUrl.trim() || null,
+          language: submitted.language.trim() || null,
+          fetch_mode: submitted.fetchMode,
+          fetch_interval_seconds: submitted.fetchMode === 'interval' ? submitted.interval : null,
+          schedule_cron: submitted.fetchMode === 'schedule' ? submitted.scheduleCron.trim() : null,
           enabled: true,
         }),
       }),
-    onSuccess: () => {
-      setName('')
-      setUrl('')
-      setDescription('')
-      setSiteUrl('')
-      setLanguage('')
-      setFetchMode('interval')
-      setInterval(1800)
-      setScheduleCron('0 * * * *')
+    onSuccess: (_saved, submitted) => {
+      setName((current) => current === submitted.name ? '' : current)
+      setUrl((current) => current === submitted.url ? '' : current)
+      setDescription((current) => current === submitted.description ? '' : current)
+      setSiteUrl((current) => current === submitted.siteUrl ? '' : current)
+      setLanguage((current) => current === submitted.language ? '' : current)
+      setFetchMode((current) => current === submitted.fetchMode ? 'interval' : current)
+      setInterval((current) => current === submitted.interval ? 1800 : current)
+      setScheduleCron((current) => current === submitted.scheduleCron ? '0 * * * *' : current)
       setDetectedMetadata(null)
       void queryClient.invalidateQueries({ queryKey: ['feeds'] })
     },
@@ -273,15 +276,17 @@ export function useFeedsPageController() {
         method: 'PATCH',
         body: JSON.stringify(buildFeedUpdatePayload(feed, draft)),
       }),
-    onSuccess: (updatedFeed) => {
+    onSuccess: (updatedFeed, variables) => {
       setManagementNotice('Feed updated.')
       queryClient.setQueryData<Feed[]>(['feeds'], (current) =>
         current?.map((feed) => (feed.id === updatedFeed.id ? updatedFeed : feed)) ?? current,
       )
-      setFeedEditDraft(feedToEditDraft(updatedFeed))
+      if (editingFeedIdRef.current === variables.feed.id) {
+        setFeedEditDraft((current) => current ? rebaseSavedDraft(variables.draft, current, feedToEditDraft(updatedFeed)) : current)
+      }
       setFeedDrafts((previous) => ({
         ...previous,
-        [updatedFeed.id]: feedToScheduleDraft(updatedFeed),
+        [updatedFeed.id]: rebaseSavedDraft(feedToScheduleDraft(variables.feed), previous[updatedFeed.id] ?? feedToScheduleDraft(variables.feed), feedToScheduleDraft(updatedFeed)),
       }))
       setFeedSaveState((previous) => ({
         ...previous,
@@ -562,7 +567,7 @@ export function useFeedsPageController() {
 
   const onSubmit = (event: FormEvent) => {
     event.preventDefault()
-    createFeed.mutate()
+    createFeed.mutate({ name, url, description, siteUrl, language, fetchMode, interval, scheduleCron })
   }
 
   const onDetectMetadata = () => {

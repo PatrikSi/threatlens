@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
+import { rebaseSavedDraft } from '../hooks/rebaseSavedDraft'
 import { apiFetch } from '../api/client'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
@@ -29,6 +30,8 @@ export function useNotificationWebhooksController() {
   const queryClient = useQueryClient()
   const currentUserQuery = useCurrentUser()
   const [selectedWebhookId, setSelectedWebhookId] = useState<string | null>(null)
+  const selectedWebhookIdRef = useRef(selectedWebhookId)
+  selectedWebhookIdRef.current = selectedWebhookId
   const [draft, setDraft] = useState(createDefaultDraft)
   const [sampleFeedId, setSampleFeedId] = useState('')
   const [formNotice, setFormNotice] = useState<string | null>(null)
@@ -73,9 +76,9 @@ export function useNotificationWebhooksController() {
 
   const saveWebhook = useMutation({
     mutationKey: ['notifications', 'webhooks', 'save'],
-    mutationFn: (payload: NotificationWebhookWriteRequest) => {
-      if (selectedWebhookId) {
-        return apiFetch<NotificationWebhook>(`/notifications/webhooks/${selectedWebhookId}`, {
+    mutationFn: ({ payload, webhookId }: { payload: NotificationWebhookWriteRequest; webhookId: string | null; submittedDraft: typeof draft }) => {
+      if (webhookId) {
+        return apiFetch<NotificationWebhook>(`/notifications/webhooks/${webhookId}`, {
           method: 'PATCH',
           body: JSON.stringify(payload),
         })
@@ -85,10 +88,14 @@ export function useNotificationWebhooksController() {
         body: JSON.stringify(payload),
       })
     },
-    onSuccess: (saved) => {
-      setSelectedWebhookId(saved.id)
-      setDraft(createDraftFromWebhook(saved))
-      setFormNotice(selectedWebhookId ? 'Webhook updated.' : 'Webhook created.')
+    onSuccess: (saved, variables) => {
+      queryClient.setQueryData<NotificationWebhook[]>(['notifications', 'webhooks'], (current) =>
+        [...(current ?? []).filter((webhook) => webhook.id !== saved.id), saved])
+      if (selectedWebhookIdRef.current === variables.webhookId) {
+        setSelectedWebhookId(saved.id)
+        setDraft((current) => rebaseSavedDraft(variables.submittedDraft, current, createDraftFromWebhook(saved)))
+      }
+      setFormNotice(variables.webhookId ? 'Webhook updated.' : 'Webhook created.')
       setTestResult(null)
       void queryClient.invalidateQueries({ queryKey: ['notifications', 'webhooks'] })
       void queryClient.invalidateQueries({ queryKey: ['notifications', 'analytics'] })
@@ -221,7 +228,7 @@ export function useNotificationWebhooksController() {
     const normalizedDraft = normalizeDraftUrlQuery(draft)
     setDraft(normalizedDraft)
     setFormNotice(null)
-    saveWebhook.mutate(createRequestFromDraft(normalizedDraft))
+    saveWebhook.mutate({ payload: createRequestFromDraft(normalizedDraft), webhookId: selectedWebhookId, submittedDraft: normalizedDraft })
   }
 
   const onTest = () => {

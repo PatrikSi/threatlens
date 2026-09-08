@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react'
+import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
+import { rebaseSavedDraft } from '../hooks/rebaseSavedDraft'
 import { apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
 import { useCurrentUser } from '../hooks/useCurrentUser'
@@ -56,8 +57,12 @@ export function useSMTPIntegrationController() {
     ? 'You can review email delivery, but changes require permission to manage integrations.'
     : null
   const [selectedHookId, setSelectedHookId] = useState<string | null>(null)
+  const selectedHookIdRef = useRef(selectedHookId)
+  selectedHookIdRef.current = selectedHookId
+  const draftRef = useRef<SMTPHookDraft>(DEFAULT_SMTP_HOOK_DRAFT)
   const [selectionInitialized, setSelectionInitialized] = useState(false)
   const [draft, setDraftState] = useState<SMTPHookDraft>(DEFAULT_SMTP_HOOK_DRAFT)
+  draftRef.current = draft
   const [hasUserEdited, setHasUserEdited] = useState(false)
   const [notice, setNotice] = useState<NoticeState | null>(null)
   const [sendTestEmail, setSendTestEmail] = useState(false)
@@ -153,15 +158,20 @@ export function useSMTPIntegrationController() {
 
   const saveHook = useMutation({
     mutationKey: ['integrations', 'smtp', 'hooks', 'save'],
-    mutationFn: ({ hookId, hook }: { hookId: string | null; hook: SMTPHookWriteRequest }) =>
+    mutationFn: ({ hookId, hook }: { hookId: string | null; hook: SMTPHookWriteRequest; submittedDraft: SMTPHookDraft }) =>
       apiFetch<SMTPHook>(hookId ? `/integrations/smtp/hooks/${hookId}` : '/integrations/smtp/hooks', {
         method: hookId ? 'PATCH' : 'POST',
         body: JSON.stringify(hook),
       }),
     onSuccess: (saved, variables) => {
-      setSelectedHookId(saved.id)
-      setDraftState(createSMTPHookDraft(saved))
-      setHasUserEdited(false)
+      queryClient.setQueryData<SMTPHook[]>(['integrations', 'smtp', 'hooks'], (current) =>
+        [...(current ?? []).filter((hook) => hook.id !== saved.id), saved])
+      if (selectedHookIdRef.current === variables.hookId) {
+        const nextDraft = rebaseSavedDraft(variables.submittedDraft, draftRef.current, createSMTPHookDraft(saved))
+        setSelectedHookId(saved.id)
+        setDraftState(nextDraft)
+        setHasUserEdited(smtpHookDraftFingerprint(nextDraft) !== smtpHookDraftFingerprint(createSMTPHookDraft(saved)))
+      }
       setTestResult(null)
       setNotice({ tone: 'success', message: variables.hookId ? 'Email destination updated.' : 'Email destination created.' })
       void queryClient.invalidateQueries({ queryKey: ['integrations', 'smtp'] })
@@ -287,7 +297,7 @@ export function useSMTPIntegrationController() {
       return
     }
     setNotice(null)
-    saveHook.mutate({ hookId: selectedHookId, hook: createSMTPHookRequest(draft) })
+    saveHook.mutate({ hookId: selectedHookId, hook: createSMTPHookRequest(draft), submittedDraft: draft })
   }
 
   const onTest = () => {
