@@ -48,6 +48,33 @@ export interface ArticleExportRequest {
   options: ArticleExportOptions
 }
 
+export interface ArticleExportJobRequest extends ArticleExportRequest {
+  idempotency_key: string
+}
+
+export interface ArticleExportJob {
+  id: string
+  format: ArticleExportFormat
+  status: 'queued' | 'running' | 'ready' | 'failed' | 'cancelled' | 'expired'
+  created_at: string
+  expires_at: string
+  started_at: string | null
+  completed_at: string | null
+  attempts: number
+  completed_items: number
+  item_count: number | null
+  file_size: number | null
+  filename: string | null
+  error_code: string | null
+  message: string | null
+  download_available: boolean
+}
+
+export interface ArticleExportJobList {
+  items: ArticleExportJob[]
+  has_more: boolean
+}
+
 export interface ArticleExportOptionEntry {
   id: string
   name: string
