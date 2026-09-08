@@ -1,6 +1,36 @@
+import subprocess
+import sys
+
 import pytest
 
 from app.services.ioc_extraction import extract_iocs
+
+
+def test_hash_lengths_boundaries_and_repeated_occurrences_are_preserved():
+    hashes = ["A" * 64, "B" * 40, "C" * 32]
+    matches = extract_iocs(title=" ".join(hashes + ["a" * 65, "b" * 41, "c" * 33]),
+                           summary=" ".join(hashes), article_text="prefix" + "d" * 64)
+    assert [(match.type, match.value_norm, match.source_section) for match in matches] == [
+        (kind, value.lower(), section)
+        for section in ("title", "summary")
+        for kind, value in zip(("hash_sha256", "hash_sha1", "hash_md5"), hashes, strict=True)
+    ]
+
+
+def test_dense_hash_document_completes_with_bounded_cpu():
+    # This 1.6 MB document is within the article budget. Pairwise overlap scans
+    # took hundreds of millions of comparisons; linear scans fit a modest CPU
+    # budget even on CI. Run separately so an accidental regression is killed.
+    result = subprocess.run([sys.executable, "-c", """
+import resource
+from app.services.ioc_extraction import extract_iocs
+resource.setrlimit(resource.RLIMIT_CPU, (3, 3))
+text = ' '.join(f'{index:064x}' for index in range(25000))
+matches = extract_iocs(title='', summary=None, article_text=text)
+assert len(matches) == 25000
+assert len({match.value_norm for match in matches}) == 25000
+"""], timeout=15, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
 
 
 def test_extract_iocs_atomic_values():

@@ -133,27 +133,19 @@ def extract_iocs(*, title: str, summary: str | None, article_text: str | None) -
 
 def _extract_from_text(text: str, section: str) -> list[ExtractedIOC]:
     lowered = text.lower()
-    occupied_spans: list[tuple[int, int]] = []
     matches: list[ExtractedIOC] = []
 
+    # Whole-word hexadecimal runs of different lengths cannot overlap. Each
+    # pattern scans the source once; no pairwise span comparisons are needed.
     for match in HASH_SHA256_RE.finditer(text):
-        if _is_overlapping(match.start(), match.end(), occupied_spans):
-            continue
-        occupied_spans.append((match.start(), match.end()))
         raw = match.group(0)
         matches.append(ExtractedIOC(type="hash_sha256", value_raw=raw, value_norm=raw.lower(), source_section=section, confidence=1.0))
 
     for match in HASH_SHA1_RE.finditer(text):
-        if _is_overlapping(match.start(), match.end(), occupied_spans):
-            continue
-        occupied_spans.append((match.start(), match.end()))
         raw = match.group(0)
         matches.append(ExtractedIOC(type="hash_sha1", value_raw=raw, value_norm=raw.lower(), source_section=section, confidence=1.0))
 
     for match in HASH_MD5_RE.finditer(text):
-        if _is_overlapping(match.start(), match.end(), occupied_spans):
-            continue
-        occupied_spans.append((match.start(), match.end()))
         raw = match.group(0)
         matches.append(ExtractedIOC(type="hash_md5", value_raw=raw, value_norm=raw.lower(), source_section=section, confidence=1.0))
 
@@ -221,10 +213,3 @@ def _normalize_ipv6(value: str) -> str | None:
     if not isinstance(parsed, ipaddress.IPv6Address):
         return None
     return parsed.compressed
-
-
-def _is_overlapping(start: int, end: int, spans: list[tuple[int, int]]) -> bool:
-    for left, right in spans:
-        if start < right and end > left:
-            return True
-    return False
