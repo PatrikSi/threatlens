@@ -21,6 +21,7 @@ SUPPORTED_APP_SERVICES = (
     "api",
     "worker",
     "worker-ai",
+    "worker-exports",
     "worker-maintenance",
     "worker-notifications",
     "beat",

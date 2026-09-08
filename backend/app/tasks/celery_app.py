@@ -7,6 +7,17 @@ from celery.signals import setup_logging, task_postrun, task_prerun
 from kombu import Queue
 
 from app.core.config import get_settings
+from app.core.worker_queues import (
+    QUEUE_AI,
+    QUEUE_AI_REPORTS,
+    QUEUE_DEFAULT,
+    QUEUE_EXPORTS,
+    QUEUE_INGEST,
+    QUEUE_LIFECYCLE,
+    QUEUE_MAINTENANCE,
+    QUEUE_NOTIFICATIONS,
+    QUEUE_PROCESSING,
+)
 from app.core.logging_config import (
     configure_logging,
     log_configuration_summary,
@@ -107,17 +118,8 @@ def _task_queue(request) -> str | None:
     return str(queue) if queue else None
 
 
-QUEUE_DEFAULT = "default"
-QUEUE_INGEST = "ingest"
-QUEUE_PROCESSING = "processing"
-QUEUE_NOTIFICATIONS = "notifications"
-QUEUE_AI = "ai"
-QUEUE_AI_REPORTS = "ai-reports-v2"
-QUEUE_MAINTENANCE = "maintenance"
-QUEUE_LIFECYCLE = "lifecycle-v1"
-
 TASK_ROUTES = {
-    "app.tasks.export_tasks.generate_export_job": {"queue": QUEUE_PROCESSING},
+    "app.tasks.export_tasks.generate_export_job": {"queue": QUEUE_EXPORTS},
     "app.tasks.export_tasks.dispatch_export_jobs": {"queue": QUEUE_MAINTENANCE},
     "app.tasks.feed_tasks.fetch_feed": {"queue": QUEUE_INGEST},
     "app.tasks.feed_tasks.backfill_feed_metadata": {"queue": QUEUE_INGEST},
@@ -237,6 +239,7 @@ celery_app.conf.update(
         Queue(QUEUE_DEFAULT),
         Queue(QUEUE_INGEST),
         Queue(QUEUE_PROCESSING),
+        Queue(QUEUE_EXPORTS),
         Queue(QUEUE_NOTIFICATIONS),
         Queue(QUEUE_AI),
         Queue(QUEUE_AI_REPORTS),
@@ -352,6 +355,7 @@ celery_app.conf.update(
                 QUEUE_DEFAULT,
                 QUEUE_INGEST,
                 QUEUE_PROCESSING,
+                QUEUE_EXPORTS,
                 QUEUE_NOTIFICATIONS,
                 QUEUE_MAINTENANCE,
                 QUEUE_LIFECYCLE,

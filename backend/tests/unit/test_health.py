@@ -35,6 +35,7 @@ def test_worker_health_requires_all_non_ai_queues(monkeypatch):
                 "notifications",
                 "maintenance",
                 "lifecycle-v1",
+                "exports-v1",
             ],
         },
     )
@@ -60,6 +61,7 @@ def test_worker_health_reports_missing_required_queue(monkeypatch):
 
     assert ok is False
     assert queue_snapshot["missing"] == [
+        "exports-v1",
         "lifecycle-v1",
         "maintenance",
         "notifications",
@@ -76,6 +78,7 @@ def test_worker_health_requires_ai_queue_when_ai_enabled(monkeypatch):
                 "notifications",
                 "maintenance",
                 "lifecycle-v1",
+                "exports-v1",
             ],
         },
     )
@@ -97,6 +100,7 @@ def test_worker_health_requires_report_queue_when_ai_enabled(monkeypatch):
                 "notifications",
                 "maintenance",
                 "lifecycle-v1",
+                "exports-v1",
                 "ai",
             ],
         },
@@ -120,6 +124,7 @@ def test_worker_health_accepts_merged_worker_when_ai_enabled(monkeypatch):
                 "notifications",
                 "maintenance",
                 "lifecycle-v1",
+                "exports-v1",
                 "ai",
                 "ai-reports-v2",
             ],
@@ -155,6 +160,7 @@ def test_worker_health_logs_dependency_type_without_standard_traceback(monkeypat
     assert queue_snapshot["missing"] == [
         "ingest",
         "processing",
+        "exports-v1",
         "notifications",
         "maintenance",
         "lifecycle-v1",

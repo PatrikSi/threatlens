@@ -64,6 +64,8 @@ services:
     <<: *backend-service
   worker-ai:
     <<: *backend-service
+  worker-exports:
+    <<: *backend-service
   worker-maintenance:
     <<: *backend-service
   worker-notifications:

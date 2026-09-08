@@ -15,7 +15,7 @@ works as `./build.sh web` from this directory or by absolute path elsewhere.
 
 | Dockerfile | Build context | Default image | Compose services |
 | --- | --- | --- | --- |
-| [backend.Dockerfile](backend.Dockerfile) | `backend/` | `threatlens-backend:dev` | `api`, `worker`, `worker-ai`, `worker-maintenance`, `worker-notifications`, `beat` |
+| [backend.Dockerfile](backend.Dockerfile) | `backend/` | `threatlens-backend:dev` | `api`, `worker`, `worker-ai`, `worker-exports`, `worker-maintenance`, `worker-notifications`, `beat` |
 | [web.Dockerfile](web.Dockerfile) | `web/` | `threatlens-web:dev` | `web` |
 
 PostgreSQL and Redis use upstream images. Each build context retains its own
@@ -63,7 +63,7 @@ After backend changes, rebuild the shared image and recreate all its services:
 ```bash
 ./docker/build.sh backend
 docker compose -f docker-compose.yml -f docker-compose.build.yml \
-  stop api beat worker worker-ai worker-maintenance worker-notifications
+  stop api beat worker worker-ai worker-exports worker-maintenance worker-notifications
 docker compose -f docker-compose.yml -f docker-compose.build.yml \
   up -d --no-build --pull never
 ```

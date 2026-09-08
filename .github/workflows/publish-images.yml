@@ -221,6 +221,10 @@ jobs:
               <<: *backend-image
               healthcheck:
                 <<: *smoke-worker-health
+            worker-exports:
+              <<: *backend-image
+              healthcheck:
+                <<: *smoke-worker-health
             worker-maintenance:
               <<: *backend-image
               healthcheck:

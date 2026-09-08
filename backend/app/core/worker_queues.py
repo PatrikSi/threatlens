@@ -1,0 +1,11 @@
+"""Queue names shared by dispatch, worker deployment, and operational probes."""
+
+QUEUE_DEFAULT = "default"
+QUEUE_INGEST = "ingest"
+QUEUE_PROCESSING = "processing"
+QUEUE_EXPORTS = "exports-v1"
+QUEUE_NOTIFICATIONS = "notifications"
+QUEUE_AI = "ai"
+QUEUE_AI_REPORTS = "ai-reports-v2"
+QUEUE_MAINTENANCE = "maintenance"
+QUEUE_LIFECYCLE = "lifecycle-v1"
