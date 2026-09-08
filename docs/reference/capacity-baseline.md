@@ -225,16 +225,25 @@ backend/.venv/bin/python backend/scripts/compare_capacity_runs.py \
   --regression-percent 20 --output /tmp/capacity-comparison.json
 ```
 
-Exit 0 means compatible inputs with no flagged regression; 1 means a flagged
-regression; 2 means incompatible, invalid or unlabeled inputs. The comparison
+Exit 0 means compatible inputs with enough primary samples and no flagged
+regression; 1 means a flagged regression; 2 means incompatible, invalid,
+unlabeled, or inconclusive inputs. Successful exports, successful AI calls and
+governance each require 20 samples in both runs; deadline probes require five.
+Missing success groups cannot pass by substituting fast policy rejections.
+The small smoke and finite baseline profiles often have too few successful
+exports for a conclusive comparison; use sustained runs for release decisions.
+Recovery drills remain individual fault observations and cannot establish a
+latency trend from one crash. The comparison
 requires identical target ID, hardware/affinity/cgroup constraints, workload,
 resource bounds, runtime environment, budgets and measurement contract. Source
 revisions can differ. Version 1 artifacts remain descriptive evidence and
 cannot be compared automatically with version 2. Latency p95 requires at least
 20 observations per group (five for deterministic deadline probes); smaller
 samples are reported as insufficient. Peak and recovery deltas are explicitly
-single-run observations, and zero baselines never produce fabricated percentage
-changes. Outcome counts accompany every comparison so safe rejections are
+single-run observations, and zero baselines show absolute changes without
+fabricated percentages. Both process RSS peak and watchdog-owned tree RSS peak
+are compared, alongside growth, queue depth/age/recovery and sampled lock waits.
+Outcome counts accompany every comparison so safe rejections are
 visible. Repeated comparable runs and a quiet dedicated host are required
 before interpreting a percentage as a release regression; the shared target
 host can have unrelated contention even when its hardware fingerprint matches.

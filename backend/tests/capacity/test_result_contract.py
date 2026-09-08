@@ -17,7 +17,8 @@ def run():
         "comparison_fingerprint": fingerprint(identity),
         "git_revision": "release-a",
         "budget_violations": {},
-        "latencies": {"export:succeeded": {"count": 30, "p95_ms": 100}},
+        "latencies": {name: {"count": 30, "p95_ms": 100} for name in (
+            "export:succeeded", "ai_connection:succeeded", "governance", "deadline:dns", "deadline:headers")},
         "memory": {"process_rss_increase_bytes": 100},
         "queue": {"recovery_ms": 100},
         "database": {},
@@ -32,6 +33,7 @@ def test_compare_cross_release_regression_and_success_counts():
     b["latencies"]["export:succeeded"]["p95_ms"] = 140
     result = compare_results(a, b)
     assert result["compatible"]
+    assert result["conclusive"]
     assert result["regressions"] == ["export:succeeded"]
 
 
@@ -78,5 +80,28 @@ def test_small_sample_and_zero_baseline_are_not_fabricated_percentages():
     a["latencies"]["export:succeeded"]["count"] = 4
     a["memory"]["process_rss_increase_bytes"] = 0
     result = compare_results(a, b)
-    assert result["metrics"][0]["status"] == "insufficient_samples"
-    assert result["metrics"][1]["change_percent"] is None
+    metrics = {m["name"]: m for m in result["metrics"]}
+    assert metrics["export:succeeded"]["status"] == "insufficient_samples"
+    assert metrics["memory.process_rss_increase_bytes"]["change_percent"] is None
+    assert metrics["memory.process_rss_increase_bytes"]["absolute_change"] == 100
+    assert not result["conclusive"]
+    assert result["insufficient_required_samples"] == ["export:succeeded"]
+
+
+def test_missing_success_groups_cannot_pass_as_faster_safe_rejections():
+    a, b = run(), run()
+    del b["latencies"]["export:succeeded"]
+    b["latencies"]["export:policy_conflict"] = {"count": 30, "p95_ms": 1}
+    result = compare_results(a, b)
+    assert not result["conclusive"]
+    assert "export:succeeded" in result["insufficient_required_samples"]
+
+
+def test_tracks_absolute_process_and_owned_tree_peaks():
+    a, b = run(), run()
+    a["memory"]["process_rss_peak_bytes"] = 1000
+    b["memory"]["process_rss_peak_bytes"] = 1500
+    a["watchdog"] = {"owned_process_tree_rss_peak_bytes": 2000}
+    b["watchdog"] = {"owned_process_tree_rss_peak_bytes": 3000}
+    result = compare_results(a, b)
+    assert result["regressions"] == ["memory.process_rss_peak_bytes", "watchdog.owned_process_tree_rss_peak_bytes"]
