@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
-from sqlalchemy import Date, Select, case, cast, func, or_, select
+from sqlalchemy import Date, Select, String, case, cast, func, literal, or_, select, union_all
 from sqlalchemy.orm import Session
 
 from app.models.ai_daily_brief import AIDailyBrief
@@ -132,79 +132,48 @@ def list_ai_failures(
     data_access: DataAccessContext | None = None,
 ) -> list[AIFailureGroupResponse]:
     since = datetime.now(timezone.utc) - timedelta(days=max(1, days))
-    groups: dict[tuple[str | None, str | None, str | None, str], dict[str, Any]] = {}
-
-    for event in db.scalars(
-        select(AIUsageEvent).where(
-            AIUsageEvent.created_at >= since,
-            AIUsageEvent.success.is_(False),
-            _usage_access_predicate(data_access),
+    usage_error = _normalized_error_expression(AIUsageEvent.error)
+    usage = (
+        select(
+            literal(None, String).label("task_type"), AIUsageEvent.feature_type,
+            AIUsageEvent.model, usage_error.label("error"),
+            func.count().label("count"), func.max(AIUsageEvent.created_at).label("last_seen_at"),
         )
-    ):
-        error = _normalize_error_text(event.error)
-        key = (None, event.feature_type, event.model, error)
-        entry = groups.setdefault(
-            key,
-            {
-                "task_type": None,
-                "feature_type": event.feature_type,
-                "model": event.model,
-                "error": error,
-                "count": 0,
-                "last_seen_at": None,
-            },
-        )
-        entry["count"] += 1
-        if entry["last_seen_at"] is None or (
-            event.created_at and event.created_at > entry["last_seen_at"]
-        ):
-            entry["last_seen_at"] = event.created_at
-
-    for run in db.scalars(
-        select(AITaskRun).where(
-            AITaskRun.created_at >= since,
-            or_(AITaskRun.status == AI_STATUS_ERROR, AITaskRun.error.is_not(None)),
-            _run_access_predicate(data_access),
-        )
-    ):
-        error = _normalize_error_text(run.error)
-        key = (run.task_type, None, run.model, error)
-        entry = groups.setdefault(
-            key,
-            {
-                "task_type": run.task_type,
-                "feature_type": None,
-                "model": run.model,
-                "error": error,
-                "count": 0,
-                "last_seen_at": None,
-            },
-        )
-        entry["count"] += 1
-        if entry["last_seen_at"] is None or (
-            run.finished_at and run.finished_at > entry["last_seen_at"]
-        ):
-            entry["last_seen_at"] = run.finished_at or run.updated_at
-
-    ordered = sorted(
-        groups.values(),
-        key=lambda value: (
-            value["count"],
-            value["last_seen_at"] or datetime.min.replace(tzinfo=timezone.utc),
-        ),
-        reverse=True,
+        .where(AIUsageEvent.created_at >= since, AIUsageEvent.success.is_(False),
+               _usage_access_predicate(data_access))
+        .group_by(AIUsageEvent.feature_type, AIUsageEvent.model, usage_error)
     )
-    return [
-        AIFailureGroupResponse(
-            task_type=row["task_type"],
-            feature_type=row["feature_type"],
-            model=row["model"],
-            error=row["error"],
-            count=int(row["count"]),
-            last_seen_at=row["last_seen_at"],
+    run_error = _normalized_error_expression(AITaskRun.error)
+    runs = (
+        select(
+            AITaskRun.task_type, literal(None, String).label("feature_type"),
+            AITaskRun.model, run_error.label("error"), func.count().label("count"),
+            func.max(func.coalesce(AITaskRun.finished_at, AITaskRun.updated_at, AITaskRun.created_at)).label("last_seen_at"),
         )
-        for row in ordered[:limit]
-    ]
+        .where(AITaskRun.created_at >= since,
+               or_(AITaskRun.status == AI_STATUS_ERROR, AITaskRun.error.is_not(None)),
+               _run_access_predicate(data_access))
+        .group_by(AITaskRun.task_type, AITaskRun.model, run_error)
+    )
+    groups = union_all(usage, runs).subquery()
+    rows = db.execute(select(groups).order_by(
+        groups.c.count.desc(), groups.c.last_seen_at.desc().nulls_last(),
+        groups.c.task_type.asc().nulls_first(), groups.c.feature_type.asc().nulls_first(),
+        groups.c.model.asc().nulls_first(), groups.c.error,
+    ).limit(max(0, min(limit, 200))))
+    return [AIFailureGroupResponse(**row._mapping) for row in rows]
+
+
+# Python str.strip() whitespace, including Unicode spaces and ASCII separators.
+_STRIP_CHARACTERS = "\t\n\v\f\r\x1c\x1d\x1e\x1f \u0085\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000"
+
+
+def _normalized_error_expression(column):
+    trimmed = func.btrim(column, _STRIP_CHARACTERS)
+    return case(
+        (or_(column.is_(None), column == ""), literal("unknown_error")),
+        else_=case((func.char_length(trimmed) > 200, func.substr(trimmed, 1, 197) + "..."), else_=trimmed),
+    )
 
 
 def _usage_filters(since: datetime, data_access: DataAccessContext | None):
