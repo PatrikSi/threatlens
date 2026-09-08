@@ -1,4 +1,3 @@
-import { useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 
 import { ApiError, apiFetch } from '../api/client'
@@ -15,6 +14,8 @@ export function useCurrentUser() {
       const session = captureSessionLease()
       try {
         const user = await apiFetch<CurrentUser>('/auth/me', { signal })
+        session.assertCurrent()
+        observeAuthenticatedIdentity(user.id)
         session.assertCurrent()
         setSessionVerificationUnavailable(false)
         return user
@@ -41,9 +42,5 @@ export function useCurrentUser() {
       return failureCount < 1
     },
   })
-  const userId = query.error ? undefined : query.data?.id
-  useEffect(() => {
-    if (userId) observeAuthenticatedIdentity(userId)
-  }, [observeAuthenticatedIdentity, userId])
   return query
 }
