@@ -10,7 +10,7 @@ import type {
   OperationsWorkerReason,
 } from '../types/operations'
 
-export type OperationsView = 'live' | 'trends' | 'activity'
+export type OperationsView = 'live' | 'trends' | 'activity' | 'processing'
 export type OperationsSignalKind = 'component' | 'workflow' | 'storage'
 
 export interface OperationsSignal {
@@ -27,6 +27,7 @@ export const OPERATIONS_VIEWS: Array<{ value: OperationsView; label: string }> =
   { value: 'live', label: 'Live health' },
   { value: 'trends', label: 'Trends' },
   { value: 'activity', label: 'Activity' },
+  { value: 'processing', label: 'Processing' },
 ]
 
 export const OPERATIONS_WINDOWS: Array<{ value: OperationsHealthWindow; label: string }> = [
