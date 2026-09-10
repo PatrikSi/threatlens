@@ -1,4 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from queue import Queue
 import time
@@ -14,6 +15,8 @@ from app.models.ai_task_run import AITaskRun
 from app.models.lifecycle_pruning import LifecyclePruningRecord
 from app.models.report import Report
 from app.services.lifecycle_pruning import prune_oversized_parent
+from app.services.history_maintenance import _delete_ai_history_with_envelopes
+from app.services.data_access_envelopes import DATA_ACCESS_RESOURCE_AI_TASK_RUN
 from app.services.lifecycle_pruning_contracts import PruningContext
 
 
@@ -35,35 +38,56 @@ def committed_db(database_engine):
 
 
 def _context() -> PruningContext:
-    return PruningContext(CUTOFF, and_(
-        AITaskRun.finished_at < CUTOFF,
-        ~select(Report.id).where(Report.request_task_run_id == AITaskRun.id).exists(),
-    ))
+    return PruningContext(
+        CUTOFF,
+        and_(
+            AITaskRun.finished_at < CUTOFF,
+            ~select(Report.id)
+            .where(Report.request_task_run_id == AITaskRun.id)
+            .exists(),
+        ),
+    )
 
 
 def _run_with_events(db: Session, count: int = 25) -> uuid.UUID:
-    run = AITaskRun(task_type="connection_test", trigger_source="manual", status="succeeded", finished_at=OLD)
+    run = AITaskRun(
+        task_type="connection_test",
+        trigger_source="manual",
+        status="succeeded",
+        finished_at=OLD,
+    )
     db.add(run)
     db.flush()
     run_id = run.id
     db.info.setdefault("owned_pruning_runs", []).append(run_id)
-    db.add_all(AITaskEvent(task_run_id=run_id, event_type="step", payload_json={}) for _ in range(count))
+    db.add_all(
+        AITaskEvent(task_run_id=run_id, event_type="step", payload_json={})
+        for _ in range(count)
+    )
     db.commit()
     return run_id
 
 
 def _prune(db: Session, run_id: uuid.UUID, limit: int = 7):
-    return prune_oversized_parent(db, model=AITaskRun, parent_id=run_id, context=_context(), limit=limit)
+    return prune_oversized_parent(
+        db, model=AITaskRun, parent_id=run_id, context=_context(), limit=limit
+    )
 
 
 def _event_count(db: Session, run_id: uuid.UUID) -> int:
-    return db.scalar(select(func.count()).select_from(AITaskEvent).where(AITaskEvent.task_run_id == run_id))
+    return db.scalar(
+        select(func.count())
+        .select_from(AITaskEvent)
+        .where(AITaskEvent.task_run_id == run_id)
+    )
 
 
 def _wait_for_block(db: Session, pid: int) -> None:
     deadline = time.monotonic() + 3
     while time.monotonic() < deadline:
-        if db.scalar(text("SELECT cardinality(pg_blocking_pids(:pid)) > 0"), {"pid": pid}):
+        if db.scalar(
+            text("SELECT cardinality(pg_blocking_pids(:pid)) > 0"), {"pid": pid}
+        ):
             return
         time.sleep(0.01)
     raise AssertionError("Concurrent writer never reached the source lock")
@@ -92,18 +116,36 @@ def test_claimed_history_rejects_new_references_and_reactivation(db_session, wri
     run_id = _run_with_events(db_session)
     _prune(db_session, run_id)
     db_session.commit()
-    with pytest.raises(DBAPIError, match="Expired history cleanup"), db_session.begin_nested():
+    with (
+        pytest.raises(DBAPIError, match="Expired history cleanup"),
+        db_session.begin_nested(),
+    ):
         if write == "event":
-            db_session.add(AITaskEvent(task_run_id=run_id, event_type="late", payload_json={}))
+            db_session.add(
+                AITaskEvent(task_run_id=run_id, event_type="late", payload_json={})
+            )
         elif write == "report":
-            db_session.add(Report(title="Late report", request_task_run_id=run_id, period_start=OLD, period_end=CUTOFF))
+            db_session.add(
+                Report(
+                    title="Late report",
+                    request_task_run_id=run_id,
+                    period_start=OLD,
+                    period_end=CUTOFF,
+                )
+            )
         else:
-            db_session.execute(update(AITaskRun).where(AITaskRun.id == run_id).values(status="running", finished_at=None))
+            db_session.execute(
+                update(AITaskRun)
+                .where(AITaskRun.id == run_id)
+                .values(status="running", finished_at=None)
+            )
         db_session.flush()
     assert _event_count(db_session, run_id) == 18
 
 
-def test_writer_waiting_before_claim_publication_is_rejected_after_commit(committed_db, database_engine):
+def test_writer_waiting_before_claim_publication_is_rejected_after_commit(
+    committed_db, database_engine
+):
     db_session = committed_db
     run_id = _run_with_events(db_session)
     _prune(db_session, run_id)
@@ -114,7 +156,9 @@ def test_writer_waiting_before_claim_publication_is_rejected_after_commit(commit
             db.execute(text("SET LOCAL statement_timeout = '5s'"))
             pid_queue.put(db.scalar(text("SELECT pg_backend_pid()")))
             try:
-                db.add(AITaskEvent(task_run_id=run_id, event_type="late", payload_json={}))
+                db.add(
+                    AITaskEvent(task_run_id=run_id, event_type="late", payload_json={})
+                )
                 db.commit()
             except DBAPIError as exc:
                 return exc.orig.sqlstate
@@ -128,10 +172,19 @@ def test_writer_waiting_before_claim_publication_is_rejected_after_commit(commit
     assert _event_count(db_session, run_id) == 18
 
 
-def test_new_report_pin_committed_while_pruner_waits_preserves_events(committed_db, database_engine):
+def test_new_report_pin_committed_while_pruner_waits_preserves_events(
+    committed_db, database_engine
+):
     db_session = committed_db
     run_id = _run_with_events(db_session)
-    db_session.add(Report(title="Pinned evidence", request_task_run_id=run_id, period_start=OLD, period_end=CUTOFF))
+    db_session.add(
+        Report(
+            title="Pinned evidence",
+            request_task_run_id=run_id,
+            period_start=OLD,
+            period_end=CUTOFF,
+        )
+    )
     db_session.flush()
     pid_queue: Queue[int] = Queue()
 
@@ -150,3 +203,78 @@ def test_new_report_pin_committed_while_pruner_waits_preserves_events(committed_
         assert future.result(timeout=5) == 0
     assert _event_count(db_session, run_id) == 25
     assert db_session.get(LifecyclePruningRecord, ("ai_task_runs", run_id)) is None
+
+
+def test_retained_references_over_budget_do_not_start_irreversible_pruning(db_session):
+    run_id = _run_with_events(db_session)
+    db_session.add_all(
+        AITaskRun(
+            task_type="item_enrichment",
+            trigger_source="automatic",
+            status="succeeded",
+            parent_run_id=run_id,
+            finished_at=OLD,
+        )
+        for _ in range(11)
+    )
+    db_session.commit()
+    result = prune_oversized_parent(
+        db_session,
+        model=AITaskRun,
+        parent_id=run_id,
+        context=replace(_context(), parent_row_budget=10),
+        limit=7,
+    )
+    assert result.parents_started == result.children_pruned == 0
+    assert _event_count(db_session, run_id) == 25
+    assert db_session.get(LifecyclePruningRecord, ("ai_task_runs", run_id)) is None
+
+
+def test_final_cleanup_skips_child_writer_waiting_for_another_locked_source(
+    committed_db, database_engine
+):
+    db = committed_db
+    run_id = _run_with_events(db, count=1)
+    destination_id = _run_with_events(db, count=0)
+    db.execute(
+        update(AITaskRun)
+        .where(AITaskRun.id == destination_id)
+        .values(finished_at=CUTOFF + timedelta(days=1))
+    )
+    db.commit()
+    db.execute(
+        select(AITaskRun.id)
+        .where(AITaskRun.id.in_([run_id, destination_id]))
+        .with_for_update()
+    ).all()
+    pid_queue: Queue[int] = Queue()
+
+    def move_event() -> None:
+        with Session(database_engine) as writer:
+            writer.execute(text("SET LOCAL statement_timeout = '5s'"))
+            pid_queue.put(writer.scalar(text("SELECT pg_backend_pid()")))
+            writer.execute(
+                update(AITaskEvent)
+                .where(AITaskEvent.task_run_id == run_id)
+                .values(task_run_id=destination_id)
+            )
+            writer.commit()
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(move_event)
+        _wait_for_block(db, pid_queue.get(timeout=3))
+        assert (
+            _delete_ai_history_with_envelopes(
+                db,
+                AITaskRun,
+                AITaskRun.finished_at,
+                CUTOFF,
+                1,
+                resource_type=DATA_ACCESS_RESOURCE_AI_TASK_RUN,
+            )
+            == 0
+        )
+        db.commit()
+        future.result(timeout=5)
+    assert db.get(AITaskRun, run_id) is not None
+    assert _event_count(db, destination_id) == 1

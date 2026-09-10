@@ -910,8 +910,8 @@ def test_wide_alert_evaluation_drains_without_starving_newer_candidates(
         now=now,
     )
 
-    assert preview.eligible_count == 1
-    assert preview.protected_counts == {"dependent_row_limit": 1}
+    assert preview.eligible_count == 2
+    assert preview.protected_counts == {}
     assert result.affected_count == 1
     db_session.expire_all()
     assert db_session.get(AlertEvaluationRequest, wide_id) is not None

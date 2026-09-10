@@ -35,7 +35,7 @@ from app.services.local_mfa import (
     cleanup_mfa_challenges,
     cleanup_pending_totp_enrollments,
 )
-from app.services.lifecycle_pruning import lock_ai_history_receipts
+from app.services.lifecycle_pruning import lock_ai_history_receipts, lock_history_dependants
 from app.services.lifecycle_pruning_contracts import PruningContext
 from app.services.lifecycle_scanning import (
     LifecycleScanStats,
@@ -330,6 +330,7 @@ def _delete_ai_history_with_envelopes(
     if not ids:
         return 0
     if model is AITaskRun:
+        ids = lock_history_dependants(db, model=model, parent_ids=ids)
         ids = lock_ai_history_receipts(db, ids)
         if not ids:
             return 0
@@ -566,15 +567,7 @@ def _delete_action_approval_history(
         dependent_rows_budgeted = 0
     if not approval_ids:
         return 0, 0, 0
-    receipt_rows = list(db.execute(select(GovernanceOperationReceipt.id, GovernanceOperationReceipt.resource_id).where(
-        GovernanceOperationReceipt.resource_type == "action_approval",
-        GovernanceOperationReceipt.resource_id.in_(approval_ids),
-    )))
-    locked_receipts = set(db.scalars(select(GovernanceOperationReceipt.id).where(
-        GovernanceOperationReceipt.id.in_([row.id for row in receipt_rows]),
-    ).with_for_update(skip_locked=True))) if receipt_rows else set()
-    blocked = {row.resource_id for row in receipt_rows if row.id not in locked_receipts}
-    approval_ids = [record_id for record_id in approval_ids if record_id not in blocked]
+    approval_ids = lock_history_dependants(db, model=ActionApprovalRequest, parent_ids=approval_ids)
     if not approval_ids:
         return 0, 0, 0
     operation_receipt_result = db.execute(

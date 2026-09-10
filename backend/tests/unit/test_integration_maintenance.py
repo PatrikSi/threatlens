@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.models.data_policy import (
     DataAccessEnvelopeLabel,
@@ -24,6 +24,7 @@ from app.models.integration import (
     IntegrationSubscription,
 )
 from app.models.item import Item
+from app.models.lifecycle_pruning import LifecyclePruningRecord
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.user import User
@@ -586,3 +587,35 @@ def _unlinked_legacy_delivery(
         rendered_query_params_json=[],
         attempted_at=attempted_at,
     )
+
+
+def test_oversized_delivery_attempts_drain_before_parent_and_legacy_projection(db_session):
+    old = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    cutoff = old + timedelta(days=1)
+    event, delivery, legacy = _persist_terminal_webhook_delivery(db_session, completed_at=old)
+    delivery.metrics_aggregated_at = old
+    db_session.add_all(IntegrationAttempt(
+        delivery_id=delivery.id, integration_id=delivery.integration_id,
+        attempt_number=index + 1, status="failed", started_at=old, finished_at=old,
+    ) for index in range(25))
+    db_session.commit()
+    delivery_id, event_id, legacy_id = delivery.id, event.id, legacy.id
+    previous = 26
+    for _ in range(12):
+        prune_integration_delivery_history(
+            db_session, delivery_cutoff_at=cutoff, max_dependent_rows=7,
+            prune_legacy_deliveries=False, prune_events=False, prune_metrics=False,
+            prune_orphans=False,
+        )
+        db_session.expunge_all()
+        remaining = db_session.scalar(select(func.count()).select_from(IntegrationAttempt).where(
+            IntegrationAttempt.delivery_id == delivery_id,
+        )) + int(db_session.get(NotificationWebhookDelivery, legacy_id) is not None)
+        assert 0 <= previous - remaining <= 7
+        previous = remaining
+        if db_session.get(IntegrationDelivery, delivery_id) is None:
+            break
+    assert previous == 0
+    assert db_session.get(IntegrationDelivery, delivery_id) is None
+    assert db_session.get(LifecyclePruningRecord, ("integration_deliveries", delivery_id)) is None
+    assert db_session.get(IntegrationEvent, event_id) is not None
