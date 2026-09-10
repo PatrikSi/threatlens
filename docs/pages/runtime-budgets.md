@@ -88,6 +88,14 @@ rollback. An acknowledged commit is not retroactively reported as failed, and
 each subsequent transaction needs a new scope. This is not a mechanism for
 interrupting arbitrary Python code or external side effects.
 
+Deferred constraints are flushed and evaluated within the remaining SQL budget
+before commit; PostgreSQL transaction finalization would otherwise run that work
+outside its ordinary statement timer. Final commit durability and network
+acknowledgement can still have an uncertain outcome during storage/network
+failure. TCP keepalives (30-second idle, ten-second interval, three probes) and a
+60-second unacknowledged-data timeout bound dead connections on supported hosts.
+They do not end a healthy connection holding an authorization fence.
+
 Pool exhaustion and PostgreSQL lock, serialization, deadlock and deadline
 failures produce a sanitized retryable `503 database_busy` with `Retry-After` at
 the API boundary. Mutating clients must reuse their idempotency key or reload
@@ -99,3 +107,18 @@ transaction timeout; no global short idle-transaction killer is installed,
 because it could release an authorization fence while an external side effect
 continues. The explicit [database role cutover](database-privileges.md) remains
 required for existing installations.
+
+## Disposable deployment verification
+
+```bash
+python3 scripts/verify_runtime_isolation.py --output /tmp/threatlens-isolation.json
+```
+
+The verifier builds only `git archive HEAD` contents in a private temporary
+directory. It creates synthetic credentials and a unique Compose project,
+checks actual cgroup limits and writable paths, probes readiness during export
+CPU pressure, verifies a separate memory-limited process is OOM-killed, and
+checks export-worker/Beat restart recovery. It removes only its own containers
+and volumes. Local images and private diagnostic logs remain for inspection.
+The JSON records the measured commit; this bounded smoke does not establish
+production capacity or sustained throughput.

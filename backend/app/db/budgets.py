@@ -76,6 +76,13 @@ def database_operation(
 
     def before_commit(_session):
         remaining_ms()
+        db.flush()
+        if postgres:
+            # PostgreSQL fires deferred constraints during transaction finish,
+            # outside the ordinary COMMIT statement timer. Evaluate them as an
+            # explicit timed statement after all ORM changes have been flushed.
+            connection.exec_driver_sql("SET CONSTRAINTS ALL IMMEDIATE")
+        remaining_ms()
 
     def after_transaction_create(_session, created):
         if created.parent is None and created is not transaction:

@@ -16,6 +16,11 @@ def _engine_options(database_url: str) -> dict:
         options["pool_timeout"] = settings.database_pool_timeout_seconds
         options["connect_args"] = {
             "connect_timeout": settings.database_connect_timeout_seconds,
+            "keepalives": 1,
+            "keepalives_idle": 30,
+            "keepalives_interval": 10,
+            "keepalives_count": 3,
+            "tcp_user_timeout": 60_000,
             "options": (
                 f"-c statement_timeout={settings.database_statement_timeout_ms} "
                 f"-c lock_timeout={settings.database_lock_timeout_ms}"

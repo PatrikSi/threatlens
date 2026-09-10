@@ -64,13 +64,14 @@ COPY --from=build /tmp/frontend-docs/frontend-runtime-package-metadata.json /usr
 COPY --from=build /tmp/frontend-docs/frontend-runtime-package-legal /usr/share/doc/threatlens/frontend-runtime-package-legal
 COPY package-lock.json /usr/share/doc/threatlens/frontend-package-lock.json
 COPY nginx/default.conf.template /etc/nginx/templates/default.conf.template
+COPY nginx/nginx.conf /etc/nginx/nginx.conf
 COPY --from=build /app/dist /usr/share/nginx/html
 # Run unprivileged with an immutable root filesystem. Only rendered config and
 # nginx's bounded temporary files are writable at deployment time.
-RUN sed -i '/^user /d; s|/var/run/nginx.pid|/tmp/nginx.pid|' /etc/nginx/nginx.conf \
-    && mkdir -p /etc/nginx/conf.d \
+RUN mkdir -p /etc/nginx/conf.d \
     && chown nginx:nginx /etc/nginx/conf.d
 USER nginx
+HEALTHCHECK --interval=15s --timeout=3s --retries=3 CMD wget -q -O /dev/null http://127.0.0.1:3000/ || exit 1
 LABEL org.opencontainers.image.title="ThreatLens Web" \
       org.opencontainers.image.description="ThreatLens React/nginx frontend image" \
       org.opencontainers.image.licenses="Apache-2.0" \

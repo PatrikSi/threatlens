@@ -88,3 +88,26 @@ def test_database_saturation_returns_retryable_sanitized_response():
     assert response.headers["Retry-After"] == "2"
     assert response.json()["error"]["retryable"] is True
     assert "sensitive" not in response.text
+
+
+def test_deferred_commit_work_uses_remaining_transaction_deadline(database_engine):
+    with Session(database_engine) as db:
+        db.execute(text("CREATE TEMP TABLE commit_budget_probe(value integer)"))
+        db.execute(text("""
+            CREATE FUNCTION pg_temp.delay_commit() RETURNS trigger LANGUAGE plpgsql AS $$
+            BEGIN PERFORM pg_sleep(0.3); RETURN NEW; END $$
+        """))
+        db.execute(text("""
+            CREATE CONSTRAINT TRIGGER slow_commit AFTER INSERT ON commit_budget_probe
+            DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION pg_temp.delay_commit()
+        """))
+        db.commit()
+        started = time.monotonic()
+        with pytest.raises(OperationalError) as failure:
+            with database_operation(db, operation="repair", timeout_seconds=0.25):
+                db.execute(text("INSERT INTO commit_budget_probe VALUES (1)"))
+                db.execute(text("SELECT pg_sleep(0.15)"))
+                db.commit()
+        assert failure.value.orig.sqlstate == "57014"
+        assert time.monotonic() - started < 1.5
+        assert db.scalar(text("SELECT count(*) FROM commit_budget_probe")) == 0

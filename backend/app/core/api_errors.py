@@ -101,7 +101,8 @@ async def database_exception_handler(request: Request, exc: Exception) -> JSONRe
         isinstance(exc, OperationalError)
         and (
             exc.connection_invalidated
-            or sqlstate in {"55P03", "57014", "40001", "40P01", "53300", "57P01"}
+            or sqlstate is None
+            or sqlstate in {"55P03", "57014", "40001", "40P01", "53300", "57P01", "57P02", "57P03"}
             or str(sqlstate or "").startswith("08")
         )
     )
