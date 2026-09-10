@@ -9,8 +9,10 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from sqlalchemy.exc import OperationalError, TimeoutError as PoolTimeoutError
 
 from app.core.logging_config import get_log_context
+from app.core.runtime_metrics import record_runtime_event
 
 
 logger = logging.getLogger("threatlens.api.errors")
@@ -78,6 +80,7 @@ class ApiHTTPException(StarletteHTTPException):
 
 
 def install_api_error_handlers(application: FastAPI) -> None:
+    from app.db.budgets import DatabaseDeadlineExceeded
     from app.services.data_access_policy import DataPolicyError
 
     application.add_exception_handler(StarletteHTTPException, http_exception_handler)
@@ -85,7 +88,40 @@ def install_api_error_handlers(application: FastAPI) -> None:
         RequestValidationError, validation_exception_handler
     )
     application.add_exception_handler(DataPolicyError, data_policy_exception_handler)
+    for error_type in (DatabaseDeadlineExceeded, PoolTimeoutError, OperationalError):
+        application.add_exception_handler(error_type, database_exception_handler)
     application.add_exception_handler(Exception, unexpected_exception_handler)
+
+
+async def database_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    from app.db.budgets import DatabaseDeadlineExceeded
+
+    sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+    retryable = isinstance(exc, (DatabaseDeadlineExceeded, PoolTimeoutError)) or (
+        isinstance(exc, OperationalError)
+        and (
+            exc.connection_invalidated
+            or sqlstate in {"55P03", "57014", "40001", "40P01", "53300", "57P01"}
+            or str(sqlstate or "").startswith("08")
+        )
+    )
+    if not retryable:
+        return await unexpected_exception_handler(request, exc)
+    if isinstance(exc, PoolTimeoutError):
+        record_runtime_event("database_pool_timeout")
+    logger.warning(
+        "database_request_unavailable error_type=%s sqlstate=%s",
+        type(exc).__name__, sqlstate,
+    )
+    message = "Database capacity or contention prevented completion. Retry shortly."
+    return error_response(
+        status_code=503,
+        detail=message,
+        message=message,
+        request_id=request_id_for(request),
+        code="database_busy",
+        headers={"Retry-After": "2"},
+    )
 
 
 async def data_policy_exception_handler(

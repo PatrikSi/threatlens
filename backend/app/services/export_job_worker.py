@@ -363,6 +363,9 @@ def _settle_failure(job_id: uuid.UUID, token: uuid.UUID, exc: Exception) -> None
         elif isinstance(exc, ExportJobEmpty):
             reason = "empty_export"
         elif isinstance(exc, (ExportJobTimedOut, SoftTimeLimitExceeded)):
+            from app.core.runtime_metrics import record_runtime_event
+
+            record_runtime_event("export_generation_deadline")
             reason = "generation_timeout"
         else:
             reason = "generation_failed"

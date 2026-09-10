@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from app.core.runtime_metrics import record_runtime_event
 import anyio
 from starlette.responses import FileResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -42,6 +43,7 @@ class ExportTransferDeadlineMiddleware:
 
             await self.app(scope, receive, bounded_send)
         if transfer.cancel_called:
+            record_runtime_event("export_transfer_deadline")
             logger.warning("export_transfer_deadline_exceeded")
             raise ExportTransferDeadlineExceeded("Export transfer deadline exceeded")
 

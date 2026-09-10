@@ -2,14 +2,22 @@ x-db-environment: &db-environment
   POSTGRES_DB: "${POSTGRES_DB:-threatlens}"
   POSTGRES_USER: "${POSTGRES_USER:-threatlens}"
   POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}"
+  POSTGRES_RUNTIME_USER: "${POSTGRES_RUNTIME_USER:-threatlens_runtime}"
+  POSTGRES_RUNTIME_PASSWORD: "${POSTGRES_RUNTIME_PASSWORD:?POSTGRES_RUNTIME_PASSWORD must be set}"
+  POSTGRES_MIGRATION_USER: "${POSTGRES_MIGRATION_USER:-threatlens_migration}"
+  POSTGRES_MIGRATION_PASSWORD: "${POSTGRES_MIGRATION_PASSWORD:?POSTGRES_MIGRATION_PASSWORD must be set}"
 
 x-redis-environment: &redis-environment
   REDIS_PASSWORD: "${REDIS_PASSWORD:?REDIS_PASSWORD must be set}"
 
+x-migration-environment: &migration-environment
+  APP_ENV: development
+  DATABASE_URL: "${MIGRATION_DATABASE_URL:-postgresql+psycopg://${POSTGRES_MIGRATION_USER:-threatlens_migration}:${POSTGRES_MIGRATION_PASSWORD:?POSTGRES_MIGRATION_PASSWORD must be set}@db:5432/${POSTGRES_DB:-threatlens}}"
+
 x-backend-environment: &backend-environment
-  <<: [*db-environment, *redis-environment]
+  <<: *redis-environment
   APP_ENV: "${APP_ENV:-production}"
-  DATABASE_URL: "${DATABASE_URL:-postgresql+psycopg://${POSTGRES_USER:-threatlens}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@db:5432/${POSTGRES_DB:-threatlens}}"
+  DATABASE_URL: "${DATABASE_URL:-postgresql+psycopg://${POSTGRES_RUNTIME_USER:-threatlens_runtime}:${POSTGRES_RUNTIME_PASSWORD:?POSTGRES_RUNTIME_PASSWORD must be set}@db:5432/${POSTGRES_DB:-threatlens}}"
   REDIS_URL: "${REDIS_URL:-redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set}@redis:6379/0}"
   JWT_SECRET: "${JWT_SECRET:?JWT_SECRET must be set}"
   JWT_ALGORITHM: "${JWT_ALGORITHM:-HS256}"
@@ -66,6 +74,21 @@ x-backend-environment: &backend-environment
   DATABASE_CONNECT_TIMEOUT_SECONDS: "${DATABASE_CONNECT_TIMEOUT_SECONDS:-5}"
   DATABASE_STATEMENT_TIMEOUT_MS: "${DATABASE_STATEMENT_TIMEOUT_MS:-30000}"
   DATABASE_POOL_TIMEOUT_SECONDS: "${DATABASE_POOL_TIMEOUT_SECONDS:-10}"
+  DATABASE_POOL_SIZE: "${DATABASE_POOL_SIZE:-2}"
+  DATABASE_MAX_OVERFLOW: "${DATABASE_MAX_OVERFLOW:-0}"
+  DATABASE_LOCK_TIMEOUT_MS: "${DATABASE_LOCK_TIMEOUT_MS:-5000}"
+  DATABASE_OPERATION_TIMEOUT_SECONDS: "${DATABASE_OPERATION_TIMEOUT_SECONDS:-30}"
+  PROCESSING_DISPATCH_MAX_IN_FLIGHT: "${PROCESSING_DISPATCH_MAX_IN_FLIGHT:-200}"
+  PROCESSING_DISPATCH_BATCH_SIZE: "${PROCESSING_DISPATCH_BATCH_SIZE:-50}"
+  PROCESSING_DISPATCH_PER_FEED: "${PROCESSING_DISPATCH_PER_FEED:-5}"
+  PROCESSING_CLAIM_LEASE_SECONDS: "${PROCESSING_CLAIM_LEASE_SECONDS:-300}"
+  PROCESSING_MAX_ATTEMPTS: "${PROCESSING_MAX_ATTEMPTS:-5}"
+  PROCESSING_RECOVERY_MAX_ITEMS: "${PROCESSING_RECOVERY_MAX_ITEMS:-100}"
+  PROCESSING_RECOVERY_MAX_RETAINED: "${PROCESSING_RECOVERY_MAX_RETAINED:-1000}"
+  PROCESSING_RECOVERY_RETENTION_SECONDS: "${PROCESSING_RECOVERY_RETENTION_SECONDS:-604800}"
+  CLASSIFICATION_FRESHNESS_SECONDS: "${CLASSIFICATION_FRESHNESS_SECONDS:-600}"
+  TAGGING_FRESHNESS_SECONDS: "${TAGGING_FRESHNESS_SECONDS:-900}"
+  EXPORT_FRESHNESS_SECONDS: "${EXPORT_FRESHNESS_SECONDS:-600}"
   API_TOKEN_LAST_USED_UPDATE_INTERVAL_SECONDS: "${API_TOKEN_LAST_USED_UPDATE_INTERVAL_SECONDS:-300}"
   OIDC_TRANSACTION_COOKIE_NAME: "${OIDC_TRANSACTION_COOKIE_NAME:-threatlens_oidc_transaction}"
   OIDC_TRANSACTION_TTL_SECONDS: "${OIDC_TRANSACTION_TTL_SECONDS:-600}"
@@ -88,7 +111,7 @@ x-backend-environment: &backend-environment
   AUTH_CSRF_COOKIE_NAME: "${AUTH_CSRF_COOKIE_NAME:-threatlens_csrf}"
   AUTH_CSRF_HEADER_NAME: "${AUTH_CSRF_HEADER_NAME:-x-csrf-token}"
   AUTH_REQUIRE_CSRF: "${AUTH_REQUIRE_CSRF:-true}"
-  RUN_MIGRATIONS_ON_STARTUP: "${RUN_MIGRATIONS_ON_STARTUP:-true}"
+  RUN_MIGRATIONS_ON_STARTUP: "${RUN_MIGRATIONS_ON_STARTUP:-false}"
   SEED_ADMIN_ON_STARTUP: "${SEED_ADMIN_ON_STARTUP:-false}"
   PROBE_FEED_METADATA_ON_CREATE: "${PROBE_FEED_METADATA_ON_CREATE:-false}"
   PROBE_FEED_METADATA_ON_IMPORT: "${PROBE_FEED_METADATA_ON_IMPORT:-false}"
@@ -186,14 +209,35 @@ x-backend-environment: &backend-environment
   TAG_FEEDBACK_RETENTION_DAYS: "${TAG_FEEDBACK_RETENTION_DAYS:-730}"
   INTEGRATION_RUN_RETENTION_DAYS: "${INTEGRATION_RUN_RETENTION_DAYS:-180}"
 
+x-runtime-isolation: &runtime-isolation
+  init: true
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,size=512m,mode=1777
+
 services:
   db:
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER, DAC_OVERRIDE, SETGID, SETUID]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m,mode=1777
+      - /var/run/postgresql:rw,noexec,nosuid,size=16m,mode=1777
+    cpus: "${DB_CPUS:-2}"
+    mem_limit: "${DB_MEMORY:-2g}"
+    memswap_limit: "${DB_MEMORY:-2g}"
+    pids_limit: 256
+    cpu_shares: 2048
     image: postgres:16
     restart: unless-stopped
     environment:
       <<: *db-environment
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./scripts/database/provision-roles.sh:/docker-entrypoint-initdb.d/10-threatlens-roles.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 10s
@@ -203,6 +247,17 @@ services:
       - backplane
 
   redis:
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [CHOWN, FOWNER, DAC_OVERRIDE, SETGID, SETUID]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m,mode=1777
+    cpus: "${REDIS_CPUS:-1}"
+    mem_limit: "${REDIS_MEMORY:-512m}"
+    memswap_limit: "${REDIS_MEMORY:-512m}"
+    pids_limit: 128
+    cpu_shares: 1024
     image: redis:7-alpine
     restart: unless-stopped
     environment:
@@ -227,13 +282,40 @@ services:
     networks:
       - backplane
 
+  migrate:
+    <<: *runtime-isolation
+    image: ghcr.io/patriksi/threatlens-backend:${THREATLENS_IMAGE_TAG:-latest}
+    pull_policy: always
+    restart: "no"
+    cpus: "1"
+    mem_limit: 512m
+    memswap_limit: 512m
+    pids_limit: 64
+    environment: *migration-environment
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - backplane
+
   api:
+    <<: *runtime-isolation
+    cpus: "${API_CPUS:-2}"
+    mem_limit: "${API_MEMORY:-1g}"
+    memswap_limit: "${API_MEMORY:-1g}"
+    pids_limit: 256
+    cpu_shares: 2048
     image: ghcr.io/patriksi/threatlens-backend:${THREATLENS_IMAGE_TAG:-latest}
     pull_policy: always
     restart: unless-stopped
     environment:
       <<: *backend-environment
+      DATABASE_POOL_SIZE: "${API_DATABASE_POOL_SIZE:-8}"
+      DATABASE_MAX_OVERFLOW: "${API_DATABASE_MAX_OVERFLOW:-2}"
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       db:
         condition: service_healthy
       redis:
@@ -254,6 +336,12 @@ services:
       - backplane
 
   worker:
+    <<: *runtime-isolation
+    cpus: "${WORKER_CPUS:-2}"
+    mem_limit: "${WORKER_MEMORY:-2g}"
+    memswap_limit: "${WORKER_MEMORY:-2g}"
+    pids_limit: 256
+    cpu_shares: 2048
     image: ghcr.io/patriksi/threatlens-backend:${THREATLENS_IMAGE_TAG:-latest}
     pull_policy: always
     restart: unless-stopped
@@ -294,11 +382,20 @@ services:
       - backplane
 
   worker-exports:
+    <<: *runtime-isolation
+    cpus: "${EXPORT_WORKER_CPUS:-1}"
+    mem_limit: "${EXPORT_WORKER_MEMORY:-2g}"
+    memswap_limit: "${EXPORT_WORKER_MEMORY:-2g}"
+    pids_limit: 128
+    cpu_shares: 256
     image: ghcr.io/patriksi/threatlens-backend:${THREATLENS_IMAGE_TAG:-latest}
     pull_policy: always
     restart: unless-stopped
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=1g,mode=1777
     environment:
       <<: *backend-environment
+      DATABASE_POOL_SIZE: "${EXPORT_DATABASE_POOL_SIZE:-4}"
       RUN_MIGRATIONS_ON_STARTUP: "false"
       SEED_ADMIN_ON_STARTUP: "false"
     depends_on:
@@ -334,6 +431,12 @@ services:
       - backplane
 
   worker-ai:
+    <<: *runtime-isolation
+    cpus: "${AI_WORKER_CPUS:-1}"
+    mem_limit: "${AI_WORKER_MEMORY:-1g}"
+    memswap_limit: "${AI_WORKER_MEMORY:-1g}"
+    pids_limit: 128
+    cpu_shares: 512
     image: ghcr.io/patriksi/threatlens-backend:${THREATLENS_IMAGE_TAG:-latest}
     pull_policy: always
     restart: unless-stopped
@@ -374,6 +477,12 @@ services:
       - backplane
 
   worker-maintenance:
+    <<: *runtime-isolation
+    cpus: "${MAINTENANCE_WORKER_CPUS:-1}"
+    mem_limit: "${MAINTENANCE_WORKER_MEMORY:-768m}"
+    memswap_limit: "${MAINTENANCE_WORKER_MEMORY:-768m}"
+    pids_limit: 128
+    cpu_shares: 512
     image: ghcr.io/patriksi/threatlens-backend:${THREATLENS_IMAGE_TAG:-latest}
     pull_policy: always
     restart: unless-stopped
@@ -414,6 +523,12 @@ services:
       - backplane
 
   worker-notifications:
+    <<: *runtime-isolation
+    cpus: "${NOTIFICATION_WORKER_CPUS:-1}"
+    mem_limit: "${NOTIFICATION_WORKER_MEMORY:-1g}"
+    memswap_limit: "${NOTIFICATION_WORKER_MEMORY:-1g}"
+    pids_limit: 256
+    cpu_shares: 1024
     image: ghcr.io/patriksi/threatlens-backend:${THREATLENS_IMAGE_TAG:-latest}
     pull_policy: always
     restart: unless-stopped
@@ -454,6 +569,12 @@ services:
       - backplane
 
   beat:
+    <<: *runtime-isolation
+    cpus: "${BEAT_CPUS:-0.5}"
+    mem_limit: "${BEAT_MEMORY:-384m}"
+    memswap_limit: "${BEAT_MEMORY:-384m}"
+    pids_limit: 96
+    cpu_shares: 1024
     image: ghcr.io/patriksi/threatlens-backend:${THREATLENS_IMAGE_TAG:-latest}
     pull_policy: always
     restart: unless-stopped
@@ -483,6 +604,12 @@ services:
       - backplane
 
   web:
+    <<: *runtime-isolation
+    cpus: "${WEB_CPUS:-0.5}"
+    mem_limit: "${WEB_MEMORY:-128m}"
+    memswap_limit: "${WEB_MEMORY:-128m}"
+    pids_limit: 64
+    cpu_shares: 2048
     image: ghcr.io/patriksi/threatlens-web:${THREATLENS_IMAGE_TAG:-latest}
     pull_policy: always
     restart: unless-stopped
@@ -491,6 +618,9 @@ services:
         condition: service_healthy
     ports:
       - "${THREATLENS_WEB_PORT:-3000}:3000"
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m,mode=1777
+      - /etc/nginx/conf.d:rw,noexec,nosuid,size=1m,uid=101,gid=101,mode=0755
     environment:
       THREATLENS_CSP_CONNECT_SRC: "${THREATLENS_CSP_CONNECT_SRC:-'self'}"
       THREATLENS_CSP_FRAME_SRC: "${THREATLENS_CSP_FRAME_SRC:-'self'}"

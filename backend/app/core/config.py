@@ -247,6 +247,10 @@ class Settings(BaseSettings):
     database_connect_timeout_seconds: int = 5
     database_statement_timeout_ms: int = 30_000
     database_pool_timeout_seconds: int = 10
+    database_pool_size: int = Field(default=2, ge=1, le=100)
+    database_max_overflow: int = Field(default=0, ge=0, le=100)
+    database_lock_timeout_ms: int = Field(default=5_000, ge=1, le=300_000)
+    database_operation_timeout_seconds: float = Field(default=30, gt=0, le=300)
     api_token_last_used_update_interval_seconds: int = 300
     oidc_transaction_cookie_name: str = "threatlens_oidc_transaction"
     oidc_transaction_ttl_seconds: int = 600
@@ -263,6 +267,17 @@ class Settings(BaseSettings):
     max_metadata_backfill_tasks_per_request: int = 100
     dispatch_due_feeds_batch_size: int = 500
     dispatch_feed_claim_seconds: int = 900
+    processing_dispatch_max_in_flight: int = Field(default=200, ge=1, le=10_000)
+    processing_dispatch_batch_size: int = Field(default=50, ge=1, le=1_000)
+    processing_dispatch_per_feed: int = Field(default=5, ge=1, le=100)
+    processing_claim_lease_seconds: int = Field(default=300, ge=30, le=3_600)
+    processing_max_attempts: int = Field(default=5, ge=1, le=20)
+    processing_recovery_max_items: int = Field(default=100, ge=1, le=100)
+    processing_recovery_max_retained: int = Field(default=1000, ge=1, le=100_000)
+    processing_recovery_retention_seconds: int = Field(default=604800, ge=3600, le=31_536_000)
+    classification_freshness_seconds: int = Field(default=600, ge=30, le=86_400)
+    tagging_freshness_seconds: int = Field(default=900, ge=30, le=86_400)
+    export_freshness_seconds: int = Field(default=600, ge=30, le=86_400)
     dispatch_items_missing_articles_batch_size: int = 200
     dispatch_items_missing_articles_after_seconds: int = 300
     dispatch_unclassified_items_batch_size: int = 200
@@ -884,13 +899,15 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "allowed_hosts must list explicit trusted hosts in production"
                 )
-            if _database_url_uses_weak_default(self.database_url):
+            if _database_url_uses_weak_default(self.database_url) or (
+                _looks_like_default_service_password(_url_password(self.database_url))
+            ):
                 raise ValueError(
                     "database_url must use explicit non-default database credentials in production"
                 )
-            if _looks_like_default_service_password(self.postgres_password):
+            if self.postgres_password is not None and _looks_like_default_service_password(self.postgres_password):
                 raise ValueError(
-                    "postgres_password must be explicitly set to a non-default value in production"
+                    "postgres_password must use a non-default value when supplied in production"
                 )
             if _redis_url_is_passwordless_or_default(self.redis_url):
                 raise ValueError(
