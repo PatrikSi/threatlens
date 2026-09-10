@@ -46,6 +46,9 @@ started, bounded automatic fetch, so disabling may wait for that attempt to fini
 An explicitly selected recovery run may fetch a disabled feed only while its
 accepting credential and source access remain valid. A revoked recovery run
 cannot fall back to automatic fetching on a disabled feed after restore quarantine.
+Previously queued initial-ingestion article tasks also check the enabled feed
+under the same lock before fetching. Existing deliberate forced fetches retain
+their explicit retry behavior.
 
 ## Bounds, fairness and failure recovery
 

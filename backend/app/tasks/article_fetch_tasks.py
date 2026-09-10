@@ -11,6 +11,7 @@ from sqlalchemy import select
 from app.models.article import Article
 from app.models.item import Item
 from app.services import extraction, safe_fetch, url_utils
+from app.services.article_recovery import lock_article_feed
 from app.services.bounded_response import read_bounded_response
 from app.services.classification_recovery import require_item_classification
 from app.services.outbound_deadline import outbound_deadline
@@ -37,7 +38,12 @@ class ArticleFetchResult:
 
 
 def run_fetch_article(
-    task, item_id: str, force: bool = False, *, dependencies: ArticleFetchDependencies
+    task,
+    item_id: str,
+    force: bool = False,
+    *,
+    dependencies: ArticleFetchDependencies,
+    source_access_fenced: bool = False,
 ):
     with dependencies.db_session() as db:
         parsed_item_id = _parse_uuid(item_id)
@@ -48,9 +54,22 @@ def run_fetch_article(
                 "item_id": item_id,
             }
 
+        feed = None
+        if not force and not source_access_fenced:
+            # Initial-ingestion messages may already be queued when the feed is
+            # disabled. Feed precedes Item in the shared source lock order.
+            feed = lock_article_feed(db, parsed_item_id)
+            if feed is None or not feed.enabled:
+                return {
+                    "status": "skipped",
+                    "reason": "not_found" if feed is None else "feed_disabled",
+                    "item_id": item_id,
+                }
         item, skip_result = _load_claimed_item(db, parsed_item_id, item_id)
         if skip_result is not None:
             return skip_result
+        if feed is not None and item.feed_id != feed.feed_id:
+            return {"status": "skipped", "reason": "source_changed", "item_id": item_id}
         cached_result = _cached_article_result(
             db, item, item_id, force, dependencies=dependencies
         )
