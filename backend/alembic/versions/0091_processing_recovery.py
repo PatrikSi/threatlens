@@ -10,6 +10,13 @@ depends_on = None
 
 
 def upgrade() -> None:
+    op.create_table(
+        "processing_dispatch_state",
+        sa.Column("id", sa.Integer(), primary_key=True),
+        sa.Column("last_feed_id", sa.Uuid(), nullable=True),
+        sa.CheckConstraint("id = 1", name="ck_processing_dispatch_singleton"),
+    )
+    op.execute("INSERT INTO processing_dispatch_state (id) VALUES (1)")
     op.add_column(
         "items",
         sa.Column(
@@ -159,7 +166,7 @@ def upgrade() -> None:
             name="ck_processing_work_stage",
         ),
         sa.CheckConstraint(
-            "status IN ('queued','running','retry_wait','succeeded','attention','cancelled')",
+            "status IN ('waiting','queued','running','retry_wait','succeeded','attention','cancelled')",
             name="ck_processing_work_status",
         ),
         sa.UniqueConstraint("item_id", "stage", name="uq_processing_work_item_stage"),
@@ -199,6 +206,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.drop_table("processing_dispatch_state")
     op.drop_table("processing_recovery_items")
     op.drop_table("processing_work")
     op.drop_table("processing_recovery_runs")

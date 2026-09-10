@@ -258,6 +258,11 @@ _REQUEST_CONTEXT_OPERATIONS: tuple[OperationLiteral, ...] = (
     ('POST', '/v1/exports', 'download_export'),
     ('GET', '/v1/exports/capabilities', 'get_export_capabilities'),
     ('POST', '/v1/exports/preview', 'preview_export'),
+    ('GET', '/v1/processing/work', 'get_processing_work'),
+    ('POST', '/v1/processing/recovery-runs', 'post_processing_recovery'),
+    ('GET', '/v1/processing/recovery-runs', 'get_processing_recoveries'),
+    ('GET', '/v1/processing/recovery-runs/{run_id}', 'get_processing_recovery'),
+    ('POST', '/v1/processing/recovery-runs/{run_id}/cancel', 'post_processing_recovery_cancel'),
     ('POST', '/v1/exports/jobs', 'accept_export_job'),
     ('GET', '/v1/exports/jobs', 'list_export_jobs'),
     ('GET', '/v1/exports/jobs/{job_id}', 'get_export_job'),
@@ -470,6 +475,10 @@ _ENDPOINT_NAMES_BY_MODULE: Final[dict[str, tuple[str, ...]]] = {
         "download_export",
         "get_export_capabilities",
         "preview_export",
+    ),
+    "app.api.routes.processing": (
+        "get_processing_work", "post_processing_recovery", "get_processing_recoveries",
+        "get_processing_recovery", "post_processing_recovery_cancel",
     ),
     "app.api.routes.export_jobs": (
         "accept_export_job", "list_export_jobs", "get_export_job",

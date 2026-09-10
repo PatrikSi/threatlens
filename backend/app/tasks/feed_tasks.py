@@ -28,7 +28,7 @@ from app.services.feed_pipeline import (
 from app.services.feed_pipeline import (
     list_item_ids_missing_articles as _list_item_ids_missing_articles_impl,
 )
-from app.tasks import feed_task_constants, feed_task_runtime, feed_task_scheduling
+from app.tasks import feed_task_runtime, feed_task_scheduling
 from app.tasks.ai_brief_tasks import (
     DAILY_BRIEF_STALE_RETRY_WINDOW,
     _daily_brief_backfill_attempt_is_settled,
@@ -96,15 +96,6 @@ from app.tasks.feed_task_dispatchers import (
 from app.tasks.feed_task_dispatchers import (
     dispatch_items_missing_ai_enrichment as _dispatch_items_missing_ai_enrichment,
 )
-from app.tasks.feed_task_dispatchers import (
-    dispatch_items_missing_articles as _dispatch_items_missing_articles,
-)
-from app.tasks.feed_task_dispatchers import (
-    dispatch_items_missing_iocs as _dispatch_items_missing_iocs,
-)
-from app.tasks.feed_task_dispatchers import (
-    dispatch_unclassified_items as _dispatch_unclassified_items,
-)
 from app.tasks.feed_task_events import (
     emit_item_integration_event as _emit_item_integration_event,
 )
@@ -167,9 +158,6 @@ from app.tasks.item_processing_tasks import (
 )
 from app.tasks.item_processing_tasks import (
     run_reapply_recent_item_tags as _run_reapply_recent_item_tags,
-)
-from app.tasks.item_processing_tasks import (
-    run_repair_pending_item_tags as _run_repair_pending_item_tags,
 )
 from app.tasks.notification_tasks import (
     _emit_failed_webhook_integration_event,
@@ -523,33 +511,23 @@ def dispatch_due_feeds():
 
 @celery_app.task(name="app.tasks.feed_tasks.dispatch_unclassified_items")
 def dispatch_unclassified_items():
-    return _dispatch_unclassified_items(
-        db_session_factory=db_session,
-        settings=settings,
-        enqueue_classification_task=_enqueue_classification_task,
-    )
+    from app.tasks.processing_tasks import dispatch_processing_work
+
+    return dispatch_processing_work(stage="classification")
 
 
 @celery_app.task(name="app.tasks.feed_tasks.dispatch_items_missing_articles")
 def dispatch_items_missing_articles():
-    return _dispatch_items_missing_articles(
-        db_session_factory=db_session,
-        settings=settings,
-        list_item_ids_missing_articles=_list_item_ids_missing_articles,
-        fetch_article_task=fetch_article,
-        logger=logger,
-    )
+    from app.tasks.processing_tasks import dispatch_processing_work
+
+    return dispatch_processing_work(stage="article")
 
 
 @celery_app.task(name="app.tasks.feed_tasks.dispatch_items_missing_iocs")
 def dispatch_items_missing_iocs():
-    return _dispatch_items_missing_iocs(
-        db_session_factory=db_session,
-        settings=settings,
-        completed_state=feed_task_constants.IOC_EXTRACTION_STATE_COMPLETED,
-        extract_item_iocs_task=extract_item_iocs,
-        logger=logger,
-    )
+    from app.tasks.processing_tasks import dispatch_processing_work
+
+    return dispatch_processing_work(stage="ioc")
 
 
 @celery_app.task(name="app.tasks.feed_tasks.dispatch_items_missing_ai_enrichment")
@@ -726,7 +704,9 @@ def reapply_recent_item_tags(
     reject_on_worker_lost=True,
 )
 def repair_pending_item_tags():
-    return _run_repair_pending_item_tags(dependencies=_item_processing_dependencies())
+    from app.tasks.processing_tasks import dispatch_processing_work
+
+    return dispatch_processing_work(stage="tagging")
 
 
 def _feed_fetch_dependencies() -> FeedFetchDependencies:

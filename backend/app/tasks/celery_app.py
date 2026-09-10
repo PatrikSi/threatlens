@@ -128,6 +128,8 @@ def _task_queue(request) -> str | None:
 
 
 TASK_ROUTES = {
+    "app.tasks.processing_tasks.execute_processing_work": {"queue": QUEUE_PROCESSING},
+    "app.tasks.processing_tasks.dispatch_processing_work": {"queue": QUEUE_MAINTENANCE},
     "app.tasks.export_tasks.generate_export_job": {"queue": QUEUE_EXPORTS},
     "app.tasks.export_tasks.dispatch_export_jobs": {"queue": QUEUE_MAINTENANCE},
     "app.tasks.feed_tasks.fetch_feed": {"queue": QUEUE_INGEST},
@@ -226,6 +228,7 @@ celery_app = Celery(
     backend=settings.redis_url,
     include=[
         "app.tasks.export_tasks",
+        "app.tasks.processing_tasks",
         "app.tasks.feed_tasks",
         "app.tasks.history_maintenance_tasks",
         "app.tasks.alert_tasks",
@@ -274,21 +277,9 @@ celery_app.conf.update(
             "task": "app.tasks.feed_tasks.dispatch_due_feeds",
             "schedule": 60.0,
         },
-        "dispatch-unclassified-items": {
-            "task": "app.tasks.feed_tasks.dispatch_unclassified_items",
-            "schedule": 300.0,
-        },
-        "dispatch-items-missing-articles": {
-            "task": "app.tasks.feed_tasks.dispatch_items_missing_articles",
-            "schedule": 300.0,
-        },
-        "dispatch-items-missing-iocs": {
-            "task": "app.tasks.feed_tasks.dispatch_items_missing_iocs",
-            "schedule": 300.0,
-        },
-        "repair-pending-item-tags": {
-            "task": "app.tasks.feed_tasks.repair_pending_item_tags",
-            "schedule": 60.0,
+        "dispatch-processing-work": {
+            "task": "app.tasks.processing_tasks.dispatch_processing_work",
+            "schedule": 30.0,
         },
         "dispatch-items-missing-ai-enrichment": {
             "task": "app.tasks.feed_tasks.dispatch_items_missing_ai_enrichment",
