@@ -13,7 +13,6 @@ from sqlalchemy.orm import Session
 from app.core.token_scopes import SCOPE_READ_ITEMS, has_required_scope
 from app.models.api_token import ApiToken
 from app.models.auth_session import AuthSession
-from app.models.export_job import ExportJob
 from app.models.feed import Feed
 from app.models.item import Item
 from app.models.service_account import ServiceAccount, ServiceAccountCredential
@@ -30,7 +29,11 @@ from app.services.data_access_policy import (
     fence_data_access_context,
     handling_label_access_predicate,
 )
-from app.services.export_job_contracts import ExportAuthorizationSnapshot, ExportSource
+from app.services.export_job_contracts import (
+    CredentialBoundWork,
+    ExportAuthorizationSnapshot,
+    ExportSource,
+)
 from app.services.secret_storage import decrypt_json
 
 ExportCredential = ApiToken | AuthSession | ServiceAccountCredential
@@ -64,7 +67,7 @@ def capture_export_authorization(
     )
 
 
-def load_export_authorization(job: ExportJob) -> ExportAuthorizationSnapshot:
+def load_export_authorization(job: CredentialBoundWork) -> ExportAuthorizationSnapshot:
     try:
         return ExportAuthorizationSnapshot.model_validate(
             decrypt_json(job.authorization_encrypted)
@@ -77,10 +80,11 @@ def load_export_authorization(job: ExportJob) -> ExportAuthorizationSnapshot:
 
 def authorize_export_job(
     db: Session,
-    job: ExportJob,
+    job: CredentialBoundWork,
     *,
     lock: bool = False,
     snapshot: ExportAuthorizationSnapshot | None = None,
+    required_permissions: tuple[str, ...] = (SCOPE_READ_ITEMS,),
 ) -> tuple[AuthorizationContext, DataAccessContext]:
     snapshot = snapshot or load_export_authorization(job)
     model = User if job.principal_type == "user" else ServiceAccount
@@ -99,15 +103,16 @@ def authorize_export_job(
     # it can deadlock with token revocation or browser-session rotation.
     credential = _original_credential(db, job, snapshot, lock=lock)
     scope_cap = snapshot.permissions
-    if not has_required_scope(set(scope_cap), SCOPE_READ_ITEMS):
+    if any(
+        not has_required_scope(set(scope_cap), permission)
+        for permission in required_permissions
+    ):
         raise ExportJobAccessDenied(
             "The accepting credential did not grant article access"
         )
-    if isinstance(
-        credential, (ApiToken, ServiceAccountCredential)
-    ) and not has_required_scope(
-        set(credential.scopes),
-        SCOPE_READ_ITEMS,
+    if isinstance(credential, (ApiToken, ServiceAccountCredential)) and any(
+        not has_required_scope(set(credential.scopes), permission)
+        for permission in required_permissions
     ):
         raise ExportJobAccessDenied(
             "The accepting credential no longer grants article access"
@@ -128,7 +133,7 @@ def authorize_export_job(
             credential_id=credential.id,
             credential_scopes=scope_cap,
         )
-    if not authorization.has(SCOPE_READ_ITEMS):
+    if any(not authorization.has(permission) for permission in required_permissions):
         raise ExportJobAccessDenied("The export owner no longer has article access")
     access = data_access_context_for_authorization(db, authorization)
     if snapshot.enforced:
@@ -142,7 +147,7 @@ def authorize_export_job(
 
 def _original_credential(
     db: Session,
-    job: ExportJob,
+    job: CredentialBoundWork,
     snapshot: ExportAuthorizationSnapshot,
     *,
     lock: bool,
@@ -192,7 +197,7 @@ def export_source_snapshot(db: Session, item_ids: list[uuid.UUID]) -> list[list[
     return [[str(value) for value in row] for row in rows]
 
 
-def load_export_sources(job: ExportJob) -> list[ExportSource]:
+def load_export_sources(job: CredentialBoundWork) -> list[ExportSource]:
     if job.source_encrypted is None:
         return []
     try:
@@ -207,7 +212,7 @@ def load_export_sources(job: ExportJob) -> list[ExportSource]:
 
 
 def assert_export_sources_visible(
-    db: Session, job: ExportJob, access: DataAccessContext
+    db: Session, job: CredentialBoundWork, access: DataAccessContext
 ) -> None:
     sources = load_export_sources(job)
     for offset in range(0, len(sources), 500):
@@ -233,17 +238,18 @@ def assert_export_sources_visible(
 
 def fence_export_authorization(
     db: Session,
-    job: ExportJob,
+    job: CredentialBoundWork,
     authorization: AuthorizationContext,
     access: DataAccessContext,
     *,
     snapshot: ExportAuthorizationSnapshot | None = None,
+    required_permissions: tuple[str, ...] = (SCOPE_READ_ITEMS,),
 ) -> None:
     """Lock global policies, then owner and credential, before publication."""
     fence_authorization_context(db, authorization)
     fence_data_access_context(db, access)
     current_authorization, current_access = authorize_export_job(
-        db, job, lock=True, snapshot=snapshot
+        db, job, lock=True, snapshot=snapshot, required_permissions=required_permissions
     )
     if (
         current_authorization.policy_revision != authorization.policy_revision
@@ -254,7 +260,7 @@ def fence_export_authorization(
 
 def fence_export_job_access(
     db: Session,
-    job: ExportJob,
+    job: CredentialBoundWork,
     authorization: AuthorizationContext,
     access: DataAccessContext,
 ) -> None:

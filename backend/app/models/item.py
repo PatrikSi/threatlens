@@ -60,10 +60,12 @@ class Item(Base):
     classification_required_version: Mapped[int] = mapped_column(
         BigInteger, nullable=False, default=1, server_default="1",
     )
+    classification_required_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     classification_completed_version: Mapped[int] = mapped_column(
         BigInteger, nullable=False, default=0, server_default="0",
     )
     tagging_pending: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    tagging_pending_since_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     tagging_retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     tagging_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     tagging_error_code: Mapped[str | None] = mapped_column(String(32), nullable=True)

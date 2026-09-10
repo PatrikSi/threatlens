@@ -17,6 +17,8 @@ RETRYABLE_TAGGING_ERRORS = frozenset({"worker_unavailable", "worker_timeout", "r
 def record_incomplete_tagging(item: Item, errors: tuple[str, ...]) -> None:
     """The caller owns the Item lock and commits this with its other results."""
     permanent = [code for code in errors if code not in RETRYABLE_TAGGING_ERRORS]
+    if not item.tagging_pending or item.tagging_pending_since_at is None:
+        item.tagging_pending_since_at = datetime.now(timezone.utc)
     item.tagging_error_code = (permanent or list(errors))[0]
     item.tagging_pending = True
     item.tagging_attempts = min(MAX_TAGGING_ATTEMPTS, (item.tagging_attempts or 0) + 1)
@@ -29,6 +31,7 @@ def record_incomplete_tagging(item: Item, errors: tuple[str, ...]) -> None:
 
 def clear_incomplete_tagging(item: Item) -> None:
     item.tagging_pending = False
+    item.tagging_pending_since_at = None
     item.tagging_retry_at = None
     item.tagging_attempts = 0
     item.tagging_error_code = None

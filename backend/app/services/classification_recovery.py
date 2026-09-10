@@ -1,5 +1,6 @@
 """Durable classification intent, committed together with its source mutation."""
 from app.models.item import Item
+from sqlalchemy import func
 
 
 def require_item_classification(item: Item) -> None:
@@ -7,3 +8,4 @@ def require_item_classification(item: Item) -> None:
     # before a concurrent article fetch acquired its row lock. A Python += risks
     # overwriting the newer revision after waiting for that writer's commit.
     item.classification_required_version = Item.classification_required_version + 1
+    item.classification_required_at = func.now()
