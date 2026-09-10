@@ -340,6 +340,7 @@ def get_smtp_analytics(
                 == IntegrationDeliveryMetric.id,
             )
             .where(
+                IntegrationDeliveryMetric.retention_pruning_started_at.is_(None),
                 IntegrationDeliveryMetric.connector_type
                 == SMTP_INTEGRATION_TYPE,
                 integration_metric_cohort_data_access_predicate(data_access),
@@ -355,6 +356,7 @@ def get_smtp_analytics(
                 func.sum(IntegrationDeliveryMetric.dead_letter_count),
             )
             .where(
+                IntegrationDeliveryMetric.retention_pruning_started_at.is_(None),
                 IntegrationDeliveryMetric.connector_type
                 == SMTP_INTEGRATION_TYPE
             )

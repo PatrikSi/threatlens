@@ -371,6 +371,7 @@ def _maintain_alert_history_batch(
         metric_id = db.scalar(
             statement.on_conflict_do_update(
                 constraint="uq_alert_occurrence_metrics_bucket_dimensions",
+                where=AlertOccurrenceMetric.retention_pruning_started_at.is_(None),
                 set_={
                     "occurrence_count": AlertOccurrenceMetric.occurrence_count
                     + statement.excluded.occurrence_count,
@@ -379,7 +380,8 @@ def _maintain_alert_history_batch(
             ).returning(AlertOccurrenceMetric.id)
         )
         if metric_id is None:
-            raise RuntimeError("Alert occurrence metric rollup did not return a row.")
+            # This expired bucket is already hidden and draining its provenance.
+            continue
         metric_ids[key] = metric_id
 
     for key in sorted(cohort_counts, key=_alert_metric_cohort_key_sort):
@@ -393,7 +395,9 @@ def _maintain_alert_history_batch(
             policy_cohort_key,
         ) = key
         count = cohort_counts[key]
-        metric_id = metric_ids[(bucket, owner_id, severity, state, suppressed)]
+        metric_id = metric_ids.get((bucket, owner_id, severity, state, suppressed))
+        if metric_id is None:
+            continue
         statement = insert(AlertOccurrenceMetricCohort).values(
             id=uuid.uuid4(),
             metric_id=metric_id,

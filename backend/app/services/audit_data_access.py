@@ -108,8 +108,29 @@ def project_audit_logs(
     *,
     context: DataAccessContext,
 ) -> AuditDataAccessProjection:
-    normalized_labels: dict[uuid.UUID, set[uuid.UUID]] = {}
+    # Refresh and fence visible parents before reading normalized permission
+    # labels. A stale ORM row must never outlive its retention visibility claim.
     row_ids = [row.id for row in rows]
+    current_rows = (
+        {
+            row.id: row
+            for row in db.scalars(
+                select(AuditLog)
+                .where(
+                    AuditLog.id.in_(row_ids),
+                    AuditLog.retention_pruning_started_at.is_(None),
+                )
+                .order_by(AuditLog.id)
+                .with_for_update(read=True, key_share=True)
+                .execution_options(populate_existing=True)
+            )
+        }
+        if row_ids
+        else {}
+    )
+    rows = [current_rows[row_id] for row_id in row_ids if row_id in current_rows]
+    row_ids = [row.id for row in rows]
+    normalized_labels: dict[uuid.UUID, set[uuid.UUID]] = {}
     if row_ids:
         for audit_log_id, label_id in db.execute(
             select(
@@ -130,9 +151,7 @@ def project_audit_logs(
             projected.append(response)
             continue
 
-        stored_label_ids, valid_snapshot = _stored_label_ids(
-            row.data_access_label_ids
-        )
+        stored_label_ids, valid_snapshot = _stored_label_ids(row.data_access_label_ids)
         label_ids = frozenset({*stored_label_ids, *normalized})
         restricted = (
             not valid_snapshot

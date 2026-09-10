@@ -296,6 +296,7 @@ def rollup_terminal_integration_deliveries(
         excluded = statement.excluded
         statement = statement.on_conflict_do_update(
             constraint="uq_integration_delivery_metrics_bucket_dimension",
+            where=IntegrationDeliveryMetric.retention_pruning_started_at.is_(None),
             set_={
                 "succeeded_count": IntegrationDeliveryMetric.succeeded_count
                 + excluded.succeeded_count,
@@ -316,9 +317,8 @@ def rollup_terminal_integration_deliveries(
         )
         metric_id = db.scalar(statement.returning(IntegrationDeliveryMetric.id))
         if metric_id is None:
-            raise RuntimeError(
-                "Integration delivery metric rollup did not return a base row."
-            )
+            # This expired bucket is already hidden and draining its provenance.
+            continue
         metric_ids[(bucket_start, integration_id, connector_type, event_type)] = (
             metric_id
         )
@@ -328,6 +328,8 @@ def rollup_terminal_integration_deliveries(
         key=lambda value: (*_metric_key_sort(value[0][0]), value[0][1]),
     ):
         metric_key, policy_cohort_key = cohort_identity
+        if metric_key not in metric_ids:
+            continue
         provenance = cohort_metadata[cohort_identity]
         captured_label_ids = provenance.captured_label_ids
         taint_label_ids = provenance.taint_label_ids

@@ -38,3 +38,33 @@ report reference that prevents pruning, and rejection of late reports and parent
 reactivation. Delivery attempts and approval receipts are checked across repeated
 bounded batches, and final deletion skips an event writer waiting on another
 locked source. All concurrency cases use disposable PostgreSQL transactions.
+
+## Permission-bearing history
+
+Expired audit logs, alert occurrence metrics, and integration delivery metrics
+use the same transaction budget to drain normalized source and label records.
+Before removing any permission provenance, cleanup marks the parent with
+`retention_pruning_started_at` and creates its durable claim in one transaction.
+That parent immediately leaves audit list/export responses and metric analytics,
+including when handling policy is disabled. Audit projection refreshes and locks
+the parent before reading its labels, so an object loaded before the claim cannot
+reappear after its labels have been removed.
+
+Ordinary retained audit and metric provenance remains immutable. Database guards
+permit incremental label deletion only for a hidden parent with a matching claim.
+Feed relabels skip claimed history, and late cohort updates or references are
+rejected. Delayed metric rollups skip a bucket already claimed for cleanup; they
+do not recreate visible counts for that expired bucket. Empty cohorts count
+against the same budget and are deleted only after all of their children are gone.
+Final parent deletion skips dependent rows held by concurrent writers.
+
+Partially pruned permission history cannot be made readable again. Migration
+0094 rejects downgrade while any such parent remains; finish the eligible
+retention cleanup before running an older binary. Cancelling a run or extending
+retention does not restore already deleted labels. If a later policy no longer
+selects the parent, it remains hidden until cleanup becomes eligible again.
+
+Regression coverage includes 20,002 audit provenance rows drained across commits,
+cohort and child budgets, every handling-policy mode, stale audit objects,
+rollback, a waiting feed-taint writer, and a cohort writer holding its child lock
+while waiting for the parent.

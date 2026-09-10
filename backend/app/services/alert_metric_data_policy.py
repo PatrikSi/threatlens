@@ -4,7 +4,7 @@ import uuid
 from collections import defaultdict
 from collections.abc import Iterable
 
-from sqlalchemy import and_, exists, false, func, literal, or_, select, true
+from sqlalchemy import and_, exists, false, func, literal, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, aliased
 
@@ -34,18 +34,26 @@ def taint_alert_occurrence_metrics_for_feed(
     labels = select(
         AlertOccurrenceMetricCohort.id,
         literal(handling_label_id),
-    ).where(AlertOccurrenceMetricCohort.source_feed_id_snapshot == feed_id)
+    ).where(
+        AlertOccurrenceMetricCohort.source_feed_id_snapshot == feed_id,
+        _retained_cohort_predicate(),
+    )
     statement = insert(AlertOccurrenceMetricCohortTaintLabel).from_select(
         ["cohort_id", "label_id"],
         labels,
     )
-    result = db.execute(statement.on_conflict_do_nothing())
+    inserted = (
+        statement.on_conflict_do_nothing()
+        .returning(AlertOccurrenceMetricCohortTaintLabel.cohort_id)
+        .cte("inserted_taints")
+    )
+    inserted_count = int(db.scalar(select(func.count()).select_from(inserted)) or 0)
     db.execute(
         insert(AlertOccurrenceMetricCohortLabel)
         .from_select(["cohort_id", "label_id"], labels)
         .on_conflict_do_nothing()
     )
-    return int(result.rowcount or 0)
+    return inserted_count
 
 
 def alert_metric_policy_cohort_key(
@@ -59,13 +67,21 @@ def alert_metric_policy_cohort_key(
     )
 
 
+def _retained_cohort_predicate():
+    return AlertOccurrenceMetricCohort.metric_id.in_(
+        select(AlertOccurrenceMetric.id).where(
+            AlertOccurrenceMetric.retention_pruning_started_at.is_(None),
+        )
+    )
+
+
 def alert_metric_cohort_data_access_predicate(
     data_access: DataAccessContext,
 ):
     if not data_access.principal_eligible:
         return false()
     if not data_access.enforced:
-        return true()
+        return _retained_cohort_predicate()
     captured_label = aliased(AlertOccurrenceMetricCohortCapturedLabel)
     captured_handling = aliased(HandlingLabel)
     taint_label = aliased(AlertOccurrenceMetricCohortTaintLabel)
@@ -107,6 +123,7 @@ def alert_metric_cohort_data_access_predicate(
         ),
     )
     return and_(
+        _retained_cohort_predicate(),
         any_captured,
         incomplete_is_quarantined,
         ~inaccessible_captured,
@@ -133,6 +150,14 @@ def alert_metric_cohort_integrity(
     )
     taints = _labels_by_cohort(db, AlertOccurrenceMetricCohortTaintLabel)
     effective = _labels_by_cohort(db, AlertOccurrenceMetricCohortLabel)
+    # Visibility only moves toward hidden. Recheck after the separate label
+    # reads so a concurrent committed claim cannot look like broken provenance.
+    retained_ids = set(
+        db.scalars(
+            select(AlertOccurrenceMetricCohort.id).where(_retained_cohort_predicate())
+        )
+    )
+    cohorts = [cohort for cohort in cohorts if cohort.id in retained_ids]
     invalid_identity_count = 0
     missing_captured_labels_count = 0
     label_parity_mismatch_count = 0
@@ -171,8 +196,9 @@ def alert_metric_cohort_integrity(
             .select_from(AlertOccurrenceMetric)
             .outerjoin(totals, totals.c.metric_id == AlertOccurrenceMetric.id)
             .where(
+                AlertOccurrenceMetric.retention_pruning_started_at.is_(None),
                 AlertOccurrenceMetric.occurrence_count
-                != func.coalesce(totals.c.occurrence_count, 0)
+                != func.coalesce(totals.c.occurrence_count, 0),
             )
         )
         or 0
