@@ -7,7 +7,6 @@ from datetime import datetime, timezone
 from sqlalchemy import and_, delete, exists, func, or_, select, text, update
 from sqlalchemy.orm import Session
 
-from app.db.budgets import database_operation
 
 from app.models.action_approval import ActionApprovalRequest
 from app.models.ai_provider_attempt_receipt import AIProviderAttemptReceipt
@@ -147,17 +146,16 @@ def execute_lifecycle_target_batch(
     now: datetime | None = None,
 ) -> TargetBatch:
     scan_stats = LifecycleScanStats()
-    with database_operation(db, operation="lifecycle"):
-        result = _execute_lifecycle_target_batch(
-            db,
-            target_key=target_key,
-            cutoff=cutoff,
-            batch_size=batch_size,
-            run_id=run_id,
-            options=options,
-            now=now,
-            scan_stats=scan_stats,
-        )
+    result = _execute_lifecycle_target_batch(
+        db,
+        target_key=target_key,
+        cutoff=cutoff,
+        batch_size=batch_size,
+        run_id=run_id,
+        options=options,
+        now=now,
+        scan_stats=scan_stats,
+    )
     return replace(result, details={**result.details, **scan_stats.details()})
 
 

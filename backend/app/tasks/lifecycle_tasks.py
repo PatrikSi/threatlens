@@ -4,6 +4,8 @@ import logging
 import uuid
 
 from sqlalchemy.exc import OperationalError
+
+from app.db.budgets import DatabaseDeadlineExceeded
 from sqlalchemy.orm import Session
 
 from app.services.lifecycle_execution import (
@@ -61,7 +63,7 @@ def execute_lifecycle_run_task(self, run_id: str):
                 run_id=parsed_id,
                 expected_task_id=str(self.request.id),
             )
-    except OperationalError as exc:
+    except (OperationalError, DatabaseDeadlineExceeded) as exc:
         if int(self.request.retries) >= int(self.max_retries or 0):
             with db_session() as db:
                 fail_lifecycle_run_after_retries(
