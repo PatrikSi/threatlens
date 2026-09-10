@@ -19,7 +19,9 @@ reject late references and reactivation while that claim exists. An insert that
 started before the claim committed rechecks it after waiting for the parent
 lock. Cleanup also rechecks retained references after locking the source. It
 skips busy child and receipt rows before final parent deletion, avoiding lock
-waits that could deadlock a concurrent writer.
+waits that could deadlock a concurrent writer. Provider-receipt locks are
+budgeted per parent, so a large receipt bundle does not block later parents
+that fit the remaining allowance. Oversized receipt bundles remain protected.
 
 Cancelling a lifecycle run stops subsequent batches. It does not recreate child
 history already removed or release a partially drained parent for reuse. A later
