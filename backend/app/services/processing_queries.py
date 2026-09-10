@@ -43,6 +43,7 @@ REASONS = {
     "tagging_incomplete": "One or more tagging rules could not be evaluated completely.",
     "busy": "Another worker currently owns this item. Recovery will retry later.",
     "database_deadline": "Processing exceeded its database operation budget. Recovery will retry later.",
+    "feed_disabled": "Automatic article fetching is paused while this feed is disabled.",
 }
 
 

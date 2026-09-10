@@ -38,6 +38,15 @@ Recovery does not directly replay AI-provider calls or integration-delivery task
 Ordinary classification may persist the existing idempotent alert-evaluation
 intent; normal downstream alert processing can produce notifications.
 
+Automatic article repair requires an enabled feed at discovery, publication and
+execution. Disabling a feed pauses existing automatic reservations with a
+`feed_disabled` reason; re-enabling it resumes eligible work without resetting
+its attempt allowance. The worker holds the feed state stable through an already
+started, bounded automatic fetch, so disabling may wait for that attempt to finish.
+An explicitly selected recovery run may fetch a disabled feed only while its
+accepting credential and source access remain valid. A revoked recovery run
+cannot fall back to automatic fetching on a disabled feed after restore quarantine.
+
 ## Bounds, fairness and failure recovery
 
 | Setting | Default | Meaning |

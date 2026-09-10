@@ -100,7 +100,8 @@ def article_repair_predicate(
     *, dispatch_after_seconds: int, now: datetime | None = None
 ):
     """One eligibility policy for legacy discovery and durable repair admission."""
-    from sqlalchemy import and_
+    from sqlalchemy import and_, exists, select
+    from app.models.feed import Feed
     from app.models.item import Item
 
     cutoff = article_fetch_repair_cutoff(
@@ -110,7 +111,7 @@ def article_repair_predicate(
         dispatch_after_seconds=dispatch_after_seconds, now=now
     )
     floor = article_fetch_repair_floor(now=now)
-    return or_(
+    pending_article = or_(
         and_(
             Article.item_id.is_(None),
             Item.first_seen_at >= floor,
@@ -143,3 +144,9 @@ def article_repair_predicate(
             ),
         ),
     )
+    enabled_feed = exists(
+        select(Feed.id)
+        .where(Feed.id == Item.feed_id, Feed.enabled.is_(True))
+        .correlate(Item)
+    )
+    return and_(enabled_feed, pending_article)
