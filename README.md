@@ -103,7 +103,7 @@ Generate pasteable Compose environment mappings:
 ./bootstrap.sh --print-compose-env
 ```
 
-Replace the `x-db-environment`, `x-redis-environment`, and `x-backend-environment` blocks at the top of `docker-compose.yml` with the full output before deploying the stack. To choose your own admin identity, run:
+Replace the `x-db-environment`, `x-redis-environment`, `x-migration-environment`, and `x-backend-environment` blocks at the top of `docker-compose.yml` with the full output before deploying the stack. To choose your own admin identity, run:
 
 ```bash
 ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='use-a-long-password' ./bootstrap.sh --print-compose-env

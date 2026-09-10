@@ -181,12 +181,14 @@ encryption environments with the rendered Compose model. A custom service must
 not be added to a destructive recovery topology until the adapter and tests have
 explicitly learned how to identify, stop, and verify it.
 
-The bundled adapter also requires one PostgreSQL role to be both the container
-administrator and application role. Separate least-privileged application and
-administrative roles are intentionally unsupported and refused. Supporting that
-topology requires a dedicated adapter with independently tested ownership,
-fencing, rollback, and evidence credentials; do not broaden privileges or rewrite
-URLs to bypass the refusal.
+The bundled adapter supports the historical single-role deployment and the
+three-role deployment described in [Database privileges and upgrades](database-privileges.md).
+Runtime application credentials cannot administer the database. The migration
+service owns schema changes; the database container retains the administrator
+used for recovery. Restore fences runtime and migration logins, restores schema
+ownership to the migration role, reinstalls runtime/default grants, and proves a
+fresh runtime connection before removing the rollback database. Custom role or
+schema topologies still require their own reviewed recovery adapter.
 
 The POSTGRES_USER and POSTGRES_DB values rendered into the **db** service must
 match the role and database that initialized the existing PostgreSQL volume.
@@ -497,7 +499,7 @@ The restore sequence is:
 3. create a mandatory fresh online safety backup;
 4. stop api, all workers, beat, and web, then prove they are stopped;
 5. arm rollback before any mutation, create a short-lived random recovery role,
-   set the application role NOLOGIN, disallow database connections, terminate
+   set runtime and migration roles NOLOGIN, disallow database connections, terminate
    existing clients, rename the original database, and create a target that only
    the recovery role can access;
 6. restore transactionally, preserving the original database locale, tablespace,
@@ -506,7 +508,7 @@ The restore sequence is:
 7. run hook preflight, apply, and verify; require Redis AOF persistence, temporarily
    set `appendfsync` to `always`, clear Redis database 0, and restore its previous
    append-fsync policy before durably journaling the clear;
-8. reassign restored objects, copy the original database ACL and database/role
+8. reassign restored objects to the schema owner, restore runtime grants, copy the original database ACL and database/role
    settings, restore the application login/connectivity state, remove the
    temporary role, and prove a fresh application-role connection plus final
    catalog invariants while the original rollback database still exists; only
