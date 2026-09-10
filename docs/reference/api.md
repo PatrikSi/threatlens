@@ -5,7 +5,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ## Published Contract
 
 - Schema version: `1.10.0`
-- OpenAPI contract anchor: `openapi-sha256:67fd155a8ceb7c6b28e134c5725c0c3349ffcc9b19672ce7e49b0bd4bda72c44`
+- OpenAPI contract anchor: `openapi-sha256:ad173aadf90b21a9ac6379d181fd2a7fae12faf7dce583fb71e44072df523438`
 - API service base path: `/v1`
 - Web proxy base path: `/api/v1`
 - Bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`.
@@ -1623,6 +1623,49 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:operations`
 - Responses: `200` `application/json` -> OperationsWorkerTopologyResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+
+## Processing
+
+### `GET /v1/processing/recovery-runs`
+- Summary: Get Processing Recoveries
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:operations`, `read:items`
+- Parameters:
+  - `limit` (query, optional): integer
+  - `cursor` (query, optional): Cursor
+- Responses: `200` `application/json` -> ProcessingRecoveryList, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/processing/recovery-runs`
+- Summary: Post Processing Recovery
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:operations`, `read:items`
+- Request body: `application/json` -> ProcessingRecoveryRequest
+- Responses: `202` `application/json` -> ProcessingRecoveryResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `GET /v1/processing/recovery-runs/{run_id}`
+- Summary: Get Processing Recovery
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:operations`, `read:items`
+- Parameters:
+  - `run_id` (path, required): string
+- Responses: `200` `application/json` -> ProcessingRecoveryResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/processing/recovery-runs/{run_id}/cancel`
+- Summary: Post Processing Recovery Cancel
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:operations`
+- Parameters:
+  - `run_id` (path, required): string
+- Request body: `application/json` -> ProcessingRecoveryCancel
+- Responses: `200` `application/json` -> ProcessingRecoveryResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `GET /v1/processing/work`
+- Summary: Get Processing Work
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:operations`, `read:items`
+- Parameters:
+  - `stage` (query, optional): Stage
+  - `state` (query, optional): State
+  - `feed_id` (query, optional): Feed Id
+  - `limit` (query, optional): integer
+  - `cursor` (query, optional): Cursor
+- Responses: `200` `application/json` -> ProcessingWorkList, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 
 ## Reports
 
