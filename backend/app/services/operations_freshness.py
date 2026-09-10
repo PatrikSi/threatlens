@@ -2,12 +2,13 @@
 
 from datetime import datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import exists, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.models.export_job import ExportJob
 from app.models.item import Item
+from app.models.item_classification import ItemClassification
 from app.models.processing_work import ProcessingWork
 from app.schemas.operations import OperationsBacklogSnapshot
 from app.services.operations_common import seconds_since
@@ -23,7 +24,10 @@ def load_processing_backlog(
     db: Session, *, stage: str, settings: Settings, now: datetime
 ) -> OperationsBacklogSnapshot:
     if stage == "classification":
-        predicate = Item.classification_completed_version < Item.classification_required_version
+        predicate = or_(
+            Item.classification_completed_version < Item.classification_required_version,
+            ~exists().where(ItemClassification.item_id == Item.id),
+        )
         required_at = Item.classification_required_at
         threshold = settings.classification_freshness_seconds
     elif stage == "tagging":

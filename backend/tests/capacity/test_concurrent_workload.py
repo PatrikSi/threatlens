@@ -72,6 +72,7 @@ from app.tasks import feed_task_coordination, feed_tasks
 from app.tasks.celery_app import celery_app
 from scripts.capacity_results import seal_result
 from tests.capacity.deadline_probes import observe_deadlines
+from tests.capacity.disjoint_exports import run_disjoint_exports, seed_export_principals
 from tests.capacity.sustained import paced_lane
 from tests.capacity.workload_support import (
     Measurements,
@@ -123,7 +124,7 @@ def _seed(engine, profile, base):
                 SimpleNamespace(
                     url=f"{base}/retained/{index}",
                     guid=f"retained-{index}",
-                    title=f"Retained advisory {index}",
+                    title=f"Retained advisory lane{index % 2} {index}",
                     summary="Security evidence for capacity validation",
                     published_at=None,
                 ),
@@ -324,6 +325,8 @@ def test_concurrent_workload(database_engine, test_redis_url, monkeypatch):
     profile_name = os.environ["THREATLENS_CAPACITY_PROFILE"]
     profile = dict(PROFILES[profile_name])
     profile["ioc_repair_interval_seconds"] = 5
+    profile["disjoint_export_contract"] = "two-principals-two-source-partitions-v1"
+    profile["shared_logical_process_pool"] = 16
     if profile_name == "sustained":
         profile["duration_seconds"] = int(os.environ["THREATLENS_CAPACITY_DURATION"])
     budgets = json.loads((ROOT / "docs/reviews/capacity/budgets.json").read_text())[
@@ -338,10 +341,12 @@ def test_concurrent_workload(database_engine, test_redis_url, monkeypatch):
         monkeypatch.setenv(name, value)
     get_settings.cache_clear()
     settings = get_settings()
-    # Instrument the same connection budget as the application (default5 + overflow10).
+    # This in-process harness combines API, workers, and a sampler. Give their
+    # shared engine an explicit aggregate budget; production budgets are per process.
     options = session_module._engine_options(
         database_engine.url.render_as_string(hide_password=False)
     )
+    options.update(pool_size=profile["shared_logical_process_pool"], max_overflow=0)
     options["connect_args"]["application_name"] = f"threatlens-capacity-{profile_name}"
     engine = create_engine(database_engine.url, **options)
     monkeypatch.setattr(
@@ -403,6 +408,7 @@ def test_concurrent_workload(database_engine, test_redis_url, monkeypatch):
             sampler.start()
             observe_deadlines(metrics, base)
             owner_id, label_id, seed_feed_id, feed_ids = _seed(engine, profile, base)
+            export_principals = seed_export_principals(engine)
             # Consumer outage: publish real application tasks before any worker exists.
             for feed_id in feed_ids:
                 feed_tasks.fetch_feed.apply_async(
@@ -423,7 +429,10 @@ def test_concurrent_workload(database_engine, test_redis_url, monkeypatch):
                 heartbeat_interval=0.2,
             ):
                 duration = profile.get("duration_seconds")
-                with ThreadPoolExecutor(max_workers=5) as executor:
+                with ThreadPoolExecutor(max_workers=6) as executor:
+                    disjoint_job = executor.submit(
+                        run_disjoint_exports, engine, export_principals, seed_feed_id, metrics, profile,
+                    )
                     if duration:
                         jobs = [
                             executor.submit(
@@ -535,6 +544,13 @@ def test_concurrent_workload(database_engine, test_redis_url, monkeypatch):
                             job.result(timeout=120)
                         completed = [profile["operations"]] * 3
                         feed_batches = 1
+                    disjoint_during_load = disjoint_job.result(timeout=300)
+                # A second pair after policy changes must both publish. Retain
+                # only four artifacts, keeping even the large profile bounded.
+                disjoint_after_load = run_disjoint_exports(
+                    engine, export_principals, seed_feed_id, metrics, profile,
+                )
+                assert all(row["status"] == "ready" for row in disjoint_after_load)
                 # Confirm at least one export once the policy revision settles.
                 _export(engine, owner_id, seed_feed_id, settings, metrics, 1)
                 _ai(engine, metrics, 1)
@@ -590,6 +606,10 @@ def test_concurrent_workload(database_engine, test_redis_url, monkeypatch):
                     "ai_receipts_by_state": receipt_rows,
                     "ai_connection_runs_by_status": run_rows,
                     "task_errors": task_errors,
+                    "disjoint_exports": {
+                        "during_load": disjoint_during_load, "after_load": disjoint_after_load,
+                        "scope": "two concurrent domain workers; disjoint source IDs asserted",
+                    },
                     "environment": {
                         "postgres_version": postgres_version,
                         "redis_version": broker.info("server")["redis_version"],

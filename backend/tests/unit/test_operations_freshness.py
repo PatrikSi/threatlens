@@ -35,7 +35,8 @@ def test_refreshed_old_item_uses_current_obligation_age_and_database_aggregation
     _pending_item(db_session, seen=now - timedelta(days=400), required=now - timedelta(seconds=30))
     statements = []
     connection = db_session.connection()
-    listener = lambda _conn, _cursor, statement, *_args: statements.append(statement)
+    def listener(_conn, _cursor, statement, *_args):
+        statements.append(statement)
     event.listen(connection, "before_cursor_execute", listener)
     try:
         result = load_processing_backlog(db_session, stage="classification", settings=Settings(_env_file=None), now=now)
@@ -94,3 +95,13 @@ def test_shared_deadline_metrics_have_fixed_labels_and_expire(test_redis_url, mo
     assert client.hlen(keys[0]) == 1
     with pytest.raises(ValueError):
         runtime_metrics.record_runtime_event("user:secret")
+
+
+def test_removed_classification_remains_visible_even_when_versions_match(db_session):
+    now = datetime.now(timezone.utc)
+    item = _pending_item(db_session, seen=now, required=now - timedelta(seconds=601))
+    item.classification_completed_version = item.classification_required_version
+    db_session.flush()
+    result = load_processing_backlog(db_session, stage="classification", settings=Settings(_env_file=None), now=now)
+    assert result.pending_count == 1
+    assert result.status == "degraded"

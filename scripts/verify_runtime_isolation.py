@@ -12,6 +12,7 @@ import subprocess
 import tarfile
 import tempfile
 import time
+import urllib.error
 import urllib.request
 import uuid
 
@@ -98,7 +99,17 @@ def main() -> int:
                 assert response.status == 200
             return (time.monotonic() - started) * 1000
 
-        result["initial_readiness_ms"] = round(ready(), 2)
+        # Compose health checks establish process liveness. Readiness also needs
+        # the first scheduled Beat/worker round trip, which may occur a minute later.
+        startup_deadline = time.monotonic() + 120
+        while True:
+            try:
+                result["initial_readiness_ms"] = round(ready(), 2)
+                break
+            except urllib.error.HTTPError as exc:
+                if exc.code != 503 or time.monotonic() >= startup_deadline:
+                    raise
+                time.sleep(2)
         probe = (
             "import os,tempfile; from pathlib import Path; "
             "p=Path('/app/forbidden-write'); "

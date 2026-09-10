@@ -12,6 +12,18 @@ on:
         required: true
         type: string
         default: dev
+      runner:
+        description: Use a dedicated disposable runner for intended-hardware qualification
+        type: choice
+        options:
+          - ubuntu-latest
+          - threatlens-capacity
+        default: ubuntu-latest
+      target_id:
+        description: Stable hardware/profile identifier (no secrets)
+        type: string
+        required: true
+        default: github-hosted-reference
       profile:
         description: Run the same bounded workload for both refs on this runner
         type: choice
@@ -25,7 +37,7 @@ permissions:
 
 jobs:
   compare:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v6
@@ -55,7 +67,7 @@ jobs:
       - name: Measure both releases sequentially on this runner
         env:
           CAPACITY_PROFILE: ${{ inputs.profile }}
-          CAPACITY_TARGET: github-run-${{ github.run_id }}-${{ github.run_attempt }}
+          CAPACITY_TARGET: ${{ inputs.target_id }}
         run: |
           profile_args=(--profile "$CAPACITY_PROFILE")
           if [[ "$CAPACITY_PROFILE" == sustained ]]; then
