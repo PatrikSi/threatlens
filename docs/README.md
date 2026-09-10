@@ -74,4 +74,5 @@ This documentation covers:
 - [Settings](./pages/settings.md) including access governance, integrations,
   tagging, tokens, users, and audit logs
 - [AI](./pages/ai.md)
+- [Database privileges and upgrades](./pages/database-privileges.md)
 - [PostgreSQL Backup and Recovery](./pages/operations.md)

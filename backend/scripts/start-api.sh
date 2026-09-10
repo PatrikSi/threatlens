@@ -3,10 +3,9 @@ set -euo pipefail
 
 cd /app
 
-# These startup helpers are convenient for the default compose stack and
-# single-replica setups. In horizontally scaled production, run migrations and
-# admin seeding from one controlled deploy job, then disable them on steady-
-# state API replicas.
+# Bundled Compose runs migrations in a separate one-shot service. Standalone
+# development environments may explicitly retain startup migrations when their
+# DATABASE_URL uses a schema owner; runtime credentials cannot perform DDL.
 if [ "${RUN_MIGRATIONS_ON_STARTUP:-false}" = "true" ]; then
   alembic upgrade head
 fi

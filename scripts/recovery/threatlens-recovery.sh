@@ -747,11 +747,11 @@ resolve_target_deployment_identity() {
   db_container="$(resolve_compose_container db)"
   redis_container="$(resolve_compose_container redis)"
   db_identity="$(docker inspect --format \
-    '{{.Id}}|{{.Image}}|{{.Name}}|{{range .Mounts}}{{.Type}}:{{.Name}}:{{.Source}}:{{.Destination}};{{end}}' \
+    '{{.Id}}|{{.Image}}|{{.Name}}|{{range .Mounts}}{{.Type}}:{{if eq .Type "volume"}}{{.Name}}{{end}}:{{.Source}}:{{.Destination}};{{end}}' \
     "${db_container}")" \
     || die "${EXIT_DATABASE}" "E527" "Unable to inspect the live database container"
   redis_identity="$(docker inspect --format \
-    '{{.Id}}|{{.Image}}|{{.Name}}|{{range .Mounts}}{{.Type}}:{{.Name}}:{{.Source}}:{{.Destination}};{{end}}' \
+    '{{.Id}}|{{.Image}}|{{.Name}}|{{range .Mounts}}{{.Type}}:{{if eq .Type "volume"}}{{.Name}}{{end}}:{{.Source}}:{{.Destination}};{{end}}' \
     "${redis_container}")" \
     || die "${EXIT_DATABASE}" "E531" "Unable to inspect the live Redis container"
   inspect_payload="database=${db_identity}"$'\n'"redis=${redis_identity}"

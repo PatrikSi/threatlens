@@ -142,12 +142,24 @@ _tlr_restore_capture_original_access_state() {
     compose exec -T db sh -ceu '
       exec psql --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align \
         --username "$POSTGRES_USER" --dbname postgres \
-        --set=db_name="$POSTGRES_DB" --set=app_role="$POSTGRES_USER"
+        --set=db_name="$POSTGRES_DB" --set=app_role="${POSTGRES_RUNTIME_USER:-$POSTGRES_USER}" \
+        --set=owner_role="${POSTGRES_MIGRATION_USER:-$POSTGRES_USER}"
     ' <<'SQL' | tr -d '[:space:]'
 SELECT concat_ws(chr(124), role.rolcanlogin::text, database.datallowconn::text, database.oid::text)
 FROM pg_catalog.pg_roles AS role
 JOIN pg_catalog.pg_database AS database ON database.datname = :'db_name'
-WHERE role.rolname = :'app_role';
+WHERE role.rolname = :'app_role'
+  AND database.datdba = (SELECT oid FROM pg_roles WHERE rolname = :'owner_role')
+  AND EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'owner_role' AND rolcanlogin
+    AND (rolname = current_user OR (
+      NOT rolsuper AND NOT rolcreaterole AND NOT rolcreatedb
+      AND NOT rolreplication AND NOT rolbypassrls
+    )))
+  AND (role.rolname = current_user OR (
+    NOT role.rolsuper AND NOT role.rolcreaterole AND NOT role.rolcreatedb
+    AND NOT role.rolreplication AND NOT role.rolbypassrls
+    AND NOT EXISTS (SELECT 1 FROM pg_auth_members WHERE member = role.oid)
+  ));
 SQL
   )"; then
     return 1
@@ -285,7 +297,8 @@ _tlr_restore_create_clean_database() {
       db sh -ceu '
       exec psql --no-psqlrc --set=ON_ERROR_STOP=1 --username "$POSTGRES_USER" \
         --dbname postgres --set=db_name="$POSTGRES_DB" \
-        --set=app_role="$POSTGRES_USER" \
+        --set=app_role="${POSTGRES_RUNTIME_USER:-$POSTGRES_USER}" \
+        --set=owner_role="${POSTGRES_MIGRATION_USER:-$POSTGRES_USER}" \
         --set=rollback_db="$THREATLENS_ROLLBACK_DB" \
         --set=recovery_role="$THREATLENS_RECOVERY_ROLE" \
         --set=recovery_password="$THREATLENS_RECOVERY_PASSWORD"
@@ -295,6 +308,8 @@ SELECT format(
   :'recovery_role', :'recovery_password'
 ) \gexec
 SELECT format('ALTER ROLE %I NOLOGIN', :'app_role') \gexec
+SELECT format('ALTER ROLE %I NOLOGIN', :'owner_role')
+WHERE :'owner_role' <> :'app_role' AND :'owner_role' <> current_user \gexec
 SELECT format('ALTER DATABASE %I WITH ALLOW_CONNECTIONS false', :'db_name') \gexec
 SELECT pg_terminate_backend(pid)
 FROM pg_catalog.pg_stat_activity
@@ -303,7 +318,7 @@ SELECT format('ALTER DATABASE %I RENAME TO %I', :'db_name', :'rollback_db') \gex
 SELECT format(
   'CREATE DATABASE %I WITH TEMPLATE template0 OWNER %I ENCODING %L LC_COLLATE %L LC_CTYPE %L TABLESPACE %I CONNECTION LIMIT %s ALLOW_CONNECTIONS false%s',
   :'db_name',
-  :'app_role',
+  :'owner_role',
   pg_encoding_to_char(database.encoding),
   database.datcollate,
   database.datctype,
@@ -397,7 +412,8 @@ _tlr_restore_rollback_database() {
       [ -n "$selected_user" ] || exit 91
       exec psql --no-psqlrc --set=ON_ERROR_STOP=1 --username "$selected_user" \
         --dbname postgres --set=db_name="$POSTGRES_DB" \
-        --set=app_role="$POSTGRES_USER" \
+        --set=app_role="${POSTGRES_RUNTIME_USER:-$POSTGRES_USER}" \
+        --set=owner_role="${POSTGRES_MIGRATION_USER:-$POSTGRES_USER}" \
         --set=rollback_db="$THREATLENS_ROLLBACK_DB" \
         --set=recovery_role="$THREATLENS_RECOVERY_ROLE" \
         --set=target_state="$THREATLENS_TARGET_STATE" \
@@ -422,6 +438,8 @@ SELECT format(
   'ALTER ROLE %I %s',
   :'app_role', CASE WHEN :'original_role_can_login' = 'true' THEN 'LOGIN' ELSE 'NOLOGIN' END
 ) \gexec
+SELECT format('ALTER ROLE %I LOGIN', :'owner_role')
+WHERE :'owner_role' <> :'app_role' \gexec
 SQL
 
   compose exec -T \
@@ -457,12 +475,14 @@ _tlr_restore_verify_forward_commit() {
         --set=rollback_db="$THREATLENS_ROLLBACK_DB" \
         --set=recovery_role="$THREATLENS_RECOVERY_ROLE" \
         --set=restore_checksum="$THREATLENS_RESTORE_CHECKSUM" \
+        --set=app_role="${POSTGRES_RUNTIME_USER:-$POSTGRES_USER}" \
+        --set=owner_role="${POSTGRES_MIGRATION_USER:-$POSTGRES_USER}" \
         --set=expected_oid="$THREATLENS_EXPECTED_OID"
     ' <<'SQL' | tr -d '[:space:]'
 SELECT concat_ws('|',
   CASE WHEN database.oid::text = :'expected_oid' THEN '1' ELSE '0' END,
   CASE WHEN database.datallowconn THEN '1' ELSE '0' END,
-  CASE WHEN database.datdba = role.oid THEN '1' ELSE '0' END,
+  CASE WHEN database.datdba = (SELECT oid FROM pg_roles WHERE rolname = :'owner_role') THEN '1' ELSE '0' END,
   CASE WHEN role.rolcanlogin THEN '1' ELSE '0' END,
   CASE WHEN NOT EXISTS (
     SELECT 1 FROM pg_catalog.pg_database WHERE datname = :'rollback_db'
@@ -478,7 +498,7 @@ SELECT concat_ws('|',
       AND success IS TRUE
   ) THEN '1' ELSE '0' END)
 FROM pg_catalog.pg_database AS database
-JOIN pg_catalog.pg_roles AS role ON role.rolname = current_user
+JOIN pg_catalog.pg_roles AS role ON role.rolname = :'app_role'
 WHERE database.datname = current_database();
 SQL
   )" || return 1
@@ -618,11 +638,20 @@ _tlr_restore_finalize_database() {
     db sh -ceu '
       exec psql --no-psqlrc --set=ON_ERROR_STOP=1 \
         --username "$THREATLENS_RECOVERY_ROLE" --dbname "$POSTGRES_DB" \
-        --set=app_role="$POSTGRES_USER" \
+        --set=app_role="${POSTGRES_RUNTIME_USER:-$POSTGRES_USER}" \
+        --set=owner_role="${POSTGRES_MIGRATION_USER:-$POSTGRES_USER}" \
         --set=recovery_role="$THREATLENS_RECOVERY_ROLE"
   ' >/dev/null <<'SQL' || return 1
-SELECT format('REASSIGN OWNED BY %I TO %I', :'recovery_role', :'app_role') \gexec
+SELECT format('REASSIGN OWNED BY %I TO %I', :'recovery_role', :'owner_role') \gexec
 SELECT format('DROP OWNED BY %I', :'recovery_role') \gexec
+REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+SELECT format('GRANT USAGE ON SCHEMA public TO %I', :'app_role') \gexec
+SELECT format('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO %I', :'app_role') \gexec
+SELECT format('GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO %I', :'app_role') \gexec
+SELECT format('ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %I',
+              :'owner_role', :'app_role') \gexec
+SELECT format('ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO %I',
+              :'owner_role', :'app_role') \gexec
 SQL
   _tlr_restore_set_phase object_ownership_reassigned || return 1
 
@@ -633,7 +662,8 @@ SQL
     db sh -ceu '
       exec psql --no-psqlrc --set=ON_ERROR_STOP=1 \
         --username "$THREATLENS_RECOVERY_ROLE" --dbname postgres \
-        --set=db_name="$POSTGRES_DB" --set=app_role="$POSTGRES_USER" \
+        --set=db_name="$POSTGRES_DB" --set=app_role="${POSTGRES_RUNTIME_USER:-$POSTGRES_USER}" \
+        --set=owner_role="${POSTGRES_MIGRATION_USER:-$POSTGRES_USER}" \
         --set=recovery_role="$THREATLENS_RECOVERY_ROLE" \
         --set=rollback_db="$THREATLENS_ROLLBACK_DB" \
         --set=original_role_can_login="$THREATLENS_ORIGINAL_ROLE_CAN_LOGIN"
@@ -642,7 +672,7 @@ SELECT format('ALTER DATABASE %I WITH ALLOW_CONNECTIONS false', :'db_name') \gex
 SELECT pg_terminate_backend(pid)
 FROM pg_catalog.pg_stat_activity
 WHERE datname = :'db_name' AND pid <> pg_backend_pid();
-SELECT format('ALTER DATABASE %I OWNER TO %I', :'db_name', :'app_role') \gexec
+SELECT format('ALTER DATABASE %I OWNER TO %I', :'db_name', :'owner_role') \gexec
 SELECT format('REVOKE ALL ON DATABASE %I FROM PUBLIC', :'db_name') \gexec
 SELECT format('REVOKE ALL ON DATABASE %I FROM %I', :'db_name', :'recovery_role') \gexec
 SELECT set_config('threatlens.recovery_target_database', :'db_name', false);
@@ -719,6 +749,8 @@ SELECT format(
   'ALTER ROLE %I %s',
   :'app_role', CASE WHEN :'original_role_can_login' = 'true' THEN 'LOGIN' ELSE 'NOLOGIN' END
 ) \gexec
+SELECT format('ALTER ROLE %I LOGIN', :'owner_role')
+WHERE :'owner_role' <> :'app_role' \gexec
 SELECT format('ALTER ROLE %I NOLOGIN', :'recovery_role') \gexec
 SQL
   _tlr_restore_set_phase application_access_restored || return 1
@@ -744,9 +776,10 @@ SQL
   _tlr_restore_set_phase connectivity_restored || return 1
 
   compose exec -T db sh -ceu '
-    psql --no-psqlrc --set=ON_ERROR_STOP=1 --quiet \
-      --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --command "SELECT 1" \
-      >/dev/null
+    export PGPASSWORD="${POSTGRES_RUNTIME_PASSWORD:-$POSTGRES_PASSWORD}"
+    psql --no-psqlrc --set=ON_ERROR_STOP=1 --quiet --host 127.0.0.1 \
+      --username "${POSTGRES_RUNTIME_USER:-$POSTGRES_USER}" --dbname "$POSTGRES_DB" \
+      --command "SELECT version_num FROM alembic_version LIMIT 1; SELECT id FROM users LIMIT 1;" >/dev/null
   ' || return 1
 
   local finalized_state
@@ -758,12 +791,14 @@ SQL
         --username "$POSTGRES_USER" --dbname postgres \
         --set=db_name="$POSTGRES_DB" \
         --set=rollback_db="$THREATLENS_ROLLBACK_DB" \
+        --set=app_role="${POSTGRES_RUNTIME_USER:-$POSTGRES_USER}" \
+        --set=owner_role="${POSTGRES_MIGRATION_USER:-$POSTGRES_USER}" \
         --set=recovery_role="$THREATLENS_RECOVERY_ROLE"
     ' <<'SQL' | tr -d '[:space:]'
 SELECT concat_ws('|',
        CASE WHEN role.rolcanlogin THEN '1' ELSE '0' END,
        CASE WHEN database.datallowconn THEN '1' ELSE '0' END,
-       CASE WHEN database.datdba = role.oid THEN '1' ELSE '0' END,
+       CASE WHEN database.datdba = (SELECT oid FROM pg_roles WHERE rolname = :'owner_role') THEN '1' ELSE '0' END,
        CASE WHEN EXISTS (
          SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = :'recovery_role'
        ) THEN '1' ELSE '0' END,
@@ -772,7 +807,7 @@ SELECT concat_ws('|',
        ) THEN '1' ELSE '0' END)
 FROM pg_catalog.pg_roles AS role
 JOIN pg_catalog.pg_database AS database ON database.datname = :'db_name'
-WHERE role.rolname = current_user;
+WHERE role.rolname = :'app_role';
 SQL
   )" || return 1
   [[ "${finalized_state}" == "1|1|1|0|1" ]] || return 1

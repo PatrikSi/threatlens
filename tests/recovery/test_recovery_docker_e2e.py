@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import secrets
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -12,7 +13,7 @@ from pathlib import Path
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 RECOVERY = REPOSITORY_ROOT / "scripts" / "recovery" / "threatlens-recovery.sh"
 COMPOSE_FILE = REPOSITORY_ROOT / "tests" / "recovery" / "docker-compose.e2e.yml"
-PROJECT = "threatlens-recovery-e2e"
+PROJECT = f"threatlens-recovery-e2e-{secrets.token_hex(6)}"
 
 
 @unittest.skipUnless(
@@ -35,6 +36,8 @@ class RecoveryDockerEndToEndTests(unittest.TestCase):
             "RECOVERY_E2E_ENCRYPTION_KEY": encryption_key,
             "RECOVERY_E2E_JWT_SECRET": secrets.token_urlsafe(48),
             "RECOVERY_E2E_POSTGRES_PASSWORD": secrets.token_hex(24),
+            "RECOVERY_E2E_RUNTIME_PASSWORD": secrets.token_hex(24),
+            "RECOVERY_E2E_MIGRATION_PASSWORD": secrets.token_hex(24),
             "RECOVERY_E2E_REDIS_PASSWORD": secrets.token_hex(24),
         }
         self.environment.update(values)
@@ -43,7 +46,6 @@ class RecoveryDockerEndToEndTests(unittest.TestCase):
             encoding="utf-8",
         )
         self.env_file.chmod(0o600)
-        self._compose("down", "--volumes", "--remove-orphans", check=False)
 
     def tearDown(self) -> None:
         self._compose("down", "--volumes", "--remove-orphans", check=False)
@@ -125,11 +127,85 @@ class RecoveryDockerEndToEndTests(unittest.TestCase):
         )
         return result.stdout.strip()
 
+    def _assert_failed_restore_recovers_role_fences(self, backup: str) -> None:
+        original_oid = self._psql("SELECT oid FROM pg_database WHERE datname = 'threatlens';")
+        hook = self.root / "fail-after-fence.sh"
+        real_hook = REPOSITORY_ROOT / "scripts/recovery/post_restore_quarantine.sh"
+        hook.write_text(
+            '#!/bin/sh\nif [ "$1" = apply ]; then exit 42; fi\n'
+            f'exec {shlex.quote(str(real_hook))} "$@"\n', encoding="utf-8",
+        )
+        hook.chmod(0o700)
+        confirmation = self._recovery(
+            "restore", "--backup", backup, "--show-confirmation",
+        ).stdout.strip()
+        failed = self._recovery(
+            "restore", "--backup", backup, "--confirm", confirmation,
+            "--acknowledge-data-loss", "--safety-backup-dir", str(self.backup_directory / "rollback-safety"),
+            "--quarantine-hook", str(hook), check=False,
+        )
+        self.assertNotEqual(failed.returncode, 0)
+        self.assertIn("E808", failed.stderr)
+        self.assertEqual(self._psql("SELECT oid FROM pg_database WHERE datname = 'threatlens';"), original_oid)
+        self.assertEqual(self._psql("SELECT value FROM recovery_e2e_marker;"), "after-backup")
+        self.assertEqual(self._psql(
+            "SELECT count(*) FROM pg_roles WHERE rolname IN ('threatlens_runtime', 'threatlens_migration') AND rolcanlogin;"
+        ), "2")
+        self.assertEqual(self._psql(
+            "SELECT count(*) FROM pg_roles WHERE rolname LIKE 'tl_recovery_%';"
+        ), "0")
+
+    def test_offline_upgrade_preserves_existing_rows_and_other_database_owners(self) -> None:
+        self._compose("up", "--detach", "--wait", "db", "redis")
+        self._psql(
+            "ALTER DATABASE threatlens OWNER TO postgres; ALTER SCHEMA public OWNER TO postgres;"
+            "CREATE TABLE legacy_marker (value text NOT NULL);"
+            "INSERT INTO legacy_marker VALUES ('retained');"
+        )
+        self._psql("CREATE DATABASE unrelated_synthetic OWNER postgres;")
+        command = [
+            "python3", str(REPOSITORY_ROOT / "scripts/database/upgrade-roles.py"),
+            "--env-file", str(self.env_file), "--file", str(COMPOSE_FILE), "--project-name", PROJECT,
+        ]
+        self._psql("ALTER ROLE threatlens_runtime CREATEROLE;")
+        refused = subprocess.run(command, capture_output=True, text=True, env=self.environment, timeout=120)
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertEqual(self._psql(
+            "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = 'threatlens';"
+        ), "postgres")
+        for key in ("RECOVERY_E2E_RUNTIME_PASSWORD", "RECOVERY_E2E_MIGRATION_PASSWORD"):
+            self.assertNotIn(self.environment[key], refused.stdout + refused.stderr)
+        self._psql("ALTER ROLE threatlens_runtime NOCREATEROLE;")
+        result = subprocess.run(command, capture_output=True, text=True, env=self.environment, timeout=120)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Application services remain stopped", result.stdout)
+        self.assertEqual(self._psql("SELECT value FROM legacy_marker;"), "retained")
+        self.assertEqual(self._psql(
+            "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE relname = 'legacy_marker';"
+        ), "threatlens_migration")
+        self.assertEqual(self._psql(
+            "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = 'unrelated_synthetic';"
+        ), "postgres")
+        self.assertEqual(self._psql(
+            "SELECT has_table_privilege('threatlens_runtime', 'legacy_marker', 'UPDATE')::text;"
+        ), "true")
+        self._compose("run", "--rm", "--no-deps", "migrate")
+
     def test_backup_drill_and_destructive_restore_preserve_invariants(self) -> None:
         self._compose("up", "--detach", "--wait", "db", "redis")
-        self._compose("run", "--rm", "--no-deps", "api", "alembic", "upgrade", "head")
+        self._compose("run", "--rm", "--no-deps", "migrate")
+        self._compose("run", "--rm", "--no-deps", "api", "python", "-m", "app.scripts.seed_admin")
+        self.assertEqual(self._psql(
+            "SELECT rolname || '|' || rolsuper::text || '|' || rolcreaterole::text || '|' || rolcreatedb::text "
+            "FROM pg_roles WHERE rolname IN ('threatlens_runtime', 'threatlens_migration') ORDER BY rolname;"
+        ), "threatlens_migration|false|false|false\nthreatlens_runtime|false|false|false")
+        self.assertEqual(self._psql(
+            "SELECT has_schema_privilege('threatlens_runtime', 'public', 'CREATE')::text;"
+        ), "false")
+        denied = self._compose("run", "--rm", "--no-deps", "api", "alembic", "downgrade", "-1", check=False)
+        self.assertNotEqual(denied.returncode, 0)
         self._psql(
-            "CREATE TABLE recovery_e2e_marker (value text NOT NULL);"
+            "SET ROLE threatlens_migration; CREATE TABLE recovery_e2e_marker (value text NOT NULL);"
             "INSERT INTO recovery_e2e_marker (value) VALUES ('before-backup');"
             "INSERT INTO feeds (id, name, url, url_digest, enabled) VALUES ("
             "'10000000-0000-0000-0000-000000000001', 'Recovery feed', "
@@ -206,6 +282,7 @@ class RecoveryDockerEndToEndTests(unittest.TestCase):
         )
 
         self._psql("UPDATE recovery_e2e_marker SET value = 'after-backup';")
+        self._assert_failed_restore_recovers_role_fences(backup)
         confirmation = self._recovery(
             "restore",
             "--backup",
@@ -264,6 +341,16 @@ class RecoveryDockerEndToEndTests(unittest.TestCase):
             "true",
         )
         self.assertEqual(self._psql("SHOW statement_timeout;"), "17s")
+        self.assertEqual(self._psql(
+            "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = 'threatlens';"
+        ), "threatlens_migration")
+        self.assertEqual(self._psql(
+            "SELECT rolcanlogin::text FROM pg_roles WHERE rolname = 'threatlens_migration';"
+        ), "true")
+        self.assertEqual(self._psql(
+            "SELECT has_table_privilege('threatlens_runtime', 'recovery_e2e_marker', 'UPDATE')::text;"
+        ), "true")
+        self._compose("run", "--rm", "--no-deps", "migrate")
         self.assertEqual(
             self._psql(
                 "SELECT has_database_privilege("

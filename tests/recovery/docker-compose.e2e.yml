@@ -2,14 +2,15 @@ x-database: &database
   POSTGRES_DB: threatlens
   POSTGRES_USER: postgres
   POSTGRES_PASSWORD: "${RECOVERY_E2E_POSTGRES_PASSWORD:?required}"
+  POSTGRES_RUNTIME_USER: threatlens_runtime
+  POSTGRES_RUNTIME_PASSWORD: "${RECOVERY_E2E_RUNTIME_PASSWORD:?required}"
+  POSTGRES_MIGRATION_USER: threatlens_migration
+  POSTGRES_MIGRATION_PASSWORD: "${RECOVERY_E2E_MIGRATION_PASSWORD:?required}"
 
 x-backend: &backend
   APP_ENV: development
-  DATABASE_URL: "postgresql+psycopg://postgres:${RECOVERY_E2E_POSTGRES_PASSWORD:?required}@db:5432/threatlens"
+  DATABASE_URL: "postgresql+psycopg://threatlens_runtime:${RECOVERY_E2E_RUNTIME_PASSWORD:?required}@db:5432/threatlens"
   REDIS_URL: "redis://:${RECOVERY_E2E_REDIS_PASSWORD:?required}@redis:6379/0"
-  POSTGRES_DB: threatlens
-  POSTGRES_USER: postgres
-  POSTGRES_PASSWORD: "${RECOVERY_E2E_POSTGRES_PASSWORD:?required}"
   REDIS_PASSWORD: "${RECOVERY_E2E_REDIS_PASSWORD:?required}"
   JWT_SECRET: "${RECOVERY_E2E_JWT_SECRET:?required}"
   APP_DATA_ENCRYPTION_KEY: "${RECOVERY_E2E_ENCRYPTION_KEY:?required}"
@@ -35,6 +36,7 @@ services:
     networks: [backplane]
     volumes:
       - database:/var/lib/postgresql/data
+      - ../../scripts/database/provision-roles.sh:/docker-entrypoint-initdb.d/10-threatlens-roles.sh:ro
 
   redis:
     image: redis:7-alpine
@@ -59,6 +61,13 @@ services:
     image: "${RECOVERY_E2E_BACKEND_IMAGE:-ghcr.io/patriksi/threatlens-backend:latest}"
     environment: *backend
     networks: [backplane]
+
+  migrate:
+    <<: *backend-service
+    environment:
+      <<: *backend
+      DATABASE_URL: "postgresql+psycopg://threatlens_migration:${RECOVERY_E2E_MIGRATION_PASSWORD:?required}@db:5432/threatlens"
+    command: [alembic, upgrade, head]
 
   worker:
     <<: *backend-service

@@ -72,6 +72,43 @@ class RecoverySafetyTests(unittest.TestCase):
         self.assertEqual(fields[4], "api,worker")
         self.assertNotIn("secret", result.stdout)
 
+    def test_split_roles_validate_runtime_and_migration_credentials_independently(self) -> None:
+        document = _compose_document()
+        database_environment = document["services"]["db"]["environment"]
+        database_environment.update({
+            "POSTGRES_RUNTIME_USER": "runtime",
+            "POSTGRES_RUNTIME_PASSWORD": "runtime-secret",
+            "POSTGRES_MIGRATION_USER": "migration",
+            "POSTGRES_MIGRATION_PASSWORD": "migration-secret",
+        })
+        for name in ("api", "worker"):
+            document["services"][name]["environment"]["DATABASE_URL"] = (
+                "postgresql+psycopg://runtime:runtime-secret@db/threatlens"
+            )
+        document["services"]["migrate"] = {
+            "environment": {"DATABASE_URL": "postgresql+psycopg://migration:migration-secret@db/threatlens"},
+            "networks": {"backplane": None},
+        }
+        result = self._run("validate-target", input_text=json.dumps(document))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines()[4], "api,migrate,worker")
+        self.assertNotIn("secret", result.stdout)
+
+        document["services"]["api"]["environment"]["DATABASE_URL"] = (
+            "postgresql+psycopg://migration:migration-secret@db/threatlens"
+        )
+        result = self._run("validate-target", input_text=json.dumps(document))
+        self.assertEqual(result.returncode, 4)
+        self.assertIn("user differs", result.stderr)
+        self.assertNotIn("secret", result.stderr)
+
+    def test_split_roles_refuse_incomplete_or_privilege_leaking_configuration(self) -> None:
+        document = _compose_document()
+        document["services"]["db"]["environment"]["POSTGRES_RUNTIME_USER"] = "runtime"
+        result = self._run("validate-target", input_text=json.dumps(document))
+        self.assertEqual(result.returncode, 4)
+        self.assertIn("POSTGRES_RUNTIME_PASSWORD", result.stderr)
+
     def test_validate_target_preserves_quoted_sql_identifiers_as_data(self) -> None:
         document = _compose_document()
         database = 'threat"lens'
