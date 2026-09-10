@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
+from app.core.worker_queues import WORKER_QUEUES
 from app.models.lifecycle import LifecycleCatalogState, LifecyclePolicy
 from app.models.system_health_sample import SystemHealthSample
 from app.schemas.operations import (
@@ -52,18 +53,7 @@ _WORKER_REASONS = frozenset(
         "saturated",
     }
 )
-_QUEUE_VALUES = frozenset(
-    {
-        "default",
-        "ingest",
-        "processing",
-        "notifications",
-        "maintenance",
-        "lifecycle-v1",
-        "ai",
-        "ai-reports-v2",
-    }
-)
+_QUEUE_VALUES = frozenset(WORKER_QUEUES)
 _COMPONENT_STATUS_KEYS = {
     "component": frozenset(
         {"database", "redis", "workers", "scheduler", "encrypted_data"}
