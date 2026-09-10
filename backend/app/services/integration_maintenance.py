@@ -888,6 +888,7 @@ def prune_integration_delivery_history(
         dependent_budget_exhausted = (
             dependent_budget_exhausted or metric_selection.budget_exhausted
         )
+    metric_ids = lock_history_dependants(db, model=IntegrationDeliveryMetric, parent_ids=metric_ids)
     metrics_deleted = 0
     if metric_ids:
         metric_result = db.execute(

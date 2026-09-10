@@ -354,6 +354,7 @@ def _integration_metric_counts(
             counts,
             parent_model=model,
             row_query=select(literal(1))
+            .select_from(IntegrationDeliveryMetricCohort)
             .join(
                 child_model,
                 child_model.cohort_id == IntegrationDeliveryMetricCohort.id,
@@ -388,6 +389,7 @@ def _alert_metric_counts(
             counts,
             parent_model=model,
             row_query=select(literal(1))
+            .select_from(AlertOccurrenceMetricCohort)
             .join(
                 child_model,
                 child_model.cohort_id == AlertOccurrenceMetricCohort.id,

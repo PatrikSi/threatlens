@@ -605,6 +605,7 @@ def _maintain_alert_history_batch(
         )
         metric_window.advance(selection)
         metric_ids = selection.ids
+    metric_ids = lock_history_dependants(db, model=AlertOccurrenceMetric, parent_ids=metric_ids)
     metrics_deleted = _delete_ids(db, AlertOccurrenceMetric, metric_ids)
     if commit:
         db.commit()

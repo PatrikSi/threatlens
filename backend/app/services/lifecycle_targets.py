@@ -60,7 +60,7 @@ from app.services.lifecycle_contracts import (
     TargetBatch,
     CandidateQuery as _CandidateQuery,
 )
-from app.services.lifecycle_pruning import incremental_pruning_candidates
+from app.services.lifecycle_pruning import incremental_pruning_candidates, lock_history_dependants
 from app.services.lifecycle_pruning_contracts import PruningContext
 from app.services.lifecycle_scanning import (
     LifecycleScanStats,
@@ -651,7 +651,7 @@ def _delete_generic(
         pruning=PruningContext(cutoff, query.predicate),
     )
     window.advance(selection)
-    ids = selection.ids
+    ids = lock_history_dependants(db, model=query.model, parent_ids=selection.ids)
     if not ids:
         return TargetBatch(
             evaluated_count=selection.oversized_count,
