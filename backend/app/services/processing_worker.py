@@ -257,7 +257,7 @@ def _run_stage(stage: str, item_id: uuid.UUID, factory):
         return run_extract_item_iocs(str(item_id), dependencies=dependencies)
     if stage == "tagging":
         with factory() as db:
-            _reapply_item_tags(db, item_id, dependencies=dependencies)
+            _reapply_item_tags(db, item_id)
             db.commit()
         return {"status": "ok"}
     raise ValueError("Unsupported processing stage")

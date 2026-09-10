@@ -92,7 +92,6 @@ def run_backfill_feed_metadata(feed_id: str, *, dependencies: FeedFetchDependenc
                             feed.url_decryption_error,
                             claim,
                             lease,
-                            dependencies=dependencies,
                         )
                         return {
                             "status": "error",
@@ -116,7 +115,6 @@ def run_backfill_feed_metadata(feed_id: str, *, dependencies: FeedFetchDependenc
                             feed_url_error,
                             claim,
                             lease,
-                            dependencies=dependencies,
                         )
                         return {
                             "status": "error",
@@ -141,7 +139,6 @@ def run_backfill_feed_metadata(feed_id: str, *, dependencies: FeedFetchDependenc
                             claim,
                             lease,
                             exc,
-                            dependencies=dependencies,
                         )
                     except feed_task_coordination.CoordinationUnavailableError as exc:
                         return _recover_metadata_probe_coordination(
@@ -151,7 +148,6 @@ def run_backfill_feed_metadata(feed_id: str, *, dependencies: FeedFetchDependenc
                             claim,
                             lease,
                             exc,
-                            dependencies=dependencies,
                         )
                     except feed_probe.FeedProbeError as exc:
                         return {
@@ -163,7 +159,7 @@ def run_backfill_feed_metadata(feed_id: str, *, dependencies: FeedFetchDependenc
                     changed = feed_metadata.apply_probe_metadata(feed, metadata)
                     if changed:
                         db.add(feed)
-                        _commit_owned(db, claim, lease, dependencies=dependencies)
+                        _commit_owned(db, claim, lease)
                     return {
                         "status": "ok",
                         "feed_id": feed_id,
@@ -171,9 +167,9 @@ def run_backfill_feed_metadata(feed_id: str, *, dependencies: FeedFetchDependenc
                     }
                 except feed_fetch_ownership.FeedFetchOwnershipLostError as exc:
                     db.rollback()
-                    return _stale_fetch_result(feed_id, exc, dependencies=dependencies)
+                    return _stale_fetch_result(feed_id, exc)
     except feed_task_coordination.LeaseOwnershipLostError as exc:
-        return _coordination_lease_lost_result(feed_id, exc, dependencies=dependencies)
+        return _coordination_lease_lost_result(feed_id, exc)
     except feed_task_coordination.CoordinationUnavailableError as exc:
         logger.warning(
             "backfill_feed_metadata_coordination_unavailable feed_id=%s error_type=%s",
@@ -202,7 +198,7 @@ def run_fetch_feed(
                 task, feed_id, force, lease, dependencies=dependencies
             )
     except feed_task_coordination.LeaseOwnershipLostError as exc:
-        return _coordination_lease_lost_result(feed_id, exc, dependencies=dependencies)
+        return _coordination_lease_lost_result(feed_id, exc)
     except feed_task_coordination.CoordinationUnavailableError as exc:
         return _recover_coordination_failure(
             task, feed_id, exc, dependencies=dependencies
@@ -231,7 +227,7 @@ def _fetch_locked_feed(
             select(Feed).where(Feed.id == parsed_feed_id).with_for_update()
         )
         if feed is None or not feed.enabled:
-            _clear_disabled_feed_schedule(db, feed, dependencies=dependencies)
+            _clear_disabled_feed_schedule(db, feed)
             return {
                 "status": "skipped",
                 "reason": "not_found_or_disabled",
@@ -251,7 +247,7 @@ def _fetch_locked_feed(
                 feed_pipeline.clear_feed_dispatch_claim(feed)
                 feed_task_scheduling.refresh_feed_next_fetch_at(feed, now)
                 db.add(feed)
-                _commit_owned(db, claim, lease, dependencies=dependencies)
+                _commit_owned(db, claim, lease)
                 return {
                     "status": "skipped",
                     "reason": "not_due",
@@ -293,14 +289,13 @@ def _fetch_locked_feed(
                 claim,
                 lease,
                 feed_id=feed_id,
-                dependencies=dependencies,
             )
             if isinstance(stored, dict):
                 return stored
             changed_item_ids, new_items = stored
         except feed_fetch_ownership.FeedFetchOwnershipLostError as exc:
             db.rollback()
-            return _stale_fetch_result(feed_id, exc, dependencies=dependencies)
+            return _stale_fetch_result(feed_id, exc)
 
     article_enqueue_ok = dependencies.enqueue_articles(changed_item_ids)
     notification_enqueue_ok = integration_tasks.enqueue_integration_event_routing(
@@ -329,9 +324,7 @@ def _parse_uuid(value: str) -> uuid.UUID | None:
         return None
 
 
-def _clear_disabled_feed_schedule(
-    db, feed: Feed | None, *, dependencies: FeedFetchDependencies
-) -> None:
+def _clear_disabled_feed_schedule(db, feed: Feed | None) -> None:
     if feed is None:
         return
     feed_pipeline.clear_feed_dispatch_claim(feed)
@@ -357,7 +350,6 @@ def _resolve_fetch_target(
             feed_url_error,
             claim,
             lease,
-            dependencies=dependencies,
         )
         return {"status": "error", "feed_id": feed_id, "reason": "feed_url_unavailable"}
     if not url_utils.is_fetchable_url(
@@ -370,7 +362,6 @@ def _resolve_fetch_target(
             "unsafe_feed_url",
             claim,
             lease,
-            dependencies=dependencies,
         )
         return {"status": "error", "feed_id": feed_id}
     return feed_url, feed.url_digest
@@ -402,7 +393,7 @@ def _request_feed(
         )
         feed_task_scheduling.stage_feed_after_coordination_failure(feed)
         db.add(feed)
-        _commit_owned(db, claim, lease, dependencies=dependencies)
+        _commit_owned(db, claim, lease)
         return {
             "status": "error",
             "reason": "coordination_unavailable",
@@ -410,7 +401,7 @@ def _request_feed(
         }
     except feed_task_coordination.LeaseOwnershipLostError as exc:
         db.rollback()
-        return _coordination_lease_lost_result(feed_id, exc, dependencies=dependencies)
+        return _coordination_lease_lost_result(feed_id, exc)
     except feed_task_coordination.CoordinationUnavailableError as exc:
         return _retry_feed_exception(
             task,
@@ -423,7 +414,6 @@ def _request_feed(
             claim,
             lease,
             coordination=True,
-            dependencies=dependencies,
         )
     except (
         httpx.HTTPError,
@@ -442,12 +432,9 @@ def _request_feed(
             claim,
             lease,
             coordination=False,
-            dependencies=dependencies,
         )
     except feed_task_runtime.FeedResponseTooLargeError as exc:
-        if _feed_url_changed(
-            db, parsed_feed_id, feed_url_digest, dependencies=dependencies
-        ):
+        if _feed_url_changed(db, parsed_feed_id, feed_url_digest):
             db.rollback()
             return {
                 "status": "skipped",
@@ -465,17 +452,14 @@ def _request_feed(
             "feed_response_too_large",
             claim,
             lease,
-            dependencies=dependencies,
         )
         return {"status": "error", "feed_id": feed_id}
 
-    if _feed_url_changed(
-        db, parsed_feed_id, feed_url_digest, dependencies=dependencies
-    ):
+    if _feed_url_changed(db, parsed_feed_id, feed_url_digest):
         db.rollback()
         return {"status": "skipped", "reason": "feed_url_changed", "feed_id": feed_id}
     if response == "not_modified":
-        _record_not_modified(db, feed, claim, lease, dependencies=dependencies)
+        _record_not_modified(db, feed, claim, lease)
         return {"status": "not_modified", "feed_id": feed_id}
     if isinstance(response, tuple):
         status_code, _final_url = response
@@ -485,7 +469,6 @@ def _request_feed(
             f"http_status:{status_code}",
             claim,
             lease,
-            dependencies=dependencies,
         )
         return {"status": "error", "feed_id": feed_id}
     return response
@@ -531,7 +514,7 @@ def _read_feed_response(
             ) from exc
         domain_lease = safe_fetch.safe_fetch_request_guard(response)
         try:
-            _ensure_fetch_leases_owned(lease, domain_lease, dependencies=dependencies)
+            _ensure_fetch_leases_owned(lease, domain_lease)
             if response.status_code == 304:
                 return "not_modified"
             if response.status_code != 200:
@@ -566,21 +549,14 @@ def _read_capped_body(
 ) -> bytes:
     def check():
         if dependencies is not None:
-            _ensure_fetch_leases_owned(
-                lease, additional_lease, dependencies=dependencies
-            )
+            _ensure_fetch_leases_owned(lease, additional_lease)
 
     return read_bounded_response(
         response, max_bytes, check=check, too_large_error=too_large_error
     )
 
 
-def _ensure_fetch_leases_owned(
-    feed_lease,
-    domain_lease,
-    *,
-    dependencies: FeedFetchDependencies,
-) -> None:
+def _ensure_fetch_leases_owned(feed_lease, domain_lease) -> None:
     feed_task_coordination.ensure_lease_owned(feed_lease)
     try:
         feed_task_coordination.ensure_lease_owned(domain_lease)
@@ -611,14 +587,11 @@ def _retry_feed_exception(
     lease,
     *,
     coordination: bool,
-    dependencies: FeedFetchDependencies,
 ):
     if isinstance(exc, feed_task_coordination.LeaseOwnershipLostError):
         db.rollback()
-        return _coordination_lease_lost_result(feed_id, exc, dependencies=dependencies)
-    if _feed_url_changed(
-        db, parsed_feed_id, feed_url_digest, dependencies=dependencies
-    ):
+        return _coordination_lease_lost_result(feed_id, exc)
+    if _feed_url_changed(db, parsed_feed_id, feed_url_digest):
         db.rollback()
         return {"status": "skipped", "reason": "feed_url_changed", "feed_id": feed_id}
     error_code = (
@@ -638,7 +611,6 @@ def _retry_feed_exception(
                 db,
                 feed_id,
                 parsed_feed_id,
-                dependencies=dependencies,
             )
         logger.error(
             "feed_fetch_failed feed_id=%s error_code=%s error_type=%s",
@@ -652,7 +624,6 @@ def _retry_feed_exception(
             error_code,
             claim,
             lease,
-            dependencies=dependencies,
         )
         return {"status": "error", "feed_id": feed_id}
     logger.warning(
@@ -680,19 +651,14 @@ def _store_feed_response(
     lease,
     *,
     feed_id: str,
-    dependencies: FeedFetchDependencies,
 ):
-    if _feed_url_changed(
-        db, parsed_feed_id, feed_url_digest, dependencies=dependencies
-    ):
+    if _feed_url_changed(db, parsed_feed_id, feed_url_digest):
         db.rollback()
         return {"status": "skipped", "reason": "feed_url_changed", "feed_id": feed_id}
     try:
         parsed_items, _ = rss.RSSConnector().poll({"body": response.body}, None)
     except rss.RSSFeedParseError as exc:
-        if _feed_url_changed(
-            db, parsed_feed_id, feed_url_digest, dependencies=dependencies
-        ):
+        if _feed_url_changed(db, parsed_feed_id, feed_url_digest):
             db.rollback()
             return {
                 "status": "skipped",
@@ -710,22 +676,15 @@ def _store_feed_response(
             "invalid_feed_content",
             claim,
             lease,
-            dependencies=dependencies,
         )
         return {"status": "error", "feed_id": feed_id}
-    if _feed_url_changed(
-        db, parsed_feed_id, feed_url_digest, dependencies=dependencies
-    ):
+    if _feed_url_changed(db, parsed_feed_id, feed_url_digest):
         db.rollback()
         return {"status": "skipped", "reason": "feed_url_changed", "feed_id": feed_id}
 
     feed_metadata.backfill_feed_metadata_from_body(feed, response.body)
-    changed_item_ids, new_items = _upsert_parsed_items(
-        db, feed, parsed_items, dependencies=dependencies
-    )
-    if _feed_url_changed(
-        db, parsed_feed_id, feed_url_digest, dependencies=dependencies
-    ):
+    changed_item_ids, new_items = _upsert_parsed_items(db, feed, parsed_items)
+    if _feed_url_changed(db, parsed_feed_id, feed_url_digest):
         db.rollback()
         return {"status": "skipped", "reason": "feed_url_changed", "feed_id": feed_id}
     for new_item in new_items:
@@ -734,18 +693,14 @@ def _store_feed_response(
                 db, event_type="rss_item_new", item=new_item, feed=feed
             )
         )
-    if _feed_url_changed(
-        db, parsed_feed_id, feed_url_digest, dependencies=dependencies
-    ):
+    if _feed_url_changed(db, parsed_feed_id, feed_url_digest):
         db.rollback()
         return {"status": "skipped", "reason": "feed_url_changed", "feed_id": feed_id}
-    _record_feed_success(db, feed, response, claim, lease, dependencies=dependencies)
+    _record_feed_success(db, feed, response, claim, lease)
     return changed_item_ids, new_items
 
 
-def _upsert_parsed_items(
-    db, feed: Feed, parsed_items, *, dependencies: FeedFetchDependencies
-):
+def _upsert_parsed_items(db, feed: Feed, parsed_items):
     changed_item_ids: list[uuid.UUID] = []
     new_items: list[Item] = []
     for parsed in parsed_items:
@@ -757,22 +712,13 @@ def _upsert_parsed_items(
     return changed_item_ids, new_items
 
 
-def _feed_url_changed(
-    db, feed_id: uuid.UUID, digest: str, *, dependencies: FeedFetchDependencies
-) -> bool:
+def _feed_url_changed(db, feed_id: uuid.UUID, digest: str) -> bool:
     return not feed_task_runtime.feed_url_digest_still_current(
         db, feed_id=feed_id, expected_url_digest=digest
     )
 
 
-def _record_not_modified(
-    db,
-    feed: Feed,
-    claim,
-    lease,
-    *,
-    dependencies: FeedFetchDependencies,
-) -> None:
+def _record_not_modified(db, feed: Feed, claim, lease) -> None:
     now = datetime.now(timezone.utc)
     feed.last_fetch_at = now
     feed.last_success_at = now
@@ -781,17 +727,11 @@ def _record_not_modified(
     feed_pipeline.clear_feed_dispatch_claim(feed)
     feed_task_scheduling.refresh_feed_next_fetch_at(feed, now)
     db.add(feed)
-    _commit_owned(db, claim, lease, dependencies=dependencies)
+    _commit_owned(db, claim, lease)
 
 
 def _record_feed_success(
-    db,
-    feed: Feed,
-    response: FeedFetchResponse,
-    claim,
-    lease,
-    *,
-    dependencies: FeedFetchDependencies,
+    db, feed: Feed, response: FeedFetchResponse, claim, lease
 ) -> None:
     now = datetime.now(timezone.utc)
     feed.etag = response.etag or feed.etag
@@ -803,38 +743,22 @@ def _record_feed_success(
     feed_pipeline.clear_feed_dispatch_claim(feed)
     feed_task_scheduling.refresh_feed_next_fetch_at(feed, now)
     db.add(feed)
-    _commit_owned(db, claim, lease, dependencies=dependencies)
+    _commit_owned(db, claim, lease)
 
 
-def _record_feed_failure(
-    db,
-    feed: Feed,
-    error: str,
-    claim,
-    lease,
-    *,
-    dependencies: FeedFetchDependencies,
-) -> None:
+def _record_feed_failure(db, feed: Feed, error: str, claim, lease) -> None:
     event_ids = notification_tasks.stage_feed_failure_notifications(db, feed, error)
-    _commit_owned(db, claim, lease, dependencies=dependencies)
+    _commit_owned(db, claim, lease)
     notification_tasks.enqueue_feed_failure_notifications(event_ids)
 
 
-def _commit_owned(
-    db,
-    claim,
-    lease,
-    *,
-    dependencies: FeedFetchDependencies,
-) -> None:
+def _commit_owned(db, claim, lease) -> None:
     feed_task_coordination.ensure_lease_owned(lease)
     feed_fetch_ownership.ensure_feed_fetch_owned(db, claim=claim)
     db.commit()
 
 
-def _stale_fetch_result(
-    feed_id: str, exc: Exception, *, dependencies: FeedFetchDependencies
-):
+def _stale_fetch_result(feed_id: str, exc: Exception):
     logger.info(
         "feed_fetch_ownership_lost feed_id=%s reason=%s",
         feed_id,
@@ -848,14 +772,7 @@ def _stale_fetch_result(
 
 
 def _recover_metadata_probe_coordination(
-    db,
-    feed: Feed,
-    feed_id: str,
-    claim,
-    lease,
-    exc: Exception,
-    *,
-    dependencies: FeedFetchDependencies,
+    db, feed: Feed, feed_id: str, claim, lease, exc: Exception
 ):
     logger.warning(
         "feed_metadata_probe_coordination_lost feed_id=%s error_type=%s",
@@ -864,7 +781,7 @@ def _recover_metadata_probe_coordination(
     )
     feed_task_scheduling.stage_feed_after_coordination_failure(feed)
     db.add(feed)
-    _commit_owned(db, claim, lease, dependencies=dependencies)
+    _commit_owned(db, claim, lease)
     return {
         "status": "error",
         "reason": "coordination_unavailable",
@@ -872,12 +789,7 @@ def _recover_metadata_probe_coordination(
     }
 
 
-def _coordination_lease_lost_result(
-    feed_id: str,
-    exc: Exception,
-    *,
-    dependencies: FeedFetchDependencies,
-):
+def _coordination_lease_lost_result(feed_id: str, exc: Exception):
     logger.info(
         "feed_fetch_coordination_ownership_lost feed_id=%s error_type=%s",
         feed_id,
@@ -891,11 +803,7 @@ def _coordination_lease_lost_result(
 
 
 def _reschedule_after_coordination_exhaustion(
-    db,
-    feed_id: str,
-    parsed_feed_id: uuid.UUID,
-    *,
-    dependencies: FeedFetchDependencies,
+    db, feed_id: str, parsed_feed_id: uuid.UUID
 ):
     feed = db.scalar(select(Feed).where(Feed.id == parsed_feed_id).with_for_update())
     if feed is None or not feed.enabled:
@@ -937,7 +845,6 @@ def _recover_coordination_failure(
                 db,
                 feed_id,
                 parsed_feed_id,
-                dependencies=dependencies,
             )
     raise task.retry(
         exc=exc,

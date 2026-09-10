@@ -45,15 +45,13 @@ def run_generate_item_ai_enrichment(
     with dependencies.db_session() as db:
         parsed_run_id = _parse_uuid(task_run_id)
         if parsed_run_id:
-            start_result = _start_item_run(
-                db, task, parsed_run_id, item_id, force, dependencies=dependencies
-            )
+            start_result = _start_item_run(db, task, parsed_run_id, item_id, force)
             if start_result is not None:
                 return start_result
 
         parsed_item_id = _parse_uuid(item_id)
         if parsed_item_id is None:
-            _finish_invalid_item_run(db, task, parsed_run_id, dependencies=dependencies)
+            _finish_invalid_item_run(db, task, parsed_run_id)
             return {
                 "status": "skipped",
                 "reason": "invalid_item_id",
@@ -64,9 +62,7 @@ def run_generate_item_ai_enrichment(
             db, item_id=parsed_item_id
         )
         if claim_reason is not None:
-            _finish_skipped_item_run(
-                db, task, parsed_run_id, claim_reason, dependencies=dependencies
-            )
+            _finish_skipped_item_run(db, task, parsed_run_id, claim_reason)
             return {"status": "skipped", "reason": claim_reason, "item_id": item_id}
         db.commit()
 
@@ -76,17 +72,13 @@ def run_generate_item_ai_enrichment(
             )
         except Exception:
             db.rollback()
-            _finish_unexpected_item_error(
-                db, task, parsed_run_id, dependencies=dependencies
-            )
+            _finish_unexpected_item_error(db, task, parsed_run_id)
             logger.exception(
                 "AI enrichment task failed unexpectedly for item %s", item_id
             )
             return {"status": "error", "reason": "unexpected_error", "item_id": item_id}
         if parsed_run_id:
-            _finish_item_result(
-                db, task, parsed_run_id, result, dependencies=dependencies
-            )
+            _finish_item_result(db, task, parsed_run_id, result)
         db.commit()
         if result.enrichment is None:
             return {
@@ -130,15 +122,7 @@ def parse_datetime_text(value: str | None) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
-def _start_item_run(
-    db,
-    task,
-    run_id: uuid.UUID,
-    item_id: str,
-    force: bool,
-    *,
-    dependencies: ItemAIDependencies,
-):
+def _start_item_run(db, task, run_id: uuid.UUID, item_id: str, force: bool):
     started_run = ai_ops.start_ai_task_run(
         db,
         run_id=run_id,
@@ -169,9 +153,7 @@ def _start_item_run(
     return {"status": "skipped", "reason": stop_reason, "item_id": item_id}
 
 
-def _finish_invalid_item_run(
-    db, task, run_id: uuid.UUID | None, *, dependencies: ItemAIDependencies
-) -> None:
+def _finish_invalid_item_run(db, task, run_id: uuid.UUID | None) -> None:
     if run_id is None:
         return
     ai_ops.finish_ai_task_run(
@@ -184,14 +166,7 @@ def _finish_invalid_item_run(
     db.commit()
 
 
-def _finish_skipped_item_run(
-    db,
-    task,
-    run_id: uuid.UUID | None,
-    reason: str,
-    *,
-    dependencies: ItemAIDependencies,
-) -> None:
+def _finish_skipped_item_run(db, task, run_id: uuid.UUID | None, reason: str) -> None:
     if run_id is None:
         return
     ai_ops.finish_ai_task_run(
@@ -204,9 +179,7 @@ def _finish_skipped_item_run(
     db.commit()
 
 
-def _finish_unexpected_item_error(
-    db, task, run_id: uuid.UUID | None, *, dependencies: ItemAIDependencies
-) -> None:
+def _finish_unexpected_item_error(db, task, run_id: uuid.UUID | None) -> None:
     if run_id is None:
         return
     ai_ops.finish_ai_task_run(
@@ -220,9 +193,7 @@ def _finish_unexpected_item_error(
     db.commit()
 
 
-def _finish_item_result(
-    db, task, run_id: uuid.UUID, result, *, dependencies: ItemAIDependencies
-) -> None:
+def _finish_item_result(db, task, run_id: uuid.UUID, result) -> None:
     enrichment = result.enrichment
     ai_ops.finish_ai_task_run(
         db,
@@ -273,30 +244,24 @@ def run_reprocess_recent_ai_items(
     *,
     dependencies: ItemAIDependencies,
 ):
-    selection = _build_selection(
-        days, limit, start_time, end_time, feed_ids, item_ids, dependencies=dependencies
-    )
+    selection = _build_selection(days, limit, start_time, end_time, feed_ids, item_ids)
     parsed_run_id = _parse_uuid(task_run_id)
     parsed_actor_user_id = _parse_uuid(actor_user_id)
     with dependencies.db_session() as db:
         start_result = _start_reprocess_run(
-            db, task, parsed_run_id, task_run_id, selection, dependencies=dependencies
+            db, task, parsed_run_id, task_run_id, selection
         )
         if start_result is not None:
             return start_result
         active_ai_settings, unavailable_result = _load_reprocess_ai_settings(
-            db, task, parsed_run_id, dependencies=dependencies
+            db, task, parsed_run_id
         )
         if unavailable_result is not None:
             return unavailable_result
         selected_item_ids = _select_item_ids(db, selection)
-        _record_selection(
-            db, parsed_run_id, selected_item_ids, selection, dependencies=dependencies
-        )
+        _record_selection(db, parsed_run_id, selected_item_ids, selection)
         if not selected_item_ids:
-            _finish_empty_selection(
-                db, task, parsed_run_id, selection, dependencies=dependencies
-            )
+            _finish_empty_selection(db, task, parsed_run_id, selection)
             return {"queued": 0, "reason": "no_items"}
 
     return _queue_selected_items(
@@ -318,8 +283,6 @@ def _build_selection(
     end_time: str | None,
     feed_ids: list[str] | None,
     item_ids: list[str] | None,
-    *,
-    dependencies: ItemAIDependencies,
 ) -> AIReprocessSelection:
     effective_limit = max(
         1, min(int(limit), int(config.get_settings().dispatch_ai_reprocess_batch_size))
@@ -352,8 +315,6 @@ def _start_reprocess_run(
     run_id: uuid.UUID | None,
     task_run_id: str | None,
     selection: AIReprocessSelection,
-    *,
-    dependencies: ItemAIDependencies,
 ):
     if run_id is None:
         return None
@@ -412,9 +373,7 @@ def _selection_metadata(
     return metadata
 
 
-def _load_reprocess_ai_settings(
-    db, task, run_id: uuid.UUID | None, *, dependencies: ItemAIDependencies
-):
+def _load_reprocess_ai_settings(db, task, run_id: uuid.UUID | None):
     settings = ai_config.load_active_ai_settings(db)
     reason = None
     if not settings.ai_enabled:
@@ -464,8 +423,6 @@ def _record_selection(
     run_id: uuid.UUID | None,
     item_ids: list[uuid.UUID],
     selection: AIReprocessSelection,
-    *,
-    dependencies: ItemAIDependencies,
 ) -> None:
     if run_id is None:
         return
@@ -495,12 +452,7 @@ def _record_selection(
 
 
 def _finish_empty_selection(
-    db,
-    task,
-    run_id: uuid.UUID | None,
-    selection: AIReprocessSelection,
-    *,
-    dependencies: ItemAIDependencies,
+    db, task, run_id: uuid.UUID | None, selection: AIReprocessSelection
 ) -> None:
     if run_id is None:
         return

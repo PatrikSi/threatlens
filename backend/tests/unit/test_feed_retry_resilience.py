@@ -83,7 +83,7 @@ def test_coordination_retry_exhaustion_rolls_back_and_takes_fresh_db_claim(
         stale_claim,
         object(),
         coordination=True,
-        dependencies=feed_tasks._feed_fetch_dependencies(),
+
     )
 
     assert result == {
@@ -142,7 +142,7 @@ def test_article_retry_exhaustion_returns_storable_error_without_retry():
         False,
         ["https://example.com/article"],
         0,
-        dependencies=feed_tasks._article_fetch_dependencies(),
+
     )
 
     assert result.error == "network_or_rate_limit_error"
@@ -320,7 +320,7 @@ def test_confirmed_coordination_ownership_loss_rolls_back_without_retry(
         claim,
         object(),
         coordination=True,
-        dependencies=feed_tasks._feed_fetch_dependencies(),
+
     )
 
     assert result == {
