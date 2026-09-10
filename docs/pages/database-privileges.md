@@ -113,7 +113,10 @@ through the runtime role, rejects runtime DDL, and exercises backup, verificatio
 recovery drill, destructive restore, quarantine, grants, ownership, and migration
 access after restoration. An injected quarantine failure proves rollback restores
 the original database identity and both role logins; a separate populated cutover
-test proves unrelated database ownership is retained:
+test proves unrelated database ownership is retained. The migration roundtrip
+downgrades the new hardening revisions and reapplies them using only migration
+credentials. A backup containing partially pruned permission history proves its
+hidden parent and durable cleanup claim survive restore:
 
 ```bash
 THREATLENS_RUN_DOCKER_RECOVERY_E2E=1 python3 -m unittest discover -s tests/recovery -p test_recovery_docker_e2e.py -v
