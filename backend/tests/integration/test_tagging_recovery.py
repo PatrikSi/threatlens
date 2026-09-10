@@ -43,7 +43,7 @@ def _source(db):
                        applies_to_json=["article_text"], feed_scope="selected", feed_ids_json=[str(feed.id)])
     db.add_all([article, rule])
     db.flush()
-    assert item_processing_tasks._reapply_item_tags(db, item.id, dependencies=feed_tasks._item_processing_dependencies())
+    assert item_processing_tasks._reapply_item_tags(db, item.id)
     db.commit()
     return feed, item, article, rule
 
@@ -104,7 +104,7 @@ def test_non_retryable_evaluation_waits_for_manual_reapply(db_session, monkeypat
     assert item_processing_tasks.run_repair_pending_item_tags(dependencies=feed_tasks._item_processing_dependencies()) == {"processed": 0, "pending": 0}
     rule.enabled = False
     db_session.commit()
-    assert item_processing_tasks._reapply_item_tags(db_session, item.id, dependencies=feed_tasks._item_processing_dependencies())
+    assert item_processing_tasks._reapply_item_tags(db_session, item.id)
     db_session.commit()
     assert not item.tagging_pending
     assert rule.tag_name not in _names(db_session, item.id)
@@ -186,7 +186,7 @@ def test_reapply_refreshes_preloaded_source_and_holds_lock(database_engine, comm
                      db.get(ItemClassification, item_id)]
             snapshot_read.set()
             assert writer_committed.wait(10)
-            assert item_processing_tasks._reapply_item_tags(db, item_id, dependencies=feed_tasks._item_processing_dependencies())
+            assert item_processing_tasks._reapply_item_tags(db, item_id)
             db.commit()
             assert stale[0].title == "New title"
 

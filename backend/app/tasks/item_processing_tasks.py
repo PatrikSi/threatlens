@@ -105,9 +105,7 @@ def run_classify_item(item_id: str, *, dependencies: ItemProcessingDependencies)
             _apply_classification_result(row, result)
             db.add(row)
 
-        _sync_classification_tags(
-            db, item, article, feed_name, feed_url, row, dependencies=dependencies
-        )
+        _sync_classification_tags(db, item, article, feed_name, feed_url, row)
         # Alert acceptance reloads the locked Item; flush tagging state first so
         # that refresh cannot discard this transaction's incomplete-work marker.
         db.flush()
@@ -184,8 +182,6 @@ def _sync_classification_tags(
     feed_name: str,
     feed_url: str,
     row: ItemClassification,
-    *,
-    dependencies: ItemProcessingDependencies,
 ) -> None:
     feedback_adjustments = tag_feedback.load_feedback_adjustments(
         db,
@@ -194,7 +190,6 @@ def _sync_classification_tags(
     _settle_algorithm_tags(
         db,
         item,
-        dependencies=dependencies,
         primary_category=row.primary_category,
         secondary_categories=row.secondary_categories,
         feed_id=item.feed_id,
@@ -342,21 +337,12 @@ def run_extract_item_iocs(item_id: str, *, dependencies: ItemProcessingDependenc
             else feed_task_constants.IOC_EXTRACTION_STATE_COMPLETED_EMPTY
         )
         db.add(item)
-        _sync_ioc_tags(
-            db, item, article, stored.values_by_type, dependencies=dependencies
-        )
+        _sync_ioc_tags(db, item, article, stored.values_by_type)
         db.commit()
     return {"status": "ok", "item_id": item_id, "ioc_count": stored.count}
 
 
-def _sync_ioc_tags(
-    db,
-    item: Item,
-    article: Article | None,
-    values_by_type,
-    *,
-    dependencies: ItemProcessingDependencies,
-) -> None:
+def _sync_ioc_tags(db, item: Item, article: Article | None, values_by_type) -> None:
     classification = db.scalar(
         select(ItemClassification).where(ItemClassification.item_id == item.id)
     )
@@ -374,7 +360,6 @@ def _sync_ioc_tags(
     _settle_algorithm_tags(
         db,
         item,
-        dependencies=dependencies,
         primary_category=classification.primary_category
         if classification
         else "threat_intelligence_research",
@@ -393,9 +378,7 @@ def _sync_ioc_tags(
     )
 
 
-def _settle_algorithm_tags(
-    db, item: Item, *, dependencies: ItemProcessingDependencies, **context
-) -> None:
+def _settle_algorithm_tags(db, item: Item, **context) -> None:
     try:
         algorithm_tags.sync_item_algorithm_tags(db, item_id=item.id, **context)
     except TaggingEvaluationIncomplete as exc:
@@ -449,7 +432,7 @@ def run_reapply_recent_item_tags(
                     # Commit each item independently: a regex or article-fetch wait
                     # must not retain locks on the previous page of items.
                     with dependencies.db_session() as db:
-                        if _reapply_item_tags(db, item_id, dependencies=dependencies):
+                        if _reapply_item_tags(db, item_id):
                             processed += 1
                             pending += int(db.get(Item, item_id).tagging_pending)
                         db.commit()
@@ -495,22 +478,14 @@ def run_repair_pending_item_tags(*, dependencies: ItemProcessingDependencies):
     processed = pending = 0
     for item_id in item_ids:
         with dependencies.db_session() as db:
-            if _reapply_item_tags(
-                db, item_id, only_pending=True, dependencies=dependencies
-            ):
+            if _reapply_item_tags(db, item_id, only_pending=True):
                 processed += 1
                 pending += int(db.get(Item, item_id).tagging_pending)
             db.commit()
     return {"processed": processed, "pending": pending}
 
 
-def _reapply_item_tags(
-    db,
-    item_id: uuid.UUID,
-    *,
-    dependencies: ItemProcessingDependencies,
-    only_pending: bool = False,
-) -> bool:
+def _reapply_item_tags(db, item_id: uuid.UUID, *, only_pending: bool = False) -> bool:
     query = select(Item).where(Item.id == item_id)
     if only_pending:
         query = query.where(
@@ -573,7 +548,6 @@ def _reapply_item_tags(
         feed.name,
         feed.url,
         classification,
-        dependencies=dependencies,
     )
     # Classification recovery still owns its version acknowledgement and alert
     # intents; reapply must not consume that independent durable obligation.

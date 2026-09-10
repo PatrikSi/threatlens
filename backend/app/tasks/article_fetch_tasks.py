@@ -57,7 +57,7 @@ def run_fetch_article(
         if cached_result is not None:
             return cached_result
 
-        candidate_urls = _candidate_urls(item, dependencies=dependencies)
+        candidate_urls = _candidate_urls(item)
         if not candidate_urls:
             return _record_missing_url(db, item, item_id, dependencies=dependencies)
 
@@ -134,7 +134,7 @@ def _cached_article_result(
     return {"status": "skipped", "reason": reason, "item_id": item_id}
 
 
-def _candidate_urls(item: Item, *, dependencies: ArticleFetchDependencies) -> list[str]:
+def _candidate_urls(item: Item) -> list[str]:
     candidates: list[str] = []
     for candidate in (item.canonical_url, item.url):
         if not candidate:
@@ -198,7 +198,6 @@ def _fetch_candidates(
                 has_fallback,
                 candidate_urls,
                 index,
-                dependencies=dependencies,
             )
             if has_fallback:
                 continue
@@ -220,7 +219,6 @@ def _fetch_candidates(
                     candidate_urls[index + 1],
                     last_result.error,
                     exc,
-                    dependencies=dependencies,
                 )
                 continue
             return last_result
@@ -322,8 +320,6 @@ def _retryable_failure(
     has_fallback: bool,
     candidate_urls: list[str],
     index: int,
-    *,
-    dependencies: ArticleFetchDependencies,
 ) -> ArticleFetchResult:
     error_code = feed_task_runtime.safe_article_fetch_error_code(exc)
     if has_fallback:
@@ -333,7 +329,6 @@ def _retryable_failure(
             candidate_urls[index + 1],
             error_code,
             exc,
-            dependencies=dependencies,
         )
         return ArticleFetchResult(target_url, 0, None, error=error_code)
     if int(getattr(task.request, "retries", 0) or 0) >= ARTICLE_FETCH_MAX_RETRIES:
@@ -359,13 +354,7 @@ def _retryable_failure(
 
 
 def _log_fallback(
-    item_id: str,
-    from_url: str,
-    to_url: str,
-    error_code: str,
-    exc: Exception,
-    *,
-    dependencies: ArticleFetchDependencies,
+    item_id: str, from_url: str, to_url: str, error_code: str, exc: Exception
 ) -> None:
     logger.info(
         "article_fetch_fallback item_id=%s from_url=%s to_url=%s error_code=%s error_type=%s",
@@ -405,7 +394,7 @@ def _store_article_success(
     ):
         item.canonical_url = canonical
     item.url_domain = url_utils.extract_url_domain(item.canonical_url or item.url)
-    _apply_item_fetch_state(article, item, dependencies=dependencies)
+    _apply_item_fetch_state(article, item)
     _finalize_article_content_outcome(article)
     if article.text != previous_text:
         require_item_classification(item)
@@ -430,9 +419,7 @@ def _apply_extracted_article(
     article.error = extracted.get("error")
 
 
-def _apply_item_fetch_state(
-    article: Article, item: Item, *, dependencies: ArticleFetchDependencies
-) -> None:
+def _apply_item_fetch_state(article: Article, item: Item) -> None:
     if _has_usable_article_text(article):
         item.status = "content_fetched"
         item.ioc_extraction_state = None
