@@ -32,6 +32,8 @@ from app.models.integration import (
 from app.models.mfa import UserTOTPCredential
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.report import Report
+from app.services.lifecycle_pruning import prune_oversized_parent
+from app.services.lifecycle_pruning_contracts import PruningContext
 
 
 MAX_LIFECYCLE_DEPENDENT_ROWS_PER_BATCH = 10_000
@@ -59,6 +61,8 @@ class LifecycleDependencySelection:
     oversized_count: int
     budget_exhausted: bool
     completed_prefix_length: int = 0
+    children_pruned: int = 0
+    pruning_parents_started: int = 0
 
 
 def has_lifecycle_dependants(model) -> bool:
@@ -73,6 +77,7 @@ def select_with_dependent_budget(
     max_dependent_rows: int = MAX_LIFECYCLE_DEPENDENT_ROWS_PER_BATCH,
     max_parent_records: int | None = None,
     available_dependent_rows: int | None = None,
+    pruning: PruningContext | None = None,
 ) -> LifecycleDependencySelection:
     bounded_budget = max(1, int(max_dependent_rows))
     available_budget = (
@@ -92,9 +97,19 @@ def select_with_dependent_budget(
     budget_exhausted = False
     completed_prefix_length = 0
     prefix_open = True
+    children_pruned = 0
+    pruning_parents_started = 0
     for parent_id in candidate_ids:
         row_cost = int(counts.get(parent_id, 0))
         if row_cost > bounded_budget:
+            if pruning is not None and consumed < available_budget:
+                progress = prune_oversized_parent(
+                    db, model=model, parent_id=parent_id, context=pruning,
+                    limit=available_budget - consumed,
+                )
+                consumed += progress.children_pruned
+                children_pruned += progress.children_pruned
+                pruning_parents_started += progress.parents_started
             oversized += 1
             completed_prefix_length += int(prefix_open)
             continue
@@ -114,6 +129,8 @@ def select_with_dependent_budget(
         oversized_count=oversized,
         budget_exhausted=budget_exhausted,
         completed_prefix_length=completed_prefix_length,
+        children_pruned=children_pruned,
+        pruning_parents_started=pruning_parents_started,
     )
 
 

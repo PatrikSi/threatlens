@@ -23,11 +23,15 @@ from app.services.lifecycle_dependencies import LifecycleDependencySelection
 class LifecycleScanStats:
     advanced: int = 0
     completed: int = 0
+    children_pruned: int = 0
+    pruning_parents_started: int = 0
 
     def details(self) -> dict[str, int]:
         return {
             "scan_anchors_advanced": self.advanced,
             "scan_cycles_completed": self.completed,
+            "children_pruned": self.children_pruned,
+            "pruning_parents_started": self.pruning_parents_started,
         }
 
 
@@ -43,6 +47,9 @@ class LifecycleCandidateWindow:
         return [row[0] for row in self.rows]
 
     def advance(self, selection: LifecycleDependencySelection) -> None:
+        if self.stats is not None:
+            self.stats.children_pruned += selection.children_pruned
+            self.stats.pruning_parents_started += selection.pruning_parents_started
         count = selection.completed_prefix_length
         if self.cursor is None or not count:
             return

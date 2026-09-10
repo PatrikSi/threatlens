@@ -80,11 +80,21 @@ def test_real_ai_event_prefix_cannot_starve_later_run(db_session):
     second = _batch(db_session, "ai_task_history", cutoff)
     db_session.commit()
     assert second.affected_count == 1
-    assert db_session.scalar(select(func.count()).select_from(AITaskEvent)) == 40_004
+    assert first.details["children_pruned"] == 10_000
+    assert db_session.scalar(select(func.count()).select_from(AITaskEvent)) == 30_004
     assert db_session.get(AITaskRun, ids[-1]) is None
     assert all(
         db_session.get(AITaskRun, record_id) is not None for record_id in ids[:4]
     )
+    for _ in range(30):
+        result = _batch(db_session, "ai_task_history", cutoff)
+        assert result.details["children_pruned"] <= 10_000
+        db_session.commit()
+        db_session.expunge_all()
+        if db_session.scalar(select(func.count()).select_from(AITaskRun)) == 0:
+            break
+    assert db_session.scalar(select(func.count()).select_from(AITaskRun)) == 0
+    assert db_session.scalar(select(func.count()).select_from(AITaskEvent)) == 0
 
 
 def test_cursor_preserves_budget_skips_and_revisits_protected_records(

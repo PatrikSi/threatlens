@@ -35,6 +35,7 @@ from app.services.data_access_runtime import (
     ensure_alert_occurrence_data_access_envelope,
     lock_data_policy_revision_for_derivation,
 )
+from app.services.lifecycle_pruning_contracts import PruningContext
 from app.services.lifecycle_scanning import (
     LifecycleScanStats,
     lifecycle_candidate_window,
@@ -549,6 +550,11 @@ def _maintain_alert_history_batch(
             candidate_ids=evaluation_ids,
             max_dependent_rows=max_dependent_rows,
             max_parent_records=batch_size,
+            pruning=PruningContext(evaluation_cutoff, and_(
+                AlertEvaluationRequest.state.in_(["succeeded", "dead_letter"]),
+                AlertEvaluationRequest.completed_at.is_not(None),
+                AlertEvaluationRequest.completed_at < evaluation_cutoff,
+            )),
         )
         evaluation_window.advance(selection)
         evaluation_ids = selection.ids
@@ -590,6 +596,7 @@ def _maintain_alert_history_batch(
             candidate_ids=metric_ids,
             max_dependent_rows=max_dependent_rows,
             max_parent_records=batch_size,
+            pruning=PruningContext(metric_cutoff, AlertOccurrenceMetric.bucket_start < metric_cutoff),
         )
         metric_window.advance(selection)
         metric_ids = selection.ids

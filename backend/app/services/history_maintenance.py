@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import String, and_, cast, delete, or_, select, text
+from sqlalchemy import String, and_, cast, delete, or_, select
 from sqlalchemy.orm import Session, aliased
 
 from app.core.config import get_settings
@@ -35,6 +35,8 @@ from app.services.local_mfa import (
     cleanup_mfa_challenges,
     cleanup_pending_totp_enrollments,
 )
+from app.services.lifecycle_pruning import lock_ai_history_receipts
+from app.services.lifecycle_pruning_contracts import PruningContext
 from app.services.lifecycle_scanning import (
     LifecycleScanStats,
     lifecycle_candidate_window,
@@ -320,6 +322,7 @@ def _delete_ai_history_with_envelopes(
             candidate_ids=ids,
             max_dependent_rows=max_dependent_rows,
             max_parent_records=batch_size,
+            pruning=PruningContext(cutoff, query.whereclause),
         )
         window.advance(dependency_selection)
         ids = dependency_selection.ids
@@ -327,14 +330,9 @@ def _delete_ai_history_with_envelopes(
     if not ids:
         return 0
     if model is AITaskRun:
-        # Source locks precede receipt locks; retained references are rechecked
-        # after both, matching provider reservation and approval capture.
-        db.execute(
-            select(AIProviderAttemptReceipt.id)
-            .where(AIProviderAttemptReceipt.task_run_id_snapshot.in_(ids))
-            .order_by(AIProviderAttemptReceipt.id)
-            .with_for_update()
-        ).close()
+        ids = lock_ai_history_receipts(db, ids)
+        if not ids:
+            return 0
     delete_query = delete(model).where(model.id.in_(ids))
     if extra_predicate is not None:
         # Re-evaluate cross-table retention pins after the row locks were
@@ -549,20 +547,34 @@ def _delete_action_approval_history(
     if not approval_ids:
         return 0, 0, 0
     if max_dependent_rows is not None:
-        if db.get_bind().dialect.name == "postgresql":
-            db.execute(text("LOCK TABLE governance_operation_receipts IN SHARE MODE"))
         dependency_selection = select_with_dependent_budget(
             db,
             model=ActionApprovalRequest,
             candidate_ids=approval_ids,
             max_dependent_rows=max_dependent_rows,
             max_parent_records=batch_size,
+            pruning=PruningContext(cutoff, and_(
+                ActionApprovalRequest.created_at < cutoff,
+                or_(ActionApprovalRequest.status.in_(["denied", "cancelled", "invalidated", "executed"]),
+                    ActionApprovalRequest.expires_at <= now),
+            )),
         )
         window.advance(dependency_selection)
         approval_ids = dependency_selection.ids
         dependent_rows_budgeted = dependency_selection.dependent_rows
     else:
         dependent_rows_budgeted = 0
+    if not approval_ids:
+        return 0, 0, 0
+    receipt_rows = list(db.execute(select(GovernanceOperationReceipt.id, GovernanceOperationReceipt.resource_id).where(
+        GovernanceOperationReceipt.resource_type == "action_approval",
+        GovernanceOperationReceipt.resource_id.in_(approval_ids),
+    )))
+    locked_receipts = set(db.scalars(select(GovernanceOperationReceipt.id).where(
+        GovernanceOperationReceipt.id.in_([row.id for row in receipt_rows]),
+    ).with_for_update(skip_locked=True))) if receipt_rows else set()
+    blocked = {row.resource_id for row in receipt_rows if row.id not in locked_receipts}
+    approval_ids = [record_id for record_id in approval_ids if record_id not in blocked]
     if not approval_ids:
         return 0, 0, 0
     operation_receipt_result = db.execute(

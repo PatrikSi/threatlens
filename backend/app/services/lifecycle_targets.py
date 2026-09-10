@@ -61,6 +61,7 @@ from app.services.lifecycle_contracts import (
     TargetBatch,
     CandidateQuery as _CandidateQuery,
 )
+from app.services.lifecycle_pruning_contracts import PruningContext
 from app.services.lifecycle_scanning import (
     LifecycleScanStats,
     lifecycle_candidate_window,
@@ -229,6 +230,7 @@ def _execute_lifecycle_target_batch(
             db,
             target_key=target_key,
             query=query,
+            cutoff=cutoff,
             batch_size=bounded_batch,
             scan_stats=scan_stats,
         )
@@ -262,6 +264,7 @@ def _execute_lifecycle_target_batch(
         db,
         target_key=target_key,
         query=query,
+        cutoff=cutoff,
         batch_size=bounded_batch,
         scan_stats=scan_stats,
     )
@@ -623,6 +626,7 @@ def _delete_generic(
     *,
     target_key: str,
     query: _CandidateQuery,
+    cutoff: datetime,
     batch_size: int,
     scan_stats: LifecycleScanStats,
 ) -> TargetBatch:
@@ -643,6 +647,7 @@ def _delete_generic(
         model=query.model,
         candidate_ids=ids,
         max_parent_records=batch_size,
+        pruning=PruningContext(cutoff, query.predicate),
     )
     window.advance(selection)
     ids = selection.ids

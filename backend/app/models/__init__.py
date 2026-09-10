@@ -1,3 +1,4 @@
+from app.models.lifecycle_pruning import LifecyclePruningRecord
 from app.models.ai_daily_brief import AIDailyBrief
 from app.models.ai_daily_brief_source_item import AIDailyBriefSourceItem
 from app.models.ai_provider_attempt_receipt import AIProviderAttemptReceipt
@@ -193,6 +194,7 @@ __all__ = [
     "LifecyclePreview",
     "LifecycleRun",
     "LifecycleScanCursor",
+    "LifecyclePruningRecord",
     "MFALoginChallenge",
     "NotificationWebhook",
     "NotificationWebhookDelivery",

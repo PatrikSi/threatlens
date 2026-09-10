@@ -846,7 +846,7 @@ def test_closed_alert_lifecycle_drains_large_activity_bundle_within_budget(
     assert db_session.get(AlertOccurrence, unaggregated_id) is not None
 
 
-def test_wide_alert_evaluation_is_protected_without_starving_newer_candidates(
+def test_wide_alert_evaluation_drains_without_starving_newer_candidates(
     db_session,
 ):
     now = datetime.now(timezone.utc)
@@ -920,7 +920,8 @@ def test_wide_alert_evaluation_is_protected_without_starving_newer_candidates(
         select(func.count())
         .select_from(AlertEvaluationRequestActivity)
         .where(AlertEvaluationRequestActivity.request_id == wide_id)
-    ) == MAX_LIFECYCLE_DEPENDENT_ROWS_PER_BATCH + 1
+    ) == 1
+    assert result.details["children_pruned"] == MAX_LIFECYCLE_DEPENDENT_ROWS_PER_BATCH
 
 
 def test_alert_activity_lifecycle_keeps_created_baseline_on_active_alert(
