@@ -142,6 +142,31 @@ mobile assistive software, or production proxy behavior.
 
 # Session completion rules
 
+## Shared editor lifecycle contract
+
+`web/src/testing/editorLifecycleContract.ts` defines reusable behavioral tests for
+editor controllers. The initial adapters in
+`EditorLifecycleContracts.dom.test.tsx` exercise the real feed and tagging
+controllers with `AuthProvider`, `SessionQueryProvider`, and a real memory router.
+Only API responses and the current-user fixture are substituted; the mutation
+cache, navigation blocker, discard dialog, and editor state run unchanged.
+
+The shared cases cover delayed save completion with later edits, changing away
+and reselecting, a refreshed inventory, a rejected save followed by refresh,
+cancel/discard navigation, and a session change while a save is outstanding.
+Assertions check retained draft values, visible discard dialogs, actual route
+transitions, and isolation from late cache writes. New editors can supply the same
+small test driver without adopting a generic production form framework.
+
+Keep domain-specific tests alongside the editor. For example, schedule and report
+tests must still verify that the original resource version remains attached to its
+draft; feed/tagging tests verify server normalization of unchanged fields. A
+generic rejected-write test does not establish an endpoint's concurrency contract.
+The existing browser workflows continue to cover real focus, input, and session
+verification behavior; controller contracts do not replace them.
+
+## Session fences
+
 Every auth event synchronously invalidates pending request leases and remounts a fresh QueryClient. API JSON and download transports reject late results, including transports that ignore abort. The mutation cache also rejects old-session success before calling a page's success handler. A transient `/auth/me` failure keeps page and portal drafts mounted beneath a blocking verification dialog; authenticated writes are paused until verification succeeds. A confirmed 401/403 removes protected content and invalidates pending operations.
 
 For a mutation that spans several requests or awaits local work, capture `captureSessionLease()` once at the start of the mutation. Call `lease.assertCurrent()` before each subsequent request and after awaited local work, and pass `lease.signal` to cancellable operations. Capturing a fresh lease for every step would allow an old operation to continue using the next account's cookies. Component-owned success state must also remain scoped to its entity and submitted draft version. A browser cancellation cannot reverse a request already accepted by the server; server authorization and transactional checks remain authoritative.
