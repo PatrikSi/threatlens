@@ -694,3 +694,34 @@ def test_oversized_approval_receipts_drain_with_the_parent_retention_budget(db_s
     assert previous == 0
     assert db_session.get(ActionApprovalRequest, approval_id) is None
     assert db_session.get(LifecyclePruningRecord, ("action_approval_requests", approval_id)) is None
+
+
+def test_ai_maintenance_keeps_advancing_past_large_receipt_bundles(db_session, monkeypatch):
+    from app.services.lifecycle_targets import execute_lifecycle_target_batch
+
+    monkeypatch.setattr("app.services.lifecycle_pruning.MAX_HISTORY_RECEIPT_LOCK_ROWS", 3)
+    old = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    runs = [_ai_task_run(finished_at=old + timedelta(minutes=index), status="succeeded") for index in range(3)]
+    db_session.add_all(runs)
+    db_session.flush()
+    run_ids = [run.id for run in runs]
+    for run_id, count in zip(run_ids, (4, 2, 1), strict=True):
+        db_session.add_all(_ai_provider_receipt(
+            task_run_id=run_id, operation_id=uuid.uuid4(), timestamp=old,
+            state="succeeded", io_outcome="response_received", retryable=False,
+            settled_at=old,
+        ) for _ in range(count))
+    db_session.commit()
+    result = execute_lifecycle_target_batch(
+        db_session, target_key="ai_task_history", cutoff=old + timedelta(days=1),
+        batch_size=3, run_id=uuid.uuid4(),
+    )
+    db_session.commit()
+    db_session.expunge_all()
+    assert result.details["task_runs_deleted"] == 2
+    assert result.affected_count <= 3
+    assert db_session.get(AITaskRun, run_ids[0]) is not None
+    assert all(db_session.get(AITaskRun, identity) is None for identity in run_ids[1:])
+    assert db_session.scalar(select(func.count()).select_from(AIProviderAttemptReceipt).where(
+        AIProviderAttemptReceipt.task_run_id_snapshot == run_ids[0],
+    )) == 4

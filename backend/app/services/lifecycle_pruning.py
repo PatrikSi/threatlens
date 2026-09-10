@@ -45,6 +45,8 @@ _CHILDREN = {
 }
 
 
+MAX_HISTORY_RECEIPT_LOCK_ROWS = 10_000
+
 _RETAINED_REFERENCES = {
     "ai_task_runs": (
         AITaskRun.parent_run_id,
@@ -255,18 +257,38 @@ def lock_ai_history_receipts(
     """
     if not parent_ids:
         return []
+    # Budget complete parent bundles, rather than rejecting an entire scan
+    # when one parent (or the aggregate batch) has excessive receipt history.
+    limited_receipts = (
+        select(literal(1))
+        .where(AIProviderAttemptReceipt.task_run_id_snapshot == AITaskRun.id)
+        .limit(MAX_HISTORY_RECEIPT_LOCK_ROWS + 1)
+        .correlate(AITaskRun)
+        .subquery()
+    )
+    receipt_count = select(func.count()).select_from(limited_receipts).scalar_subquery()
+    counts = dict(
+        db.execute(
+            select(AITaskRun.id, receipt_count).where(
+                AITaskRun.id.in_(parent_ids),
+            )
+        ).all()
+    )
+    admitted = []
+    remaining = MAX_HISTORY_RECEIPT_LOCK_ROWS
+    for parent_id in parent_ids:
+        count = counts.get(parent_id)
+        if count is not None and count <= remaining:
+            admitted.append(parent_id)
+            remaining -= count
     receipts = list(
         db.execute(
             select(
                 AIProviderAttemptReceipt.id,
                 AIProviderAttemptReceipt.task_run_id_snapshot,
-            )
-            .where(AIProviderAttemptReceipt.task_run_id_snapshot.in_(parent_ids))
-            .limit(10_001)
+            ).where(AIProviderAttemptReceipt.task_run_id_snapshot.in_(admitted))
         )
     )
-    if len(receipts) > 10_000:
-        return []
     locked = (
         set(
             db.scalars(
@@ -281,4 +303,4 @@ def lock_ai_history_receipts(
         else set()
     )
     blocked = {row.task_run_id_snapshot for row in receipts if row.id not in locked}
-    return [parent_id for parent_id in parent_ids if parent_id not in blocked]
+    return [parent_id for parent_id in admitted if parent_id not in blocked]
