@@ -63,6 +63,14 @@ class SystemHealthSample(Base):
         nullable=False,
         default=dict,
     )
+    backlogs_json: Mapped[list] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql"), nullable=False,
+        default=list, server_default="[]",
+    )
+    runtime_metrics_json: Mapped[dict] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql"), nullable=False,
+        default=dict, server_default="{}",
+    )
     worker_status: Mapped[str] = mapped_column(String(16), nullable=False)
     worker_reason: Mapped[str] = mapped_column(String(64), nullable=False)
     responding_worker_count: Mapped[int] = mapped_column(

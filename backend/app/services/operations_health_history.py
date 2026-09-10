@@ -8,12 +8,14 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from pydantic import ValidationError
 
 from app.core.config import Settings, get_settings
 from app.core.worker_queues import WORKER_QUEUES
 from app.models.lifecycle import LifecycleCatalogState, LifecyclePolicy
 from app.models.system_health_sample import SystemHealthSample
 from app.schemas.operations import (
+    OperationsBacklogSnapshot,
     OperationsHealthHistoryCoverage,
     OperationsHealthHistoryGapInterval,
     OperationsHealthHistoryPoint,
@@ -21,6 +23,8 @@ from app.schemas.operations import (
     OperationsOverviewResponse,
     OperationsWorkerTopologyResponse,
 )
+from app.services.operations_freshness import BACKLOG_LABELS
+from app.services.operations_runtime import safe_runtime_metrics
 
 
 HEALTH_SAMPLE_INTERVAL_SECONDS = 300
@@ -56,10 +60,10 @@ _WORKER_REASONS = frozenset(
 _QUEUE_VALUES = frozenset(WORKER_QUEUES)
 _COMPONENT_STATUS_KEYS = {
     "component": frozenset(
-        {"database", "redis", "workers", "scheduler", "encrypted_data"}
+        {"database", "redis", "workers", "scheduler", "encrypted_data", "runtime_capacity"}
     ),
     "storage": frozenset({"database", "application_filesystem"}),
-    "backlog": frozenset({"integration_deliveries", "reports"}),
+    "backlog": frozenset(BACKLOG_LABELS),
 }
 _ALLOWED_COMPONENT_STATUS_KEYS = frozenset(
     f"{prefix}:{key}"
@@ -112,6 +116,11 @@ def record_system_health_sample(
             worker_topology.status,
         ),
         component_statuses_json=component_statuses,
+        backlogs_json=[entry.model_dump(mode="json") for entry in overview.backlogs[:8]],
+        runtime_metrics_json=next((
+            safe_runtime_metrics(entry.metrics) for entry in overview.components
+            if entry.key == "runtime_capacity"
+        ), {}),
         worker_status=worker_topology.status,
         worker_reason=worker_topology.reason,
         responding_worker_count=worker_topology.responding_worker_count,
@@ -302,6 +311,8 @@ def _history_point(row: SystemHealthSample) -> OperationsHealthHistoryPoint:
             0,
             min(MAX_AGGREGATE_COUNT, row.backlog_stale_count),
         ),
+        backlogs=_safe_backlog_history(row.backlogs_json),
+        runtime_metrics=safe_runtime_metrics(row.runtime_metrics_json),
         critical_issue_count=max(
             0,
             min(MAX_AGGREGATE_COUNT, row.critical_issue_count),
@@ -312,6 +323,30 @@ def _history_point(row: SystemHealthSample) -> OperationsHealthHistoryPoint:
         ),
         issue_codes=_safe_issue_codes(row.issue_codes_json, limit=32),
     )
+
+
+def _safe_backlog_history(raw: object) -> list[OperationsBacklogSnapshot]:
+    if not isinstance(raw, list):
+        return []
+    result: dict[str, OperationsBacklogSnapshot] = {}
+    for entry in raw[:8]:
+        if not isinstance(entry, dict) or not isinstance(entry.get("key"), str) or entry["key"] not in BACKLOG_LABELS:
+            continue
+        key = entry["key"]
+        try:
+            value = OperationsBacklogSnapshot.model_validate({
+                **{name: entry[name] for name in (
+                    "status", "pending_count", "active_count", "stale_count", "failed_count",
+                    "oldest_pending_age_seconds", "degraded_after_seconds",
+                ) if name in entry},
+                "key": key, "label": BACKLOG_LABELS[key],
+            })
+        except ValidationError:
+            continue
+        for field in ("pending_count", "active_count", "stale_count", "failed_count"):
+            setattr(value, field, min(MAX_AGGREGATE_COUNT, getattr(value, field)))
+        result[key] = value
+    return list(result.values())
 
 
 def _select_history_rows(rows: list[SystemHealthSample]) -> _HistorySelection:

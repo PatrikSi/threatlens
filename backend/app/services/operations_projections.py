@@ -30,6 +30,7 @@ from app.services.integration_delivery import (
 )
 from app.services.operations_common import issue, safe_db_probe, seconds_since
 from app.services.operations_runs import system_operation_run_response
+from app.services.operations_freshness import BACKLOG_LABELS, load_export_backlog, load_processing_backlog
 
 
 @dataclass(frozen=True)
@@ -53,12 +54,18 @@ def collect_backlog_snapshots(
         1, int(settings.notification_delivery_queue_degraded_after_seconds)
     )
     report_threshold = max(1, int(settings.report_dispatch_start_grace_seconds))
+    freshness = {
+        "classification": settings.classification_freshness_seconds,
+        "tagging": settings.tagging_freshness_seconds,
+        "exports": settings.export_freshness_seconds,
+    }
     if not database_ok:
         return [
             _unknown_backlog(
                 "integration_deliveries", "Integration deliveries", delivery_threshold
             ),
             _unknown_backlog("reports", "Report generation", report_threshold),
+            *(_unknown_backlog(key, BACKLOG_LABELS[key], threshold) for key, threshold in freshness.items()),
         ]
 
     delivery = safe_db_probe(
@@ -77,7 +84,19 @@ def collect_backlog_snapshots(
     )
     _append_backlog_issue(delivery, issues)
     _append_backlog_issue(report, issues)
-    return [delivery, report]
+    backlogs = [delivery, report]
+    for key, threshold in freshness.items():
+        backlog = safe_db_probe(
+            db, f"{key}_backlog",
+            lambda key=key: (
+                load_export_backlog(db, settings=settings, now=now) if key == "exports"
+                else load_processing_backlog(db, stage=key, settings=settings, now=now)
+            ),
+            _unknown_backlog(key, BACKLOG_LABELS[key], threshold),
+        )
+        _append_backlog_issue(backlog, issues)
+        backlogs.append(backlog)
+    return backlogs
 
 
 def collect_recovery_snapshot(
@@ -366,6 +385,13 @@ def _append_backlog_issue(
                 "Confirm the responsible worker is healthy, then run the supported recovery workflow.",
             )
         )
+    elif backlog.failed_count and backlog.status == "degraded":
+        issues.append(issue(
+            f"{backlog.key}_needs_attention", "warning", backlog.key,
+            f"{backlog.label} has failed work requiring attention.",
+            "Automatic attempts may have stopped before processing completed.",
+            "Inspect the processing worklist or export job history, resolve the cause, and retry selected eligible work.",
+        ))
     elif backlog.status == "degraded":
         issues.append(
             issue(
