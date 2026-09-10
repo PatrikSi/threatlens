@@ -830,3 +830,39 @@ def test_terminal_cleanup_and_selected_retry_share_one_admission_boundary(
             work.status == "waiting"
             and str(work.recovery_run_id) == response.json()["id"]
         )
+
+
+def test_maintenance_wait_is_bounded_by_shared_admission_fence(processing_env):
+    from sqlalchemy.exc import OperationalError
+    from app.db.budgets import database_operation
+    from app.services.processing_dispatch import admission_lock
+
+    env = processing_env
+    _accept(env)
+    identity, token = _publication(env)
+    assert worker.claim_processing_work(identity, token)
+    with Session(env.engine) as db:
+        db.get(ProcessingWork, identity).lease_expires_at = datetime.now(
+            timezone.utc
+        ) - timedelta(seconds=1)
+        db.commit()
+
+    def attempt_maintenance():
+        with (
+            Session(env.engine) as db,
+            database_operation(db, operation="repair", timeout_seconds=0.1),
+        ):
+            maintain_processing_work(db)
+            db.commit()
+
+    with Session(env.engine) as admission_db, ThreadPoolExecutor(max_workers=1) as pool:
+        admission_lock(admission_db)
+        future = pool.submit(attempt_maintenance)
+        with pytest.raises(OperationalError):
+            future.result(timeout=5)
+        admission_db.rollback()
+    with Session(env.engine) as db:
+        assert db.get(ProcessingWork, identity).status == "running"
+        assert maintain_processing_work(db) == 1
+        db.commit()
+        assert db.get(ProcessingWork, identity).status == "retry_wait"
