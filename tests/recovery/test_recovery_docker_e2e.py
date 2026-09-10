@@ -191,6 +191,23 @@ class RecoveryDockerEndToEndTests(unittest.TestCase):
         ), "true")
         self._compose("run", "--rm", "--no-deps", "migrate")
 
+    def test_split_role_migrations_round_trip_without_runtime_schema_privileges(self) -> None:
+        self._compose("up", "--detach", "--wait", "db", "redis")
+        self._compose("run", "--rm", "--no-deps", "migrate")
+        head = self._psql("SELECT version_num FROM alembic_version;")
+        self._compose("run", "--rm", "--no-deps", "migrate", "alembic", "downgrade", "0090_lifecycle_scan_cursors")
+        self.assertEqual(self._psql("SELECT version_num FROM alembic_version;"), "0090_lifecycle_scan_cursors")
+        self._compose("run", "--rm", "--no-deps", "migrate")
+        self.assertEqual(self._psql("SELECT version_num FROM alembic_version;"), head)
+        self.assertEqual(self._psql(
+            "SELECT has_schema_privilege('threatlens_runtime', 'public', 'CREATE')::text;"
+        ), "false")
+        self.assertEqual(self._psql(
+            "SELECT count(*) FROM pg_class AS c JOIN pg_namespace AS n ON n.oid=c.relnamespace "
+            "WHERE n.nspname='public' AND c.relkind='r' AND pg_get_userbyid(c.relowner)<>'threatlens_migration';"
+        ), "0")
+        self._compose("run", "--rm", "--no-deps", "api", "python", "-m", "app.scripts.seed_admin")
+
     def test_backup_drill_and_destructive_restore_preserve_invariants(self) -> None:
         self._compose("up", "--detach", "--wait", "db", "redis")
         self._compose("run", "--rm", "--no-deps", "migrate")
@@ -204,6 +221,26 @@ class RecoveryDockerEndToEndTests(unittest.TestCase):
         ), "false")
         denied = self._compose("run", "--rm", "--no-deps", "api", "alembic", "downgrade", "-1", check=False)
         self.assertNotEqual(denied.returncode, 0)
+        self._compose("run", "--rm", "--no-deps", "api", "python", "-c", """
+from datetime import datetime, timedelta, timezone
+import uuid
+from app.db.session import SessionLocal
+from app.models.audit_log import AuditLog, AuditLogDataAccessFeed
+from app.services.lifecycle_permission_pruning import prune_permission_history_parent
+from app.services.lifecycle_pruning_contracts import PruningContext
+with SessionLocal() as db:
+    cutoff = datetime.now(timezone.utc) - timedelta(days=1)
+    row = AuditLog(action='recovery.partial.retention', resource_type='test_fixture',
+                   metadata_json={}, created_at=cutoff - timedelta(days=1))
+    db.add(row)
+    db.flush()
+    db.add_all(AuditLogDataAccessFeed(audit_log_id=row.id, source_feed_id_snapshot=uuid.uuid4()) for _ in range(2))
+    db.flush()
+    result = prune_permission_history_parent(db, model=AuditLog, parent_id=row.id,
+        context=PruningContext(cutoff, AuditLog.created_at < cutoff), limit=1)
+    assert result.children_pruned == 1
+    db.commit()
+""")
         self._psql(
             "SET ROLE threatlens_migration; CREATE TABLE recovery_e2e_marker (value text NOT NULL);"
             "INSERT INTO recovery_e2e_marker (value) VALUES ('before-backup');"
@@ -299,6 +336,12 @@ class RecoveryDockerEndToEndTests(unittest.TestCase):
             "--safety-backup-dir",
             str(self.backup_directory / "safety"),
         )
+        self.assertEqual(self._psql(
+            "SELECT count(*) FROM audit_logs AS a JOIN lifecycle_pruning_records AS p "
+            "ON p.dataset='audit_logs' AND p.parent_id=a.id "
+            "WHERE a.action='recovery.partial.retention' "
+            "AND a.retention_pruning_started_at IS NOT NULL AND p.children_pruned=1;"
+        ), "1")
 
         self.assertIn("RESTORE_STATUS=completed_quarantined", restore.stdout)
         self.assertEqual(

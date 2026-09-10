@@ -65,7 +65,7 @@ services:
   migrate:
     <<: *backend-service
     environment:
-      <<: *backend
+      APP_ENV: development
       DATABASE_URL: "postgresql+psycopg://threatlens_migration:${RECOVERY_E2E_MIGRATION_PASSWORD:?required}@db:5432/threatlens"
     command: [alembic, upgrade, head]
 
