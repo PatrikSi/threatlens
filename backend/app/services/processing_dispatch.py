@@ -245,6 +245,10 @@ def update_recovery_item(
 
 
 def maintain_processing_work(db: Session) -> int:
+    # A batch may settle several entries in each of several runs. Serialize
+    # maintenance with admission/publication so disjoint SKIP LOCKED Work sets
+    # cannot acquire their shared Run rows in opposite orders.
+    admission_lock(db)
     now = datetime.now(timezone.utc)
     rows = db.scalars(
         select(ProcessingWork)
