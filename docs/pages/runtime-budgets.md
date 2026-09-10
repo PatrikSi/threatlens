@@ -83,8 +83,10 @@ lock already held by a transfer or external action.
 `database_operation` gives one database-only transaction a shared monotonic
 allowance, reduces each SQL statement's timeout to the remaining allowance,
 checks before commit, and rolls back on failure. Repair and lifecycle batches
-use this boundary. Rollback is allowed after expiry, including savepoint
-rollback. An acknowledged commit is not retroactively reported as failed, and
+use this boundary. Each lifecycle transaction includes its policy checks,
+history changes, progress update and commit in the same allowance; initial run
+claims have a separate allowance. Deadline expiry returns the run to its durable
+retry queue. Rollback is allowed after expiry, including savepoint rollback. An acknowledged commit is not retroactively reported as failed, and
 each subsequent transaction needs a new scope. This is not a mechanism for
 interrupting arbitrary Python code or external side effects.
 

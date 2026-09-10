@@ -91,7 +91,8 @@ def test_database_saturation_returns_retryable_sanitized_response():
 
 
 def test_deferred_commit_work_uses_remaining_transaction_deadline(database_engine):
-    with Session(database_engine) as db:
+    # Temporary objects belong to one physical connection across commits.
+    with database_engine.connect() as connection, Session(bind=connection) as db:
         db.execute(text("CREATE TEMP TABLE commit_budget_probe(value integer)"))
         db.execute(text("""
             CREATE FUNCTION pg_temp.delay_commit() RETURNS trigger LANGUAGE plpgsql AS $$

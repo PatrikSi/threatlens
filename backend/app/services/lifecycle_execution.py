@@ -10,6 +10,8 @@ from sqlalchemy import delete, or_, select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
+from app.db.budgets import DatabaseDeadlineExceeded, database_operation
+
 from app.models.alert_backfill_preview import AlertBackfillPreview
 from app.models.lifecycle import (
     LifecycleCatalogState,
@@ -200,164 +202,157 @@ def execute_lifecycle_run(
 ) -> dict:
     current_time = _utc(now)
     lease_token = secrets.token_hex(24)
-    run = _claim_run(
-        db,
-        run_id=run_id,
-        lease_token=lease_token,
-        expected_task_id=expected_task_id,
-        now=current_time,
-    )
+    with database_operation(db, operation="lifecycle"):
+        run = _claim_run(
+            db,
+            run_id=run_id,
+            lease_token=lease_token,
+            expected_task_id=expected_task_id,
+            now=current_time,
+        )
     if run is None:
         return {"status": "ignored", "run_id": str(run_id)}
     invocation_started = time.monotonic()
     invocation_batches = 0
     try:
         while True:
-            catalog_valid = _catalog_integrity_valid(db)
-            run = db.scalar(
-                select(LifecycleRun).where(LifecycleRun.id == run_id).with_for_update()
-            )
-            if run is None or run.status != "running" or run.lease_token != lease_token:
-                db.rollback()
-                return {"status": "lease_lost", "run_id": str(run_id)}
-            tick = datetime.now(timezone.utc)
-            if run.cancel_requested:
-                _finish_run(
-                    db,
-                    run,
-                    status="cancelled",
-                    stop_reason="cancel_requested",
-                    now=tick,
+            with database_operation(db, operation="lifecycle"):
+                catalog_valid = _catalog_integrity_valid(db)
+                run = db.scalar(
+                    select(LifecycleRun).where(LifecycleRun.id == run_id).with_for_update()
                 )
-                db.commit()
-                return _execution_result(run)
-            if not catalog_valid:
-                run.error_code = "lifecycle_catalog_incomplete"
-                run.error_message = (
-                    "Lifecycle policy catalog integrity validation failed; no further records were changed."
+                if run is None or run.status != "running" or run.lease_token != lease_token:
+                    db.rollback()
+                    return {"status": "lease_lost", "run_id": str(run_id)}
+                tick = datetime.now(timezone.utc)
+                if run.cancel_requested:
+                    _finish_run(
+                        db,
+                        run,
+                        status="cancelled",
+                        stop_reason="cancel_requested",
+                        now=tick,
+                    )
+                    return _commit_execution_result(db, run)
+                if not catalog_valid:
+                    run.error_code = "lifecycle_catalog_incomplete"
+                    run.error_message = (
+                        "Lifecycle policy catalog integrity validation failed; no further records were changed."
+                    )
+                    _finish_run(
+                        db,
+                        run,
+                        status="failed",
+                        stop_reason="invalid_catalog",
+                        now=tick,
+                    )
+                    return _commit_execution_result(db, run)
+                current_policy = db.scalar(
+                    select(LifecyclePolicy)
+                    .where(LifecyclePolicy.target_key == run.target_key)
+                    .with_for_update()
                 )
-                _finish_run(
-                    db,
-                    run,
-                    status="failed",
-                    stop_reason="invalid_catalog",
-                    now=tick,
-                )
-                db.commit()
-                return _execution_result(run)
-            current_policy = db.scalar(
-                select(LifecyclePolicy)
-                .where(LifecyclePolicy.target_key == run.target_key)
-                .with_for_update()
-            )
-            if (
-                current_policy is None
-                or not current_policy.enabled
-                or current_policy.revision != run.policy_revision
-            ):
-                _finish_policy_fenced(db, run, now=tick)
-                db.commit()
-                return _execution_result(run)
-            contract_error = _run_contract_error(run, policy=current_policy)
-            if contract_error is not None:
-                run.error_code = "invalid_run_contract"
-                run.error_message = (
-                    "Lifecycle run configuration failed integrity validation; no records were changed."
-                )
-                _finish_run(
-                    db,
-                    run,
-                    status="failed",
-                    stop_reason="invalid_run_contract",
-                    now=tick,
-                )
-                details = dict(run.details_json or {})
-                details["contract_error"] = contract_error
-                run.details_json = details
-                db.commit()
-                return _execution_result(run)
-            remaining_budget = max(0, run.max_records - run.affected_count)
-            if remaining_budget <= 0:
-                _finish_after_preview(db, run, now=tick, stop_reason="record_limit")
-                db.commit()
-                return _execution_result(run)
-            batch = execute_lifecycle_target_batch(
-                db,
-                target_key=run.target_key,
-                cutoff=_utc(run.cutoff_at),
-                batch_size=min(EXECUTION_BATCH_SIZE, remaining_budget),
-                run_id=run.id,
-                options=dict((run.policy_snapshot_json or {}).get("options") or {}),
-                now=tick,
-            )
-            if batch.affected_count > remaining_budget:
-                raise RuntimeError("Lifecycle target exceeded its durable record budget.")
-            run.evaluated_count += batch.evaluated_count
-            run.affected_count += batch.affected_count
-            run.protected_count = max(run.protected_count, batch.protected_count)
-            run.skipped_count += batch.skipped_count
-            run.batch_count += 1
-            invocation_batches += 1
-            if batch.affected_bytes is not None:
-                run.affected_bytes = int(run.affected_bytes or 0) + batch.affected_bytes
-            run.details_json = _merge_details(run.details_json, batch.details)
-            run.heartbeat_at = tick
-            run.lease_expires_at = tick + RUN_LEASE_TTL
-            scan_advanced = int(batch.details.get("scan_anchors_advanced", 0))
-            if (
-                int(run.details_json.get("scan_anchors_advanced", 0))
-                >= MAX_SCAN_ADVANCES_PER_RUN
-            ):
-                _finish_after_preview(db, run, now=tick, stop_reason="scan_limit")
-                db.commit()
-                return _execution_result(run)
-            if batch.affected_count == 0 and scan_advanced == 0:
-                details = dict(run.details_json or {})
-                details["no_progress_batch_count"] = (
-                    int(details.get("no_progress_batch_count") or 0) + 1
-                )
-                run.details_json = details
-                remaining_preview = preview_lifecycle_target(
+                if (
+                    current_policy is None
+                    or not current_policy.enabled
+                    or current_policy.revision != run.policy_revision
+                ):
+                    _finish_policy_fenced(db, run, now=tick)
+                    return _commit_execution_result(db, run)
+                contract_error = _run_contract_error(run, policy=current_policy)
+                if contract_error is not None:
+                    run.error_code = "invalid_run_contract"
+                    run.error_message = (
+                        "Lifecycle run configuration failed integrity validation; no records were changed."
+                    )
+                    _finish_run(
+                        db,
+                        run,
+                        status="failed",
+                        stop_reason="invalid_run_contract",
+                        now=tick,
+                    )
+                    details = dict(run.details_json or {})
+                    details["contract_error"] = contract_error
+                    run.details_json = details
+                    return _commit_execution_result(db, run)
+                remaining_budget = max(0, run.max_records - run.affected_count)
+                if remaining_budget <= 0:
+                    _finish_after_preview(db, run, now=tick, stop_reason="record_limit")
+                    return _commit_execution_result(db, run)
+                batch = execute_lifecycle_target_batch(
                     db,
                     target_key=run.target_key,
                     cutoff=_utc(run.cutoff_at),
-                    options=dict(
-                        (run.policy_snapshot_json or {}).get("options") or {}
-                    ),
+                    batch_size=min(EXECUTION_BATCH_SIZE, remaining_budget),
+                    run_id=run.id,
+                    options=dict((run.policy_snapshot_json or {}).get("options") or {}),
                     now=tick,
                 )
+                if batch.affected_count > remaining_budget:
+                    raise RuntimeError("Lifecycle target exceeded its durable record budget.")
+                run.evaluated_count += batch.evaluated_count
+                run.affected_count += batch.affected_count
+                run.protected_count = max(run.protected_count, batch.protected_count)
+                run.skipped_count += batch.skipped_count
+                run.batch_count += 1
+                invocation_batches += 1
+                if batch.affected_bytes is not None:
+                    run.affected_bytes = int(run.affected_bytes or 0) + batch.affected_bytes
+                run.details_json = _merge_details(run.details_json, batch.details)
+                run.heartbeat_at = tick
+                run.lease_expires_at = tick + RUN_LEASE_TTL
+                scan_advanced = int(batch.details.get("scan_anchors_advanced", 0))
                 if (
-                    remaining_preview.eligible_count > 0
-                    and not batch.details.get("scan_cycles_completed", 0)
-                    and details["no_progress_batch_count"]
-                    <= MAX_NO_PROGRESS_RETRIES
+                    int(run.details_json.get("scan_anchors_advanced", 0))
+                    >= MAX_SCAN_ADVANCES_PER_RUN
                 ):
-                    _apply_remaining_preview(run, remaining_preview)
-                    _queue_continuation(db, run, now=tick)
-                else:
-                    _finish_after_preview(
-                        db,
-                        run,
-                        now=tick,
-                        stop_reason="candidates_locked_or_protected",
-                        preview=remaining_preview,
+                    _finish_after_preview(db, run, now=tick, stop_reason="scan_limit")
+                    return _commit_execution_result(db, run)
+                if batch.affected_count == 0 and scan_advanced == 0:
+                    details = dict(run.details_json or {})
+                    details["no_progress_batch_count"] = (
+                        int(details.get("no_progress_batch_count") or 0) + 1
                     )
+                    run.details_json = details
+                    remaining_preview = preview_lifecycle_target(
+                        db,
+                        target_key=run.target_key,
+                        cutoff=_utc(run.cutoff_at),
+                        options=dict(
+                            (run.policy_snapshot_json or {}).get("options") or {}
+                        ),
+                        now=tick,
+                    )
+                    if (
+                        remaining_preview.eligible_count > 0
+                        and not batch.details.get("scan_cycles_completed", 0)
+                        and details["no_progress_batch_count"]
+                        <= MAX_NO_PROGRESS_RETRIES
+                    ):
+                        _apply_remaining_preview(run, remaining_preview)
+                        _queue_continuation(db, run, now=tick)
+                    else:
+                        _finish_after_preview(
+                            db,
+                            run,
+                            now=tick,
+                            stop_reason="candidates_locked_or_protected",
+                            preview=remaining_preview,
+                        )
+                    return _commit_execution_result(db, run)
+                if run.affected_count >= run.max_records:
+                    _finish_after_preview(db, run, now=tick, stop_reason="record_limit")
+                    return _commit_execution_result(db, run)
+                if (
+                    invocation_batches >= MAX_BATCHES_PER_INVOCATION
+                    or time.monotonic() - invocation_started >= MAX_INVOCATION_SECONDS
+                ):
+                    _queue_continuation(db, run, now=tick)
+                    return _commit_execution_result(db, run)
+                db.add(run)
                 db.commit()
-                return _execution_result(run)
-            if run.affected_count >= run.max_records:
-                _finish_after_preview(db, run, now=tick, stop_reason="record_limit")
-                db.commit()
-                return _execution_result(run)
-            if (
-                invocation_batches >= MAX_BATCHES_PER_INVOCATION
-                or time.monotonic() - invocation_started >= MAX_INVOCATION_SECONDS
-            ):
-                _queue_continuation(db, run, now=tick)
-                db.commit()
-                return _execution_result(run)
-            db.add(run)
-            db.commit()
-    except OperationalError as exc:
+    except (OperationalError, DatabaseDeadlineExceeded) as exc:
         logger.warning(
             "lifecycle_run_transient_failure run_id=%s error_type=%s",
             run_id,
@@ -910,6 +905,14 @@ def _delete_ids(db: Session, model, ids: list[uuid.UUID]) -> int:
         .execution_options(synchronize_session=False)
     )
     return int(result.rowcount or 0)
+
+
+def _commit_execution_result(db: Session, run: LifecycleRun) -> dict:
+    # Serialize before commit expires the ORM row. Reading it afterward would
+    # begin another transaction inside the completed transaction's budget.
+    result = _execution_result(run)
+    db.commit()
+    return result
 
 
 def _execution_result(run: LifecycleRun) -> dict:
