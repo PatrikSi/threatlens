@@ -5,10 +5,12 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import and_, case, delete, func, or_, select, text
+from sqlalchemy import and_, case, delete, exists, func, or_, select, text
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.models.feed import Feed
+from app.models.item import Item
 from app.models.processing_work import (
     ProcessingWork,
     ProcessingRecoveryRun,
@@ -46,6 +48,7 @@ def request_work(
             and work.status != "succeeded"
             and work.status != "cancelled"
             and not (work.reason == "authorization_changed" and work.recovery_run_id)
+            and not (work.reason == "feed_disabled" and work.recovery_run_id is None)
         ):
             return None
         if (
@@ -115,6 +118,11 @@ def discover_processing_work(db: Session, *, stage=None) -> int:
                 rows.c.work_status == "attention",
                 rows.c.work_reason == "authorization_changed",
                 rows.c.work_run_id.is_not(None),
+            ),
+            and_(
+                rows.c.work_status == "attention",
+                rows.c.work_reason == "feed_disabled",
+                rows.c.work_run_id.is_(None),
             ),
         ),
     )
@@ -251,6 +259,20 @@ def maintain_processing_work(db: Session) -> int:
     # cannot acquire their shared Run rows in opposite orders.
     admission_lock(db)
     now = datetime.now(timezone.utc)
+    disabled = db.scalars(
+        select(ProcessingWork)
+        .where(
+            ProcessingWork.stage == "article",
+            ProcessingWork.recovery_run_id.is_(None),
+            ProcessingWork.status.in_(("waiting", "queued", "retry_wait")),
+            ~_automatic_article_feed_enabled(),
+        )
+        .order_by(ProcessingWork.id)
+        .limit(get_settings().processing_dispatch_batch_size)
+        .with_for_update(skip_locked=True)
+    ).all()
+    for work in disabled:
+        fail_work(db, work, reason="feed_disabled", retryable=False)
     rows = db.scalars(
         select(ProcessingWork)
         .where(
@@ -290,7 +312,15 @@ def maintain_processing_work(db: Session) -> int:
         entry.state, entry.reason = "failed", "item_deleted"
         db.flush()
         settle_run(db, entry.run_id)
-    return len(rows) + len(orphaned)
+    return len(rows) + len(orphaned) + len(disabled)
+
+
+def _automatic_article_feed_enabled():
+    return exists(
+        select(Feed.id)
+        .join(Item, Item.feed_id == Feed.id)
+        .where(Item.id == ProcessingWork.item_id, Feed.enabled.is_(True))
+    )
 
 
 def prune_recovery_history(db: Session) -> int:
@@ -410,7 +440,14 @@ def prepare_processing_publications(
             order_by=(ProcessingWork.updated_at, ProcessingWork.id),
         )
         .label("feed_rank"),
-    ).where(eligible)
+    ).where(
+        eligible,
+        or_(
+            ProcessingWork.stage != "article",
+            ProcessingWork.recovery_run_id.is_not(None),
+            _automatic_article_feed_enabled(),
+        ),
+    )
     if stage:
         ranked = ranked.where(ProcessingWork.stage == stage)
     # Last attempt advances the ordering; repeated poison work cannot remain

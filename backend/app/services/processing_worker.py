@@ -15,6 +15,7 @@ from app.core.config import get_settings
 from app.db import session as session_module
 from app.db.budgets import DatabaseDeadlineExceeded, database_operation
 from app.models.article import Article
+from app.models.feed import Feed
 from app.models.item import Item
 from app.models.item_classification import ItemClassification
 from app.models.processing_work import ProcessingRecoveryRun, ProcessingWork
@@ -109,11 +110,25 @@ def _locked_attempt(
     if observed is None:
         raise ProcessingInterrupted("item_deleted")
     run_id = observed.recovery_run_id
+    automatic_feed_id = None
     if run_id:
         run = db.get(ProcessingRecoveryRun, run_id)
         if run is None:
             raise ProcessingInterrupted("cancelled")
         authorize_recovery_run(db, run, fence=True)
+    elif observed.stage == "article":
+        # Restore quarantine and ordinary feed disablement fence automatic
+        # outbound work, including publications made before the feed was paused.
+        # Feed precedes Work/Item to match ingestion and parent deletion order.
+        feed = db.execute(
+            select(Feed.id, Feed.enabled)
+            .join(Item, Item.feed_id == Feed.id)
+            .where(Item.id == observed.item_id)
+            .with_for_update(of=Feed, read=True)
+        ).one_or_none()
+        if feed is None or not feed.enabled:
+            raise ProcessingInterrupted("feed_disabled")
+        automatic_feed_id = feed.id
     work = db.scalar(
         select(ProcessingWork)
         .where(ProcessingWork.id == work_id)
@@ -134,6 +149,8 @@ def _locked_attempt(
     if item is None:
         raise ProcessingInterrupted("busy")
     if item.classification_required_version != work.source_version:
+        raise ProcessingInterrupted("source_changed")
+    if automatic_feed_id is not None and item.feed_id != automatic_feed_id:
         raise ProcessingInterrupted("source_changed")
     if work.stage == "article" and db.scalar(
         select(
