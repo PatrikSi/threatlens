@@ -35,6 +35,7 @@ from app.services.data_access_runtime import (
     ensure_alert_occurrence_data_access_envelope,
     lock_data_policy_revision_for_derivation,
 )
+from app.services.lifecycle_pruning import lock_history_dependants
 from app.services.lifecycle_pruning_contracts import PruningContext
 from app.services.lifecycle_scanning import (
     LifecycleScanStats,
@@ -705,6 +706,7 @@ def _delete_terminal_evaluation_ids(
     *,
     cutoff: datetime,
 ) -> int:
+    ids = lock_history_dependants(db, model=AlertEvaluationRequest, parent_ids=ids)
     if not ids:
         return 0
     result = db.execute(

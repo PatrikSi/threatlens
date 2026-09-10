@@ -61,6 +61,7 @@ from app.services.lifecycle_contracts import (
     TargetBatch,
     CandidateQuery as _CandidateQuery,
 )
+from app.services.lifecycle_pruning import incremental_pruning_candidates
 from app.services.lifecycle_pruning_contracts import PruningContext
 from app.services.lifecycle_scanning import (
     LifecycleScanStats,
@@ -615,10 +616,12 @@ def _partition_preview_rows(
         model=model,
         parent_ids=[row[0] for row in candidate_rows],
     )
-    return (
-        [row for row in candidate_rows if row[0] in eligible_ids],
-        len(oversized_ids),
+    incremental_ids = incremental_pruning_candidates(
+        db, model=model, parent_ids=list(oversized_ids),
+        max_dependent_rows=MAX_LIFECYCLE_DEPENDENT_ROWS_PER_BATCH,
     )
+    return ([row for row in candidate_rows if row[0] in eligible_ids | incremental_ids],
+            len(oversized_ids - incremental_ids))
 
 
 def _delete_generic(

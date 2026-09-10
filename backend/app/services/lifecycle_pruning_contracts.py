@@ -8,6 +8,7 @@ from sqlalchemy.sql.elements import ColumnElement
 class PruningContext:
     cutoff: datetime
     eligibility: ColumnElement[bool]
+    parent_row_budget: int = 10_000
 
 
 @dataclass(frozen=True)

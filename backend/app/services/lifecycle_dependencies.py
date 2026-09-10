@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from sqlalchemy import func, literal, select
 from sqlalchemy.orm import Session, aliased
@@ -32,7 +32,7 @@ from app.models.integration import (
 from app.models.mfa import UserTOTPCredential
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.report import Report
-from app.services.lifecycle_pruning import prune_oversized_parent
+from app.services.lifecycle_pruning import incremental_pruning_candidates, prune_oversized_parent
 from app.services.lifecycle_pruning_contracts import PruningContext
 
 
@@ -91,6 +91,11 @@ def select_with_dependent_budget(
         parent_ids=candidate_ids,
         max_rows_per_parent=bounded_budget,
     )
+    pruning_ids = incremental_pruning_candidates(
+        db, model=model,
+        parent_ids=[parent_id for parent_id, count in counts.items() if count > bounded_budget],
+        max_dependent_rows=bounded_budget,
+    ) if pruning is not None else set()
     selected: list[uuid.UUID] = []
     consumed = 0
     oversized = 0
@@ -102,9 +107,10 @@ def select_with_dependent_budget(
     for parent_id in candidate_ids:
         row_cost = int(counts.get(parent_id, 0))
         if row_cost > bounded_budget:
-            if pruning is not None and consumed < available_budget:
+            if parent_id in pruning_ids and pruning is not None and consumed < available_budget:
                 progress = prune_oversized_parent(
-                    db, model=model, parent_id=parent_id, context=pruning,
+                    db, model=model, parent_id=parent_id,
+                    context=replace(pruning, parent_row_budget=bounded_budget),
                     limit=available_budget - consumed,
                 )
                 consumed += progress.children_pruned

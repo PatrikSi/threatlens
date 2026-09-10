@@ -47,6 +47,7 @@ from app.services.data_access_runtime import (
 from app.services.integration_metric_data_policy import (
     integration_metric_policy_cohort_key,
 )
+from app.services.lifecycle_pruning import lock_history_dependants
 from app.services.lifecycle_pruning_contracts import PruningContext
 from app.services.lifecycle_scanning import (
     LifecycleScanStats,
@@ -666,20 +667,9 @@ def prune_integration_delivery_history(
     deleted_delivery_ids: list[uuid.UUID] = []
     data_access_envelopes_deleted = 0
     if eligible_delivery_ids:
-        retry_child = aliased(IntegrationDelivery)
-        linked_webhook = aliased(NotificationWebhookDelivery)
-        db.execute(
-            select(retry_child.id)
-            .where(retry_child.source_delivery_id.in_(eligible_delivery_ids))
-            .order_by(retry_child.id)
-            .with_for_update()
-        ).close()
-        db.execute(
-            select(linked_webhook.id)
-            .where(linked_webhook.integration_delivery_id.in_(eligible_delivery_ids))
-            .order_by(linked_webhook.id)
-            .with_for_update()
-        ).close()
+        eligible_delivery_ids = lock_history_dependants(
+            db, model=IntegrationDelivery, parent_ids=eligible_delivery_ids,
+        )
         revalidated_delivery_ids = list(
             db.scalars(
                 select(IntegrationDelivery.id).where(

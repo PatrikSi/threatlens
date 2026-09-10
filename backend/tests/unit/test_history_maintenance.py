@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.models.ai_provider_attempt_receipt import AIProviderAttemptReceipt
 from app.models.ai_task_event import AITaskEvent
@@ -19,7 +19,8 @@ from app.models.report import Report
 from app.models.system_health_sample import SystemHealthSample
 from app.models.tag import TagFeedbackEvent
 from app.models.user import User
-from app.services.history_maintenance import prune_application_history
+from app.services.history_maintenance import _delete_action_approval_history, prune_application_history
+from app.models.lifecycle_pruning import LifecyclePruningRecord
 
 
 def test_application_history_retention_prunes_only_expired_terminal_rows(
@@ -657,3 +658,39 @@ def _ai_provider_receipt(
         reconciled_at=reconciled_at,
         updated_at=timestamp,
     )
+
+
+def test_oversized_approval_receipts_drain_with_the_parent_retention_budget(db_session):
+    old = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    cutoff = old + timedelta(days=1)
+    user = User(email="incremental-approval@example.test", password_hash="unused", role="viewer")
+    db_session.add(user)
+    db_session.flush()
+    approval = _approval_record(created_at=old, status="denied", requester_id=user.id)
+    db_session.add(approval)
+    db_session.flush()
+    approval_id = approval.id
+    db_session.add_all(GovernanceOperationReceipt(
+        actor_user_id=user.id, operation="action_approval.read", key_hash=f"{index:064x}",
+        request_fingerprint="e" * 64, resource_type="action_approval", resource_id=approval_id,
+        response_json={}, http_status=200, created_at=old,
+    ) for index in range(25))
+    db_session.commit()
+    previous = 25
+    for _ in range(12):
+        _delete_action_approval_history(
+            db_session, cutoff=cutoff, now=cutoff, batch_size=5, max_dependent_rows=7,
+        )
+        db_session.commit()
+        db_session.expunge_all()
+        remaining = db_session.scalar(select(func.count()).select_from(GovernanceOperationReceipt).where(
+            GovernanceOperationReceipt.resource_type == "action_approval",
+            GovernanceOperationReceipt.resource_id == approval_id,
+        ))
+        assert 0 <= previous - remaining <= 7
+        previous = remaining
+        if db_session.get(ActionApprovalRequest, approval_id) is None:
+            break
+    assert previous == 0
+    assert db_session.get(ActionApprovalRequest, approval_id) is None
+    assert db_session.get(LifecyclePruningRecord, ("action_approval_requests", approval_id)) is None
