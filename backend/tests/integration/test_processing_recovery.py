@@ -265,6 +265,9 @@ def test_missing_classification_row_after_prior_success_is_discoverable_again(
     identity, token = _publication(env)
     assert worker.execute_processing_work(identity, token)["status"] == "succeeded"
     with Session(env.engine) as db:
+        # A newly missing committed result is a new obligation, even when its
+        # previous successful generation consumed the whole retry allowance.
+        db.get(ProcessingWork, identity).attempts = 5
         db.execute(
             delete(ItemClassification).where(ItemClassification.item_id == env.item_id)
         )
@@ -677,3 +680,153 @@ def test_failure_finalizer_reloads_cancelled_run_instead_of_restoring_retry(
         failure_db.commit()
         assert work.status == "cancelled" and work.next_retry_at is None
         assert failure_db.get(ProcessingRecoveryRun, stale.id).status == "cancelled"
+
+
+@pytest.mark.parametrize("stop_reason", ["cancelled", "authorization_changed"])
+def test_stopped_run_does_not_suppress_independent_automatic_obligation(
+    processing_env, stop_reason
+):
+    from app.services.processing_dispatch import fail_work
+
+    env = processing_env
+    run, _ = _accept(env)
+    identity, token = _publication(env)
+    assert worker.claim_processing_work(identity, token)
+    if stop_reason == "cancelled":
+        current = _status(env, run["id"])
+        response = env.client.post(
+            f"/processing/recovery-runs/{run['id']}/cancel",
+            json={"expected_version": current["version"]},
+            headers=env.headers,
+        )
+        assert response.status_code == 200
+    else:
+        with Session(env.engine) as db:
+            work = db.scalar(
+                select(ProcessingWork)
+                .where(ProcessingWork.id == identity)
+                .with_for_update()
+            )
+            fail_work(db, work, reason="authorization_changed", retryable=False)
+            db.commit()
+    with Session(env.engine) as db:
+        assert discover_processing_work(db, stage="classification") == 1
+        work = db.get(ProcessingWork, identity)
+        assert work.recovery_run_id is None and work.attempts == 1
+        db.commit()
+    replacement = _publication(env)
+    assert worker.execute_processing_work(*replacement)["status"] == "succeeded"
+    status = _status(env, run["id"])
+    assert status["status"] == ("cancelled" if stop_reason == "cancelled" else "failed")
+    assert status["completed_count"] == 0
+    with Session(env.engine) as db:
+        assert db.get(ProcessingWork, identity).attempts == 2
+
+
+def test_stopped_run_cannot_reset_automatic_attempt_allowance(processing_env):
+    env = processing_env
+    run, _ = _accept(env)
+    with Session(env.engine) as db:
+        work = db.scalar(
+            select(ProcessingWork).where(ProcessingWork.item_id == env.item_id)
+        )
+        work.attempts = 5
+        db.commit()
+    response = env.client.post(
+        f"/processing/recovery-runs/{run['id']}/cancel",
+        json={"expected_version": run["version"]},
+        headers=env.headers,
+    )
+    assert response.status_code == 200
+    with Session(env.engine) as db:
+        for _ in range(3):
+            assert discover_processing_work(db, stage="classification") == 0
+        assert (
+            db.scalar(
+                select(ProcessingWork.attempts).where(
+                    ProcessingWork.item_id == env.item_id
+                )
+            )
+            == 5
+        )
+
+
+def test_expired_published_token_cannot_claim_without_maintenance(processing_env):
+    env = processing_env
+    _accept(env)
+    identity, token = _publication(env)
+    with Session(env.engine) as db:
+        work = db.get(ProcessingWork, identity)
+        work.lease_expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        db.commit()
+    assert not worker.claim_processing_work(identity, token)
+    with Session(env.engine) as db:
+        assert db.get(ProcessingWork, identity).attempts == 0
+
+
+def test_expired_worker_cannot_commit_domain_results_without_maintenance(
+    processing_env, monkeypatch
+):
+    env = processing_env
+    _accept(env)
+    identity, token = _publication(env)
+    original = worker._settle_attempt
+
+    def expire_before_settlement(db, work):
+        work.lease_expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        original(db, work)
+
+    monkeypatch.setattr(worker, "_settle_attempt", expire_before_settlement)
+    assert worker.execute_processing_work(identity, token)["status"] == "retry_wait"
+    with Session(env.engine) as db:
+        assert db.get(ItemClassification, env.item_id) is None
+        assert db.get(ProcessingWork, identity).reason == "worker_interrupted"
+
+
+def test_terminal_cleanup_and_selected_retry_share_one_admission_boundary(
+    processing_env,
+):
+    from app.services.processing_dispatch import (
+        admission_lock,
+        fail_work,
+        prune_recovery_history,
+    )
+
+    env = processing_env
+    run, _ = _accept(env)
+    identity, token = _publication(env)
+    assert worker.claim_processing_work(identity, token)
+    with Session(env.engine) as db:
+        work = db.get(ProcessingWork, identity)
+        fail_work(db, work, reason="worker_failed", retryable=False)
+        db.get(ProcessingRecoveryRun, uuid.UUID(run["id"])).updated_at = datetime.now(
+            timezone.utc
+        ) - timedelta(days=8)
+        db.commit()
+    selected = _selection(env)
+    payload = {
+        "idempotency_key": str(uuid.uuid4()),
+        "items": [{key: selected[key] for key in ("item_id", "stage", "revision")}],
+    }
+    started = Event()
+
+    def accept():
+        started.set()
+        return env.client.post(
+            "/processing/recovery-runs", json=payload, headers=env.headers
+        )
+
+    with Session(env.engine) as cleanup_db, ThreadPoolExecutor(max_workers=1) as pool:
+        admission_lock(cleanup_db)
+        future = pool.submit(accept)
+        assert started.wait(5)
+        assert prune_recovery_history(cleanup_db) == 1
+        cleanup_db.commit()
+        response = future.result(timeout=10)
+        assert response.status_code == 202, response.text
+    with Session(env.engine) as db:
+        work = db.get(ProcessingWork, identity)
+        assert (
+            work.status == "waiting"
+            and str(work.recovery_run_id) == response.json()["id"]
+        )

@@ -4,16 +4,16 @@ from __future__ import annotations
 
 import logging
 import uuid
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
-from sqlalchemy import select
+from sqlalchemy import exists, func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.db import session as session_module
-from app.db.budgets import database_operation
+from app.db.budgets import DatabaseDeadlineExceeded, database_operation
 from app.models.article import Article
 from app.models.item import Item
 from app.models.item_classification import ItemClassification
@@ -69,7 +69,13 @@ def claim_processing_work(work_id: uuid.UUID, token: uuid.UUID) -> bool:
             .where(ProcessingWork.id == work_id)
             .with_for_update(skip_locked=True)
         )
-        if work is None or work.status != "queued" or work.claim_token != token:
+        if (
+            work is None
+            or work.status != "queued"
+            or work.claim_token != token
+            or work.lease_expires_at is None
+            or work.lease_expires_at <= datetime.now(timezone.utc)
+        ):
             return False
         if work.recovery_run_id:
             run = db.scalar(
@@ -121,6 +127,7 @@ def _locked_attempt(
         or work.recovery_run_id != run_id
     ):
         raise ProcessingInterrupted("stale_claim")
+    _check_lease(work)
     item = db.scalar(
         select(Item).where(Item.id == work.item_id).with_for_update(skip_locked=True)
     )
@@ -128,17 +135,19 @@ def _locked_attempt(
         raise ProcessingInterrupted("busy")
     if item.classification_required_version != work.source_version:
         raise ProcessingInterrupted("source_changed")
-    article = db.scalar(select(Article).where(Article.item_id == item.id))
-    if (
-        work.stage == "article"
-        and article is not None
-        and article.content_purged_at is not None
+    if work.stage == "article" and db.scalar(
+        select(
+            exists().where(
+                Article.item_id == item.id, Article.content_purged_at.is_not(None)
+            )
+        )
     ):
         raise ProcessingInterrupted("content_purged")
     return work
 
 
 def _settle_attempt(db: Session, work: ProcessingWork) -> None:
+    _check_lease(work)
     if work.recovery_run_id:
         run = db.scalar(
             select(ProcessingRecoveryRun)
@@ -153,22 +162,24 @@ def _settle_attempt(db: Session, work: ProcessingWork) -> None:
         authorize_recovery_run(db, run)
     db.flush()
     item = db.get(Item, work.item_id)
-    article = db.scalar(select(Article).where(Article.item_id == work.item_id))
-    classification = db.scalar(
-        select(ItemClassification.item_id).where(
-            ItemClassification.item_id == work.item_id
+    if work.stage == "article":
+        complete = item.status == "content_fetched" and db.scalar(
+            select(
+                exists().where(
+                    Article.item_id == item.id, func.length(func.trim(Article.text)) > 0
+                )
+            )
         )
-    )
-    complete = {
-        "article": article is not None
-        and bool((article.text or "").strip())
-        and item.status == "content_fetched",
-        "classification": classification is not None
-        and item.classification_completed_version
-        >= item.classification_required_version,
-        "ioc": item.ioc_extraction_state in {"completed", "completed_empty"},
-        "tagging": not item.tagging_pending,
-    }[work.stage]
+    elif work.stage == "classification":
+        complete = (
+            item.classification_completed_version
+            >= item.classification_required_version
+            and db.scalar(select(exists().where(ItemClassification.item_id == item.id)))
+        )
+    elif work.stage == "ioc":
+        complete = item.ioc_extraction_state in {"completed", "completed_empty"}
+    else:
+        complete = not item.tagging_pending
     if complete:
         work.status, work.reason = "succeeded", None
         work.claim_token = work.lease_expires_at = work.next_retry_at = None
@@ -186,13 +197,33 @@ def _settle_attempt(db: Session, work: ProcessingWork) -> None:
         fail_work(db, work, reason=reason, retryable=retryable)
 
 
+def _check_lease(work: ProcessingWork) -> None:
+    if work.lease_expires_at is None or work.lease_expires_at <= datetime.now(
+        timezone.utc
+    ):
+        raise ProcessingInterrupted("worker_interrupted")
+
+
 @contextmanager
-def _stage_session(work_id: uuid.UUID, token: uuid.UUID):
+def _stage_session(work_id: uuid.UUID, token: uuid.UUID, *, stage: str):
     with _new_stage_session() as db:
-        work = _locked_attempt(db, work_id, token)
-        yield db
-        _settle_attempt(db, work)
-        Session.commit(db)
+        budget = (
+            database_operation(db, operation="repair")
+            if stage != "article"
+            else nullcontext()
+        )
+        with budget:
+            work = _locked_attempt(db, work_id, token)
+            yield db
+            lease_expires_at = work.lease_expires_at
+            _settle_attempt(db, work)
+            # A settlement that waited on Run must not acknowledge an expired
+            # lease merely because maintenance has not reclaimed it yet.
+            if lease_expires_at is None or lease_expires_at <= datetime.now(
+                timezone.utc
+            ):
+                raise ProcessingInterrupted("worker_interrupted")
+            Session.commit(db)
 
 
 def _processing_dependencies(factory) -> ItemProcessingDependencies:
@@ -241,11 +272,18 @@ def execute_processing_work(work_id: uuid.UUID, token: uuid.UUID) -> dict[str, s
             if work is None:
                 return {"status": "skipped", "reason": "item_deleted"}
             stage, item_id = work.stage, work.item_id
-        _run_stage(stage, item_id, lambda: _stage_session(work_id, token))
+        _run_stage(stage, item_id, lambda: _stage_session(work_id, token, stage=stage))
     except (ExportJobAccessDenied, AuthorizationStateUnavailable, DataPolicyError):
         _record_failure(work_id, token, "authorization_changed", retryable=False)
     except ProcessingInterrupted as exc:
-        _record_failure(work_id, token, exc.reason, retryable=exc.reason == "busy")
+        _record_failure(
+            work_id,
+            token,
+            exc.reason,
+            retryable=exc.reason in {"busy", "worker_interrupted"},
+        )
+    except DatabaseDeadlineExceeded:
+        _record_failure(work_id, token, "database_deadline", retryable=True)
     except Exception as exc:
         logger.warning(
             "processing_attempt_failed work_id=%s error_type=%s",
