@@ -182,3 +182,18 @@ def test_export_resource_budget_preserves_processing_cpu_priority():
     assert services["worker-exports"]["cpu_shares"] < services["worker"]["cpu_shares"]
     assert services["worker-exports"]["cpu_shares"] < services["api"]["cpu_shares"]
     assert "/tmp:rw,noexec,nosuid,size=1g,mode=1777" in services["worker-exports"]["tmpfs"]
+
+
+def test_release_smoke_pins_every_backend_service_including_migrations():
+    # Read the generated override as YAML: omitted services would silently pull
+    # a tag unrelated to the exact candidate image under release verification.
+    workflow = yaml.safe_load((ROOT / ".github/workflows/publish-images.yml").read_text())
+    commands = [step.get("run", "") for job in workflow["jobs"].values() for step in job.get("steps", [])]
+    script = next(command for command in commands if 'release-images.yml" <<EOF' in command)
+    override = yaml.safe_load(script.split('release-images.yml" <<EOF\n', 1)[1].split('\nEOF', 1)[0])
+    services = yaml.safe_load((ROOT / "docker-compose.yml").read_text())["services"]
+    backend = {name for name in services if name not in {"web", "db", "redis"}}
+    assert backend <= override["services"].keys()
+    for name in backend:
+        assert override["services"][name]["image"] == "${backend_ref}"
+        assert override["services"][name]["platform"] == "${{ matrix.platform }}"
