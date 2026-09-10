@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from dataclasses import dataclass
+import uuid
 
-from sqlalchemy import or_
+from sqlalchemy import or_, select
+from sqlalchemy.orm import Session
 
 from app.models.article import Article
+from app.models.feed import Feed
+from app.models.item import Item
 
 RETRYABLE_ARTICLE_HTTP_STATUSES = {429, 500, 502, 503, 504}
 RETRYABLE_ARTICLE_ERRORS = (
@@ -24,6 +29,23 @@ SOFT_REPAIRABLE_ARTICLE_ERRORS = (
 SOFT_REPAIRABLE_ARTICLE_ERROR_PREFIXES = ("readability_error:",)
 ARTICLE_REPAIR_SOFT_RETRY_DELAY = timedelta(hours=1)
 _EARLIEST_ARTICLE_REPAIR_AT = datetime(1970, 1, 1, tzinfo=timezone.utc)
+
+
+@dataclass(frozen=True, slots=True)
+class ArticleFeedState:
+    feed_id: uuid.UUID
+    enabled: bool
+
+
+def lock_article_feed(db: Session, item_id: uuid.UUID) -> ArticleFeedState | None:
+    """Fence feed mutations before claiming an item; recheck its feed after claiming."""
+    feed = db.execute(
+        select(Feed.id, Feed.enabled)
+        .join(Item, Item.feed_id == Feed.id)
+        .where(Item.id == item_id)
+        .with_for_update(of=Feed, read=True)
+    ).one_or_none()
+    return ArticleFeedState(feed.id, feed.enabled) if feed else None
 
 
 def article_fetch_repair_cutoff(
@@ -100,9 +122,7 @@ def article_repair_predicate(
     *, dispatch_after_seconds: int, now: datetime | None = None
 ):
     """One eligibility policy for legacy discovery and durable repair admission."""
-    from sqlalchemy import and_, exists, select
-    from app.models.feed import Feed
-    from app.models.item import Item
+    from sqlalchemy import and_, exists
 
     cutoff = article_fetch_repair_cutoff(
         dispatch_after_seconds=dispatch_after_seconds, now=now

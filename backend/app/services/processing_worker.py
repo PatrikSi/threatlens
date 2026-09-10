@@ -15,10 +15,10 @@ from app.core.config import get_settings
 from app.db import session as session_module
 from app.db.budgets import DatabaseDeadlineExceeded, database_operation
 from app.models.article import Article
-from app.models.feed import Feed
 from app.models.item import Item
 from app.models.item_classification import ItemClassification
 from app.models.processing_work import ProcessingRecoveryRun, ProcessingWork
+from app.services.article_recovery import lock_article_feed
 from app.services.authorization import AuthorizationStateUnavailable
 from app.services.data_access_policy import DataPolicyError
 from app.services.export_job_access import ExportJobAccessDenied
@@ -120,15 +120,10 @@ def _locked_attempt(
         # Restore quarantine and ordinary feed disablement fence automatic
         # outbound work, including publications made before the feed was paused.
         # Feed precedes Work/Item to match ingestion and parent deletion order.
-        feed = db.execute(
-            select(Feed.id, Feed.enabled)
-            .join(Item, Item.feed_id == Feed.id)
-            .where(Item.id == observed.item_id)
-            .with_for_update(of=Feed, read=True)
-        ).one_or_none()
+        feed = lock_article_feed(db, observed.item_id)
         if feed is None or not feed.enabled:
             raise ProcessingInterrupted("feed_disabled")
-        automatic_feed_id = feed.id
+        automatic_feed_id = feed.feed_id
     work = db.scalar(
         select(ProcessingWork)
         .where(ProcessingWork.id == work_id)
@@ -262,6 +257,9 @@ def _run_stage(stage: str, item_id: uuid.UUID, factory):
         return run_fetch_article(
             task,
             str(item_id),
+            # The stage session checks either current accepting authority or
+            # automatic feed eligibility before acquiring Work/Item locks.
+            source_access_fenced=True,
             dependencies=ArticleFetchDependencies(
                 db_session=factory,
                 settings=ArticleFetchOptions.from_settings(get_settings()),
