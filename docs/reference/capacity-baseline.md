@@ -333,3 +333,32 @@ that default. The recovery test verifies zero result subscriptions/rows and
 successful post-restart publication without restarting the producer. Future
 features that need Celery result retrieval or chords must design and validate
 that separate result-consumer lifecycle explicitly.
+
+
+### Hardening workload contract
+
+The mixed harness now uses an explicit **16-connection pool with zero overflow**
+shared by its logical API, worker and measurement threads. This is an aggregate
+simulation budget; deployed processes use the separate budgets in
+[runtime budgets](../pages/runtime-budgets.md). Results from the old pool or
+workload contract are intentionally incompatible.
+
+Each run starts two real durable export generators concurrently, with separate
+credentials and disjoint halves of the retained article catalog, alongside the
+mixed workload. It checks encrypted source membership, item progress and artifact
+size, then requires both exports to publish after governance changes settle.
+There are at most four retained jobs. The large profile gives each lane 1,000
+articles with 64 KiB bodies. Policy changes during generation may reject a job;
+other failures fail the workload. These few paired samples test correctness and
+contention, not a statistically meaningful asynchronous-export percentile.
+Container resource isolation and prefork crash recovery are separate probes.
+
+For release qualification, run `Capacity release comparison` with the dedicated
+`threatlens-capacity` runner label and a stable `target_id` identifying the intended
+hardware and cgroup profile. Use an isolated, disposable runner with Docker access
+and no production mounts or credentials. This manually triggered workflow executes
+both selected revisions, so only trusted maintainers should choose refs on a
+self-hosted runner. The default hosted runner provides a reference comparison;
+it does not certify a deployment's capacity. Retain the JSON and comparison
+artifacts with the release, and repeat sustained and recovery profiles after
+material worker, database, ingestion or export changes.
