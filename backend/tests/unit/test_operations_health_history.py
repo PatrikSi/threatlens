@@ -174,6 +174,27 @@ def test_health_sampler_is_idempotent_per_five_minute_bucket(db_session):
     assert first.warning_issue_count == 1
 
 
+def test_health_history_preserves_export_queue_incidents(db_session):
+    observed_at = datetime(2026, 9, 1, 12, 0, tzinfo=timezone.utc)
+    topology = _topology(observed_at).model_copy(
+        update={
+            "missing_queues": ["exports-v1"],
+            "stale_execution_queues": ["exports-v1"],
+            "status": "critical",
+            "reason": "missing_consumers",
+        }
+    )
+    record_system_health_sample(
+        db_session, overview=_overview(observed_at), worker_topology=topology
+    )
+    db_session.expire_all()
+    result = collect_health_history(
+        db_session, window="1h", now=observed_at, settings=_settings()
+    )
+    assert result.samples[0].missing_queues == ["exports-v1"]
+    assert result.samples[0].stale_execution_queues == ["exports-v1"]
+
+
 def test_health_history_preserves_unknown_worker_load_as_null(db_session):
     observed_at = datetime(2026, 9, 1, 12, 0, tzinfo=timezone.utc)
     topology = _topology(observed_at).model_copy(
