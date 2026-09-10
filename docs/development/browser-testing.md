@@ -82,6 +82,9 @@ control invokes the real export worker entrypoint at a chosen time. Generation,
 authorization checks, Redis locking, encrypted PostgreSQL artifacts, status, and
 download use production code; these cases do not establish broker delivery or
 worker restart recovery. Export scratch files use the run's temporary directory.
+Processing recovery cases likewise advance one accepted selection through the
+real promotion, publication, and worker helpers under a fixture control; the
+remaining selection stays waiting so cancellation can be exercised reliably.
 
 The server suite verifies:
 
@@ -102,6 +105,10 @@ The server suite verifies:
   return and browser download with verified article contents; cancellation;
   rejection after accepting-session expiry, and isolation from another owner.
   The rendered export workspace with a ready job also runs the same axe rules.
+- Processing worklist selection by keyboard, real acceptance, a saved run URL
+  reopened after navigation, committed classification progress, cancellation of
+  the remaining selection, reload persistence, and isolation from another owner.
+  The resulting recovery workspace also runs the same axe rules.
 
 Axe runs its WCAG 2 A/AA, 2.1 A/AA, and 2.2 AA tagged rules without blanket rule
 exclusions. Reports retain violations and results requiring manual review.

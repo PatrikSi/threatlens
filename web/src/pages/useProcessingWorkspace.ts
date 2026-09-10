@@ -112,7 +112,7 @@ export function useProcessingWorkspace() {
       lease.assertCurrent()
       if (!mounted.current || current.current.location !== origin) return
       setCancelReview(null)
-      setNotice('Cancellation recorded. Already committed processing results are preserved.')
+      setNotice('Recovery cancellation recorded. Committed results are preserved; normal background processing may continue independently.')
     },
     onError: (error) => {
       if (processingConflict(error) || processingAccessError(error)) {
