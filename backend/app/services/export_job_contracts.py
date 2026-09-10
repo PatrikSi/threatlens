@@ -17,6 +17,15 @@ ExportTerminalStatus = Literal["failed", "cancelled", "expired"]
 EXPORT_CHUNK_BYTES = 256 * 1024
 
 
+class CredentialBoundWork(Protocol):
+    """Minimal persisted authority/source boundary shared by durable work."""
+
+    principal_type: str
+    principal_id: uuid.UUID
+    authorization_encrypted: dict
+    source_encrypted: dict | None
+
+
 class ExportAuthorizationSnapshot(BaseModel):
     """Immutable accepting scope; JSON remains compatible with existing jobs."""
 

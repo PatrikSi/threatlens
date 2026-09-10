@@ -42,6 +42,7 @@ from app.models.data_policy import (
 )
 from app.models.feed import Feed
 from app.models.export_job import ExportJob, ExportJobChunk
+from app.models.processing_work import ProcessingWork, ProcessingRecoveryRun, ProcessingRecoveryItem
 from app.models.governance_operation_receipt import GovernanceOperationReceipt
 from app.models.ioc import IOC, ItemIOC
 from app.models.integration import (
