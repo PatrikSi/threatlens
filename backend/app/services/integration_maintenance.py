@@ -4,7 +4,7 @@ import uuid
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import String, cast, delete, exists, func, or_, select, text
+from sqlalchemy import String, and_, cast, delete, exists, func, or_, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session, aliased
 
@@ -47,6 +47,7 @@ from app.services.data_access_runtime import (
 from app.services.integration_metric_data_policy import (
     integration_metric_policy_cohort_key,
 )
+from app.services.lifecycle_pruning_contracts import PruningContext
 from app.services.lifecycle_scanning import (
     LifecycleScanStats,
     lifecycle_candidate_window,
@@ -653,6 +654,7 @@ def prune_integration_delivery_history(
             candidate_ids=eligible_delivery_ids,
             max_dependent_rows=max_dependent_rows,
             max_parent_records=effective_batch_size,
+            pruning=PruningContext(delivery_cutoff, and_(*_integration_delivery_retention_predicates(cutoff=delivery_cutoff))),
         )
         delivery_window.advance(selection)
         eligible_delivery_ids = selection.ids
@@ -885,6 +887,7 @@ def prune_integration_delivery_history(
             candidate_ids=metric_ids,
             max_dependent_rows=max_dependent_rows,
             max_parent_records=effective_batch_size,
+            pruning=PruningContext(metrics_cutoff, IntegrationDeliveryMetric.bucket_start < metrics_cutoff),
         )
         metric_window.advance(metric_selection)
         metric_ids = metric_selection.ids
