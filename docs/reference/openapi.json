@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "1.10.0",
-    "x-threatlens-contract-sha256": "67fd155a8ceb7c6b28e134c5725c0c3349ffcc9b19672ce7e49b0bd4bda72c44"
+    "x-threatlens-contract-sha256": "ad173aadf90b21a9ac6379d181fd2a7fae12faf7dce583fb71e44072df523438"
   },
   "servers": [
     {
@@ -2907,6 +2907,534 @@
         },
         "x-threatlens-required-token-scopes": [
           "read:items"
+        ]
+      }
+    },
+    "/v1/processing/work": {
+      "get": {
+        "tags": [
+          "processing"
+        ],
+        "summary": "Get Processing Work",
+        "operationId": "get_processing_work_v1_processing_work_get",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "stage",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "article",
+                    "classification",
+                    "ioc",
+                    "tagging"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Stage"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "pending",
+                    "queued",
+                    "running",
+                    "retry_wait",
+                    "attention"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "State"
+            }
+          },
+          {
+            "name": "feed_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Feed Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProcessingWorkList"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "read:operations",
+          "read:items"
+        ]
+      }
+    },
+    "/v1/processing/recovery-runs": {
+      "post": {
+        "tags": [
+          "processing"
+        ],
+        "summary": "Post Processing Recovery",
+        "operationId": "post_processing_recovery_v1_processing_recovery_runs_post",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProcessingRecoveryRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProcessingRecoveryResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "write:operations",
+          "read:items"
+        ]
+      },
+      "get": {
+        "tags": [
+          "processing"
+        ],
+        "summary": "Get Processing Recoveries",
+        "operationId": "get_processing_recoveries_v1_processing_recovery_runs_get",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 25,
+              "minimum": 1,
+              "default": 25,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProcessingRecoveryList"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "read:operations",
+          "read:items"
+        ]
+      }
+    },
+    "/v1/processing/recovery-runs/{run_id}": {
+      "get": {
+        "tags": [
+          "processing"
+        ],
+        "summary": "Get Processing Recovery",
+        "operationId": "get_processing_recovery_v1_processing_recovery_runs__run_id__get",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProcessingRecoveryResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "read:operations",
+          "read:items"
+        ]
+      }
+    },
+    "/v1/processing/recovery-runs/{run_id}/cancel": {
+      "post": {
+        "tags": [
+          "processing"
+        ],
+        "summary": "Post Processing Recovery Cancel",
+        "operationId": "post_processing_recovery_cancel_v1_processing_recovery_runs__run_id__cancel_post",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProcessingRecoveryCancel"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProcessingRecoveryResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "write:operations"
         ]
       }
     },
@@ -44071,6 +44599,32 @@
             "title": "Backlog Stale Count",
             "default": 0
           },
+          "backlogs": {
+            "items": {
+              "$ref": "#/components/schemas/OperationsBacklogSnapshot"
+            },
+            "type": "array",
+            "maxItems": 8,
+            "title": "Backlogs"
+          },
+          "runtime_metrics": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "object",
+            "maxProperties": 32,
+            "title": "Runtime Metrics"
+          },
           "critical_issue_count": {
             "type": "integer",
             "maximum": 2000000000.0,
@@ -45053,6 +45607,425 @@
           "delegable"
         ],
         "title": "PermissionResponse"
+      },
+      "ProcessingRecoveryCancel": {
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Version"
+          }
+        },
+        "type": "object",
+        "required": [
+          "expected_version"
+        ],
+        "title": "ProcessingRecoveryCancel"
+      },
+      "ProcessingRecoveryItemResponse": {
+        "properties": {
+          "item_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Item Id"
+          },
+          "stage": {
+            "type": "string",
+            "enum": [
+              "article",
+              "classification",
+              "ioc",
+              "tagging"
+            ],
+            "title": "Stage"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "failed",
+              "cancelled"
+            ],
+            "title": "State"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "feed_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feed Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "item_id",
+          "stage",
+          "state",
+          "reason",
+          "message",
+          "title",
+          "feed_name"
+        ],
+        "title": "ProcessingRecoveryItemResponse"
+      },
+      "ProcessingRecoveryList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ProcessingRecoveryResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "has_more": {
+            "type": "boolean",
+            "title": "Has More"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "next_cursor",
+          "has_more"
+        ],
+        "title": "ProcessingRecoveryList"
+      },
+      "ProcessingRecoveryRequest": {
+        "properties": {
+          "idempotency_key": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Idempotency Key"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ProcessingSelection"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "idempotency_key",
+          "items"
+        ],
+        "title": "ProcessingRecoveryRequest"
+      },
+      "ProcessingRecoveryResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "partial",
+              "cancelled",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "total_count": {
+            "type": "integer",
+            "title": "Total Count"
+          },
+          "completed_count": {
+            "type": "integer",
+            "title": "Completed Count"
+          },
+          "failed_count": {
+            "type": "integer",
+            "title": "Failed Count"
+          },
+          "cancelled_count": {
+            "type": "integer",
+            "title": "Cancelled Count"
+          },
+          "can_cancel": {
+            "type": "boolean",
+            "title": "Can Cancel"
+          },
+          "access_limited": {
+            "type": "boolean",
+            "title": "Access Limited",
+            "default": false
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ProcessingRecoveryItemResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "version",
+          "status",
+          "created_at",
+          "updated_at",
+          "total_count",
+          "completed_count",
+          "failed_count",
+          "cancelled_count",
+          "can_cancel",
+          "items"
+        ],
+        "title": "ProcessingRecoveryResponse"
+      },
+      "ProcessingSelection": {
+        "properties": {
+          "item_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Item Id"
+          },
+          "stage": {
+            "type": "string",
+            "enum": [
+              "article",
+              "classification",
+              "ioc",
+              "tagging"
+            ],
+            "title": "Stage"
+          },
+          "revision": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Revision"
+          }
+        },
+        "type": "object",
+        "required": [
+          "item_id",
+          "stage",
+          "revision"
+        ],
+        "title": "ProcessingSelection"
+      },
+      "ProcessingWorkList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ProcessingWorkResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "has_more": {
+            "type": "boolean",
+            "title": "Has More"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "next_cursor",
+          "has_more"
+        ],
+        "title": "ProcessingWorkList"
+      },
+      "ProcessingWorkResponse": {
+        "properties": {
+          "item_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Item Id"
+          },
+          "stage": {
+            "type": "string",
+            "enum": [
+              "article",
+              "classification",
+              "ioc",
+              "tagging"
+            ],
+            "title": "Stage"
+          },
+          "revision": {
+            "type": "string",
+            "title": "Revision"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "feed_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Feed Id"
+          },
+          "feed_name": {
+            "type": "string",
+            "title": "Feed Name"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "queued",
+              "running",
+              "retry_wait",
+              "attention"
+            ],
+            "title": "State"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "first_seen_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "First Seen At"
+          },
+          "age_seconds": {
+            "type": "integer",
+            "title": "Age Seconds"
+          },
+          "attempts": {
+            "type": "integer",
+            "title": "Attempts"
+          },
+          "next_retry_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Retry At"
+          },
+          "can_retry": {
+            "type": "boolean",
+            "title": "Can Retry"
+          }
+        },
+        "type": "object",
+        "required": [
+          "item_id",
+          "stage",
+          "revision",
+          "title",
+          "feed_id",
+          "feed_name",
+          "state",
+          "reason",
+          "message",
+          "first_seen_at",
+          "age_seconds",
+          "attempts",
+          "next_retry_at",
+          "can_retry"
+        ],
+        "title": "ProcessingWorkResponse"
       },
       "ReadUpdateRequest": {
         "properties": {
