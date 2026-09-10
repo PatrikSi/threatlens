@@ -42,6 +42,7 @@ REASONS = {
     "article_failed": "The source could not be fetched or extracted.",
     "tagging_incomplete": "One or more tagging rules could not be evaluated completely.",
     "busy": "Another worker currently owns this item. Recovery will retry later.",
+    "database_deadline": "Processing exceeded its database operation budget. Recovery will retry later.",
 }
 
 
@@ -76,7 +77,7 @@ def stage_statement(stage: ProcessingStage):
     same_source = ProcessingWork.source_version == Item.classification_required_version
     work_active = ProcessingWork.status.in_(("waiting", "queued", "running"))
     work_incomplete = and_(
-        same_source, ProcessingWork.status.in_(("retry_wait", "attention"))
+        same_source, ProcessingWork.status.in_(("retry_wait", "attention", "cancelled"))
     )
     fallback_state = (
         case((Item.tagging_retry_at.is_(None), "attention"), else_="retry_wait")
@@ -85,6 +86,7 @@ def stage_statement(stage: ProcessingStage):
     )
     state = case(
         (ProcessingWork.status == "waiting", "queued"),
+        (and_(same_source, ProcessingWork.status == "cancelled"), "attention"),
         (or_(work_active, work_incomplete), ProcessingWork.status),
         else_=fallback_state,
     )
@@ -111,6 +113,9 @@ def stage_statement(stage: ProcessingStage):
             ProcessingWork.generation,
             ProcessingWork.status.label("work_status"),
             ProcessingWork.source_version.label("work_source_version"),
+            ProcessingWork.reason.label("work_reason"),
+            ProcessingWork.recovery_run_id.label("work_run_id"),
+            missing.label("domain_pending"),
             state.label("state"),
             case(
                 (or_(work_active, work_incomplete), ProcessingWork.reason), else_=None
@@ -141,7 +146,7 @@ def stage_statement(stage: ProcessingStage):
             ProcessingWork,
             and_(ProcessingWork.item_id == Item.id, ProcessingWork.stage == stage),
         )
-        .where(or_(missing, work_active, work_incomplete))
+        .where(or_(missing, work_active))
     )
     if stage == "article":
         statement = statement.where(

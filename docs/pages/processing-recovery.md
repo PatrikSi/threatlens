@@ -28,7 +28,10 @@ returns 403. Own-run cancellation needs current `write:operations`, even when
 source details are no longer available.
 
 Cancellation takes an `expected_version`. Refresh after a conflict. It prevents
-remaining stage commits and keeps already committed results counted. A worker
+remaining selected-run stage commits and keeps already committed results counted.
+Normal automatic processing can still satisfy an independent pending obligation;
+that later result is not counted in the cancelled run. Cancellation or accepting-
+credential expiry does not reset the automatic per-source attempt allowance. A worker
 already fetching an article may finish its bounded network request before its
 database changes are discarded. Cancellation cannot undo that HTTP request.
 Recovery does not directly replay AI-provider calls or integration-delivery tasks.
@@ -74,12 +77,13 @@ ambiguous; they retain this claim instead of immediately publishing another copy
 Resume the processing consumer/canary to recover an uncertain or lost message.
 The canary must execute on the same queue as processing work.
 
-Database-only discovery, admission, cancellation, maintenance and status units use
+Database-only discovery, admission, cancellation, maintenance, local stage execution and status units use
 `database_operation` deadlines. Existing outbound fetch deadlines bound article
 requests; the database-only budget is not incorrectly applied across a remote
 request. A stage can still spend CPU time in extraction/classification; worker
 process limits and the existing bounded regex and IOC extraction protect those
-paths. The claim lease is recovery eligibility, not an absolute CPU deadline.
+paths. An expired lease rejects both claim acceptance and domain commit even before
+maintenance reclaims it. It is not an absolute CPU preemption deadline.
 
 ## API and retention
 

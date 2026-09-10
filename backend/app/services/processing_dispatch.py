@@ -44,12 +44,26 @@ def request_work(
             not force
             and work.source_version == row.source_version
             and work.status != "succeeded"
+            and work.status != "cancelled"
+            and not (work.reason == "authorization_changed" and work.recovery_run_id)
+        ):
+            return None
+        if (
+            not force
+            and work.source_version == row.source_version
+            and work.status != "succeeded"
+            and work.attempts >= get_settings().processing_max_attempts
         ):
             return None
         update_recovery_item(db, work, state="failed", reason="source_changed")
         work.generation += 1
         work.version += 1
-        work.attempts = 0
+        if (
+            force
+            or work.source_version != row.source_version
+            or work.status == "succeeded"
+        ):
+            work.attempts = 0
     else:
         work = ProcessingWork(
             item_id=row.item_id,
@@ -91,6 +105,18 @@ def discover_processing_work(db: Session, *, stage=None) -> int:
         return 0
     rows = work_query(stage=stage)
     now = datetime.now(timezone.utc)
+    detached_retry = and_(
+        rows.c.domain_pending,
+        rows.c.attempts < settings.processing_max_attempts,
+        or_(
+            rows.c.work_status == "cancelled",
+            and_(
+                rows.c.work_status == "attention",
+                rows.c.work_reason == "authorization_changed",
+                rows.c.work_run_id.is_not(None),
+            ),
+        ),
+    )
     ranked = (
         select(
             rows,
@@ -105,12 +131,13 @@ def discover_processing_work(db: Session, *, stage=None) -> int:
             or_(
                 rows.c.work_status == "waiting",
                 and_(
-                    rows.c.state.in_(("pending", "retry_wait")),
+                    or_(rows.c.state.in_(("pending", "retry_wait")), detached_retry),
                     or_(rows.c.next_retry_at.is_(None), rows.c.next_retry_at <= now),
                     or_(
                         rows.c.work_id.is_(None),
                         rows.c.work_source_version != rows.c.source_version,
                         rows.c.work_status == "succeeded",
+                        detached_retry,
                     ),
                     or_(
                         rows.c.stage != "article",
