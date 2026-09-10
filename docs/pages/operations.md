@@ -99,6 +99,10 @@ by this runbook.
 
 ## Diagnose system health
 
+The **Processing** view provides a scoped list of incomplete pipeline work and
+targeted, resumable recovery runs. See [Processing recovery](processing.md) for
+selection, permissions, retry, and cancellation semantics.
+
 The System health workspace separates current evidence, retained trends, and
 operator activity so that one green check cannot mask an unrelated failure. Live
 health refreshes every 30 seconds and organizes PostgreSQL, Redis, scheduler,

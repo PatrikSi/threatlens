@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Download, RefreshCw } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
@@ -30,6 +30,7 @@ import {
 } from './operationsHealthPresentation'
 import { OperationsRecoveryActivity } from './OperationsRecoveryActivity'
 import { OperationsStatusChip } from './OperationsStatus'
+import { ProcessingWorkspace } from './ProcessingWorkspace'
 
 const OVERVIEW_REFRESH_MS = 30_000
 const HEALTH_HISTORY_REFRESH_MS = 5 * 60_000
@@ -37,6 +38,7 @@ const OVERVIEW_STALE_AFTER_MS = 90_000
 const RUN_PAGE_SIZE = 20
 
 export function OperationsPage() {
+  const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
   const activeView = readOperationsView(searchParams.get('view'))
   const selectedWindow = readOperationsWindow(searchParams.get('range'))
@@ -155,6 +157,7 @@ export function OperationsPage() {
     void overviewQuery.refetch()
     if (activeView === 'trends') void historyQuery.refetch()
     else if (activeView === 'activity') void runsQuery.refetch()
+    else if (activeView === 'processing') void queryClient.invalidateQueries({ queryKey: ['processing'] })
     else if (selectedSignalKey === 'workers') void workerQuery.refetch()
   }
   const activeDatasetFetching = overviewQuery.isFetching ||
@@ -437,6 +440,7 @@ function OperationsWorkspace({
           onStatusChange={onStatusChange}
         />
       )}
+      {activeView === 'processing' && <ProcessingWorkspace />}
     </section>
   )
 }

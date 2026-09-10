@@ -1,7 +1,9 @@
+import { Link } from 'react-router-dom'
 import { resolveApiErrorMessage } from '../api/errors'
 import { SettingsPageHeader, SettingsReadOnlyNotice } from '../components/SettingsPageHeader'
 import { BUILTIN_CATEGORIES, formatTaggingCategory } from './taggingSettingsModel'
 import { TaggingSettingsController } from './useTaggingSettingsController'
+import { hasRequiredPermissions } from '../workspace/workspaceModel'
 
 type TaggingPanelProps = {
   controller: TaggingSettingsController
@@ -63,6 +65,11 @@ function TaggingRecoveryStatus({ controller }: TaggingPanelProps) {
         Correct the reported rule, source, or worker issue, then queue retagging for the affected time window.
         Items that need attention are included when they fall within that window and its limit.
       </p>
+      {hasRequiredPermissions(controller.currentUserQuery.data?.access?.permissions ?? [], ['read:operations', 'read:items']) && (
+        <Link className="mt-2 inline-flex min-h-11 items-center font-semibold underline" to="/settings/operations?view=processing&work_stage=tagging">
+          Inspect incomplete tagging and select individual items for recovery
+        </Link>
+      )}
     </section>
   )
 }
