@@ -75,6 +75,7 @@ This documentation covers:
   tagging, tokens, users, and audit logs
 - [AI](./pages/ai.md)
 - [Database privileges and upgrades](./pages/database-privileges.md)
+- [Runtime resource and database budgets](./pages/runtime-budgets.md)
+- [Processing freshness and pressure history](./pages/processing-freshness.md)
 - [PostgreSQL Backup and Recovery](./pages/operations.md)
 
-- [Runtime resource and database budgets](pages/runtime-budgets.md)

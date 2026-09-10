@@ -250,6 +250,8 @@ class OperationsHealthHistoryPoint(BaseModel):
     stale_execution_queues: list[str] = Field(default_factory=list, max_length=16)
     backlog_pending_count: int = Field(default=0, ge=0, le=2_000_000_000)
     backlog_stale_count: int = Field(default=0, ge=0, le=2_000_000_000)
+    backlogs: list[OperationsBacklogSnapshot] = Field(default_factory=list, max_length=8)
+    runtime_metrics: dict[str, int | float | None] = Field(default_factory=dict, max_length=32)
     critical_issue_count: int = Field(default=0, ge=0, le=2_000_000_000)
     warning_issue_count: int = Field(default=0, ge=0, le=2_000_000_000)
     issue_codes: list[str] = Field(default_factory=list, max_length=32)

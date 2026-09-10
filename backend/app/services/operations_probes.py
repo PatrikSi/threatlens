@@ -25,6 +25,7 @@ from app.services.encrypted_data_inventory import (
 from app.services.operations_common import issue, safe_db_probe, safe_probe
 from app.services.operations_redaction import safe_reason, safe_revision, safe_string_list
 from app.services.queue_execution_canaries import required_worker_queues
+from app.services.operations_runtime import collect_runtime_capacity
 from app.version import get_app_version
 
 
@@ -70,6 +71,9 @@ def collect_component_checks(
             ),
         ]
     )
+    components.append(collect_runtime_capacity(
+        db, checked_at=checked_at, database_ok=database_ok, issues=issues
+    ))
     return database_ok, components
 
 
