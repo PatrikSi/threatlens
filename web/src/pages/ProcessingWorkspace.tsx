@@ -73,7 +73,8 @@ function ProcessingRecoveryDialogs({ controller }: { controller: ProcessingWorks
       <ConfirmDialog open={Boolean(cancelReview)} title="Cancel remaining recovery work?" confirmLabel="Cancel remaining work"
         isConfirming={cancelRun.isPending} confirmDisabled={!canWrite} onCancel={controller.closeCancel}
         onConfirm={() => { if (cancelReview) cancelRun.mutate(cancelReview) }}>
-        <p>Cancellation stops remaining selected work. Already committed processing results are preserved.</p>
+        <p>Cancellation stops this recovery run’s remaining selections. Already committed processing results are preserved.
+          {' '}Normal background processing may continue independently.</p>
         {cancelRun.isError && <p role="alert">{controller.error}</p>}
       </ConfirmDialog>
     </>

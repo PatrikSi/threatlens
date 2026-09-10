@@ -124,6 +124,33 @@ def run_export(job_id: uuid.UUID):
     return execute_export_job(job_id)
 
 
+@harness.post("/__browser__/advance-processing/{run_id}", dependencies=[Depends(require_control)])
+def advance_processing(run_id: uuid.UUID):
+    # Admit through the real API in the browser. Advance one waiting selection
+    # through the normal promotion/publication/worker helpers at a known point;
+    # the remaining selection can then exercise cancellation deterministically.
+    # This checks worker execution and API wiring, not broker delivery timing.
+    from app.models.processing_work import ProcessingWork
+    from app.services.processing_dispatch import prepare_processing_publications, request_work
+    from app.services.processing_queries import selected_work
+    from app.services.processing_worker import execute_processing_work
+
+    with SessionLocal.begin() as db:
+        work = db.scalar(select(ProcessingWork).where(
+            ProcessingWork.recovery_run_id == run_id,
+            ProcessingWork.status == "waiting",
+        ).order_by(ProcessingWork.item_id).limit(1))
+        if work is None:
+            raise HTTPException(409, "No waiting fixture selection")
+        request_work(db, selected_work(db, work.item_id, work.stage))
+        db.flush()
+        publications = prepare_processing_publications(db, canary_at=None, stage=work.stage)
+        claim = next((entry for entry in publications if entry[0] == work.id), None)
+        if claim is None:
+            raise HTTPException(409, "Fixture claim was not published")
+    return execute_processing_work(*claim)
+
+
 @harness.post("/__browser__/expire", dependencies=[Depends(require_control)])
 async def expire(request: Request):
     payload = await request.json()

@@ -32,7 +32,9 @@ labels restricted run details instead of displaying redacted zero counts as actu
 results. Cancellation is separately checked against current permissions.
 
 **Cancel remaining work** stops remaining selected work and preserves processing
-results committed before cancellation was accepted. A changed run version requires
+results committed before cancellation was accepted. Normal background processing
+may continue independently; cancelling a selected recovery run does not disable
+the underlying pipeline’s processing obligations. A changed run version requires
 reviewing the refreshed run before cancellation is retried. Recovery targets
 pipeline stages, not direct retries of AI jobs or notification deliveries; normal
 processing can still produce downstream alerts and notifications.
