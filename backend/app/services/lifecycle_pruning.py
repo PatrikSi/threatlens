@@ -24,6 +24,12 @@ from app.models.report import Report
 from app.models.lifecycle_pruning import LifecyclePruningRecord
 
 from app.services.lifecycle_pruning_contracts import PruningContext, PruningResult
+from app.services.lifecycle_permission_pruning import (
+    lock_permission_history_dependants,
+    permission_pruning_candidates,
+    prune_permission_history_parent,
+    supports_permission_pruning,
+)
 
 
 _CHILDREN = {
@@ -61,6 +67,13 @@ def incremental_pruning_candidates(
     max_dependent_rows: int,
 ) -> set[uuid.UUID]:
     """Do not strand a claim on a bundle dominated by retained references."""
+    if supports_permission_pruning(model):
+        return permission_pruning_candidates(
+            db,
+            model=model,
+            parent_ids=parent_ids,
+            max_dependent_rows=max_dependent_rows,
+        )
     children = _CHILDREN.get(model.__table__.name)
     if not parent_ids or not children or max_dependent_rows <= 0:
         return set()
@@ -95,7 +108,7 @@ def incremental_pruning_candidates(
 
 
 def supports_incremental_pruning(model: type) -> bool:
-    return model.__table__.name in _CHILDREN
+    return model.__table__.name in _CHILDREN or supports_permission_pruning(model)
 
 
 def prune_oversized_parent(
@@ -106,6 +119,14 @@ def prune_oversized_parent(
     context: PruningContext,
     limit: int,
 ) -> PruningResult:
+    if supports_permission_pruning(model):
+        return prune_permission_history_parent(
+            db,
+            model=model,
+            parent_id=parent_id,
+            context=context,
+            limit=limit,
+        )
     dataset = model.__table__.name
     children = _CHILDREN.get(dataset)
     if not children or limit <= 0:
@@ -186,6 +207,10 @@ def lock_history_dependants(
     reference IDs in bounded pages so legacy maintenance calls remain bounded in
     memory even when their transaction has no explicit dependent-row budget.
     """
+    if supports_permission_pruning(model):
+        return lock_permission_history_dependants(
+            db, model=model, parent_ids=parent_ids
+        )
     if not parent_ids:
         return []
     references = [column for _, column in _CHILDREN.get(model.__table__.name, ())]

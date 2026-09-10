@@ -57,6 +57,12 @@ from app.services.lifecycle_permission_pruning import (
     prune_permission_history_parent,
 )
 from app.services.lifecycle_pruning_contracts import PruningContext
+from app.services.lifecycle_targets import (
+    execute_lifecycle_target_batch,
+    preview_lifecycle_target,
+)
+from app.services.lifecycle_dependencies import select_with_dependent_budget
+from app.services.lifecycle_pruning import lock_history_dependants
 from app.services.alert_evaluation_admin import list_alert_occurrence_metrics
 from app.services.integration_smtp_hooks import get_smtp_analytics
 from app.services.integration_maintenance import rollup_terminal_integration_deliveries
@@ -616,3 +622,88 @@ def test_delayed_rollup_skips_claimed_expired_bucket_without_blocking_source_pro
     metric = db_session.get(IntegrationDeliveryMetric, parent_id)
     assert metric.retention_pruning_started_at is not None
     assert metric.succeeded_count == 1
+
+
+def test_lifecycle_dispatch_drains_and_finally_removes_oversized_hidden_audit(
+    db_session,
+):
+    row = _audit(db_session, feeds=0)
+    row_id = row.id
+    db_session.execute(
+        text("""
+        INSERT INTO audit_log_data_access_feeds (audit_log_id, source_feed_id_snapshot)
+        SELECT :audit_id, md5(value::text)::uuid FROM generate_series(1, 10001) AS value
+    """),
+        {"audit_id": row_id},
+    )
+    db_session.commit()
+    preview = preview_lifecycle_target(
+        db_session, target_key="audit_logs", cutoff=CUTOFF
+    )
+    assert preview.eligible_count == 1
+    assert not preview.protected_counts
+    first = execute_lifecycle_target_batch(
+        db_session,
+        target_key="audit_logs",
+        cutoff=CUTOFF,
+        batch_size=1,
+        run_id=uuid.uuid4(),
+    )
+    db_session.commit()
+    assert first.affected_count == 0
+    assert first.details["children_pruned"] == 10000
+    assert not project_audit_logs(db_session, [row], context=_access("disabled")).logs
+    for _ in range(3):
+        result = execute_lifecycle_target_batch(
+            db_session,
+            target_key="audit_logs",
+            cutoff=CUTOFF,
+            batch_size=1,
+            run_id=uuid.uuid4(),
+        )
+        db_session.commit()
+        if result.affected_count:
+            break
+    db_session.expunge_all()
+    assert db_session.get(AuditLog, row_id) is None
+    assert db_session.get(LifecyclePruningRecord, ("audit_logs", row_id)) is None
+
+
+@pytest.mark.parametrize("kind", METRICS)
+def test_metric_dispatch_and_final_delete_share_permission_pruning_contract(
+    db_session, seed_users, kind
+):
+    model, *_ = METRICS[kind]
+    parent, _ = _metric(db_session, seed_users, kind, cohorts=3)
+    parent_id = parent.id
+    db_session.commit()
+    total_pruned = 0
+    for _ in range(20):
+        db_session.scalar(
+            select(model.id).where(model.id == parent_id).with_for_update()
+        )
+        selection = select_with_dependent_budget(
+            db_session,
+            model=model,
+            candidate_ids=[parent_id],
+            max_dependent_rows=3,
+            pruning=PruningContext(CUTOFF, model.bucket_start < CUTOFF),
+        )
+        assert selection.dependent_rows <= 3
+        total_pruned += selection.children_pruned
+        if selection.ids:
+            ids = lock_history_dependants(
+                db_session, model=model, parent_ids=selection.ids
+            )
+            assert ids == [parent_id]
+            db_session.execute(delete(model).where(model.id.in_(ids)))
+            db_session.commit()
+            break
+        db_session.commit()
+    db_session.expunge_all()
+    assert total_pruned > 0
+    assert db_session.get(model, parent_id) is None
+    assert (
+        db_session.get(LifecyclePruningRecord, (model.__table__.name, parent_id))
+        is None
+    )
