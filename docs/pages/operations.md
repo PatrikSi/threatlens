@@ -103,6 +103,23 @@ The **Processing** view provides a scoped list of incomplete pipeline work and
 targeted, resumable recovery runs. See [Processing recovery](processing.md) for
 selection, permissions, retry, and cancellation semantics.
 
+The **Trends** view includes **Freshness and runtime pressure**. Its selector
+compares pending classification, tagging, and export obligations; database
+connections and lock waiters; oldest database waits and transactions; container
+memory utilization; and recent timeout/deadline events. Each view uses comparable
+units and provides exact values through **View exact data**. The latest returned
+freshness sample also lists each workflow's recorded warning threshold.
+
+Database pressure covers the current database and runtime role. Memory utilization
+describes the container collecting that sample, not every worker or the whole
+deployment. Deadline points represent overlapping 15-minute bucket totals and must
+not be summed across observations. Counters are best effort. Missing metrics,
+unknown container limits, and historical samples collected before this
+instrumentation remain unavailable; the chart does not substitute zero or draw
+through missing collection periods. A recorded workflow with no pending work has
+zero pending age. These observations complement workload benchmarks and host
+monitoring; they are not a release capacity certification.
+
 The System health workspace separates current evidence, retained trends, and
 operator activity so that one green check cannot mask an unrelated failure. Live
 health refreshes every 30 seconds and organizes PostgreSQL, Redis, scheduler,
