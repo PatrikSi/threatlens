@@ -11,6 +11,8 @@ from collections.abc import Iterator
 
 import httpx
 
+from app.core.runtime_metrics import record_runtime_event
+
 _deadline: ContextVar[float | None] = ContextVar("outbound_deadline", default=None)
 # A stuck system resolver must not create an unbounded queue or thread population.
 _resolver_slots = threading.BoundedSemaphore(8)
@@ -37,6 +39,13 @@ def outbound_deadline(seconds: float) -> Iterator[None]:
     try:
         check_outbound_deadline()
         yield
+    except httpx.TimeoutException as exc:
+        if (
+            isinstance(exc, OutboundDeadlineExceeded) or time.monotonic() >= deadline
+        ) and not getattr(exc, "_threatlens_deadline_recorded", False):
+            record_runtime_event("outbound_deadline")
+            exc._threatlens_deadline_recorded = True
+        raise
     finally:
         _deadline.reset(token)
 

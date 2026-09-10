@@ -31,7 +31,7 @@
 | `APP_ENV` (`app_env`) | `development` | Environment mode, drives production validation rules. |
 | `DATABASE_URL` (`database_url`) | `postgresql+psycopg://postgres:postgres@db:5432/threatlens` | SQLAlchemy database URL. This code default is development-only; production rejects the default `postgres:postgres` credential pair. The bundled compose stack and generated env use the `threatlens` database role instead. |
 | `REDIS_URL` (`redis_url`) | `redis://redis:6379/0` | Celery broker/result backend and worker coordination. This code default is development-only; production requires a password-bearing Redis URL. |
-| `POSTGRES_PASSWORD` (`postgres_password`) | _(empty)_ | Postgres service password used by the bundled compose stack. Production requires an explicit non-default value. |
+| `POSTGRES_PASSWORD` (`postgres_password`) | _(empty)_ | Recovery administrator password for the bundled database service; never forwarded to runtime services. Explicit runtime DATABASE_URL credentials are validated separately. |
 | `REDIS_PASSWORD` (`redis_password`) | _(empty)_ | Redis service password used by the bundled compose stack. Production requires an explicit non-default value. |
 | `JWT_SECRET` (`jwt_secret`) | _(empty)_ | JWT signing key. In non-production, missing or placeholder values fall back to a deterministic development-only secret derived from the local runtime settings; production requires an explicit strong value. |
 | `APP_DATA_ENCRYPTION_KEY` (`app_data_encryption_key`) | _(empty)_ | Dedicated secret used for encrypting stored webhook/request secrets and previews at rest. Keep distinct from `JWT_SECRET`. In non-production, missing or placeholder values fall back to a deterministic development-only key derived from the local runtime settings unless `REQUIRE_EXPLICIT_DATA_ENCRYPTION_KEY=true`; production requires an explicit strong value. |
@@ -88,6 +88,21 @@
 | `DATABASE_CONNECT_TIMEOUT_SECONDS` (`database_connect_timeout_seconds`) | `5` | PostgreSQL connection establishment timeout. |
 | `DATABASE_STATEMENT_TIMEOUT_MS` (`database_statement_timeout_ms`) | `30000` | PostgreSQL statement timeout applied to application connections. |
 | `DATABASE_POOL_TIMEOUT_SECONDS` (`database_pool_timeout_seconds`) | `10` | Maximum wait for an available pooled database connection. |
+| `DATABASE_POOL_SIZE` (`database_pool_size`) | `2` | Maximum persistent connections per process; Compose API overrides to 8 and export workers to 4. |
+| `DATABASE_MAX_OVERFLOW` (`database_max_overflow`) | `0` | Extra connections beyond the pool; Compose API permits 2. Never set unlimited overflow. |
+| `DATABASE_LOCK_TIMEOUT_MS` (`database_lock_timeout_ms`) | `5000` | Maximum wait for each database lock acquisition; does not expire already-held authorization fences. |
+| `DATABASE_OPERATION_TIMEOUT_SECONDS` (`database_operation_timeout_seconds`) | `30` | Shared SQL deadline for bounded repair and lifecycle operations. External transfers retain their own deadlines. |
+| `PROCESSING_DISPATCH_MAX_IN_FLIGHT` (`processing_dispatch_max_in_flight`) | `200` | Global admission ceiling for unfinished processing publications. |
+| `PROCESSING_DISPATCH_BATCH_SIZE` (`processing_dispatch_batch_size`) | `50` | Maximum repair publications admitted per dispatch sweep. |
+| `PROCESSING_DISPATCH_PER_FEED` (`processing_dispatch_per_feed`) | `5` | Per-feed admission allowance for fair processing repair. |
+| `PROCESSING_CLAIM_LEASE_SECONDS` (`processing_claim_lease_seconds`) | `300` | Lease duration for processing ownership and crash recovery. |
+| `PROCESSING_MAX_ATTEMPTS` (`processing_max_attempts`) | `5` | Maximum automatic attempts before operator attention is required. |
+| `PROCESSING_RECOVERY_MAX_ITEMS` (`processing_recovery_max_items`) | `100` | Maximum explicitly selected item stages in a recovery request. |
+| `PROCESSING_RECOVERY_MAX_RETAINED` (`processing_recovery_max_retained`) | `1000` | Admission ceiling for retained recovery runs, including active and terminal runs. |
+| `PROCESSING_RECOVERY_RETENTION_SECONDS` (`processing_recovery_retention_seconds`) | `604800` | Lifetime of terminal recovery run details and idempotency receipts; cleanup is bounded per sweep. |
+| `CLASSIFICATION_FRESHNESS_SECONDS` (`classification_freshness_seconds`) | `600` | Queue-age objective for the current classification source version. |
+| `TAGGING_FRESHNESS_SECONDS` (`tagging_freshness_seconds`) | `900` | Queue-age objective for incomplete automatic tagging. |
+| `EXPORT_FRESHNESS_SECONDS` (`export_freshness_seconds`) | `600` | Queue-age objective for accepted export jobs waiting to start. |
 | `API_TOKEN_LAST_USED_UPDATE_INTERVAL_SECONDS` (`api_token_last_used_update_interval_seconds`) | `300` | Minimum interval between `last_used_at` writes per API token. |
 | `OIDC_TRANSACTION_COOKIE_NAME` (`oidc_transaction_cookie_name`) | `threatlens_oidc_transaction` | HttpOnly cookie used for the short-lived OIDC state, nonce, and PKCE transaction. |
 | `OIDC_TRANSACTION_TTL_SECONDS` (`oidc_transaction_ttl_seconds`) | `600` | Maximum age of an OIDC sign-in, account-link, or explicit reauthentication transaction. Transactions are fenced to the provider configuration revision and, for account-bound flows, the exact opaque session and account security generation. |
@@ -143,7 +158,7 @@
 | `REPORT_DISPATCH_RETRY_MAX_BACKOFF_SECONDS` (`report_dispatch_retry_max_backoff_seconds`) | `900` | Maximum report queue publication retry delay. |
 | `ALERT_MATCHES_KEYWORD_CAP` (`alert_matches_keyword_cap`) | `512` | Upper bound on distinct keywords considered in alert matching. |
 | `STATS_TOP_DOMAINS_LIMIT` (`stats_top_domains_limit`) | `10` | Number of top domains returned in stats overview. |
-| `RUN_MIGRATIONS_ON_STARTUP` (`run_migrations_on_startup`) | `false` | Controls automatic migration execution in `start-api.sh`; the default compose overrides this to `true` for the API container. |
+| `RUN_MIGRATIONS_ON_STARTUP` (`run_migrations_on_startup`) | `false` | Legacy startup migration switch; false in bundled Compose, which uses the separate migration role and one-shot `migrate` service. |
 | `SEED_ADMIN_ON_STARTUP` (`seed_admin_on_startup`) | `false` | Controls automatic admin seeding in `start-api.sh`; the default compose passes this through to the API container and keeps it disabled on worker/beat. |
 | `SEED_ADMIN_FORCE_ROLE` (`seed_admin_force_role`) | `false` | Forces existing admin email user role to `admin` during seeding. |
 | `SEED_ADMIN_REACTIVATE_EXISTING` (`seed_admin_reactivate_existing`) | `false` | Reactivates existing admin email user during seeding. |

@@ -76,3 +76,5 @@ This documentation covers:
 - [AI](./pages/ai.md)
 - [Database privileges and upgrades](./pages/database-privileges.md)
 - [PostgreSQL Backup and Recovery](./pages/operations.md)
+
+- [Runtime resource and database budgets](pages/runtime-budgets.md)

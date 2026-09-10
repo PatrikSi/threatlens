@@ -3,7 +3,7 @@ import time
 
 from celery import Celery
 from celery.schedules import crontab
-from celery.signals import setup_logging, task_postrun, task_prerun
+from celery.signals import setup_logging, task_postrun, task_prerun, worker_process_init
 from kombu import Queue
 
 from app.core.config import get_settings
@@ -30,6 +30,15 @@ settings = get_settings()
 logger = logging.getLogger("threatlens.worker")
 _TASK_CONTEXT_TOKEN_ATTRIBUTE = "_threatlens_log_context_token"
 _TASK_STARTED_AT_ATTRIBUTE = "_threatlens_task_started_at"
+
+
+@worker_process_init.connect
+def reset_inherited_database_pool(**_kwargs) -> None:
+    from app.db.session import engine
+
+    # A prefork child must never reuse a socket opened by its parent. Closing
+    # parent-owned sockets here would disrupt the parent's active transaction.
+    engine.dispose(close=False)
 
 
 @setup_logging.connect
