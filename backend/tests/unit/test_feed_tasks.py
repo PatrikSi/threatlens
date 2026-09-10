@@ -47,9 +47,7 @@ from app.tasks.feed_tasks import (
     dispatch_daily_ai_brief_generation,
     dispatch_due_feeds,
     dispatch_feed_metadata_backfill,
-    dispatch_items_missing_articles,
     dispatch_items_missing_ai_enrichment,
-    dispatch_items_missing_iocs,
     enqueue_notification_webhook_delivery_processing,
     extract_item_iocs,
     fetch_article,
@@ -1589,13 +1587,13 @@ def test_dispatch_items_missing_articles_recovers_updated_items_with_existing_ar
     assert refreshed_article.text == "Original article body."
 
     queued_item_ids: list[str] = []
-    monkeypatch.setattr("app.tasks.feed_tasks.settings.dispatch_items_missing_articles_after_seconds", 0)
+    monkeypatch.setattr(get_settings(), "dispatch_items_missing_articles_after_seconds", 0)
     monkeypatch.setattr(
         "app.tasks.feed_tasks.fetch_article.delay",
         lambda queued_item_id: queued_item_ids.append(queued_item_id),
     )
 
-    repair_result = dispatch_items_missing_articles.run()
+    repair_result = _bounded_repair_candidates(db_session, "article")
 
     assert repair_result == {"queued": 1}
     assert queued_item_ids == [str(item.id)]
@@ -1964,14 +1962,15 @@ def test_dispatch_items_missing_articles_queues_repairable_items_after_grace_per
         yield db_session
 
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.settings.dispatch_items_missing_articles_after_seconds", 300)
+    monkeypatch.setattr(get_settings(), "dispatch_items_missing_articles_after_seconds", 300)
     monkeypatch.setattr("app.tasks.feed_tasks.settings.dispatch_items_missing_articles_batch_size", 10)
+    monkeypatch.setattr(get_settings(), "processing_dispatch_per_feed", 10)
     monkeypatch.setattr(
         "app.tasks.feed_tasks.fetch_article.delay",
         lambda item_id: queued_item_ids.append(item_id),
     )
 
-    result = dispatch_items_missing_articles.run()
+    result = _bounded_repair_candidates(db_session, "article")
 
     assert result == {"queued": 7}
     assert set(queued_item_ids) == {
@@ -5702,7 +5701,7 @@ def test_extract_item_iocs_marks_empty_results_terminal_for_dispatch(db_session,
     queued_item_ids: list[str] = []
     monkeypatch.setattr("app.tasks.feed_tasks.extract_item_iocs.delay", lambda item_id: queued_item_ids.append(item_id))
 
-    dispatch_result = dispatch_items_missing_iocs.run()
+    dispatch_result = _bounded_repair_candidates(db_session, "ioc")
 
     assert dispatch_result == {"queued": 1}
     assert queued_item_ids == [str(pending_item.id)]
@@ -5902,3 +5901,18 @@ def test_scheduled_daily_ai_brief_due_recovers_stale_pending_brief(db_session, m
     assert due is True
     assert reason is None
     get_settings.cache_clear()
+
+
+def _bounded_repair_candidates(db, stage):
+    """Inspect durable claims while keeping these candidate fixtures synchronous."""
+    from app.models.processing_work import ProcessingWork
+    from app.services.processing_dispatch import discover_processing_work, prepare_processing_publications
+    from app.tasks import feed_tasks
+    discover_processing_work(db, stage=stage)
+    db.commit()
+    claims = prepare_processing_publications(db, stage=stage, canary_at=None)
+    db.commit()
+    callback = feed_tasks.fetch_article.delay if stage == "article" else feed_tasks.extract_item_iocs.delay
+    for identity, _token in claims:
+        callback(str(db.get(ProcessingWork, identity).item_id))
+    return {"queued": len(claims)}

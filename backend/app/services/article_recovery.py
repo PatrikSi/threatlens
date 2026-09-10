@@ -26,7 +26,9 @@ ARTICLE_REPAIR_SOFT_RETRY_DELAY = timedelta(hours=1)
 _EARLIEST_ARTICLE_REPAIR_AT = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 
-def article_fetch_repair_cutoff(*, dispatch_after_seconds: int, now: datetime | None = None) -> datetime:
+def article_fetch_repair_cutoff(
+    *, dispatch_after_seconds: int, now: datetime | None = None
+) -> datetime:
     current_time = now or datetime.now(timezone.utc)
     return current_time - timedelta(seconds=max(0, int(dispatch_after_seconds)))
 
@@ -36,7 +38,9 @@ def article_fetch_repair_floor(*, now: datetime | None = None) -> datetime:
     return _EARLIEST_ARTICLE_REPAIR_AT
 
 
-def article_soft_repair_cutoff(*, dispatch_after_seconds: int, now: datetime | None = None) -> datetime:
+def article_soft_repair_cutoff(
+    *, dispatch_after_seconds: int, now: datetime | None = None
+) -> datetime:
     current_time = now or datetime.now(timezone.utc)
     fast_retry_cutoff = article_fetch_repair_cutoff(
         dispatch_after_seconds=dispatch_after_seconds,
@@ -46,18 +50,27 @@ def article_soft_repair_cutoff(*, dispatch_after_seconds: int, now: datetime | N
 
 
 def article_fast_retryable_error_filter():
-    retryable_http_errors = [f"http_status:{status_code}" for status_code in sorted(RETRYABLE_ARTICLE_HTTP_STATUSES)]
+    retryable_http_errors = [
+        f"http_status:{status_code}"
+        for status_code in sorted(RETRYABLE_ARTICLE_HTTP_STATUSES)
+    ]
     return or_(
         Article.error.in_(retryable_http_errors),
         Article.error.in_(RETRYABLE_ARTICLE_ERRORS),
-        *[Article.error.like(f"{prefix}%") for prefix in RETRYABLE_ARTICLE_ERROR_PREFIXES],
+        *[
+            Article.error.like(f"{prefix}%")
+            for prefix in RETRYABLE_ARTICLE_ERROR_PREFIXES
+        ],
     )
 
 
 def article_soft_retryable_error_filter():
     return or_(
         Article.error.in_(SOFT_REPAIRABLE_ARTICLE_ERRORS),
-        *[Article.error.like(f"{prefix}%") for prefix in SOFT_REPAIRABLE_ARTICLE_ERROR_PREFIXES],
+        *[
+            Article.error.like(f"{prefix}%")
+            for prefix in SOFT_REPAIRABLE_ARTICLE_ERROR_PREFIXES
+        ],
     )
 
 
@@ -65,7 +78,11 @@ def is_fast_retryable_article_error(error: str | None) -> bool:
     if not error:
         return False
     return (
-        error in {f"http_status:{status_code}" for status_code in RETRYABLE_ARTICLE_HTTP_STATUSES}
+        error
+        in {
+            f"http_status:{status_code}"
+            for status_code in RETRYABLE_ARTICLE_HTTP_STATUSES
+        }
         or error in RETRYABLE_ARTICLE_ERRORS
         or any(error.startswith(prefix) for prefix in RETRYABLE_ARTICLE_ERROR_PREFIXES)
     )
@@ -76,4 +93,53 @@ def is_soft_retryable_article_error(error: str | None) -> bool:
         return False
     return error in SOFT_REPAIRABLE_ARTICLE_ERRORS or any(
         error.startswith(prefix) for prefix in SOFT_REPAIRABLE_ARTICLE_ERROR_PREFIXES
+    )
+
+
+def article_repair_predicate(
+    *, dispatch_after_seconds: int, now: datetime | None = None
+):
+    """One eligibility policy for legacy discovery and durable repair admission."""
+    from sqlalchemy import and_
+    from app.models.item import Item
+
+    cutoff = article_fetch_repair_cutoff(
+        dispatch_after_seconds=dispatch_after_seconds, now=now
+    )
+    soft_cutoff = article_soft_repair_cutoff(
+        dispatch_after_seconds=dispatch_after_seconds, now=now
+    )
+    floor = article_fetch_repair_floor(now=now)
+    return or_(
+        and_(
+            Article.item_id.is_(None),
+            Item.first_seen_at >= floor,
+            Item.first_seen_at <= cutoff,
+        ),
+        and_(
+            Article.item_id.is_not(None),
+            Article.content_purged_at.is_(None),
+            Article.text.is_not(None),
+            Article.retrieved_at.is_not(None),
+            Article.retrieved_at < Item.updated_at,
+            Item.status != "content_fetched",
+            Item.updated_at >= floor,
+            Item.updated_at <= cutoff,
+        ),
+        and_(
+            Article.content_purged_at.is_(None),
+            Article.text.is_(None),
+            Article.retrieved_at.is_not(None),
+            Article.retrieved_at >= floor,
+            or_(
+                and_(
+                    Article.retrieved_at <= cutoff,
+                    article_fast_retryable_error_filter(),
+                ),
+                and_(
+                    Article.retrieved_at <= soft_cutoff,
+                    article_soft_retryable_error_filter(),
+                ),
+            ),
+        ),
     )

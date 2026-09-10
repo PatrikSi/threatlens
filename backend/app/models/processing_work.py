@@ -76,7 +76,7 @@ class ProcessingWork(Base):
             name="ck_processing_work_stage",
         ),
         CheckConstraint(
-            "status IN ('queued','running','retry_wait','succeeded','attention','cancelled')",
+            "status IN ('waiting','queued','running','retry_wait','succeeded','attention','cancelled')",
             name="ck_processing_work_status",
         ),
         CheckConstraint(
@@ -147,3 +147,14 @@ class ProcessingRecoveryItem(Base):
     generation: Mapped[int] = mapped_column(Integer, nullable=False)
     state: Mapped[str] = mapped_column(String(16), nullable=False, default="queued")
     reason: Mapped[str | None] = mapped_column(String(64))
+
+
+class ProcessingDispatchState(Base):
+    """Single durable round-robin cursor, independent of mutable Feed row locks."""
+
+    __tablename__ = "processing_dispatch_state"
+    __table_args__ = (
+        CheckConstraint("id = 1", name="ck_processing_dispatch_singleton"),
+    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    last_feed_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)

@@ -3,20 +3,14 @@ import uuid
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.article import Article
 from app.models.feed import Feed
 from app.models.item import Item
-from app.services.article_recovery import (
-    article_fast_retryable_error_filter,
-    article_fetch_repair_cutoff,
-    article_fetch_repair_floor,
-    article_soft_repair_cutoff,
-    article_soft_retryable_error_filter,
-)
+from app.services.article_recovery import article_repair_predicate
 from app.services.dedupe import content_hash, dedupe_key
 from app.services.classification_recovery import require_item_classification
 from app.services.url_utils import extract_url_domain, normalize_url
@@ -76,52 +70,9 @@ def list_item_ids_missing_articles(
     now: datetime | None = None,
     dispatch_after_seconds: int,
 ) -> list[uuid.UUID]:
-    repair_cutoff = article_fetch_repair_cutoff(dispatch_after_seconds=dispatch_after_seconds, now=now)
-    soft_repair_cutoff = article_soft_repair_cutoff(dispatch_after_seconds=dispatch_after_seconds, now=now)
-    repair_floor = article_fetch_repair_floor(now=now)
-    return list(
-        db.scalars(
-            select(Item.id)
-            .outerjoin(Article, Article.item_id == Item.id)
-            .where(
-                or_(
-                    and_(
-                        Article.item_id.is_(None),
-                        Item.first_seen_at >= repair_floor,
-                        Item.first_seen_at <= repair_cutoff,
-                    ),
-                    and_(
-                        Article.item_id.is_not(None),
-                        Article.content_purged_at.is_(None),
-                        Article.text.is_not(None),
-                        Article.retrieved_at.is_not(None),
-                        Article.retrieved_at < Item.updated_at,
-                        Item.status != "content_fetched",
-                        Item.updated_at >= repair_floor,
-                        Item.updated_at <= repair_cutoff,
-                    ),
-                    and_(
-                        Article.content_purged_at.is_(None),
-                        Article.text.is_(None),
-                        Article.retrieved_at.is_not(None),
-                        Article.retrieved_at >= repair_floor,
-                        or_(
-                            and_(
-                                Article.retrieved_at <= repair_cutoff,
-                                article_fast_retryable_error_filter(),
-                            ),
-                            and_(
-                                Article.retrieved_at <= soft_repair_cutoff,
-                                article_soft_retryable_error_filter(),
-                            ),
-                        ),
-                    ),
-                ),
-            )
-            .order_by(Item.first_seen_at.asc())
-            .limit(limit)
-        ).all()
-    )
+    return list(db.scalars(select(Item.id).outerjoin(Article, Article.item_id == Item.id)
+        .where(article_repair_predicate(dispatch_after_seconds=dispatch_after_seconds, now=now))
+        .order_by(Item.first_seen_at.asc()).limit(limit)).all())
 
 
 def upsert_item_from_parsed(db: Session, feed: Feed, parsed) -> tuple[Item, bool, bool]:

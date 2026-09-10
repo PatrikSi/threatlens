@@ -76,14 +76,14 @@ def test_incomplete_tags_and_classification_recover_independently(db_session, mo
     assert item.tagging_pending and item.tagging_attempts == 1
     assert item.tagging_retry_at > datetime.now(timezone.utc)
     assert rule.tag_name in _names(db_session, item.id)
-    assert feed_tasks.repair_pending_item_tags.run() == {"processed": 0, "pending": 0}
+    assert item_processing_tasks.run_repair_pending_item_tags(dependencies=feed_tasks._item_processing_dependencies()) == {"processed": 0, "pending": 0}
     article.text = "newmarker"
     article.retrieved_at = datetime.now(timezone.utc)
     require_item_classification(item)
     item.tagging_retry_at = datetime.now(timezone.utc) - timedelta(seconds=1)
     db_session.commit()
     monkeypatch.setattr(algorithm_tags, "evaluate_regex_batch", lambda rules, _texts: [RegexResult([]) for _ in rules])
-    assert feed_tasks.repair_pending_item_tags.run() == {"processed": 1, "pending": 0}
+    assert item_processing_tasks.run_repair_pending_item_tags(dependencies=feed_tasks._item_processing_dependencies()) == {"processed": 1, "pending": 0}
     assert not item.tagging_pending and item.tagging_error_code is None
     assert item.tagging_attempts == 0 and item.tagging_retry_at is None
     assert rule.tag_name not in _names(db_session, item.id)
@@ -101,7 +101,7 @@ def test_non_retryable_evaluation_waits_for_manual_reapply(db_session, monkeypat
     assert item.tagging_pending and item.tagging_retry_at is None
     assert item.tagging_error_code == code
     assert rule.tag_name in _names(db_session, item.id)
-    assert feed_tasks.repair_pending_item_tags.run() == {"processed": 0, "pending": 0}
+    assert item_processing_tasks.run_repair_pending_item_tags(dependencies=feed_tasks._item_processing_dependencies()) == {"processed": 0, "pending": 0}
     rule.enabled = False
     db_session.commit()
     assert item_processing_tasks._reapply_item_tags(db_session, item.id, dependencies=feed_tasks._item_processing_dependencies())
@@ -118,12 +118,12 @@ def test_retry_budget_and_backoff_are_bounded(db_session, monkeypatch):
     for attempt in range(2, 6):
         item.tagging_retry_at = datetime.now(timezone.utc) - timedelta(seconds=1)
         db_session.commit()
-        assert feed_tasks.repair_pending_item_tags.run() == {"processed": 1, "pending": 1}
+        assert item_processing_tasks.run_repair_pending_item_tags(dependencies=feed_tasks._item_processing_dependencies()) == {"processed": 1, "pending": 1}
         assert item.tagging_attempts == attempt
         if attempt < 5:
             assert (item.tagging_retry_at - datetime.now(timezone.utc)).total_seconds() > 60 * 2 ** (attempt - 1) - 5
     assert item.tagging_retry_at is None
-    assert feed_tasks.repair_pending_item_tags.run() == {"processed": 0, "pending": 0}
+    assert item_processing_tasks.run_repair_pending_item_tags(dependencies=feed_tasks._item_processing_dependencies()) == {"processed": 0, "pending": 0}
 
 
 def test_recovery_summary_restricts_counts_and_errors(db_session):
@@ -239,13 +239,13 @@ def test_crashed_repair_rolls_back_and_recovers(database_engine, committed_sourc
     monkeypatch.setattr(feed_tasks, "db_session", session)
     monkeypatch.setattr(_owner_algorithm_tags, 'sync_item_algorithm_tags', crash)
     with pytest.raises(RuntimeError, match="terminated"):
-        feed_tasks.repair_pending_item_tags.run()
+        item_processing_tasks.run_repair_pending_item_tags(dependencies=feed_tasks._item_processing_dependencies())
     with Session(database_engine) as db:
         assert db.get(Item, item_id).tagging_pending
         assert db.get(Item, item_id).tagging_attempts == 1
         assert tag_name in _names(db, item_id)
     monkeypatch.setattr(_owner_algorithm_tags, 'sync_item_algorithm_tags', original_sync)
-    assert feed_tasks.repair_pending_item_tags.run() == {"processed": 1, "pending": 0}
+    assert item_processing_tasks.run_repair_pending_item_tags(dependencies=feed_tasks._item_processing_dependencies()) == {"processed": 1, "pending": 0}
     with Session(database_engine) as db:
         assert not db.get(Item, item_id).tagging_pending
 

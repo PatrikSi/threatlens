@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 from sqlalchemy import and_, case, exists, func, literal, or_, select, union_all
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
+from app.services.article_recovery import article_repair_predicate
 from app.models.article import Article
 from app.models.feed import Feed
 from app.models.ioc import ItemIOC
@@ -72,7 +74,7 @@ def stage_statement(stage: ProcessingStage):
         "tagging": Item.tagging_pending.is_(True),
     }[stage]
     same_source = ProcessingWork.source_version == Item.classification_required_version
-    work_active = ProcessingWork.status.in_(("queued", "running"))
+    work_active = ProcessingWork.status.in_(("waiting", "queued", "running"))
     work_incomplete = and_(
         same_source, ProcessingWork.status.in_(("retry_wait", "attention"))
     )
@@ -82,7 +84,9 @@ def stage_statement(stage: ProcessingStage):
         else literal("pending")
     )
     state = case(
-        (or_(work_active, work_incomplete), ProcessingWork.status), else_=fallback_state
+        (ProcessingWork.status == "waiting", "queued"),
+        (or_(work_active, work_incomplete), ProcessingWork.status),
+        else_=fallback_state,
     )
     statement = (
         select(
@@ -119,6 +123,13 @@ def stage_statement(stage: ProcessingStage):
                 (or_(work_active, work_incomplete), ProcessingWork.next_retry_at),
                 else_=Item.tagging_retry_at if stage == "tagging" else None,
             ).label("next_retry_at"),
+            (
+                article_repair_predicate(
+                    dispatch_after_seconds=get_settings().dispatch_items_missing_articles_after_seconds
+                )
+                if stage == "article"
+                else literal(False)
+            ).label("article_repair_eligible"),
             Article.error.label("article_error"),
             Article.retrieved_at.label("article_retrieved_at"),
         )
@@ -133,7 +144,9 @@ def stage_statement(stage: ProcessingStage):
         .where(or_(missing, work_active, work_incomplete))
     )
     if stage == "article":
-        statement = statement.where(Article.content_purged_at.is_(None))
+        statement = statement.where(
+            or_(Article.content_purged_at.is_(None), work_active, work_incomplete)
+        )
     return statement
 
 
@@ -240,7 +253,9 @@ def list_processing_work(
             age_seconds=max(0, int((now - row.required_since_at).total_seconds())),
             attempts=row.attempts,
             next_retry_at=row.next_retry_at,
-            can_retry=can_retry and row.state not in {"queued", "running"},
+            can_retry=can_retry
+            and row.state not in {"queued", "running"}
+            and row.reason != "content_purged",
         )
         for row in found[:limit]
     ]
