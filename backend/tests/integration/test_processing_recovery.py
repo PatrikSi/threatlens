@@ -866,3 +866,56 @@ def test_maintenance_wait_is_bounded_by_shared_admission_fence(processing_env):
         assert maintain_processing_work(db) == 1
         db.commit()
         assert db.get(ProcessingWork, identity).status == "retry_wait"
+
+
+def test_exhausted_cancelled_prefix_does_not_hide_new_work_from_same_feed(
+    processing_env, monkeypatch
+):
+    from app.core.config import get_settings
+    from app.models.feed import Feed
+    from app.services.feed_pipeline import upsert_item_from_parsed
+    from types import SimpleNamespace
+
+    env = processing_env
+    monkeypatch.setattr(get_settings(), "processing_dispatch_per_feed", 1)
+    run, _ = _accept(env)
+    with Session(env.engine) as db:
+        work = db.scalar(
+            select(ProcessingWork).where(ProcessingWork.item_id == env.item_id)
+        )
+        work.attempts = get_settings().processing_max_attempts
+        db.commit()
+    assert (
+        env.client.post(
+            f"/processing/recovery-runs/{run['id']}/cancel",
+            json={"expected_version": run["version"]},
+            headers=env.headers,
+        ).status_code
+        == 200
+    )
+    exhausted = _selection(env)
+    assert (
+        exhausted["state"] == "attention" and exhausted["reason"] == "retry_exhausted"
+    )
+    with Session(env.engine) as db:
+        key = uuid.uuid4().hex
+        item, _, _ = upsert_item_from_parsed(
+            db,
+            db.get(Feed, env.feed_id),
+            SimpleNamespace(
+                url=f"https://example.invalid/{key}",
+                guid=key,
+                title="Later pending item",
+                summary="Synthetic",
+                published_at=None,
+            ),
+        )
+        new_id = item.id
+        db.commit()
+    with Session(env.engine) as db:
+        assert discover_processing_work(db, stage="classification") == 1
+        admitted = db.scalar(
+            select(ProcessingWork).where(ProcessingWork.status == "queued")
+        )
+        assert admitted.item_id == new_id
+        db.commit()

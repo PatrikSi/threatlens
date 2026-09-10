@@ -113,12 +113,23 @@ def stage_statement(stage: ProcessingStage):
             ProcessingWork.generation,
             ProcessingWork.status.label("work_status"),
             ProcessingWork.source_version.label("work_source_version"),
+            ProcessingWork.attempts.label("work_attempts"),
             ProcessingWork.reason.label("work_reason"),
             ProcessingWork.recovery_run_id.label("work_run_id"),
             missing.label("domain_pending"),
             state.label("state"),
             case(
-                (or_(work_active, work_incomplete), ProcessingWork.reason), else_=None
+                (
+                    and_(
+                        same_source,
+                        ProcessingWork.status == "cancelled",
+                        ProcessingWork.attempts
+                        >= get_settings().processing_max_attempts,
+                    ),
+                    "retry_exhausted",
+                ),
+                (or_(work_active, work_incomplete), ProcessingWork.reason),
+                else_=None,
             ).label("reason"),
             case(
                 (or_(work_active, work_incomplete), ProcessingWork.attempts),
@@ -135,8 +146,6 @@ def stage_statement(stage: ProcessingStage):
                 if stage == "article"
                 else literal(False)
             ).label("article_repair_eligible"),
-            Article.error.label("article_error"),
-            Article.retrieved_at.label("article_retrieved_at"),
         )
         .select_from(Item)
         .join(Feed, Feed.id == Item.feed_id)

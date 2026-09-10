@@ -107,7 +107,8 @@ def discover_processing_work(db: Session, *, stage=None) -> int:
     now = datetime.now(timezone.utc)
     detached_retry = and_(
         rows.c.domain_pending,
-        rows.c.attempts < settings.processing_max_attempts,
+        rows.c.work_source_version == rows.c.source_version,
+        rows.c.work_attempts < settings.processing_max_attempts,
         or_(
             rows.c.work_status == "cancelled",
             and_(
