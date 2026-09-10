@@ -44,7 +44,9 @@ export function ProcessingWorkspace() {
       {available && workQuery.data && <nav aria-label="Processing work pages" className="flex items-center justify-between gap-3 p-3 text-sm">
         <button type="button" className="min-h-11 rounded border px-3 py-2 disabled:opacity-50" disabled={busy || workQuery.isFetching || !scope.cursor} onClick={() => controller.changeScope('work_cursor', '')}>First work page</button>
         <span>{rows.length} records shown{workQuery.data.has_more ? ' · More work available' : ' · End of results'}</span>
-        <button type="button" className="min-h-11 rounded border px-3 py-2 disabled:opacity-50" disabled={busy || workQuery.isFetching || !workQuery.data.has_more || !workQuery.data.next_cursor} onClick={() => controller.changeScope('work_cursor', workQuery.data?.next_cursor ?? '')}>Next work page</button>
+        <button type="button" className="min-h-11 rounded border px-3 py-2 disabled:opacity-50"
+          disabled={busy || workQuery.isFetching || !workQuery.data.has_more || !workQuery.data.next_cursor}
+          onClick={() => controller.changeScope('work_cursor', workQuery.data?.next_cursor ?? '')}>Next work page</button>
       </nav>}
       <ProcessingRecoveryRuns controller={controller} />
       <ProcessingRecoveryDialogs controller={controller} />

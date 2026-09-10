@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import { processingRunFixture, processingRunId, processingWorkFixture } from '../src/testing/processingFixtures'
 import type { ProcessingRecoveryRequest } from '../src/types/processing'
+import { operationsHistoryFixture, operationsSampleFixture } from '../src/testing/operationsHistoryFixtures'
 import { test, expect, revalidateSession } from './fixtures'
 
 test('reviews bounded processing, reuses acceptance keys, and resumes and cancels a run with the keyboard', async ({ page }, info) => {
@@ -88,4 +89,33 @@ test('preserves reviewed processing through session verification and clears it o
   await expect(review).toBeHidden()
   await expect(page.getByText('0 selected on this page')).toBeVisible()
   expect(writes).toBe(0)
+})
+
+test('shows observed runtime pressure with keyboard controls and exact accessible data', async ({ page }, info) => {
+  const history = operationsHistoryFixture([operationsSampleFixture({
+    runtime_metrics: { container_memory_percent: 88, outbound_deadline_last_15m: 2 },
+    backlogs: [{ key: 'classification', label: 'Classification', status: 'degraded', pending_count: 4, active_count: 1,
+      stale_count: 0, failed_count: 0, oldest_pending_age_seconds: 600, degraded_after_seconds: 300 }],
+  })])
+  await page.route('**/api/v1/operations/overview', (route) => route.fulfill({ status: 503, json: { detail: 'Live snapshot unavailable' } }))
+  await page.route('**/api/v1/operations/health-history?*', (route) => route.fulfill({ json: history }))
+  await page.goto('/settings/operations?view=trends')
+  const panel = page.getByRole('region', { name: 'Freshness and runtime pressure' })
+  await expect(panel.getByRole('cell', { name: '10m', exact: true })).toBeVisible()
+  const trend = panel.getByLabel('Capacity trend')
+  await trend.focus()
+  await expect(trend).toBeFocused()
+  await trend.selectOption('memory')
+  await expect(panel.getByRole('heading', { name: 'Collecting container memory usage' })).toBeVisible()
+  await panel.getByText('View exact data', { exact: true }).focus()
+  await page.keyboard.press('Enter')
+  await expect(panel.getByRole('cell', { name: '88.0%', exact: true })).toBeVisible()
+  const chart = page.getByRole('group', { name: 'Worker capacity and load chart', exact: true })
+  await chart.focus()
+  await expect(chart).toBeFocused()
+  await page.keyboard.press('ArrowRight')
+  await expect.poll(() => chart.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0)
+  const result = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze()
+  await info.attach('axe-capacity-history', { body: JSON.stringify(result, null, 2), contentType: 'application/json' })
+  expect(result.violations.map(({ id, nodes }) => ({ id, targets: nodes.map((node) => node.target) }))).toEqual([])
 })
