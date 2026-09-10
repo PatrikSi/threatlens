@@ -64,7 +64,7 @@ def _build_audit_query(
     created_to: datetime | None,
 ):
     query = select(AuditLog)
-    filters = []
+    filters = [AuditLog.retention_pruning_started_at.is_(None)]
     if action:
         filters.append(AuditLog.action == action)
     if actor_user_id:

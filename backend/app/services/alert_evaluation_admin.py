@@ -297,6 +297,7 @@ def list_alert_occurrence_metrics(
 ) -> AlertOccurrenceMetricPage:
     window_start, window_end = _utc_day_window(since, until)
     predicates = [
+        AlertOccurrenceMetric.retention_pruning_started_at.is_(None),
         AlertOccurrenceMetric.owner_user_id == owner_user_id,
         AlertOccurrenceMetric.bucket_start >= window_start,
         AlertOccurrenceMetric.bucket_start < window_end,
