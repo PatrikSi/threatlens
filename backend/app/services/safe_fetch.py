@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, ExitStack
+from ipaddress import IPv6Address, ip_address
 from typing import Any
 from urllib.parse import urljoin
 
@@ -49,8 +50,11 @@ class _GuardedSyncByteStream(httpx.SyncByteStream):
 
 
 class _PinnedSyncBackend(httpcore.NetworkBackend):
-    def __init__(self, *, allow_private_network: bool) -> None:
+    def __init__(
+        self, *, allow_private_network: bool, private_network_only: bool = False,
+    ) -> None:
         self._allow_private_network = allow_private_network
+        self._private_network_only = private_network_only
         self._backend = httpcore.SyncBackend()
 
     def connect_tcp(
@@ -62,6 +66,8 @@ class _PinnedSyncBackend(httpcore.NetworkBackend):
         socket_options: httpcore.SOCKET_OPTION | list[httpcore.SOCKET_OPTION] | None = None,
     ) -> httpcore.NetworkStream:
         candidates = resolve_runtime_allowed_ips(host, allow_private_network=self._allow_private_network)
+        if self._private_network_only:
+            candidates = [candidate for candidate in candidates if _is_nonpublic_unicast(candidate)]
         if not candidates:
             raise UnsafeTargetError("URL is not allowed for outbound fetch")
 
@@ -98,6 +104,21 @@ class _PinnedSyncBackend(httpcore.NetworkBackend):
     def sleep(self, seconds: float) -> None:
         self._backend.sleep(remaining_timeout(seconds))
         check_outbound_deadline()
+
+
+def _is_nonpublic_unicast(candidate: str) -> bool:
+    """Constrain opted-in plaintext destinations using the pinned IP itself."""
+    address = ip_address(candidate)
+    if isinstance(address, IPv6Address) and address.ipv4_mapped is not None:
+        address = address.ipv4_mapped
+    if address.is_loopback:
+        return True
+    # Shared address space can serve internal endpoints too. Merely checking
+    # is_private would omit it; multicast/unspecified/reserved are never targets.
+    return not (
+        address.is_global or address.is_multicast or address.is_unspecified
+        or address.is_reserved
+    )
 
 
 class _DeadlineSyncStream(httpcore.NetworkStream):
@@ -159,6 +180,7 @@ class SafeHTTPTransport(httpx.HTTPTransport):
         self,
         *,
         allow_private_network: bool,
+        private_network_only: bool = False,
         verify: bool = True,
         cert=None,
         trust_env: bool = True,
@@ -180,7 +202,10 @@ class SafeHTTPTransport(httpx.HTTPTransport):
             local_address=local_address,
             retries=retries,
             socket_options=socket_options,
-            network_backend=_PinnedSyncBackend(allow_private_network=allow_private_network),
+            network_backend=_PinnedSyncBackend(
+                allow_private_network=allow_private_network,
+                private_network_only=private_network_only,
+            ),
         )
 
 
@@ -189,8 +214,12 @@ def build_safe_http_client(
     timeout: httpx.Timeout,
     headers: dict[str, str] | None = None,
     allow_private_network: bool = False,
+    private_network_only: bool = False,
 ) -> httpx.Client:
-    transport = SafeHTTPTransport(allow_private_network=allow_private_network)
+    transport = SafeHTTPTransport(
+        allow_private_network=allow_private_network,
+        private_network_only=private_network_only,
+    )
     return httpx.Client(
         timeout=timeout,
         headers={"Accept-Encoding": "gzip, deflate, identity", **(headers or {})},
