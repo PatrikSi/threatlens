@@ -13,6 +13,141 @@ All API paths on this page are relative to the published `/api/v1` base.
   - the current user is an `admin`
   - `AI_ENABLED=true`
 
+## Set Up Named Providers
+
+Open **Settings → AI → Configuration** to add a named provider. Each provider
+stores its own OpenAI-compatible base URL, model, optional API key, completion
+limit, temperature, timeout, retry limit, and enabled state.
+
+1. Add a descriptive name, such as `Local analysis` or `Hosted reports`, and enter
+   the endpoint and a model identifier supported by that endpoint.
+2. Enter a key only when that endpoint requires one. A local Ollama endpoint can
+   use an empty credential. An origin such as `http://192.168.0.113:11434` resolves
+   to `/v1/chat/completions`; `/v1` and a complete `/chat/completions` path are also
+   supported.
+3. Save the provider and run its connection test. A successful test checks the
+   saved configuration with synthetic content, a 128-token completion cap, and no
+   automatic retries; it does not analyze an article.
+4. Choose the default provider, then select feature overrides where needed. Save
+   routing to apply those choices to newly queued work.
+
+For example, set `Local analysis` as the default and select `Hosted reports` for
+Reports. Article summaries/relevance and daily briefs can inherit the default.
+Changing an override changes that feature's data destination; use an endpoint
+appropriate for the information it will receive.
+
+Only the OpenAI-compatible chat-completions protocol is supported. A provider
+name is a label, and does not enable a different vendor protocol. Global prompts,
+company context, feature switches, and report context-planning limits remain in
+AI settings.
+
+### Routing and Legacy Compatibility
+
+| Selection | Result |
+| --- | --- |
+| Named provider for article enrichment, daily briefs, or reports | That feature uses its selected provider. |
+| Feature inherits the default | Use the default selection. |
+| Default uses legacy settings | Use the original single endpoint/model configuration. |
+
+Creating a provider does not change active routing. Existing installations retain
+the legacy endpoint and server `AI_API_KEY` until an administrator selects named
+providers. Resetting the default to legacy and removing feature overrides returns
+new work to that configuration.
+
+Named profiles use only their own credentials. They do not use the server
+`AI_API_KEY` or another profile's key when their key is absent, cleared, or
+unreadable. The legacy environment key remains limited to
+`https://api.openai.com` on its default HTTPS port.
+
+Inheritance is not automatic failover. A selected provider that is unavailable,
+disabled, deleted, changed after work was queued, or has an unreadable credential
+stops that operation with an error. ThreatLens does not silently send the same
+content to a different provider.
+
+### Credential Changes and Network Access
+
+Keys are encrypted in PostgreSQL using `APP_DATA_ENCRYPTION_KEY`. Responses report
+whether a key is configured; they never return its value. In an edit, leaving the
+key field empty preserves the saved key. Entering a replacement changes it;
+explicitly clearing it removes it. Entered keys are not saved in browser draft
+storage.
+
+When changing the endpoint origin, replace or explicitly clear the saved key so
+the old credential is not carried to a new destination. Keep the application's
+encryption key available when restoring the database. If a key cannot be
+decrypted, restore the required encryption key or replace/clear that provider's
+credential before trying again.
+
+Public endpoints require HTTPS. Private-network endpoints require
+`ALLOW_PRIVATE_NETWORK_AI=true`; only private endpoints may use plain HTTP under
+that opt-in. Embedded URL credentials, query parameters, and fragments are not
+accepted. For named HTTP providers, runtime connection checks also filter the
+resolved IP addresses to nonpublic unicast destinations before opening a socket;
+a private-looking hostname cannot cause a connection to a public address.
+
+### Queued Work and Conflicts
+
+A queued task records the selected provider's identifier and version. Routing
+changes affect future tasks; an existing task keeps its selection. Editing,
+disabling, or deleting that provider can therefore prevent previously queued work
+from starting. Review the configuration and queue a new operation when the
+reported failure occurred before provider I/O.
+
+Tasks created before provider selection was introduced continue to use legacy
+settings. Existing enrichment results remain stored; the upgrade does not queue
+all articles for regeneration. The next requested enrichment checks the current
+configuration and source fingerprint, including newly covered endpoint, prompt,
+and model settings, and can regenerate a result whose inputs changed.
+
+Provider edits and routing updates carry optimistic versions. On a conflict,
+refresh and review the latest configuration before saving again. Remove routing
+references before deleting a provider.
+
+An in-progress outbound request retains the configuration and policy locks until
+the call settles, within the request deadline. A configuration edit may wait for
+that call. Retries recheck the selected configuration and never move to another
+provider. An ambiguous provider outcome means the request may already have been
+sent; use the existing provider-attempt reconciliation workflow before retrying.
+
+### Provider API and Errors
+
+Provider reads require an administrator with `read:ai`; changes and connection
+tests require an administrator with `write:ai`. All routes remain gated by
+`AI_ENABLED`.
+
+| Operation | Request contract |
+| --- | --- |
+| `GET /ai/providers` | `limit` defaults to 25, maximum 100; `offset` defaults to 0; optional `search` matches names. Returns `items`, `total`, `limit`, and `offset`. |
+| `POST /ai/providers` | Required `name`, `base_url`, and `model`; optional credential and request settings. Supply a stable client-generated `id` to retry an uncertain create without creating another profile. |
+| `GET /ai/providers/{id}` | Read one saved configuration and its version; no key value is returned. |
+| `PUT /ai/providers/{id}` | Full provider fields plus the last-read `version`. Omitted ordinary fields use their defaults. Omitted or `null` `api_key` retains the key; `clear_api_key: true` removes it. |
+| `DELETE /ai/providers/{id}?version=N` | Requires the last-read version and no remaining routing references. |
+| `POST /ai/providers/{id}/test-connection` | Body contains the last-read `version`; tests saved settings with synthetic content. |
+| `GET, PUT /ai/provider-routing` | PUT contains the last-read `version` and all four routing selections. Omitted selections default to `null`, so send the complete intended routing state. |
+
+Names are unique without regard to case. A successful repeat of an unchanged
+create with the same identifier returns the existing profile; that identifier
+cannot overwrite a profile edited since its creation. Updates and routing saves
+advance their versions. Deleting a provider does not rewrite queued task history.
+
+Provider management failures include these codes in the error `detail` object:
+
+| Code | Action |
+| --- | --- |
+| `provider_version_conflict`, `provider_version_changed`, `provider_configuration_conflict` | Reload saved settings and review the concurrent change. |
+| `provider_name_conflict`, `provider_id_conflict` | Choose a distinct name or inspect the existing create result. |
+| `provider_credential_destination_changed` | Replace or clear the saved key when changing endpoint origin. |
+| `provider_in_use` | Remove routing references before deletion. |
+| `provider_disabled`, `provider_not_found` | Select an available provider; disabled profiles cannot receive a new assignment. |
+| `provider_credential_unreadable` | Restore the required encryption key or replace/clear the provider credential. |
+| `provider_authorization_changed` | Refresh authorization before attempting another change. |
+| `provider_configuration_unavailable`, `provider_credential_storage_unavailable` | Retry after the settings/database or encryption configuration issue is resolved. |
+
+Invalid field values return the standard `422 validation_error`. Saved profiles
+remain visible if private-network access is later disabled, so an administrator
+can inspect them and replace the endpoint. Reading an inventory entry does not
+authorize a network request to it.
+
 ## Primary Areas
 
 ### Overview
@@ -54,7 +189,8 @@ finish/update time, including unfinished failures.
 
 ### Configuration
 
-- OpenAI-compatible endpoint base URL and model
+- Named OpenAI-compatible providers and default/per-feature routing
+- Legacy OpenAI-compatible endpoint base URL and model
   - Ollama origins such as `http://192.168.0.113:11434` are treated as `http://192.168.0.113:11434/v1` for chat completions.
 - Timeout, completion-token, and retry settings
 - Feature toggles:
@@ -108,7 +244,9 @@ finish/update time, including unfinished failures.
 ## Trust Boundary Notes
 
 - ThreatLens sends selected item/article text, prompt instructions, and company profile context to the configured AI base URL when AI features are enabled.
-- The AI endpoint base URL and model are stored in ThreatLens settings; the bearer credential comes from the server-side `AI_API_KEY` environment variable and is never sent to the browser.
+- Named provider endpoints and models are stored with independent encrypted keys;
+  the legacy configuration can use the server-side `AI_API_KEY`. Saved credentials
+  are never returned to the browser.
 - Provider-exchange inspection stores sanitized request/response metadata and token counts, while generated summaries, relevance results, and daily briefs are stored in the application database.
 - Private-network AI egress is disabled by default unless `ALLOW_PRIVATE_NETWORK_AI=true`.
 - Content-derived AI task runs, usage events, and downstream artifacts retain
@@ -123,10 +261,15 @@ finish/update time, including unfinished failures.
 See [Access Governance and Data Policy](../reference/access-governance.md) for
 the activation preflight and approval target contract.
 
+The [provider and MCP architecture decision](../architecture/0006-ai-provider-profiles-and-mcp-boundary.md)
+describes routing invariants and future MCP exposure. This release does not expose
+an MCP server or consume external MCP tools.
+
 ## API Calls
 
 - `GET /ai/settings`
 - `PUT /ai/settings`
+- provider catalog and routing routes listed above
 - `POST /ai/test-connection`
 - `GET /ai/usage`
 - `GET /ai/daily-brief/latest`

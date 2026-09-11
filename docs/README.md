@@ -53,6 +53,7 @@ This documentation covers:
 - [Operations, Investigations, Alerting V2, and IAM Hardening ADR](./architecture/0003-operations-investigations-alerting-iam.md)
 - [Access Governance and Workspace Policy ADR](./architecture/0004-access-governance-and-workspace-policy.md)
 - [Policy-Driven Data Lifecycle Management ADR](./architecture/0005-data-lifecycle-management.md)
+- [AI Provider Profiles and Future MCP Boundary ADR](./architecture/0006-ai-provider-profiles-and-mcp-boundary.md)
 - [Bundled OFL Text](./licenses/OFL-1.1.txt)
 - [Bundled MIT Text](./licenses/MIT.txt)
 - [Bundled BSD-2-Clause Text](./licenses/BSD-2-Clause.txt)
