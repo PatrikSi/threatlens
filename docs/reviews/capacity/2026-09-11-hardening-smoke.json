@@ -1,0 +1,358 @@
+{
+  "ai_connection_runs_by_status": {
+    "ready": 5
+  },
+  "ai_receipts_by_state": {
+    "succeeded": 5
+  },
+  "ai_usage_rows_by_success": {
+    "true": 5
+  },
+  "budget_violations": {},
+  "budgets": {
+    "ai_connection_p95_ms": 5000,
+    "export_p95_ms": 5000,
+    "governance_p95_ms": 3000,
+    "process_rss_increase_bytes": 268435456,
+    "queue_recovery_ms": 60000,
+    "sampled_lock_waiting_query_age_peak_ms": 5000
+  },
+  "comparison_fingerprint": "07826cc21b90ab487a5919cc4ca42a454b9d6b92507da8a74d049fea10cd63f1",
+  "comparison_identity": {
+    "budgets": {
+      "ai_connection_p95_ms": 5000,
+      "export_p95_ms": 5000,
+      "governance_p95_ms": 3000,
+      "process_rss_increase_bytes": 268435456,
+      "queue_recovery_ms": 60000,
+      "sampled_lock_waiting_query_age_peak_ms": 5000
+    },
+    "contract": "threatlens-capacity-v2",
+    "environment": {
+      "celery_heartbeat_seconds": 0.2,
+      "celery_pool": "threads",
+      "database_max_overflow": 0,
+      "database_pool_size": 16,
+      "postgres_version": "16.14 (Debian 16.14-1.pgdg13+1)",
+      "redis_version": "7.4.9"
+    },
+    "hardware": {
+      "affinity": [
+        0
+      ],
+      "cgroup_constraints": {
+        "cpu.max": [],
+        "memory.max": []
+      },
+      "cpu_model": "AMD EPYC-Rome Processor",
+      "logical_cpus": 4,
+      "memory_total_bytes": 16770076672
+    },
+    "limits": {
+      "container_cpus": 0.5,
+      "cpu_count": 1,
+      "max_rss_bytes": 1073741824,
+      "nice": 10,
+      "postgres_memory_mib": 512,
+      "redis_memory_mib": 128,
+      "wall_timeout_seconds": 240
+    },
+    "platform": "Linux-6.8.0-137-generic-x86_64-with-glibc2.39",
+    "python": "3.12.3",
+    "target_id": "local-hardening-validation",
+    "workload": {
+      "article_bytes": 8192,
+      "article_repair_grace_seconds": 2,
+      "completion_contract": "article-current-classification-ioc-tagging-v1",
+      "disjoint_export_contract": "two-principals-two-source-partitions-v1",
+      "feeds": 2,
+      "items_per_feed": 2,
+      "operations": 4,
+      "processing_repair_interval_seconds": 5,
+      "provider_delay_seconds": 0.06,
+      "repair_contract": "all-stages-completed-retained-catalog-v1",
+      "seed_items": 30,
+      "shared_logical_process_pool": 16,
+      "worker_concurrency": 2
+    }
+  },
+  "cpu_count": 4,
+  "database": {
+    "lock_wait_samples": 2,
+    "sampled_lock_waiting_query_age_peak_ms": 51.966,
+    "waiting_sessions_peak": 1
+  },
+  "disjoint_exports": {
+    "after_load": [
+      {
+        "bytes": 136315,
+        "items": 15,
+        "status": "ready"
+      },
+      {
+        "bytes": 136315,
+        "items": 15,
+        "status": "ready"
+      }
+    ],
+    "during_load": [
+      {
+        "status": "policy_conflict"
+      },
+      {
+        "status": "policy_conflict"
+      }
+    ],
+    "scope": "two concurrent domain workers; disjoint source IDs asserted"
+  },
+  "elapsed_seconds": 8.224,
+  "environment": {
+    "celery_heartbeat_seconds": 0.2,
+    "celery_pool": "threads",
+    "database_max_overflow": 0,
+    "database_pool_size": 16,
+    "postgres_version": "16.14 (Debian 16.14-1.pgdg13+1)",
+    "redis_version": "7.4.9"
+  },
+  "git_revision": "6823cd6cffe44405c973b3a6f014c6ad592c905b",
+  "latencies": {
+    "ai_connection": {
+      "count": 5,
+      "max_ms": 323.382,
+      "p50_ms": 168.279,
+      "p95_ms": 323.382
+    },
+    "ai_connection:succeeded": {
+      "count": 5,
+      "max_ms": 323.382,
+      "p50_ms": 168.279,
+      "p95_ms": 323.382
+    },
+    "async_export": {
+      "count": 4,
+      "max_ms": 294.721,
+      "p50_ms": 233.602,
+      "p95_ms": 294.721
+    },
+    "async_export:policy_conflict": {
+      "count": 2,
+      "max_ms": 294.721,
+      "p50_ms": 293.263,
+      "p95_ms": 294.721
+    },
+    "async_export:succeeded": {
+      "count": 2,
+      "max_ms": 233.602,
+      "p50_ms": 225.517,
+      "p95_ms": 233.602
+    },
+    "deadline:dns": {
+      "count": 6,
+      "max_ms": 101.209,
+      "p50_ms": 100.332,
+      "p95_ms": 101.209
+    },
+    "deadline:headers": {
+      "count": 6,
+      "max_ms": 102.337,
+      "p50_ms": 101.515,
+      "p95_ms": 102.337
+    },
+    "export": {
+      "count": 5,
+      "max_ms": 205.563,
+      "p50_ms": 104.208,
+      "p95_ms": 205.563
+    },
+    "export:policy_conflict": {
+      "count": 2,
+      "max_ms": 205.563,
+      "p50_ms": 151.827,
+      "p95_ms": 205.563
+    },
+    "export:succeeded": {
+      "count": 3,
+      "max_ms": 104.208,
+      "p50_ms": 99.674,
+      "p95_ms": 104.208
+    },
+    "governance": {
+      "count": 4,
+      "max_ms": 208.352,
+      "p50_ms": 19.542,
+      "p95_ms": 208.352
+    },
+    "queue_wait:classify_item": {
+      "count": 8,
+      "max_ms": 1465.35,
+      "p50_ms": 1019.228,
+      "p95_ms": 1465.35
+    },
+    "queue_wait:dispatch_processing_work": {
+      "count": 1,
+      "max_ms": 14.666,
+      "p50_ms": 14.666,
+      "p95_ms": 14.666
+    },
+    "queue_wait:execute_processing_work": {
+      "count": 1,
+      "max_ms": 16.946,
+      "p50_ms": 16.946,
+      "p95_ms": 16.946
+    },
+    "queue_wait:extract_item_iocs": {
+      "count": 8,
+      "max_ms": 1462.88,
+      "p50_ms": 1262.998,
+      "p95_ms": 1462.88
+    },
+    "queue_wait:fetch_article": {
+      "count": 8,
+      "max_ms": 1744.804,
+      "p50_ms": 915.752,
+      "p95_ms": 1744.804
+    },
+    "queue_wait:fetch_feed": {
+      "count": 2,
+      "max_ms": 311.21,
+      "p50_ms": 307.872,
+      "p95_ms": 311.21
+    },
+    "queue_wait:process_alert_evaluation": {
+      "count": 8,
+      "max_ms": 1333.867,
+      "p50_ms": 1058.137,
+      "p95_ms": 1333.867
+    },
+    "queue_wait:route_integration_event": {
+      "count": 8,
+      "max_ms": 1465.538,
+      "p50_ms": 631.378,
+      "p95_ms": 1465.538
+    },
+    "task:classify_item": {
+      "count": 8,
+      "max_ms": 136.177,
+      "p50_ms": 78.324,
+      "p95_ms": 136.177
+    },
+    "task:dispatch_processing_work": {
+      "count": 1,
+      "max_ms": 73.249,
+      "p50_ms": 73.249,
+      "p95_ms": 73.249
+    },
+    "task:execute_processing_work": {
+      "count": 1,
+      "max_ms": 33.607,
+      "p50_ms": 33.607,
+      "p95_ms": 33.607
+    },
+    "task:extract_item_iocs": {
+      "count": 8,
+      "max_ms": 20.772,
+      "p50_ms": 15.784,
+      "p95_ms": 20.772
+    },
+    "task:fetch_article": {
+      "count": 8,
+      "max_ms": 145.811,
+      "p50_ms": 104.929,
+      "p95_ms": 145.811
+    },
+    "task:fetch_feed": {
+      "count": 2,
+      "max_ms": 735.698,
+      "p50_ms": 528.388,
+      "p95_ms": 735.698
+    },
+    "task:process_alert_evaluation": {
+      "count": 8,
+      "max_ms": 26.97,
+      "p50_ms": 15.721,
+      "p95_ms": 26.97
+    },
+    "task:route_integration_event": {
+      "count": 8,
+      "max_ms": 41.746,
+      "p50_ms": 19.818,
+      "p95_ms": 41.746
+    }
+  },
+  "memory": {
+    "process_rss_increase_bytes": 34918400,
+    "process_rss_peak_bytes": 300355584,
+    "process_rss_start_bytes": 265437184
+  },
+  "outcomes": {
+    "ai_succeeded": 5,
+    "deadline_dns_observed": 6,
+    "deadline_headers_observed": 6,
+    "exports_policy_conflict": 2,
+    "exports_succeeded": 3,
+    "governance_succeeded": 4,
+    "ingestion_recovered": 1,
+    "processing_repair_dispatches": 1
+  },
+  "platform": "Linux-6.8.0-137-generic-x86_64-with-glibc2.39",
+  "policy_mode": "enforced",
+  "profile": "smoke",
+  "python": "3.12.3",
+  "queue": {
+    "depth_peak": 17,
+    "expected_ingested_articles": 8,
+    "feed_batches": 1,
+    "oldest_pending_age_peak_ms": 1708.527,
+    "outage_backlog": 2,
+    "recovery_ms": 4920.194,
+    "recovery_scope": "consumer_outage_and_startup"
+  },
+  "recorded_at": "2026-09-11T08:06:46.823905+00:00",
+  "run_id": "2e598f51252141df9acb214e4d789092",
+  "sampler": {
+    "errors": [],
+    "interval_ms": 20,
+    "samples": 277
+  },
+  "schema_version": 2,
+  "source_dirty": false,
+  "status": "passed",
+  "task_errors": [],
+  "watchdog": {
+    "elapsed_seconds": 24.879,
+    "failure": null,
+    "limits": {
+      "container_cpus": 0.5,
+      "cpu_count": 1,
+      "max_rss_bytes": 1073741824,
+      "nice": 10,
+      "postgres_memory_mib": 512,
+      "redis_memory_mib": 128,
+      "wall_timeout_seconds": 240
+    },
+    "memory_scope": "sum of owned process RSS; shared pages counted per process; excludes Docker services",
+    "owned_process_count_peak": 2,
+    "owned_process_tree_rss_peak_bytes": 327483392,
+    "sample_interval_ms": 100
+  },
+  "workload": {
+    "article_bytes": 8192,
+    "article_repair_grace_seconds": 2,
+    "completion_contract": "article-current-classification-ioc-tagging-v1",
+    "disjoint_export_contract": "two-principals-two-source-partitions-v1",
+    "feeds": 2,
+    "items_per_feed": 2,
+    "operations": 4,
+    "processing_repair_interval_seconds": 5,
+    "provider_delay_seconds": 0.06,
+    "repair_contract": "all-stages-completed-retained-catalog-v1",
+    "seed_items": 30,
+    "shared_logical_process_pool": 16,
+    "worker_concurrency": 2
+  },
+  "workload_completed": {
+    "ai": 4,
+    "exports": 4,
+    "governance": 4
+  }
+}
