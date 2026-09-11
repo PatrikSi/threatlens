@@ -63,6 +63,9 @@ REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 SELECT format('ALTER SCHEMA public OWNER TO %I', :'owner_role') \gexec
 -- REASSIGN OWNED also changes shared objects in other databases. Transfer only
 -- this application's public objects, excluding trusted extension internals.
+-- ALTER TABLE OWNER also transfers its serial/identity sequences. Altering those
+-- sequences separately can fail before their table is transferred; only emit
+-- explicit sequence ownership changes for sequences without an owning column.
 SELECT format('ALTER %s %I.%I OWNER TO %I',
   CASE relation.relkind WHEN 'S' THEN 'SEQUENCE' WHEN 'v' THEN 'VIEW'
        WHEN 'm' THEN 'MATERIALIZED VIEW' ELSE 'TABLE' END,
@@ -70,6 +73,12 @@ SELECT format('ALTER %s %I.%I OWNER TO %I',
 FROM pg_class AS relation JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
 WHERE namespace.nspname = 'public' AND relation.relkind IN ('r', 'p', 'S', 'v', 'm', 'f')
   AND relation.relowner = (SELECT oid FROM pg_roles WHERE rolname = :'admin_role')
+  AND NOT (relation.relkind = 'S' AND EXISTS (
+    SELECT 1 FROM pg_depend AS dependency
+    WHERE dependency.classid = 'pg_class'::regclass AND dependency.objid = relation.oid
+      AND dependency.objsubid = 0 AND dependency.refclassid = 'pg_class'::regclass
+      AND dependency.refobjsubid > 0 AND dependency.deptype IN ('a', 'i')
+  ))
   AND NOT EXISTS (SELECT 1 FROM pg_depend WHERE classid = 'pg_class'::regclass
                   AND objid = relation.oid AND deptype = 'e') \gexec
 SELECT format('ALTER ROUTINE %s OWNER TO %I', routine.oid::regprocedure, :'owner_role')
