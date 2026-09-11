@@ -5,7 +5,8 @@ from sqlalchemy import select
 
 from app.core.config import get_settings
 from app.core.token_scopes import SCOPE_READ_AI, SCOPE_READ_ITEMS
-from app.models.ai_provider import AIProviderConfiguration
+from app.models.ai_provider import AIProviderConfiguration, AIProviderRetiredID
+from app.models.ai_task_run import AITaskRun
 from app.models.api_token import ApiToken
 from app.models.audit_log import AuditLog
 from app.services.ai_providers import read_provider_api_key, resolve_provider
@@ -190,6 +191,137 @@ def test_uncertain_create_retry_is_idempotent_and_cannot_overwrite(
         )
         == 1
     )
+
+
+def test_deleted_provider_id_is_retired_without_relying_on_task_history(
+    client, auth_headers, db_session
+):
+    provider = _create(client, auth_headers, api_key="retired-secret")
+    deleted = client.delete(
+        f"/ai/providers/{provider['id']}?version=1", headers=auth_headers["admin"]
+    )
+    assert deleted.status_code == 204
+    retired = db_session.get(AIProviderRetiredID, uuid.UUID(provider["id"]))
+    assert retired is not None and retired.retired_at is not None
+    assert db_session.scalar(select(AITaskRun.id)) is None
+    assert db_session.get(AIProviderConfiguration, retired.id) is None
+
+    recreated = client.post(
+        "/ai/providers",
+        headers=auth_headers["admin"],
+        json=_payload(
+            id=provider["id"], base_url="http://localhost:9999/v1", api_key="new-secret"
+        ),
+    )
+    assert recreated.status_code == 409
+    assert recreated.json()["error"]["code"] == "provider_id_retired"
+    assert "new identifier" in recreated.json()["error"]["message"]
+    assert "new-secret" not in recreated.text
+
+    replacement = _create(client, auth_headers)
+    assert replacement["id"] != provider["id"]
+    assert replacement["name"] == provider["name"]
+
+
+def test_retired_provider_cannot_retarget_old_queued_work(
+    client, auth_headers, db_session, monkeypatch
+):
+    from app.services.ai_config import load_active_ai_settings
+    from app.services.ai_integration import run_item_ai_enrichment
+    from app.services.ai_ops import queue_ai_task_run
+
+    provider = _create(client, auth_headers)
+    routing = client.get("/ai/provider-routing", headers=auth_headers["admin"]).json()
+    selected = client.put(
+        "/ai/provider-routing",
+        headers=auth_headers["admin"],
+        json=routing | {"default_provider_id": provider["id"]},
+    )
+    assert selected.status_code == 200
+    old_run = queue_ai_task_run(
+        db_session, task_type="item_enrichment", trigger_source="manual"
+    )
+    db_session.commit()
+    assert old_run.metadata_json["provider_selection"]["provider_id"] == provider["id"]
+    cleared = client.put(
+        "/ai/provider-routing",
+        headers=auth_headers["admin"],
+        json={"version": selected.json()["version"]},
+    )
+    assert cleared.status_code == 200
+    assert (
+        client.delete(
+            f"/ai/providers/{provider['id']}?version=1", headers=auth_headers["admin"]
+        ).status_code
+        == 204
+    )
+    assert (
+        client.post(
+            "/ai/providers",
+            headers=auth_headers["admin"],
+            json=_payload(id=provider["id"], base_url="http://localhost:9999/v1"),
+        ).status_code
+        == 409
+    )
+    replacement = _create(client, auth_headers, base_url="http://localhost:9999/v1")
+    reassigned = client.put(
+        "/ai/provider-routing",
+        headers=auth_headers["admin"],
+        json=cleared.json() | {"default_provider_id": replacement["id"]},
+    )
+    assert reassigned.status_code == 200
+
+    def unexpected_provider_call(*args, **kwargs):
+        pytest.fail("Retired provider work must not reach a replacement endpoint")
+
+    monkeypatch.setattr(
+        "app.services.ai_integration._call_ai_json", unexpected_provider_call
+    )
+    result = run_item_ai_enrichment(
+        db_session, item_id=uuid.uuid4(), task_run_id=old_run.id
+    )
+    assert result.reason == "provider_missing"
+    new_run = queue_ai_task_run(
+        db_session, task_type="item_enrichment", trigger_source="manual"
+    )
+    db_session.commit()
+    active = load_active_ai_settings(
+        db_session, feature_type="item_enrichment", task_run_id=new_run.id
+    )
+    assert str(active.provider_id) == replacement["id"]
+
+
+def test_failed_provider_deletion_rolls_back_identity_retirement(
+    client, auth_headers, db_session, monkeypatch
+):
+    from app.db.budgets import DatabaseDeadlineExceeded
+
+    provider = _create(client, auth_headers)
+
+    def fail_after_deletion(*args, **kwargs):
+        raise DatabaseDeadlineExceeded("Synthetic audit deadline")
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(
+            "app.api.routes.ai_providers._audit_provider", fail_after_deletion
+        )
+        response = client.delete(
+            f"/ai/providers/{provider['id']}?version=1", headers=auth_headers["admin"]
+        )
+    assert response.status_code == 503
+    assert db_session.get(AIProviderRetiredID, uuid.UUID(provider["id"])) is None
+    assert (
+        client.get(
+            f"/ai/providers/{provider['id']}", headers=auth_headers["admin"]
+        ).status_code
+        == 200
+    )
+    replay = client.post(
+        "/ai/providers",
+        headers=auth_headers["admin"],
+        json=_payload(id=provider["id"]),
+    )
+    assert replay.status_code == 200
 
 
 def test_search_pagination_and_casefolded_unique_names(client, auth_headers):

@@ -10,7 +10,11 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from app.models.ai_provider import AIProviderConfiguration, AIProviderRouting
+from app.models.ai_provider import (
+    AIProviderConfiguration,
+    AIProviderRetiredID,
+    AIProviderRouting,
+)
 from app.schemas.ai_providers import (
     AIProviderCreate,
     AIProviderFields,
@@ -158,6 +162,12 @@ def create_provider(
     db: Session, payload: AIProviderCreate
 ) -> tuple[AIProviderConfiguration, bool]:
     get_provider_routing(db, for_update=True)
+    if db.get(AIProviderRetiredID, payload.id) is not None:
+        raise AIProviderError(
+            "provider_id_retired",
+            "This provider identifier was permanently retired when the provider was "
+            "deleted. Start a new provider with a new identifier.",
+        )
     existing = db.get(AIProviderConfiguration, payload.id, populate_existing=True)
     if existing is not None:
         if _matches_creation(existing, payload):
@@ -208,6 +218,9 @@ def delete_provider(db: Session, provider_id: uuid.UUID, *, version: int) -> Non
             "provider_in_use",
             "This provider is assigned to AI features. Update provider routing before deleting it.",
         )
+    # Keep only its identifier, never its endpoint or credential. Task history
+    # may be pruned independently without allowing this identity to be reused.
+    db.add(AIProviderRetiredID(id=provider.id))
     db.delete(provider)
     db.flush()
 

@@ -90,6 +90,16 @@ def upgrade() -> None:
             "INSERT INTO ai_provider_routing (singleton_key, version) VALUES (1, 1)"
         )
     )
+    op.create_table(
+        "ai_provider_retired_ids",
+        sa.Column("id", sa.Uuid(), nullable=False, primary_key=True),
+        sa.Column(
+            "retired_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
+    )
 
 
 def downgrade() -> None:
@@ -117,3 +127,4 @@ def downgrade() -> None:
         )
     op.drop_table("ai_provider_routing")
     op.drop_table("ai_provider_configurations")
+    op.drop_table("ai_provider_retired_ids")

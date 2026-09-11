@@ -8,7 +8,7 @@ from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from sqlalchemy import delete, text
 
-from app.models.ai_provider import AIProviderConfiguration
+from app.models.ai_provider import AIProviderConfiguration, AIProviderRetiredID
 from app.models.ai_task_run import AITaskRun
 from app.services.ai_config import get_or_create_ai_settings
 
@@ -151,3 +151,34 @@ def test_provider_downgrade_preserves_finished_named_history_and_legacy_work(
         == run.metadata_json["provider_selection"]["provider_id"]
     )
     provider_migration.upgrade()
+
+
+def test_provider_retired_id_schema_contains_no_configuration_or_credentials(
+    db_session, provider_migration
+):
+    retired_id = uuid.uuid4()
+    db_session.add(AIProviderRetiredID(id=retired_id))
+    db_session.flush()
+    columns = set(
+        db_session.scalars(
+            text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_schema='public' AND table_name='ai_provider_retired_ids'"
+            )
+        )
+    )
+    assert columns == {"id", "retired_at"}
+    assert (
+        db_session.scalar(
+            text("SELECT retired_at FROM ai_provider_retired_ids WHERE id=:id"),
+            {"id": retired_id},
+        )
+        is not None
+    )
+    provider_migration.downgrade()
+    assert (
+        db_session.scalar(text("SELECT to_regclass('public.ai_provider_retired_ids')"))
+        is None
+    )
+    provider_migration.upgrade()
+    assert db_session.scalar(text("SELECT count(*) FROM ai_provider_retired_ids")) == 0
