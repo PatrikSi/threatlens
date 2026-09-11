@@ -13,6 +13,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.ai_limits import MAX_AI_COMPLETION_TOKENS
 from app.core.config import get_settings
 from app.models.ai_daily_brief import AIDailyBrief
 from app.models.ai_task_run import AITaskRun
@@ -1087,7 +1088,6 @@ def _request_json_with_usage(
         execution_checkpoint=execution_checkpoint,
         execution_commit=execution_commit,
         enforce_egress_data_policy=enforce_provider_authorization,
-        report_feature_type=FEATURE_REPORT,
         call_ai_json=_call_ai_json,
         record_task_run_stop_observed=_record_task_run_stop_observed,
         record_usage_event=_record_usage_event,
@@ -1170,10 +1170,13 @@ def _next_retry_max_completion_tokens(
     if feature_type == FEATURE_REPORT:
         if maximum is None or maximum <= current:
             return current
-        return min(maximum, max(current + 256, int(current * 1.5)))
-    if feature_type == FEATURE_DAILY_BRIEF:
-        return min(8192, max(current, current + 512, int(current * 1.5)))
-    return min(2048, max(current + 256, int(current * 1.5)))
+        ceiling = min(MAX_AI_COMPLETION_TOKENS, maximum)
+        return max(current, min(ceiling, max(current + 256, int(current * 1.5))))
+    increment = 512 if feature_type == FEATURE_DAILY_BRIEF else 256
+    return max(
+        current,
+        min(MAX_AI_COMPLETION_TOKENS, max(current + increment, int(current * 1.5))),
+    )
 
 
 def _call_ai_json(

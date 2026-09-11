@@ -96,7 +96,6 @@ def run_ai_json_request(
     execution_checkpoint: Callable[[], None] | None,
     execution_commit: Callable[[], None] | None,
     enforce_egress_data_policy: Callable[..., object],
-    report_feature_type: str,
     call_ai_json: Callable[..., AICompletionResult],
     record_task_run_stop_observed: Callable[..., str | None],
     record_usage_event: Callable[..., None],
@@ -230,7 +229,6 @@ def run_ai_json_request(
             try:
                 retry_plan = _provider_failure_retry_plan(
                     feature_type=feature_type,
-                    report_feature_type=report_feature_type,
                     error=exc,
                     attempt=attempt,
                     max_attempts=max_attempts,
@@ -474,7 +472,6 @@ def _provider_attempt_limit(
 def _provider_failure_retry_plan(
     *,
     feature_type: str,
-    report_feature_type: str,
     error: AIIntegrationError,
     attempt: int,
     max_attempts: int,
@@ -490,15 +487,14 @@ def _provider_failure_retry_plan(
         error=error,
         maximum=max_retry_completion_tokens,
     )
-    report_truncation_has_headroom = not (
-        feature_type == report_feature_type
-        and error.retry_hint == "expand_completion_budget"
+    truncation_has_headroom = not (
+        error.retry_hint == "expand_completion_budget"
         and next_max_tokens <= request_max_tokens
     )
     should_retry = (
         attempt < max_attempts
         and ai_error_is_retryable(error)
-        and report_truncation_has_headroom
+        and truncation_has_headroom
     )
     retry_delay_seconds = (
         provider_retry_delay_seconds(attempt=attempt) if should_retry else None

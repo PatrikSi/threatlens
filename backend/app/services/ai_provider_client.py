@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from app.core.ai_endpoints import chat_completion_url
+from app.core.ai_limits import MAX_AI_COMPLETION_TOKENS
 from app.core.config import get_settings
 from app.core.logging_config import redact_log_text
 from app.services.ai_config import ActiveAISettings, is_shared_ai_base_url_allowed
@@ -133,11 +134,18 @@ def call_ai_json(
             retryable=False,
             provider_io_outcome=AI_PROVIDER_IO_NOT_SENT,
         )
+    requested_tokens = max_completion_tokens if max_completion_tokens is not None else active.max_completion_tokens
+    if type(requested_tokens) is not int or not 128 <= requested_tokens <= MAX_AI_COMPLETION_TOKENS:
+        raise AIIntegrationError(
+            f"AI completion tokens must be a whole number between 128 and {MAX_AI_COMPLETION_TOKENS:,}. Review AI settings.",
+            retryable=False,
+            provider_io_outcome=AI_PROVIDER_IO_NOT_SENT,
+        )
     request_payload = {
         "model": active.model,
         "messages": messages,
         "temperature": active.temperature,
-        "max_tokens": max_completion_tokens if max_completion_tokens is not None else active.max_completion_tokens,
+        "max_tokens": requested_tokens,
         "stream": False,
     }
     headers = {"Content-Type": "application/json"}
@@ -270,8 +278,25 @@ def call_ai_json(
         ) from exc
 
     finish_reason = choice.get("finish_reason") if isinstance(choice, dict) else None
+    if finish_reason == "length":
+        raise AIIntegrationError(
+            "AI response was truncated by max_tokens before returning valid JSON. "
+            f"The request allowed {request_payload['max_tokens']:,} completion tokens. "
+            "For reports, increase Initial report completion tokens and ensure the Model Context Window "
+            "has room for both input and output. For other features, increase Default completion tokens. "
+            "Stay within the selected model's limits; reasoning can also consume its token budget.",
+            request_url=request_url,
+            request_payload=request_payload,
+            response_body=response_body,
+            response_json=payload,
+            status_code=response.status_code,
+            retry_hint="expand_completion_budget",
+            retryable=True,
+            provider_io_outcome=AI_PROVIDER_IO_RESPONSE_RECEIVED,
+        )
     try:
         content = extract_message_content(message.get("content"))
+        parsed = parse_ai_json_content(content)
     except AIIntegrationError as exc:
         raise AIIntegrationError(
             str(exc),
@@ -280,25 +305,6 @@ def call_ai_json(
             response_body=response_body,
             response_json=payload,
             status_code=response.status_code,
-            retryable=True,
-            provider_io_outcome=AI_PROVIDER_IO_RESPONSE_RECEIVED,
-        ) from exc
-    try:
-        parsed = parse_ai_json_content(content)
-    except AIIntegrationError as exc:
-        message_text = str(exc)
-        retry_hint = None
-        if finish_reason == "length":
-            message_text = "AI response was truncated by max_tokens before returning valid JSON"
-            retry_hint = "expand_completion_budget"
-        raise AIIntegrationError(
-            message_text,
-            request_url=request_url,
-            request_payload=request_payload,
-            response_body=response_body,
-            response_json=payload,
-            status_code=response.status_code,
-            retry_hint=retry_hint,
             retryable=True,
             provider_io_outcome=AI_PROVIDER_IO_RESPONSE_RECEIVED,
         ) from exc
