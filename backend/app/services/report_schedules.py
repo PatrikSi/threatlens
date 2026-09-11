@@ -379,7 +379,7 @@ def _create_one_scheduled_report(
         period_start=period_start,
         period_end=period_end,
     )
-    active = load_active_ai_settings(db)
+    active = load_active_ai_settings(db, feature_type="report")
     ensure_reporting_available(active)
     owner = db.get(User, schedule.owner_user_id)
     if owner is None:

@@ -418,7 +418,6 @@ _ENDPOINT_NAMES_BY_MODULE: Final[dict[str, tuple[str, ...]]] = {
         "queue_daily_brief_route",
         "reprocess_ai_for_recent_items_route",
         "test_ai_connection_route",
-        "test_ai_provider_connection_route",
         "update_ai_settings_route",
     ),
     "app.api.routes.alert_operations": (
@@ -701,6 +700,7 @@ _ENDPOINT_NAMES_BY_MODULE: Final[dict[str, tuple[str, ...]]] = {
         "post_elevation_decision",
     ),
     "app.api.routes.ai_providers": (
+        "test_ai_provider_connection_route",
         "list_ai_providers_route",
         "create_ai_provider_route",
         "get_ai_provider_route",

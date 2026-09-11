@@ -153,7 +153,7 @@ def test_live_manifest_is_the_exact_immutable_canonical_route_contract():
     assert len(ROUTE_GOVERNANCE_MANIFEST.entries) == 297
     assert len({entry.operation for entry in ROUTE_GOVERNANCE_MANIFEST.entries}) == 297
     assert ROUTE_GOVERNANCE_MANIFEST_SHA256 == (
-        "94ebdd0f96c323b16d6e3b6f55d87000c11a6ab16aa5e6f1ae14694f3e6588b2"
+        "cde791000c61b7214c25c66b0145895245d1565823e3223ce7d0ec3a3208f09b"
     )
     assert attestation.manifest_sha256 == ROUTE_GOVERNANCE_MANIFEST_SHA256
     assert attestation.declared_operation_count == 297

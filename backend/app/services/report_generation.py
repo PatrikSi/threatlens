@@ -90,7 +90,7 @@ def generate_report(
             code="generation_interrupted",
         )
 
-    active = load_active_ai_settings(db)
+    active = load_active_ai_settings(db, feature_type="report", task_run_id=task_run_id)
     ensure_reporting_available(active)
     _raise_if_task_stopped(db, task_run_id)
     budget = build_context_budget(

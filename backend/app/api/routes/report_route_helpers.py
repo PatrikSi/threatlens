@@ -79,7 +79,7 @@ RESOURCE_PRECONDITION_RESPONSES = {
 
 
 def active_reporting_settings(db: Session):
-    active = load_active_ai_settings(db)
+    active = load_active_ai_settings(db, feature_type="report")
     try:
         ensure_reporting_available(active)
     except ReportingUnavailableError as exc:

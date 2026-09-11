@@ -112,6 +112,14 @@ def queue_ai_task_run(
     target_count: int | None = None,
     reason: str | None = None,
 ) -> AITaskRun:
+    from app.services.ai_provider_selection import provider_selection_metadata, PROVIDER_SELECTION_KEY
+
+    metadata = provider_selection_metadata(
+        db, task_type=task_type, metadata=metadata, parent_run_id=parent_run_id,
+    )
+    selected = metadata.get(PROVIDER_SELECTION_KEY)
+    if isinstance(selected, dict) and selected.get("provider_id"):
+        model = selected.get("model") or model
     queued_at = datetime.now(timezone.utc)
     run = AITaskRun(
         task_type=task_type,

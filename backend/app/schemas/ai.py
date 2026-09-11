@@ -219,6 +219,8 @@ class AISettingsResponse(BaseModel):
     id: uuid.UUID
     ai_enabled: bool
     ai_configured: bool
+    provider_routing_supported: bool = True
+    effective_feature_configured: dict[str, bool] = Field(default_factory=dict)
     api_key_configured: bool
     provider_type: AIProviderType
     base_url: str | None
@@ -273,6 +275,10 @@ class AIPromptPreview(BaseModel):
 class AIPromptPreviews(BaseModel):
     item_enrichment: AIPromptPreview
     daily_brief: AIPromptPreview
+
+
+class AIProviderTestConnectionRequest(BaseModel):
+    version: int = Field(ge=1)
 
 
 class AITestConnectionResponse(BaseModel):

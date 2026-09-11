@@ -535,7 +535,7 @@ def dispatch_items_missing_ai_enrichment():
     return _dispatch_items_missing_ai_enrichment(
         db_session_factory=db_session,
         settings=settings,
-        load_active_ai_settings=ai_config.load_active_ai_settings,
+        load_active_ai_settings=lambda db: ai_config.load_active_ai_settings(db, feature_type="item_enrichment"),
         reconcile_stale_ai_runs=_reconcile_stale_ai_runs,
         auto_enrich_cutoff=_auto_ai_enrich_new_item_cutoff,
         auto_enrich_window_hours=_auto_ai_enrich_new_item_window_hours,

@@ -4,12 +4,13 @@ import json
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, cast
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
 from app.core.config import get_settings
+from app.core.logging_config import redact_log_text
 from app.services.ai_config import ActiveAISettings, is_shared_ai_base_url_allowed
 from app.services.ai_normalization import coerce_optional_int, normalize_optional_text
 from app.services.ai_provider_exchange import sanitize_provider_exchange
@@ -98,7 +99,22 @@ def call_ai_json(
             retryable=False,
             provider_io_outcome=AI_PROVIDER_IO_NOT_SENT,
         )
-    if not is_shared_ai_base_url_allowed(active.base_url, api_key=active.api_key):
+    if getattr(active, "configuration_error", None):
+        raise AIIntegrationError(
+            active.configuration_error,
+            retryable=False,
+            provider_io_outcome=AI_PROVIDER_IO_NOT_SENT,
+        )
+    if getattr(active, "provider_id", None) is not None:
+        from app.services.ai_provider_selection import provider_origin
+
+        if not active.base_url or provider_origin(active.base_url) != active.credential_origin:
+            raise AIIntegrationError(
+                "AI provider credentials do not match the selected destination. Reload AI settings.",
+                retryable=False,
+                provider_io_outcome=AI_PROVIDER_IO_NOT_SENT,
+            )
+    elif not is_shared_ai_base_url_allowed(active.base_url, api_key=active.api_key):
         raise AIIntegrationError(
             "AI base URL is not allowed when the server AI_API_KEY is configured",
             retryable=False,
@@ -131,11 +147,15 @@ def call_ai_json(
         write=active.request_timeout_seconds,
         pool=active.request_timeout_seconds,
     )
+    transport_options = {}
+    if getattr(active, "provider_id", None) is not None and urlsplit(active.base_url).scheme == "http":
+        transport_options["private_network_only"] = True
     try:
         with outbound_deadline(active.request_timeout_seconds), client_factory(
             timeout=timeout,
             headers={"User-Agent": runtime_settings.fetch_user_agent},
             allow_private_network=runtime_settings.allow_private_network_ai,
+            **transport_options,
         ) as client:
             with client.stream("POST", request_url, headers=headers, json=request_payload) as streamed:
                 body = read_bounded_response(streamed, runtime_settings.ai_response_max_bytes)
@@ -158,12 +178,12 @@ def call_ai_json(
             provider_io_outcome=AI_PROVIDER_IO_RESPONSE_RECEIVED,
         ) from exc
     except httpx.HTTPStatusError as exc:
-        response_body = exc.response.text
+        response_body = _redact_response_text(exc.response.text, active.api_key)
         try:
-            response_json: object | None = exc.response.json()
+            response_json: object | None = _redact_response_value(exc.response.json(), active.api_key)
         except ValueError:
             response_json = None
-        provider_error_message = extract_provider_error_message(response_json)
+        provider_error_message = _safe_provider_error(response_json, active.api_key)
         raise AIIntegrationError(
             provider_error_message or f"AI request failed: {exc}",
             request_url=request_url,
@@ -201,9 +221,9 @@ def call_ai_json(
         ) from exc
 
     latency_ms = int((time.perf_counter() - started_at) * 1000)
-    response_body = response.text
+    response_body = _redact_response_text(response.text, active.api_key)
     try:
-        payload = response.json()
+        payload = _redact_response_value(response.json(), active.api_key)
     except ValueError as exc:
         raise AIIntegrationError(
             "AI endpoint returned non-JSON output",
@@ -214,7 +234,7 @@ def call_ai_json(
             retryable=True,
             provider_io_outcome=AI_PROVIDER_IO_RESPONSE_RECEIVED,
         ) from exc
-    provider_error_message = extract_provider_error_message(payload)
+    provider_error_message = _safe_provider_error(payload, active.api_key)
     if provider_error_message:
         raise AIIntegrationError(
             provider_error_message,
@@ -230,6 +250,8 @@ def call_ai_json(
     try:
         choice = payload["choices"][0]
         message = choice["message"]
+        if not isinstance(message, dict):
+            raise TypeError("The provider message must be an object")
     except (KeyError, IndexError, TypeError) as exc:
         raise AIIntegrationError(
             "AI endpoint returned an unexpected response shape",
@@ -275,12 +297,15 @@ def call_ai_json(
             retryable=True,
             provider_io_outcome=AI_PROVIDER_IO_RESPONSE_RECEIVED,
         ) from exc
-    usage = payload.get("usage") or {}
+    parsed = cast(dict[str, object], _redact_response_value(parsed, active.api_key))
+    usage_value = payload.get("usage")
+    usage = usage_value if isinstance(usage_value, dict) else {}
+    reported_model = payload.get("model")
     prompt_char_count = sum(len(entry.get("content") or "") for entry in messages)
     return AICompletionResult(
         payload=parsed,
         provider=active.provider_type,
-        model=payload.get("model") or active.model,
+        model=reported_model[:255] if isinstance(reported_model, str) and reported_model else active.model,
         latency_ms=latency_ms,
         prompt_tokens=coerce_optional_int(usage.get("prompt_tokens")),
         completion_tokens=coerce_optional_int(usage.get("completion_tokens")),
@@ -311,6 +336,39 @@ def build_chat_completion_url(base_url: str) -> str:
 
 def ai_status_code_is_retryable(status_code: int) -> bool:
     return status_code in {408, 409, 425, 429} or 500 <= status_code <= 599
+
+
+def _redact_response_text(value: str, api_key: str | None) -> str:
+    if not api_key:
+        return value
+    return value.replace(json.dumps(api_key)[1:-1], "[redacted]").replace(api_key, "[redacted]")
+
+
+def _redact_response_value(value: object, api_key: str | None, depth: int = 0) -> object:
+    """Provider replies can echo headers in any field, including diagnostic keys."""
+    if not api_key:
+        return value
+    if depth > 32:
+        return "[nested provider field omitted]"
+    if isinstance(value, str):
+        return value.replace(api_key, "[redacted]")
+    if isinstance(value, dict):
+        return {
+            str(key).replace(api_key, "[redacted]"): _redact_response_value(entry, api_key, depth + 1)
+            for key, entry in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_response_value(entry, api_key, depth + 1) for entry in value]
+    return value
+
+
+def _safe_provider_error(payload: object | None, api_key: str | None) -> str | None:
+    message = extract_provider_error_message(payload)
+    if not message:
+        return None
+    if api_key:
+        message = message.replace(api_key, "[redacted]")
+    return redact_log_text(message, max_chars=1000)
 
 
 def extract_provider_error_message(payload: object | None) -> str | None:

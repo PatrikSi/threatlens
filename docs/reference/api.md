@@ -5,7 +5,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ## Published Contract
 
 - Schema version: `1.10.0`
-- OpenAPI contract anchor: `openapi-sha256:ad173aadf90b21a9ac6379d181fd2a7fae12faf7dce583fb71e44072df523438`
+- OpenAPI contract anchor: `openapi-sha256:660833cbf78f1cd8e1ab7d21a20653adb8f2b2ca62d41cb333e00257aff19e50`
 - API service base path: `/v1`
 - Web proxy base path: `/api/v1`
 - Bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`.
@@ -277,6 +277,63 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `run_id` (path, required): string
 - Responses: `200` `application/json` -> AITaskRunResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `GET /v1/ai/provider-routing`
+- Summary: Get Ai Provider Routing
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:ai`
+- Responses: `200` `application/json` -> AIProviderRoutingResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `PUT /v1/ai/provider-routing`
+- Summary: Update Ai Provider Routing
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:ai`
+- Request body: `application/json` -> AIProviderRoutingUpdate
+- Responses: `200` `application/json` -> AIProviderRoutingResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `GET /v1/ai/providers`
+- Summary: List Ai Providers
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:ai`
+- Parameters:
+  - `limit` (query, optional): integer
+  - `offset` (query, optional): integer
+  - `search` (query, optional): string
+- Responses: `200` `application/json` -> AIProviderListResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/ai/providers`
+- Summary: Create Ai Provider
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:ai`
+- Request body: `application/json` -> AIProviderCreate
+- Responses: `201` `application/json` -> AIProviderResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `DELETE /v1/ai/providers/{provider_id}`
+- Summary: Delete Ai Provider
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:ai`
+- Parameters:
+  - `provider_id` (path, required): string
+  - `version` (query, required): integer
+- Responses: `204`, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `GET /v1/ai/providers/{provider_id}`
+- Summary: Get Ai Provider
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:ai`
+- Parameters:
+  - `provider_id` (path, required): string
+- Responses: `200` `application/json` -> AIProviderResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `PUT /v1/ai/providers/{provider_id}`
+- Summary: Update Ai Provider
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:ai`
+- Parameters:
+  - `provider_id` (path, required): string
+- Request body: `application/json` -> AIProviderUpdate
+- Responses: `200` `application/json` -> AIProviderResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/ai/providers/{provider_id}/test-connection`
+- Summary: Test Ai Provider Connection
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:ai`
+- Parameters:
+  - `provider_id` (path, required): string
+- Request body: `application/json` -> AIProviderTestConnectionRequest
+- Responses: `200` `application/json` -> AITestConnectionResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/ai/reprocess`
 - Summary: Reprocess Ai For Recent Items
 - Auth: ApiTokenBearer or SessionCookieAuth

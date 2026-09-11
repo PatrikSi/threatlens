@@ -119,6 +119,15 @@ def compute_item_source_hash(
         {
             "settings": {
                 "model": active.model,
+                "provider_id": str(active.provider_id) if getattr(active, "provider_id", None) else None,
+                "provider_version": getattr(active, "provider_version", None),
+                "provider_type": active.provider_type,
+                "base_url": active.base_url,
+                "temperature": active.temperature,
+                "max_completion_tokens": active.max_completion_tokens,
+                "item_enrichment_system_prompt": active.item_enrichment_system_prompt,
+                "relevance_medium_threshold": active.relevance_medium_threshold,
+                "relevance_high_threshold": active.relevance_high_threshold,
                 "summary_enabled": active.summary_enabled,
                 "relevance_enabled": active.relevance_enabled,
                 "company_name": active.company_name,

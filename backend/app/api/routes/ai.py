@@ -128,7 +128,7 @@ def get_ai_settings_route(
 ):
     _ = admin
     settings = get_or_create_ai_settings(db)
-    return ai_settings_response_from_model(settings)
+    return ai_settings_response_from_model(settings, db=db)
 
 
 @router.put(
@@ -240,7 +240,7 @@ def update_ai_settings_route(
     prune_daily_brief_history(db, keep_limit=payload.daily_brief_history_limit)
     db.commit()
     db.refresh(settings)
-    return ai_settings_response_from_model(settings)
+    return ai_settings_response_from_model(settings, db=db)
 
 
 @router.post(
@@ -367,7 +367,7 @@ def get_latest_daily_brief_route(
     _scope_user: User = Depends(require_token_scopes(SCOPE_READ_ITEMS)),
     data_access: DataAccessContext = Depends(get_data_access_context),
 ):
-    active = load_active_ai_settings(db)
+    active = load_active_ai_settings(db, feature_type="daily_brief")
     if not active.ai_configured or not active.daily_brief_enabled:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Daily brief is unavailable"
@@ -394,7 +394,7 @@ def list_daily_briefs_route(
     _scope_user: User = Depends(require_token_scopes(SCOPE_READ_ITEMS)),
     data_access: DataAccessContext = Depends(get_data_access_context),
 ):
-    active = load_active_ai_settings(db)
+    active = load_active_ai_settings(db, feature_type="daily_brief")
     if not active.ai_configured or not active.daily_brief_enabled:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Daily brief is unavailable"

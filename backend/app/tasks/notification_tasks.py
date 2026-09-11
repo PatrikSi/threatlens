@@ -669,7 +669,7 @@ def dispatch_webhook_failed_notification_webhooks(delivery_id: str):
 def dispatch_daily_digest_notification_webhooks():
     with db_session() as db:
         now = datetime.now(timezone.utc)
-        active = load_active_ai_settings(db)
+        active = load_active_ai_settings(db, feature_type="daily_brief")
         if not active.ai_enabled:
             return {"status": "skipped", "reason": "ai_disabled"}
         if not active.ai_configured:

@@ -71,7 +71,7 @@ def test_unexpected_generation_error_moves_report_to_terminal_state(
     monkeypatch.setattr(
         report_generation,
         "load_active_ai_settings",
-        lambda _db: SimpleNamespace(
+        lambda _db, **_kwargs: SimpleNamespace(
             ai_enabled=True,
             ai_configured=True,
             reporting_enabled=True,
@@ -307,7 +307,7 @@ def test_lost_execution_lease_does_not_overwrite_report_state(
     monkeypatch.setattr(
         report_generation,
         "load_active_ai_settings",
-        lambda _db: SimpleNamespace(
+        lambda _db, **_kwargs: SimpleNamespace(
             ai_enabled=True,
             ai_configured=True,
             reporting_enabled=True,

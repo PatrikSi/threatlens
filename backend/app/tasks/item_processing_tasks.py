@@ -65,7 +65,7 @@ def run_classify_item(item_id: str, *, dependencies: ItemProcessingDependencies)
         feed = db.scalar(select(Feed).where(Feed.id == item.feed_id))
         feed_name = feed.name if feed is not None else ""
         feed_url = feed.url if feed is not None else ""
-        active_ai_settings = ai_config.load_active_ai_settings(db)
+        active_ai_settings = ai_config.load_active_ai_settings(db, feature_type="item_enrichment")
         ai_skip_reason = _ai_enrichment_skip_reason(
             item, article, active_ai_settings, dependencies=dependencies
         )

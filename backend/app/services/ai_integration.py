@@ -27,8 +27,10 @@ from app.services import ai_prompting as _ai_prompting
 from app.services import ai_provider_client as _ai_provider_client
 from app.services.ai_config import ActiveAISettings, load_active_ai_settings
 from app.services.ai_egress_data_policy import (
+    AIEgressPolicyError,
     enforce_ai_egress_data_policy as _enforce_ai_egress_data_policy,
 )
+from app.services.authorization import AuthorizationContext, AuthorizationStateUnavailable, fence_authorization_context
 from app.services.ai_ops import (
     AI_PROVIDER_CLAIM_DAILY_BRIEF,
     AI_PROVIDER_CLAIM_ITEM_ENRICHMENT,
@@ -117,6 +119,7 @@ class AIItemEnrichmentResult:
     input_text_chars: int
     prompt_char_count: int | None = None
     response_char_count: int | None = None
+    error: str | None = None
 
 
 @dataclass(frozen=True)
@@ -129,6 +132,7 @@ class AIDailyBriefGenerationResult:
     prompt_char_count: int | None = None
     response_char_count: int | None = None
     integration_event_id: uuid.UUID | None = None
+    error: str | None = None
 
 
 def is_stale_daily_brief_pending(brief: AIDailyBrief, *, now: datetime) -> bool:
@@ -144,14 +148,16 @@ def is_stale_daily_brief_pending(brief: AIDailyBrief, *, now: datetime) -> bool:
 
 
 def test_ai_connection(
-    db: Session, *, task_run_id: uuid.UUID | None = None
+    db: Session, *, task_run_id: uuid.UUID | None = None,
+    active_settings: ActiveAISettings | None = None,
+    request_authorization: AuthorizationContext | None = None,
 ) -> AITestConnectionResponse:
-    active = load_active_ai_settings(db)
+    active = active_settings or load_active_ai_settings(db, use_legacy=True)
     if not active.ai_enabled:
         raise AIIntegrationError("AI features are disabled")
     if not active.ai_configured:
         raise AIIntegrationError(
-            "Configure the AI base URL and model before testing the connection"
+            active.configuration_error or "Configure the AI base URL and model before testing the connection"
         )
 
     try:
@@ -161,6 +167,7 @@ def test_ai_connection(
             feature_type=FEATURE_CONNECTION_TEST,
             task_run_id=task_run_id,
             provider_operation_scope="connection_test",
+            request_authorization=request_authorization,
             messages=[
                 {
                     "role": "system",
@@ -210,13 +217,14 @@ def run_item_ai_enrichment(
     force: bool = False,
     task_run_id: uuid.UUID | None = None,
 ) -> AIItemEnrichmentResult:
-    active = load_active_ai_settings(db)
+    active = load_active_ai_settings(db, feature_type=FEATURE_ITEM_ENRICHMENT, task_run_id=task_run_id)
     if not active.ai_enabled or not active.ai_configured:
         return AIItemEnrichmentResult(
             enrichment=None,
-            status="skipped",
-            reason="ai_not_configured" if active.ai_enabled else "ai_disabled",
+            status="error" if active.configuration_error and active.ai_enabled else "skipped",
+            reason=(active.configuration_error_code or "ai_not_configured") if active.ai_enabled else "ai_disabled",
             input_text_chars=0,
+            error=active.configuration_error if active.ai_enabled else None,
         )
     if not active.summary_enabled and not active.relevance_enabled:
         return AIItemEnrichmentResult(
@@ -518,7 +526,7 @@ def run_daily_brief_generation(
     task_run_id: uuid.UUID | None = None,
     emit_notification: bool = True,
 ) -> AIDailyBriefGenerationResult:
-    active = load_active_ai_settings(db)
+    active = load_active_ai_settings(db, feature_type=FEATURE_DAILY_BRIEF, task_run_id=task_run_id)
     if (
         not active.ai_enabled
         or not active.ai_configured
@@ -535,10 +543,11 @@ def run_daily_brief_generation(
         if not active.ai_configured:
             return AIDailyBriefGenerationResult(
                 brief=None,
-                status="skipped",
-                reason="ai_not_configured",
+                status="error" if active.configuration_error else "skipped",
+                reason=active.configuration_error_code or "ai_not_configured",
                 items_considered=0,
                 items_selected=0,
+                error=active.configuration_error,
             )
         return AIDailyBriefGenerationResult(
             brief=None,
@@ -1044,12 +1053,24 @@ def _request_json_with_usage(
     max_provider_attempts: int | None = None,
     execution_checkpoint: Callable[[], None] | None = None,
     execution_commit: Callable[[], None] | None = None,
+    request_authorization: AuthorizationContext | None = None,
 ) -> AICompletionResult:
     if feature_type == FEATURE_REPORT and provider_operation_scope is None:
         raise AIIntegrationError(
             "Report provider calls require a durable operation scope.",
             retryable=False,
         )
+    def enforce_provider_authorization(db: Session, **kwargs):
+        if request_authorization is not None:
+            try:
+                fence_authorization_context(db, request_authorization)
+            except AuthorizationStateUnavailable as exc:
+                raise AIEgressPolicyError(
+                    "Your permissions changed before the connection test. Refresh your session and retry.",
+                    retryable=False,
+                ) from exc
+        return _enforce_ai_egress_data_policy(db, **kwargs)
+
     return run_ai_json_request(
         db,
         active,
@@ -1065,7 +1086,7 @@ def _request_json_with_usage(
         max_provider_attempts=max_provider_attempts,
         execution_checkpoint=execution_checkpoint,
         execution_commit=execution_commit,
-        enforce_egress_data_policy=_enforce_ai_egress_data_policy,
+        enforce_egress_data_policy=enforce_provider_authorization,
         report_feature_type=FEATURE_REPORT,
         call_ai_json=_call_ai_json,
         record_task_run_stop_observed=_record_task_run_stop_observed,
