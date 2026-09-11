@@ -9,8 +9,14 @@ from app.core import runtime_metrics
 from app.core.config import Settings
 from app.models.feed import Feed
 from app.models.item import Item
+from app.models.item_classification import ItemClassification
+from app.models.processing_work import ProcessingWork
 from app.services.operations_freshness import load_processing_backlog
 from app.services.operations_runtime import collect_memory_pressure, safe_runtime_metrics
+from app.services.processing_queries import stage_statement
+
+
+NOW = datetime(2026, 9, 11, 12, tzinfo=timezone.utc)
 
 
 def _pending_item(db, *, seen, required):
@@ -105,3 +111,54 @@ def test_removed_classification_remains_visible_even_when_versions_match(db_sess
     result = load_processing_backlog(db_session, stage="classification", settings=Settings(_env_file=None), now=now)
     assert result.pending_count == 1
     assert result.status == "degraded"
+
+
+@pytest.mark.parametrize("stage", ["classification", "tagging"])
+def test_exhausted_cancelled_processing_work_matches_current_worklist(db_session, monkeypatch, stage):
+    monkeypatch.setenv("PROCESSING_MAX_ATTEMPTS", "3")
+    settings = Settings(_env_file=None, processing_max_attempts=3)
+    item = _pending_item(db_session, seen=NOW, required=NOW)
+    work = ProcessingWork(
+        item_id=item.id, feed_id=item.feed_id, stage=stage,
+        source_version=item.classification_required_version,
+        status="cancelled", attempts=3, reason="cancelled",
+    )
+    db_session.add(work)
+    db_session.flush()
+    row = db_session.execute(stage_statement(stage)).mappings().one()
+    backlog = load_processing_backlog(db_session, stage=stage, settings=settings, now=NOW)
+    assert row["state"] == "attention" and row["reason"] == "retry_exhausted"
+    assert backlog.pending_count == backlog.failed_count == 1
+    assert backlog.status == "degraded"
+
+    # A source refresh invalidates exhausted work from the previous obligation.
+    item.classification_required_version += 1
+    db_session.flush()
+    row = db_session.execute(stage_statement(stage)).mappings().one()
+    backlog = load_processing_backlog(db_session, stage=stage, settings=settings, now=NOW)
+    assert row["reason"] is None
+    assert backlog.pending_count == 1 and backlog.failed_count == 0
+    assert backlog.status == "healthy"
+
+    # Cancelling with automatic attempts remaining is not exhaustion.
+    work.source_version = item.classification_required_version
+    work.attempts = 2
+    db_session.flush()
+    backlog = load_processing_backlog(db_session, stage=stage, settings=settings, now=NOW)
+    assert backlog.failed_count == 0 and backlog.status == "healthy"
+
+    work.status = "attention"
+    db_session.flush()
+    backlog = load_processing_backlog(db_session, stage=stage, settings=settings, now=NOW)
+    assert backlog.failed_count == 1 and backlog.status == "degraded"
+
+    # Domain completion removes stale dispatch failures from the backlog.
+    item.classification_completed_version = item.classification_required_version
+    item.tagging_pending = False
+    db_session.add(ItemClassification(
+        item_id=item.id, primary_category="uncategorized", source_hash="a" * 64,
+    ))
+    db_session.flush()
+    backlog = load_processing_backlog(db_session, stage=stage, settings=settings, now=NOW)
+    assert backlog.pending_count == backlog.failed_count == 0
+    assert backlog.status == "healthy"
