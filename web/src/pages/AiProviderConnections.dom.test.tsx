@@ -337,6 +337,10 @@ describe('AI provider lifecycle with a real query cache', () => {
     expect(host.textContent).toContain('Named providers never inherit the legacy environment key')
     expect(host.querySelector('table caption')?.textContent).toBe('Saved AI provider connections')
     expect(host.textContent).toContain('1–1 of 1 providers')
+    const endpoint = host.querySelector<HTMLInputElement>('input[aria-label="Provider base URL"]')!
+    expect(endpoint.getAttribute('aria-describedby')).toContain('provider-endpoint-help')
+    expect(document.getElementById('provider-endpoint-help')?.textContent).toContain('https://generativelanguage.googleapis.com/v1beta/openai/')
+    expect(document.getElementById('provider-endpoint-help')?.textContent).toContain('different request format')
   })
 
   it('exposes recoverable API errors when connected to a server without provider support', async () => {

@@ -2,6 +2,7 @@ import { AITestConnectionResponse } from '../types/api'
 import { Field, FieldError, Panel } from './aiSettingsSupport'
 import { updateDraft } from './aiSettingsUtils'
 import { AiConfigurationDraftProps } from './AiSettingsConfigurationTypes'
+import { AiProviderEndpointHelp } from './AiProviderEndpointHelp'
 
 type AiProviderConfigurationProps = AiConfigurationDraftProps & {
   draftDirty: boolean
@@ -83,8 +84,11 @@ export function AiProviderConfiguration({
             className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
             value={draft.base_url}
             onChange={(event) => updateDraft(setDraft, 'base_url', event.target.value)}
+            aria-label="Base URL"
+            aria-describedby="legacy-provider-endpoint-help"
             aria-invalid={Boolean(validation.base_url)}
           />
+          <AiProviderEndpointHelp id="legacy-provider-endpoint-help" legacy />
           <FieldError message={validation.base_url} />
         </Field>
         <Field label="Model">
