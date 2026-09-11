@@ -10,6 +10,7 @@ if (!apiOrigin || !webOrigin || !process.env.THREATLENS_BROWSER_ENV_DIR) {
 export default defineConfig({
   plugins: [react()],
   envDir: process.env.THREATLENS_BROWSER_ENV_DIR,
+  cacheDir: `${process.env.THREATLENS_BROWSER_ENV_DIR}/vite-cache`,
   server: {
     host: '127.0.0.1', port: Number(new URL(webOrigin).port), strictPort: true,
     proxy: { '/api': { target: apiOrigin, changeOrigin: true, rewrite: (path) => path.replace(/^\/api/, '') } },

@@ -49,6 +49,10 @@ def main() -> int:
     )
     parser.add_argument("--project", choices=("chromium", "firefox", "webkit"))
     parser.add_argument("--grep")
+    parser.add_argument(
+        "--ai-providers", action="store_true",
+        help="Enable AI settings in the disposable server for provider configuration tests; no AI worker is started.",
+    )
     args = parser.parse_args()
     for name in (
         "THREATLENS_TEST_DATABASE_URL",
@@ -110,6 +114,7 @@ def main() -> int:
                 "THREATLENS_BROWSER_API_ORIGIN": api_origin,
                 "THREATLENS_BROWSER_CONTROL_TOKEN": control_token,
                 "THREATLENS_BROWSER_ENV_DIR": temporary,
+                "THREATLENS_BROWSER_AI_PROVIDERS": "true" if args.ai_providers else "false",
             }
             server_env = {
                 **browser_env,
@@ -127,7 +132,7 @@ def main() -> int:
                 "AUTH_COOKIE_SAMESITE": "lax",
                 "ALLOW_PRIVATE_NETWORK_OIDC": "true",
                 "ALLOW_INSECURE_HTTP_OIDC": "true",
-                "AI_ENABLED": "false",
+                "AI_ENABLED": "true" if args.ai_providers else "false",
                 "ALLOW_SELF_REGISTRATION": "false",
                 "OIDC_TOTAL_TIMEOUT_SECONDS": "3",
             }
@@ -187,7 +192,7 @@ def main() -> int:
                         "--user",
                         f"{os.getuid()}:{os.getgid()}",
                         "--mount",
-                        f"type=bind,src={ROOT},dst={ROOT}",
+                        f"type=bind,src={ROOT / 'web'},dst={ROOT / 'web'}",
                         "--mount",
                         f"type=bind,src={temporary},dst={temporary}",
                         "-w",
