@@ -1,11 +1,10 @@
 import threading
-import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, event, func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -201,28 +200,66 @@ def test_worker_renews_lease_during_a_long_render(export_env, monkeypatch):
     from app.services import export_job_worker
 
     env = export_env
-    monkeypatch.setattr(get_settings(), "export_job_lease_seconds", 1)
+    monkeypatch.setattr(get_settings(), "export_job_lease_seconds", 3)
     job_id, _ = _accept(env)
+    worker_now = datetime.now(timezone.utc)
+
+    class WorkerDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return worker_now.astimezone(tz)
+
+    # Advance only the worker's UTC clock so scheduling delays cannot expire
+    # its lease. Renewal still uses a real thread and PostgreSQL transaction.
+    monkeypatch.setattr(export_job_worker, "datetime", WorkerDateTime)
     original = export_job_worker._generate
     entered = threading.Event()
     release = threading.Event()
+    renewed = threading.Event()
+    expected_expiry = worker_now + timedelta(seconds=5)
+
+    def observe_renewal(db):
+        for job in db.identity_map.values():
+            if (
+                isinstance(job, ExportJob)
+                and job.id == job_id
+                and job.lease_expires_at is not None
+                and job.lease_expires_at >= expected_expiry
+            ):
+                renewed.set()
 
     def slow(*args):
         entered.set()
-        assert release.wait(timeout=5)
+        assert release.wait(timeout=30), "render was not released"
         return original(*args)
 
     monkeypatch.setattr(export_job_worker, "_generate", slow)
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        future = pool.submit(execute_export_job, job_id)
-        try:
-            assert entered.wait(timeout=5)
-            first = _job(env, job_id).lease_expires_at
-            until = time.monotonic() + 3
-            while time.monotonic() < until and _job(env, job_id).lease_expires_at <= first:
-                time.sleep(0.05)
-            assert _job(env, job_id).lease_expires_at > first
-            assert claim_export_job(job_id) is None
-        finally:
-            release.set()
-        assert future.result(timeout=5)["status"] == "ready"
+    event.listen(Session, "after_commit", observe_renewal)
+    try:
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(execute_export_job, job_id)
+            try:
+                assert entered.wait(timeout=10), "render did not start"
+                first = _job(env, job_id)
+                worker_now = first.lease_expires_at - timedelta(seconds=1)
+                assert renewed.wait(timeout=10), "lease renewal did not commit"
+                assert _job(env, job_id).lease_expires_at >= expected_expiry
+
+                # The render now spans the original lease in worker time.
+                # Validate real ownership, which rejects expired running jobs.
+                worker_now = first.lease_expires_at + timedelta(seconds=1)
+                assert not release.is_set()
+                with Session(env.engine) as db:
+                    owned = _owned_job(db, job_id, first.claim_token)
+                    assert owned.lease_expires_at > worker_now
+                    assert owned.attempts == 1
+                assert claim_export_job(job_id) is None
+            finally:
+                release.set()
+            outcome = future.result(timeout=10)
+            assert outcome["status"] == "ready", {
+                "status": outcome["status"],
+                "error_code": _job(env, job_id).error_code,
+            }
+    finally:
+        event.remove(Session, "after_commit", observe_renewal)
