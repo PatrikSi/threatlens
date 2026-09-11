@@ -137,6 +137,10 @@ Names are unique without regard to case. A successful repeat of an unchanged
 create with the same identifier returns the existing profile; that identifier
 cannot overwrite a profile edited since its creation. Updates and routing saves
 advance their versions. Deleting a provider does not rewrite queued task history.
+Deleted provider identifiers are permanently retired, independently of task
+history retention. Create a replacement with a new identifier; the deleted
+provider's name can be reused. Only the retired identifier and deletion time are
+retained, so old queued work cannot silently target a replacement endpoint.
 
 Provider management failures include these codes in the error `detail` object:
 
@@ -144,6 +148,7 @@ Provider management failures include these codes in the error `detail` object:
 | --- | --- |
 | `provider_version_conflict`, `provider_version_changed`, `provider_configuration_conflict` | Reload saved settings and review the concurrent change. |
 | `provider_name_conflict`, `provider_id_conflict` | Choose a distinct name or inspect the existing create result. |
+| `provider_id_retired` | The provider was deleted. Start a new provider with a new identifier. |
 | `provider_credential_destination_changed` | Replace or clear the saved key when changing endpoint origin. |
 | `provider_in_use` | Remove routing references before deletion. |
 | `provider_disabled`, `provider_not_found` | Select an available provider; disabled profiles cannot receive a new assignment. |

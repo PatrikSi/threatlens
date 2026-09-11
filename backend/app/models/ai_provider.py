@@ -98,3 +98,14 @@ class AIProviderRouting(Base):
         Uuid(as_uuid=True),
         ForeignKey("ai_provider_configurations.id", ondelete="RESTRICT"),
     )
+
+
+class AIProviderRetiredID(Base):
+    """Prevent deleted identifiers from retargeting queued or restored work."""
+
+    __tablename__ = "ai_provider_retired_ids"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    retired_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
