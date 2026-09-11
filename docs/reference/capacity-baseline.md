@@ -187,9 +187,13 @@ never catches up with a burst after a slow operation. The result records actual
 completed counts; a slower release can complete fewer operations than the
 nominal rate. A 600-second run offers at most 480 new articles. Duration is
 required and bounded to 10–3,600 seconds. Retained synthetic articles start
-with known-empty IOC state. Real missing-IOC repair runs every five seconds;
-this is an explicitly shortened maintenance interval, compared with the
-application's 300-second beat schedule. Sustained `queue.recovery_ms` measures
+with completed classification and known-empty IOC state. The real all-stage
+processing dispatcher runs every five seconds, including missing-article repair
+after a two-second grace period. These capacity-only settings accelerate recovery
+to fit the 60-second drain budget; production uses a 30-second dispatch interval
+and a 300-second missing-article grace period. The workload fingerprint records
+both settings and the repair contract; older IOC-only artifacts are incompatible.
+Sustained `queue.recovery_ms` measures
 the drain after load stops, whereas finite burst profiles include worker
 startup; these profiles cannot be automatically compared.
 
