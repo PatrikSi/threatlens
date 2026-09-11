@@ -60,7 +60,7 @@ def dispatch_fixture(database_engine, monkeypatch):
 
     monkeypatch.setattr(report_schedules, "_create_one_scheduled_report", create_report)
     monkeypatch.setattr(report_schedule_tasks, "datetime", SimpleNamespace(now=lambda _tz: NOW))
-    monkeypatch.setattr(report_schedule_tasks, "load_active_ai_settings", lambda _db: SimpleNamespace(
+    monkeypatch.setattr(report_schedule_tasks, "load_active_ai_settings", lambda _db, **_kwargs: SimpleNamespace(
         ai_enabled=True, ai_configured=True, reporting_enabled=True,
     ))
     try:
