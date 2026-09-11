@@ -311,8 +311,10 @@ The manual **Capacity release comparison** GitHub Actions workflow accepts two
 committed refs and a `baseline` or `sustained` profile. Both refs must include
 the version 2 harness. It builds separate interpreters before measurements,
 then runs both releases sequentially on the same runner with identical caps.
-Its per-job target ID prevents automatic comparison across unrelated hosted
-runners. Results, logs, and compatibility/regression output are retained for
+Its supplied target ID and recorded hardware/resource fingerprint reject
+incompatible comparisons. The default hosted-reference label does not identify
+a dedicated physical runner or prove comparable background activity.
+Results, logs, and compatibility/regression output are retained for
 90 days. Incompatible measurement contracts fail visibly; changing start
 phases, repair cadence, caps, or dataset shape requires a new baseline.
 
@@ -325,10 +327,11 @@ other workload activity without inspecting or exporting live application data.
 Two sequential hosted runs can still be noisy; the workflow supplies a
 repeatable experiment, not statistical proof or a production capacity claim.
 
-The recorded sustained export lane calls the projection/artifact services. It
-does not measure the newer asynchronous export-job admission, encrypted chunk
-storage, or download route. Adding those stages changes the workload contract
-and requires a new baseline.
+The high-sample sustained `export:*` latency lane calls the projection/artifact
+services. The paired `async_export:*` samples described below separately exercise
+durable admission and encrypted chunk storage. Neither lane measures the download
+route. Historical artifacts predating the hardening workload lack those paired
+jobs; workload changes require a new baseline.
 
 The broker fault initially reproduced an application producer deadlock in the
 installed Celery 5.5.3 / redis-py 6.2.0 result-consumer reconnect path: an
