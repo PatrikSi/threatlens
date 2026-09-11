@@ -43,7 +43,7 @@
 | `ALLOW_SELF_REGISTRATION` (`allow_self_registration`) | `false` | Enables/disables `/auth/register`. |
 | `DEFAULT_API_TOKEN_EXPIRY_DAYS` (`default_api_token_expiry_days`) | `90` | Default token lifetime if not supplied. |
 | `AI_ENABLED` (`ai_enabled`) | `false` | Enables AI routes, nav visibility, enrichment, and daily-brief features. |
-| `AI_API_KEY` (`ai_api_key`) | _(empty)_ | Optional bearer key for the configured AI endpoint. May remain blank for local unauthenticated OpenAI-compatible endpoints. |
+| `AI_API_KEY` (`ai_api_key`) | _(empty)_ | Optional bearer key for the legacy AI settings, restricted to `https://api.openai.com` on the default HTTPS port. Named providers use their own encrypted keys and never inherit this value. See [provider setup](../pages/ai.md#set-up-named-providers). |
 | `AI_RESPONSE_MAX_BYTES` (`ai_response_max_bytes`) | `2000000` | Cap on encoded and decoded provider response bytes, including errors; 1,024–16,000,000. See [outbound budgets](outbound-request-budgets.md). |
 | `PUBLIC_APP_URL` (`public_app_url`) | _(empty)_ | Optional public browser URL, without credentials/query/fragment, used to make report integration links absolute. |
 | `EXPOSE_API_DOCS_IN_PRODUCTION` (`expose_api_docs_in_production`) | `false` | Keeps `/docs` and `/redoc` disabled by default in production. |
