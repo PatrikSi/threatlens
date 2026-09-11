@@ -272,7 +272,7 @@ worker, holds the local article response, and proves that the task holds its
 Item row lock and has not committed Article content. The harness kills only
 the recorded currently attached prefork child, releases the local response,
 and verifies Celery redelivers the same task to a replacement child. A real
-missing-article dispatcher also runs; completion requires current
+all-stage repair dispatcher also runs, including missing articles; completion requires current
 classification, IOC extraction, no queued/unacknowledged messages, and one
 Article per expected Item. The article-repair eligibility delay is explicitly
 zero in this fixture; production keeps its configured delay.

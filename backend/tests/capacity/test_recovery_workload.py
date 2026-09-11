@@ -20,7 +20,7 @@ from app.core.config import get_settings
 from app.db import session as session_module
 from app.models.article import Article
 from app.models.item import Item
-from app.tasks import feed_task_coordination, feed_tasks
+from app.tasks import feed_task_coordination, feed_tasks, processing_tasks
 from app.tasks.celery_app import celery_app
 from scripts.capacity_results import seal_result
 from tests.capacity.owned_worker import OwnedWorker
@@ -79,7 +79,8 @@ def test_real_worker_death_and_durable_broker_recovery(
             "prefork_task_child_sigkill_during_article",
         ],
         "article_repair_eligibility_seconds": 0,
-        "ioc_repair_interval_seconds": 5,
+        "processing_repair_interval_seconds": 5,
+        "repair_contract": "all-stages-completed-retained-catalog-v1",
     }
     state = {"article_started": threading.Event(), "article_release": threading.Event()}
     metrics = Measurements()
@@ -145,10 +146,7 @@ def test_real_worker_death_and_durable_broker_recovery(
             killed_pid = worker.kill_task_child(task["task_id"])
             state["article_release"].set()
             # Exercise durable repair in addition to Celery's late-ack redelivery.
-            feed_tasks.dispatch_items_missing_articles.delay()
-            celery_app.send_task(
-                "app.tasks.feed_tasks.dispatch_items_missing_iocs", ignore_result=True
-            )
+            processing_tasks.dispatch_processing_work.delay()
             recovery_ms = _wait_for_pipeline(
                 engine, broker, feed_ids, 3, metrics, interrupted, 90, []
             )
