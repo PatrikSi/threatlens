@@ -103,6 +103,14 @@ Provider edits and routing updates carry optimistic versions. On a conflict,
 refresh and review the latest configuration before saving again. Remove routing
 references before deleting a provider.
 
+Before downgrading below migration `0095`, stop scheduling and queueing new AI
+work, finish or cancel outstanding operations, and wait for workers to settle.
+Then remove provider routing references and named providers, and stop the API and
+workers before running the downgrade. The migration refuses to remove the
+provider tables while named providers or unfinished named-provider tasks remain,
+including tasks whose provider was already deleted. Older workers cannot honor
+their saved routing. Terminal task history and queued legacy tasks remain intact.
+
 An in-progress outbound request retains the configuration and policy locks until
 the call settles, within the request deadline. A configuration edit may wait for
 that call. Retries recheck the selected configuration and never move to another
