@@ -54,11 +54,11 @@ def _task_run_claimed_by_current_worker(run: AITaskRun | None, *, celery_task_id
 
 
 def _scheduled_daily_ai_brief_due(db: Session, *, now: datetime) -> tuple[bool, str | None]:
-    active = load_active_ai_settings(db)
+    active = load_active_ai_settings(db, feature_type="daily_brief")
     if not active.ai_enabled:
         return False, "ai_disabled"
     if not active.ai_configured:
-        return False, "ai_not_configured"
+        return False, getattr(active, "configuration_error_code", None) or "ai_not_configured"
     if not active.daily_brief_enabled:
         return False, "daily_brief_disabled"
 
@@ -213,7 +213,7 @@ def dispatch_daily_ai_brief_generation(
                         )
                         db.commit()
                     return {"status": "skipped", "reason": stop_reason}
-                active_ai_settings = load_active_ai_settings(db)
+                active_ai_settings = load_active_ai_settings(db, feature_type="daily_brief", task_run_id=run.id)
                 if not active_ai_settings.ai_enabled:
                     finish_ai_task_run(
                         db,
@@ -225,15 +225,18 @@ def dispatch_daily_ai_brief_generation(
                     db.commit()
                     return {"status": "skipped", "reason": "ai_disabled"}
                 if not active_ai_settings.ai_configured:
+                    reason = getattr(active_ai_settings, "configuration_error_code", None) or "ai_not_configured"
+                    status = AI_STATUS_ERROR if reason != "ai_not_configured" else AI_STATUS_SKIPPED
                     finish_ai_task_run(
                         db,
                         run_id=run.id,
-                        status=AI_STATUS_SKIPPED,
-                        reason="ai_not_configured",
+                        status=status,
+                        reason=reason,
+                        error=(getattr(active_ai_settings, "configuration_error", None) or reason) if status == AI_STATUS_ERROR else None,
                         worker_name=getattr(self.request, "hostname", None),
                     )
                     db.commit()
-                    return {"status": "skipped", "reason": "ai_not_configured"}
+                    return {"status": status, "reason": reason}
                 if not active_ai_settings.daily_brief_enabled:
                     finish_ai_task_run(
                         db,
@@ -251,7 +254,7 @@ def dispatch_daily_ai_brief_generation(
                     run_id=run.id,
                     status=AI_STATUS_READY if result.status == "ready" else AI_STATUS_ERROR if result.status == "error" else AI_STATUS_SKIPPED,
                     reason=result.reason,
-                    error=result.brief.error if result.brief is not None and result.status == "error" else None,
+                    error=(result.brief.error if result.brief is not None else getattr(result, "error", None)) if result.status == "error" else None,
                     worker_name=getattr(self.request, "hostname", None),
                     model=result.brief.model if result.brief is not None else active_ai_settings.model,
                     prompt_tokens=result.brief.prompt_tokens if result.brief is not None else None,
@@ -459,15 +462,24 @@ def backfill_daily_ai_briefs(
                 db.commit()
             return {"status": "skipped", "reason": stop_reason, "run_id": str(parent_run_id)}
 
-        active_ai_settings = load_active_ai_settings(db)
+        active_ai_settings = load_active_ai_settings(db, feature_type="daily_brief", task_run_id=parent_run_id)
         if not active_ai_settings.ai_enabled:
             finish_ai_task_run(db, run_id=parent_run_id, status=AI_STATUS_SKIPPED, reason="ai_disabled", worker_name=worker_name)
             db.commit()
             return {"status": "skipped", "reason": "ai_disabled", "run_id": str(parent_run_id)}
         if not active_ai_settings.ai_configured:
-            finish_ai_task_run(db, run_id=parent_run_id, status=AI_STATUS_SKIPPED, reason="ai_not_configured", worker_name=worker_name)
+            reason = getattr(active_ai_settings, "configuration_error_code", None) or "ai_not_configured"
+            status = AI_STATUS_ERROR if reason != "ai_not_configured" else AI_STATUS_SKIPPED
+            finish_ai_task_run(
+                db,
+                run_id=parent_run_id,
+                status=status,
+                reason=reason,
+                error=(getattr(active_ai_settings, "configuration_error", None) or reason) if status == AI_STATUS_ERROR else None,
+                worker_name=worker_name,
+            )
             db.commit()
-            return {"status": "skipped", "reason": "ai_not_configured", "run_id": str(parent_run_id)}
+            return {"status": status, "reason": reason, "run_id": str(parent_run_id)}
         if not active_ai_settings.daily_brief_enabled:
             finish_ai_task_run(db, run_id=parent_run_id, status=AI_STATUS_SKIPPED, reason="daily_brief_disabled", worker_name=worker_name)
             db.commit()
@@ -640,7 +652,7 @@ def backfill_daily_ai_briefs(
                         run_id=child_run_id,
                         status=AI_STATUS_READY if result.status == "ready" else AI_STATUS_ERROR if result.status == "error" else AI_STATUS_SKIPPED,
                         reason=result.reason,
-                        error=result.brief.error if result.brief is not None and result.status == "error" else None,
+                        error=(result.brief.error if result.brief is not None else getattr(result, "error", None)) if result.status == "error" else None,
                         worker_name=worker_name,
                         model=result.brief.model if result.brief is not None else active_model,
                         prompt_tokens=result.brief.prompt_tokens if result.brief is not None else None,
