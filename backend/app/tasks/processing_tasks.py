@@ -28,19 +28,19 @@ logger = logging.getLogger(__name__)
 def process_work(work_id: str, claim_token: str):
     try:
         identity, token = uuid.UUID(work_id), uuid.UUID(claim_token)
-    except ValueError:
+    except (AttributeError, TypeError, ValueError):
         return {"status": "skipped", "reason": "invalid_identity"}
     return execute_processing_work(identity, token)
 
 
 @celery_app.task(name="app.tasks.processing_tasks.dispatch_processing_work")
 def dispatch_processing_work(stage: str | None = None):
-    if stage is not None and stage not in {
+    if stage is not None and (not isinstance(stage, str) or stage not in {
         "article",
         "classification",
         "ioc",
         "tagging",
-    }:
+    }):
         return {"status": "skipped", "reason": "invalid_stage"}
     canary = read_queue_execution_canaries(
         settings=get_settings(), queues=[QUEUE_PROCESSING]
