@@ -2,6 +2,7 @@ from app.models.lifecycle_pruning import LifecyclePruningRecord
 from app.models.ai_daily_brief import AIDailyBrief
 from app.models.ai_daily_brief_source_item import AIDailyBriefSourceItem
 from app.models.ai_provider_attempt_receipt import AIProviderAttemptReceipt
+from app.models.ai_provider import AIProviderConfiguration, AIProviderRouting
 from app.models.ai_settings import AISettings
 from app.models.ai_task_event import AITaskEvent
 from app.models.ai_task_run import AITaskRun
@@ -133,6 +134,8 @@ __all__ = [
     "AIDailyBrief",
     "AIDailyBriefSourceItem",
     "AIProviderAttemptReceipt",
+    "AIProviderConfiguration",
+    "AIProviderRouting",
     "AISettings",
     "AITaskEvent",
     "AITaskRun",

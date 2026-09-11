@@ -57,6 +57,13 @@ OperationLiteral: TypeAlias = tuple[str, str, str] | tuple[str, str, str, str]
 # security-sensitive contract changes.
 # fmt: off
 _CONTROL_PLANE_OPERATIONS: tuple[OperationLiteral, ...] = (
+    ('GET', '/v1/ai/providers', 'list_ai_providers_route'),
+    ('POST', '/v1/ai/providers', 'create_ai_provider_route'),
+    ('GET', '/v1/ai/providers/{provider_id}', 'get_ai_provider_route'),
+    ('PUT', '/v1/ai/providers/{provider_id}', 'update_ai_provider_route'),
+    ('DELETE', '/v1/ai/providers/{provider_id}', 'delete_ai_provider_route'),
+    ('GET', '/v1/ai/provider-routing', 'get_ai_provider_routing_route'),
+    ('PUT', '/v1/ai/provider-routing', 'update_ai_provider_routing_route'),
     ('GET', '/v1/ai/settings', 'get_ai_settings_route'),
     ('PUT', '/v1/ai/settings', 'update_ai_settings_route'),
     ('GET', '/v1/alerts', 'list_alert_interests'),
@@ -360,6 +367,7 @@ _DYNAMIC_TARGET_OPERATIONS: tuple[OperationLiteral, ...] = (
 )
 
 _EGRESS_FENCED_OPERATIONS: tuple[OperationLiteral, ...] = (
+    ('POST', '/v1/ai/providers/{provider_id}/test-connection', 'test_ai_provider_connection_route'),
     ('POST', '/v1/ai/test-connection', 'test_ai_connection_route'),
 )
 # fmt: on
@@ -410,6 +418,7 @@ _ENDPOINT_NAMES_BY_MODULE: Final[dict[str, tuple[str, ...]]] = {
         "queue_daily_brief_route",
         "reprocess_ai_for_recent_items_route",
         "test_ai_connection_route",
+        "test_ai_provider_connection_route",
         "update_ai_settings_route",
     ),
     "app.api.routes.alert_operations": (
@@ -690,6 +699,15 @@ _ENDPOINT_NAMES_BY_MODULE: Final[dict[str, tuple[str, ...]]] = {
         "post_elevation",
         "post_elevation_close",
         "post_elevation_decision",
+    ),
+    "app.api.routes.ai_providers": (
+        "list_ai_providers_route",
+        "create_ai_provider_route",
+        "get_ai_provider_route",
+        "update_ai_provider_route",
+        "delete_ai_provider_route",
+        "get_ai_provider_routing_route",
+        "update_ai_provider_routing_route",
     ),
     "app.api.routes.tokens": (
         "create_token",
