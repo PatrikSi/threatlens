@@ -142,7 +142,8 @@ history retention. Create a replacement with a new identifier; the deleted
 provider's name can be reused. Only the retired identifier and deletion time are
 retained, so old queued work cannot silently target a replacement endpoint.
 
-Provider management failures include these codes in the error `detail` object:
+Provider management errors expose a code in the error `detail` object. Background
+tasks record configuration failures as their reason. Common codes include:
 
 | Code | Action |
 | --- | --- |
@@ -151,8 +152,9 @@ Provider management failures include these codes in the error `detail` object:
 | `provider_id_retired` | The provider was deleted. Start a new provider with a new identifier. |
 | `provider_credential_destination_changed` | Replace or clear the saved key when changing endpoint origin. |
 | `provider_in_use` | Remove routing references before deletion. |
-| `provider_disabled`, `provider_not_found` | Select an available provider; disabled profiles cannot receive a new assignment. |
-| `provider_credential_unreadable` | Restore the required encryption key or replace/clear the provider credential. |
+| `provider_disabled`, `provider_not_found`, `provider_missing` | Select an available provider; disabled profiles cannot receive a new assignment. |
+| `provider_credential_unreadable`, `provider_credential_unavailable` | Restore the required encryption key or replace/clear the provider credential. |
+| `provider_selection_invalid` | The saved task selection cannot be used. Review routing and start a new task. |
 | `provider_authorization_changed` | Refresh authorization before attempting another change. |
 | `provider_configuration_unavailable`, `provider_credential_storage_unavailable` | Retry after the settings/database or encryption configuration issue is resolved. |
 
