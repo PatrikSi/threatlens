@@ -101,5 +101,19 @@ def downgrade() -> None:
         raise RuntimeError(
             "Clear AI provider routing and delete named providers before downgrading; legacy AI settings are preserved."
         )
+    # Deleting an unassigned profile deliberately leaves task snapshots intact.
+    # Old workers do not understand those snapshots and would use legacy routing.
+    if op.get_bind().scalar(
+        sa.text(
+            "SELECT EXISTS (SELECT 1 FROM ai_task_runs "
+            "WHERE finished_at IS NULL "
+            "AND status NOT IN ('ready', 'error', 'skipped') "
+            "AND metadata_json #>> '{provider_selection,provider_id}' IS NOT NULL)"
+        )
+    ):
+        raise RuntimeError(
+            "Finish or cancel outstanding named-provider AI tasks and wait for them "
+            "to settle before downgrading; older workers cannot preserve their routing."
+        )
     op.drop_table("ai_provider_routing")
     op.drop_table("ai_provider_configurations")
