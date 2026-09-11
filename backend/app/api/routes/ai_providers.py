@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from collections.abc import Iterator
 from contextlib import contextmanager
 
@@ -22,6 +23,19 @@ from app.core.api_errors import ApiHTTPException
 from app.db.budgets import DatabaseDeadlineExceeded, database_operation
 from app.db.session import get_db
 from app.models.user import User
+from app.schemas.ai import AIProviderTestConnectionRequest, AITestConnectionResponse
+from app.services.ai_config import load_active_ai_settings
+from app.services.ai_integration import test_ai_connection
+from app.services.ai_ops import (
+    AI_TASK_TYPE_CONNECTION_TEST,
+    AI_TRIGGER_MANUAL,
+    AI_STATUS_READY,
+    AI_STATUS_ERROR,
+    queue_ai_task_run,
+    start_ai_task_run,
+    finish_ai_task_run,
+)
+from app.services.ai_provider_selection import PROVIDER_SELECTION_KEY
 from app.schemas.ai_providers import (
     AIProviderCreate,
     AIProviderListResponse,
@@ -239,3 +253,86 @@ def _audit_provider(
         resource_id=str(provider_id),
         metadata={"version": version},
     )
+
+
+@router.post(
+    "/providers/{provider_id}/test-connection",
+    response_model=AITestConnectionResponse,
+    dependencies=[Depends(require_ai_enabled)],
+)
+def test_ai_provider_connection_route(
+    provider_id: uuid.UUID,
+    payload: AIProviderTestConnectionRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_admin_user),
+    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_AI)),
+):
+
+    authorization = require_ai_authorization_context(request)
+    with provider_operation(db, request):
+        provider = get_provider(db, provider_id)
+        if provider.version != payload.version:
+            raise AIProviderError(
+                "provider_version_changed",
+                "The provider changed. Reload it before testing.",
+                status_code=409,
+            )
+        active = load_active_ai_settings(db, provider_id=provider_id)
+        if not active.ai_configured:
+            raise AIProviderError(
+                active.configuration_error_code or "provider_not_configured",
+                active.configuration_error or "The provider is not configured.",
+                status_code=422,
+            )
+        run = queue_ai_task_run(
+            db,
+            task_type=AI_TASK_TYPE_CONNECTION_TEST,
+            trigger_source=AI_TRIGGER_MANUAL,
+            actor_user_id=admin.id,
+            model=active.model,
+            metadata={
+                PROVIDER_SELECTION_KEY: {
+                    "provider_id": str(provider.id),
+                    "version": provider.version,
+                    "model": provider.model,
+                }
+            },
+        )
+        start_ai_task_run(db, run_id=run.id, worker_name="api")
+        db.commit()
+
+    # This small, explicit test does not wait for unrelated provider workloads.
+    active = replace(
+        active,
+        max_completion_tokens=128,
+        request_max_retries=0,
+        request_timeout_seconds=min(active.request_timeout_seconds, 30),
+    )
+    result = test_ai_connection(
+        db,
+        task_run_id=run.id,
+        active_settings=active,
+        request_authorization=authorization,
+    )
+    finish_ai_task_run(
+        db,
+        run_id=run.id,
+        status=AI_STATUS_READY if result.success else AI_STATUS_ERROR,
+        reason=None if result.success else "connection_test_failed",
+        error=result.error,
+        worker_name="api",
+        model=result.model,
+        latency_ms=result.latency_ms,
+    )
+    record_audit(
+        db,
+        actor_user_id=admin.id,
+        action="ai.provider.test",
+        resource_type="ai_provider",
+        resource_id=str(provider_id),
+        success=result.success,
+        metadata={"version": payload.version, "run_id": str(run.id)},
+    )
+    db.commit()
+    return result

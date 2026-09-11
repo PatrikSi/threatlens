@@ -25,7 +25,7 @@ def dispatch_due_report_schedules():
     failures = 0
     with db_session() as db:
         try:
-            ensure_reporting_available(load_active_ai_settings(db))
+            ensure_reporting_available(load_active_ai_settings(db, feature_type="report"))
         except ReportingUnavailableError as exc:
             logger.info("scheduled_report_dispatch_deferred reason=%s", exc.code)
             return {

@@ -148,7 +148,7 @@ def get_report_capabilities(
     _user: User = Depends(require_permissions(SCOPE_READ_REPORTS)),
     data_access: DataAccessContext = Depends(get_data_access_context),
 ):
-    active = load_active_ai_settings(db)
+    active = load_active_ai_settings(db, feature_type="report")
     feed_access = handling_label_access_predicate(
         Feed.handling_label_id,
         data_access,

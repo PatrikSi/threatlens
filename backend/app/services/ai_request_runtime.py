@@ -10,6 +10,7 @@ from dataclasses import dataclass, replace
 
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
+from app.services.ai_provider_selection import lock_selected_provider
 
 from app.services.ai_config import ActiveAISettings
 from app.services.ai_egress_data_policy import (
@@ -202,6 +203,7 @@ def run_ai_json_request(
         authorization_refreshes = 0
         provider_attempts = attempt
         try:
+            lock_selected_provider(db, active)
             completion = call_ai_json(active, **call_kwargs)
         except AIIntegrationError as exc:
             checkpoint_error = _capture_checkpoint_error(execution_checkpoint)
@@ -917,6 +919,12 @@ def _ai_request_fingerprint(
     report_id: uuid.UUID | None,
     requested_max_tokens: int,
 ) -> str:
+    profile_identity = {}
+    if getattr(active, "provider_id", None) is not None:
+        profile_identity = {
+            "provider_id": str(active.provider_id),
+            "provider_version": active.provider_version,
+        }
     serialized = json.dumps(
         {
             "feature_type": feature_type,
@@ -927,6 +935,7 @@ def _ai_request_fingerprint(
             ),
             "report_id": str(report_id) if report_id is not None else None,
             "provider_type": active.provider_type,
+            **profile_identity,
             "base_url": getattr(active, "base_url", None),
             "model": active.model,
             "temperature": getattr(active, "temperature", None),

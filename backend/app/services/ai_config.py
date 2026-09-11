@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
 from sqlalchemy import select
@@ -31,7 +31,7 @@ class ActiveAISettings:
     provider_type: str
     base_url: str | None
     model: str | None
-    api_key: str | None
+    api_key: str | None = field(repr=False)
     temperature: float
     max_completion_tokens: int
     request_timeout_seconds: int
@@ -68,6 +68,12 @@ class ActiveAISettings:
     report_max_sources: int = 100
     report_max_model_calls: int = 20
     report_context_safety_percent: int = 15
+    provider_id: uuid.UUID | None = None
+    provider_version: int | None = None
+    provider_name: str | None = None
+    credential_origin: str | None = None
+    configuration_error: str | None = None
+    configuration_error_code: str | None = None
 
 
 DEFAULT_ITEM_ENRICHMENT_SYSTEM_PROMPT = "\n".join(
@@ -184,12 +190,19 @@ def apply_ai_settings_update(settings: AISettings, payload: AISettingsUpdate) ->
     settings.daily_brief_instructions = _normalize_optional_text(payload.daily_brief_instructions)
 
 
-def ai_settings_response_from_model(settings: AISettings) -> AISettingsResponse:
+def ai_settings_response_from_model(settings: AISettings, *, db: Session | None = None) -> AISettingsResponse:
     runtime_settings = get_settings()
     base_url = _normalize_optional_text(settings.base_url)
     model = _normalize_optional_text(settings.model)
     api_key = resolve_ai_api_key_for_base_url(base_url, runtime_settings.ai_api_key)
     ai_configured = bool(base_url and model and is_shared_ai_base_url_allowed(base_url, api_key=api_key))
+    effective_features = {}
+    if db is not None:
+        effective_features = {
+            feature: load_active_ai_settings(db, feature_type=feature).ai_configured
+            for feature in ("item_enrichment", "daily_brief", "report")
+        }
+        ai_configured = any(effective_features.values())
     active = ActiveAISettings(
         id=settings.id,
         ai_enabled=runtime_settings.ai_enabled,
@@ -239,6 +252,7 @@ def ai_settings_response_from_model(settings: AISettings) -> AISettingsResponse:
         id=settings.id,
         ai_enabled=runtime_settings.ai_enabled,
         ai_configured=ai_configured,
+        effective_feature_configured=effective_features,
         api_key_configured=bool(api_key),
         provider_type=settings.provider_type,
         base_url=base_url,
@@ -297,29 +311,34 @@ def load_public_ai_feature_flags(db: Session) -> PublicAIFeatureFlags:
             ai_reporting_enabled=False,
         )
 
-    settings = get_or_create_ai_settings(db)
-    base_url = _normalize_optional_text(settings.base_url)
-    model = _normalize_optional_text(settings.model)
-    api_key = resolve_ai_api_key_for_base_url(base_url, runtime_settings.ai_api_key)
-    configured = bool(base_url and model and is_shared_ai_base_url_allowed(base_url, api_key=api_key))
+    item = load_active_ai_settings(db, feature_type="item_enrichment")
+    brief = load_active_ai_settings(db, feature_type="daily_brief")
+    report = load_active_ai_settings(db, feature_type="report")
     return PublicAIFeatureFlags(
         ai_enabled=True,
-        ai_configured=configured,
-        ai_summary_enabled=configured and bool(settings.summary_enabled),
-        ai_relevance_enabled=configured and bool(settings.relevance_enabled),
-        ai_daily_brief_enabled=configured and bool(settings.daily_brief_enabled),
-        ai_reporting_enabled=configured and bool(settings.reporting_enabled),
+        ai_configured=item.ai_configured or brief.ai_configured or report.ai_configured,
+        ai_summary_enabled=item.ai_configured and item.summary_enabled,
+        ai_relevance_enabled=item.ai_configured and item.relevance_enabled,
+        ai_daily_brief_enabled=brief.ai_configured and brief.daily_brief_enabled,
+        ai_reporting_enabled=report.ai_configured and report.reporting_enabled,
     )
 
 
-def load_active_ai_settings(db: Session) -> ActiveAISettings:
+def load_active_ai_settings(
+    db: Session,
+    *,
+    feature_type: str | None = None,
+    task_run_id: uuid.UUID | None = None,
+    provider_id: uuid.UUID | None = None,
+    use_legacy: bool = False,
+) -> ActiveAISettings:
     runtime_settings = get_settings()
     settings = get_or_create_ai_settings(db)
     base_url = _normalize_optional_text(settings.base_url)
     model = _normalize_optional_text(settings.model)
     api_key = resolve_ai_api_key_for_base_url(base_url, runtime_settings.ai_api_key)
     configured = bool(runtime_settings.ai_enabled and base_url and model and is_shared_ai_base_url_allowed(base_url, api_key=api_key))
-    return ActiveAISettings(
+    active = ActiveAISettings(
         id=settings.id,
         ai_enabled=runtime_settings.ai_enabled,
         ai_configured=configured,
@@ -363,6 +382,14 @@ def load_active_ai_settings(db: Session) -> ActiveAISettings:
         item_summary_instructions=settings.item_summary_instructions,
         relevance_instructions=settings.relevance_instructions,
         daily_brief_instructions=settings.daily_brief_instructions,
+    )
+    if use_legacy:
+        return active
+    from app.services.ai_provider_selection import apply_provider_selection
+
+    return apply_provider_selection(
+        db, active, feature_type=feature_type, task_run_id=task_run_id,
+        provider_id=provider_id,
     )
 
 
