@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from urllib.parse import urlsplit
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.ai_endpoints import matches_ai_key_origin
 from app.core.config import get_settings
 from app.models.ai_settings import AISettings
 from app.schemas.ai import AIPromptPreview, AIPromptPreviews, AISettingsResponse, AISettingsUpdate
@@ -102,7 +102,6 @@ DEFAULT_DAILY_BRIEF_SYSTEM_PROMPT = "\n".join(
         "Use concise, factual language and avoid hype.",
     ]
 )
-SHARED_AI_API_KEY_ALLOWED_HOSTS = frozenset({"api.openai.com"})
 
 
 def get_or_create_ai_settings(db: Session) -> AISettings:
@@ -458,37 +457,11 @@ def _normalize_optional_text(value: str | None) -> str | None:
 def is_shared_ai_base_url_allowed(base_url: str | None, *, api_key: str | None) -> bool:
     if not _normalize_optional_text(api_key):
         return True
-
-    normalized_base_url = _normalize_optional_text(base_url)
-    if normalized_base_url is None:
-        return True
-
-    try:
-        parsed = urlsplit(normalized_base_url)
-        port = parsed.port
-    except ValueError:
-        return False
-
-    hostname = (parsed.hostname or "").lower().rstrip(".")
-    return parsed.scheme.lower() == "https" and hostname in SHARED_AI_API_KEY_ALLOWED_HOSTS and port in (None, 443)
+    return matches_ai_key_origin(base_url, get_settings().ai_api_key_base_url)
 
 
 def resolve_ai_api_key_for_base_url(base_url: str | None, api_key: str | None) -> str | None:
     normalized_api_key = _normalize_optional_text(api_key)
-    if not normalized_api_key:
-        return None
-
-    normalized_base_url = _normalize_optional_text(base_url)
-    if normalized_base_url is None:
-        return normalized_api_key
-
-    try:
-        parsed = urlsplit(normalized_base_url)
-        port = parsed.port
-    except ValueError:
-        return normalized_api_key
-
-    hostname = (parsed.hostname or "").lower().rstrip(".")
-    if parsed.scheme.lower() == "https" and hostname in SHARED_AI_API_KEY_ALLOWED_HOSTS and port in (None, 443):
+    if normalized_api_key and matches_ai_key_origin(base_url, get_settings().ai_api_key_base_url):
         return normalized_api_key
     return None

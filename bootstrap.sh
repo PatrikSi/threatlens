@@ -147,6 +147,7 @@ ALLOW_SELF_REGISTRATION=false
 ALLOW_LEGACY_UNSCOPED_TOKENS=false
 AI_ENABLED=false
 AI_API_KEY=
+AI_API_KEY_BASE_URL=https://api.openai.com
 ALLOW_PRIVATE_NETWORK_FETCH=false
 ALLOW_PRIVATE_NETWORK_AI=false
 ALLOW_PRIVATE_NETWORK_WEBHOOKS=false
@@ -218,6 +219,7 @@ EOF
   render_yaml_entry "DEFAULT_API_TOKEN_EXPIRY_DAYS" "90"
   render_yaml_entry "AI_ENABLED" "false"
   render_yaml_entry "AI_API_KEY" ""
+  render_yaml_entry "AI_API_KEY_BASE_URL" "https://api.openai.com"
   render_yaml_entry "EXPOSE_API_DOCS_IN_PRODUCTION" "false"
   render_yaml_entry "EXPOSE_OPENAPI_SCHEMA_IN_PRODUCTION" "true"
   render_yaml_entry "FEED_MAX_BYTES" "2000000"

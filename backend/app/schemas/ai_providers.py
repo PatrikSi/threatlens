@@ -3,7 +3,6 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from typing import Literal
-from urllib.parse import urlsplit
 
 from pydantic import (
     BaseModel,
@@ -14,6 +13,7 @@ from pydantic import (
     model_validator,
 )
 
+from app.core.ai_endpoints import validate_chat_completion_endpoint
 from app.core.config import get_settings
 from app.services.url_utils import is_fetchable_url
 
@@ -44,19 +44,7 @@ class AIProviderWrite(AIProviderFields):
     @field_validator("base_url")
     @classmethod
     def validate_base_url(cls, value: str) -> str:
-        try:
-            parsed = urlsplit(value)
-            _ = parsed.port
-        except ValueError as exc:
-            raise ValueError("Endpoint must be a valid URL.") from exc
-        if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
-            raise ValueError("Endpoint must use http or https and include a host.")
-        if parsed.username or parsed.password or parsed.query or parsed.fragment:
-            raise ValueError(
-                "Endpoint must not contain credentials, query parameters or fragments."
-            )
-        if "{{" in parsed.netloc:
-            raise ValueError("Endpoint host must not contain templates.")
+        parsed = validate_chat_completion_endpoint(value)
         allow_private = bool(get_settings().allow_private_network_ai)
         if parsed.scheme.lower() != "https" and (
             not allow_private or is_fetchable_url(value, allow_private_network=False)
