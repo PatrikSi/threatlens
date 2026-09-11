@@ -9,6 +9,7 @@ import pytest
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from app.models.alert_evaluation_request import AlertEvaluationRequest
 from app.models.api_token import ApiToken
 from app.models.item import Item
 from app.models.item_classification import ItemClassification
@@ -45,6 +46,17 @@ def processing_env(export_env, monkeypatch):
     )
     yield env
     with Session(env.engine) as db:
+        # Alert intents deliberately survive source deletion. Remove this
+        # fixture's original and batch items' intents before export_env removes
+        # their feed, so later queue scans do not inherit committed test work.
+        item_ids = {env.item_id} | set(
+            db.scalars(select(Item.id).where(Item.feed_id == env.feed_id))
+        )
+        db.execute(
+            delete(AlertEvaluationRequest).where(
+                AlertEvaluationRequest.item_id.in_(item_ids)
+            )
+        )
         db.execute(
             delete(ProcessingRecoveryRun).where(
                 ProcessingRecoveryRun.principal_id == env.owner_id
