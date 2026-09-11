@@ -290,6 +290,9 @@ Tabs:
 
 Key UI areas:
 
+- paginated, searchable named providers with independent write-only credentials
+- default and article-enrichment/daily-brief/report provider assignments
+- versioned provider drafts, synthetic saved-configuration tests and deletion
 - endpoint/model and feature toggles
 - company profile context
 - editable prompt templates and instruction overlays
@@ -306,6 +309,10 @@ API calls:
 - `GET /ai/settings`
 - `PUT /ai/settings`
 - `POST /ai/test-connection`
+- `GET, POST /ai/providers`
+- `GET, PUT, DELETE /ai/providers/{id}`
+- `POST /ai/providers/{id}/test-connection`
+- `GET, PUT /ai/provider-routing`
 - `GET /ai/usage`
 - `GET /ai/daily-brief/latest`
 - `GET /ai/daily-briefs`

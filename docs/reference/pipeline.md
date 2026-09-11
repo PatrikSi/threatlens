@@ -168,6 +168,12 @@ The classifier uses weighted regex/token rules for each category and applies fee
 
 ## AI Enrichment and Daily Briefing
 
+- Named provider assignments resolve independently for article enrichment, daily
+  briefs and reports. Newly queued work captures a provider ID/version; child work
+  inherits that selection. Legacy tasks retain legacy settings. An unavailable or
+  changed selection fails explicitly before sending, with no automatic provider
+  failover. The final provider lock follows existing authorization and attempt
+  fences and remains held through settlement. See [provider routing](../pages/ai.md#routing-and-legacy-compatibility).
 - When AI is enabled/configured and `auto_enrich_new_items` is on, items queue AI enrichment after ingestion/classification only when they are recently published and recently first seen according to `AI_AUTO_ENRICH_NEW_ITEM_MAX_AGE_HOURS`.
 - Older feed backlog is left alone unless an admin explicitly queues AI reprocess by lookback, time range, feed, count, or exact item selection.
 - Item enrichment stores:
