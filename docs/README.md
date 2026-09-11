@@ -34,6 +34,7 @@ This documentation covers:
 - [Follow-up Implementation and Current Assessment — 2026-09-08](./reviews/2026-09-08-follow-up.md)
 - [Renewed Code and Maintainability Review — 2026-09-08](./reviews/2026-09-08-maintainability-review.md)
 - [CR01–CR14 Implementation and Assessment — 2026-09-08](./reviews/2026-09-08-maintainability-remediation.md)
+- [Runtime, Processing and Retention Hardening — 2026-09-11](./reviews/2026-09-11-hardening-implementation.md)
 - [Auth, RBAC, and Token Scopes](./reference/auth-rbac.md)
 - [Access Governance and Data Policy](./reference/access-governance.md)
 - [Backend API Reference](./reference/api.md)
