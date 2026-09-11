@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import hmac
 import uuid
-from urllib.parse import urlsplit
 
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from app.core.ai_endpoints import ai_endpoint_origin
 from app.models.ai_provider import (
     AIProviderConfiguration,
     AIProviderRetiredID,
@@ -310,11 +310,10 @@ def _require_unique_name(
         )
 
 
-def _origin(url: str) -> tuple[str, str, int]:
-    parsed = urlsplit(url)
-    scheme = parsed.scheme.lower()
-    return (
-        scheme,
-        (parsed.hostname or "").lower().rstrip("."),
-        parsed.port or (443 if scheme == "https" else 80),
-    )
+def _origin(url: str) -> tuple[str, str, int] | None:
+    try:
+        return ai_endpoint_origin(url)
+    except ValueError:
+        # A malformed saved destination has no trusted origin. Replacing or
+        # clearing its credential lets an administrator repair the endpoint.
+        return None

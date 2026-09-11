@@ -9,6 +9,8 @@ from urllib.parse import quote, urlsplit, urlunsplit
 from pydantic import Field, PrivateAttr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+from app.core.ai_endpoints import DEFAULT_AI_API_KEY_BASE_URL, validate_ai_key_base_url
+
 _PLACEHOLDER_SECRET_PREFIXES = (
     "replace-with",
     "change-me",
@@ -179,6 +181,7 @@ class Settings(BaseSettings):
     ai_response_max_bytes: int = Field(default=2_000_000, ge=1024, le=16_000_000)
     ai_enabled: bool = False
     ai_api_key: str | None = None
+    ai_api_key_base_url: str = DEFAULT_AI_API_KEY_BASE_URL
     public_app_url: str | None = None
     expose_api_docs_in_production: bool = False
     expose_openapi_schema_in_production: bool = True
@@ -372,6 +375,11 @@ class Settings(BaseSettings):
         "http://localhost:3000",
         "http://127.0.0.1:3000",
     ]
+
+    @field_validator("ai_api_key_base_url")
+    @classmethod
+    def _validate_ai_key_base_url(cls, value: str) -> str:
+        return validate_ai_key_base_url(value)
 
     @field_validator(
         "cors_origins",

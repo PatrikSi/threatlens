@@ -1,10 +1,10 @@
 import uuid
 from datetime import date, datetime
 from typing import Literal
-from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.core.ai_endpoints import matches_ai_key_origin, validate_chat_completion_endpoint
 from app.core.config import get_settings
 from app.services.url_utils import is_fetchable_url, normalize_url
 
@@ -18,7 +18,6 @@ AITaskType = Literal[
 ]
 AITriggerSource = Literal["auto", "manual", "scheduled"]
 AITaskStatus = Literal["queued", "running", "ready", "error", "skipped"]
-_SHARED_AI_API_KEY_ALLOWED_HOSTS = frozenset({"api.openai.com"})
 
 
 def _sanitize_required_public_url(value: object) -> str:
@@ -138,29 +137,15 @@ class AISettingsUpdate(BaseModel):
         if not base_url:
             return None
 
-        try:
-            parsed = urlsplit(base_url)
-        except ValueError as exc:
-            raise ValueError("base_url must be a valid URL") from exc
-        try:
-            port = parsed.port
-        except ValueError as exc:
-            raise ValueError("base_url must be a valid URL") from exc
-
+        parsed = validate_chat_completion_endpoint(base_url)
         settings = get_settings()
         allow_private_network = bool(settings.allow_private_network_ai)
-        if parsed.scheme.lower() not in {"http", "https"}:
-            raise ValueError("base_url must use http or https")
-        if settings.ai_api_key:
-            hostname = (parsed.hostname or "").lower().rstrip(".")
-            if (
-                parsed.scheme.lower() != "https"
-                or hostname not in _SHARED_AI_API_KEY_ALLOWED_HOSTS
-                or port not in (None, 443)
-            ):
-                raise ValueError(
-                    "base_url must target https://api.openai.com when the server AI_API_KEY is configured"
-                )
+        if settings.ai_api_key and not matches_ai_key_origin(base_url, settings.ai_api_key_base_url):
+            raise ValueError(
+                f"base_url must target the same HTTPS origin as {settings.ai_api_key_base_url} "
+                "when the server AI_API_KEY is configured. Set AI_API_KEY_BASE_URL on the server "
+                "to trust a different provider, or use a named provider with its own API key."
+            )
         if parsed.scheme.lower() != "https" and not allow_private_network:
             raise ValueError(
                 "base_url must use https unless ALLOW_PRIVATE_NETWORK_AI is enabled"
@@ -172,14 +157,6 @@ class AISettingsUpdate(BaseModel):
         ):
             raise ValueError(
                 "base_url must use https for publicly routable hosts; plain http is only allowed for private-network AI endpoints"
-            )
-        if parsed.username or parsed.password:
-            raise ValueError("base_url must not include embedded credentials")
-        if parsed.query or parsed.fragment:
-            raise ValueError("base_url must not include query parameters or fragments")
-        if "{{" in parsed.scheme or "{{" in parsed.netloc:
-            raise ValueError(
-                "base_url must not contain templates in the scheme or host"
             )
         if not is_fetchable_url(base_url, allow_private_network=allow_private_network):
             raise ValueError("base_url is not allowed for outbound fetch")

@@ -9,12 +9,12 @@ from __future__ import annotations
 import uuid
 from dataclasses import replace
 from typing import TYPE_CHECKING
-from urllib.parse import urlsplit
 
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app.core.ai_endpoints import ai_endpoint_origin, validate_chat_completion_endpoint
 from app.core.config import get_settings
 from app.models.ai_provider import AIProviderConfiguration, AIProviderRouting
 from app.models.ai_task_run import AITaskRun
@@ -32,10 +32,8 @@ _FEATURE_FIELDS = {
 
 
 def provider_origin(base_url: str) -> str:
-    parsed = urlsplit(base_url)
-    host = (parsed.hostname or "").lower().rstrip(".")
-    port = parsed.port or (443 if parsed.scheme.lower() == "https" else 80)
-    return f"{parsed.scheme.lower()}://{host}:{port}"
+    scheme, host, port = ai_endpoint_origin(base_url)
+    return f"{scheme}://{host}:{port}"
 
 
 def _assigned_provider_id(db: Session, feature_type: str | None) -> uuid.UUID | None:
@@ -148,7 +146,7 @@ def apply_provider_selection(
         base_url=provider.base_url,
         model=provider.model,
         api_key=None,
-        credential_origin=provider_origin(provider.base_url),
+        credential_origin=None,
         temperature=provider.temperature,
         max_completion_tokens=provider.max_completion_tokens,
         request_timeout_seconds=provider.request_timeout_seconds,
@@ -166,6 +164,11 @@ def apply_provider_selection(
             "provider_disabled",
             "The selected AI provider is disabled. Enable it or choose another provider for new tasks.",
         )
+    try:
+        validate_chat_completion_endpoint(provider.base_url)
+        active = replace(active, credential_origin=provider_origin(provider.base_url))
+    except ValueError as exc:
+        return _unavailable(active, "provider_endpoint_invalid", str(exc))
     api_key, credential_error = read_provider_api_key(provider)
     if credential_error:
         return _unavailable(

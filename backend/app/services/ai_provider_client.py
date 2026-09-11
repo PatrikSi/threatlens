@@ -5,10 +5,11 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal, cast
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urlsplit
 
 import httpx
 
+from app.core.ai_endpoints import chat_completion_url
 from app.core.config import get_settings
 from app.core.logging_config import redact_log_text
 from app.services.ai_config import ActiveAISettings, is_shared_ai_base_url_allowed
@@ -105,10 +106,22 @@ def call_ai_json(
             retryable=False,
             provider_io_outcome=AI_PROVIDER_IO_NOT_SENT,
         )
+    if not active.ai_configured or not active.base_url or not active.model:
+        raise AIIntegrationError(
+            "AI settings are incomplete",
+            retryable=False,
+            provider_io_outcome=AI_PROVIDER_IO_NOT_SENT,
+        )
+    try:
+        request_url = build_chat_completion_url(active.base_url)
+    except ValueError as exc:
+        raise AIIntegrationError(
+            str(exc), retryable=False, provider_io_outcome=AI_PROVIDER_IO_NOT_SENT,
+        ) from exc
     if getattr(active, "provider_id", None) is not None:
         from app.services.ai_provider_selection import provider_origin
 
-        if not active.base_url or provider_origin(active.base_url) != active.credential_origin:
+        if provider_origin(active.base_url) != active.credential_origin:
             raise AIIntegrationError(
                 "AI provider credentials do not match the selected destination. Reload AI settings.",
                 retryable=False,
@@ -116,18 +129,10 @@ def call_ai_json(
             )
     elif not is_shared_ai_base_url_allowed(active.base_url, api_key=active.api_key):
         raise AIIntegrationError(
-            "AI base URL is not allowed when the server AI_API_KEY is configured",
+            "AI base URL does not match the server AI_API_KEY_BASE_URL credential destination. Reload AI settings.",
             retryable=False,
             provider_io_outcome=AI_PROVIDER_IO_NOT_SENT,
         )
-    if not active.ai_configured or not active.base_url or not active.model:
-        raise AIIntegrationError(
-            "AI settings are incomplete",
-            retryable=False,
-            provider_io_outcome=AI_PROVIDER_IO_NOT_SENT,
-        )
-
-    request_url = build_chat_completion_url(active.base_url)
     request_payload = {
         "model": active.model,
         "messages": messages,
@@ -322,16 +327,7 @@ def call_ai_json(
 
 
 def build_chat_completion_url(base_url: str) -> str:
-    cleaned = base_url.rstrip("/")
-    if cleaned.endswith("/chat/completions"):
-        return cleaned
-    try:
-        parsed = urlsplit(cleaned)
-    except ValueError:
-        return f"{cleaned}/chat/completions"
-    if parsed.scheme and parsed.netloc and parsed.path in {"", "/"}:
-        return urlunsplit((parsed.scheme, parsed.netloc, "/v1/chat/completions", "", ""))
-    return f"{cleaned}/chat/completions"
+    return chat_completion_url(base_url)
 
 
 def ai_status_code_is_retryable(status_code: int) -> bool:
