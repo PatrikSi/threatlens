@@ -275,9 +275,14 @@ def test_skipped_scheduled_report_persists_complete_coverage(
         model="test-model",
         global_instructions=None,
     )
+
+    def load_reporting_settings(_db, *, feature_type):
+        assert feature_type == "report"
+        return active
+
     monkeypatch.setattr(
         "app.services.report_schedules.load_active_ai_settings",
-        lambda _db: active,
+        load_reporting_settings,
     )
     monkeypatch.setattr(
         "app.services.report_schedules.build_report_source_plan",
