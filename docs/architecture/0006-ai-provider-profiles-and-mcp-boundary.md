@@ -59,9 +59,17 @@ route affects future selections and does not silently retarget a prepared call.
 - A stored key is bound to the profile's endpoint origin. An origin change requires
   an explicit credential decision; retaining the old key must not send it to the
   new host. Scheme, host, and effective port participate in that decision.
-- Legacy `AI_API_KEY` behavior remains restricted to the supported OpenAI HTTPS
-  origin. Named profiles support independently supplied credentials for other
-  OpenAI-compatible endpoints.
+- Legacy `AI_API_KEY` is bound to the HTTPS origin configured by
+  `AI_API_KEY_BASE_URL`, which defaults to `https://api.openai.com`. Scheme, host,
+  and effective port must match; omitting the HTTPS port means `443`. Paths do not
+  restrict credential use. Existing nonmatching legacy endpoints continue without
+  this key. Named profiles always use independently supplied credentials.
+- Gemini uses the compatible base
+  `https://generativelanguage.googleapis.com/v1beta/openai/` with a separate model
+  identifier. Its bare origin and `/v1beta` path normalize to that base. Native
+  `:generateContent` and `:streamGenerateContent` URLs are rejected with the
+  compatible endpoint in the error; the adapter does not translate native Gemini
+  request formats.
 - Use the existing application encryption key and rotation/readability tooling.
   Unreadable ciphertext is an actionable configuration failure, not an empty key.
 - Reject URL user information, query strings, fragments, invalid ports, and unsafe

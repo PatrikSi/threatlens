@@ -44,7 +44,8 @@
 | `ALLOW_SELF_REGISTRATION` (`allow_self_registration`) | `false` | Enables/disables `/auth/register`. |
 | `DEFAULT_API_TOKEN_EXPIRY_DAYS` (`default_api_token_expiry_days`) | `90` | Default token lifetime if not supplied. |
 | `AI_ENABLED` (`ai_enabled`) | `false` | Enables AI routes, nav visibility, enrichment, and daily-brief features. |
-| `AI_API_KEY` (`ai_api_key`) | _(empty)_ | Optional bearer key for the legacy AI settings, restricted to `https://api.openai.com` on the default HTTPS port. Named providers use their own encrypted keys and never inherit this value. See [provider setup](../pages/ai.md#set-up-named-providers). |
+| `AI_API_KEY` (`ai_api_key`) | _(empty)_ | Optional bearer key for the legacy AI settings, sent only to the HTTPS origin configured by `AI_API_KEY_BASE_URL`. Existing legacy endpoints with another origin continue without this key. Named providers use their own encrypted keys and never inherit this value. See [provider setup](../pages/ai.md#set-up-named-providers). |
+| `AI_API_KEY_BASE_URL` (`ai_api_key_base_url`) | `https://api.openai.com` | Destination binding for the legacy `AI_API_KEY`: the endpoint must match its HTTPS scheme, host, and effective port (omitted port means 443). URL paths do not restrict credential use. For Gemini, set this to `https://generativelanguage.googleapis.com` and enter the compatible API base and model separately in AI settings. |
 | `AI_RESPONSE_MAX_BYTES` (`ai_response_max_bytes`) | `2000000` | Cap on encoded and decoded provider response bytes, including errors; 1,024–16,000,000. See [outbound budgets](outbound-request-budgets.md). |
 | `PUBLIC_APP_URL` (`public_app_url`) | _(empty)_ | Optional public browser URL, without credentials/query/fragment, used to make report integration links absolute. |
 | `EXPOSE_API_DOCS_IN_PRODUCTION` (`expose_api_docs_in_production`) | `false` | Keeps `/docs` and `/redoc` disabled by default in production. |

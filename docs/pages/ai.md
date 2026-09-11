@@ -41,6 +41,21 @@ name is a label, and does not enable a different vendor protocol. Global prompts
 company context, feature switches, and report context-planning limits remain in
 AI settings.
 
+### Gemini Compatibility
+
+For Gemini, enter `https://generativelanguage.googleapis.com/v1beta/openai/` as the
+base URL and enter the provider's model identifier in the separate **Model**
+field. This uses Google's [OpenAI-compatible chat-completions interface](https://ai.google.dev/gemini-api/docs/openai).
+The bare Gemini origin and its `/v1beta` path also resolve to that compatible API.
+Native URLs ending in `:generateContent` or `:streamGenerateContent` use a different
+request format and are rejected with a message pointing to the compatible base.
+
+For a named Gemini provider, save its API key on that provider. To use a Gemini
+key through the legacy environment configuration, set `AI_API_KEY_BASE_URL` to
+`https://generativelanguage.googleapis.com` alongside `AI_API_KEY`, then configure
+the compatible base URL and model in legacy AI settings. Apply environment changes
+to the API and workers before testing the connection.
+
 ### Routing and Legacy Compatibility
 
 | Selection | Result |
@@ -56,8 +71,13 @@ new work to that configuration.
 
 Named profiles use only their own credentials. They do not use the server
 `AI_API_KEY` or another profile's key when their key is absent, cleared, or
-unreadable. The legacy environment key remains limited to
-`https://api.openai.com` on its default HTTPS port.
+unreadable. The legacy environment key is bound to `AI_API_KEY_BASE_URL`, which
+defaults to `https://api.openai.com`. The endpoint must match that URL's HTTPS
+scheme, host, and effective port; an omitted HTTPS port is equivalent to `443`.
+Paths do not participate in this restriction, so different API paths on the same
+origin can use the key. Existing legacy endpoints whose origin does not match
+continue to operate without the environment key; endpoints requiring a key need
+a matching binding or a named provider with its own credential.
 
 Inheritance is not automatic failover. A selected provider that is unavailable,
 disabled, deleted, changed after work was queued, or has an unreadable credential
