@@ -58,7 +58,9 @@ describe('createDraftFromSettings', () => {
       base_url: 'http://localhost:11434/v1',
       model: 'local-threat-model',
       temperature: 0.2,
-      max_completion_tokens: 6000,
+      max_completion_tokens: 131072,
+      report_reserved_output_tokens: 65536,
+      report_context_window_tokens: 262144,
       request_timeout_seconds: 120,
       request_max_retries: 2,
       summary_enabled: true,
@@ -106,6 +108,9 @@ describe('createDraftFromSettings', () => {
     expect(draft.company_regions).toBe('US\nEU')
     expect(draft.company_stack).toBe('Fortinet\nOkta')
     expect(draft.auto_enrich_new_items).toBe(false)
+    expect(draft.max_completion_tokens).toBe('131072')
+    expect(draft.report_reserved_output_tokens).toBe('65536')
+    expect(createRequestFromDraft(draft).report_reserved_output_tokens).toBe(65536)
   })
 })
 
@@ -234,7 +239,7 @@ describe('validateAISettingsDraft', () => {
     })
 
     expect(validation.temperature).toBe('Temperature must be between 0 and 2.')
-    expect(validation.max_completion_tokens).toBe('Max Completion Tokens must be between 128 and 8192.')
+    expect(validation.max_completion_tokens).toBe('Default Completion Tokens must be between 128 and 131072.')
     expect(validation.request_timeout_seconds).toBe('Request Timeout Seconds must be between 5 and 300.')
     expect(validation.request_max_retries).toBe('Max Retry Attempts must be between 0 and 5.')
     expect(validation.daily_brief_window_hours).toBe('Daily Brief Window Hours must be between 6 and 168.')

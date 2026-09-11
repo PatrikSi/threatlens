@@ -42,6 +42,8 @@ export type AISettingsDraft = {
 
 export type AISettingsDraftValidation = Partial<Record<keyof AISettingsDraft, string>>
 
+const MAX_COMPLETION_TOKENS = 131072
+
 export const DEFAULT_DRAFT: AISettingsDraft = {
   base_url: '',
   model: '',
@@ -90,14 +92,14 @@ const NUMBER_RULES: Array<{
   integer?: boolean
 }> = [
   { key: 'temperature', label: 'Temperature', min: 0, max: 2 },
-  { key: 'max_completion_tokens', label: 'Max Completion Tokens', min: 128, max: 8192, integer: true },
+  { key: 'max_completion_tokens', label: 'Default Completion Tokens', min: 128, max: MAX_COMPLETION_TOKENS, integer: true },
   { key: 'request_timeout_seconds', label: 'Request Timeout Seconds', min: 5, max: 300, integer: true },
   { key: 'request_max_retries', label: 'Max Retry Attempts', min: 0, max: 5, integer: true },
   { key: 'daily_brief_window_hours', label: 'Daily Brief Window Hours', min: 6, max: 168, integer: true },
   { key: 'daily_brief_max_items', label: 'Daily Brief Max Articles', min: 5, max: 100, integer: true },
   { key: 'daily_brief_history_limit', label: 'Retained Daily Briefings', min: 1, max: 90, integer: true },
   { key: 'report_context_window_tokens', label: 'Report Context Window', min: 2048, max: 1000000, integer: true },
-  { key: 'report_reserved_output_tokens', label: 'Report Output Reserve', min: 256, max: 65536, integer: true },
+  { key: 'report_reserved_output_tokens', label: 'Initial Report Completion Tokens', min: 256, max: MAX_COMPLETION_TOKENS, integer: true },
   { key: 'report_source_token_cap', label: 'Per-source Token Cap', min: 128, max: 32768, integer: true },
   { key: 'report_max_sources', label: 'Report Source Limit', min: 1, max: 1000, integer: true },
   { key: 'report_max_model_calls', label: 'Report Model-call Limit', min: 2, max: 200, integer: true },

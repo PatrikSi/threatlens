@@ -597,6 +597,23 @@ afterEach(() => {
 })
 
 describe('AiSettingsPage DOM workflows', () => {
+  it('explains independent report and default completion budgets with accessible help', () => {
+    const view = renderPage()
+    act(() => getButton('Configuration')?.click())
+    const initial = view.querySelector<HTMLInputElement>('input[aria-label="Initial report completion tokens"]')!
+    const general = view.querySelector<HTMLInputElement>('input[aria-label="Default completion tokens"]')!
+    expect(initial.value).toBe('1200')
+    expect(general.value).toBe('4000')
+    expect(initial.getAttribute('aria-describedby')).toContain('report-help-report_reserved_output_tokens')
+    const reportHelp = view.querySelector('#report-help-report_reserved_output_tokens')?.textContent
+    expect(reportHelp).toContain('every evidence batch and report section')
+    expect(reportHelp).toContain('independent of the provider default')
+    expect(reportHelp).toContain('131,072 tokens')
+    expect(general.getAttribute('aria-describedby')).toContain('legacy-completion-token-help')
+    expect(view.querySelector('#legacy-completion-token-help')?.textContent).toContain('article enrichment and daily briefs')
+    expect(view.textContent).toContain('up to the greater of the report budget or provider default')
+  })
+
   it('pauses AI configuration fields while their save is pending', () => {
     aiSettingsPageDomMocks.savePending = true
     const view = renderPage()

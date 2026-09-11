@@ -354,6 +354,35 @@ describe('AI provider lifecycle with a real query cache', () => {
     )
   })
 
+  it('saves a larger default completion budget with its help and validation attached', async () => {
+    let submitted: Record<string, unknown> | undefined
+    vi.mocked(apiFetch).mockImplementation((path, init) => {
+      if (init?.method === 'PUT') {
+        submitted = body(init)
+        savedProvider = { ...provider, max_completion_tokens: Number(submitted?.max_completion_tokens), version: 2 }
+        return Promise.resolve(savedProvider) as never
+      }
+      return Promise.resolve(respondToRead(path)) as never
+    })
+    mount(true)
+    await settle()
+    act(() => current.select(provider))
+    act(() => current.updateDraft('max_completion_tokens', '131073'))
+    const input = host.querySelector<HTMLInputElement>('input[aria-label="Provider default completion tokens"]')!
+    expect(input.getAttribute('aria-invalid')).toBe('true')
+    expect(input.getAttribute('aria-describedby')).toContain('provider-error-max_completion_tokens')
+    act(() => current.save())
+    expect(submitted).toBeUndefined()
+    act(() => current.updateDraft('max_completion_tokens', '131072'))
+    expect(input.getAttribute('aria-invalid')).toBe('false')
+    expect(input.getAttribute('aria-describedby')).toContain('provider-completion-token-help')
+    expect(host.querySelector('#provider-completion-token-help')?.textContent).toContain('Reports use their own')
+    act(() => current.save())
+    await settle()
+    expect(submitted).toMatchObject({ version: 1, max_completion_tokens: 131072 })
+    expect(current.editor?.draft.max_completion_tokens).toBe('131072')
+  })
+
   it('warns only for a newer server revision, not an older cached detail after saving', async () => {
     vi.mocked(apiFetch).mockImplementation((path, init) =>
       init?.method === 'PUT'

@@ -3,6 +3,7 @@ import { Field, FieldError, Panel } from './aiSettingsSupport'
 import { updateDraft } from './aiSettingsUtils'
 import { AiConfigurationDraftProps } from './AiSettingsConfigurationTypes'
 import { AiProviderEndpointHelp } from './AiProviderEndpointHelp'
+import { AiCompletionTokenHelp } from './AiCompletionTokenHelp'
 
 type AiProviderConfigurationProps = AiConfigurationDraftProps & {
   draftDirty: boolean
@@ -110,15 +111,20 @@ export function AiProviderConfiguration({
           />
           <FieldError message={validation.temperature} />
         </Field>
-        <Field label="Maximum completion tokens">
+        <Field label="Default completion tokens">
           <input
             className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
             value={draft.max_completion_tokens}
             onChange={(event) => updateDraft(setDraft, 'max_completion_tokens', event.target.value)}
             inputMode="numeric"
+            aria-label="Default completion tokens"
+            aria-describedby="legacy-completion-token-help legacy-completion-token-error"
             aria-invalid={Boolean(validation.max_completion_tokens)}
           />
-          <FieldError message={validation.max_completion_tokens} />
+          <AiCompletionTokenHelp id="legacy-completion-token-help" />
+          <span id="legacy-completion-token-error">
+            <FieldError message={validation.max_completion_tokens} />
+          </span>
         </Field>
         <Field label="Request timeout (seconds)" className="md:col-span-2">
           <input

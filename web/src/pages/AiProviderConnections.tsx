@@ -5,6 +5,7 @@ import { ROUTING_FIELDS, type ProviderDraft } from './aiProviderDraft'
 import { Field, FieldError, Panel } from './aiSettingsSupport'
 import type { AiProviderConnectionsController } from './useAiProviderConnections'
 import { AiProviderEndpointHelp } from './AiProviderEndpointHelp'
+import { AiCompletionTokenHelp } from './AiCompletionTokenHelp'
 
 const inputClass =
   'mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]'
@@ -28,7 +29,7 @@ const FIELDS: {
   { key: 'base_url', label: 'Provider base URL' },
   { key: 'model', label: 'Provider model' },
   { key: 'temperature', label: 'Provider temperature', numeric: true },
-  { key: 'max_completion_tokens', label: 'Provider maximum completion tokens', numeric: true },
+  { key: 'max_completion_tokens', label: 'Provider default completion tokens', numeric: true },
   { key: 'request_timeout_seconds', label: 'Provider request timeout (seconds)', numeric: true },
   { key: 'request_max_retries', label: 'Provider maximum retries', numeric: true },
 ]
@@ -315,10 +316,12 @@ function ProviderEditor({
                   aria-invalid={Boolean(c.validation[key])}
                   aria-describedby={[
                     key === 'base_url' ? 'provider-endpoint-help' : null,
+                    key === 'max_completion_tokens' ? 'provider-completion-token-help' : null,
                     c.validation[key] ? `provider-error-${key}` : null,
                   ].filter(Boolean).join(' ') || undefined}
                 />
                 {key === 'base_url' && <AiProviderEndpointHelp id="provider-endpoint-help" />}
+                {key === 'max_completion_tokens' && <AiCompletionTokenHelp id="provider-completion-token-help" />}
                 {c.validation[key] && (
                   <span id={`provider-error-${key}`}>
                     <FieldError message={c.validation[key]} />

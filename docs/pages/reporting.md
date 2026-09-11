@@ -81,13 +81,31 @@ Reporting does not place the full corpus into one prompt. It:
 
 Configure these limits in **Settings -> AI -> Report Context Guardrails**. Set **Model Context Window** to the actual context supported by the loaded model and runtime, not the model family maximum. Conservative starting points are:
 
-| Model context | Output reserve | Safety margin | Source cap |
+| Model context | Initial report completion tokens | Safety margin | Source cap |
 | --- | ---: | ---: | ---: |
 | 2K | 256 | 5-10% | 200-300 |
 | 4K | 512 | 10-15% | 300-500 |
 | 8K | 800-1,200 | 15-20% | 500-700 |
 
-Keep AI worker concurrency at `1` for memory-constrained local inference. These are admission-control settings, not quality guarantees; very small models may still struggle to return valid structured JSON or follow citation instructions. When a provider reports output truncation, ThreatLens can increase the completion allowance on a bounded retry, but only into the exact context headroom left by that serialized prompt and never beyond the configured model completion cap.
+**Initial report completion tokens** controls every evidence-batch and section
+call independently of the provider's default completion setting. It also reserves
+that output space when planning report input. The setting accepts 256–131,072
+tokens and keeps the existing API name `report_reserved_output_tokens`; saved
+values and the 1,200-token default are unchanged. Evidence batches use the same
+configured starting allowance as report sections.
+
+When a provider reports output truncation, ThreatLens can increase the allowance
+on a bounded retry, within the exact context headroom left by that serialized
+prompt. The retry ceiling is the greater of the report budget or provider default,
+capped at 131,072 tokens. For example, a 16,384-token report budget can be used
+with a 5,000-token article/brief default when the model and context window support
+it. Configure both values within the selected model's actual output limits;
+ThreatLens does not infer vendor-specific limits from the model name.
+
+Keep AI worker concurrency at `1` for memory-constrained local inference. These
+are admission-control settings, not quality guarantees; very small models may
+still struggle to return valid structured JSON or follow citation instructions.
+Response-byte limits and request deadlines continue to apply to larger outputs.
 
 The exact company context and global instructions are frozen when a report is queued, so later edits do not change the durable snapshot. Before each provider call, ThreatLens builds a bounded working projection from that snapshot. It preserves the objective and global instructions first, then fits custom instructions, topic lists, structured company fields, and profile text into the remaining prompt allowance. Compaction is recorded in report warnings.
 
