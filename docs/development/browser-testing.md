@@ -24,6 +24,10 @@ browser caching cannot hide an unexpected request after consent resets.
 
 CI has an independent job for each browser. It runs both suites and retains
 traces from failures, axe reports, and the disposable server log for seven days.
+Each browser also runs the real provider-settings scenario with `--ai-providers`.
+This scenario starts no AI worker and sends no external model requests. Its
+traces use `test-results/real-server-ai-providers` and its server log uses
+`browser-server-ai-providers.log`, preserving the authentication suite's evidence.
 From `web/`, use `npx playwright show-trace test-results/<suite>/<failed-test>/trace.zip`
 to inspect a failure. Evidence contains synthetic test identities and cookies;
 never substitute real credentials in the fixtures.
@@ -47,6 +51,8 @@ the frontend dependencies above, and Docker available:
 python web/browser/server/run.py
 # Select one browser or scenario:
 python web/browser/server/run.py --project firefox --grep 'real OIDC'
+# Enable AI only in the disposable server and exercise provider settings:
+python web/browser/server/run.py --ai-providers --grep 'real AI provider settings'
 ```
 
 Use the backend virtual-environment interpreter when dependencies are installed
@@ -109,6 +115,11 @@ The server suite verifies:
   reopened after navigation, committed classification progress, cancellation of
   the remaining selection, reload persistence, and isolation from another owner.
   The resulting recovery workspace also runs the same axe rules.
+- Named provider creation, reload and versioned update; write-only credential
+  retention; rejected endpoint changes with retained credentials; default and
+  report routing; protection against deleting an assigned provider; and deletion
+  after clearing assignments. The interaction suite additionally checks delayed
+  responses, draft preservation, conflicts, and keyboard/accessibility behavior.
 
 Axe runs its WCAG 2 A/AA, 2.1 A/AA, and 2.2 AA tagged rules without blanket rule
 exclusions. Reports retain violations and results requiring manual review.

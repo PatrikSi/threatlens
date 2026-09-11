@@ -136,7 +136,8 @@ def main() -> int:
                 "ALLOW_SELF_REGISTRATION": "false",
                 "OIDC_TOTAL_TIMEOUT_SECONDS": "3",
             }
-            log_path = ROOT / "web/browser-server.log"
+            log_name = "browser-server-ai-providers.log" if args.ai_providers else "browser-server.log"
+            log_path = ROOT / "web" / log_name
             log_path.parent.mkdir(parents=True, exist_ok=True)
             with log_path.open("w") as log:
                 server = subprocess.Popen(
