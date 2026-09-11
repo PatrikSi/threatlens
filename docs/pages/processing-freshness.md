@@ -63,9 +63,13 @@ Database lock/statement/pool/deadline failures, outbound total-deadline failures
 and export transfer/generation deadlines have shared Redis counters. Labels are
 fixed and contain no user, query, destination or item identifiers. Counters use
 expiring minute buckets; the displayed value covers the current and previous
-14 minute buckets. Do not sum overlapping history values. Writes have short
-timeouts and are best effort, so lost telemetry must not be interpreted as
-proof that no error occurred. A failed counter read returns unknown. Any
+14 minute buckets. Do not sum overlapping history values. Each process admits
+at most two background writes and one counter read, with no waiting queue.
+Excess writes are dropped; reads return unknown when busy, failed, or unfinished
+after 200 ms. DNS resolution runs inside those bounded daemon workers, outside
+the application operation's deadline path. Forked workers reset inherited metric
+clients and admission slots. Writes are best effort, so lost telemetry must not
+be interpreted as proof that no error occurred. Any
 observed deadline event creates a recent-pressure issue that ages out with the
 window. OOM totals are informational since the collecting container started.
 
