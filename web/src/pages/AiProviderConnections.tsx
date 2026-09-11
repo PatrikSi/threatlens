@@ -4,6 +4,7 @@ import { ConfirmDialog } from '../components/ConfirmDialog'
 import { ROUTING_FIELDS, type ProviderDraft } from './aiProviderDraft'
 import { Field, FieldError, Panel } from './aiSettingsSupport'
 import type { AiProviderConnectionsController } from './useAiProviderConnections'
+import { AiProviderEndpointHelp } from './AiProviderEndpointHelp'
 
 const inputClass =
   'mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]'
@@ -312,8 +313,12 @@ function ProviderEditor({
                   inputMode={numeric ? (key === 'temperature' ? 'decimal' : 'numeric') : undefined}
                   aria-label={label}
                   aria-invalid={Boolean(c.validation[key])}
-                  aria-describedby={c.validation[key] ? `provider-error-${key}` : undefined}
+                  aria-describedby={[
+                    key === 'base_url' ? 'provider-endpoint-help' : null,
+                    c.validation[key] ? `provider-error-${key}` : null,
+                  ].filter(Boolean).join(' ') || undefined}
                 />
+                {key === 'base_url' && <AiProviderEndpointHelp id="provider-endpoint-help" />}
                 {c.validation[key] && (
                   <span id={`provider-error-${key}`}>
                     <FieldError message={c.validation[key]} />

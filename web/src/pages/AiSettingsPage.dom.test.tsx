@@ -608,6 +608,11 @@ describe('AiSettingsPage DOM workflows', () => {
     aiSettingsPageDomMocks.savePending = false
     act(() => root?.render(<AiSettingsPage />))
     expect(view.querySelector('fieldset input')?.matches(':disabled')).toBe(false)
+    const endpoint = view.querySelector<HTMLInputElement>('input[aria-label="Base URL"]')!
+    expect(endpoint.getAttribute('aria-describedby')).toBe('legacy-provider-endpoint-help')
+    expect(view.querySelector('#legacy-provider-endpoint-help')?.textContent).toContain('https://generativelanguage.googleapis.com/v1beta/openai/')
+    expect(view.querySelector('#legacy-provider-endpoint-help')?.textContent).toContain(':generateContent')
+    expect(view.querySelector('#legacy-provider-endpoint-help')?.textContent).toContain('AI_API_KEY_BASE_URL')
   })
 
   it('keeps select navigation through large viewports and switches to sidebar tabs at extra large', () => {
