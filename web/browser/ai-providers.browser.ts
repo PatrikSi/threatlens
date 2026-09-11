@@ -148,6 +148,7 @@ test('adds, tests, assigns and deletes an AI provider using accessible keyboard 
   await expect(dialog.getByRole('button', { name: 'Delete provider', exact: true })).toBeFocused()
   await page.keyboard.press('Enter')
   await expect(dialog).toBeHidden()
+  await expect(page.getByRole('button', { name: 'Add provider', exact: true })).toBeFocused()
   await expect(page.getByText('0 providers', { exact: true })).toBeVisible()
   expect(state.providers.size).toBe(0)
 })
