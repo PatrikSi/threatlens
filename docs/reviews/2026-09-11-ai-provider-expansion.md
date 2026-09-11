@@ -36,7 +36,7 @@ services. Existing deployment configuration and application data were not used.
 
 | Check | Result |
 | --- | --- |
-| Backend | Final frozen full-suite run and coverage results pending. |
+| Backend | Frozen `810a1a3`: 2,557 passed, two opt-in capacity cases skipped, zero failures. Combined line/branch coverage was 85.03%, reporting 78.19%; all 41 critical-module floors passed. Provider API/configuration/selection coverage was 98.28% / 94.44% / 95.95%. |
 | Frontend | At `28ced2d`, 969 unit/DOM tests across 113 files passed, with lint, TypeScript and production build checks. |
 | Mocked browser workflows | Six provider workflows passed at `28ced2d`: two scenarios each in Chromium, Firefox and WebKit, including draft lifecycle, focus after deletion and automated accessibility checks. |
 | Real-server browser workflows | Provider creation, routing, secret retention, validation and deletion passed against real authentication, CSRF and PostgreSQL in all three browsers. This workflow is now included in the browser CI matrix. No paid or external model endpoint was contacted. |
@@ -49,6 +49,13 @@ administrative operations. The corrected report stubs also assert that schedulin
 selects the report route. Focused regressions passed before the final full run.
 CI now also requires minimum combined line/branch coverage for provider API routes,
 configuration services and selection, alongside the existing runtime gates.
+
+Backend source and tests remained unchanged after the frozen run began. The
+real-server browser checks preceded the final retired-ID guard and UI polish;
+PostgreSQL API/migration tests cover the guard, and the final frontend suite and
+three-browser workflows cover the UI refinements. The provider identity tests
+include an older queued task after deletion, attempted identifier reuse and
+rollback of a failed deletion.
 
 These are local checks. No remote GitHub CI result, deployment, or push is claimed.
 
