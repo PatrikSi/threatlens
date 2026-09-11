@@ -14,6 +14,7 @@ from pydantic import (
 )
 
 from app.core.ai_endpoints import validate_chat_completion_endpoint
+from app.core.ai_limits import MAX_AI_COMPLETION_TOKENS
 from app.core.config import get_settings
 from app.services.url_utils import is_fetchable_url
 
@@ -26,7 +27,7 @@ class AIProviderFields(BaseModel):
     base_url: str = Field(min_length=1, max_length=4000)
     model: str = Field(min_length=1, max_length=255)
     temperature: float = Field(default=0.2, ge=0, le=2, allow_inf_nan=False)
-    max_completion_tokens: int = Field(default=5000, ge=128, le=8192)
+    max_completion_tokens: int = Field(default=5000, ge=128, le=MAX_AI_COMPLETION_TOKENS)
     request_timeout_seconds: int = Field(default=300, ge=5, le=300)
     request_max_retries: int = Field(default=3, ge=0, le=5)
     enabled: bool = True

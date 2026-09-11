@@ -537,7 +537,6 @@ def _run_daily_brief_provider_request(
         execution_checkpoint=None,
         execution_commit=None,
         enforce_egress_data_policy=enforce_ai_egress_data_policy,
-        report_feature_type="report",
         call_ai_json=provider,
         record_task_run_stop_observed=lambda *_args, **_kwargs: None,
         record_usage_event=lambda *_args, **_kwargs: None,

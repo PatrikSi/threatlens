@@ -87,7 +87,6 @@ def test_policy_fence_runs_after_progress_commit_before_every_provider_attempt(
         execution_checkpoint=lambda: events.append("checkpoint"),
         execution_commit=lambda: events.append("commit"),
         enforce_egress_data_policy=enforce_egress_data_policy,
-        report_feature_type="report",
         call_ai_json=call_ai_json,
         record_task_run_stop_observed=lambda *_args, **_kwargs: events.append(
             "stop_check"
@@ -170,7 +169,6 @@ def test_policy_failure_never_counts_as_a_provider_attempt(db_session):
             execution_checkpoint=None,
             execution_commit=None,
             enforce_egress_data_policy=enforce_egress_data_policy,
-            report_feature_type="report",
             call_ai_json=call_ai_json,
             record_task_run_stop_observed=lambda *_args, **_kwargs: None,
             record_usage_event=record_usage_event,
@@ -1021,7 +1019,6 @@ def _run_request(
         execution_commit=execution_commit,
         enforce_egress_data_policy=enforce
         or (lambda _db, **lineage: _authorization(lineage["request_fingerprint"])),
-        report_feature_type="report",
         call_ai_json=call_provider or (lambda _active, **_kwargs: _completion()),
         record_task_run_stop_observed=lambda *_args, **_kwargs: None,
         record_usage_event=record_usage or (lambda *_args, **_kwargs: None),
