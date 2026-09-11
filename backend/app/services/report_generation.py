@@ -10,11 +10,13 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.ai_limits import MAX_AI_COMPLETION_TOKENS
 from app.models.report import Report
 from app.models.report_section import ReportSection
 from app.models.report_source_item import ReportSourceItem
 from app.services.ai_config import ActiveAISettings, load_active_ai_settings
 from app.services.ai_context_budget import (
+    AIContextBudget,
     AIContextBudgetError,
     build_context_budget,
 )
@@ -453,7 +455,6 @@ def _synthesize_evidence_batches(
             active=active,
             budget=budget,
             messages=messages,
-            stage_cap=800,
         )
         completion = request_ai_json_with_usage(
             db,
@@ -690,22 +691,31 @@ def _assert_messages_fit(messages: list[dict[str, str]], *, budget) -> None:
 def _report_completion_limits(
     *,
     active: ActiveAISettings,
-    budget,
+    budget: AIContextBudget,
     messages: list[dict[str, str]],
-    stage_cap: int | None = None,
 ) -> tuple[int, int]:
-    initial = min(active.report_reserved_output_tokens, active.max_completion_tokens)
+    # The planner reserves this output budget independently of the provider's
+    # default for enrichment and briefs. Retries may use remaining context up to
+    # the greater of the report budget and that provider default.
+    initial = active.report_reserved_output_tokens
+    if not 256 <= initial <= MAX_AI_COMPLETION_TOKENS:
+        raise AIContextBudgetError(
+            f"The report output budget must be between 256 and {MAX_AI_COMPLETION_TOKENS:,} tokens."
+        )
     maximum = min(
-        active.max_completion_tokens,
+        max(initial, active.max_completion_tokens),
+        MAX_AI_COMPLETION_TOKENS,
         budget.context_window_tokens
         - budget.safety_margin_tokens
         - budget.protocol_overhead_tokens
         - estimate_message_tokens(messages),
     )
-    if stage_cap is not None:
-        initial = min(initial, stage_cap)
-        maximum = min(maximum, stage_cap)
-    return initial, max(initial, maximum)
+    if initial > maximum:
+        raise AIContextBudgetError(
+            "The report output budget does not fit the remaining model context. "
+            "Increase the context window or reduce the report output budget."
+        )
+    return initial, maximum
 
 
 def _append_coverage_warning(report: Report, warning: str) -> None:
