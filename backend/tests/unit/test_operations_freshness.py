@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import threading
 from types import SimpleNamespace
 import uuid
 
@@ -91,7 +92,20 @@ def test_shared_deadline_metrics_have_fixed_labels_and_expire(test_redis_url, mo
         pytest.skip("Disposable Redis unavailable")
     monkeypatch.setattr(runtime_metrics, "get_settings", lambda: SimpleNamespace(redis_url=test_redis_url))
     monkeypatch.setattr(runtime_metrics, "_PREFIX", f"test:metrics:{uuid.uuid4()}:")
+    monkeypatch.setattr(runtime_metrics, "_delivery_slots", threading.BoundedSemaphore(2))
+    monkeypatch.setattr(runtime_metrics, "_collection_slots", threading.BoundedSemaphore(1))
+    delivered = threading.Event()
+    write = runtime_metrics._write_runtime_event
+
+    def write_and_signal(*args):
+        try:
+            write(*args)
+        finally:
+            delivered.set()
+
+    monkeypatch.setattr(runtime_metrics, "_write_runtime_event", write_and_signal)
     runtime_metrics.record_runtime_event("database_deadline")
+    assert delivered.wait(2)
     result = runtime_metrics.collect_runtime_events()
     assert result["database_deadline_last_15m"] == 1
     client = runtime_metrics._client(test_redis_url)
