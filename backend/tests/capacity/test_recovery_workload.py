@@ -81,6 +81,7 @@ def test_real_worker_death_and_durable_broker_recovery(
         "article_repair_eligibility_seconds": 0,
         "processing_repair_interval_seconds": 5,
         "repair_contract": "all-stages-completed-retained-catalog-v1",
+        "completion_contract": "article-current-classification-ioc-tagging-v1",
     }
     state = {"article_started": threading.Event(), "article_release": threading.Event()}
     metrics = Measurements()

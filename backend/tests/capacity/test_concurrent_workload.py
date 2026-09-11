@@ -22,7 +22,7 @@ from celery.signals import (
     before_task_publish,
     after_task_publish,
 )
-from sqlalchemy import create_engine, func, or_, select
+from sqlalchemy import and_, create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import get_settings
@@ -286,6 +286,17 @@ def _ai(engine, metrics, iterations):
                     operation["outcome"] = "policy_conflict"
 
 
+def _pipeline_complete():
+    return func.coalesce(and_(
+        Item.status == "content_fetched",
+        func.length(func.trim(Article.text)) > 0,
+        ItemClassification.item_id.is_not(None),
+        Item.classification_completed_version == Item.classification_required_version,
+        Item.ioc_extraction_state.in_(("completed", "completed_empty")),
+        Item.tagging_pending.is_(False),
+    ), False)
+
+
 def _pipeline_diagnostics(engine, feed_ids):
     """Keep failure evidence bounded and exclude article text and provider errors."""
     with Session(engine) as db:
@@ -293,10 +304,13 @@ def _pipeline_diagnostics(engine, feed_ids):
             select(
                 Item.id,
                 Item.status,
-                Article.text.is_not(None).label("has_article"),
+                (func.length(func.trim(Article.text)) > 0).label("has_nonblank_article"),
                 Item.classification_required_version,
                 Item.classification_completed_version,
                 Item.ioc_extraction_state,
+                Item.tagging_pending,
+                Item.tagging_attempts,
+                Item.tagging_error_code,
                 ProcessingWork.stage,
                 ProcessingWork.status.label("work_status"),
                 ProcessingWork.reason,
@@ -307,14 +321,7 @@ def _pipeline_diagnostics(engine, feed_ids):
             .outerjoin(ProcessingWork, ProcessingWork.item_id == Item.id)
             .where(
                 Item.feed_id.in_(feed_ids),
-                or_(
-                    Article.text.is_(None),
-                    ItemClassification.item_id.is_(None),
-                    Item.classification_completed_version
-                    < Item.classification_required_version,
-                    Item.ioc_extraction_state.is_(None),
-                    Item.ioc_extraction_state.not_in(("completed", "completed_empty")),
-                ),
+                ~_pipeline_complete(),
             )
             .order_by(Item.id, ProcessingWork.stage)
             .limit(10)
@@ -338,10 +345,7 @@ def _wait_for_pipeline(
                 .join(ItemClassification, ItemClassification.item_id == Item.id)
                 .where(
                     Item.feed_id.in_(feed_ids),
-                    Article.text.is_not(None),
-                    Item.classification_completed_version
-                    == Item.classification_required_version,
-                    Item.ioc_extraction_state.in_(("completed", "completed_empty")),
+                    _pipeline_complete(),
                 )
             )
         depth = sum(broker.llen(queue) for queue in QUEUES) + broker.hlen("unacked")
@@ -355,7 +359,7 @@ def _wait_for_pipeline(
             last_repair = time.monotonic()
         time.sleep(0.05)
     raise AssertionError(
-        f"pipeline did not recover: {ready}/{expected_now} classified articles, "
+        f"pipeline did not recover: {ready}/{expected_now} fully processed articles, "
         f"queue depth={depth}, incomplete sample={_pipeline_diagnostics(engine, feed_ids)}"
     )
 
@@ -375,6 +379,7 @@ def test_concurrent_workload(database_engine, test_redis_url, monkeypatch):
     profile["processing_repair_interval_seconds"] = 5
     profile["article_repair_grace_seconds"] = 2
     profile["repair_contract"] = "all-stages-completed-retained-catalog-v1"
+    profile["completion_contract"] = "article-current-classification-ioc-tagging-v1"
     profile["disjoint_export_contract"] = "two-principals-two-source-partitions-v1"
     profile["shared_logical_process_pool"] = 16
     if profile_name == "sustained":

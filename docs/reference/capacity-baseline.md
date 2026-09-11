@@ -113,8 +113,8 @@ For sessions tagged `threatlens-capacity-*`, PostgreSQL samples record
 the **age of a query observed waiting for a lock**, an upper bound on that
 query's current wait duration, not exact accumulated lock-wait time. Fast waits
 between samples are missed. A zero sample count does not prove there were no
-locks. One sampler connection shares the application engine's default pool of
-five persistent connections plus ten overflow connections. Runtime versions,
+locks. One sampler connection shares the mixed harness's explicitly budgeted pool
+of sixteen persistent connections with zero overflow. Runtime versions,
 CPU count, platform, profile, source revision, and pool settings are recorded.
 Elapsed workload time includes seeding and embedded worker startup/shutdown;
 fixture provisioning and migrations happen before that timer.
@@ -192,7 +192,10 @@ processing dispatcher runs every five seconds, including missing-article repair
 after a two-second grace period. These capacity-only settings accelerate recovery
 to fit the 60-second drain budget; production uses a 30-second dispatch interval
 and a 300-second missing-article grace period. The workload fingerprint records
-both settings and the repair contract; older IOC-only artifacts are incompatible.
+both settings and the repair and completion contracts; older IOC-only artifacts
+are incompatible. Recovery requires a successfully fetched, nonblank article,
+current classification, completed IOC extraction, and no pending tagging, as well
+as an empty broker. A drained broker alone does not establish processing recovery.
 Sustained `queue.recovery_ms` measures
 the drain after load stops, whereas finite burst profiles include worker
 startup; these profiles cannot be automatically compared.
@@ -273,8 +276,9 @@ Item row lock and has not committed Article content. The harness kills only
 the recorded currently attached prefork child, releases the local response,
 and verifies Celery redelivers the same task to a replacement child. A real
 all-stage repair dispatcher also runs, including missing articles; completion requires current
-classification, IOC extraction, no queued/unacknowledged messages, and one
-Article per expected Item. The article-repair eligibility delay is explicitly
+classification, IOC extraction, no pending tagging, no queued/unacknowledged
+messages, and one successfully fetched, nonblank Article per expected Item.
+The article-repair eligibility delay is explicitly
 zero in this fixture; production keeps its configured delay.
 
 ```bash
