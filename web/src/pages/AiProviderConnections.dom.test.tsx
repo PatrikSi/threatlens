@@ -349,4 +349,98 @@ describe('AI provider lifecycle with a real query cache', () => {
       true,
     )
   })
+
+  it('warns only for a newer server revision, not an older cached detail after saving', async () => {
+    vi.mocked(apiFetch).mockImplementation((path, init) =>
+      init?.method === 'PUT'
+        ? (Promise.resolve({ ...provider, version: 2 }) as never)
+        : (Promise.resolve(respondToRead(path)) as never),
+    )
+    mount(true)
+    await settle()
+    act(() => current.select(provider))
+    act(() => current.updateDraft('name', 'Submitted name'))
+    act(() => current.save())
+    await settle()
+    expect(current.editor?.baseline?.version).toBe(2)
+    expect(current.selectedProvider.data?.version).toBe(1)
+    expect(host.textContent).not.toContain('This provider changed on the server')
+    act(() => client.setQueryData(['ai', 'providers', 'detail', provider.id], { ...provider, version: 3 }))
+    await settle()
+    expect(host.textContent).toContain('This provider changed on the server')
+    expect(current.editor?.baseline?.version).toBe(2)
+  })
+
+  it('retries an isolated detail failure without replacing the dirty provider draft', async () => {
+    let detailCalls = 0
+    vi.mocked(apiFetch).mockImplementation((path) => {
+      if (path === `/ai/providers/${provider.id}`) {
+        detailCalls += 1
+        return detailCalls === 1
+          ? Promise.reject(new Error('Detail temporarily unavailable'))
+          : (Promise.resolve({ ...provider, version: 2 }) as never)
+      }
+      return Promise.resolve(respondToRead(path)) as never
+    })
+    mount(true)
+    await settle()
+    act(() => current.select(provider))
+    act(() => current.updateDraft('name', 'Keep my draft'))
+    await settle()
+    const retry = [...host.querySelectorAll('button')].find((button) =>
+      button.textContent?.includes('Retry saved provider refresh'),
+    )
+    expect(retry).toBeDefined()
+    act(() => retry!.click())
+    await settle()
+    expect(detailCalls).toBe(2)
+    expect(current.selectedProvider.isError).toBe(false)
+    expect(current.selectedProvider.data?.version).toBe(2)
+    expect(current.editor?.baseline?.version).toBe(1)
+    expect(current.editor?.draft.name).toBe('Keep my draft')
+    expect(current.editorDirty).toBe(true)
+  })
+
+  it('associates replacement-key validation errors with the password control', async () => {
+    mount(true)
+    await settle()
+    act(() => current.select(provider))
+    act(() => current.updateDraft('api_key', 'invalid\u0001key'))
+    const input = host.querySelector<HTMLInputElement>('input[type="password"]')!
+    const descriptions = input.getAttribute('aria-describedby')!.split(' ')
+    expect(descriptions).toContain('provider-key-help')
+    expect(descriptions).toContain('provider-key-error')
+    expect(document.getElementById('provider-key-error')?.textContent).toContain('printable ASCII')
+    act(() => current.updateDraft('api_key', ''))
+    expect(input.getAttribute('aria-describedby')).toBe('provider-key-help')
+    expect(document.getElementById('provider-key-error')).toBeNull()
+  })
+
+  it('restores focus to Add provider after deletion and does not steal later focus', async () => {
+    vi.mocked(apiFetch).mockImplementation((path, init) =>
+      init?.method === 'DELETE'
+        ? (Promise.resolve(undefined) as never)
+        : (Promise.resolve(respondToRead(path)) as never),
+    )
+    mount(true)
+    await settle()
+    act(() => current.select(provider))
+    await settle()
+    const remove = [...host.querySelectorAll('button')].find(
+      (button) => button.textContent?.trim() === 'Delete provider',
+    )!
+    act(() => {
+      remove.focus()
+      remove.click()
+    })
+    act(() => current.remove())
+    await settle()
+    await vi.waitFor(() => expect(document.activeElement?.textContent?.trim()).toBe('Add provider'))
+    expect(current.completedDeletes).toBe(1)
+    const search = host.querySelector<HTMLInputElement>('input')!
+    search.focus()
+    act(() => current.setSearch('Changed search'))
+    await settle()
+    expect(document.activeElement).toBe(search)
+  })
 })

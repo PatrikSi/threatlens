@@ -72,6 +72,7 @@ export function useAiProviderConnections(enabled: boolean) {
   const [routingDraft, setRoutingDraft] = useState<AIProviderRouting | null>(null)
   const [notice, setNotice] = useState<Notice | null>(null)
   const [testResult, setTestResult] = useState<AITestConnectionResponse | null>(null)
+  const [completedDeletes, setCompletedDeletes] = useState(0)
   const actionPending = useRef(false)
 
   const providers = useQuery({
@@ -135,6 +136,7 @@ export function useAiProviderConnections(enabled: boolean) {
         setDeleteTarget(null)
         setTestResult(null)
         setNotice({ error: false, message: 'Provider deleted.' })
+        setCompletedDeletes((count) => count + 1)
       } else if (result.kind === 'routing') {
         queryClient.setQueryData(['ai', 'provider-routing'], result.routing)
         setRoutingDraft(null)
@@ -241,6 +243,7 @@ export function useAiProviderConnections(enabled: boolean) {
     dirty,
     notice,
     testResult,
+    completedDeletes,
     pendingSelection,
     deleteTarget,
     visibleRouting,

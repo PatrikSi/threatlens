@@ -1,4 +1,4 @@
-import { useRef, useState, type RefObject } from 'react'
+import { useEffect, useRef, useState, type RefObject } from 'react'
 import { resolveApiErrorMessage } from '../api/errors'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { ROUTING_FIELDS, type ProviderDraft } from './aiProviderDraft'
@@ -35,7 +35,18 @@ const FIELDS: {
 export function AiProviderConnections({ controller: c }: { controller: AiProviderConnectionsController }) {
   const [confirmRoutingReload, setConfirmRoutingReload] = useState(false)
   const editorTitle = useRef<HTMLHeadingElement>(null)
+  const addProviderButton = useRef<HTMLButtonElement>(null)
+  const focusedDelete = useRef(c.completedDeletes)
   const focusEditor = () => requestAnimationFrame(() => editorTitle.current?.focus())
+
+  useEffect(() => {
+    if (c.busy || focusedDelete.current === c.completedDeletes) return
+    const frame = requestAnimationFrame(() => {
+      addProviderButton.current?.focus()
+      focusedDelete.current = c.completedDeletes
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [c.busy, c.completedDeletes])
 
   return (
     <Panel
@@ -69,7 +80,7 @@ export function AiProviderConnections({ controller: c }: { controller: AiProvide
         </div>
       )}
       <fieldset disabled={c.busy} className="space-y-4">
-        <ProviderList c={c} focusEditor={focusEditor} />
+        <ProviderList c={c} focusEditor={focusEditor} addProviderButton={addProviderButton} />
         <ProviderEditor c={c} editorTitle={editorTitle} />
         <ProviderRouting c={c} onReload={() => setConfirmRoutingReload(true)} />
       </fieldset>
@@ -110,7 +121,15 @@ export function AiProviderConnections({ controller: c }: { controller: AiProvide
   )
 }
 
-function ProviderList({ c, focusEditor }: { c: AiProviderConnectionsController; focusEditor: () => void }) {
+function ProviderList({
+  c,
+  focusEditor,
+  addProviderButton,
+}: {
+  c: AiProviderConnectionsController
+  focusEditor: () => void
+  addProviderButton: RefObject<HTMLButtonElement | null>
+}) {
   return (
     <>
       <div className="flex flex-wrap items-end gap-3">
@@ -123,6 +142,7 @@ function ProviderList({ c, focusEditor }: { c: AiProviderConnectionsController; 
           />
         </Field>
         <button
+          ref={addProviderButton}
           type="button"
           className={buttonClass}
           disabled={!c.providers.data || c.providers.isError}
@@ -246,7 +266,7 @@ function ProviderEditor({
   const selected = c.editor?.baseline
   const isAssigned = selected && ROUTING_FIELDS.some(({ key }) => c.routing.data?.[key] === selected.id)
   const newestSelected = c.selectedProvider.data ?? c.providers.data?.items.find(({ id }) => id === selected?.id)
-  const providerChanged = selected && newestSelected && selected.version !== newestSelected.version
+  const providerChanged = selected && newestSelected && newestSelected.version > selected.version
   return (
     <>
       {c.editor && (
@@ -265,10 +285,17 @@ function ProviderEditor({
             </p>
           )}
           {c.selectedProvider.isError && (
-            <p role="alert" className="text-sm text-red-700 dark:text-red-300">
-              The saved provider could not be refreshed. Your draft has been kept. Refresh the provider list to check
-              whether it still exists.
-            </p>
+            <div role="alert" className="space-y-2 text-sm text-red-700 dark:text-red-300">
+              <p>The saved provider could not be refreshed. Your draft has been kept.</p>
+              <button
+                type="button"
+                className={buttonClass}
+                disabled={c.selectedProvider.isFetching}
+                onClick={() => void c.selectedProvider.refetch()}
+              >
+                Retry saved provider refresh
+              </button>
+            </div>
           )}
           {selected?.credential_error && (
             <p role="alert" className="text-sm text-red-700 dark:text-red-300">
@@ -319,7 +346,11 @@ function ProviderEditor({
             Changing the endpoint origin requires replacing or removing its stored key. Disabling a provider does not
             silently move its assigned work elsewhere.
           </p>
-          {selected && <p className="text-xs">Connection tests use a short request with saved settings. Draft changes are not included.</p>}
+          {selected && (
+            <p className="text-xs">
+              Connection tests use a short request with saved settings. Draft changes are not included.
+            </p>
+          )}
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
@@ -508,7 +539,7 @@ function ProviderKeyField({ c }: { c: AiProviderConnectionsController }) {
         disabled={c.editor.draft.clear_api_key}
         onChange={(event) => c.updateDraft('api_key', event.target.value)}
         aria-label={selected?.api_key_configured ? 'Replacement API key' : 'Provider API key'}
-        aria-describedby="provider-key-help"
+        aria-describedby={c.validation.api_key ? 'provider-key-help provider-key-error' : 'provider-key-help'}
         aria-invalid={Boolean(c.validation.api_key)}
       />
       <span id="provider-key-help" className="mt-1 block text-xs">
@@ -518,7 +549,11 @@ function ProviderKeyField({ c }: { c: AiProviderConnectionsController }) {
         Keys are saved encrypted and are never returned to this form. Named providers never inherit the legacy
         environment key.
       </span>
-      <FieldError message={c.validation.api_key} />
+      {c.validation.api_key && (
+        <span id="provider-key-error">
+          <FieldError message={c.validation.api_key} />
+        </span>
+      )}
     </Field>
   )
 }
