@@ -26,8 +26,8 @@ limit, temperature, timeout, retry limit, and enabled state.
    to `/v1/chat/completions`; `/v1` and a complete `/chat/completions` path are also
    supported.
 3. Save the provider and run its connection test. A successful test checks the
-   saved configuration with synthetic content, a 128-token completion cap, and no
-   automatic retries; it does not analyze an article.
+   saved configuration with synthetic content, a 128-token completion cap, no
+   automatic retries, and the provider's timeout capped at 30 seconds.
 4. Choose the default provider, then select feature overrides where needed. Save
    routing to apply those choices to newly queued work.
 
@@ -122,7 +122,7 @@ tests require an administrator with `write:ai`. All routes remain gated by
 | `GET /ai/providers/{id}` | Read one saved configuration and its version; no key value is returned. |
 | `PUT /ai/providers/{id}` | Full provider fields plus the last-read `version`. Omitted ordinary fields use their defaults. Omitted or `null` `api_key` retains the key; `clear_api_key: true` removes it. |
 | `DELETE /ai/providers/{id}?version=N` | Requires the last-read version and no remaining routing references. |
-| `POST /ai/providers/{id}/test-connection` | Body contains the last-read `version`; tests saved settings with synthetic content. |
+| `POST /ai/providers/{id}/test-connection` | Body contains the last-read `version`; tests saved settings with synthetic content, no retries, and a timeout capped at 30 seconds. |
 | `GET, PUT /ai/provider-routing` | PUT contains the last-read `version` and all four routing selections. Omitted selections default to `null`, so send the complete intended routing state. |
 
 Names are unique without regard to case. A successful repeat of an unchanged

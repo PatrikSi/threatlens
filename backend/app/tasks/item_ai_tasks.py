@@ -82,7 +82,7 @@ def run_generate_item_ai_enrichment(
         db.commit()
         if result.enrichment is None:
             return {
-                "status": "skipped",
+                "status": result.status,
                 "reason": result.reason or "not_eligible",
                 "item_id": item_id,
             }
@@ -206,9 +206,11 @@ def _finish_item_result(db, task, run_id: uuid.UUID, result) -> None:
             else ai_ops.AI_STATUS_SKIPPED
         ),
         reason=result.reason,
-        error=enrichment.error
-        if enrichment is not None and result.status == "error"
-        else None,
+        error=(
+            enrichment.error
+            if enrichment is not None
+            else getattr(result, "error", None)
+        ) if result.status == "error" else None,
         worker_name=getattr(task.request, "hostname", None),
         model=enrichment.model if enrichment is not None else None,
         prompt_tokens=enrichment.prompt_tokens if enrichment is not None else None,
@@ -374,24 +376,35 @@ def _selection_metadata(
 
 
 def _load_reprocess_ai_settings(db, task, run_id: uuid.UUID | None):
-    settings = ai_config.load_active_ai_settings(db)
+    settings = ai_config.load_active_ai_settings(
+        db, feature_type="item_enrichment", task_run_id=run_id
+    )
     reason = None
+    error = None
+    status = ai_ops.AI_STATUS_SKIPPED
     if not settings.ai_enabled:
         reason = "ai_disabled"
     elif not settings.ai_configured:
-        reason = "ai_not_configured"
+        reason = getattr(settings, "configuration_error_code", None) or "ai_not_configured"
+        if reason != "ai_not_configured":
+            status = ai_ops.AI_STATUS_ERROR
+            error = getattr(settings, "configuration_error", None) or reason
     if reason is None:
         return settings, None
     if run_id:
         ai_ops.finish_ai_task_run(
             db,
             run_id=run_id,
-            status=ai_ops.AI_STATUS_SKIPPED,
+            status=status,
             reason=reason,
+            error=error,
             worker_name=getattr(task.request, "hostname", None),
         )
         db.commit()
-    return settings, {"queued": 0, "reason": reason}
+    result = {"queued": 0, "reason": reason}
+    if status == ai_ops.AI_STATUS_ERROR:
+        result["status"] = status
+    return settings, result
 
 
 def _select_item_ids(db, selection: AIReprocessSelection) -> list[uuid.UUID]:

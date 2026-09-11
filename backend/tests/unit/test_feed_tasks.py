@@ -580,7 +580,7 @@ def test_dispatch_daily_ai_brief_generation_claims_api_started_run_and_skips_dup
     monkeypatch.setattr("app.tasks.ai_brief_tasks.daily_ai_brief_lock", _brief_lock_override)
     monkeypatch.setattr(
         "app.tasks.ai_brief_tasks.load_active_ai_settings",
-        lambda _db: SimpleNamespace(ai_enabled=True, ai_configured=True, daily_brief_enabled=True, model="local-threat-model"),
+        lambda _db, **_kwargs: SimpleNamespace(ai_enabled=True, ai_configured=True, daily_brief_enabled=True, model="local-threat-model"),
     )
 
     run = queue_ai_task_run(
@@ -3163,7 +3163,7 @@ def test_classify_item_queues_ai_enrichment_when_enabled(db_session, monkeypatch
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
     monkeypatch.setattr(
         'app.services.ai_config.load_active_ai_settings',
-        lambda _db: type(
+        lambda _db, **_kwargs: type(
             "ActiveAISettings",
             (),
             {
@@ -3231,7 +3231,7 @@ def test_classify_item_skips_ai_enrichment_for_old_feed_backlog(db_session, monk
     monkeypatch.setattr("app.tasks.feed_tasks.settings.ai_auto_enrich_new_item_max_age_hours", 24)
     monkeypatch.setattr(
         'app.services.ai_config.load_active_ai_settings',
-        lambda _db: SimpleNamespace(
+        lambda _db, **_kwargs: SimpleNamespace(
             ai_enabled=True,
             ai_configured=True,
             auto_enrich_new_items=True,
@@ -3302,7 +3302,7 @@ def test_classify_item_skips_stale_article_after_refetch(db_session, monkeypatch
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
     monkeypatch.setattr(
         'app.services.ai_config.load_active_ai_settings',
-        lambda _db: SimpleNamespace(
+        lambda _db, **_kwargs: SimpleNamespace(
             ai_enabled=True,
             ai_configured=True,
             auto_enrich_new_items=True,
@@ -3410,7 +3410,7 @@ def test_classify_item_continues_when_ioc_enqueue_fails(db_session, monkeypatch)
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
     monkeypatch.setattr(
         'app.services.ai_config.load_active_ai_settings',
-        lambda _db: type(
+        lambda _db, **_kwargs: type(
             "ActiveAISettings",
             (),
             {
@@ -3481,7 +3481,7 @@ def test_classify_item_continues_when_ai_enqueue_fails(db_session, monkeypatch):
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
     monkeypatch.setattr(
         'app.services.ai_config.load_active_ai_settings',
-        lambda _db: type(
+        lambda _db, **_kwargs: type(
             "ActiveAISettings",
             (),
             {
@@ -3584,7 +3584,7 @@ def test_classify_item_persists_alert_evaluation_intent_when_enqueue_fails(db_se
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
     monkeypatch.setattr(
         'app.services.ai_config.load_active_ai_settings',
-        lambda _db: type(
+        lambda _db, **_kwargs: type(
             "InactiveAISettings",
             (),
             {
