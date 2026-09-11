@@ -42,8 +42,8 @@ export function AiConfigurationSidebar({
         <dl className="space-y-2 text-sm">
           <Metric label="Configured" value={settings?.ai_configured ? 'Yes' : 'No'} />
           <Metric label="API key in environment" value={settings?.api_key_configured ? 'Yes' : 'No (optional)'} />
-          <Metric label="Model" value={settings?.model || 'Not configured'} />
-          <Metric label="Retry attempts" value={settings?.request_max_retries ?? 0} />
+          <Metric label="Legacy model" value={settings?.model || 'Not configured'} />
+          <Metric label="Legacy retry attempts" value={settings?.request_max_retries ?? 0} />
           <Metric
             label="Daily brief schedule"
             value={settings ? formatUtcTime(settings.daily_brief_schedule_hour_utc, settings.daily_brief_schedule_minute_utc) : '09:00 UTC'}
@@ -56,7 +56,8 @@ export function AiConfigurationSidebar({
       <div className="sticky top-3 rounded-xl border border-slate/20 bg-white/80 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/90">
         <h3 className="font-display text-lg">Save changes</h3>
         <p className="mt-1 text-sm text-slate dark:text-white/70">
-          Provider, feature, company-context, and prompt changes affect future AI runs and are recorded in prompt history.
+          Save legacy provider, shared feature, company-context and prompt settings here. Named provider connections and
+          feature assignments have their own Save buttons.
         </p>
         <button
           type="button"

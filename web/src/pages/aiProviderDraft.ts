@@ -1,0 +1,86 @@
+import type { AIProvider, AIProviderRouting, AIProviderWriteRequest } from '../types/ai'
+import { DEFAULT_DRAFT, validateAISettingsDraft } from './aiSettingsDraft'
+
+export type ProviderDraft = {
+  name: string
+  enabled: boolean
+  base_url: string
+  model: string
+  temperature: string
+  max_completion_tokens: string
+  request_timeout_seconds: string
+  request_max_retries: string
+  api_key: string
+  clear_api_key: boolean
+}
+
+export type RoutingField = Exclude<keyof AIProviderRouting, 'version'>
+
+export const ROUTING_FIELDS: { key: RoutingField; label: string }[] = [
+  { key: 'default_provider_id', label: 'Default provider' },
+  { key: 'item_enrichment_provider_id', label: 'Article summaries and relevance' },
+  { key: 'daily_brief_provider_id', label: 'Daily briefs' },
+  { key: 'report_provider_id', label: 'Reports' },
+]
+
+export function createProviderDraft(provider?: AIProvider): ProviderDraft {
+  return {
+    name: provider?.name ?? '',
+    enabled: provider?.enabled ?? true,
+    base_url: provider?.base_url ?? '',
+    model: provider?.model ?? '',
+    temperature: String(provider?.temperature ?? 0.2),
+    max_completion_tokens: String(provider?.max_completion_tokens ?? 5000),
+    request_timeout_seconds: String(provider?.request_timeout_seconds ?? 300),
+    request_max_retries: String(provider?.request_max_retries ?? 3),
+    api_key: '',
+    clear_api_key: false,
+  }
+}
+
+export function validateProviderDraft(draft: ProviderDraft): Partial<Record<keyof ProviderDraft, string>> {
+  const errors = validateAISettingsDraft({ ...DEFAULT_DRAFT, ...draft }) as Partial<Record<keyof ProviderDraft, string>>
+  if (!draft.name.trim()) errors.name = 'Enter a provider name.'
+  else if (draft.name.trim().length > 120) errors.name = 'Provider name cannot exceed 120 characters.'
+  if (!draft.model.trim()) errors.model = 'Enter a model identifier supported by this endpoint.'
+  try {
+    const url = new URL(draft.base_url)
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
+      errors.base_url = 'Use an HTTP or HTTPS URL without credentials, query parameters or a fragment.'
+    }
+  } catch {
+    errors.base_url = 'Enter a complete HTTP or HTTPS base URL.'
+  }
+  if (draft.api_key && draft.clear_api_key)
+    errors.api_key = 'Choose either a replacement key or removal of the saved key.'
+  else if (draft.api_key.length > 16384) errors.api_key = 'The API key cannot exceed 16384 characters.'
+  else if (draft.api_key && (!draft.api_key.trim() || /[^\x20-\x7e]/.test(draft.api_key)))
+    errors.api_key = 'Use a nonempty API key containing printable ASCII characters.'
+  return errors
+}
+
+/** randomUUID is restricted to secure contexts; local HTTP deployments also need UUID request keys. */
+export function createProviderRequestId(): string {
+  if (typeof crypto.randomUUID === 'function') return crypto.randomUUID()
+  const bytes = crypto.getRandomValues(new Uint8Array(16))
+  bytes[6] = (bytes[6] & 0x0f) | 0x40
+  bytes[8] = (bytes[8] & 0x3f) | 0x80
+  const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+}
+
+export function createProviderRequest(draft: ProviderDraft): AIProviderWriteRequest {
+  return {
+    name: draft.name.trim(),
+    enabled: draft.enabled,
+    provider_type: 'openai_compatible',
+    base_url: draft.base_url.trim(),
+    model: draft.model.trim(),
+    temperature: Number(draft.temperature),
+    max_completion_tokens: Number(draft.max_completion_tokens),
+    request_timeout_seconds: Number(draft.request_timeout_seconds),
+    request_max_retries: Number(draft.request_max_retries),
+    ...(draft.api_key ? { api_key: draft.api_key } : {}),
+    ...(draft.clear_api_key ? { clear_api_key: true } : {}),
+  }
+}

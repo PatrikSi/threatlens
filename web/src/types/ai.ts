@@ -14,6 +14,8 @@ export interface AISettings {
   ai_enabled: boolean
   ai_configured: boolean
   api_key_configured: boolean
+  provider_routing_supported?: boolean
+  effective_feature_configured?: { item_enrichment: boolean; daily_brief: boolean; report: boolean }
   provider_type: 'openai_compatible'
   base_url: string | null
   model: string | null
@@ -56,6 +58,49 @@ export interface AISettings {
   created_at: string
   updated_at: string
   prompt_previews: AIPromptPreviews
+}
+
+export interface AIProviderConfiguration {
+  name: string
+  enabled: boolean
+  provider_type: 'openai_compatible'
+  base_url: string
+  model: string
+  temperature: number
+  max_completion_tokens: number
+  request_timeout_seconds: number
+  request_max_retries: number
+}
+
+export interface AIProvider extends AIProviderConfiguration {
+  id: string
+  version: number
+  api_key_configured: boolean
+  credential_error: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface AIProviderPage {
+  items: AIProvider[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export interface AIProviderWriteRequest extends AIProviderConfiguration {
+  id?: string
+  version?: number
+  api_key?: string
+  clear_api_key?: boolean
+}
+
+export interface AIProviderRouting {
+  version: number
+  default_provider_id: string | null
+  item_enrichment_provider_id: string | null
+  daily_brief_provider_id: string | null
+  report_provider_id: string | null
 }
 
 export interface AISettingsUpdateRequest {

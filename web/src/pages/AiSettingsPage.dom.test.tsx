@@ -38,6 +38,7 @@ const aiSettingsPageDomMocks = vi.hoisted(() => ({
     ai_enabled: true,
     ai_configured: true,
     api_key_configured: true,
+    effective_feature_configured: undefined as { item_enrichment: boolean; daily_brief: boolean; report: boolean } | undefined,
     provider_type: 'openai_compatible',
     base_url: 'https://api.example.com/v1',
     model: 'gpt-threat',
@@ -543,6 +544,7 @@ afterEach(() => {
   aiSettingsPageDomMocks.reprocessMutate.mockReset()
   aiSettingsPageDomMocks.completeReprocessMutation = true
   aiSettingsPageDomMocks.settingsData.ai_configured = true
+  aiSettingsPageDomMocks.settingsData.effective_feature_configured = undefined
   aiSettingsPageDomMocks.settingsError = false
   aiSettingsPageDomMocks.liveData = {
     worker_count: 1,
@@ -661,6 +663,18 @@ describe('AiSettingsPage DOM workflows', () => {
     expect(pageText()).toContain('AI settings could not be loaded.')
     expect(getButton('Queue daily brief')?.hasAttribute('disabled')).toBe(true)
     expect(getButton('Queue reprocess')?.hasAttribute('disabled')).toBe(true)
+  })
+
+  it.each([
+    { item_enrichment: false, daily_brief: true },
+    { item_enrichment: true, daily_brief: false },
+  ])('uses independent provider readiness for article and brief work: %j', (features) => {
+    aiSettingsPageDomMocks.settingsData.effective_feature_configured = { ...features, report: true }
+    renderPage()
+    act(() => getButton('Jobs')?.click())
+    expect(getButton('Queue daily brief')?.hasAttribute('disabled')).toBe(!features.daily_brief)
+    expect(getButton('Queue reprocess')?.hasAttribute('disabled')).toBe(!features.item_enrichment)
+    expect(pageText()).toContain(features.daily_brief ? 'The article enrichment provider is unavailable.' : 'The daily brief provider is unavailable.')
   })
 
   it('blocks saving AI settings when the saved settings failed to load', () => {

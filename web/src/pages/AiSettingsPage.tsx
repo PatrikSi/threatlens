@@ -14,6 +14,7 @@ import { resolveApiErrorMessage } from '../api/errors'
 import { SettingsPageHeader } from '../components/SettingsPageHeader'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
+import { useAiProviderConnections } from './useAiProviderConnections'
 import {
   AIReprocessQueueRequest,
   resolveAiReprocessQueueState,
@@ -157,6 +158,7 @@ export function AiSettingsPage() {
   const [settledActiveTab, setSettledActiveTab] = useState<AiTab>('overview')
   const activityTabRef = useRef<HTMLElement | null>(null)
   const selectedRunSectionRef = useRef<HTMLDivElement | null>(null)
+  const providerConnections = useAiProviderConnections(Boolean(currentUserQuery.data?.features.ai_enabled) && activeTab === 'configuration')
 
   const setDraft: Dispatch<SetStateAction<AISettingsDraft>> = (value) => {
     setDraftDirty(true)
@@ -191,6 +193,9 @@ export function AiSettingsPage() {
     reprocessScopeFingerprint,
   )
   const unsavedAiSettingsMessage = useMemo(() => {
+    if (providerConnections.dirty) {
+      return 'You have unsaved AI provider, assignment or settings changes. Leave without saving your work?'
+    }
     if (draftDirty && reprocessScopeDirty) {
       return 'You have unsaved AI settings changes and a reprocess scope in progress. Leave without saving or queueing that work?'
     }
@@ -198,9 +203,9 @@ export function AiSettingsPage() {
       return 'You have unsaved AI settings changes. Leave without saving?'
     }
     return 'You have a reprocess scope in progress. Leave without queueing or clearing it?'
-  }, [draftDirty, reprocessScopeDirty])
+  }, [draftDirty, providerConnections.dirty, reprocessScopeDirty])
   const confirmDiscardUnsavedAiSettingsChanges = useUnsavedChangesWarning(
-    draftDirty || reprocessScopeDirty,
+    draftDirty || providerConnections.dirty || reprocessScopeDirty,
     unsavedAiSettingsMessage,
   )
 
@@ -234,7 +239,13 @@ export function AiSettingsPage() {
   })
   const settingsReadyToSave = settingsAvailability.readyToSave
   const settingsSaveBlockedReason = settingsAvailability.saveBlockedReason
-  const queueWorkBlockedReason = settingsAvailability.queueWorkBlockedReason
+  const queueWorkBlockedReason = providerConnections.dirty
+    ? 'Save or discard your provider and assignment changes before queueing AI work.'
+    : settingsAvailability.queueWorkBlockedReason
+  const dailyBriefProviderBlockedReason = settingsQuery.data?.effective_feature_configured?.daily_brief === false
+    ? 'The daily brief provider is unavailable. Check its assignment, enabled state and credentials in Configuration.' : null
+  const itemProviderBlockedReason = settingsQuery.data?.effective_feature_configured?.item_enrichment === false
+    ? 'The article enrichment provider is unavailable. Check its assignment, enabled state and credentials in Configuration.' : null
 
   const overviewQuery = useQuery({
     queryKey: ['ai', 'ops', 'overview', days],
@@ -690,7 +701,7 @@ export function AiSettingsPage() {
   }, [reprocessScopeDirty])
 
   function queueDailyBrief() {
-    const blockedReason = queueWorkBlockedReason ?? dailyBriefReprocessValidation
+    const blockedReason = queueWorkBlockedReason ?? dailyBriefProviderBlockedReason ?? dailyBriefReprocessValidation
     if (blockedReason) {
       setNotice({ tone: 'error', message: blockedReason })
       return
@@ -700,8 +711,8 @@ export function AiSettingsPage() {
   }
 
   function queueReprocess() {
-    if (queueWorkBlockedReason) {
-      setNotice({ tone: 'error', message: queueWorkBlockedReason })
+    if (queueWorkBlockedReason || itemProviderBlockedReason) {
+      setNotice({ tone: 'error', message: queueWorkBlockedReason ?? itemProviderBlockedReason! })
       return
     }
     if (!reprocessQueueState.payload) {
@@ -767,6 +778,8 @@ export function AiSettingsPage() {
       dailyBriefDays: dailyBriefReprocessDays,
       setDailyBriefDays: setDailyBriefReprocessDays,
       dailyBriefPending: reprocessDailyBriefMutation.isPending,
+      dailyBriefProviderBlockedReason,
+      itemProviderBlockedReason,
       dailyBriefValidation: dailyBriefReprocessValidation,
       retainedDailyBriefLimit: settingsQuery.data?.daily_brief_history_limit ?? null,
       onQueueDailyBrief: queueDailyBrief,
@@ -824,6 +837,7 @@ export function AiSettingsPage() {
 
   function getConfigurationProps(): AiConfigurationTabProps {
     return {
+      providers: providerConnections,
       draft,
       setDraft,
       draftDirty,
@@ -839,6 +853,7 @@ export function AiSettingsPage() {
         !settingsReadyToSave ||
         !draftDirty ||
         testConnectionMutation.isPending ||
+        providerConnections.busy ||
         Boolean(draftValidationError),
       saveDisabledReason: configurationSaveBlockedReason,
       validation: draftValidation,

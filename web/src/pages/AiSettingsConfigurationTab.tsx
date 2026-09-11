@@ -2,6 +2,7 @@ import { AiConfigurationAudit, AiConfigurationSidebar } from './AiConfigurationS
 import { AiCompanyContextConfiguration, AiPromptConfiguration } from './AiContextConfiguration'
 import { AiDailyBriefConfiguration, AiFeatureControls, AiReportingConfiguration } from './AiFeatureConfiguration'
 import { AiProviderConfiguration } from './AiProviderConfiguration'
+import { AiProviderConnections } from './AiProviderConnections'
 import { AiSettingsConfigurationTabProps } from './AiSettingsConfigurationTypes'
 
 export function ConfigurationTab(props: AiSettingsConfigurationTabProps) {
@@ -26,6 +27,7 @@ export function ConfigurationTab(props: AiSettingsConfigurationTabProps) {
           </div>
         )}
 
+        <AiProviderConnections controller={props.providers} />
         <AiProviderConfiguration
           {...draftProps}
           draftDirty={props.draftDirty}
