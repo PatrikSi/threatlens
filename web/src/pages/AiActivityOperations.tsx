@@ -150,6 +150,8 @@ export type QueueWorkPanelProps = {
   reprocessValidation: AIReprocessScopeValidation
   reprocessQueueDisabled: boolean
   queueWorkBlockedReason: string | null
+  dailyBriefProviderBlockedReason?: string | null
+  itemProviderBlockedReason?: string | null
   onQueueReprocess: () => void
   itemSearchLoading: boolean
   itemSearchError: string
@@ -225,11 +227,12 @@ export function QueueWorkPanel(props: QueueWorkPanelProps) {
               type="button"
               className="rounded border border-slate/30 px-3 py-2 text-sm font-semibold disabled:opacity-50 dark:border-cyan-900/40"
               onClick={onQueueDailyBrief}
-              disabled={dailyBriefPending || !dailyBriefEnabled || Boolean(dailyBriefValidation) || Boolean(queueWorkBlockedReason)}
+              disabled={dailyBriefPending || !dailyBriefEnabled || Boolean(dailyBriefValidation) || Boolean(queueWorkBlockedReason) || Boolean(props.dailyBriefProviderBlockedReason)}
             >
               {dailyBriefPending ? 'Queueing...' : 'Queue daily brief'}
             </button>
           </div>
+          {props.dailyBriefProviderBlockedReason && <p role="status" className="mt-2 text-sm text-amber-800 dark:text-amber-200">{props.dailyBriefProviderBlockedReason}</p>}
           <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,220px)_minmax(0,1fr)]">
             <Field label="Daily brief lookback (days)">
               <input
@@ -269,13 +272,14 @@ export function QueueWorkPanel(props: QueueWorkPanelProps) {
                 type="button"
                 className="rounded bg-ink px-3 py-2 text-sm font-semibold text-white disabled:opacity-50 dark:bg-cyan dark:text-slate-950"
                 onClick={onQueueReprocess}
-                disabled={reprocessPending || reprocessQueueDisabled || Boolean(queueWorkBlockedReason)}
+                disabled={reprocessPending || reprocessQueueDisabled || Boolean(queueWorkBlockedReason) || Boolean(props.itemProviderBlockedReason)}
               >
                 {reprocessPending ? 'Queueing...' : 'Queue reprocess'}
               </button>
             </div>
           </div>
 
+          {props.itemProviderBlockedReason && <p role="status" className="mt-2 text-sm text-amber-800 dark:text-amber-200">{props.itemProviderBlockedReason}</p>}
           <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             <Field label="Reprocess lookback (days)">
               <input

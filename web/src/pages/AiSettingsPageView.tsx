@@ -88,7 +88,7 @@ function AiSettingsHeader({ settings }: { settings: AISettings | undefined }) {
     <SettingsPageHeader
       scope="Organization"
       title="AI automation"
-      description="Monitor AI health and jobs, and manage the provider configuration used across this organization."
+      description="Monitor AI health and jobs, and manage the providers and feature assignments used across this organization."
       badges={(
         <>
           <StatusPill tone={settings?.ai_enabled ? 'info' : 'neutral'} label={settings?.ai_enabled ? 'Enabled' : 'Disabled'} />
@@ -177,11 +177,11 @@ function AiSettingsNavigation({
         </nav>
         <dl className="grid gap-2 rounded border border-cyan/20 bg-cyan/10 px-3 py-2 text-xs sm:grid-cols-2 xl:mt-3 xl:grid-cols-1 dark:border-cyan-800/40 dark:bg-cyan-950/40">
           <div>
-            <dt className="font-semibold">Current model</dt>
+            <dt className="font-semibold">Legacy model</dt>
             <dd className="mt-0.5 text-cyan-800 dark:text-cyan-200">{settings?.model || 'Not configured'}</dd>
           </div>
           <div>
-            <dt className="font-semibold">Endpoint</dt>
+            <dt className="font-semibold">Legacy endpoint</dt>
             <dd className="mt-0.5 break-all text-cyan-800 dark:text-cyan-200">{settings?.base_url || 'Not configured'}</dd>
           </div>
         </dl>

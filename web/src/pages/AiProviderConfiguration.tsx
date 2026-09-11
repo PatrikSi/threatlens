@@ -65,7 +65,7 @@ export function AiProviderConfiguration({
   const providerTestMessage = getProviderTestMessage(draftDirty, testDisabledReason, configured)
 
   return (
-    <Panel title="Provider" subtitle="ThreatLens currently speaks to one OpenAI-compatible chat endpoint. Secrets stay in the environment.">
+    <Panel title="Legacy provider" subtitle="Existing provider settings and the environment API key remain compatible. These connection fields are used when feature assignments resolve to the legacy provider. Feature, prompt and company settings below apply across providers.">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate/15 bg-slate/5 px-3 py-3 dark:border-cyan-900/30 dark:bg-white/[0.03]">
         <div className="text-sm text-slate dark:text-white/70">{providerTestMessage}</div>
         <button

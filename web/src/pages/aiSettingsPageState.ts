@@ -153,6 +153,10 @@ export function getAiReadiness(settings: AISettings | undefined) {
   if (!settings) {
     return null
   }
+  if (settings.effective_feature_configured) {
+    const configured = Object.values(settings.effective_feature_configured).filter(Boolean).length
+    return `${configured} of 3 AI feature routes are configured. Review feature assignments to see which provider each task uses.`
+  }
   if (!settings.ai_configured) {
     return 'Complete the base URL and model to enable AI-generated output.'
   }
