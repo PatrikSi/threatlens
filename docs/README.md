@@ -35,6 +35,7 @@ This documentation covers:
 - [Renewed Code and Maintainability Review — 2026-09-08](./reviews/2026-09-08-maintainability-review.md)
 - [CR01–CR14 Implementation and Assessment — 2026-09-08](./reviews/2026-09-08-maintainability-remediation.md)
 - [Runtime, Processing and Retention Hardening — 2026-09-11](./reviews/2026-09-11-hardening-implementation.md)
+- [Named AI Providers and MCP Groundwork — 2026-09-11](./reviews/2026-09-11-ai-provider-expansion.md)
 - [Auth, RBAC, and Token Scopes](./reference/auth-rbac.md)
 - [Access Governance and Data Policy](./reference/access-governance.md)
 - [Backend API Reference](./reference/api.md)

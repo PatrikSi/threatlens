@@ -403,6 +403,46 @@ evidence, and note changes.
 - `daily_brief_schedule_minute_utc: int`
 - company profile fields and prompt template/instruction fields
 
+### `AIProviderConfiguration`
+
+Table: `ai_provider_configurations` (migration `0095`).
+
+- `id: UUID` (PK; stable across edits)
+- `name: string(120)`; `normalized_name: string(360)` (unique, case-folded)
+- `provider_type: string(32)` (`openai_compatible`)
+- `base_url: text`; `model: string(255)`
+- `temperature: float`; `max_completion_tokens: int`
+- `request_timeout_seconds: int`; `request_max_retries: int`
+- `enabled: bool`
+- `api_key_encrypted: text?` (independent encrypted credential; never returned)
+- `version: int` (at least one; optimistic write and queued-work baseline)
+- `created_at: timestamptz`; `updated_at: timestamptz`
+
+### `AIProviderRouting`
+
+Table: `ai_provider_routing`, with exactly one permitted `singleton_key` value, `1`.
+
+- `singleton_key: int` (PK); `version: int` (at least one)
+- `default_provider_id: UUID?`
+- `item_enrichment_provider_id: UUID?`
+- `daily_brief_provider_id: UUID?`
+- `report_provider_id: UUID?`
+
+All four selections reference `AIProviderConfiguration.id` with delete restricted.
+A null feature selection inherits the default; a null default uses legacy AI
+settings. Provider creation alone does not change routing.
+
+### `AIProviderRetiredID`
+
+Table: `ai_provider_retired_ids`.
+
+- `id: UUID` (PK; permanently retired provider identifier)
+- `retired_at: timestamptz`
+
+Deletion writes this row atomically with removing the provider. It retains no
+credential or configuration and prevents old queued work from resolving a reused
+identifier to a different endpoint, independently of task-history retention.
+
 ### `AIDailyBrief`
 
 - `id: UUID` (PK)
@@ -433,6 +473,11 @@ evidence, and note changes.
 - `daily_brief_id: UUID?`
 - `parent_run_id: UUID?`
 - progress counters, token accounting, prompt/response sizing, metadata, timestamps
+
+New AI work records `metadata_json.provider_selection` with provider ID, version
+and model, without a credential. Children inherit their parent's selection.
+Tasks predating this field continue through legacy settings. A named selection
+that changes before I/O fails explicitly rather than switching destinations.
 
 ### `TaggingSettings`
 
