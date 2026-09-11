@@ -102,10 +102,24 @@ def collect_runtime_capacity(
             "Requests or background work may be delayed or retried.",
             "Inspect worker queues and container limits; use the processing worklist for failed items and compare release capacity measurements.",
         ))
-    known = database_ok and bool(database) and all(metrics.get(f"{event}_last_15m") is not None for event in RUNTIME_EVENTS)
+    memory_known = (
+        metrics.get("container_memory_bytes") is not None
+        or metrics.get("sampled_process_memory_bytes") is not None
+    )
+    if metrics.get("container_memory_bytes") is not None:
+        memory_summary = (
+            "Memory: collecting container usage and ceiling."
+            if metrics.get("container_memory_percent") is not None
+            else "Memory: collecting container usage; ceiling unavailable or unlimited; utilization unknown."
+        )
+    elif metrics.get("sampled_process_memory_bytes") is not None:
+        memory_summary = "Memory: collecting process RSS only; container utilization unavailable."
+    else:
+        memory_summary = "Memory: usage unavailable; capacity unknown."
+    known = database_ok and bool(database) and memory_known and all(metrics.get(f"{event}_last_15m") is not None for event in RUNTIME_EVENTS)
     return OperationsComponentCheck(
         key="runtime_capacity", label="Runtime capacity", checked_at=checked_at,
         status="degraded" if pressured or waiting or deadlines else "healthy" if known else "unknown",
-        summary="Database: current runtime role. Memory: collecting container/process. Deadline counters: shared, best effort, latest 15 minute buckets.",
+        summary=f"Database: current runtime role. {memory_summary} Deadline counters: shared, best effort, latest 15 minute buckets.",
         metrics=metrics,
     )

@@ -25,6 +25,20 @@ obligations whose original start time was not recorded receive the migration
 time as their baseline; older delay cannot be reconstructed accurately. Export
 waiting age uses the accepted job's creation time.
 
+Processing failures needing attention include cancelled work that exhausted its
+automatic attempts for the item's current source version. Completed obligations
+and failures for earlier source versions do not affect the current backlog.
+
+Export failure counts retain all failed jobs for history. Health degrades for
+technical failures completed within the last 15 minutes (inclusive); records
+without a completion timestamp use their creation time. Authorization changes,
+size limits, empty results, changed source snapshots and deleted owners are
+expected terminal outcomes and do not degrade export health. Other or missing
+error codes are conservatively treated as technical failures. A successful
+replacement does not remove failure history; recent technical failures age out
+of the health signal after 15 minutes. Queued-age breaches and expired running
+leases affect health independently of failure history.
+
 The five-minute health history retains per-stage pending/active/failure counts
 and oldest pending age, plus a fixed set of runtime pressure measurements.
 Older samples without these fields remain unknown. The existing bounded
@@ -36,7 +50,13 @@ It does not require `pg_monitor` or cluster-wide superuser access. Current
 memory usage, memory ceiling, OOM kill count and memory pressure come from the
 collecting container's cgroup v2; process RSS comes from `/proc/self/statm`.
 Memory scope is the collector, not the entire fleet. Unsupported/unavailable
-cgroup files return unknown. Container memory above 85% or a sampled database
+cgroup metrics remain unknown. If container usage is unavailable, process RSS
+alone can provide a usable sample; an unlimited or unavailable ceiling leaves
+container utilization unknown. The component summary identifies these partial
+memory modes. If both container usage and process RSS are unavailable, runtime
+capacity is unknown even when database and deadline telemetry are available.
+An observed pressure or deadline failure still degrades the component despite
+missing telemetry. Container memory at or above 85% or a sampled database
 lock wait of at least five seconds produces a pressure issue.
 
 Database lock/statement/pool/deadline failures, outbound total-deadline failures,
