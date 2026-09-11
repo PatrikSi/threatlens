@@ -1,0 +1,68 @@
+{
+  "budgets": {
+    "api": {
+      "Memory": 1073741824,
+      "NanoCpus": 2000000000,
+      "PidsLimit": 256
+    },
+    "beat": {
+      "Memory": 402653184,
+      "NanoCpus": 500000000,
+      "PidsLimit": 96
+    },
+    "db": {
+      "Memory": 2147483648,
+      "NanoCpus": 2000000000,
+      "PidsLimit": 256
+    },
+    "migrate": {
+      "Memory": 536870912,
+      "NanoCpus": 1000000000,
+      "PidsLimit": 64
+    },
+    "redis": {
+      "Memory": 536870912,
+      "NanoCpus": 1000000000,
+      "PidsLimit": 128
+    },
+    "web": {
+      "Memory": 134217728,
+      "NanoCpus": 500000000,
+      "PidsLimit": 64
+    },
+    "worker": {
+      "Memory": 2147483648,
+      "NanoCpus": 2000000000,
+      "PidsLimit": 256
+    },
+    "worker-ai": {
+      "Memory": 1073741824,
+      "NanoCpus": 1000000000,
+      "PidsLimit": 128
+    },
+    "worker-exports": {
+      "Memory": 2147483648,
+      "NanoCpus": 1000000000,
+      "PidsLimit": 128
+    },
+    "worker-maintenance": {
+      "Memory": 805306368,
+      "NanoCpus": 1000000000,
+      "PidsLimit": 128
+    },
+    "worker-notifications": {
+      "Memory": 1073741824,
+      "NanoCpus": 1000000000,
+      "PidsLimit": 256
+    }
+  },
+  "export_cpu_pressure_readiness": {
+    "max_ms": 2038.08,
+    "requests": 8
+  },
+  "initial_readiness_ms": 2024.2,
+  "oom_isolated": true,
+  "restart_recovered": true,
+  "revision": "8f1d53e55d398e201c02ea5ccc1269634abdeea8",
+  "status": "passed"
+}
