@@ -41,6 +41,28 @@ name is a label, and does not enable a different vendor protocol. Global prompts
 company context, feature switches, and report context-planning limits remain in
 AI settings.
 
+### Completion Budgets
+
+**Default completion tokens** sets the initial output allowance for article
+enrichment and daily briefs. Both legacy settings and named providers accept
+128–131,072 tokens. **Initial report completion tokens**, under **Report context
+guardrails**, independently sets the starting allowance for every evidence batch
+and report section, from 256–131,072 tokens. Reports reserve that same amount in
+their context plan; the provider default no longer caps their initial allowance.
+The existing API field remains `report_reserved_output_tokens`.
+
+Defaults and saved values are preserved: a new configuration starts with 5,000
+default completion tokens and 1,200 initial report completion tokens. Raising the
+supported maximum does not increase an existing request budget. If report JSON
+is truncated, increase the report budget and ensure **Model Context Window**
+still leaves space for input, protocol overhead, and the safety margin. Choose
+values within the selected model's output and context limits.
+
+A report truncation retry can increase the allowance into unused context up to
+the greater of the report budget or provider default, with a 131,072-token
+ceiling. Retry counts, response-byte limits, and request deadlines still apply;
+increasing tokens does not guarantee that a model can produce valid JSON.
+
 ### Gemini Compatibility
 
 For Gemini, enter `https://generativelanguage.googleapis.com/v1beta/openai/` as the
