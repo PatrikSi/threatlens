@@ -76,9 +76,9 @@ This documentation covers:
 - [AI](./pages/ai.md)
 - [Database privileges and upgrades](./pages/database-privileges.md)
 - [Runtime resource and database budgets](./pages/runtime-budgets.md)
-- [Processing recovery worklist](./pages/processing-recovery.md)
+- [Processing operator workflow](./pages/processing.md)
+- [Processing recovery contracts and budgets](./pages/processing-recovery.md)
 - [Processing freshness and pressure history](./pages/processing-freshness.md)
 - [Incremental history cleanup](./pages/incremental-retention.md)
 - [Architecture and lifecycle test contracts](./development/lifecycle-contracts.md)
 - [PostgreSQL Backup and Recovery](./pages/operations.md)
-
