@@ -602,14 +602,19 @@ def test_schedule_dispatch_defers_without_advancing_when_reporting_unavailable(
     db_session, monkeypatch
 ):
     _use_test_session(monkeypatch, db_session)
-    monkeypatch.setattr(
-        report_schedule_tasks,
-        "load_active_ai_settings",
-        lambda _db: SimpleNamespace(
+
+    def load_reporting_settings(_db, *, feature_type):
+        assert feature_type == "report"
+        return SimpleNamespace(
             ai_enabled=False,
             ai_configured=False,
             reporting_enabled=False,
-        ),
+        )
+
+    monkeypatch.setattr(
+        report_schedule_tasks,
+        "load_active_ai_settings",
+        load_reporting_settings,
     )
 
     result = report_tasks.dispatch_due_report_schedules.run()
@@ -639,7 +644,12 @@ def test_schedule_dispatch_isolates_reservation_failures(db_session, monkeypatch
     recorded_failures = []
     enqueued = []
     _use_test_session(monkeypatch, db_session)
-    monkeypatch.setattr(report_schedule_tasks, "load_active_ai_settings", lambda _db: object())
+
+    def load_reporting_settings(_db, *, feature_type):
+        assert feature_type == "report"
+        return object()
+
+    monkeypatch.setattr(report_schedule_tasks, "load_active_ai_settings", load_reporting_settings)
     monkeypatch.setattr(
         report_schedule_tasks,
         "ensure_reporting_available",
