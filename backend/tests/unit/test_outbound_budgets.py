@@ -16,6 +16,16 @@ from app.services.outbound_deadline import (
 from app.services.safe_fetch import build_safe_http_client, safe_stream_with_redirects
 
 
+@pytest.fixture(autouse=True)
+def runtime_events(monkeypatch):
+    # Keep telemetry's Redis DNS and I/O outside these outbound budget tests.
+    events = []
+    monkeypatch.setattr(
+        "app.services.outbound_deadline.record_runtime_event", events.append
+    )
+    return events
+
+
 class _Chunks(httpx.SyncByteStream):
     def __init__(self, chunks):
         self.chunks = chunks
@@ -55,7 +65,7 @@ def test_compressed_exact_cap_and_truncated_stream():
         read_bounded_response(response, 1024)
 
 
-def test_dns_timeout_does_not_start_an_http_request(monkeypatch):
+def test_dns_timeout_does_not_start_an_http_request(monkeypatch, runtime_events):
     started = threading.Event()
     finish = threading.Event()
     returned = threading.Event()
@@ -75,6 +85,7 @@ def test_dns_timeout_does_not_start_an_http_request(monkeypatch):
         assert started.is_set()
         assert time.monotonic() - begin < 0.5
         assert not returned.is_set()
+        assert runtime_events == ["outbound_deadline"]
     finally:
         finish.set()
         assert returned.wait(1)
@@ -233,7 +244,7 @@ def test_completed_body_does_not_recheck_a_released_domain_guard():
     assert not held
 
 
-def test_saturated_dns_capacity_is_bounded(monkeypatch):
+def test_saturated_dns_capacity_is_bounded(monkeypatch, runtime_events):
     import app.services.outbound_deadline as budgets
 
     slots = threading.BoundedSemaphore(1)
@@ -245,6 +256,7 @@ def test_saturated_dns_capacity_is_bounded(monkeypatch):
         with outbound_deadline(0.03):
             deadline_getaddrinfo("example.com")
     assert time.monotonic() - began < 0.5
+    assert runtime_events == ["outbound_deadline"]
 
 
 def test_request_write_stops_when_peer_never_reads():
