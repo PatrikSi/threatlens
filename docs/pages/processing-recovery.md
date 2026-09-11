@@ -10,8 +10,9 @@ age, attempts, safe failure reasons and the next retry time.
 
 The worklist requires `read:operations` and `read:items`; handling labels filter
 rows in SQL before pagination. Recovery acceptance requires `write:operations`
-and `read:items`. The initial application surface remains in the administrator's
-Operations workspace. Select the exact stages to retry and review the selection.
+and `read:items`. Open **Settings → System health → Processing** with those
+permissions; see the [operator workflow](processing.md) for selection and navigation.
+Select the exact stages to retry and review the selection.
 The server checks each opaque revision again before accepting it. Refresh a
 selection after a `409 processing_conflict`; replay the same idempotency UUID if
 acceptance failed with an uncertain network outcome.
