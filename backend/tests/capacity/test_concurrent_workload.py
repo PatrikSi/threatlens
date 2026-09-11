@@ -22,7 +22,7 @@ from celery.signals import (
     before_task_publish,
     after_task_publish,
 )
-from sqlalchemy import create_engine, func, select
+from sqlalchemy import create_engine, func, or_, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import get_settings
@@ -35,6 +35,7 @@ from app.models.data_policy import DataPolicyState, UNRESTRICTED_HANDLING_LABEL_
 from app.models.feed import Feed
 from app.models.item import Item
 from app.models.item_classification import ItemClassification
+from app.models.processing_work import ProcessingWork
 from app.models.user import User
 from app.schemas.ai import AISettingsUpdate
 from app.schemas.data_policy import (
@@ -68,7 +69,7 @@ from app.services.export_query import (
     load_export_item_ids,
 )
 from app.services.feed_pipeline import upsert_item_from_parsed
-from app.tasks import feed_task_coordination, feed_tasks
+from app.tasks import feed_task_coordination, feed_tasks, processing_tasks
 from app.tasks.celery_app import celery_app
 from scripts.capacity_results import seal_result
 from tests.capacity.deadline_probes import observe_deadlines
@@ -130,8 +131,18 @@ def _seed(engine, profile, base):
                 ),
             )
             item.ioc_extraction_state = "completed_empty"
+            item.status = "content_fetched"
+            item.classification_completed_version = item.classification_required_version
             db.add(
                 Article(item_id=item.id, final_url=item.url, http_status=200, text=body)
+            )
+            db.add(
+                ItemClassification(
+                    item_id=item.id,
+                    primary_category="threat",
+                    confidence=1.0,
+                    source_hash=item.content_hash,
+                )
             )
         label = create_handling_label(
             db,
@@ -275,6 +286,42 @@ def _ai(engine, metrics, iterations):
                     operation["outcome"] = "policy_conflict"
 
 
+def _pipeline_diagnostics(engine, feed_ids):
+    """Keep failure evidence bounded and exclude article text and provider errors."""
+    with Session(engine) as db:
+        rows = db.execute(
+            select(
+                Item.id,
+                Item.status,
+                Article.text.is_not(None).label("has_article"),
+                Item.classification_required_version,
+                Item.classification_completed_version,
+                Item.ioc_extraction_state,
+                ProcessingWork.stage,
+                ProcessingWork.status.label("work_status"),
+                ProcessingWork.reason,
+                ProcessingWork.attempts,
+            )
+            .outerjoin(Article, Article.item_id == Item.id)
+            .outerjoin(ItemClassification, ItemClassification.item_id == Item.id)
+            .outerjoin(ProcessingWork, ProcessingWork.item_id == Item.id)
+            .where(
+                Item.feed_id.in_(feed_ids),
+                or_(
+                    Article.text.is_(None),
+                    ItemClassification.item_id.is_(None),
+                    Item.classification_completed_version
+                    < Item.classification_required_version,
+                    Item.ioc_extraction_state.is_(None),
+                    Item.ioc_extraction_state.not_in(("completed", "completed_empty")),
+                ),
+            )
+            .order_by(Item.id, ProcessingWork.stage)
+            .limit(10)
+        ).mappings().all()
+        return json.dumps([dict(row) for row in rows], default=str, sort_keys=True)
+
+
 def _wait_for_pipeline(
     engine, broker, feed_ids, expected, metrics, started, timeout, jobs
 ):
@@ -303,12 +350,13 @@ def _wait_for_pipeline(
             metrics.outcome("ingestion_recovered")
             return round((time.monotonic() - started) * 1000, 3)
         if depth == 0 and time.monotonic() - last_repair >= 5:
-            feed_tasks.dispatch_items_missing_iocs.delay()
-            metrics.outcome("ioc_repair_dispatches")
+            processing_tasks.dispatch_processing_work.delay()
+            metrics.outcome("processing_repair_dispatches")
             last_repair = time.monotonic()
         time.sleep(0.05)
     raise AssertionError(
-        f"pipeline did not recover: {ready}/{expected} classified articles, queue depth={depth}"
+        f"pipeline did not recover: {ready}/{expected_now} classified articles, "
+        f"queue depth={depth}, incomplete sample={_pipeline_diagnostics(engine, feed_ids)}"
     )
 
 
@@ -324,7 +372,9 @@ def test_concurrent_workload(database_engine, test_redis_url, monkeypatch):
     )
     profile_name = os.environ["THREATLENS_CAPACITY_PROFILE"]
     profile = dict(PROFILES[profile_name])
-    profile["ioc_repair_interval_seconds"] = 5
+    profile["processing_repair_interval_seconds"] = 5
+    profile["article_repair_grace_seconds"] = 2
+    profile["repair_contract"] = "all-stages-completed-retained-catalog-v1"
     profile["disjoint_export_contract"] = "two-principals-two-source-partitions-v1"
     profile["shared_logical_process_pool"] = 16
     if profile_name == "sustained":
@@ -337,6 +387,9 @@ def test_concurrent_workload(database_engine, test_redis_url, monkeypatch):
         "ALLOW_PRIVATE_NETWORK_FETCH": "true",
         "ALLOW_PRIVATE_NETWORK_AI": "true",
         "REDIS_URL": test_redis_url,
+        "DISPATCH_ITEMS_MISSING_ARTICLES_AFTER_SECONDS": str(
+            profile["article_repair_grace_seconds"]
+        ),
     }.items():
         monkeypatch.setenv(name, value)
     get_settings.cache_clear()
@@ -477,15 +530,15 @@ def test_concurrent_workload(database_engine, test_redis_url, monkeypatch):
                             interval_seconds=profile["feed_interval_seconds"],
                         )
 
-                        def repair_iocs(_index):
-                            feed_tasks.dispatch_items_missing_iocs.delay()
-                            metrics.outcome("ioc_repair_dispatches")
+                        def repair_processing(_index):
+                            processing_tasks.dispatch_processing_work.delay()
+                            metrics.outcome("processing_repair_dispatches")
 
                         repair_job = executor.submit(
                             paced_lane,
-                            repair_iocs,
+                            repair_processing,
                             duration_seconds=duration,
-                            interval_seconds=5,
+                            interval_seconds=profile["processing_repair_interval_seconds"],
                         )
                         completed = [job.result(timeout=duration + 120) for job in jobs]
                         feed_batches = feed_job.result(timeout=120)
