@@ -12,8 +12,10 @@ type Props = {
 
 export function AiProviderCapabilityFields({ draft, validation, onChange }: Props) {
   const id = useId()
+  const invalidCapabilities = (['request_dialect', 'reasoning_effort', 'structured_output_mode',
+    'model_context_window_tokens', 'model_max_output_tokens'] as const).some((key) => Boolean(validation[key]))
   return (
-    <details className="mt-4 rounded border border-slate/20 p-3" open={Object.keys(validation).some((key) => key in draft && Boolean(validation[key as keyof ProviderCapabilitiesDraft])) || undefined}>
+    <details className="mt-4 rounded border border-slate/20 p-3" open={invalidCapabilities || undefined}>
       <summary className="cursor-pointer font-semibold">Model compatibility and limits</summary>
       <p id={`${id}-help`} className="mt-2 text-sm text-slate dark:text-white/70">
         Copy capabilities from your provider’s documentation for this exact model. Model names do not select these settings

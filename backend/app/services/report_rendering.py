@@ -17,7 +17,7 @@ def render_report_markdown(report: ReportDetailResponse) -> str:
         f"**Model:** {report.model or 'Not recorded'}",
         "",
     ]
-    warnings = list(report.coverage.get("warnings") or [])
+    warnings = coverage_notes(report)
     if warnings:
         lines.extend(["## Coverage Notes", "", *[f"- {warning}" for warning in warnings], ""])
     for section in report.sections:
