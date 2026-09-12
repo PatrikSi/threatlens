@@ -3,7 +3,6 @@ import { resolveApiErrorMessage } from '../api/errors'
 import type { ReportListItem } from '../types/api'
 import { formatReportDate } from './reportingPageModel'
 import type { ReportingController } from './useReportingController'
-
 export function ReportLibrary({ controller }: { controller: Pick<ReportingController, 'reportLibrary' | 'reportsQuery' | 'openReport'> }) {
   const { reportLibrary: library } = controller
   const [searchResetVersion, setSearchResetVersion] = useState(0)
@@ -23,7 +22,9 @@ export function ReportLibrary({ controller }: { controller: Pick<ReportingContro
           </select>
         </label>
         <label className="text-xs font-semibold">Publication
-          <select aria-label="Report publication" className="ml-2 rounded border border-slate/30 bg-white p-2 dark:bg-[#072019]" value={library.filters.publicationStatus ?? ''} onChange={(event) => library.updateFilters({ publicationStatus: event.target.value as typeof library.filters.publicationStatus })}>
+          <select aria-label="Report publication" className="ml-2 rounded border border-slate/30 bg-white p-2 dark:bg-[#072019]"
+              value={library.filters.publicationStatus ?? ''}
+              onChange={(event) => library.updateFilters({ publicationStatus: event.target.value as typeof library.filters.publicationStatus })}>
             <option value="">All publication states</option>
             {['draft', 'review', 'approved', 'published'].map((status) => <option key={status} value={status}>{status}</option>)}
           </select>
@@ -86,7 +87,6 @@ export function ReportLibrary({ controller }: { controller: Pick<ReportingContro
     </section>
   )
 }
-
 function ReportLibrarySearch({ library }: { library: ReportingController['reportLibrary'] }) {
   const [search, setSearch] = useState(library.filters.q)
   const [reportType, setReportType] = useState(library.filters.reportType)
@@ -108,7 +108,6 @@ function ReportLibrarySearch({ library }: { library: ReportingController['report
     </form>
   )
 }
-
 function ReportRow({ report, onOpen }: { report: ReportListItem; onOpen: (id: string) => void }) {
   return (
     <tr className="hover:bg-slate/5 dark:hover:bg-white/[0.03]">
@@ -144,7 +143,6 @@ function ReportRow({ report, onOpen }: { report: ReportListItem; onOpen: (id: st
     </tr>
   )
 }
-
 function ReportMobileRow({ report, onOpen }: { report: ReportListItem; onOpen: (id: string) => void }) {
   return (
     <button
@@ -168,7 +166,6 @@ function ReportMobileRow({ report, onOpen }: { report: ReportListItem; onOpen: (
     </button>
   )
 }
-
 export function Status({ value }: { value: ReportListItem['status'] }) {
   const colors = {
     ready: 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800/50 dark:bg-emerald-950/20 dark:text-emerald-200',
