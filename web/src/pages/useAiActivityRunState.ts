@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 
 import { apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
+import { accessibleQueryData } from '../api/queryData'
 import type { AITaskRunDetailResponse } from '../types/api'
 import type { ActivityTabProps } from './AiActivityTypes'
 import { useAiChildRunPage } from './useAiChildRunPage'
@@ -20,7 +21,7 @@ export function useAiActivityRunState({
   selectedRunId,
   runDetailQuery,
 }: RunStateInput) {
-  const selectedRun = runDetailQuery.data?.run
+  const selectedRun = accessibleQueryData(runDetailQuery)?.run
   const [inspectedRunId, setInspectedRunId] = useState<string | null>(null)
   const history = useRunHistoryMetrics(runPage, runsQuery)
 
@@ -38,9 +39,10 @@ export function useAiActivityRunState({
     enabled: Boolean(inspectedRunId),
     staleTime: 5000,
   })
+  const inspectedDetail = accessibleQueryData(inspectedRunDetailQuery)
   const inspectedProviderEvent = useMemo(
-    () => findLatestProviderExchangeEvent(inspectedRunDetailQuery.data?.events ?? []),
-    [inspectedRunDetailQuery.data?.events],
+    () => findLatestProviderExchangeEvent(inspectedDetail?.events ?? []),
+    [inspectedDetail?.events],
   )
 
   const childRunPage = useAiChildRunPage(selectedRunId, selectedRun)
@@ -50,7 +52,7 @@ export function useAiActivityRunState({
     history,
     inspectedRunId,
     setInspectedRunId,
-    inspectedRun: inspectedRunDetailQuery.data?.run ?? null,
+    inspectedRun: inspectedDetail?.run ?? null,
     inspectedProviderEvent,
     inspectedRunDetailQuery,
     inspectedRunErrorMessage: inspectedRunDetailQuery.isError
@@ -61,19 +63,20 @@ export function useAiActivityRunState({
 }
 
 function useRunHistoryMetrics(runPage: number, runsQuery: ActivityTabProps['runsQuery']) {
+  const data = accessibleQueryData(runsQuery)
   return useMemo(
     () =>
       buildRunHistoryMetrics({
         runPage,
-        runTotal: runsQuery.data?.total ?? 0,
-        dataOffset: runsQuery.data?.offset,
-        runCount: runsQuery.data?.items.length ?? 0,
-        hasData: Boolean(runsQuery.data),
+        runTotal: data?.total ?? 0,
+        dataOffset: data?.offset,
+        runCount: data?.items.length ?? 0,
+        hasData: Boolean(data),
         isFetching: runsQuery.isFetching,
         isLoading: runsQuery.isLoading,
         isPlaceholderData: runsQuery.isPlaceholderData,
       }),
-    [runPage, runsQuery.data, runsQuery.isFetching, runsQuery.isLoading, runsQuery.isPlaceholderData],
+    [runPage, data, runsQuery.isFetching, runsQuery.isLoading, runsQuery.isPlaceholderData],
   )
 }
 
