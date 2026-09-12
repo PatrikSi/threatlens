@@ -435,7 +435,7 @@ def test_legacy_request_fingerprint_remains_byte_compatible(db_session, configur
 
 
 def test_profile_fence_failure_settles_receipt_without_provider_io(
-    db_session, configured, monkeypatch
+    db_session, configured, monkeypatch, seed_users
 ):
     provider = _provider(db_session)
     active = load_active_ai_settings(db_session, provider_id=provider.id)
@@ -458,8 +458,10 @@ def test_profile_fence_failure_settles_receipt_without_provider_io(
         "_call_ai_json",
         lambda *args, **kwargs: pytest.fail("provider must not be called"),
     )
+    from app.services.authorization import authorization_context_for_user
     result = ai_integration.test_ai_connection(
-        db_session, task_run_id=run.id, active_settings=active
+        db_session, task_run_id=run.id, active_settings=active,
+        request_authorization=authorization_context_for_user(db_session, seed_users["admin"]),
     )
     assert not result.success and "disabled" in result.error
     receipt = db_session.scalar(

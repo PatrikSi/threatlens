@@ -153,7 +153,7 @@ def is_stale_daily_brief_pending(brief: AIDailyBrief, *, now: datetime) -> bool:
 def test_ai_connection(
     db: Session, *, task_run_id: uuid.UUID | None = None,
     active_settings: ActiveAISettings | None = None,
-    request_authorization: AuthorizationContext | None = None,
+    request_authorization: AuthorizationContext,
 ) -> AITestConnectionResponse:
     from app.services.ai_connection_workflow import run_connection_test
 

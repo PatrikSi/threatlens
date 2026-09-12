@@ -246,10 +246,12 @@ def update_ai_settings_route(
     dependencies=[Depends(require_ai_enabled)],
 )
 def test_ai_connection_route(
+    request: Request,
     db: Session = Depends(get_db),
     admin: User = Depends(get_admin_user),
     _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_AI)),
 ):
+    authorization = require_ai_authorization_context(request)
     settings = get_or_create_ai_settings(db)
     workload = get_ai_connection_test_workload(db)
     if workload.has_active_work:
@@ -276,7 +278,7 @@ def test_ai_connection_route(
     start_ai_task_run(db, run_id=run.id, worker_name="api")
     db.commit()
     try:
-        result = test_ai_connection(db, task_run_id=run.id)
+        result = test_ai_connection(db, task_run_id=run.id, request_authorization=authorization)
     except AIIntegrationError as exc:
         finish_ai_task_run(
             db,
