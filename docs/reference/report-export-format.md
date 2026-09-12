@@ -17,6 +17,8 @@ Markdown downloads retain the original section text. They remain available when 
 
 Both structured formats append the included source evidence independently of whether the report template has a Sources section. This keeps citation destinations available for custom templates. Unknown or excluded citations remain plain text. References inside code remain code; citations inside an existing external link do not create nested links.
 
+In the web reader, a citation immediately following a bare URL remains a source reference. If automatic URL linking would consume part of that marker, the URL stays literal text. Explicit Markdown links, angle-bracket autolinks and code retain their original meaning; markers inside those links or code are not counted as source citations.
+
 PDF tables with more than eight columns, or with column headings taller than 120 points at the rendered width, become labeled records. No cell values are dropped. Long headings appear once with column numbers used in the records. This keeps wide or unusually tall tables readable on A4 pages.
 
 ## Untrusted content and source checks
@@ -24,6 +26,8 @@ PDF tables with more than eight columns, or with column headings taller than 120
 The parser recognizes raw HTML only so the export renderers can omit it. The renderers emit an allowlist of formatting elements; report text never becomes arbitrary HTML or ReportLab markup. Images become text placeholders. Rendering never downloads images, fonts, stylesheets, or other publisher resources.
 
 Clickable external links must use HTTP or HTTPS and cannot contain credentials, control characters or backslashes. Unsafe link syntax may remain visible as plain text. HTML adds a restrictive Content Security Policy as defense in depth. Following an allowed external link is an explicit action in the browser or PDF viewer.
+
+Generation requires citations on substantive numeric data as well as prose: dates, counts, percentages and numeric indicators in paragraphs, list bodies or table data rows. Empty ordered-list markers, table column labels, horizontal rules and punctuation-only decorative rows are structural content rather than claims. This is a citation-presence check, not a determination that a number is correct.
 
 When a report includes grounding metadata, coverage notes show the recorded finding and cited-claim counts and any degraded or insufficient-evidence state. These are structural source checks. They do not establish that every statement is true or semantically supported by its cited source. Older reports without this metadata remain readable.
 
@@ -39,6 +43,8 @@ HTML uses native headings, lists, table headers and keyboard-accessible links. P
 
 `backend/tests/unit/test_report_rendering.py` uses synthetic report detail objects and real HTML/PDF artifacts. It checks semantic structure, source destinations and URL annotations, Unicode/font use, active-content omission, multi-page table/code/list continuity, wide/tall table fallback, grounding notes and actionable limits. It does not require a database or AI provider.
 
+`tests/fixtures/report-citation-corpus.json` is shared by the backend validator/HTML/PDF tests and the real React DOM tests. It records accepted and rejected numeric claims, literal URL boundaries, explicit links, escaped/entity markers, code and hidden HTML, including the expected source-anchor count in each renderer.
+
 The image's existing dependency-inventory build step copies the Markdown parser's wheel licenses and DejaVu's Debian copyright notices under `/usr/share/doc/threatlens`. Checked-in inventories in `docs/reference/` are generated from the built runtime image; PDF inspection dependencies belong only to development requirements.
 
-Parser references: [markdown-it-py usage](https://markdown-it-py.readthedocs.io/en/latest/using.html), [security guidance](https://markdown-it-py.readthedocs.io/en/latest/security.html), and [syntax-tree API](https://markdown-it-py.readthedocs.io/en/latest/api/markdown_it.tree.html).
+Parser references: [HTML entity decoder](https://github.com/wooorm/parse-entities), [markdown-it-py usage](https://markdown-it-py.readthedocs.io/en/latest/using.html), [security guidance](https://markdown-it-py.readthedocs.io/en/latest/security.html), and [syntax-tree API](https://markdown-it-py.readthedocs.io/en/latest/api/markdown_it.tree.html).
