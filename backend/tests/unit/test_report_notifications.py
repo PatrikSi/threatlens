@@ -59,7 +59,7 @@ def test_report_ready_event_is_idempotent_and_uses_immutable_report_snapshot(
     assert db_session.query(IntegrationEvent).count() == 1
     assert first.event_type == "report_ready"
     assert first.source_type == "report"
-    assert first.schema_version == 2
+    assert first.schema_version == 3
     assert first.idempotency_key == f"report:{report.id}:ready:v1"
     assert first.actor_user_id == original_owner_id
     assert first.payload_json["owner_user_id"] == str(original_owner_id)
@@ -170,6 +170,7 @@ def test_legacy_report_ready_snapshots_source_owner_once_for_all_connectors(
     event = emit_report_ready_event(db_session, report=report)
     legacy_payload = dict(event.payload_json)
     legacy_payload.pop("owner_user_id")
+    legacy_payload.pop("publication", None)
     event.payload_json = legacy_payload
     event.schema_version = 1
     report_owner_queries = 0
@@ -214,6 +215,7 @@ def test_legacy_report_ready_without_actor_owner_fails_closed_without_deliveries
     event = emit_report_ready_event(db_session, report=report)
     legacy_payload = dict(event.payload_json)
     legacy_payload.pop("owner_user_id")
+    legacy_payload.pop("publication", None)
     event.payload_json = legacy_payload
     event.schema_version = 1
     event.actor_user_id = None
@@ -244,6 +246,7 @@ def test_legacy_report_ready_actor_must_match_persisted_report_owner(db_session)
     event = emit_report_ready_event(db_session, report=report)
     legacy_payload = dict(event.payload_json)
     legacy_payload.pop("owner_user_id")
+    legacy_payload.pop("publication", None)
     event.payload_json = legacy_payload
     event.schema_version = 1
     event.actor_user_id = other_user.id
@@ -562,6 +565,9 @@ def _persist_ready_report(
         title=title,
         report_type="weekly_landscape",
         status="ready",
+        review_required=False,
+        editorial_contract_version=0,
+        publication_status="published",
         trigger_source="manual",
         generation_stage="ready",
         period_start=generated_at - timedelta(days=7),

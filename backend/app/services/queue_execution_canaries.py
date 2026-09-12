@@ -11,6 +11,7 @@ from app.core.redis_client import redis_client_from_url
 from app.core.worker_queues import (
     QUEUE_AI,
     QUEUE_AI_REPORTS,
+    QUEUE_AI_REPORTS_EDITORIAL,
     QUEUE_DEFAULT,
     QUEUE_EXPORTS,
     QUEUE_INGEST,
@@ -47,7 +48,7 @@ def required_worker_queues(settings: Settings) -> list[str]:
         QUEUE_LIFECYCLE,
     ]
     if settings.ai_enabled:
-        queues.extend([QUEUE_AI, QUEUE_AI_REPORTS])
+        queues.extend([QUEUE_AI, QUEUE_AI_REPORTS, QUEUE_AI_REPORTS_EDITORIAL])
     return queues
 
 

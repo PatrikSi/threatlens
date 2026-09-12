@@ -12,6 +12,7 @@ from app.schemas.exports import ArticleExportFilters, ArticleExportPreviewItem, 
 
 
 ReportStatus = Literal["queued", "running", "ready", "error", "skipped"]
+ReportPublicationStatus = Literal["draft", "review", "approved", "published"]
 ReportTone = Literal["analytical", "concise", "executive", "technical"]
 ReportDetailLevel = Literal["brief", "standard", "detailed"]
 ReportCadence = Literal["weekly", "monthly"]
@@ -248,6 +249,11 @@ class ReportListItem(ReportSchema):
     error: str | None
     generated_at: datetime | None
     created_at: datetime
+    publication_status: ReportPublicationStatus = "draft"
+    review_required: bool = True
+    editorial_version: int = 1
+    approved_at: datetime | None = None
+    published_at: datetime | None = None
 
 
 class ReportSourceResponse(ReportSchema):
@@ -297,6 +303,13 @@ class ReportDetailResponse(ReportListItem):
     delivery_mode: Literal["link", "summary", "full"]
     sections: list[ReportSectionResponse]
     sources: list[ReportSourceResponse]
+    review_submitted_at: datetime | None = None
+    review_submitted_by_user_id: uuid.UUID | None = None
+    approved_by_user_id: uuid.UUID | None = None
+    approval_self_review: bool = False
+    published_by_user_id: uuid.UUID | None = None
+    editorial_note: str | None = None
+    revision_current: bool | None = None
 
 
 class ReportScheduleCreate(ReportSchema):
@@ -315,6 +328,7 @@ class ReportScheduleCreate(ReportSchema):
     custom_instructions: str | None = Field(default=None, max_length=4000)
     delivery_enabled: bool = False
     delivery_mode: Literal["link", "summary", "full"] = "summary"
+    review_required: bool = True
     skip_empty: bool = True
     missed_run_policy: Literal["latest", "skip", "all"] = "latest"
 
@@ -344,7 +358,7 @@ class ReportScheduleCreate(ReportSchema):
 
 
 class ReportScheduleUpdate(ReportScheduleCreate):
-    pass
+    review_required: bool | None = None
 
 
 class ReportScheduleResponse(ReportScheduleCreate):

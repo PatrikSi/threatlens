@@ -842,7 +842,11 @@ def _finalize_ready_report(
         ).all()
     )
     db.add(report)
-    if report.delivery_requested:
+    from app.services.report_publication import publish_automatic_report
+
+    if not report.review_required:
+        publish_automatic_report(db, report)
+    if report.delivery_requested and report.publication_status == "published":
         from app.services.report_notifications import emit_report_ready_event
 
         emit_report_ready_event(db, report=report)

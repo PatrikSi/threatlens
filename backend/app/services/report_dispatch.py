@@ -21,6 +21,7 @@ from app.services.report_task_lineage import (
     resolve_report_task_run,
 )
 from app.tasks.celery_app import QUEUE_AI_REPORTS, celery_app
+from app.core.worker_queues import QUEUE_AI_REPORTS_EDITORIAL
 
 
 logger = logging.getLogger(__name__)
@@ -345,7 +346,7 @@ def has_queued_report_dispatches(db: Session) -> bool:
     )
 
 
-def report_queue_subscription_available() -> bool | None:
+def report_queue_subscription_available(queue_name: str = QUEUE_AI_REPORTS) -> bool | None:
     settings = get_settings()
     try:
         inspector = celery_app.control.inspect(
@@ -361,7 +362,7 @@ def report_queue_subscription_available() -> bool | None:
     if not isinstance(raw_queues, dict):
         return False
     return any(
-        isinstance(queue, dict) and queue.get("name") == QUEUE_AI_REPORTS
+        isinstance(queue, dict) and queue.get("name") == queue_name
         for queues in raw_queues.values()
         if isinstance(queues, list)
         for queue in queues
@@ -372,6 +373,7 @@ def set_report_dispatch_waiting_state(
     db: Session,
     *,
     waiting: bool,
+    queue_name: str | None = None,
 ) -> int:
     current_stage, next_stage = (
         (REPORT_STAGE_QUEUED, REPORT_STAGE_WAITING_FOR_WORKER)
@@ -384,8 +386,15 @@ def set_report_dispatch_waiting_state(
         AITaskRun.finished_at.is_(None),
         AITaskRun.report_id.is_not(None),
     )
+    statement = update(Report)
+    if queue_name is not None:
+        statement = statement.where(
+            Report.editorial_contract_version != 0
+            if queue_name == QUEUE_AI_REPORTS_EDITORIAL
+            else Report.editorial_contract_version == 0
+        )
     result = db.execute(
-        update(Report)
+        statement
         .where(
             Report.id.in_(queued_report_ids),
             Report.status == "queued",

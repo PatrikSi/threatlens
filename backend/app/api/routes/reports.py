@@ -63,6 +63,8 @@ from app.api.routes.report_request_idempotency import (
     schedule_run_request_identity,
 )
 from app.api.routes.report_library import router as report_library_router
+from app.api.routes.report_editorial import router as report_editorial_router
+from app.api.routes.report_documents import router as report_documents_router
 from app.core.token_scopes import SCOPE_READ_REPORTS
 from app.db.session import get_db
 from app.models.feed import Feed
@@ -77,7 +79,6 @@ from app.schemas.exports import ExportOptionEntry
 from app.schemas.reports import (
     ReportCapabilitiesResponse,
     ReportCreateRequest,
-    ReportDetailResponse,
     ReportListItem,
     ReportPreviewRequest,
     ReportPreviewResponse,
@@ -120,7 +121,6 @@ from app.services.report_storage import (
     ReportStorageError,
     create_report_from_plan,
     delete_report,
-    report_detail_response,
     reset_report_for_retry,
 )
 from app.services.report_templates import (
@@ -139,6 +139,8 @@ from app.tasks.report_tasks import create_report_task_run, enqueue_report_task
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 router.include_router(report_library_router)
+router.include_router(report_editorial_router)
+router.include_router(report_documents_router)
 logger = logging.getLogger(__name__)
 
 
@@ -682,25 +684,6 @@ def create_report(
     run_id = run.id
     task_id = enqueue_report_task(report_id=report_id, task_run_id=run_id)
     return _queue_response(report, run, celery_task_id=task_id)
-
-
-@router.get("/{report_id:uuid}", response_model=ReportDetailResponse)
-def get_report(
-    report_id: uuid.UUID,
-    db: Session = Depends(get_db),
-    _user: User = Depends(require_permissions(SCOPE_READ_REPORTS)),
-    data_access: DataAccessContext = Depends(get_data_access_context),
-):
-    report = _get_accessible_report(
-        db,
-        report_id=report_id,
-        data_access=data_access,
-    )
-    if report is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Report not found"
-        )
-    return report_detail_response(db, report=report)
 
 
 @router.get("/{report_id:uuid}/download")

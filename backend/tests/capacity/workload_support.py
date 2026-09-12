@@ -61,6 +61,7 @@ QUEUES = (
     "notifications",
     "ai",
     "ai-reports-v2",
+    "ai-reports-v3",
     "maintenance",
 )
 

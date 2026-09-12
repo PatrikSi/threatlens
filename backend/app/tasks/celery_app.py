@@ -10,6 +10,7 @@ from app.core.config import get_settings
 from app.core.worker_queues import (
     QUEUE_AI,
     QUEUE_AI_REPORTS,
+    QUEUE_AI_REPORTS_EDITORIAL,
     QUEUE_DEFAULT,
     QUEUE_EXPORTS,
     QUEUE_INGEST,
@@ -197,7 +198,7 @@ TASK_ROUTES = {
     "app.tasks.feed_tasks.dispatch_daily_ai_brief_generation": {"queue": QUEUE_AI},
     "app.tasks.feed_tasks.backfill_daily_ai_briefs": {"queue": QUEUE_AI},
     "app.tasks.feed_tasks.reprocess_recent_ai_items": {"queue": QUEUE_AI},
-    "app.tasks.feed_tasks.generate_intelligence_report": {"queue": QUEUE_AI_REPORTS},
+    "app.tasks.feed_tasks.generate_intelligence_report": {"queue": QUEUE_AI_REPORTS_EDITORIAL},
     "app.tasks.feed_tasks.dispatch_due_report_schedules": {"queue": QUEUE_MAINTENANCE},
     "app.tasks.feed_tasks.dispatch_pending_report_tasks": {"queue": QUEUE_MAINTENANCE},
     "app.tasks.feed_tasks.reconcile_ai_task_runs": {"queue": QUEUE_MAINTENANCE},
@@ -259,6 +260,7 @@ celery_app.conf.update(
         Queue(QUEUE_NOTIFICATIONS),
         Queue(QUEUE_AI),
         Queue(QUEUE_AI_REPORTS),
+        Queue(QUEUE_AI_REPORTS_EDITORIAL),
         Queue(QUEUE_MAINTENANCE),
         Queue(QUEUE_LIFECYCLE),
     ),
@@ -371,7 +373,7 @@ celery_app.conf.update(
                 QUEUE_NOTIFICATIONS,
                 QUEUE_MAINTENANCE,
                 QUEUE_LIFECYCLE,
-                *((QUEUE_AI, QUEUE_AI_REPORTS) if settings.ai_enabled else ()),
+                *((QUEUE_AI, QUEUE_AI_REPORTS, QUEUE_AI_REPORTS_EDITORIAL) if settings.ai_enabled else ()),
             )
         },
     },

@@ -75,6 +75,6 @@ celery_app.worker_main(
         "--without-mingle",
         "--without-gossip",
         "--loglevel=WARNING",
-        "--queues=default,ingest,processing,notifications,ai,ai-reports-v2,maintenance",
+        "--queues=default,ingest,processing,notifications,ai,ai-reports-v2,ai-reports-v3,maintenance",
     ]
 )

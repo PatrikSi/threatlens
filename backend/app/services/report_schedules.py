@@ -108,6 +108,8 @@ def apply_schedule_payload(
     schedule.custom_instructions = payload.custom_instructions
     schedule.delivery_enabled = payload.delivery_enabled
     schedule.delivery_mode = payload.delivery_mode
+    if payload.review_required is not None:
+        schedule.review_required = payload.review_required
     schedule.skip_empty = payload.skip_empty
     schedule.missed_run_policy = payload.missed_run_policy
     schedule.next_run_at = (
@@ -139,6 +141,7 @@ def report_schedule_response(schedule: ReportSchedule) -> ReportScheduleResponse
         custom_instructions=schedule.custom_instructions,
         delivery_enabled=schedule.delivery_enabled,
         delivery_mode=schedule.delivery_mode,
+        review_required=schedule.review_required,
         skip_empty=schedule.skip_empty,
         missed_run_policy=schedule.missed_run_policy,
         next_run_at=schedule.next_run_at,
@@ -424,6 +427,7 @@ def _create_one_scheduled_report(
                 generation_key=generation_key,
                 request_idempotency_key_hash=request_idempotency_key_hash,
                 request_fingerprint=request_fingerprint,
+                review_required=schedule.review_required,
             )
     except IntegrityError as exc:
         if _integrity_constraint_name(exc) in {

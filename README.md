@@ -234,7 +234,7 @@ Worker and scheduler:
 ```bash
 cd backend
 ./.venv/bin/celery -A app.tasks.celery_app.celery_app worker --loglevel="${LOG_LEVEL:-INFO}" --queues=default,ingest,processing -n 'worker@%h'
-./.venv/bin/celery -A app.tasks.celery_app.celery_app worker --loglevel="${LOG_LEVEL:-INFO}" --concurrency=1 --queues=ai,ai-reports-v2 -n 'ai@%h'
+./.venv/bin/celery -A app.tasks.celery_app.celery_app worker --loglevel="${LOG_LEVEL:-INFO}" --concurrency=1 --queues=ai,ai-reports-v2,ai-reports-v3 -n 'ai@%h'
 ./.venv/bin/celery -A app.tasks.celery_app.celery_app worker --loglevel="${LOG_LEVEL:-INFO}" --queues=maintenance,lifecycle-v1 -n 'maintenance@%h'
 ./.venv/bin/celery -A app.tasks.celery_app.celery_app worker --loglevel="${LOG_LEVEL:-INFO}" --queues=notifications -n 'notifications@%h'
 ./.venv/bin/python -m app.tasks.beat_watchdog
