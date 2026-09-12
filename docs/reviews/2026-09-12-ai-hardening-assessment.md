@@ -57,8 +57,25 @@ artifacts to check that resumption preserves grounding counts and never repeats 
 completed provider call. Export checks inspect actual HTML/PDF output and browser
 resource requests. Provider calls in these tests use controlled transports.
 
-Final aggregate validation and local deployment evidence are recorded after the
-release checks below are complete.
+| Validation | Result |
+| --- | --- |
+| Clean backend suite | At frozen backend revision `8788739`, 2,979 passed and two capacity-profile cases were intentionally skipped. No failures or errors; 15 minutes 49 seconds. Combined line/branch coverage was 85.55%, with every critical-module floor passing; reporting coverage was 84.82%. |
+| Frontend | 1,028 tests across 119 files, lint and production build passed. |
+| Browsers | 51 interaction cases and nine real-server provider/export cases passed across Chromium, Firefox and WebKit. Three supplementary export checks used intercepted downloads containing actual backend-rendered HTML/PDF bytes; these do not claim live model generation. |
+| Dependencies | Both the complete npm audit and Python runtime dependency audit reported no known vulnerabilities. |
+| Capacity smoke | The isolated mixed-workload smoke passed within its two-minute watchdog. Queue recovery took 6.08 seconds and process RSS grew 36.95 MiB; no configured threshold, task or sampler failures. This is a regression gate, not sustained inference-hardware qualification. [Recorded measurements](capacity/2026-09-12-ai-hardening-smoke.json). |
+| Database upgrade | A private backup passed verification. An isolated restore upgraded the populated database from 0095 through 0099 and passed application/schema and recovery-quarantine preflight checks before the live upgrade. |
+| Local deployment | Migration 0099 completed, all ten services were healthy with no OOM or restart counts at verification, and the web/static/live/ready endpoints returned HTTP 200. The provider usage endpoint correctly required authentication. Existing provider/report settings, the environment key and the retained report were preserved. The runtime role remained nonadministrative and had the required new-table privileges. |
+
+The initial web restart exposed an image packaging issue: a private checkout's
+restrictive file modes made copied nginx configuration unreadable to the nginx
+user. Commit `95f7321` explicitly normalizes configuration and public/legal
+artifact readability. A new image built from deliberately restrictive source
+modes passed unprivileged, read-only startup and readability checks; the final
+deployment uses that image without temporary configuration mounts. Commit
+`2abf647` extends the existing CI container build to exercise this case without a
+second image build. Backend code and tests remained unchanged during this
+web-only correction.
 
 The next useful investments are budgeted model-quality evaluations with expected
 evidence, sustained mixed workloads on the intended inference hardware, manual
