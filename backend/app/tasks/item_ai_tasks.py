@@ -582,6 +582,9 @@ def _record_queue_stop(
     if run_id is None:
         return
     with dependencies.db_session() as db:
+        from app.services.ai_execution_ownership import fence_ai_execution
+        if not fence_ai_execution(db, run_id=run_id):
+            return
         from app.services.ai_workflow_dispatch import complete_workflow_dispatch
         complete_workflow_dispatch(db, run_id)
         ai_ops.record_ai_task_event(
@@ -616,6 +619,9 @@ def _record_children_queued(
     if run_id is None:
         return
     with dependencies.db_session() as db:
+        from app.services.ai_execution_ownership import fence_ai_execution
+        if not fence_ai_execution(db, run_id=run_id):
+            return
         from app.services.ai_reprocess import finish_reprocess_publication
         finish_reprocess_publication(db, run_id=run_id)
         ai_ops.record_ai_task_event(

@@ -105,6 +105,10 @@ def recover_completed_brief_attempt(db: Session, run: AITaskRun) -> bool:
     brief = completed_brief_for_attempt(db, run)
     if brief is None:
         return False
+    from app.services.ai_execution_ownership import AIExecutionSuperseded, ai_execution_stop_reason
+    stop_reason = ai_execution_stop_reason(db, run, lock_parent=True)
+    if stop_reason is not None:
+        raise AIExecutionSuperseded("Brief recovery execution was stopped or superseded.", reason=stop_reason)
     # This is completion recovery of the original child, including a child
     # previously marked stale; it never submits a replacement provider call.
     run.status = "running"
