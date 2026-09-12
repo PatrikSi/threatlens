@@ -300,6 +300,23 @@ def call_ai_json(
         ) from exc
 
     finish_reason = choice.get("finish_reason") if isinstance(choice, dict) else None
+    refusal = message.get("refusal")
+    if finish_reason == "content_filter" or (
+        isinstance(refusal, str) and bool(refusal.strip())
+    ):
+        raise AIIntegrationError(
+            "AI provider declined the response under its content policy. "
+            "Review the input and provider settings before retrying.",
+            request_url=request_url,
+            request_payload=request_payload,
+            response_body=response_body,
+            response_json=payload,
+            status_code=response.status_code,
+            latency_ms=latency_ms,
+            retry_hint="provider_content_filter" if finish_reason == "content_filter" else "provider_refusal",
+            retryable=False,
+            provider_io_outcome=AI_PROVIDER_IO_RESPONSE_RECEIVED,
+        )
     if finish_reason == "length":
         raise AIIntegrationError(
             "AI response was truncated by max_tokens before returning valid JSON. "
