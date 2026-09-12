@@ -8,6 +8,7 @@ from sqlalchemy import select
 
 from app.models.ai_daily_brief import AIDailyBrief
 from app.models.ai_task_run import AITaskRun
+from app.models.ai_workflow import AIWorkflowDispatch
 from app.core.config import get_settings
 from app.models.ai_usage_event import AIUsageEvent
 from app.models.article import Article
@@ -30,6 +31,22 @@ from app.services.ai_ops import (
     start_ai_task_run,
 )
 from app.services.report_execution import claim_report_generation
+
+
+
+@pytest.fixture(autouse=True)
+def _isolate_ai_publication(monkeypatch):
+    monkeypatch.setattr("app.services.ai_ops._load_live_task_snapshot", lambda: (True, [], [], [], []))
+    monkeypatch.setattr("app.services.ai_workflow_publication.queued_ai_delivery_ids", lambda: set())
+    monkeypatch.setattr("app.tasks.celery_app.celery_app.send_task",
+        lambda _name, *, kwargs, task_id, queue: type("Delivery", (), {"id": task_id})())
+
+
+def _mock_ai_publication(monkeypatch, callback):
+    def publish(_name, *, kwargs, task_id, queue):
+        payload = dict(kwargs)
+        return callback(**payload)
+    monkeypatch.setattr("app.tasks.celery_app.celery_app.send_task", publish)
 
 
 @pytest.fixture()
@@ -224,6 +241,7 @@ def test_daily_brief_generate_returns_conflict_when_generation_is_already_runnin
 
 def test_admin_can_test_connection_and_queue_ai_reprocess(
     client: TestClient,
+    db_session,
     auth_headers,
     ai_enabled_env,
     monkeypatch: pytest.MonkeyPatch,
@@ -294,7 +312,7 @@ def test_admin_can_test_connection_and_queue_ai_reprocess(
         captured["actor_user_id"] = actor_user_id
         return _FakeTask()
 
-    monkeypatch.setattr("app.api.routes.ai.reprocess_recent_ai_items.delay", _fake_delay)
+    _mock_ai_publication(monkeypatch, _fake_delay)
 
     reprocess_response = client.post(
         "/ai/reprocess",
@@ -310,12 +328,13 @@ def test_admin_can_test_connection_and_queue_ai_reprocess(
     )
     assert reprocess_response.status_code == 200
     response_payload = reprocess_response.json()
-    assert response_payload["task_id"] == "ai-reprocess-123"
-    assert response_payload["celery_task_id"] == "ai-reprocess-123"
+    assert uuid.UUID(response_payload["task_id"])
+    assert response_payload["celery_task_id"] == response_payload["task_id"]
     assert response_payload["queued"] is True
     assert response_payload["run_id"]
     assert captured["days"] == 14
-    assert captured["limit"] == 250
+    run = db_session.get(AITaskRun, uuid.UUID(response_payload["run_id"]))
+    assert captured["limit"] == run.metadata_json["effective_limit"] == 100
     assert captured["start_time"] == "2026-03-01T00:00:00+00:00"
     assert captured["end_time"] == "2026-03-20T12:00:00+00:00"
     assert len(captured["feed_ids"]) == 1
@@ -396,7 +415,7 @@ def test_ai_connection_test_skips_when_generation_work_is_active(
     assert connection_runs == []
 
 
-def test_reprocess_queue_marks_run_error_when_broker_publish_fails(
+def test_reprocess_queue_preserves_accepted_run_when_broker_publish_fails(
     client: TestClient,
     auth_headers,
     db_session,
@@ -426,38 +445,39 @@ def test_reprocess_queue_marks_run_error_when_broker_publish_fails(
         headers=auth_headers["admin"],
     )
 
-    monkeypatch.setattr(
-        "app.api.routes.ai.reprocess_recent_ai_items.delay",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("broker down")),
-    )
+    _mock_ai_publication(monkeypatch, lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("broker down")))
 
     response = client.post(
         "/ai/reprocess",
         json={"days": 14, "limit": 250},
         headers=auth_headers["admin"],
     )
-    assert response.status_code == 503
-    assert response.json()["detail"] == "Task queue is temporarily unavailable. Try again later."
+    assert response.status_code == 200
+    assert response.json()["queued"] is True
 
     run = db_session.scalar(select(AITaskRun).order_by(AITaskRun.created_at.desc()))
     assert run is not None
     assert run.task_type == AI_TASK_TYPE_REPROCESS
-    assert run.status == "error"
-    assert run.reason == "enqueue_failed"
-    assert run.error == "broker down"
+    assert run.status == "queued"
+    assert run.reason is None
+    assert run.error is None
+    dispatch = db_session.get(AIWorkflowDispatch, run.id)
+    assert dispatch.state == "pending"
+    assert dispatch.error == "broker_publication_unavailable"
+    assert dispatch.attempt_count == 1
 
     manual_actions_response = client.get("/ai/ops/manual-actions", headers=auth_headers["admin"])
     assert manual_actions_response.status_code == 200
     failed_action = next(entry for entry in manual_actions_response.json() if entry["action"] == "ai.reprocess.queue")
-    assert failed_action["success"] is False
-    assert failed_action["metadata"]["error"] == "broker down"
+    assert failed_action["success"] is True
+    assert "error" not in failed_action["metadata"]
     assert failed_action["metadata"]["run_id"] == str(run.id)
     assert failed_action["metadata"]["days"] == 14
     assert failed_action["metadata"]["limit"] == 250
     assert failed_action["metadata"]["date_basis"] == "published_at_or_first_seen_at"
 
 
-def test_reprocess_queue_uses_run_id_when_broker_returns_no_task_id(
+def test_reprocess_queue_preserves_delivery_id_when_broker_returns_no_task_id(
     client: TestClient,
     auth_headers,
     db_session,
@@ -467,7 +487,7 @@ def test_reprocess_queue_uses_run_id_when_broker_returns_no_task_id(
     class _FakeTask:
         id = None
 
-    monkeypatch.setattr("app.api.routes.ai.reprocess_recent_ai_items.delay", lambda *_args, **_kwargs: _FakeTask())
+    _mock_ai_publication(monkeypatch, lambda *_args, **_kwargs: _FakeTask())
 
     response = client.post(
         "/ai/reprocess",
@@ -478,12 +498,13 @@ def test_reprocess_queue_uses_run_id_when_broker_returns_no_task_id(
     assert response.status_code == 200
     payload = response.json()
     assert payload["queued"] is True
-    assert payload["task_id"] == payload["run_id"]
-    assert payload["celery_task_id"] is None
+    assert uuid.UUID(payload["task_id"])
+    assert payload["task_id"] != payload["run_id"]
+    assert payload["celery_task_id"] == payload["task_id"]
 
     run = db_session.get(AITaskRun, uuid.UUID(payload["run_id"]))
     assert run is not None
-    assert run.celery_task_id is None
+    assert run.celery_task_id == payload["task_id"]
 
 
 def test_stale_reconciliation_keeps_run_with_missing_celery_id_when_live_task_has_run_id(
@@ -787,13 +808,13 @@ def test_admin_can_queue_daily_brief_and_cancel_ai_runs(
         captured["actor_user_id"] = actor_user_id
         return _FakeBriefTask()
 
-    monkeypatch.setattr("app.api.routes.ai.dispatch_daily_ai_brief_generation.delay", _fake_brief_delay)
+    _mock_ai_publication(monkeypatch, _fake_brief_delay)
 
     queue_response = client.post("/ai/daily-brief/queue", headers=auth_headers["admin"])
     assert queue_response.status_code == 200
     queue_payload = queue_response.json()
-    assert queue_payload["task_id"] == "ai-brief-123"
-    assert queue_payload["celery_task_id"] == "ai-brief-123"
+    assert uuid.UUID(queue_payload["task_id"])
+    assert queue_payload["celery_task_id"] == queue_payload["task_id"]
     assert queue_payload["queued"] is True
     assert queue_payload["run_id"]
     assert captured["force"] is True
@@ -829,7 +850,7 @@ def test_admin_can_queue_daily_brief_and_cancel_ai_runs(
     assert revoked == [("ai-brief-123", False, "SIGTERM")]
 
 
-def test_daily_brief_queue_marks_run_error_when_broker_publish_fails(
+def test_daily_brief_queue_preserves_accepted_run_when_broker_publish_fails(
     client: TestClient,
     auth_headers,
     db_session,
@@ -854,24 +875,25 @@ def test_daily_brief_queue_marks_run_error_when_broker_publish_fails(
         headers=auth_headers["admin"],
     )
 
-    monkeypatch.setattr(
-        "app.api.routes.ai.dispatch_daily_ai_brief_generation.delay",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("broker down")),
-    )
+    _mock_ai_publication(monkeypatch, lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("broker down")))
 
     response = client.post("/ai/daily-brief/queue", headers=auth_headers["admin"])
-    assert response.status_code == 503
-    assert response.json()["detail"] == "Task queue is temporarily unavailable. Try again later."
+    assert response.status_code == 200
+    assert response.json()["queued"] is True
 
     run = db_session.scalar(select(AITaskRun).order_by(AITaskRun.created_at.desc()))
     assert run is not None
     assert run.task_type == "daily_brief"
-    assert run.status == "error"
-    assert run.reason == "enqueue_failed"
-    assert run.error == "broker down"
+    assert run.status == "queued"
+    assert run.reason is None
+    assert run.error is None
+    dispatch = db_session.get(AIWorkflowDispatch, run.id)
+    assert dispatch.state == "pending"
+    assert dispatch.error == "broker_publication_unavailable"
+    assert dispatch.attempt_count == 1
 
 
-def test_daily_brief_queue_uses_run_id_when_broker_returns_no_task_id(
+def test_daily_brief_queue_preserves_delivery_id_when_broker_returns_no_task_id(
     client: TestClient,
     auth_headers,
     db_session,
@@ -881,19 +903,20 @@ def test_daily_brief_queue_uses_run_id_when_broker_returns_no_task_id(
     class _FakeTask:
         id = None
 
-    monkeypatch.setattr("app.api.routes.ai.dispatch_daily_ai_brief_generation.delay", lambda *_args, **_kwargs: _FakeTask())
+    _mock_ai_publication(monkeypatch, lambda *_args, **_kwargs: _FakeTask())
 
     response = client.post("/ai/daily-brief/queue", headers=auth_headers["admin"])
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["queued"] is True
-    assert payload["task_id"] == payload["run_id"]
-    assert payload["celery_task_id"] is None
+    assert uuid.UUID(payload["task_id"])
+    assert payload["task_id"] != payload["run_id"]
+    assert payload["celery_task_id"] == payload["task_id"]
 
     run = db_session.get(AITaskRun, uuid.UUID(payload["run_id"]))
     assert run is not None
-    assert run.celery_task_id is None
+    assert run.celery_task_id == payload["task_id"]
 
 
 def test_admin_can_queue_daily_brief_backfill(
@@ -933,15 +956,15 @@ def test_admin_can_queue_daily_brief_backfill(
         captured["actor_user_id"] = actor_user_id
         return _FakeTask()
 
-    monkeypatch.setattr("app.api.routes.ai.backfill_daily_ai_briefs.delay", _fake_backfill_delay)
+    _mock_ai_publication(monkeypatch, _fake_backfill_delay)
 
     response = client.post("/ai/daily-brief/backfill", json={"days": 3}, headers=auth_headers["admin"])
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["queued"] is True
-    assert payload["task_id"] == "ai-brief-backfill-123"
-    assert payload["celery_task_id"] == "ai-brief-backfill-123"
+    assert uuid.UUID(payload["task_id"])
+    assert payload["celery_task_id"] == payload["task_id"]
     assert payload["days"] == 3
     assert captured["days"] == 3
     assert captured["task_run_id"] == payload["run_id"]
@@ -953,7 +976,7 @@ def test_admin_can_queue_daily_brief_backfill(
     assert run.target_count == 3
     assert run.metadata_json["scope"] == "daily_brief_backfill"
     assert run.metadata_json["days"] == 3
-    assert run.celery_task_id == "ai-brief-backfill-123"
+    assert run.celery_task_id == payload["task_id"]
 
     manual_actions_response = client.get("/ai/ops/manual-actions", headers=auth_headers["admin"])
     assert manual_actions_response.status_code == 200

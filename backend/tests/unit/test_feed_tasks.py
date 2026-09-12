@@ -5,12 +5,12 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
-from celery.exceptions import Retry
 from sqlalchemy import select
 
 from app.core.config import get_settings
 from app.models.ai_daily_brief import AIDailyBrief
 from app.models.ai_task_run import AITaskRun
+from app.models.ai_workflow import AIWorkflowDispatch
 from app.models.alert_interest import AlertInterest
 from app.models.alert_evaluation_request import AlertEvaluationRequest
 from app.models.article import Article
@@ -61,6 +61,30 @@ from app.tasks.feed_tasks import (
     reprocess_recent_ai_items,
     daily_ai_brief_lock,
 )
+
+
+
+@pytest.fixture(autouse=True)
+def _isolate_ai_publication(monkeypatch):
+    monkeypatch.setattr("app.services.ai_ops._load_live_task_snapshot", lambda: (True, [], [], [], []))
+    monkeypatch.setattr("app.services.ai_workflow_publication.queued_ai_delivery_ids", lambda: set())
+    monkeypatch.setattr("app.tasks.celery_app.celery_app.send_task",
+        lambda _name, *, kwargs, task_id, queue: type("Delivery", (), {"id": task_id})())
+
+
+
+def _deliver_ai_enrichment(db, item_id, *, force=False, task_run_id):
+    run = db.get(AITaskRun, uuid.UUID(task_run_id))
+    return generate_item_ai_enrichment_task.apply(args=[item_id],
+        kwargs={"force": force, "task_run_id": task_run_id},
+        task_id=run.celery_task_id or str(uuid.uuid4()), throw=True).get()
+
+
+def _mock_ai_publication(monkeypatch, callback):
+    def publish(_name, *, kwargs, task_id, queue):
+        payload = dict(kwargs)
+        return callback(payload.pop("item_id"), **payload)
+    monkeypatch.setattr("app.tasks.celery_app.celery_app.send_task", publish)
 
 
 @pytest.fixture(autouse=True)
@@ -536,15 +560,16 @@ def test_generate_item_ai_enrichment_task_skips_when_item_claim_reports_another_
         lambda _db, *, item_id: (None, "already_running"),
     )
 
-    result = generate_item_ai_enrichment_task.run(str(item_id), force=True, task_run_id=str(child_run.id))
+    result = _deliver_ai_enrichment(db_session, str(item_id), force=True, task_run_id=str(child_run.id))
 
     db_session.expire_all()
     refreshed_child = db_session.scalar(select(AITaskRun).where(AITaskRun.id == child_run_id))
 
-    assert result == {"status": "skipped", "reason": "already_running", "item_id": str(item_id)}
+    assert result == {"status": "queued", "reason": "item_busy", "item_id": str(item_id)}
     assert refreshed_child is not None
-    assert refreshed_child.status == "skipped"
-    assert refreshed_child.reason == "already_running"
+    assert refreshed_child.status == "queued"
+    assert refreshed_child.reason is None
+    assert refreshed_child.metadata_json["deferred_reason"] == "item_busy"
 
 
 def test_dispatch_daily_ai_brief_generation_claims_api_started_run_and_skips_duplicate_redelivery(db_session, monkeypatch):
@@ -596,7 +621,7 @@ def test_dispatch_daily_ai_brief_generation_claims_api_started_run_and_skips_dup
 
     called: list[uuid.UUID] = []
 
-    def _run_daily_brief_generation(_db, *, force: bool = False, task_run_id: uuid.UUID | None = None):
+    def _run_daily_brief_generation(_db, *, force: bool = False, task_run_id: uuid.UUID | None = None, reference_time=None):
         _ = force
         called.append(task_run_id)
         return ready_result
@@ -675,16 +700,12 @@ def test_dispatch_daily_ai_brief_defers_manual_run_when_lock_is_busy(db_session,
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("busy lock should skip execution")),
     )
 
-    def retry(**_kwargs):
-        raise Retry()
-
-    monkeypatch.setattr(dispatch_daily_ai_brief_generation, "retry", retry)
-    with pytest.raises(Retry):
-        dispatch_daily_ai_brief_generation.apply(
-            kwargs={"force": True, "task_run_id": str(run.id), "actor_user_id": None},
-            task_id="worker-lock-busy",
-            throw=True,
-        ).get()
+    result = dispatch_daily_ai_brief_generation.apply(
+        kwargs={"force": True, "task_run_id": str(run.id), "actor_user_id": None},
+        task_id="worker-lock-busy", throw=True,
+    ).get()
+    assert result["status"] == "queued"
+    assert result["reason"] == "brief_lock_busy"
 
     db_session.expire_all()
     refreshed_run = db_session.scalar(select(AITaskRun).where(AITaskRun.id == run.id))
@@ -692,7 +713,7 @@ def test_dispatch_daily_ai_brief_defers_manual_run_when_lock_is_busy(db_session,
     assert refreshed_run.status == "queued"
     assert refreshed_run.reason is None
     assert refreshed_run.finished_at is None
-    assert refreshed_run.metadata_json["lock_deferred_at"]
+    assert refreshed_run.metadata_json["deferred_reason"] == "brief_lock_busy"
 
 
 def test_reapply_recent_item_tags_skips_when_reapply_lock_is_busy(db_session, monkeypatch):
@@ -2062,10 +2083,7 @@ def test_dispatch_items_missing_ai_enrichment_requeues_classified_items_without_
 
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
     monkeypatch.setattr("app.tasks.feed_tasks._update_task_run_celery_id", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(
-        "app.tasks.feed_tasks.generate_item_ai_enrichment_task.delay",
-        lambda *_args, **_kwargs: SimpleNamespace(id="repair-task-1"),
-    )
+    _mock_ai_publication(monkeypatch, lambda *_args, **_kwargs: SimpleNamespace(id="repair-task-1"))
 
     result = dispatch_items_missing_ai_enrichment.run()
 
@@ -2172,10 +2190,7 @@ def test_dispatch_items_missing_ai_enrichment_recovers_stale_inflight_runs_witho
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
     monkeypatch.setattr("app.services.ai_ops._load_live_task_snapshot", lambda: (False, [], [], [], []))
     monkeypatch.setattr("app.tasks.feed_tasks._update_task_run_celery_id", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(
-        "app.tasks.feed_tasks.generate_item_ai_enrichment_task.delay",
-        lambda *_args, **_kwargs: SimpleNamespace(id="repair-task-3"),
-    )
+    _mock_ai_publication(monkeypatch, lambda *_args, **_kwargs: SimpleNamespace(id="repair-task-3"))
 
     result = dispatch_items_missing_ai_enrichment.run()
 
@@ -2188,10 +2203,11 @@ def test_dispatch_items_missing_ai_enrichment_recovers_stale_inflight_runs_witho
         )
     ).all()
 
-    assert result == {"queued": 1}
+    assert result == {"queued": 0}
     assert refreshed_stale_run is not None
-    assert refreshed_stale_run.status == "error"
-    assert refreshed_stale_run.reason == "stale_task_snapshot_unavailable"
+    assert refreshed_stale_run.status == "queued"
+    assert refreshed_stale_run.reason is None
+    assert queued_runs[0].id == stale_run.id
     assert len(queued_runs) == 1
     get_settings.cache_clear()
 
@@ -2279,10 +2295,7 @@ def test_dispatch_items_missing_ai_enrichment_requeues_failed_rows_after_backoff
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
     monkeypatch.setattr("app.tasks.feed_tasks._update_task_run_celery_id", lambda *_args, **_kwargs: None)
     monkeypatch.setattr("app.tasks.feed_tasks.settings.dispatch_items_failed_ai_enrichment_after_seconds", 60)
-    monkeypatch.setattr(
-        "app.tasks.feed_tasks.generate_item_ai_enrichment_task.delay",
-        lambda *_args, **_kwargs: SimpleNamespace(id="repair-task-2"),
-    )
+    _mock_ai_publication(monkeypatch, lambda *_args, **_kwargs: SimpleNamespace(id="repair-task-2"))
 
     result = dispatch_items_missing_ai_enrichment.run()
 
@@ -2371,10 +2384,7 @@ def test_dispatch_items_missing_ai_enrichment_skips_old_feed_backlog(db_session,
 
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
     monkeypatch.setattr("app.tasks.feed_tasks.settings.ai_auto_enrich_new_item_max_age_hours", 24)
-    monkeypatch.setattr(
-        "app.tasks.feed_tasks.generate_item_ai_enrichment_task.delay",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("old backlog should not be auto-enriched")),
-    )
+    _mock_ai_publication(monkeypatch, lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("old backlog should not be auto-enriched")))
 
     result = dispatch_items_missing_ai_enrichment.run()
 
@@ -2473,10 +2483,7 @@ def test_dispatch_items_missing_ai_enrichment_skips_items_with_active_runs(db_se
 
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
     monkeypatch.setattr("app.tasks.feed_tasks._update_task_run_celery_id", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(
-        "app.tasks.feed_tasks.generate_item_ai_enrichment_task.delay",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("active runs should not be duplicated")),
-    )
+    _mock_ai_publication(monkeypatch, lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("active runs should not be duplicated")))
 
     result = dispatch_items_missing_ai_enrichment.run()
 
@@ -3069,16 +3076,13 @@ def test_fetch_article_keeps_committed_article_state_when_classification_enqueue
     assert article.text == "Recovered readable text."
     db_session.refresh(item)
     assert item.status == "content_fetched"
-def test_queue_item_ai_enrichment_run_marks_run_error_when_broker_publish_fails(db_session, monkeypatch):
+def test_queue_item_ai_enrichment_run_preserves_accepted_run_when_broker_publish_fails(db_session, monkeypatch):
     @contextmanager
     def _db_session_override():
         yield db_session
 
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
-    monkeypatch.setattr(
-        "app.tasks.feed_tasks.generate_item_ai_enrichment_task.delay",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("broker down")),
-    )
+    _mock_ai_publication(monkeypatch, lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("broker down")))
 
     feed = Feed(
         id=uuid.uuid4(),
@@ -3105,13 +3109,7 @@ def test_queue_item_ai_enrichment_run_marks_run_error_when_broker_publish_fails(
 
     item_id = item.id
 
-    with pytest.raises(RuntimeError, match="broker down"):
-        _queue_item_ai_enrichment_run(
-            item_id=item_id,
-            trigger_source=AI_TRIGGER_MANUAL,
-            reason=None,
-            force=True,
-        )
+    _queue_item_ai_enrichment_run(item_id=item_id, trigger_source=AI_TRIGGER_MANUAL, reason=None, force=True)
 
     run = db_session.scalar(
         select(AITaskRun)
@@ -3119,9 +3117,10 @@ def test_queue_item_ai_enrichment_run_marks_run_error_when_broker_publish_fails(
         .order_by(AITaskRun.created_at.desc())
     )
     assert run is not None
-    assert run.status == "error"
-    assert run.reason == "enqueue_failed"
-    assert run.error == "task_queue_unavailable"
+    assert run.status == "queued"
+    assert run.reason is None
+    assert run.error is None
+    assert db_session.get(AIWorkflowDispatch, run.id).error == "broker_publication_unavailable"
 
 
 def test_classify_item_queues_ai_enrichment_when_enabled(db_session, monkeypatch):
@@ -3182,10 +3181,7 @@ def test_classify_item_queues_ai_enrichment_when_enabled(db_session, monkeypatch
     )
     monkeypatch.setattr("app.tasks.feed_tasks.dispatch_alert_match_notification_webhooks.delay", lambda *_args, **_kwargs: None)
     monkeypatch.setattr("app.tasks.feed_tasks.extract_item_iocs.delay", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(
-        "app.tasks.feed_tasks.generate_item_ai_enrichment_task.delay",
-        lambda item_id, force=False, task_run_id=None: captured.update({"item_id": item_id, "force": str(force), "task_run_id": str(task_run_id or "")}),
-    )
+    _mock_ai_publication(monkeypatch, lambda item_id, force=False, task_run_id=None: captured.update({"item_id": item_id, "force": str(force), "task_run_id": str(task_run_id or "")}))
 
     result = classify_item.run(str(item_id))
 
@@ -3247,10 +3243,7 @@ def test_classify_item_skips_ai_enrichment_for_old_feed_backlog(db_session, monk
     )
     monkeypatch.setattr("app.tasks.feed_tasks.dispatch_alert_match_notification_webhooks.delay", lambda *_args, **_kwargs: None)
     monkeypatch.setattr("app.tasks.feed_tasks.extract_item_iocs.delay", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(
-        "app.tasks.feed_tasks.generate_item_ai_enrichment_task.delay",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("old backlog should not be auto-enriched")),
-    )
+    _mock_ai_publication(monkeypatch, lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("old backlog should not be auto-enriched")))
 
     result = classify_item.run(str(item.id))
 
@@ -3321,10 +3314,7 @@ def test_classify_item_skips_stale_article_after_refetch(db_session, monkeypatch
         "app.tasks.feed_tasks.extract_item_iocs.delay",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("stale classification should not enqueue IOC extraction")),
     )
-    monkeypatch.setattr(
-        "app.tasks.feed_tasks.generate_item_ai_enrichment_task.delay",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("stale classification should not enqueue AI enrichment")),
-    )
+    _mock_ai_publication(monkeypatch, lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("stale classification should not enqueue AI enrichment")))
 
     def _classify_item_content(**_kwargs):
         current_article = db_session.scalar(select(Article).where(Article.item_id == item.id))
@@ -3432,12 +3422,9 @@ def test_classify_item_continues_when_ioc_enqueue_fails(db_session, monkeypatch)
         "app.tasks.feed_tasks.extract_item_iocs.delay",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("ioc broker down")),
     )
-    monkeypatch.setattr(
-        "app.tasks.feed_tasks.generate_item_ai_enrichment_task.delay",
-        lambda item_id, force=False, task_run_id=None: captured.update(
+    _mock_ai_publication(monkeypatch, lambda item_id, force=False, task_run_id=None: captured.update(
             {"item_id": item_id, "force": str(force), "task_run_id": str(task_run_id or "")}
-        ),
-    )
+        ))
 
     result = classify_item.run(str(item.id))
 
@@ -3500,10 +3487,7 @@ def test_classify_item_continues_when_ai_enqueue_fails(db_session, monkeypatch):
         )(),
     )
     monkeypatch.setattr("app.tasks.feed_tasks.extract_item_iocs.delay", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(
-        "app.tasks.feed_tasks.generate_item_ai_enrichment_task.delay",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("ai broker down")),
-    )
+    _mock_ai_publication(monkeypatch, lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("ai broker down")))
 
     result = classify_item.run(str(item.id))
 
@@ -3514,10 +3498,13 @@ def test_classify_item_continues_when_ai_enqueue_fails(db_session, monkeypatch):
     ).all()
 
     assert result["status"] == "ok"
-    assert result["ai_enqueue_failed"] is True
+    assert result["ai_enqueue_failed"] is False
     assert len(child_runs) == 1
-    assert child_runs[0].status == "error"
-    assert child_runs[0].reason == "enqueue_failed"
+    assert child_runs[0].status == "queued"
+    assert child_runs[0].reason is None
+    dispatch = db_session.get(AIWorkflowDispatch, child_runs[0].id)
+    assert dispatch.state == "pending"
+    assert dispatch.error == "broker_publication_unavailable"
 
 
 def test_classify_item_persists_alert_evaluation_intent_when_enqueue_fails(db_session, monkeypatch):
@@ -3710,7 +3697,7 @@ def test_reprocess_recent_ai_items_tracks_parent_progress(db_session, monkeypatc
         scheduled.append((item_id, force, task_run_id))
         return _FakeTask(f"child-{len(scheduled)}")
 
-    monkeypatch.setattr("app.tasks.feed_tasks.generate_item_ai_enrichment_task.delay", _fake_delay)
+    _mock_ai_publication(monkeypatch, _fake_delay)
 
     parent_run = queue_ai_task_run(
         db_session,
@@ -3731,7 +3718,7 @@ def test_reprocess_recent_ai_items_tracks_parent_progress(db_session, monkeypatc
     assert len(child_runs) == 2
 
     for child_run in child_runs:
-        generate_item_ai_enrichment_task.run(str(child_run.item_id), force=True, task_run_id=str(child_run.id))
+        _deliver_ai_enrichment(db_session, str(child_run.item_id), force=True, task_run_id=str(child_run.id))
 
     db_session.expire_all()
     refreshed_parent = db_session.scalar(select(AITaskRun).where(AITaskRun.id == parent_run.id))
@@ -4076,7 +4063,13 @@ def test_backfill_daily_ai_briefs_redelivery_retries_only_interrupted_dates(db_s
     assert interrupted_parent.processed_count == 1
     assert interrupted_parent.finished_at is None
 
-    result = backfill_daily_ai_briefs.run(3, task_run_id=str(parent_run.id))
+    # An interrupted delivery can resume only after stale-worker recovery,
+    # not simply because another message with the same logical ID arrives.
+    from app.services.ai_workflow_recovery import recover_stale_workflow
+    assert recover_stale_workflow(db_session, interrupted_parent) == "guarded"
+    db_session.commit()
+    result = backfill_daily_ai_briefs.apply(args=[3, str(parent_run.id)],
+        task_id=interrupted_parent.celery_task_id, throw=True).get()
 
     child_runs = db_session.scalars(
         select(AITaskRun)
@@ -4292,7 +4285,7 @@ def test_backfill_daily_ai_briefs_duplicate_lock_delivery_keeps_active_parent_ru
     assert refreshed_parent.reason is None
     assert refreshed_parent.finished_at is None
     assert refreshed_parent.processed_count == 0
-    assert refreshed_parent.metadata_json["duplicate_lock_observed_at"]
+    assert db_session.get(AIWorkflowDispatch, parent_run.id).state == "running"
     get_settings.cache_clear()
 
 
@@ -4391,7 +4384,7 @@ def test_reprocess_recent_ai_items_continues_after_enqueue_failure(db_session, m
             raise RuntimeError("broker down")
         return _FakeTask(f"child-{len(queue_calls)}")
 
-    monkeypatch.setattr("app.tasks.feed_tasks.generate_item_ai_enrichment_task.delay", _fake_delay)
+    _mock_ai_publication(monkeypatch, _fake_delay)
 
     parent_run = queue_ai_task_run(
         db_session,
@@ -4409,24 +4402,25 @@ def test_reprocess_recent_ai_items_continues_after_enqueue_failure(db_session, m
         .order_by(AITaskRun.created_at.asc())
     ).all()
 
-    assert result["queued"] == 1
-    assert result["queue_errors"] == 1
+    assert result["queued"] == 2
+    assert result["queue_errors"] == 0
     assert len(queue_calls) == 2
     assert set(queue_calls) == {str(item_ids[0]), str(item_ids[1])}
     assert len(child_runs) == 2
-    assert {run.status for run in child_runs} == {"queued", "error"}
+    assert {run.status for run in child_runs} == {"queued"}
+    assert sum(db_session.get(AIWorkflowDispatch, run.id).error == "broker_publication_unavailable" for run in child_runs) == 1
 
-    queued_child = next(run for run in child_runs if run.status == "queued")
-    generate_item_ai_enrichment_task.run(str(queued_child.item_id), force=True, task_run_id=str(queued_child.id))
+    queued_child = next(run for run in child_runs if db_session.get(AIWorkflowDispatch, run.id).state == "published")
+    _deliver_ai_enrichment(db_session, str(queued_child.item_id), force=True, task_run_id=str(queued_child.id))
 
     db_session.expire_all()
     refreshed_parent = db_session.scalar(select(AITaskRun).where(AITaskRun.id == parent_run.id))
 
     assert refreshed_parent is not None
     assert refreshed_parent.target_count == 2
-    assert refreshed_parent.processed_count == 2
-    assert refreshed_parent.error_count == 1
-    assert refreshed_parent.status == "error"
+    assert refreshed_parent.processed_count == 1
+    assert refreshed_parent.error_count == 0
+    assert refreshed_parent.status == "running"
     get_settings.cache_clear()
 
 
@@ -4535,7 +4529,7 @@ def test_reprocess_recent_ai_items_uses_published_time_before_first_seen(db_sess
         scheduled.append(item_id)
         return _FakeTask(f"child-{len(scheduled)}")
 
-    monkeypatch.setattr("app.tasks.feed_tasks.generate_item_ai_enrichment_task.delay", _fake_delay)
+    _mock_ai_publication(monkeypatch, _fake_delay)
 
     parent_run = queue_ai_task_run(
         db_session,
@@ -4592,6 +4586,8 @@ def test_generate_item_ai_enrichment_task_marks_unexpected_failures_on_task_runs
     )
     db_session.add_all([feed, item])
     db_session.flush()
+    db_session.add(Article(item_id=item.id, final_url=item.url, http_status=200, text="Primary source evidence", extraction_method="readable"))
+    db_session.flush()
 
     parent_run = queue_ai_task_run(
         db_session,
@@ -4601,17 +4597,11 @@ def test_generate_item_ai_enrichment_task_marks_unexpected_failures_on_task_runs
     )
     parent_run.target_count = 1
     db_session.add(parent_run)
-    child_run = queue_ai_task_run(
-        db_session,
-        task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
-        trigger_source=AI_TRIGGER_MANUAL,
-        parent_run_id=parent_run.id,
-        item_id=item.id,
-        metadata={"parent_task": "reprocess"},
-    )
+    from app.services.ai_reprocess import ensure_reprocess_child
+    child_run = ensure_reprocess_child(db_session, parent_id=parent_run.id, item_id=item.id, model=None)
     db_session.commit()
 
-    result = generate_item_ai_enrichment_task.run(str(child_run.item_id), force=True, task_run_id=str(child_run.id))
+    result = _deliver_ai_enrichment(db_session, str(child_run.item_id), force=True, task_run_id=str(child_run.id))
 
     assert result == {"status": "error", "reason": "unexpected_error", "item_id": str(child_run.item_id)}
 
@@ -4675,7 +4665,7 @@ def test_generate_item_ai_enrichment_task_finishes_canceled_runs_before_work(db_
     db_session.add(child_run)
     db_session.commit()
 
-    result = generate_item_ai_enrichment_task.run(str(child_run.item_id), force=True, task_run_id=str(child_run.id))
+    result = _deliver_ai_enrichment(db_session, str(child_run.item_id), force=True, task_run_id=str(child_run.id))
 
     db_session.expire_all()
     refreshed_child = db_session.scalar(select(AITaskRun).where(AITaskRun.id == child_run.id))
@@ -4734,7 +4724,7 @@ def test_generate_item_ai_enrichment_task_skips_already_terminal_runs_before_wor
     db_session.add(child_run)
     db_session.commit()
 
-    result = generate_item_ai_enrichment_task.run(str(child_run.item_id), force=True, task_run_id=str(child_run.id))
+    result = _deliver_ai_enrichment(db_session, str(child_run.item_id), force=True, task_run_id=str(child_run.id))
 
     db_session.expire_all()
     refreshed_child = db_session.scalar(select(AITaskRun).where(AITaskRun.id == child_run.id))
@@ -4820,13 +4810,13 @@ def test_reprocess_recent_ai_items_can_target_specific_items(db_session, monkeyp
         scheduled.append((item_id, force, task_run_id))
         return _FakeTask(f"child-{len(scheduled)}")
 
-    monkeypatch.setattr("app.tasks.feed_tasks.generate_item_ai_enrichment_task.delay", _fake_delay)
+    _mock_ai_publication(monkeypatch, _fake_delay)
 
     parent_run = queue_ai_task_run(
         db_session,
         task_type=AI_TASK_TYPE_REPROCESS,
         trigger_source=AI_TRIGGER_MANUAL,
-        metadata={"days": None, "limit": 100},
+        metadata={"days": None, "limit": 100, "item_ids": [str(item_ids[2]), str(item_ids[0])]},
     )
     db_session.commit()
 
@@ -4922,13 +4912,13 @@ def test_reprocess_recent_ai_items_can_target_old_published_items_explicitly(db_
         scheduled.append((item_id, force, task_run_id))
         return _FakeTask(f"child-{len(scheduled)}")
 
-    monkeypatch.setattr("app.tasks.feed_tasks.generate_item_ai_enrichment_task.delay", _fake_delay)
+    _mock_ai_publication(monkeypatch, _fake_delay)
 
     parent_run = queue_ai_task_run(
         db_session,
         task_type=AI_TASK_TYPE_REPROCESS,
         trigger_source=AI_TRIGGER_MANUAL,
-        metadata={"days": None, "limit": 1},
+        metadata={"days": None, "limit": 1, "item_ids": [str(item.id)]},
     )
     db_session.commit()
 
@@ -5026,13 +5016,13 @@ def test_reprocess_recent_ai_items_caps_explicit_item_ids_to_effective_limit(db_
         scheduled.append((item_id, force, task_run_id))
         return _FakeTask(f"child-{len(scheduled)}")
 
-    monkeypatch.setattr("app.tasks.feed_tasks.generate_item_ai_enrichment_task.delay", _fake_delay)
+    _mock_ai_publication(monkeypatch, _fake_delay)
 
     parent_run = queue_ai_task_run(
         db_session,
         task_type=AI_TASK_TYPE_REPROCESS,
         trigger_source=AI_TRIGGER_MANUAL,
-        metadata={"days": None, "limit": 100},
+        metadata={"days": None, "limit": 100, "item_ids": [str(item_ids[2]), str(item_ids[0]), str(item_ids[1])]},
     )
     db_session.commit()
 
@@ -5130,7 +5120,7 @@ def test_reprocess_recent_ai_items_stops_queueing_after_cancel(db_session, monke
         db_session,
         task_type=AI_TASK_TYPE_REPROCESS,
         trigger_source=AI_TRIGGER_MANUAL,
-        metadata={"days": None, "limit": 100},
+        metadata={"days": None, "limit": 100, "item_ids": [str(item_id) for item_id in item_ids]},
     )
     db_session.commit()
 
@@ -5251,10 +5241,11 @@ def test_reconcile_ai_task_runs_repairs_stale_runs_without_ops_page_access(db_se
 
     db_session.expire_all()
     refreshed_run = db_session.scalar(select(AITaskRun).where(AITaskRun.id == run.id))
-    assert result["reconciled"] == 1
+    assert result["reconciled"] == 0  # Recovery preserves the run; no terminalization.
     assert refreshed_run is not None
-    assert refreshed_run.status == "error"
-    assert refreshed_run.reason == "stale_task_lost"
+    assert refreshed_run.status == "queued"
+    assert refreshed_run.reason is None
+    assert refreshed_run.celery_task_id != "stale-task-id"
 
 
 def test_process_reserved_notification_deliveries_schedules_retryable_failures(db_session, monkeypatch):
