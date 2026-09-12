@@ -36,10 +36,13 @@ Route tree:
   - index -> `DashboardPage`
   - `/start` -> effective trusted landing-page redirect
   - `/alerts` -> `AlertsPage`
+  - `/teams` -> `TeamsPage`, with URL-persisted directory/admin mode and selected team
   - `/investigations` -> `InvestigationsPage` list workspace
   - `/investigations/:investigationId` -> `InvestigationsPage` detail workspace
   - `/feeds` -> `FeedsPage`
   - `/stats` -> `StatsPage`
+    - `?section=ingestion` -> ingestion analytics under `read:stats`
+    - `?section=ai` -> AI usage/reliability under administrator role and `read:ai`
   - `/export` -> `ExportPage`
   - `/reporting` -> `ReportingPage`
   - `/reporting/:reportId` -> `ReportingPage` report detail

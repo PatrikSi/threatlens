@@ -233,6 +233,7 @@ Resource scopes:
 - `read:health`
 - `read:operations`, `write:operations`
 - `read:investigations`, `write:investigations`
+- `read:teams`, `write:teams`
 - `read:iam`, `write:iam`
 - `read:workspace`, `write:workspace_preferences`, `write:workspace`
 - `read:service_accounts`, `write:service_accounts`
@@ -311,6 +312,22 @@ Paths below are relative to the published `/api/v1` base.
 | `/health/worker`, `/health/beat`, `/health/notifications`, `/health/encrypted-data` | `admin` | `read:health` |
 
 ## Practical Trust Notes
+
+Named teams add a current group-membership boundary to shared views,
+investigations and alert queues. `read:teams` exposes accessible team metadata;
+`write:teams` is required in addition to feature write permissions for shared
+mutations. Team creation and group-binding changes use IAM administration.
+Managers can maintain team metadata and manage shared triage assignments and
+deadlines; they cannot grant themselves feature scopes or bypass evidence policy.
+An IAM administrator's metadata access does not confer team content membership.
+See [named team access and delegation](../pages/teams.md).
+
+Report editorial transitions require current report-write authority and evidence
+access. Owner/administrator edit and publication authority is distinct from
+approval by an eligible reviewer. Approval pins the exact content/evidence
+revision. Self-review is permitted and explicitly audited. AI statistics retains
+the same administrator role plus `read:ai` requirement as the AI control plane;
+the separate ingestion section requires `read:stats`.
 
 - Cookie sessions are the primary browser contract. Token scopes only apply when the caller is authenticated via a personal API token.
 - `write:<resource>` implies `read:<resource>` during scope checks.
