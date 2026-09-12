@@ -41,7 +41,13 @@ export interface WorkspaceModulePolicy {
   mobile_priority: number
 }
 
-export interface WorkspaceRolePolicyResponse {
+export interface WorkspacePresentationPolicy {
+  landing_mode?: 'default' | 'enforced'
+  dashboard_mode?: 'default' | 'enforced'
+  dashboard_view_json?: import('./savedViews').SavedViewQueryPayload | null
+}
+
+export interface WorkspaceRolePolicyResponse extends WorkspacePresentationPolicy {
   role: WorkspaceRole
   landing_module_id: string
   modules: WorkspaceModulePolicy[]
@@ -55,7 +61,7 @@ export interface WorkspaceRolePolicyResponse {
   warnings: string[]
 }
 
-export interface WorkspaceRolePolicyWriteRequest {
+export interface WorkspaceRolePolicyWriteRequest extends WorkspacePresentationPolicy {
   expected_revision: number
   landing_module_id: string
   modules: WorkspaceModulePolicy[]
@@ -126,7 +132,7 @@ export interface WorkspaceEffectiveDashboardPanelResponse {
   reasons: string[]
 }
 
-export interface WorkspaceEffectiveResponse {
+export interface WorkspaceEffectiveResponse extends WorkspacePresentationPolicy {
   role: WorkspaceRole
   policy_revision: number
   preference_revision: number

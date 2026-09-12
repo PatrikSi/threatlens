@@ -65,6 +65,7 @@ import { useDashboardItemActions } from './useDashboardItemActions'
 import { useDashboardWindowActions } from './useDashboardWindowActions'
 import { useDashboardWindowFilters } from './useDashboardWindowFilters'
 import { useDashboardWorkspacePersistence } from './useDashboardWorkspacePersistence'
+import { useEnforcedDashboardLayout } from './useEnforcedDashboardLayout'
 import { useWorkspace } from '../workspace/useWorkspace'
 import { hasRequiredPermissions } from '../workspace/workspaceModel'
 
@@ -103,7 +104,9 @@ export function useDashboardPageController() {
   const [mobileDashboardViewsOpen, setMobileDashboardViewsOpen] = useState(false)
   const [mobileActiveWindowId, setMobileActiveWindowId] = useState<string | null>(null)
   const [mobileWindowControlsOpenById, setMobileWindowControlsOpenById] = useState<Record<string, boolean>>({})
-  const [isEditMode, setIsEditMode] = useState(false)
+  const [personalEditMode, setIsEditMode] = useState(false)
+  const layoutEnforced = workspace.effective?.dashboard_mode === 'enforced'
+  const isEditMode = personalEditMode && !layoutEnforced
   const [viewSaveError, setViewSaveError] = useState('')
   const [viewDeleteError, setViewDeleteError] = useState('')
 
@@ -137,7 +140,11 @@ export function useDashboardPageController() {
   } = useArticlePreview()
   const [isPhoneLayout, setIsPhoneLayout] = useState<boolean>(typeof window !== 'undefined' ? window.innerWidth < 640 : false)
 
-  const [windows, setWindows] = useState<DashboardWindow[]>(() => [createWindowLayout('rss', 1, 1380, 760, 'full')])
+  const [personalWindows, setPersonalWindows] = useState<DashboardWindow[]>(() => [createWindowLayout('rss', 1, 1380, 760, 'full')])
+  const { windows, setWindows } = useEnforcedDashboardLayout({
+    policy: workspace.effective, personalWindows, setPersonalWindows, rootRef,
+    defaultPanelIds: workspace.model.dashboardPanelIds,
+  })
   const [windowSeenAt, setWindowSeenAt] = useState<Record<string, string>>({})
   const [rssLastOpenedAt, setRssLastOpenedAt] = useState('')
   const [isWideLayout, setIsWideLayout] = useState<boolean>(typeof window !== 'undefined' ? window.innerWidth >= 1024 : true)
@@ -156,7 +163,7 @@ export function useDashboardPageController() {
   const aiSummaryEnabled = Boolean(aiFeatures?.ai_summary_enabled)
   const aiRelevanceEnabled = Boolean(aiFeatures?.ai_relevance_enabled)
   const aiDailyBriefEnabled = Boolean(aiFeatures?.ai_daily_brief_enabled)
-  const hasProtectedEditSession = isEditMode && editSessionSnapshot !== null
+  const hasProtectedEditSession = personalEditMode && editSessionSnapshot !== null
 
   const {
     isItemActionPending,
@@ -192,6 +199,7 @@ export function useDashboardPageController() {
   const dashboardReady = useDashboardWorkspacePersistence({
     aiDailyBriefEnabled,
     defaultPanelIds: workspace.model.dashboardPanelIds,
+    defaultTemplate: workspace.effective?.dashboard_mode === 'enforced' ? null : workspace.effective?.dashboard_view_json,
     expandedItemIdsByWindowId,
     isWideLayout,
     rootRef,
@@ -205,10 +213,10 @@ export function useDashboardPageController() {
     setNoteDraftsByItemId,
     setRssLastOpenedAt,
     setWindowSeenAt,
-    setWindows,
+    setWindows: setPersonalWindows,
     userId: meQuery.data?.id ?? null,
     windowSeenAt,
-    windows,
+    windows: personalWindows,
     workspaceDefaultsSettled: workspaceDefaultsReady || (!workspace.isLoading && workspace.isDegraded),
   })
 
@@ -447,6 +455,7 @@ export function useDashboardPageController() {
   }
 
   const applyDashboardSavedViewState = (state: DashboardSavedViewState, nextActiveSavedViewId: string | null) => {
+    if (layoutEnforced) return
     const nextDashboardTimeRange =
       state.rss_filters.time_range !== 'all' ||
       state.rss_filters.custom_since_date ||
@@ -651,7 +660,7 @@ export function useDashboardPageController() {
       })
       return changed ? next : current
     })
-  }, [alertQueriesByWindowId, rssQueriesByWindowId])
+  }, [alertQueriesByWindowId, rssQueriesByWindowId, setWindows])
 
   useEffect(() => {
     const rssWindowIds = new Set(rssWindows.map((windowLayout) => windowLayout.id))
@@ -925,6 +934,7 @@ export function useDashboardPageController() {
   }
 
   const applySavedView = (view: SavedView) => {
+    if (layoutEnforced) return
     const { width, height } = getWindowContainerDimensions(rootRef.current)
     const parsed = parseDashboardSavedView(view.query_json, width, height)
     setPendingSavedViewLoad(null)
@@ -937,6 +947,7 @@ export function useDashboardPageController() {
   }
 
   const requestSavedViewLoad = (viewId: string) => {
+    if (layoutEnforced) return
     const selected = findSavedViewById(viewId)
     if (!selected) {
       return
@@ -1093,6 +1104,7 @@ export function useDashboardPageController() {
     [containerDimensions.height, containerDimensions.width, viewsQuery.data],
   )
   return {
+    layoutEnforced,
     activeSavedViewId, addWindow, addWindowActionRefs, addWindowMenuId, addWindowMenuRef,
     addWindowTriggerRef,
     adjustArticlePreviewWidth, aiDailyBriefEnabled, aiRelevanceEnabled, aiSummaryEnabled, alertInterestsQuery,

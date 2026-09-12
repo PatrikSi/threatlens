@@ -152,6 +152,8 @@ export function DashboardDialogs({ controller }: { controller: DashboardPageCont
                   <button
                     type="button"
                     className="rounded border border-slate/20 px-2 py-1 text-xs dark:border-cyan-900/40"
+                    disabled={controller.layoutEnforced}
+                    title={controller.layoutEnforced ? 'The organization enforces the dashboard arrangement.' : undefined}
                     onClick={() => requestSavedViewLoad(view.id)}
                     aria-label={`Load saved view ${view.name}`}
                   >

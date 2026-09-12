@@ -26,6 +26,7 @@ export function DashboardToolbar({ controller }: { controller: DashboardPageCont
 
   return (
       <div className="border-b border-slate/20 bg-white/85 px-3 py-1.5 shadow-sm dark:border-cyan-900/40 dark:bg-[#041612]/92">
+        {controller.layoutEnforced && <p role="status" className="mb-2 rounded border border-amber-500/40 p-2 text-xs">Your organization enforces this dashboard arrangement. Filters remain available. Your personal layout and any open edit draft remain stored separately and return when enforcement is removed.</p>}
         <div className="grid grid-cols-[minmax(0,1fr)_112px_auto] items-center gap-1.5 sm:hidden">
           <input
             value={globalSearchState.value}
@@ -164,8 +165,9 @@ export function DashboardToolbar({ controller }: { controller: DashboardPageCont
           </div>
           <select
             className="h-8 w-full rounded border border-slate/20 bg-white px-2 text-xs xl:w-auto dark:border-cyan-900/40 dark:bg-[#041612]"
-            value={activeSavedViewId ?? ''}
+            value={controller.layoutEnforced ? '' : activeSavedViewId ?? ''}
             aria-label="Load saved dashboard view"
+            disabled={controller.layoutEnforced}
             onChange={(event) => {
               const change = resolveSavedViewSelectionChange({
                 currentActiveSavedViewId: activeSavedViewId,
@@ -189,7 +191,7 @@ export function DashboardToolbar({ controller }: { controller: DashboardPageCont
               }
             }}
           >
-            <option value="">Load View</option>
+            <option value="">{controller.layoutEnforced ? 'Organization arrangement' : 'Load View'}</option>
             {viewsQuery.data?.map((view) => (
               <option key={view.id} value={view.id}>
                 {view.name}
@@ -207,9 +209,9 @@ export function DashboardToolbar({ controller }: { controller: DashboardPageCont
             <button
               type="button"
               className="h-8 w-full rounded border border-slate/20 px-3 text-xs font-semibold sm:w-auto dark:border-cyan-900/40"
-              disabled={!dashboardReady}
+              disabled={!dashboardReady || controller.layoutEnforced}
               onClick={() => {
-                if (!dashboardReady) return
+                if (!dashboardReady || controller.layoutEnforced) return
                 setEditSessionSnapshot({
                   activeSavedViewId,
                   savedViewName,

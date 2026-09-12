@@ -95,6 +95,7 @@ const dashboardPageDomMocks = vi.hoisted(() => ({
   queryOptions: [] as Array<{ queryKey: unknown[]; enabled: boolean | undefined }>,
   unsavedChangesWarning: vi.fn(),
   workspaceDefaultsAvailable: true,
+  workspacePresentation: {} as Record<string, unknown>,
   workspaceDefaultsDegraded: false,
   workspacePanelIds: ['rss'] as Array<'rss' | 'alerts' | 'notes' | 'daily_brief'>,
 }))
@@ -355,7 +356,7 @@ vi.mock('../workspace/useWorkspace', () => ({
   useWorkspace: () => ({
     isLoading: false,
     isDegraded: dashboardPageDomMocks.workspaceDefaultsDegraded,
-    effective: dashboardPageDomMocks.workspaceDefaultsAvailable ? { role: 'admin' } : undefined,
+    effective: dashboardPageDomMocks.workspaceDefaultsAvailable ? { role: 'admin', ...dashboardPageDomMocks.workspacePresentation } : undefined,
     userContext: { role: 'admin' },
     model: { dashboardPanelIds: dashboardPageDomMocks.workspacePanelIds },
   }),
@@ -475,6 +476,7 @@ beforeEach(() => {
   dashboardPageDomMocks.queryKeys = []
   dashboardPageDomMocks.queryOptions = []
   dashboardPageDomMocks.workspaceDefaultsAvailable = true
+  dashboardPageDomMocks.workspacePresentation = {}
   dashboardPageDomMocks.workspaceDefaultsDegraded = false
   dashboardPageDomMocks.workspacePanelIds = ['rss']
 
@@ -513,6 +515,62 @@ afterEach(() => {
 })
 
 describe('DashboardPage DOM workflows', () => {
+  it('seeds an organization template only on first use and preserves stored personal layouts', async () => {
+    dashboardPageDomMocks.workspacePresentation = {
+      dashboard_mode: 'default', policy_revision: 2,
+      dashboard_view_json: createSavedView('seed', 'Seed', [createNotesWindow('template', 'Starter notebook')], '').query_json,
+    }
+    renderPage()
+    await flushAsyncWork()
+    expect(document.querySelector('[aria-label="Starter notebook dashboard panel"]')).not.toBeNull()
+    dashboardPageDomMocks.workspacePresentation = {
+      ...dashboardPageDomMocks.workspacePresentation,
+      policy_revision: 3,
+      dashboard_view_json: createSavedView('next', 'Next', [createRssWindow('new-template', 'Later template')], '').query_json,
+    }
+    act(() => { root?.render(<DashboardPage />) })
+    expect(document.querySelector('[aria-label="Starter notebook dashboard panel"]')).not.toBeNull()
+    expect(document.querySelector('[aria-label="Later template dashboard panel"]')).toBeNull()
+  })
+
+  it('enforces live layout revisions without overwriting personal storage or an active edit session', async () => {
+    const storageKey = 'threatlens.dashboard.windows.v2:user-1'
+    window.localStorage.setItem(storageKey, JSON.stringify([createNotesWindow('personal', 'Personal notebook')]))
+    renderPage()
+    await flushAsyncWork()
+    act(() => getButton('Edit Layout')?.click())
+    expect(getButton('Cancel')).not.toBeNull()
+    await act(async () => { await new Promise((resolve) => window.setTimeout(resolve, 250)) })
+    const personalBefore = window.localStorage.getItem(storageKey)
+    dashboardPageDomMocks.workspacePresentation = {
+      dashboard_mode: 'enforced', policy_revision: 2,
+      dashboard_view_json: createSavedView('seed', 'Seed', [createNotesWindow('template', 'Organization notebook')], '').query_json,
+    }
+    act(() => { root?.render(<DashboardPage />) })
+    expect(document.querySelector('[aria-label="Organization notebook dashboard panel"]')).not.toBeNull()
+    expect(document.querySelector('[aria-label="Personal notebook dashboard panel"]')).toBeNull()
+    expect(getButton('Edit Layout')?.disabled).toBe(true)
+    expect(getButton('Cancel')).toBeNull()
+    expect(pageText()).toContain('personal')
+    expect(document.querySelector<HTMLTextAreaElement>('textarea')?.readOnly).toBe(true)
+    dashboardPageDomMocks.workspacePresentation = {
+      ...dashboardPageDomMocks.workspacePresentation,
+      policy_revision: 3,
+      dashboard_view_json: createSavedView('next', 'Next', [createRssWindow('new-template', 'Updated organization feed')], '').query_json,
+    }
+    await act(async () => {
+      root?.render(<DashboardPage />)
+      await new Promise((resolve) => window.setTimeout(resolve, 250))
+    })
+    expect(document.querySelector('[aria-label="Updated organization feed dashboard panel"]')).not.toBeNull()
+    expect(window.localStorage.getItem(storageKey)).toBe(personalBefore)
+    dashboardPageDomMocks.workspacePresentation = { dashboard_mode: 'default', policy_revision: 4 }
+    act(() => { root?.render(<DashboardPage />) })
+    expect(document.querySelector('[aria-label="Personal notebook dashboard panel"]')).not.toBeNull()
+    expect(getButton('Cancel')).not.toBeNull()
+    expect(document.querySelector<HTMLTextAreaElement>('textarea')?.value).toBe('Track pivots here.')
+  })
+
   it('shows each selected daily brief narrative, including narrative-only briefs, as safe readable text', () => {
     dashboardPageDomMocks.currentUser.data.features.ai_daily_brief_enabled = true
     dashboardPageDomMocks.workspacePanelIds = ['daily_brief']

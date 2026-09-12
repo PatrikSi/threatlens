@@ -8,6 +8,8 @@ import {
 } from 'react'
 
 import { safeLocalStorage } from '../utils/safeStorage'
+import type { SavedViewQueryPayload } from '../types/savedViews'
+import { workspaceTemplateWindows } from './workspaceDashboardTemplate'
 import {
   clampArticlePreviewWidth,
   getWindowContainerDimensions,
@@ -28,6 +30,7 @@ type FeedbackByItemId = Record<string, { tone: 'success' | 'error'; message: str
 type WorkspacePersistenceOptions = {
   aiDailyBriefEnabled: boolean
   defaultPanelIds: readonly DashboardWindow['type'][]
+  defaultTemplate?: SavedViewQueryPayload | null
   expandedItemIdsByWindowId: Record<string, string>
   isWideLayout: boolean
   rootRef: RefObject<HTMLDivElement | null>
@@ -51,6 +54,7 @@ type WorkspacePersistenceOptions = {
 export function useDashboardWorkspacePersistence({
   aiDailyBriefEnabled,
   defaultPanelIds,
+  defaultTemplate,
   expandedItemIdsByWindowId,
   isWideLayout,
   rootRef,
@@ -226,7 +230,7 @@ export function useDashboardWorkspacePersistence({
     if (!workspaceDefaultsSettled && !storedWindows) {
       return
     }
-    setWindows(storedWindows ?? loadDashboardWindows(storageKeys.windows, width, height, defaultPanelIds))
+    setWindows(storedWindows ?? (defaultTemplate ? workspaceTemplateWindows(defaultTemplate, width, height) : loadDashboardWindows(storageKeys.windows, width, height, defaultPanelIds)))
     setWindowSeenAt(loadWindowSeenState(storageKeys.windowSeenAt))
     setRssLastOpenedAt(loadStoredTimestamp(storageKeys.lastOpenedAt))
     safeLocalStorage.setItem(storageKeys.lastOpenedAt, new Date().toISOString())
@@ -235,6 +239,7 @@ export function useDashboardWorkspacePersistence({
   }, [
     rootRef,
     defaultPanelIds,
+    defaultTemplate,
     savedNoteValuesByItemIdRef,
     setExpandedItemIdsByWindowId,
     setItemActionFeedbackByItemId,
