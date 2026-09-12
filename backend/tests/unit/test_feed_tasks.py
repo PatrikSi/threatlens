@@ -3817,7 +3817,7 @@ def test_backfill_daily_ai_briefs_tracks_parent_progress_and_reference_dates(db_
     monkeypatch.setattr("app.tasks.ai_brief_tasks.run_daily_brief_generation", _run_daily_brief_generation)
     monkeypatch.setattr(
         "app.tasks.ai_brief_tasks._daily_brief_backfill_reference_times",
-        lambda days: [
+        lambda days, **_kwargs: [
             datetime(2026, 7, 3, 8, 30, tzinfo=timezone.utc),
             datetime(2026, 7, 2, 23, 59, 59, tzinfo=timezone.utc),
             datetime(2026, 7, 1, 23, 59, 59, tzinfo=timezone.utc),
@@ -3939,7 +3939,7 @@ def test_backfill_daily_ai_briefs_continues_after_unexpected_day_failure(db_sess
     monkeypatch.setattr("app.tasks.ai_brief_tasks.run_daily_brief_generation", _run_daily_brief_generation)
     monkeypatch.setattr(
         "app.tasks.ai_brief_tasks._daily_brief_backfill_reference_times",
-        lambda days: [
+        lambda days, **_kwargs: [
             datetime(2026, 7, 3, 8, 30, tzinfo=timezone.utc),
             datetime(2026, 7, 2, 23, 59, 59, tzinfo=timezone.utc),
             datetime(2026, 7, 1, 23, 59, 59, tzinfo=timezone.utc),
@@ -4055,7 +4055,7 @@ def test_backfill_daily_ai_briefs_redelivery_retries_only_interrupted_dates(db_s
     monkeypatch.setattr("app.tasks.ai_brief_tasks.db_session", _db_session_override)
     monkeypatch.setattr("app.tasks.ai_brief_tasks.daily_ai_brief_lock", _brief_lock_override)
     monkeypatch.setattr("app.tasks.ai_brief_tasks.run_daily_brief_generation", _run_daily_brief_generation)
-    monkeypatch.setattr("app.tasks.ai_brief_tasks._daily_brief_backfill_reference_times", lambda days: reference_times[:days])
+    monkeypatch.setattr("app.tasks.ai_brief_tasks._daily_brief_backfill_reference_times", lambda days, **_kwargs: reference_times[:days])
 
     parent_run = queue_ai_task_run(
         db_session,
@@ -4204,7 +4204,7 @@ def test_backfill_daily_ai_briefs_repairs_legacy_duplicate_date_progress(db_sess
     monkeypatch.setattr("app.tasks.ai_brief_tasks.db_session", _db_session_override)
     monkeypatch.setattr("app.tasks.ai_brief_tasks.daily_ai_brief_lock", _brief_lock_override)
     monkeypatch.setattr("app.tasks.ai_brief_tasks.run_daily_brief_generation", _run_daily_brief_generation)
-    monkeypatch.setattr("app.tasks.ai_brief_tasks._daily_brief_backfill_reference_times", lambda days: reference_times[:days])
+    monkeypatch.setattr("app.tasks.ai_brief_tasks._daily_brief_backfill_reference_times", lambda days, **_kwargs: reference_times[:days])
 
     result = backfill_daily_ai_briefs.run(3, task_run_id=str(parent_run.id))
 

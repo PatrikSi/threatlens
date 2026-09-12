@@ -39,6 +39,7 @@ from app.tasks.task_session import db_session
 
 logger = logging.getLogger(__name__)
 DAILY_BRIEF_STALE_RETRY_WINDOW = timedelta(minutes=15)
+DAILY_BRIEF_BACKFILL_REFERENCE_TIME_KEY = "backfill_reference_time"
 
 
 def _exception_type_name(exc: BaseException) -> str:
@@ -334,6 +335,50 @@ def _daily_brief_backfill_reference_times(days: int, *, now: datetime | None = N
     return references
 
 
+def _daily_brief_backfill_anchor(db: Session, run: AITaskRun) -> datetime:
+    metadata = dict(run.metadata_json or {})
+
+    def parse_reference(value: object) -> datetime | None:
+        if not isinstance(value, str):
+            return None
+        try:
+            parsed = datetime.fromisoformat(value)
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+
+    anchor = parse_reference(metadata.get(DAILY_BRIEF_BACKFILL_REFERENCE_TIME_KEY))
+    if anchor is None:
+        # Older workers stored the exact reference only on each child. The
+        # first attempted day preserves the original backfill's newest date,
+        # even if its parent waited in the queue across midnight.
+        children = db.scalars(
+            select(AITaskRun)
+            .where(
+                AITaskRun.parent_run_id == run.id,
+                AITaskRun.task_type == AI_TASK_TYPE_DAILY_BRIEF,
+            )
+            .order_by(AITaskRun.created_at.asc(), AITaskRun.id.asc())
+        )
+        for child in children:
+            anchor = parse_reference((child.metadata_json or {}).get("reference_time"))
+            if anchor is not None:
+                break
+    if anchor is None:
+        anchor = run.created_at or run.queued_at or datetime.now(timezone.utc)
+        if anchor.tzinfo is None:
+            anchor = anchor.replace(tzinfo=timezone.utc)
+        anchor = anchor.astimezone(timezone.utc)
+    run.metadata_json = {
+        **metadata,
+        DAILY_BRIEF_BACKFILL_REFERENCE_TIME_KEY: anchor.isoformat(),
+    }
+    db.add(run)
+    return anchor
+
+
 def _daily_brief_backfill_attempts(
     db: Session,
     *,
@@ -508,6 +553,7 @@ def backfill_daily_ai_briefs(
             return {"status": "error", "reason": "history_limit_too_low", "run_id": str(parent_run_id)}
 
         active_model = active_ai_settings.model
+        backfill_anchor = _daily_brief_backfill_anchor(db, run)
         run.model = active_model
         db.add(run)
         record_ai_task_event(
@@ -548,7 +594,9 @@ def backfill_daily_ai_briefs(
                     return {"status": "skipped", "reason": "already_running", "run_id": str(parent_run_id)}
 
                 processed_dates: list[str] = []
-                for reference_time in _daily_brief_backfill_reference_times(effective_days):
+                for reference_time in _daily_brief_backfill_reference_times(
+                    effective_days, now=backfill_anchor
+                ):
                     brief_date = reference_time.date().isoformat()
                     parent_run = db.scalar(select(AITaskRun).where(AITaskRun.id == parent_run_id))
                     if parent_run is None:
