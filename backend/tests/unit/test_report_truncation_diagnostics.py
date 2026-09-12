@@ -57,7 +57,8 @@ def test_reasoning_truncation_stops_at_1588_context_headroom_and_explains_why(
     budget = build_context_budget(
         context_window_tokens=8192, reserved_output_tokens=1200, safety_percent=15,
     )
-    messages = [{"role": "user", "content": "x" * 9982}]
+    # Include the serialized role/content framing in the fixed 4,991-token estimate.
+    messages = [{"role": "user", "content": "x" * 9952}]
     assert estimate_message_tokens(messages) == 4991
     requested_tokens = []
 

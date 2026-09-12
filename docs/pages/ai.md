@@ -94,8 +94,8 @@ describes its reasoning-effort mapping. A value appearing in ThreatLens's select
 does not mean every model accepts it. Native Gemini requests and provider-specific
 `extra_body` extensions remain outside this adapter.
 
-A configured model context limit checks the assembled messages before every
-feature request, using ThreatLens's token estimator, a 15% safety reserve, and
+A configured model context limit checks serialized messages, including framing
+and escaped content, before every feature request, using ThreatLens's token estimator, a 15% safety reserve, and
 384 protocol tokens. Configured output limits constrain the initial allowance and
 retry growth. An oversized request fails before provider I/O with its requested
 output, estimated input, and available headroom; this check does not automatically
