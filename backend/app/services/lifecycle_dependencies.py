@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, aliased
 from app.models.action_approval import ActionExecutionReceipt
 from app.models.ai_task_event import AITaskEvent
 from app.models.ai_task_run import AITaskRun
+from app.models.ai_workflow import AIReprocessMember, AIReportStageArtifact, AIWorkflowDispatch
 from app.models.alert_evaluation_match import AlertEvaluationMatch
 from app.models.alert_evaluation_request import AlertEvaluationRequestActivity
 from app.models.alert_occurrence import (
@@ -214,13 +215,15 @@ def lifecycle_dependent_row_counts(
             cap=cap,
         )
     elif table_name == "ai_task_runs":
-        _add_capped_direct_counts(
-            db,
-            counts,
-            parent_model=model,
-            parent_column=AITaskEvent.task_run_id,
-            cap=cap,
-        )
+        for reference in (
+            AITaskEvent.task_run_id,
+            AIWorkflowDispatch.run_id,
+            AIReprocessMember.parent_run_id,
+            AIReportStageArtifact.task_run_id,
+        ):
+            _add_capped_direct_counts(
+                db, counts, parent_model=model, parent_column=reference, cap=cap,
+            )
         child_run = aliased(AITaskRun)
         _add_capped_query_counts(
             db,
