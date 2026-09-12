@@ -458,7 +458,12 @@ def compact_report_context(
 
 
 def estimate_message_tokens(messages: list[dict[str, str]]) -> int:
-    return sum(estimate_tokens(message.get("content")) for message in messages)
+    """Estimate serialized framing and escaped text as a conservative wire bound.
+
+    Provider tokenizers can differ; the caller must retain its protocol overhead
+    and safety reserve. Sharing this estimate keeps planning and I/O checks aligned.
+    """
+    return estimate_tokens(_json(messages))
 
 
 def _fit_representative_findings(

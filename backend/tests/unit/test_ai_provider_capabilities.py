@@ -4,7 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.services.ai_context_budget import AIContextBudgetError
+from app.services.ai_context_budget import AIContextBudgetError, estimate_tokens
+from app.services.report_prompt_budget import estimate_message_tokens
 from app.services.ai_provider_client import AIIntegrationError
 from app.services.ai_provider_protocol import (
     build_provider_request_payload, provider_output_ceiling, provider_report_context_budget,
@@ -75,10 +76,11 @@ def test_invalid_persisted_capabilities_fail_before_transport(capabilities):
 def test_context_and_output_ceiling_use_actual_message_input_and_safety():
     active = _active(model_context_window_tokens=8192, model_max_output_tokens=6000)
     messages = [{"role": "user", "content": "x" * 9982}]
-    assert provider_output_ceiling(active, messages) == 1588
-    validate_provider_request(active, messages, 1588)
-    with pytest.raises(AIIntegrationError, match="1,588"):
-        validate_provider_request(active, messages, 1589)
+    ceiling = 8192 - 1229 - 384 - estimate_message_tokens(messages)
+    assert provider_output_ceiling(active, messages) == ceiling
+    validate_provider_request(active, messages, ceiling)
+    with pytest.raises(AIIntegrationError, match=f"{ceiling:,}"):
+        validate_provider_request(active, messages, ceiling + 1)
     assert provider_output_ceiling(active, MESSAGES) == 6000
 
 
@@ -88,3 +90,25 @@ def test_report_planning_uses_smaller_model_context_and_rejects_excess_output():
     active.report_reserved_output_tokens = 2001
     with pytest.raises(AIContextBudgetError, match="model limits"):
         provider_report_context_budget(active)
+
+
+@pytest.mark.parametrize("content", ["\x00" * 2000, "\n\"" * 2000, "https://example.com/path?data=" + "x" * 2000])
+def test_context_estimate_includes_serialized_escaping_and_message_framing(content):
+    messages = [{"role": "system", "content": "Return JSON."}, {"role": "user", "content": content}]
+    serialized = json.dumps(messages, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+    assert estimate_message_tokens(messages) == estimate_tokens(serialized)
+    assert estimate_message_tokens(messages) > sum(estimate_tokens(message["content"]) for message in messages)
+    active = _active(model_context_window_tokens=8192)
+    with pytest.raises(AIIntegrationError, match="configured model limits"):
+        validate_provider_request(active, messages, 7000)
+
+
+def test_escaped_input_that_previously_fit_raw_content_fails_before_io():
+    messages = [{"role": "user", "content": "\x00" * 1050}]
+    active = _active(model_context_window_tokens=8192)
+    raw_headroom = 8192 - 1229 - 384 - estimate_tokens(messages[0]["content"])
+    assert raw_headroom > 5000
+    with pytest.raises(AIIntegrationError) as caught:
+        validate_provider_request(active, messages, 5000)
+    assert caught.value.provider_io_outcome == "not_sent"
+    assert caught.value.failure_category == "provider_context_budget_exceeded"

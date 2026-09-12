@@ -9,7 +9,8 @@ from pydantic import ValidationError
 
 from app.core.ai_limits import AI_CONTEXT_PROTOCOL_OVERHEAD_TOKENS, MAX_AI_COMPLETION_TOKENS
 from app.schemas.ai_provider_capabilities import AIProviderCapabilityFields, capability_values
-from app.services.ai_context_budget import AIContextBudget, AIContextBudgetError, build_context_budget, estimate_tokens
+from app.services.ai_context_budget import AIContextBudget, AIContextBudgetError, build_context_budget
+from app.services.report_prompt_budget import estimate_message_tokens
 
 if TYPE_CHECKING:
     from app.services.ai_config import ActiveAISettings
@@ -37,7 +38,7 @@ def provider_output_ceiling(active: ActiveAISettings, messages: list[dict[str, s
     ceiling = capabilities.model_max_output_tokens or MAX_AI_COMPLETION_TOKENS
     if capabilities.model_context_window_tokens is not None:
         context = capabilities.model_context_window_tokens
-        input_tokens = sum(estimate_tokens(message.get("content")) for message in (messages or []))
+        input_tokens = estimate_message_tokens(messages) if messages is not None else 0
         headroom = context - math.ceil(context * PROVIDER_CONTEXT_SAFETY_PERCENT / 100)
         headroom -= AI_CONTEXT_PROTOCOL_OVERHEAD_TOKENS + input_tokens
         ceiling = min(ceiling, headroom)
@@ -52,7 +53,7 @@ def validate_provider_request(active: ActiveAISettings, messages: list[dict[str,
         )
     ceiling = provider_output_ceiling(active, messages)
     if requested_tokens > ceiling:
-        input_tokens = sum(estimate_tokens(message.get("content")) for message in messages)
+        input_tokens = estimate_message_tokens(messages)
         raise _request_error(
             f"AI request allows {requested_tokens:,} output tokens, but the configured model limits leave "
             f"{max(0, ceiling):,} after approximately {input_tokens:,} input tokens and safety reserves. "
