@@ -10,6 +10,7 @@ from app.models.ai_task_run import AITaskRun
 from app.models.article import Article
 from app.models.item import Item
 from app.services import ai_config, ai_integration, ai_ops
+from app.services.ai_workflow_dispatch import AIWorkflowDeferred, defer_ai_workflow_run
 from app.services.ai_telemetry_data_policy import capture_ai_task_run_data_access
 from app.tasks import feed_task_runtime
 from app.tasks.feed_task_dependencies import ItemAIDependencies
@@ -61,6 +62,10 @@ def run_generate_item_ai_enrichment(
         _claimed_item, claim_reason = feed_task_runtime.claim_item_processing_target(
             db, item_id=parsed_item_id
         )
+        if claim_reason == "already_running" and parsed_run_id is not None:
+            defer_ai_workflow_run(db, run_id=parsed_run_id, reason="item_busy", retry_after_seconds=30)
+            db.commit()
+            return {"status": "queued", "reason": "item_busy", "item_id": item_id}
         if claim_reason is not None:
             _finish_skipped_item_run(db, task, parsed_run_id, claim_reason)
             return {"status": "skipped", "reason": claim_reason, "item_id": item_id}
@@ -70,6 +75,12 @@ def run_generate_item_ai_enrichment(
             result = ai_integration.run_item_ai_enrichment(
                 db, item_id=parsed_item_id, force=force, task_run_id=parsed_run_id
             )
+        except AIWorkflowDeferred as exc:
+            if parsed_run_id is not None:
+                defer_ai_workflow_run(db, run_id=parsed_run_id, reason=exc.reason,
+                                      retry_after_seconds=exc.retry_after_seconds)
+                db.commit()
+            return {"status": "queued", "reason": exc.reason, "item_id": item_id}
         except Exception:
             db.rollback()
             _finish_unexpected_item_error(db, task, parsed_run_id)
@@ -123,6 +134,11 @@ def parse_datetime_text(value: str | None) -> datetime | None:
 
 
 def _start_item_run(db, task, run_id: uuid.UUID, item_id: str, force: bool):
+    from app.services.ai_reprocess import is_canonical_reprocess_child
+    if not is_canonical_reprocess_child(db, run_id=run_id):
+        ai_ops.finish_ai_task_run(db, run_id=run_id, status="skipped", reason="superseded_reprocess_child")
+        db.commit()
+        return {"status": "skipped", "reason": "superseded_reprocess_child", "item_id": item_id}
     started_run = ai_ops.start_ai_task_run(
         db,
         run_id=run_id,
@@ -260,8 +276,14 @@ def run_reprocess_recent_ai_items(
         )
         if unavailable_result is not None:
             return unavailable_result
-        selected_item_ids = _select_item_ids(db, selection)
-        _record_selection(db, parsed_run_id, selected_item_ids, selection)
+        if parsed_run_id is not None:
+            from app.services.ai_reprocess import freeze_reprocess_selection
+            parent = db.get(AITaskRun, parsed_run_id)
+            selected_item_ids = [member.item_id for member in freeze_reprocess_selection(db, parent)]
+            db.commit()
+        else:
+            selected_item_ids = _select_item_ids(db, selection)
+            _record_selection(db, parsed_run_id, selected_item_ids, selection)
         if not selected_item_ids:
             _finish_empty_selection(db, task, parsed_run_id, selection)
             return {"queued": 0, "reason": "no_items"}
@@ -555,6 +577,8 @@ def _record_queue_stop(
     if run_id is None:
         return
     with dependencies.db_session() as db:
+        from app.services.ai_workflow_dispatch import complete_workflow_dispatch
+        complete_workflow_dispatch(db, run_id)
         ai_ops.record_ai_task_event(
             db,
             run_id=run_id,
@@ -587,6 +611,8 @@ def _record_children_queued(
     if run_id is None:
         return
     with dependencies.db_session() as db:
+        from app.services.ai_reprocess import finish_reprocess_publication
+        finish_reprocess_publication(db, run_id=run_id)
         ai_ops.record_ai_task_event(
             db,
             run_id=run_id,

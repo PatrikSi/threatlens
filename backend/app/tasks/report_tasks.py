@@ -23,6 +23,7 @@ from app.services.ai_ops import (
 from app.services.ai_ops_common import AI_TASK_TYPE_REPORT
 from app.services import report_dispatch
 from app.services.report_generation import generate_report
+from app.services.ai_workflow_dispatch import AIWorkflowDeferred
 from app.services.report_execution import (
     ReportGenerationLeaseLostError,
     ReportGenerationLeaseUnavailableError,
@@ -386,6 +387,13 @@ def generate_intelligence_report(
                 infrastructure_retry_count=infrastructure_retry_count,
                 phase="verifying report generation ownership",
                 exc=exc,
+            )
+        except AIWorkflowDeferred as exc:
+            from app.services.ai_report_workflow import defer_report_workflow
+            return defer_report_workflow(
+                db, report_id=parsed_report_id, run_id=parsed_run_id,
+                lease_token=lease_token, generation_fence=generation_fence,
+                reason=exc.reason, retry_after_seconds=exc.retry_after_seconds,
             )
         except Exception as exc:
             return _settle_failed_generation(

@@ -27,6 +27,7 @@ from app.services.ai_integration import (
 )
 from app.services.ai_ops import get_ai_task_run_stop_reason, record_ai_task_event
 from app.services.ai_provider_client import AICompletionResult, AIIntegrationError
+from app.services.ai_workflow_dispatch import AIWorkflowDeferred
 from app.services.report_availability import (
     ReportingUnavailableError,
     ensure_reporting_available,
@@ -222,6 +223,20 @@ def generate_report(
             counters.completion_tokens,
             counters.total_tokens,
         )
+    except AIWorkflowDeferred:
+        db.rollback()
+        _raise_if_task_stopped(db, task_run_id)
+        _check_execution(execution_checkpoint)
+        current = db.get(Report, report_id)
+        if current is not None:
+            current.status, current.generation_stage = "queued", "waiting_for_capacity"
+            current.model_calls = counters.model_calls
+            current.prompt_tokens = counters.prompt_tokens or None
+            current.completion_tokens = counters.completion_tokens or None
+            current.total_tokens = counters.total_tokens or None
+            db.add(current)
+            _commit_execution(db, execution_commit)
+        raise
     except Exception as exc:
         if isinstance(exc, ReportGenerationOwnershipError):
             db.rollback()
@@ -510,9 +525,10 @@ def _generate_section(
     elif not findings:
         body, key_points, citations = NO_FINDINGS_BODY, [], []
     else:
-        section.status = "running"
-        db.add(section)
-        _commit_execution(db, execution_commit)
+        if section.status != "ready":
+            section.status = "running"
+            db.add(section)
+            _commit_execution(db, execution_commit)
         section_config = next(
             (
                 entry

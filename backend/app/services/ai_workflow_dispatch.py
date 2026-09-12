@@ -34,9 +34,10 @@ def register_ai_workflow(db: Session, run: AITaskRun) -> AIWorkflowDispatch | No
         return existing
     metadata = run.metadata_json or {}
     payload = {"task_run_id": str(run.id)}
-    if run.task_type == "item_enrichment" and run.item_id is not None:
+    if run.task_type == "item_enrichment":
         task_name = "generate_item_ai_enrichment"
-        payload.update(item_id=str(run.item_id), force=bool(metadata.get("force")))
+        payload.update(item_id=str(run.item_id or metadata.get("accepted_item_id") or uuid.UUID(int=0)),
+                       force=bool(metadata.get("force")))
     elif run.task_type == "daily_brief" and run.parent_run_id is None:
         task_name = "dispatch_daily_ai_brief_generation"
         payload["force"] = bool(metadata.get("force"))

@@ -347,39 +347,23 @@ def _queue_item_ai_enrichment_run(
     metadata: dict[str, object] | None = None,
 ) -> uuid.UUID:
     with db_session() as db:
-        run = queue_ai_task_run(
-            db,
-            task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
-            trigger_source=trigger_source,
-            actor_user_id=actor_user_id,
-            item_id=item_id,
-            parent_run_id=parent_run_id,
-            model=model,
-            metadata=metadata,
-            reason=reason,
-        )
+        if parent_run_id is not None:
+            from app.services.ai_reprocess import ensure_reprocess_child
+            run = ensure_reprocess_child(db, parent_id=parent_run_id, item_id=item_id, model=model)
+            if run is None:
+                db.commit()
+                return parent_run_id
+        else:
+            run = queue_ai_task_run(
+                db, task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
+                trigger_source=trigger_source, actor_user_id=actor_user_id,
+                item_id=item_id, model=model,
+                metadata={**dict(metadata or {}), "force": bool(force)}, reason=reason,
+            )
         db.commit()
         run_id = run.id
-    try:
-        task = generate_item_ai_enrichment_task.delay(
-            str(item_id), force=force, task_run_id=str(run_id)
-        )
-    except Exception:
-        with db_session() as db:
-            ai_ops.finish_ai_task_run(
-                db,
-                run_id=run_id,
-                status=ai_ops.AI_STATUS_ERROR,
-                reason="enqueue_failed",
-                error="task_queue_unavailable",
-                worker_name="api",
-                metadata_updates={"force": bool(force)},
-            )
-            db.commit()
-        raise
-    task_id = getattr(task, "id", None)
-    if task_id:
-        _update_task_run_celery_id(run_id, task_id)
+    from app.services.ai_workflow_publication import publish_ai_workflow
+    publish_ai_workflow(run_id, session_factory=db_session)
     return run_id
 
 
