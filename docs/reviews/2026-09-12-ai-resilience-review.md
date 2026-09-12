@@ -4,6 +4,9 @@ Reviewed revision: `b979c30`, branch `dev`. This is a new review of the complete
 AI hardening implementation. Findings below describe the code at that revision;
 they are not a list of fixes implemented by this review.
 
+Implementation and validation of AR01–AR13 are tracked in the
+[remediation follow-up](2026-09-12-ai-remediation.md).
+
 The review found **12 P2 defects and one P3 defect**. The highest priorities are
 execution ownership, cancellation, connection-test authorization, provider-output
 persistence and the provenance of reused AI summaries. No P1 issue or article-data
