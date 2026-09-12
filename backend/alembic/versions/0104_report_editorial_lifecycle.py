@@ -85,9 +85,19 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Downgrading discards the delivery gate, so it requires finishing or removing
-    # review-governed reports and explicitly disabling review on schedules first.
+    # Old binaries cannot retain the meaning of reviewed publication pins. Never
+    # discard their history merely because a report has reached published state.
     bind = op.get_bind()
+    history = bind.execute(
+        sa.text(
+            "SELECT EXISTS (SELECT 1 FROM reports WHERE editorial_version > 1 OR published_revision_hash IS NOT NULL)"
+        )
+    ).scalar()
+    if history:
+        raise RuntimeError(
+            "Back up and remove reports with editorial history before downgrading; "
+            "published approval and evidence revisions must not be discarded silently."
+        )
     pending = bind.execute(
         sa.text(
             "SELECT EXISTS (SELECT 1 FROM reports WHERE review_required AND publication_status != 'published') OR EXISTS (SELECT 1 FROM report_schedules WHERE review_required)"
@@ -95,7 +105,9 @@ def downgrade() -> None:
     ).scalar()
     if pending:
         raise RuntimeError(
-            "Publish or remove reports awaiting editorial review and disable schedule review before downgrading."
+            "Back up and remove reports awaiting editorial review, and disable "
+            "schedule review before downgrading. Publishing does not remove "
+            "the protection of retained editorial history."
         )
     op.drop_index("ix_reports_publication_status", table_name="reports")
     op.drop_constraint("ck_reports_editorial_version", "reports", type_="check")

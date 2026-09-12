@@ -118,7 +118,7 @@ def downgrade() -> None:
         for table in OWNERS
     ):
         raise RuntimeError(
-            "Archive team alert rules, occurrences and metrics before downgrading shared triage."
+            "Back up and remove team alert rules, queued matches, occurrences and metrics before downgrading shared triage."
         )
     for table in OWNERS:
         op.execute(f"DROP TRIGGER trg_alert_team_ownership_immutable ON {table}")
