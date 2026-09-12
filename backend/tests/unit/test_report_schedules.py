@@ -306,6 +306,7 @@ def test_skipped_scheduled_report_persists_complete_coverage(
     assert report.excluded_source_count == omitted_sources
     assert report.metrics_json == {"matched": total_matches}
     assert report.coverage_json == {
+        "evidence_contract_version": 1,
         "total_matches": total_matches,
         "included_sources": 0,
         "omitted_sources": omitted_sources,

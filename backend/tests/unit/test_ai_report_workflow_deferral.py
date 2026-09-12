@@ -1,12 +1,10 @@
-import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest
 
-from app.models.ai_task_run import AITaskRun
 from app.models.ai_workflow import AIReportStageArtifact
-from app.models.report import Report
+from app.services.report_evidence_contract import REPORT_EVIDENCE_CONTRACT_VERSION
 from app.models.report_generation_lease import ReportGenerationLease
 from app.models.report_section import ReportSection
 from app.models.report_source_item import ReportSourceItem
@@ -87,6 +85,7 @@ def test_generation_does_not_classify_capacity_deferral_as_failure(db_session, m
     report.prompt_config_json = {'objective': 'Synthetic report'}
     report.sections_config_json = [{'key': 'executive_summary', 'title': 'Summary'}]
     report.context_window_tokens = 8192
+    report.coverage_json = {"evidence_contract_version": REPORT_EVIDENCE_CONTRACT_VERSION}
     report.source_count = report.included_source_count = 1
     now = datetime.now(timezone.utc)
     db_session.add(ReportSourceItem(report_id=report.id, citation_key='S1', included=True, rank=1,

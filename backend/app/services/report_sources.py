@@ -287,7 +287,15 @@ def report_preview_from_plan(
         items_with_iocs=plan.items_with_iocs,
         items=[
             ReportPreviewItem(
-                **item.model_dump(),
+                **{
+                    **item.model_dump(),
+                    **(
+                        {"ai_relevance_score": None, "ai_relevance_label": None}
+                        if selected_by_id[item.id].record.ai
+                        and not selected_by_id[item.id].record.ai.source_current
+                        else {}
+                    ),
+                },
                 estimated_tokens=selected_by_id[item.id].estimated_tokens,
                 selected=selected_by_id[item.id].included,
                 exclusion_reason=selected_by_id[item.id].exclusion_reason,
