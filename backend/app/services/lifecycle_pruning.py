@@ -8,11 +8,12 @@ Permissions and provider-side-effect receipts are never removed by this helper.
 from datetime import datetime, timezone
 import uuid
 
-from sqlalchemy import delete, func, literal, or_, select
+from sqlalchemy import delete, func, literal, or_, select, tuple_
 from sqlalchemy.orm import Session, aliased
 
 from app.models.ai_task_event import AITaskEvent
 from app.models.ai_task_run import AITaskRun
+from app.models.ai_workflow import AIReprocessMember, AIReportStageArtifact, AIWorkflowDispatch
 from app.models.action_approval import ActionExecutionReceipt
 from app.models.ai_provider_attempt_receipt import AIProviderAttemptReceipt
 from app.models.alert_evaluation_match import AlertEvaluationMatch
@@ -33,7 +34,12 @@ from app.services.lifecycle_permission_pruning import (
 
 
 _CHILDREN = {
-    "ai_task_runs": ((AITaskEvent, AITaskEvent.task_run_id),),
+    "ai_task_runs": (
+        (AITaskEvent, AITaskEvent.task_run_id),
+        (AIWorkflowDispatch, AIWorkflowDispatch.run_id),
+        (AIReprocessMember, AIReprocessMember.parent_run_id),
+        (AIReportStageArtifact, AIReportStageArtifact.task_run_id),
+    ),
     "integration_deliveries": ((IntegrationAttempt, IntegrationAttempt.delivery_id),),
     "alert_evaluation_requests": (
         (AlertEvaluationRequestActivity, AlertEvaluationRequestActivity.request_id),
@@ -98,7 +104,7 @@ def incremental_pruning_candidates(
             predicate = predicate & (
                 GovernanceOperationReceipt.resource_type == "action_approval"
             )
-        has_children.append(select(child.id).where(predicate).exists())
+        has_children.append(select(literal(1)).select_from(child).where(predicate).exists())
     rows = db.execute(
         select(model.id, *counts).where(model.id.in_(parent_ids), or_(*has_children))
     )
@@ -180,16 +186,17 @@ def prune_oversized_parent(
             filters.append(
                 GovernanceOperationReceipt.resource_type == "action_approval"
             )
+        keys = tuple(child.__table__.primary_key.columns)
         child_ids = (
-            select(child.id)
+            select(*keys)
             .where(*filters)
-            .order_by(child.id)
+            .order_by(*keys)
             .limit(remaining)
             .with_for_update(skip_locked=True)
         )
         result = db.execute(
             delete(child)
-            .where(child.id.in_(child_ids))
+            .where(tuple_(*keys).in_(child_ids))
             .execution_options(synchronize_session=False)
         )
         pruned += int(result.rowcount or 0)
@@ -220,30 +227,31 @@ def lock_history_dependants(
     blocked: set[uuid.UUID] = set()
     for column in references:
         child = column.class_
+        keys = tuple(child.__table__.primary_key.columns)
         filters = [column.in_(parent_ids)]
         if child is GovernanceOperationReceipt:
             filters.append(child.resource_type == "action_approval")
         anchor = None
         while True:
             query = (
-                select(child.id, column).where(*filters).order_by(child.id).limit(1_000)
+                select(*keys, column).where(*filters).order_by(*keys).limit(1_000)
             )
             if anchor is not None:
-                query = query.where(child.id > anchor)
+                query = query.where(tuple_(*keys) > anchor)
             rows = list(db.execute(query))
             if not rows:
                 break
-            locked = set(
-                db.scalars(
-                    select(child.id)
+            locked = {
+                tuple(row) for row in db.execute(
+                    select(*keys)
                     .where(
-                        child.id.in_([row[0] for row in rows]),
+                        tuple_(*keys).in_([tuple(row[:-1]) for row in rows]),
                     )
                     .with_for_update(skip_locked=True)
                 )
-            )
-            blocked.update(row[1] for row in rows if row[0] not in locked)
-            anchor = rows[-1][0]
+            }
+            blocked.update(row[-1] for row in rows if tuple(row[:-1]) not in locked)
+            anchor = tuple(rows[-1][:-1])
     return [parent_id for parent_id in parent_ids if parent_id not in blocked]
 
 

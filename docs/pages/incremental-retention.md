@@ -1,7 +1,8 @@
 # Incremental history cleanup
 
 Lifecycle retention can drain expired history whose dependent rows exceed the
-10,000-row transaction budget. AI task events, integration attempts, alert
+10,000-row transaction budget. AI task events, workflow dispatches, accepted
+reprocess members, saved report stages, integration attempts, alert
 evaluation activity and matches, and action-approval operation receipts use this
 path. Existing report references, unresolved provider attempts, active delivery
 retries, and other retention protections still prevent cleanup from starting.
@@ -40,6 +41,18 @@ report reference that prevents pruning, and rejection of late reports and parent
 reactivation. Delivery attempts and approval receipts are checked across repeated
 bounded batches, and final deletion skips an event writer waiting on another
 locked source. All concurrency cases use disposable PostgreSQL transactions.
+
+Workflow member and report-stage cleanup uses the full composite primary key,
+preserving matching item or stage identifiers under another task. Their database
+reference guards reject new and retargeted references after a pruning claim.
+Migration 0099 blocks downgrade while any AI task pruning claim remains; finish
+the eligible cleanup before removing those guards. Regression tests drain
+10,001-member and 10,001-stage bundles and check writers blocked before claim
+publication, busy children, and lock scans spanning multiple pages.
+
+The cap measures dependent rows. Large stage JSON values can still increase
+database I/O and WAL; cleanup selects keys and counts without loading those
+payloads into application memory.
 
 ## Permission-bearing history
 
