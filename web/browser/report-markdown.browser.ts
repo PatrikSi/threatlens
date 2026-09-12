@@ -23,6 +23,13 @@ test('renders safe report Markdown and follows citations by keyboard without loa
   await expect(page.locator('article img, article script, article iframe')).toHaveCount(0)
   await expect(page.getByText('[Image omitted: Untrusted chart]', { exact: true })).toBeVisible()
   expect(await page.evaluate(() => 'reportInjected' in window)).toBe(false)
+  for (const text of ['Literal advisory:', 'Encoded advisory:']) {
+    const paragraph = page.locator('article p').filter({ hasText: text })
+    await expect(paragraph.getByRole('link', { name: 'Source S1', exact: true })).toHaveCount(1)
+    await expect(paragraph.locator('a[href^="https:"]')).toHaveCount(0)
+  }
+  const numericRow = page.getByRole('row').filter({ has: page.getByRole('cell', { name: '97%', exact: true }) })
+  await expect(numericRow.getByRole('link', { name: 'Source S1' })).toBeVisible()
   await page.getByRole('link', { name: 'Source S1', exact: true }).first().focus()
   await page.keyboard.press('Enter')
   await expect(page.locator('#report-markdown-report-source-S1')).toBeFocused()

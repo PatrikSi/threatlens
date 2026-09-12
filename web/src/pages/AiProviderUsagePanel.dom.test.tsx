@@ -34,8 +34,12 @@ function mount(days = 30) {
   render(days)
   return { host, render }
 }
-async function settle() {
-  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)) })
+async function settle(check: () => void) {
+  const deadline = Date.now() + 2000
+  while (true) {
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)) })
+    try { check(); return } catch (error) { if (Date.now() >= deadline) throw error }
+  }
 }
 function button(host: HTMLElement, name: string) {
   const result = Array.from(host.querySelectorAll('button')).find((entry) => entry.textContent === name)
@@ -65,7 +69,7 @@ describe('provider usage with a real QueryClient', () => {
       row({ provider_id: null, provider_name: 'Legacy settings', provider_version: null }),
     ]))
     const { host } = mount()
-    await settle()
+    await settle(() => expect(host.textContent).toContain('Retired provider'))
     expect(host.textContent).toContain('Retired provider')
     expect(host.textContent).toContain('Unknown historical provider')
     expect(host.textContent).toContain('Legacy settings')
@@ -89,16 +93,16 @@ describe('provider usage with a real QueryClient', () => {
       return Promise.resolve(response(Array.from({ length: 25 }, (_, i) => row({ provider_name: `Page one ${i}` })), { total: 26 }))
     })
     const { host, render } = mount()
-    await settle()
+    await settle(() => expect(host.textContent).toContain('Page one 0'))
     act(() => button(host, 'Next provider page').click())
-    await settle()
+    await settle(() => expect(host.textContent).toContain('Loading provider usage'))
     expect(host.textContent).toContain('Loading provider usage')
     expect(host.textContent).not.toContain('Page one 0')
     render(7)
-    await settle()
+    await settle(() => expect(host.textContent).toContain('New window'))
     expect(host.textContent).toContain('New window')
     await act(async () => oldPage.resolve(response([row({ provider_name: 'Old late page' })], { offset: 25, total: 26 })))
-    await settle()
+    await settle(() => expect(host.textContent).not.toContain('Old late page'))
     expect(host.textContent).not.toContain('Old late page')
     expect(host.textContent).toContain('1–1 of 1')
     expect(mocks.apiFetch.mock.calls.some(([path]) => path.includes('days=7&limit=25&offset=0'))).toBe(true)
@@ -108,14 +112,14 @@ describe('provider usage with a real QueryClient', () => {
   it('keeps a failed refresh explicit and lets the user retry without removing cached records', async () => {
     mocks.apiFetch.mockResolvedValueOnce(response([row()])).mockRejectedValueOnce(new Error('synthetic unavailable'))
     const { host } = mount()
-    await settle()
+    await settle(() => expect(host.textContent).toContain('Local provider'))
     act(() => button(host, 'Refresh provider usage').click())
-    await settle()
+    await settle(() => expect(host.querySelector('[role="alert"]')?.textContent).toContain('Showing previously loaded records'))
     expect(host.querySelector('[role="alert"]')?.textContent).toContain('Showing previously loaded records')
     expect(host.textContent).toContain('Local provider')
     mocks.apiFetch.mockResolvedValue(response([row({ provider_name: 'Recovered provider' })]))
     act(() => button(host, 'Refresh provider usage').click())
-    await settle()
+    await settle(() => expect(host.textContent).toContain('Recovered provider'))
     expect(host.querySelector('[role="alert"]')).toBeNull()
     expect(host.textContent).toContain('Recovered provider')
   })
@@ -123,14 +127,14 @@ describe('provider usage with a real QueryClient', () => {
   it('renders initial errors with retry and supports an out-of-range page after history pruning', async () => {
     mocks.apiFetch.mockRejectedValueOnce(new Error('synthetic unavailable'))
     const { host } = mount()
-    await settle()
+    await settle(() => expect(host.querySelector('[role="alert"]')?.textContent).toContain('Use Refresh provider usage to retry'))
     expect(host.querySelector('[role="alert"]')?.textContent).toContain('Use Refresh provider usage to retry')
     mocks.apiFetch.mockResolvedValueOnce(response(Array.from({ length: 25 }, (_, i) => row({ provider_name: `Record ${i}` })), { total: 26 }))
     act(() => button(host, 'Refresh provider usage').click())
-    await settle()
+    await settle(() => expect(host.textContent).toContain('Record 0'))
     mocks.apiFetch.mockResolvedValueOnce(response([], { total: 10, offset: 25 }))
     act(() => button(host, 'Next provider page').click())
-    await settle()
+    await settle(() => expect(host.textContent).toContain('There are no records on this page'))
     expect(host.textContent).toContain('There are no records on this page')
     expect(button(host, 'First provider page').disabled).toBe(false)
     expect(button(host, 'Next provider page').disabled).toBe(true)

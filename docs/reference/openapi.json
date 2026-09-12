@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "1.10.0",
-    "x-threatlens-contract-sha256": "0be859892e6a39851fa7d606f46c1477fd695b2174ccb9a4d775bc02014ce47b"
+    "x-threatlens-contract-sha256": "7e13db71c4d1dc0f10eccfa71dd6b7bd108fd3e4404555ba7ffb558fbcf10b3b"
   },
   "servers": [
     {
@@ -28379,6 +28379,13 @@
             },
             "type": "array",
             "title": "Recommended Actions"
+          },
+          "evidence_warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Evidence Warnings"
           },
           "item_count": {
             "type": "integer",
