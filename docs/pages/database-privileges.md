@@ -81,6 +81,34 @@ configuration. A migration that changes the schema requires the corresponding
 application rollback procedure or backup recovery; reverting environment values
 alone is not a schema rollback.
 
+## Enterprise feature rollback
+
+Back up the database before upgrading or downgrading the enterprise migrations
+`0101`–`0105`. A schema downgrade is a destructive operator action. Stop API,
+Beat and workers first; do not run older binaries against the newer schema.
+Prefer restoring the verified backup when the older application must retain its
+original data and configuration.
+
+Named-team rollback refuses team-owned views and investigations. Shared-triage
+rollback refuses team-owned rules, queued matches, occurrences and metrics;
+archiving a rule does not clear this protection. Back up and explicitly migrate
+or remove those records before retrying. Removing the team schema also removes
+team definitions and their membership and manager group bindings.
+
+Report rollback refuses pending review, review-enabled schedules, and retained
+editorial changes or publication pins. Publishing a report does not make its
+approval history disposable. See [report rollback protections](reporting.md)
+before deliberately removing affected reports. A refused downgrade rolls back
+the entire migration transaction, including any later revision already removed
+within that command.
+
+Workspace-enforcement rollback removes the enforced landing and dashboard modes
+and the copied dashboard templates. Older workspace policies and personal
+preferences remain, but cannot enforce these new arrangements. Re-upgrading
+initializes the new fields to defaults; it does not recover removed settings.
+Keep the backup when those settings or any removed enterprise records must be
+restored later.
+
 ## Recovery and authorization fences
 
 The bundled recovery adapter accepts the historical single-role topology and
