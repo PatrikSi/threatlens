@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Annotated, Literal
 
 from pydantic import (
+    AfterValidator,
     BaseModel,
     ConfigDict,
     Field,
@@ -12,27 +13,28 @@ from pydantic import (
 )
 
 from app.schemas.item import ItemListEntry
-from app.schemas.storage_text import StorageText
+from app.schemas.storage_text import StorageTextInput, validate_storage_text
 
 
 ALERT_KEYWORD_MAX_LENGTH = 128
 AlertKeyword = Annotated[
-    StorageText,
+    str,
     StringConstraints(max_length=ALERT_KEYWORD_MAX_LENGTH),
+    AfterValidator(validate_storage_text),
 ]
 
 
-class AlertInterestCreate(BaseModel):
+class AlertInterestCreate(StorageTextInput):
     team_id: uuid.UUID | None = None
     due_after_minutes: int | None = Field(default=None, ge=1, le=525600)
     escalation_after_minutes: int | None = Field(default=None, ge=0, le=525600)
-    name: StorageText = Field(min_length=1, max_length=255)
-    category: StorageText = Field(min_length=1, max_length=64)
+    name: str = Field(min_length=1, max_length=255)
+    category: str = Field(min_length=1, max_length=64)
     keywords: list[AlertKeyword] = Field(min_length=1, max_length=64)
     enabled: bool = True
     severity: Literal["low", "medium", "high", "critical"] = "medium"
     suppression_until: datetime | None = None
-    suppression_reason: StorageText | None = Field(default=None, max_length=500)
+    suppression_reason: str | None = Field(default=None, max_length=500)
 
     @field_validator("suppression_until")
     @classmethod
@@ -47,22 +49,22 @@ class AlertInterestCreate(BaseModel):
         return self
 
 
-class AlertInterestUpdate(BaseModel):
+class AlertInterestUpdate(StorageTextInput):
     model_config = ConfigDict(extra="forbid")
     due_after_minutes: int | None = Field(default=None, ge=1, le=525600)
     escalation_after_minutes: int | None = Field(default=None, ge=0, le=525600)
     # expected_revision remains as a compatibility alias for expected_row_version.
     expected_revision: int | None = Field(default=None, ge=1)
     expected_row_version: int | None = Field(default=None, ge=1)
-    name: StorageText | None = Field(default=None, min_length=1, max_length=255)
-    category: StorageText | None = Field(default=None, min_length=1, max_length=64)
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    category: str | None = Field(default=None, min_length=1, max_length=64)
     keywords: list[AlertKeyword] | None = Field(
         default=None, min_length=1, max_length=64
     )
     enabled: bool | None = None
     severity: Literal["low", "medium", "high", "critical"] | None = None
     suppression_until: datetime | None = None
-    suppression_reason: StorageText | None = Field(default=None, max_length=500)
+    suppression_reason: str | None = Field(default=None, max_length=500)
 
     @field_validator("suppression_until")
     @classmethod
@@ -82,9 +84,9 @@ class AlertInterestUpdate(BaseModel):
         return self
 
 
-class AlertInterestPreviewRequest(BaseModel):
-    name: StorageText | None = Field(default=None, max_length=255)
-    category: StorageText = Field(min_length=1, max_length=64)
+class AlertInterestPreviewRequest(StorageTextInput):
+    name: str | None = Field(default=None, max_length=255)
+    category: str = Field(min_length=1, max_length=64)
     keywords: list[AlertKeyword] = Field(min_length=1, max_length=64)
     limit: int = Field(default=5, ge=1, le=25)
 
@@ -226,10 +228,10 @@ class AlertOccurrenceLifecycleUpdate(BaseModel):
         return self
 
 
-class AlertOccurrenceSnoozeUpdate(BaseModel):
+class AlertOccurrenceSnoozeUpdate(StorageTextInput):
     expected_version: int = Field(ge=1)
     snoozed_until: datetime | None
-    reason: StorageText | None = Field(default=None, max_length=500)
+    reason: str | None = Field(default=None, max_length=500)
 
     @field_validator("snoozed_until")
     @classmethod

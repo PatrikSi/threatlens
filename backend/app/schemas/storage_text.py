@@ -1,8 +1,6 @@
 """Validate user-authored text before PostgreSQL/JSON persistence."""
 
-from typing import Annotated
-
-from pydantic import AfterValidator
+from pydantic import BaseModel, field_validator
 
 
 def validate_storage_text(value: str) -> str:
@@ -11,4 +9,8 @@ def validate_storage_text(value: str) -> str:
     return value
 
 
-StorageText = Annotated[str, AfterValidator(validate_storage_text)]
+class StorageTextInput(BaseModel):
+    @field_validator("*")
+    @classmethod
+    def validate_text_fields(cls, value):
+        return validate_storage_text(value) if isinstance(value, str) else value
