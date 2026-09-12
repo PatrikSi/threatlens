@@ -6,10 +6,16 @@ import { useCurrentUser } from '../hooks/useCurrentUser'
 import { AlertOperationsWorkspace } from './AlertOperationsWorkspace'
 import { AlertOccurrencesWorkspace } from './AlertOccurrencesWorkspace'
 import { AlertDeleteDialog, AlertEditorPanel, ConfiguredAlertsPanel } from './AlertsPagePanels'
+import { AlertTriageDraftContext } from './alertTriageDraftContext'
 import { useAlertsPageController } from './useAlertsPageController'
 
 export function AlertsPage() {
-  const controller = useAlertsPageController()
+  const [triageDirty, setTriageDirty] = useState(false)
+  return <AlertTriageDraftContext.Provider value={setTriageDirty}><AlertsPageContent triageDirty={triageDirty} /></AlertTriageDraftContext.Provider>
+}
+
+function AlertsPageContent({ triageDirty }: { triageDirty: boolean }) {
+  const controller = useAlertsPageController(triageDirty)
   const currentUserQuery = useCurrentUser()
   const isAdmin =
     !currentUserQuery.isError && currentUserQuery.data?.role === 'admin'

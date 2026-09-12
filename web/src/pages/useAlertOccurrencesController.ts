@@ -87,8 +87,13 @@ export function useAlertOccurrencesController(active = true) {
   const detailReturnTargetRef = useRef<HTMLButtonElement | null>(null)
 
   const rulesResult = useQuery({
-    queryKey: ['alerts', 'occurrences', 'rules'],
-    queryFn: () => apiFetch<AlertInterest[]>('/alerts?include_disabled=true'),
+    queryKey: ['alerts', 'occurrences', 'rules', filters.teamId, filters.queueScope],
+    queryFn: () => {
+      const params = new URLSearchParams({ include_disabled: 'true' })
+      if (filters.teamId) params.set('team_id', filters.teamId)
+      if (filters.queueScope && filters.queueScope !== 'all') params.set('queue_scope', filters.queueScope)
+      return apiFetch<AlertInterest[]>(`/alerts?${params}`)
+    },
     enabled: active,
     staleTime: 30_000,
   })
@@ -453,6 +458,7 @@ export function useAlertOccurrencesController(active = true) {
 
   return {
     acknowledgeSelected,
+    applyOccurrenceUpdates,
     copyTriageLink,
     shareFeedback,
     shareUrl: urlState.shareUrl,

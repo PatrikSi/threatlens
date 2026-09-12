@@ -11,7 +11,7 @@ export type AlertUrlState = {
   selectedOccurrenceId: string | null
   activityPage: number
 }
-const FILTER_KEYS = ['lifecycle_states', 'severities', 'alert_interest_id', 'suppressed', 'snoozed', 'since', 'until'] as const
+const FILTER_KEYS = ['lifecycle_states', 'severities', 'alert_interest_id', 'suppressed', 'snoozed', 'since', 'until', 'team_id', 'queue_scope', 'assignee_user_id', 'unassigned', 'overdue', 'escalated'] as const
 function positiveInteger(value: string | null, fallback: number) {
   const parsed = Number(value)
   return /^\d+$/.test(value ?? '') && Number.isSafeInteger(parsed) && parsed > 0 && parsed <= 2_147_483_647 ? parsed : fallback
@@ -25,6 +25,10 @@ export function readAlertUrlState(params: URLSearchParams): AlertUrlState {
   const booleanFilter = (key: string) => params.get(key) === 'yes' ? 'yes' : params.get(key) === 'no' ? 'no' : 'any'
   return {
     filters: {
+      teamId: (params.get('team_id') ?? '').slice(0, 128),
+      queueScope: params.get('queue_scope') === 'personal' ? 'personal' : params.get('queue_scope') === 'team' ? 'team' : 'all',
+      assigneeUserId: (params.get('assignee_user_id') ?? '').slice(0, 128),
+      unassigned: params.get('unassigned') === 'true', overdue: params.get('overdue') === 'true', escalated: params.get('escalated') === 'true',
       lifecycleStates: ALERT_OCCURRENCE_STATES.map(({ value }) => value).filter((value) => params.getAll('lifecycle_states').includes(value)),
       severities: ALERT_SEVERITIES.map(({ value }) => value).filter((value) => params.getAll('severities').includes(value)),
       ruleId: (params.get('alert_interest_id') ?? '').slice(0, 128),
@@ -47,6 +51,12 @@ export function writeAlertUrlState(params: URLSearchParams, changes: Partial<Ale
     filters.lifecycleStates.forEach((value) => next.append('lifecycle_states', value))
     filters.severities.forEach((value) => next.append('severities', value))
     if (filters.ruleId) next.set('alert_interest_id', filters.ruleId)
+    if (filters.teamId) next.set('team_id', filters.teamId)
+    if (filters.queueScope && filters.queueScope !== 'all') next.set('queue_scope', filters.queueScope)
+    if (filters.assigneeUserId) next.set('assignee_user_id', filters.assigneeUserId)
+    if (filters.unassigned) next.set('unassigned', 'true')
+    if (filters.overdue) next.set('overdue', 'true')
+    if (filters.escalated) next.set('escalated', 'true')
     if (filters.suppressed !== 'any') next.set('suppressed', filters.suppressed)
     if (filters.snoozed !== 'any') next.set('snoozed', filters.snoozed)
     if (filters.since) next.set('since', filters.since)
