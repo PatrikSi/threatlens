@@ -168,35 +168,21 @@ def update_ai_settings_route(
         "relevance_instructions": settings.relevance_instructions,
         "daily_brief_instructions": settings.daily_brief_instructions,
     }
+    report_setting_fields = (
+        "reporting_enabled",
+        "report_context_window_tokens",
+        "report_reserved_output_tokens",
+        "report_source_token_cap",
+        "report_max_sources",
+        "report_max_model_calls",
+        "report_context_safety_percent",
+    )
+    before_values.update({field: getattr(settings, field) for field in report_setting_fields})
     apply_ai_settings_update(settings, payload)
     db.add(settings)
     after_changed_fields = [
         field_name
-        for field_name in (
-            "base_url",
-            "model",
-            "summary_enabled",
-            "relevance_enabled",
-            "daily_brief_enabled",
-            "auto_enrich_new_items",
-            "daily_brief_window_hours",
-            "daily_brief_max_items",
-            "daily_brief_history_limit",
-            "daily_brief_schedule_hour_utc",
-            "daily_brief_schedule_minute_utc",
-            "temperature",
-            "max_completion_tokens",
-            "request_timeout_seconds",
-            "request_max_retries",
-            "relevance_medium_threshold",
-            "relevance_high_threshold",
-            "item_enrichment_system_prompt",
-            "daily_brief_system_prompt",
-            "global_instructions",
-            "item_summary_instructions",
-            "relevance_instructions",
-            "daily_brief_instructions",
-        )
+        for field_name in before_values
         if before_values[field_name] != getattr(payload, field_name)
     ]
     record_audit(
@@ -219,6 +205,7 @@ def update_ai_settings_route(
             "daily_brief_schedule_minute_utc": payload.daily_brief_schedule_minute_utc,
             "request_max_retries": payload.request_max_retries,
             "changed_fields": after_changed_fields,
+            "report_settings": {field: getattr(payload, field) for field in report_setting_fields},
             "prompt_hashes": {
                 "item_enrichment_system_prompt": _hash_prompt(
                     payload.item_enrichment_system_prompt
