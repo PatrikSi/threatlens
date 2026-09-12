@@ -92,8 +92,8 @@ async function mount(element: ReactNode, entry = '/teams') {
 function control(label: string) {
   const found = [...container.querySelectorAll('label')]
     .find((entry) => entry.textContent?.trim().startsWith(label))
-    ?.querySelector('input, textarea, select')
-  expect(found, label).toBeDefined()
+    ?.control
+  expect(found, label).toBeInstanceOf(HTMLElement)
   return found as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
 }
 function edit(label: string, value: string) {
