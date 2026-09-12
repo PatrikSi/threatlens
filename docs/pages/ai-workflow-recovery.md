@@ -35,3 +35,28 @@ The synchronous `POST /ai/daily-brief/generate` endpoint still returns a briefin
 Recovery distinguishes queued work from a worker that disappeared during execution. A running task without unsafe provider receipts can receive a replacement delivery under the same logical run; its former delivery is fenced out. Reserved, ambiguous, or successful provider receipts without a replayable saved result do not authorize another provider call. Legacy pending provider work without a receipt also lacks safe replay evidence.
 
 An ambiguous provider outcome can therefore leave a task in an error state requiring the existing provider receipt reconciliation procedure. This is intentional: the application cannot infer whether an external provider processed a request after a connection or worker failure. Normal history retention removes workflow records through their parent foreign keys. Migration downgrade refuses to remove the recovery tables while accepted dispatches or unfinished report artifacts remain.
+
+## Execution ownership and cancellation
+
+Worker deliveries carry an invocation-scoped identity through task deferral,
+completion, child fanout and provider checkpoints. Recovery preserves the logical
+provider operation and receipts while assigning a replacement delivery. A worker
+that resumes after its delivery was superseded cannot change the replacement's
+state. A supplied task identifier whose retained history is missing does not
+create a fresh briefing operation.
+
+The API records authorized cancellation intent before acquiring child locks.
+It then handles at most 50 children, committing each child/progress transition
+and rechecking current IAM and data policy before the next. Maintenance advances
+accepted cancellation in batches of 50 even when broker inspection is unavailable.
+Queued cancellation can settle under its task lock without a worker consuming the
+message; running work observes cancellation at its checkpoints. Existing provider
+receipts, including uncertain outcomes, remain unchanged. Cancellation does not
+claim that an earlier external request was never processed.
+
+Reprocessing completion updates its member directly and obtains progress counts
+through SQL aggregation. Each repair pass restores at most 100 missing member
+outcomes. Maintenance considers at most 500 stale leaf executions and 50 due
+reprocessing parents per pass; parent checks are spaced by 60 seconds using their
+running dispatch's next-attempt timestamp, without changing the worker heartbeat.
+This keeps progress repair bounded while later parents remain eligible for a turn.

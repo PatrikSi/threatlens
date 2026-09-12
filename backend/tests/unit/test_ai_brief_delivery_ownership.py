@@ -201,3 +201,28 @@ def test_duplicate_before_owner_claim_defers_and_owner_can_complete(
     assert persisted.finished_at is not None
     assert persisted.celery_task_id == "original-task"
     assert db_session.get(AIWorkflowDispatch, run_id).state == "complete"
+
+
+@pytest.mark.parametrize("kind", ["daily_brief", "backfill"])
+def test_missing_accepted_brief_history_cannot_create_fresh_work(db_session, monkeypatch, kind):
+    from app.tasks.ai_brief_tasks import backfill_daily_ai_briefs
+    from sqlalchemy import func, select
+
+    @contextmanager
+    def session_override():
+        yield db_session
+
+    @contextmanager
+    def available_lock():
+        yield True
+
+    before = db_session.scalar(select(func.count()).select_from(AITaskRun))
+    monkeypatch.setattr("app.tasks.ai_brief_tasks.db_session", session_override)
+    monkeypatch.setattr("app.tasks.ai_brief_tasks.daily_ai_brief_lock", available_lock)
+    monkeypatch.setattr("app.tasks.ai_brief_tasks.run_daily_brief_generation",
+                        lambda *args, **kwargs: pytest.fail("missing accepted history must not call a provider"))
+    task = dispatch_daily_ai_brief_generation if kind == "daily_brief" else backfill_daily_ai_briefs
+    kwargs = {"task_run_id": str(uuid.uuid4()), **({"force": True} if kind == "daily_brief" else {"days": 1})}
+    result = task.apply(kwargs=kwargs, task_id="obsolete-delivery", throw=True).get()
+    assert result["reason"] == "task_history_unavailable"
+    assert db_session.scalar(select(func.count()).select_from(AITaskRun)) == before

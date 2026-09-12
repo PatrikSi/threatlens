@@ -7,6 +7,7 @@ from sqlalchemy import func, select
 
 from app.core import config
 from app.models.ai_task_run import AITaskRun
+from app.services.ai_execution_ownership import ai_worker_execution
 from app.models.article import Article
 from app.models.item import Item
 from app.services import ai_config, ai_integration, ai_ops
@@ -35,6 +36,7 @@ class AIReprocessSelection:
         return max(0, self.requested_item_count - len(self.item_ids))
 
 
+@ai_worker_execution
 def run_generate_item_ai_enrichment(
     task,
     item_id: str,
@@ -136,6 +138,7 @@ def parse_datetime_text(value: str | None) -> datetime | None:
 def _start_item_run(db, task, run_id: uuid.UUID, item_id: str, force: bool):
     from app.services.ai_reprocess import is_canonical_reprocess_child
     if not is_canonical_reprocess_child(db, run_id=run_id):
+        db.commit()  # Release selection ownership before taking the child lock.
         ai_ops.finish_ai_task_run(db, run_id=run_id, status="skipped", reason="superseded_reprocess_child")
         db.commit()
         return {"status": "skipped", "reason": "superseded_reprocess_child", "item_id": item_id}
@@ -250,6 +253,7 @@ def _finish_item_result(db, task, run_id: uuid.UUID, result) -> None:
     )
 
 
+@ai_worker_execution
 def run_reprocess_recent_ai_items(
     task,
     days: int | None,

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.models.ai_daily_brief import AIDailyBrief
 from app.models.ai_task_run import AITaskRun
+from app.services.ai_execution_ownership import ai_worker_execution
 from app.services.ai_config import load_active_ai_settings
 from app.services.ai_workflow_dispatch import AIWorkflowDeferred, defer_ai_workflow_run
 from app.services.ai_integration import is_stale_daily_brief_pending, run_daily_brief_generation
@@ -126,6 +127,7 @@ def reconcile_ai_task_runs():
     reject_on_worker_lost=True,
     max_retries=None,
 )
+@ai_worker_execution
 def dispatch_daily_ai_brief_generation(
     self,
     force: bool = False,
@@ -182,14 +184,7 @@ def dispatch_daily_ai_brief_generation(
                 if parsed_run_id:
                     run = db.scalar(select(AITaskRun).where(AITaskRun.id == parsed_run_id))
                     if run is None:
-                        run = queue_ai_task_run(
-                            db,
-                            task_type=AI_TASK_TYPE_DAILY_BRIEF,
-                            trigger_source=AI_TRIGGER_MANUAL if parsed_actor_user_id else AI_TRIGGER_SCHEDULED,
-                            actor_user_id=parsed_actor_user_id,
-                            model=None,
-                            metadata={"force": bool(force), "scheduled": parsed_actor_user_id is None},
-                        )
+                        return {"status": "skipped", "reason": "task_history_unavailable", "run_id": task_run_id}
                 else:
                     run = queue_ai_task_run(
                         db,
@@ -433,12 +428,19 @@ def _supersede_daily_brief_attempts(
         )
 
 
+def _require_backfill_history(run: AITaskRun | None, requested_id: uuid.UUID | None) -> None:
+    if requested_id is not None and run is None:
+        from app.services.ai_execution_ownership import AIExecutionSuperseded
+        raise AIExecutionSuperseded("Accepted AI task history is unavailable.", reason="task_history_unavailable")
+
+
 @celery_app.task(
     bind=True,
     name="app.tasks.feed_tasks.backfill_daily_ai_briefs",
     acks_late=True,
     reject_on_worker_lost=True,
 )
+@ai_worker_execution
 def backfill_daily_ai_briefs(
     self,
     days: int,
@@ -467,6 +469,7 @@ def backfill_daily_ai_briefs(
                 parsed_actor_user_id = None
 
         run = db.scalar(select(AITaskRun).where(AITaskRun.id == parsed_run_id)) if parsed_run_id else None
+        _require_backfill_history(run, parsed_run_id)
         if run is None:
             run = queue_ai_task_run(
                 db,
@@ -477,6 +480,10 @@ def backfill_daily_ai_briefs(
                 target_count=max(0, effective_days),
             )
 
+        from app.services.ai_execution_ownership import require_ai_execution
+        run = db.scalar(select(AITaskRun).where(AITaskRun.id == run.id).with_for_update()
+                        .execution_options(populate_existing=True))
+        require_ai_execution(run, allow_unassigned=True)
         parent_run_id = run.id
         run.target_count = max(0, effective_days)
         run.metadata_json = {

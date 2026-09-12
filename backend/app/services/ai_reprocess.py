@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -15,6 +15,7 @@ from app.services.data_access_envelopes import get_data_access_envelope_sources
 from app.services.data_access_runtime import lock_data_policy_revision_for_derivation
 
 TERMINAL = {"ready", "error", "skipped"}
+PROGRESS_REPAIR_BATCH_SIZE = 100
 
 
 def article_reprocess_parent(run: AITaskRun) -> bool:
@@ -54,7 +55,7 @@ def freeze_reprocess_selection(db: Session, run: AITaskRun) -> list[AIReprocessM
     if metadata.get("selection_frozen"):
         return list(db.scalars(select(AIReprocessMember).where(
             AIReprocessMember.parent_run_id == run.id
-        ).order_by(AIReprocessMember.position)))
+        ).order_by(AIReprocessMember.position).execution_options(populate_existing=True)))
     children = list(db.scalars(select(AITaskRun).where(
         AITaskRun.parent_run_id == run.id, AITaskRun.task_type == "item_enrichment"
     ).order_by(AITaskRun.created_at, AITaskRun.id)))
@@ -127,8 +128,12 @@ def ensure_reprocess_child(
                        .execution_options(populate_existing=True))
     if parent is None or not article_reprocess_parent(parent):
         raise ValueError("Article reprocessing parent is unavailable")
-    members = freeze_reprocess_selection(db, parent)
-    member = next((candidate for candidate in members if candidate.item_id == item_id), None)
+    from app.services.ai_execution_ownership import ai_execution_is_current
+    if not ai_execution_is_current(parent):
+        return None
+    if not (parent.metadata_json or {}).get("selection_frozen"):
+        freeze_reprocess_selection(db, parent)
+    member = db.get(AIReprocessMember, (parent.id, item_id))
     if member is None:
         raise ValueError("Article is outside the accepted reprocessing selection")
     if member.child_run_id is not None:
@@ -139,7 +144,7 @@ def ensure_reprocess_child(
             member.outcome, member.reason = "error", "child_history_unavailable"
             member.settled_at = datetime.now(timezone.utc)
             db.add(member)
-            recalculate_reprocess_progress(db, parent=parent, members=members)
+            recalculate_reprocess_progress(db, parent=parent)
         return None
     if member.outcome is not None or parent.finished_at is not None:
         return None
@@ -162,41 +167,68 @@ def ensure_reprocess_child(
 def record_reprocess_outcome(db: Session, *, child: AITaskRun, parent: AITaskRun) -> bool:
     if not article_reprocess_parent(parent):
         return False
-    members = freeze_reprocess_selection(db, parent)
-    member = next((entry for entry in members if entry.child_run_id == child.id), None)
+    if not (parent.metadata_json or {}).get("selection_frozen"):
+        freeze_reprocess_selection(db, parent)
+    member = db.scalar(select(AIReprocessMember).where(
+        AIReprocessMember.parent_run_id == parent.id, AIReprocessMember.child_run_id == child.id))
     if member is None and child.item_id is not None:
-        member = next((entry for entry in members if entry.item_id == child.item_id and entry.child_run_id is None), None)
-        if member is not None:
+        member = db.get(AIReprocessMember, (parent.id, child.item_id))
+        if member is not None and member.child_run_id is None:
             member.child_run_id = child.id
-    if member is not None and member.outcome is None:
+    if member is not None and member.child_run_id == child.id and member.outcome is None:
         member.outcome, member.reason, member.settled_at = child.status, child.reason, child.finished_at
         db.add(member)
         db.flush()
-    recalculate_reprocess_progress(db, parent=parent, members=members)
+    recalculate_reprocess_progress(db, parent=parent)
     return True
 
 
-def recalculate_reprocess_progress(db: Session, *, parent: AITaskRun, members=None) -> None:
+def _repair_reprocess_outcomes(db: Session, *, parent_id: uuid.UUID) -> None:
+    missing = AITaskRun.id.is_(None)
+    candidates = select(
+        AIReprocessMember.item_id,
+        case((missing, "error"), else_=AITaskRun.status).label("outcome"),
+        case((missing, "child_history_unavailable"), else_=AITaskRun.reason).label("reason"),
+        func.coalesce(AITaskRun.finished_at, func.now()).label("settled_at"),
+    ).outerjoin(AITaskRun, AITaskRun.id == AIReprocessMember.child_run_id).where(
+        AIReprocessMember.parent_run_id == parent_id, AIReprocessMember.outcome.is_(None),
+        AIReprocessMember.child_run_id.is_not(None),
+        or_(missing, AITaskRun.status.in_(TERMINAL) & AITaskRun.finished_at.is_not(None)),
+    ).order_by(AIReprocessMember.item_id).limit(PROGRESS_REPAIR_BATCH_SIZE).with_for_update(
+        of=AIReprocessMember, skip_locked=True).cte("reprocess_outcome_repair")
+    db.execute(update(AIReprocessMember).where(
+        AIReprocessMember.parent_run_id == parent_id,
+        AIReprocessMember.item_id == candidates.c.item_id,
+    ).values(outcome=candidates.c.outcome, reason=candidates.c.reason,
+             settled_at=candidates.c.settled_at).execution_options(synchronize_session=False))
+
+
+def recalculate_reprocess_progress(db: Session, *, parent: AITaskRun) -> None:
     from app.services.ai_ops import finish_ai_task_run
     from app.services.ai_ops_common import INELIGIBLE_REASONS
+    from app.services.ai_execution_ownership import ai_execution_is_current
+
     lock_data_policy_revision_for_derivation(db)
-    if members is None:
-        members = freeze_reprocess_selection(db, parent)
-    for member in members:
-        if member.outcome is None and member.child_run_id is not None:
-            child = db.get(AITaskRun, member.child_run_id)
-            if child is not None and child.status in TERMINAL and child.finished_at is not None:
-                member.outcome, member.reason, member.settled_at = child.status, child.reason, child.finished_at
-                db.add(member)
-    outcomes = [member for member in members if member.outcome is not None]
-    parent.processed_count = len(outcomes)
-    parent.success_count = sum(member.outcome == "ready" for member in outcomes)
-    parent.error_count = sum(member.outcome == "error" for member in outcomes)
-    parent.skipped_count = sum(member.outcome == "skipped" for member in outcomes)
-    parent.skipped_unchanged_count = sum(member.reason in {"unchanged", "source_hash_unchanged"} for member in outcomes)
-    parent.skipped_ineligible_count = sum(member.reason in INELIGIBLE_REASONS for member in outcomes)
+    parent = db.scalar(select(AITaskRun).where(AITaskRun.id == parent.id).with_for_update()
+                       .execution_options(populate_existing=True))
+    if parent is None or not ai_execution_is_current(parent):
+        return
+    if not (parent.metadata_json or {}).get("selection_frozen"):
+        freeze_reprocess_selection(db, parent)
+    db.flush()
+    _repair_reprocess_outcomes(db, parent_id=parent.id)
+    member = AIReprocessMember
+    counts = db.execute(select(
+        func.count(), func.count().filter(member.outcome.is_not(None)),
+        func.count().filter(member.outcome == "ready"), func.count().filter(member.outcome == "error"),
+        func.count().filter(member.outcome == "skipped"),
+        func.count().filter(member.reason.in_({"unchanged", "source_hash_unchanged"})),
+        func.count().filter(member.reason.in_(INELIGIBLE_REASONS)),
+    ).where(member.parent_run_id == parent.id)).one()
+    (total, parent.processed_count, parent.success_count, parent.error_count, parent.skipped_count,
+     parent.skipped_unchanged_count, parent.skipped_ineligible_count) = counts
     db.add(parent)
-    if members and len(outcomes) == len(members) and parent.finished_at is None:
+    if total and parent.processed_count == total and parent.finished_at is None:
         status = "error" if parent.error_count else "skipped" if parent.skipped_count else "ready"
         reason = "partial_failures" if parent.error_count else "partial_skips" if parent.skipped_count else None
         db.flush()
@@ -210,18 +242,27 @@ def is_canonical_reprocess_child(db: Session, *, run_id: uuid.UUID) -> bool:
     parent = db.get(AITaskRun, child.parent_run_id)
     if parent is None or not article_reprocess_parent(parent):
         return True
-    members = freeze_reprocess_selection(db, parent)
-    return any(member.child_run_id == child.id for member in members)
+    if not (parent.metadata_json or {}).get("selection_frozen"):
+        freeze_reprocess_selection(db, parent)
+    return db.scalar(select(AIReprocessMember.item_id).where(
+        AIReprocessMember.parent_run_id == parent.id, AIReprocessMember.child_run_id == child.id)) is not None
 
 
 def finish_reprocess_publication(db: Session, *, run_id: uuid.UUID) -> None:
     from app.services.ai_workflow_dispatch import complete_workflow_dispatch, defer_ai_workflow_run
+    from app.services.ai_execution_ownership import fence_ai_execution
+    if not fence_ai_execution(db, run_id=run_id):
+        return
     parent = db.get(AITaskRun, run_id)
     if parent is None or not article_reprocess_parent(parent):
         return
-    members = freeze_reprocess_selection(db, parent)
-    if all(member.child_run_id is not None or member.outcome is not None for member in members):
+    if not (parent.metadata_json or {}).get("selection_frozen"):
+        freeze_reprocess_selection(db, parent)
+    pending = db.scalar(select(AIReprocessMember.item_id).where(
+        AIReprocessMember.parent_run_id == run_id, AIReprocessMember.child_run_id.is_(None),
+        AIReprocessMember.outcome.is_(None)).limit(1))
+    if pending is None:
         complete_workflow_dispatch(db, run_id)
-        recalculate_reprocess_progress(db, parent=parent, members=members)
+        recalculate_reprocess_progress(db, parent=parent)
     else:
         defer_ai_workflow_run(db, run_id=run_id, reason="child_publication_pending", retry_after_seconds=30)

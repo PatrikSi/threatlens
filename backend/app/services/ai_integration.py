@@ -869,7 +869,11 @@ def _record_task_run_stop_observed(
     if lock:
         statement = statement.with_for_update()
     run = db.scalar(statement.execution_options(populate_existing=True))
-    stop_reason = ai_task_run_stop_reason(run)
+    from app.services.ai_execution_ownership import ai_execution_stop_reason
+    execution_stop = ai_execution_stop_reason(db, run) if run is not None else None
+    if execution_stop == "superseded_delivery":
+        return execution_stop
+    stop_reason = ai_task_run_stop_reason(run) or execution_stop
     if stop_reason is None:
         return None
     _record_task_run_stop_event(
@@ -922,7 +926,11 @@ def _prepare_provider_claim(
         .with_for_update()
         .execution_options(populate_existing=True)
     )
-    stop_reason = ai_task_run_stop_reason(run)
+    from app.services.ai_execution_ownership import ai_execution_stop_reason
+    execution_stop = ai_execution_stop_reason(db, run) if run is not None else None
+    if execution_stop == "superseded_delivery":
+        return execution_stop
+    stop_reason = ai_task_run_stop_reason(run) or execution_stop
     if stop_reason is not None:
         _record_task_run_stop_event(
             db,

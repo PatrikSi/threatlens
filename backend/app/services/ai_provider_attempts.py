@@ -86,6 +86,9 @@ def reserve_ai_provider_attempt(
         raise AIProviderTaskBindingError(
             "AI provider task history is unavailable.", retryable=True
         )
+    from app.services.ai_execution_ownership import ai_execution_stop_reason
+    if ai_execution_stop_reason(db, run, lock_parent="read") is not None:
+        raise AIProviderTaskBindingError("AI worker execution was stopped or superseded.", retryable=False)
     resource_type, resource_id = _validate_task_binding(
         run,
         feature_type=feature_type,
@@ -416,6 +419,9 @@ def lock_ai_provider_attempt_for_io(
         raise AIProviderTaskBindingError(
             "AI provider task history is unavailable.", retryable=True
         )
+    from app.services.ai_execution_ownership import ai_execution_stop_reason
+    if ai_execution_stop_reason(db, run, lock_parent="read") is not None:
+        raise AIProviderTaskBindingError("AI worker execution was stopped or superseded.", retryable=False)
     resource_type, resource_id = _validate_task_binding(
         run,
         feature_type=feature_type,
