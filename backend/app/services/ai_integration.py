@@ -26,6 +26,8 @@ from app.services import ai_normalization as _ai_normalization
 from app.services import ai_prompting as _ai_prompting
 from app.services import ai_provider_client as _ai_provider_client
 from app.services.ai_workflow_recovery import owns_pending_daily_brief
+from app.services.ai_brief_sources import load_brief_sources
+from app.services.ai_enrichment_provenance import enrichment_result_provenance, refresh_verified_provenance
 from app.services.ai_config import ActiveAISettings, load_active_ai_settings
 from app.services.ai_egress_data_policy import (
     AIEgressPolicyError,
@@ -226,10 +228,20 @@ def run_item_ai_enrichment(
 
     if enrichment is not None and enrichment.source_hash == source_hash:
         if enrichment.status == "ready" and not force:
+            stop_reason = _record_task_run_stop_observed(
+                db, task_run_id=task_run_id, stage="before_cached_provenance_refresh", lock=True,
+            )
+            if stop_reason is None:
+                provenance = enrichment_result_provenance(
+                    active=active, item=item, article=article, classification=classification,
+                    feed_name=feed.name if feed is not None else "", tag_names=tag_names,
+                    source_hash=source_hash, generated_at=enrichment.generated_at or enrichment.updated_at,
+                )
+                refresh_verified_provenance(db, enrichment=enrichment, provenance=provenance)
             return AIItemEnrichmentResult(
                 enrichment=enrichment,
                 status="skipped",
-                reason="source_hash_unchanged",
+                reason=stop_reason or "source_hash_unchanged",
                 input_text_chars=len(article.text or ""),
             )
         if enrichment.status == "pending" and not force:
@@ -256,6 +268,11 @@ def run_item_ai_enrichment(
         tag_names=tag_names,
     )
     claim_updated_at = datetime.now(timezone.utc)
+    result_provenance = enrichment_result_provenance(
+        active=active, item=item, article=article, classification=classification,
+        feed_name=feed.name if feed is not None else "", tag_names=tag_names,
+        source_hash=source_hash, generated_at=claim_updated_at,
+    )
     stop_reason = _prepare_provider_claim(
         db,
         task_run_id=task_run_id,
@@ -400,6 +417,7 @@ def run_item_ai_enrichment(
         )
         .values(
             status="ready",
+            result_provenance_json=result_provenance,
             summary_text=summary_text,
             relevance_score=relevance_score,
             relevance_label=relevance_label,
@@ -586,36 +604,11 @@ def run_daily_brief_generation(
             items_selected=0,
         )
 
-    source_audit_limit = max(
-        active.daily_brief_max_items,
-        int(get_settings().ai_daily_brief_source_audit_limit or 0),
+    selection = load_brief_sources(
+        db, active=active, window_start=window_start, window_end=window_end,
+        total_items=int(total_items), audit_limit=int(get_settings().ai_daily_brief_source_audit_limit or 0),
     )
-    source_audit_limit = max(1, min(int(total_items), source_audit_limit))
-    item_rows_all = db.execute(
-        select(
-            Item.id,
-            Item.title,
-            Item.summary,
-            Item.url,
-            Item.published_at,
-            Item.first_seen_at,
-            Feed.name.label("feed_name"),
-            ItemClassification.primary_category.label("primary_category"),
-            ItemAIEnrichment.summary_text.label("ai_summary"),
-            ItemAIEnrichment.relevance_score.label("relevance_score"),
-            ItemAIEnrichment.relevance_label.label("relevance_label"),
-        )
-        .join(Feed, Feed.id == Item.feed_id)
-        .outerjoin(ItemClassification, ItemClassification.item_id == Item.id)
-        .outerjoin(ItemAIEnrichment, ItemAIEnrichment.item_id == Item.id)
-        .where(item_window_at >= window_start, item_window_at <= window_end)
-        .order_by(
-            ItemAIEnrichment.relevance_score.desc().nullslast(), item_window_at.desc()
-        )
-        .limit(source_audit_limit)
-        .with_for_update(read=True, of=(Item, Feed))
-    ).all()
-    item_rows = item_rows_all[: active.daily_brief_max_items]
+    item_rows_all, item_rows = selection.audit_rows, selection.selected_rows
     if not item_rows:
         return AIDailyBriefGenerationResult(
             brief=existing
@@ -659,6 +652,7 @@ def run_daily_brief_generation(
     brief.provider = active.provider_type
     brief.model = active.model
     brief.updated_at = claim_updated_at
+    brief.evidence_warnings_json = selection.warnings
     db.add(brief)
     messages = _build_daily_brief_messages(
         active,

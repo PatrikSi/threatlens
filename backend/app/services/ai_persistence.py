@@ -157,6 +157,8 @@ def compute_item_source_hash(
             "item": {
                 "title": item.title,
                 "summary": item.summary,
+                "url": item.canonical_url or item.url,
+                "published_at": item.published_at.isoformat() if item.published_at else None,
                 "article_text": article.text,
                 "feed_name": feed_name,
                 "classification": {

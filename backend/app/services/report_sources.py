@@ -26,6 +26,7 @@ from app.services.ai_context_budget import (
     estimate_tokens,
 )
 from app.services.ai_prompting import build_company_context
+from app.services.ai_enrichment_provenance import STALE_ENRICHMENT_WARNING
 from app.services.data_access_policy import DataAccessContext
 from app.services.export_models import ExportRecord
 from app.services.export_artifacts import ExportSizeLimitError
@@ -203,6 +204,8 @@ def build_report_source_plan(
 
     omitted = max(0, counts.total - selected_count)
     warnings: list[str] = []
+    if any(source.included and source.record.ai and not source.record.ai.source_current for source in planned):
+        warnings.append(STALE_ENRICHMENT_WARNING)
     if batch_plan.context_compacted:
         warnings.append(CONTEXT_COMPACTION_WARNING)
     if counts.total > len(planned):
@@ -320,7 +323,7 @@ def _build_evidence_text(record: ExportRecord, *, citation_key: str) -> str:
         if record.classification
         else "unclassified"
     )
-    ai_summary = record.ai.summary if record.ai and record.ai.summary else None
+    ai_summary = record.ai.summary if record.ai and record.ai.source_current and record.ai.status == "ready" else None
     article_text = (
         record.article.text if record.article and record.article.text else None
     )
@@ -331,20 +334,20 @@ def _build_evidence_text(record: ExportRecord, *, citation_key: str) -> str:
         f"Date: {date_value.isoformat()}",
         f"Classification: {classification}",
         f"Tags: {', '.join(tag.name for tag in record.tags) or 'none'}",
-        f"AI relevance: {record.ai.relevance_label if record.ai else 'not scored'}"
+        f"AI relevance: {record.ai.relevance_label if record.ai and record.ai.source_current else 'not scored'}"
         + (
             f" ({record.ai.relevance_score:.2f})"
-            if record.ai and record.ai.relevance_score is not None
+            if record.ai and record.ai.source_current and record.ai.relevance_score is not None
             else ""
         ),
         f"Source URL: {record.url}",
     ]
-    if ai_summary:
-        parts.append(f"Existing grounded summary: {ai_summary}")
     if record.summary:
         parts.append(f"Publisher summary: {record.summary}")
     if article_text:
         parts.append(f"Extracted article text: {article_text}")
+    if ai_summary:
+        parts.append(f"Prior AI summary (source version checked; not independently verified): {ai_summary}")
     if iocs:
         parts.append(f"Extracted observables: {iocs}")
     return "\n".join(parts)
@@ -360,7 +363,7 @@ def _build_metrics(records: list[ExportRecord]) -> dict:
     )
     relevance = Counter(
         record.ai.relevance_label
-        if record.ai and record.ai.relevance_label
+        if record.ai and record.ai.source_current and record.ai.relevance_label
         else "not_scored"
         for record in records
     )

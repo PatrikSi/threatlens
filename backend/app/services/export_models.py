@@ -46,6 +46,7 @@ class ExportAIInsight:
     model: str | None
     generated_at: datetime | None
     error: str | None
+    source_current: bool = False
 
 
 @dataclass(frozen=True)

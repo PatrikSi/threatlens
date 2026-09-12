@@ -215,6 +215,7 @@ export interface AIDailyBrief {
   brief_text: string | null
   key_points: string[]
   recommended_actions: string[]
+  evidence_warnings?: string[]
   item_count: number
   items: AIDailyBriefItem[]
   model: string | null
