@@ -73,6 +73,7 @@ def create_report_task_run(
         metadata={
             "report_id": str(report.id),
             "report_request_origin": originating_request,
+            "report_stage_protocol": 1,
             "source_count": report.included_source_count,
             "estimated_input_tokens": report.estimated_input_tokens,
             "estimated_batches": report.generation_batches,
@@ -314,15 +315,23 @@ def generate_intelligence_report(
 
     generation_fence = _required_generation_fence(claim)
     if claim.status == "interrupted":
-        return _settle_interrupted_generation_task(
-            self,
-            report_id=parsed_report_id,
-            run_id=parsed_run_id,
-            worker_name=worker_name,
-            lease_token=lease_token,
-            generation_fence=generation_fence,
-            infrastructure_retry_count=infrastructure_retry_count,
-        )
+        from app.services.ai_report_recovery import prepare_owned_report_resume
+        try:
+            with db_session() as db:
+                resumable = prepare_owned_report_resume(db, run_id=parsed_run_id,
+                    report_id=parsed_report_id, lease_token=lease_token,
+                    generation_fence=generation_fence, lease_seconds=settings.report_generation_lease_seconds)
+        except Exception as exc:
+            return _retry_or_settle_report_infrastructure(self, report_id=parsed_report_id,
+                run_id=parsed_run_id, worker_name=worker_name, lease_token=lease_token,
+                generation_fence=generation_fence, infrastructure_retry_count=infrastructure_retry_count,
+                phase="verifying interrupted report recovery", exc=exc)
+        if not resumable:
+            return _settle_interrupted_generation_task(
+                self, report_id=parsed_report_id, run_id=parsed_run_id,
+                worker_name=worker_name, lease_token=lease_token,
+                generation_fence=generation_fence, infrastructure_retry_count=infrastructure_retry_count,
+            )
 
     with db_session() as db:
 

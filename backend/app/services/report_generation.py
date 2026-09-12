@@ -235,7 +235,8 @@ def generate_report(
             current.completion_tokens = counters.completion_tokens or None
             current.total_tokens = counters.total_tokens or None
             db.add(current)
-            _commit_execution(db, execution_commit)
+            # The worker commits this state together with task deferral and
+            # lease release; a crash cannot publish only half the transition.
         raise
     except Exception as exc:
         if isinstance(exc, ReportGenerationOwnershipError):

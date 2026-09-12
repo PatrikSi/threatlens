@@ -106,9 +106,11 @@ def test_generation_does_not_classify_capacity_deferral_as_failure(db_session, m
     monkeypatch.setattr(report_generation, '_synthesize_evidence_batches', deferred)
     with pytest.raises(AIWorkflowDeferred):
         report_generation.generate_report(db_session, report_id=report.id, task_run_id=run.id)
-    db_session.expire_all()
     assert report.status == 'queued'
     assert report.generation_stage == 'waiting_for_capacity'
     assert report.error is None and report.error_code is None
     assert run.finished_at is None
     assert section.status == 'ready'
+    db_session.rollback()  # Simulated crash before the worker's atomic deferral.
+    assert report.status == 'running'
+    assert run.status == 'running'
