@@ -1,7 +1,6 @@
 """Replay report stage completions committed atomically with provider receipts."""
 
 import uuid
-from dataclasses import asdict
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -51,12 +50,16 @@ def load_report_stage_completion(
             raise ValueError("Invalid saved completion fields")
         if not isinstance(values["payload"], dict):
             raise ValueError("Invalid saved completion payload")
-        for field in ("provider", "model"):
-            if not isinstance(values[field], str):
-                raise ValueError("Invalid saved provider identity")
+        if not isinstance(values["provider"], str) or not values["provider"]:
+            raise ValueError("Invalid saved provider identity")
+        if values["model"] is not None and not isinstance(values["model"], str):
+            raise ValueError("Invalid saved model identity")
         for field in COMPLETION_FIELDS[3:]:
             value = values[field]
-            if value is not None and (type(value) is not int or value < 0 or value > 2_147_483_647):
+            if value is None and field in {"prompt_tokens", "completion_tokens", "total_tokens"}:
+                continue
+            minimum = 1 if field == "attempt_count" else 0
+            if type(value) is not int or not minimum <= value <= 2_147_483_647:
                 raise ValueError("Invalid saved usage count")
         return AICompletionResult(**values)
     except (TypeError, ValueError) as exc:
@@ -69,8 +72,7 @@ def store_report_stage_completion(
 ) -> None:
     _validate_binding(db, task_run_id=task_run_id, report_id=report_id)
     existing = db.get(AIReportStageArtifact, (task_run_id, operation_scope))
-    values = asdict(completion)
-    payload = {field: values[field] for field in COMPLETION_FIELDS}
+    payload = {field: getattr(completion, field) for field in COMPLETION_FIELDS}
     if existing is not None:
         if (existing.report_id != report_id or existing.request_fingerprint != request_fingerprint
                 or existing.completion_json != payload):
