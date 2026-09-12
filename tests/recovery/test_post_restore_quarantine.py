@@ -206,6 +206,10 @@ class PostRestoreQuarantineTests(unittest.TestCase):
         self.assertIn("INTO audit_already_recorded", sql)
         self.assertIn("system.restore.quarantine.reapply", sql)
         self.assertIn("'reapplied', audit_already_recorded", sql)
+        self.assertIn("preserved_published_delivery_intents", sql)
+        self.assertIn("publication_status = 'published'", sql)
+        self.assertIn("AND published_revision_hash IS NOT NULL", sql)
+        self.assertNotIn("SET published_revision_hash", sql)
         self.assertNotIn("THEN\n    RETURN;", sql)
 
     def test_verify_checks_credentials_outbound_work_and_audit_marker(self) -> None:

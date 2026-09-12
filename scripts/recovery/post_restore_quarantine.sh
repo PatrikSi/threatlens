@@ -403,6 +403,17 @@ BEGIN
       RAISE EXCEPTION 'report_schedules quarantine columns are incomplete: %', missing_columns;
     END IF;
   END IF;
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'reports'
+      AND column_name = 'published_revision_hash'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'reports'
+      AND column_name = 'publication_status'
+  ) THEN
+    RAISE EXCEPTION 'reports publication quarantine columns are incomplete';
+  END IF;
 END
 $preflight$;
 SQL
@@ -453,6 +464,7 @@ DECLARE
   interrupted_item_enrichments bigint := 0;
   disabled_schedules bigint := 0;
   disabled_report_deliveries bigint := 0;
+  preserved_published_delivery_intents bigint := 0;
   interrupted_reports bigint := 0;
   interrupted_report_sections bigint := 0;
   quarantined_alert_evaluations bigint := 0;
@@ -716,7 +728,24 @@ BEGIN
   END IF;
 
   IF to_regclass('public.reports') IS NOT NULL THEN
-    EXECUTE 'UPDATE reports SET delivery_requested = false WHERE delivery_requested IS TRUE';
+    IF EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'reports'
+        AND column_name = 'published_revision_hash'
+    ) THEN
+      -- Delivery intent is part of the approved revision. Preserve completed
+      -- publications; disabled integrations and terminal outboxes suppress sends.
+      EXECUTE $sql$SELECT count(*) FROM reports
+        WHERE delivery_requested IS TRUE AND status = 'ready'
+          AND publication_status = 'published' AND published_revision_hash IS NOT NULL$sql$
+        INTO preserved_published_delivery_intents;
+      EXECUTE $sql$UPDATE reports SET delivery_requested = false
+        WHERE delivery_requested IS TRUE AND (
+          status = 'ready' AND publication_status = 'published'
+          AND published_revision_hash IS NOT NULL) IS NOT TRUE$sql$;
+    ELSE
+      EXECUTE 'UPDATE reports SET delivery_requested = false WHERE delivery_requested IS TRUE';
+    END IF;
     GET DIAGNOSTICS disabled_report_deliveries = ROW_COUNT;
     EXECUTE $sql$UPDATE reports
       SET status = 'error', generation_stage = 'failed',
@@ -783,6 +812,7 @@ BEGIN
       'interrupted_item_enrichments', interrupted_item_enrichments,
       'disabled_schedules', disabled_schedules,
       'disabled_report_deliveries', disabled_report_deliveries,
+      'preserved_published_delivery_intents', preserved_published_delivery_intents,
       'interrupted_reports', interrupted_reports,
       'interrupted_report_sections', interrupted_report_sections,
       'quarantined_alert_evaluations', quarantined_alert_evaluations,
@@ -810,6 +840,8 @@ verify_quarantine() {
   if ! run_psql_with_restore_context "${archive_checksum}" >/dev/null <<'SQL'
 SELECT set_config('threatlens.restore_checksum', :'restore_checksum', false);
 DO $verify$
+DECLARE
+  requested_report_deliveries boolean;
 BEGIN
   IF EXISTS (SELECT 1 FROM api_tokens WHERE revoked_at IS NULL) THEN
     RAISE EXCEPTION 'active API tokens remain after restore quarantine';
@@ -942,7 +974,21 @@ BEGIN
     END IF;
   END IF;
   IF to_regclass('public.reports') IS NOT NULL THEN
-    IF EXISTS (SELECT 1 FROM reports WHERE delivery_requested IS TRUE) THEN
+    IF EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'reports'
+        AND column_name = 'published_revision_hash'
+    ) THEN
+      EXECUTE $sql$SELECT EXISTS (SELECT 1 FROM reports
+        WHERE delivery_requested IS TRUE AND (
+          status = 'ready' AND publication_status = 'published'
+          AND published_revision_hash IS NOT NULL) IS NOT TRUE)$sql$
+        INTO requested_report_deliveries;
+    ELSE
+      SELECT EXISTS (SELECT 1 FROM reports WHERE delivery_requested IS TRUE)
+        INTO requested_report_deliveries;
+    END IF;
+    IF requested_report_deliveries THEN
       RAISE EXCEPTION 'requested report deliveries remain after restore quarantine';
     END IF;
     IF EXISTS (SELECT 1 FROM reports WHERE status IN ('queued', 'running')) THEN
