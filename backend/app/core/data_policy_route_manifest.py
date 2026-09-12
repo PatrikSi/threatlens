@@ -239,6 +239,7 @@ _REQUEST_CONTEXT_OPERATIONS: tuple[OperationLiteral, ...] = (
     ('GET', '/v1/ai/ops/live', 'get_ai_ops_live_route'),
     ('GET', '/v1/ai/ops/manual-actions', 'list_ai_ops_manual_actions_route'),
     ('GET', '/v1/ai/ops/overview', 'get_ai_ops_overview_route'),
+    ('GET', '/v1/ai/ops/providers', 'get_ai_provider_usage'),
     ('GET', '/v1/ai/ops/prompt-history', 'list_ai_ops_prompt_history_route'),
     ('GET', '/v1/ai/ops/runs', 'list_ai_ops_runs_route'),
     ('GET', '/v1/ai/ops/runs/{run_id}', 'get_ai_ops_run_detail_route'),
@@ -420,6 +421,7 @@ _ENDPOINT_NAMES_BY_MODULE: Final[dict[str, tuple[str, ...]]] = {
         "test_ai_connection_route",
         "update_ai_settings_route",
     ),
+    "app.api.routes.ai_provider_usage": ("get_ai_provider_usage",),
     "app.api.routes.alert_operations": (
         "get_alert_evaluation_activity",
         "get_alert_evaluation_detail",
