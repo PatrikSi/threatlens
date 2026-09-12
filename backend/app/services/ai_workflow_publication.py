@@ -29,7 +29,8 @@ def queued_ai_delivery_ids() -> set[str] | None:
     try:
         client = redis_client_from_url(settings.redis_url, decode_responses=True, settings=settings)
         sizes = [int(client.llen(key)) for key in keys]
-        if sum(sizes) > BROKER_SCAN_LIMIT:
+        unacked_count = int(client.hlen("unacked"))
+        if sum(sizes) + unacked_count > BROKER_SCAN_LIMIT:
             return None
         ids = set()
         for key, size in zip(keys, sizes, strict=True):
@@ -40,6 +41,15 @@ def queued_ai_delivery_ids() -> set[str] | None:
                 task_id = (payload.get("headers") or {}).get("id")
                 if isinstance(task_id, str):
                     ids.add(task_id)
+        # Redis removes prefetched deliveries from the queue list. Kombu's
+        # unacked hash retains their message envelope until acknowledgement.
+        for raw in client.hvals("unacked") if unacked_count else ():
+            if len(raw) > 131072:
+                return None
+            envelope = json.loads(raw)
+            task_id = (envelope[0].get("headers") or {}).get("id")
+            if isinstance(task_id, str):
+                ids.add(task_id)
         return ids
     except Exception:
         return None
@@ -73,10 +83,11 @@ def claim_publication(db, *, run_id, now, broker_ids):
             job.error = "queue_state_unavailable" if broker_ids is None else "waiting_in_queue"
             db.add(job)
             return None
-    if job.state == "pending" and job.published_at is None:
+    if job.attempt_count == 0:
         outstanding = db.scalar(select(func.count()).select_from(AIWorkflowDispatch).join(
             AITaskRun, AITaskRun.id == AIWorkflowDispatch.run_id
-        ).where(AITaskRun.status == "queued", AIWorkflowDispatch.state.in_(["publishing", "published"])))
+        ).where(AITaskRun.status == "queued", AIWorkflowDispatch.attempt_count > 0,
+                AIWorkflowDispatch.state != "complete"))
         if outstanding >= WORKFLOW_MAX_OUTSTANDING_PUBLICATIONS:
             job.next_attempt_at = now + timedelta(seconds=30)
             job.error = "queue_admission_wait"

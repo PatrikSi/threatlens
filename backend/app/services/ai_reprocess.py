@@ -12,6 +12,7 @@ from app.models.ai_workflow import AIReprocessMember
 from app.models.article import Article
 from app.models.item import Item
 from app.services.data_access_envelopes import get_data_access_envelope_sources
+from app.services.data_access_runtime import lock_data_policy_revision_for_derivation
 
 TERMINAL = {"ready", "error", "skipped"}
 
@@ -45,6 +46,8 @@ def _date(value) -> datetime | None:
 def freeze_reprocess_selection(db: Session, run: AITaskRun) -> list[AIReprocessMember]:
     if not article_reprocess_parent(run):
         return []
+    if not (run.metadata_json or {}).get("selection_frozen"):
+        lock_data_policy_revision_for_derivation(db)
     run = db.scalar(select(AITaskRun).where(AITaskRun.id == run.id).with_for_update()
                     .execution_options(populate_existing=True))
     metadata = dict(run.metadata_json or {})
@@ -119,6 +122,7 @@ def ensure_reprocess_child(
     db: Session, *, parent_id: uuid.UUID, item_id: uuid.UUID, model: str | None
 ) -> AITaskRun | None:
     from app.services.ai_ops import finish_ai_task_run, queue_ai_task_run
+    lock_data_policy_revision_for_derivation(db)
     parent = db.scalar(select(AITaskRun).where(AITaskRun.id == parent_id).with_for_update()
                        .execution_options(populate_existing=True))
     if parent is None or not article_reprocess_parent(parent):
@@ -175,6 +179,7 @@ def record_reprocess_outcome(db: Session, *, child: AITaskRun, parent: AITaskRun
 def recalculate_reprocess_progress(db: Session, *, parent: AITaskRun, members=None) -> None:
     from app.services.ai_ops import finish_ai_task_run
     from app.services.ai_ops_common import INELIGIBLE_REASONS
+    lock_data_policy_revision_for_derivation(db)
     if members is None:
         members = freeze_reprocess_selection(db, parent)
     for member in members:

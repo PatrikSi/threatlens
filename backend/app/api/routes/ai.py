@@ -423,7 +423,7 @@ def generate_daily_brief_route(
         trigger_source=AI_TRIGGER_MANUAL,
         actor_user_id=admin.id,
         model=settings.model,
-        metadata={"force": True},
+        metadata={"force": True, "inline_execution": True},
     )
     start_ai_task_run(
         db, run_id=run.id, worker_name="api", metadata_updates={"force": True}

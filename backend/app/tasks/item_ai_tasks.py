@@ -139,6 +139,7 @@ def _start_item_run(db, task, run_id: uuid.UUID, item_id: str, force: bool):
         ai_ops.finish_ai_task_run(db, run_id=run_id, status="skipped", reason="superseded_reprocess_child")
         db.commit()
         return {"status": "skipped", "reason": "superseded_reprocess_child", "item_id": item_id}
+    db.commit()  # Release the legacy selection/parent lock before claiming a child.
     started_run = ai_ops.start_ai_task_run(
         db,
         run_id=run_id,
