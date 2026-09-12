@@ -45,7 +45,7 @@ HTML uses native headings, lists, table headers and keyboard-accessible links. P
 
 `backend/tests/unit/test_report_rendering.py` uses synthetic report detail objects and real HTML/PDF artifacts. It checks semantic structure, source destinations and URL annotations, Unicode/font use, active-content omission, multi-page table/code/list continuity, wide/tall table fallback, grounding notes and actionable limits. It does not require a database or AI provider.
 
-`tests/fixtures/report-citation-corpus.json` is shared by the backend validator/HTML/PDF tests and the real React DOM tests. It records accepted and rejected numeric claims, literal URL boundaries, explicit links, escaped/entity markers, code and hidden HTML, including the expected source-anchor count in each renderer.
+`web/tests/fixtures/report-citation-corpus.json` is shared by the backend validator/HTML/PDF tests and the real React DOM tests. Its location also includes it in the web-only Docker build context. It records accepted and rejected numeric claims, literal URL boundaries, explicit links, escaped/entity markers, code and hidden HTML, including the expected source-anchor count in each renderer.
 
 The image's existing dependency-inventory build step copies the Markdown parser's wheel licenses and DejaVu's Debian copyright notices under `/usr/share/doc/threatlens`. Checked-in inventories in `docs/reference/` are generated from the built runtime image; PDF inspection dependencies belong only to development requirements.
 
