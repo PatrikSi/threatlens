@@ -17,6 +17,7 @@ from app.models.data_policy import (
     QUARANTINE_HANDLING_LABEL_ID, UNRESTRICTED_HANDLING_LABEL_ID,
 )
 from app.services.ai_provider_usage import list_provider_usage
+from app.services.ai_statistics import build_ai_statistics
 from app.services.data_access_policy import DataAccessContext
 
 
@@ -225,3 +226,51 @@ def test_provider_usage_route_records_would_deny_evidence_in_audit_mode(client, 
     db_session.expire_all()
     entries = db_session.scalars(select(AuditLog).where(AuditLog.action == "data_policy.access.would_deny")).all()
     assert any(entry.metadata_json.get("surface") == "ai.ops.providers.read" for entry in entries)
+
+
+def test_statistics_bound_time_and_latency_and_keep_missing_usage_distinct(db_session):
+    for latency in (999, 1000, 5000, 15000, 60000):
+        usage(db_session, latency_ms=latency)
+    usage(db_session, success=False, latency_ms=999999, total_tokens=None,
+          failure_category="total_deadline", provider_io_outcome="ambiguous")
+    usage(db_session, success=False, failure_category="truncated_output", total_tokens=0)
+    usage(db_session, success=False, failure_category="provider_hourly_token_budget", provider_io_outcome="not_sent")
+    for delta in (timedelta(days=50), timedelta(days=-1)):
+        usage(db_session, created_at=datetime.now(timezone.utc) - delta, total_tokens=999999)
+    result = build_ai_statistics(db_session, days=7, data_access=access(db_session))
+    row = result.features[0]
+    assert row.requests == 8 and row.successful == 5 and row.failed == 3
+    assert row.known_usage_requests == 7 and row.unknown_usage_requests == 1
+    assert row.deadline_failures == row.timeout_failures == row.truncated_outputs == row.budget_rejections == 1
+    assert row.not_sent == row.ambiguous == 1
+    assert row.latency_samples == 5 and row.p50_latency_ms == 5000
+    assert result.latency_histogram == {key: 1 for key in ("under_1s", "1_to_5s", "5_to_15s", "15_to_60s", "60s_or_more")}
+    assert result.queues == [] and result.provider_retry_attempts == 0
+
+
+def test_statistics_refuse_ineligible_principals_and_exclude_missing_lineage(db_session):
+    usage(db_session)
+    usage(db_session, feature_type="report", data_access_scope="governed", total_tokens=999999)
+    context = access(db_session, enforced=True)
+    assert sum(row.total_tokens for row in build_ai_statistics(db_session, days=30, data_access=context).features) == 15
+    assert build_ai_statistics(db_session, days=30, data_access=replace(context, principal_eligible=False)).features == []
+
+
+@pytest.mark.parametrize("role,expected", [("admin", 200), ("analyst", 403), ("viewer", 403)])
+def test_statistics_route_preserves_admin_boundary(client, auth_headers, role, expected):
+    assert client.get("/ai/ops/statistics?days=7", headers=auth_headers[role]).status_code == expected
+
+
+def test_statistics_refence_and_deadline_fail_closed(client, auth_headers, monkeypatch):
+    from app.db.budgets import DatabaseDeadlineExceeded
+    from fastapi import HTTPException
+    def changed(*args, **kwargs):
+        raise HTTPException(409, "Authorization changed")
+    monkeypatch.setattr(routes, "refence_ai_context", changed)
+    assert client.get("/ai/ops/statistics", headers=auth_headers["admin"]).status_code == 409
+    def unavailable(*args, **kwargs):
+        raise DatabaseDeadlineExceeded("private SQL")
+    monkeypatch.setattr(routes, "build_ai_statistics", unavailable)
+    response = client.get("/ai/ops/statistics", headers=auth_headers["admin"])
+    assert response.status_code == 503 and response.headers["retry-after"] == "2"
+    assert "private SQL" not in response.text

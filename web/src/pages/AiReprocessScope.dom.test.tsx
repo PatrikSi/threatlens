@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -65,7 +66,7 @@ describe('reprocess submission completion with a real query cache', () => {
       })
       client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
       host = document.createElement('div'); document.body.append(host); root = createRoot(host)
-      act(() => root!.render(<QueryClientProvider client={client}><AiSettingsPage /></QueryClientProvider>))
+      act(() => root!.render(<QueryClientProvider client={client}><MemoryRouter><AiSettingsPage /></MemoryRouter></QueryClientProvider>))
       await settle()
       act(() => button('Jobs').click()); await settle()
       act(() => {

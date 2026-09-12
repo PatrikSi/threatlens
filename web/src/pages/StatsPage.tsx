@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { Link, useSearchParams } from 'react-router-dom'
+import { AiStatisticsWorkspace } from './AiStatisticsWorkspace'
+import { PermissionRoute } from '../components/PermissionRoute'
 
 import { apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
@@ -25,6 +28,23 @@ const FEED_CHART_COLORS = [
 const FEED_TABLE_PREVIEW_LIMIT = 50
 
 export function StatsPage() {
+  const [params, setParams] = useSearchParams()
+  const section = params.get('section') === 'ai' ? 'ai' : 'ingestion'
+  return <PermissionRoute permissions={section === 'ai' ? ['read:ai'] : ['read:stats']} roles={section === 'ai' ? ['admin'] : undefined}><div className="space-y-4">
+    <nav aria-label="Statistics sections" className="flex gap-2">
+      {(['ingestion', 'ai'] as const).map((value) => <button key={value} type="button" aria-pressed={section === value}
+        className={`rounded border px-4 py-2 text-sm font-semibold ${section === value ? 'bg-ink text-white dark:bg-cyan dark:text-ink' : ''}`}
+        onClick={() => { const next = new URLSearchParams(params); next.set('section', value); setParams(next) }}>
+        {value === 'ai' ? 'AI statistics' : 'Ingestion statistics'}
+      </button>)}
+    </nav>
+    {section === 'ai' ? <><header><h1 className="font-display text-2xl">AI statistics</h1>
+      <p className="text-sm text-slate dark:text-slate-300">Usage, reliability, evidence coverage and current backlog. <Link className="underline" to="/settings/ai">Manage AI providers and jobs</Link></p>
+    </header><AiStatisticsWorkspace /></> : <IngestionStatistics />}
+  </div></PermissionRoute>
+}
+
+function IngestionStatistics() {
   const [days, setDays] = useState(30)
   const [selectedFeedIds, setSelectedFeedIds] = useState<string[]>([])
   const [showAllFeedRows, setShowAllFeedRows] = useState(false)

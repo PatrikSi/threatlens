@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { MemoryRouter } from 'react-router-dom'
 
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -21,6 +22,9 @@ vi.mock('@tanstack/react-query', () => ({
     error: null,
   }),
 }))
+vi.mock('../hooks/useCurrentUser', () => ({
+  useCurrentUser: () => ({ data: { role: 'viewer', access: { permissions: ['read:stats'] } }, isLoading: false }),
+}))
 
 import { StatsPage } from './StatsPage'
 
@@ -32,7 +36,7 @@ function renderPage() {
   document.body.appendChild(container)
   root = createRoot(container)
   act(() => {
-    root?.render(<StatsPage />)
+    root?.render(<MemoryRouter><StatsPage /></MemoryRouter>)
   })
   return container
 }
@@ -84,7 +88,7 @@ describe('StatsPage filters', () => {
 
     statsPageDomMocks.feeds = [{ id: 'feed-1', name: 'Feed One' }]
     act(() => {
-      root?.render(<StatsPage />)
+      root?.render(<MemoryRouter><StatsPage /></MemoryRouter>)
     })
 
     expect(view.textContent).toContain('All feeds selected')

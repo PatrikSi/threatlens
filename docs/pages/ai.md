@@ -2,7 +2,13 @@
 
 ## Purpose
 
-Admin-only control plane for ThreatLens AI configuration, daily briefing, reprocessing, task operations, usage analytics, and audit history.
+Admin-only control plane for ThreatLens AI configuration, daily briefing, reprocessing, task operations, and audit history. Usage analytics now live under **Statistics → AI statistics** (`/stats?section=ai`); the former overview section links there.
+
+AI statistics preserve the administrator and `read:ai` permission requirements. Ingestion statistics separately require `read:stats`. Moving the interface does not grant access to either dataset.
+
+The AI statistics workspace includes provider/version/model usage, per-feature outcomes, known and missing token usage, successful-call latency percentiles and distribution, typed deadline/timeout/truncation/budget failures, retained retry receipts, evidence coverage and current queue age. Request metrics use the selected time window; backlog, coverage and retained-history panels show the current accessible dataset and do not inherit ingestion feed filters. A deadline is included in timeout totals. Latency percentiles exclude failed calls and missing measurements. Retry reservations do not establish additional billable calls, and receipts whose run was removed are excluded. Missing usage is never treated as zero-cost usage; prices and currency costs are not estimated.
+
+`GET /ai/ops/statistics?days=30` returns bounded database aggregates, under the interactive database deadline and current authorization/data-policy fences. Confirmed access loss hides cached records; transient errors retain the previous snapshot with an explicit error and retry action.
 
 All API paths on this page are relative to the published `/api/v1` base.
 

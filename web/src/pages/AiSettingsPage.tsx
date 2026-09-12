@@ -35,7 +35,6 @@ import {
   AiSettingsPageView,
   type AiActivityTabProps,
   type AiConfigurationTabProps,
-  type AiOverviewTabProps,
   type AiSettingsNotice,
   type AiTab,
 } from './AiSettingsPageView'
@@ -64,7 +63,6 @@ import {
   AIDailyBriefBackfillResponse,
   AIDailyBriefSourceItemResponse,
   AILiveStatusResponse,
-  AIOpsOverviewResponse,
   AIReprocessResponse,
   AISettings,
   AISettingsUpdateRequest,
@@ -214,7 +212,6 @@ export function AiSettingsPage() {
 
   const queryEnablement = deriveAiQueryEnablement(currentUserQuery.data, activeTab, settledActiveTab)
   const aiEnabled = queryEnablement.aiEnabled
-  const overviewQueriesEnabled = queryEnablement.overview
   const activityQueriesEnabled = queryEnablement.activity
   const configurationQueriesEnabled = queryEnablement.configuration
   const workloadQueriesEnabled = queryEnablement.workload
@@ -249,14 +246,6 @@ export function AiSettingsPage() {
     ? 'The daily brief provider is unavailable. Check its assignment, enabled state and credentials in Configuration.' : null
   const itemProviderBlockedReason = settingsQuery.data?.effective_feature_configured?.item_enrichment === false
     ? 'The article enrichment provider is unavailable. Check its assignment, enabled state and credentials in Configuration.' : null
-
-  const overviewQuery = useQuery({
-    queryKey: ['ai', 'ops', 'overview', days],
-    queryFn: ({ signal }) => apiFetch<AIOpsOverviewResponse>(`/ai/ops/overview?days=${days}`, { signal }),
-    enabled: overviewQueriesEnabled,
-    refetchInterval: 10000,
-    staleTime: AI_QUERY_STALE_MS,
-  })
 
   const liveStatusQuery = useQuery({
     queryKey: ['ai', 'ops', 'live'],
@@ -560,16 +549,13 @@ export function AiSettingsPage() {
     if (settingsQuery.data?.model) {
       values.add(settingsQuery.data.model)
     }
-    for (const row of overviewQuery.data?.per_model ?? []) {
-      values.add(row.model)
-    }
     for (const run of runsQuery.data?.items ?? []) {
       if (run.model) {
         values.add(run.model)
       }
     }
     return ['all', ...Array.from(values)]
-  }, [overviewQuery.data?.per_model, runsQuery.data?.items, settingsQuery.data?.model])
+  }, [runsQuery.data?.items, settingsQuery.data?.model])
 
   const queuedRunsData = accessibleQueryData(queuedRunsQuery)
   const runningRunsData = accessibleQueryData(runningRunsQuery)
@@ -746,22 +732,6 @@ export function AiSettingsPage() {
     testConnectionMutation.mutate()
   }
 
-  function getOverviewProps(): AiOverviewTabProps {
-    return {
-      settings: settingsQuery.data,
-      readiness,
-      overview: overviewQuery.data,
-      isLoading: overviewQuery.isLoading,
-      isError: overviewQuery.isError,
-      errorMessage: overviewQuery.isError
-        ? resolveApiErrorMessage(overviewQuery.error, 'AI analytics could not be loaded')
-        : '',
-      days,
-      setDays,
-      onRefresh: () => invalidateAiQueries(queryClient),
-    }
-  }
-
   function getActivityProps(): AiActivityTabProps {
     return {
       days,
@@ -907,7 +877,6 @@ export function AiSettingsPage() {
       setActiveTab={setActiveTab}
       notice={notice}
       settings={settingsQuery.data}
-      overviewProps={getOverviewProps()}
       activityProps={getActivityProps()}
       configurationProps={getConfigurationProps()}
       activityTabRef={activityTabRef}
