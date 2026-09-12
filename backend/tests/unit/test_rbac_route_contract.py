@@ -90,6 +90,7 @@ ADMIN_ONLY_OPERATIONS = frozenset(
         ("POST", "/v1/ai/reprocess"),
         ("GET", "/v1/ai/ops/overview"),
         ("GET", "/v1/ai/ops/live"),
+        ("GET", "/v1/ai/ops/providers"),
         ("GET", "/v1/ai/ops/runs"),
         ("GET", "/v1/ai/ops/runs/{run_id}"),
         ("POST", "/v1/ai/ops/runs/{run_id}/cancel"),
