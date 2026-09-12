@@ -192,7 +192,7 @@ function AiSettingsNavigation({
 
 function AiSettingsTabContent(props: AiSettingsPageViewProps) {
   return (
-    <section className="space-y-3">
+    <section className="min-w-0 space-y-3">
       {props.activeTab === 'overview' && (
         <section id={getAiTabPanelId('overview')} role="tabpanel" aria-labelledby={getAiTabButtonId('overview')}>
           <OverviewTab {...props.overviewProps} />
