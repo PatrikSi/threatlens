@@ -1,3 +1,12 @@
+/** Optional fields keep older server responses and clients compatible. */
+export interface AIProviderCapabilities {
+  request_dialect?: 'chat_completions' | 'chat_completions_modern'
+  reasoning_effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
+  structured_output_mode?: 'off' | 'json_object'
+  model_context_window_tokens?: number | null
+  model_max_output_tokens?: number | null
+}
+
 export interface AIPromptPreview {
   label: string
   system_prompt: string
@@ -9,7 +18,7 @@ export interface AIPromptPreviews {
   daily_brief: AIPromptPreview
 }
 
-export interface AISettings {
+export interface AISettings extends AIProviderCapabilities {
   id: string
   ai_enabled: boolean
   ai_configured: boolean
@@ -19,7 +28,7 @@ export interface AISettings {
   provider_type: 'openai_compatible'
   base_url: string | null
   model: string | null
-  temperature: number
+  temperature: number | null
   max_completion_tokens: number
   request_timeout_seconds: number
   request_max_retries: number
@@ -60,13 +69,13 @@ export interface AISettings {
   prompt_previews: AIPromptPreviews
 }
 
-export interface AIProviderConfiguration {
+export interface AIProviderConfiguration extends AIProviderCapabilities {
   name: string
   enabled: boolean
   provider_type: 'openai_compatible'
   base_url: string
   model: string
-  temperature: number
+  temperature: number | null
   max_completion_tokens: number
   request_timeout_seconds: number
   request_max_retries: number
@@ -103,11 +112,11 @@ export interface AIProviderRouting {
   report_provider_id: string | null
 }
 
-export interface AISettingsUpdateRequest {
+export interface AISettingsUpdateRequest extends AIProviderCapabilities {
   provider_type: 'openai_compatible'
   base_url: string | null
   model: string | null
-  temperature: number
+  temperature: number | null
   max_completion_tokens: number
   request_timeout_seconds: number
   request_max_retries: number

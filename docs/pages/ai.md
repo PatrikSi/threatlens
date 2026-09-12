@@ -70,6 +70,53 @@ the greater of the report budget or provider default, with a 131,072-token
 ceiling. Retry counts, response-byte limits, and request deadlines still apply;
 increasing tokens does not guarantee that a model can produce valid JSON.
 
+### Model Compatibility and Limits
+
+Both the legacy connection and every named provider include **Model compatibility
+and limits** controls. Existing configurations keep the compatible chat request
+format, temperature 0.2, omitted reasoning, and prompt-only JSON instructions.
+Configure the exact model's documented capabilities; ThreatLens does not infer
+protocol settings or model limits from a model name.
+
+| Setting | Behavior |
+| --- | --- |
+| Request format | Compatible chat sends `max_tokens`; modern chat sends `max_completion_tokens`. Both use `/chat/completions`. |
+| Temperature | Leave blank to omit the parameter. Zero sends an explicit `0`. |
+| Reasoning effort | Leave omitted for the provider default, or send one of the listed values explicitly. `none` is distinct from omission. |
+| JSON response mode | Off uses prompt instructions; JSON object mode sends `response_format: {"type":"json_object"}`. This is not strict JSON-schema enforcement. |
+| Model context limit | Optional documented input-plus-output limit, 2,048–2,097,152 tokens. Blank means unverified. |
+| Model output limit | Optional documented maximum completion allowance, 128–131,072 tokens. Blank means unverified. |
+
+The [OpenAI chat-completions reference](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create)
+distinguishes the two token parameters and documents model-dependent reasoning
+support. Google's [compatible API documentation](https://ai.google.dev/gemini-api/docs/openai)
+describes its reasoning-effort mapping. A value appearing in ThreatLens's selector
+does not mean every model accepts it. Native Gemini requests and provider-specific
+`extra_body` extensions remain outside this adapter.
+
+A configured model context limit checks the assembled messages before every
+feature request, using ThreatLens's token estimator, a 15% safety reserve, and
+384 protocol tokens. Configured output limits constrain the initial allowance and
+retry growth. An oversized request fails before provider I/O with its requested
+output, estimated input, and available headroom; this check does not automatically
+shorten prompts. Existing article/brief source-character caps and report evidence
+truncation still apply while constructing those messages. Token estimates cannot
+guarantee agreement with every provider tokenizer.
+
+Report preview and execution use the smaller of the report context window and
+selected model context limit, and the larger applicable safety percentage. Their
+independent initial report completion budget must also fit the model limits.
+Reasoning tokens can consume the completion allowance without producing visible
+JSON. These controls do not increase response-byte, timeout, or retry limits.
+
+The additive API fields are `request_dialect`, `reasoning_effort`,
+`structured_output_mode`, `model_context_window_tokens`, and
+`model_max_output_tokens`. Older clients omitting them on update retain saved
+values; explicit null clears an optional model limit or reasoning setting.
+Migration 0096 preserves existing requests. Downgrade is blocked while nonlegacy
+capabilities or omitted temperatures remain configured; restore legacy settings
+and resolve queued AI work before rolling back.
+
 ### Gemini Compatibility
 
 For Gemini, enter `https://generativelanguage.googleapis.com/v1beta/openai/` as the

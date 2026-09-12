@@ -6,6 +6,7 @@ import { Field, FieldError, Panel } from './aiSettingsSupport'
 import type { AiProviderConnectionsController } from './useAiProviderConnections'
 import { AiProviderEndpointHelp } from './AiProviderEndpointHelp'
 import { AiCompletionTokenHelp } from './AiCompletionTokenHelp'
+import { AiProviderCapabilityFields } from './AiProviderCapabilityFields'
 
 const inputClass =
   'mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]'
@@ -320,6 +321,7 @@ function ProviderEditor({
                     c.validation[key] ? `provider-error-${key}` : null,
                   ].filter(Boolean).join(' ') || undefined}
                 />
+                {key === 'temperature' && <span className="mt-1 block text-xs">Leave blank to omit temperature.</span>}
                 {key === 'base_url' && <AiProviderEndpointHelp id="provider-endpoint-help" />}
                 {key === 'max_completion_tokens' && <AiCompletionTokenHelp id="provider-completion-token-help" />}
                 {c.validation[key] && (
@@ -331,6 +333,7 @@ function ProviderEditor({
             ))}
             <ProviderKeyField c={c} />
           </div>
+          <AiProviderCapabilityFields draft={c.editor.draft} validation={c.validation} onChange={c.updateDraft} />
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"

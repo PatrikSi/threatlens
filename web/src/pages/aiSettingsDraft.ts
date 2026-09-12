@@ -1,6 +1,7 @@
 import { AISettings, AISettingsUpdateRequest } from '../types/api'
+import { createCapabilitiesDraft, createCapabilitiesRequest, validateCapabilitiesDraft, type ProviderCapabilitiesDraft } from './aiProviderCapabilitiesDraft'
 
-export type AISettingsDraft = {
+export type AISettingsDraft = ProviderCapabilitiesDraft & {
   base_url: string
   model: string
   temperature: string
@@ -45,6 +46,7 @@ export type AISettingsDraftValidation = Partial<Record<keyof AISettingsDraft, st
 const MAX_COMPLETION_TOKENS = 131072
 
 export const DEFAULT_DRAFT: AISettingsDraft = {
+  ...createCapabilitiesDraft(),
   base_url: '',
   model: '',
   temperature: '0.2',
@@ -127,7 +129,7 @@ const TEXT_RULES: Array<{
 ]
 
 export function validateAISettingsDraft(draft: AISettingsDraft): AISettingsDraftValidation {
-  const errors: AISettingsDraftValidation = {}
+  const errors: AISettingsDraftValidation = validateCapabilitiesDraft(draft)
 
   for (const rule of TEXT_RULES) {
     const value = draft[rule.key]
@@ -145,6 +147,7 @@ export function validateAISettingsDraft(draft: AISettingsDraft): AISettingsDraft
       continue
     }
     const trimmed = value.trim()
+    if (rule.key === 'temperature' && !trimmed) continue
     const parsed = Number(trimmed)
     if (!trimmed || !Number.isFinite(parsed)) {
       errors[rule.key] = `${rule.label} must be a number.`
@@ -194,9 +197,10 @@ export function getFirstAISettingsDraftValidationError(validation: AISettingsDra
 
 export function createDraftFromSettings(settings: AISettings): AISettingsDraft {
   return {
+    ...createCapabilitiesDraft(settings),
     base_url: settings.base_url ?? '',
     model: settings.model ?? '',
-    temperature: String(settings.temperature),
+    temperature: settings.temperature == null ? '' : String(settings.temperature),
     max_completion_tokens: String(settings.max_completion_tokens),
     request_timeout_seconds: String(settings.request_timeout_seconds),
     request_max_retries: String(settings.request_max_retries),
@@ -237,10 +241,11 @@ export function createDraftFromSettings(settings: AISettings): AISettingsDraft {
 export function createRequestFromDraft(draft: AISettingsDraft): AISettingsUpdateRequest {
   const dailyBriefSchedule = parseUtcTimeInput(draft.daily_brief_run_time_utc)
   return {
+    ...createCapabilitiesRequest(draft),
     provider_type: 'openai_compatible',
     base_url: normalizeOptionalText(draft.base_url),
     model: normalizeOptionalText(draft.model),
-    temperature: parseNumberOrDefault(draft.temperature, 0.2),
+    temperature: draft.temperature.trim() ? Number(draft.temperature) : null,
     max_completion_tokens: parseNumberOrDefault(draft.max_completion_tokens, 5000),
     request_timeout_seconds: parseNumberOrDefault(draft.request_timeout_seconds, 300),
     request_max_retries: Math.max(0, parseNumberOrDefault(draft.request_max_retries, 3)),

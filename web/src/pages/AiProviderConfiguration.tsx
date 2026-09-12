@@ -4,6 +4,7 @@ import { updateDraft } from './aiSettingsUtils'
 import { AiConfigurationDraftProps } from './AiSettingsConfigurationTypes'
 import { AiProviderEndpointHelp } from './AiProviderEndpointHelp'
 import { AiCompletionTokenHelp } from './AiCompletionTokenHelp'
+import { AiProviderCapabilityFields } from './AiProviderCapabilityFields'
 
 type AiProviderConfigurationProps = AiConfigurationDraftProps & {
   draftDirty: boolean
@@ -109,6 +110,7 @@ export function AiProviderConfiguration({
             inputMode="decimal"
             aria-invalid={Boolean(validation.temperature)}
           />
+          <span className="mt-1 block text-xs">Leave blank to omit temperature for models that do not support it.</span>
           <FieldError message={validation.temperature} />
         </Field>
         <Field label="Default completion tokens">
@@ -150,6 +152,7 @@ export function AiProviderConfiguration({
           </span>
         </Field>
       </div>
+      <AiProviderCapabilityFields draft={draft} validation={validation} onChange={(key, value) => updateDraft(setDraft, key, value)} />
       {testResult && <ConnectionTestResult result={testResult} />}
     </Panel>
   )

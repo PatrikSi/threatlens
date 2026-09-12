@@ -476,4 +476,48 @@ describe('AI provider lifecycle with a real query cache', () => {
     await settle()
     expect(document.activeElement).toBe(search)
   })
+  it('saves visible compatibility controls and retains omitted temperature after refresh', async () => {
+    let submitted: Record<string, unknown> | undefined
+    vi.mocked(apiFetch).mockImplementation((path, init) => {
+      if (init?.method === 'PUT') {
+        submitted = body(init)
+        savedProvider = { ...savedProvider, ...submitted, version: 2 }
+        return Promise.resolve(savedProvider) as never
+      }
+      return Promise.resolve(respondToRead(path)) as never
+    })
+    mount(true)
+    await settle()
+    act(() => current.select(provider))
+    await settle()
+    act(() => {
+      host.querySelector('summary')!.click()
+      for (const [label, value] of [
+        ['Request format', 'chat_completions_modern'], ['Reasoning effort', 'minimal'], ['JSON response mode', 'json_object'],
+      ]) {
+        const field = host.querySelector<HTMLSelectElement>(`select[aria-label="${label}"]`)!
+        field.value = value
+        field.dispatchEvent(new Event('change', { bubbles: true }))
+      }
+      for (const [label, value] of [
+        ['Provider temperature', ''], ['Model context limit (tokens)', '32768'], ['Model output limit (tokens)', '8192'],
+      ]) {
+        const field = host.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)!
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(field, value)
+        field.dispatchEvent(new Event('input', { bubbles: true }))
+      }
+    })
+    expect(current.editorDirty).toBe(true)
+    act(() => [...host.querySelectorAll('button')].find((button) => button.textContent?.trim() === 'Save provider')!.click())
+    await settle()
+    expect(submitted).toMatchObject({
+      version: 1, request_dialect: 'chat_completions_modern', temperature: null,
+      reasoning_effort: 'minimal', structured_output_mode: 'json_object',
+      model_context_window_tokens: 32768, model_max_output_tokens: 8192,
+    })
+    expect(current.editorDirty).toBe(false)
+    expect(current.editor?.draft.temperature).toBe('')
+    expect(current.editor?.draft.reasoning_effort).toBe('minimal')
+  })
+
 })
