@@ -93,7 +93,7 @@ export function ReportBuilder({ controller }: { controller: ReportingController 
             <div className="grid grid-cols-[auto_minmax(0,1fr)] items-end gap-2">
               <label className="flex min-h-10 items-center gap-2 rounded border border-slate/20 px-2.5 text-xs font-semibold dark:border-white/10">
                 <input type="checkbox" className="h-4 w-4 accent-cyan" checked={controller.deliverWhenReady} onChange={(event) => controller.setDeliverWhenReady(event.target.checked)} />
-                Deliver
+                Deliver after publication
               </label>
               <label className="text-xs font-semibold text-slate dark:text-slate-300">
                 Delivery content

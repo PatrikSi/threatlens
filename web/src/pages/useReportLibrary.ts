@@ -5,6 +5,7 @@ import type { ReportLibraryPage, ReportListItem } from '../types/api'
 
 export const REPORT_LIBRARY_PAGE_SIZE = 25
 export type ReportLibraryFilters = {
+  publicationStatus?: '' | ReportListItem['publication_status'];
   status: '' | ReportListItem['status']; createdFrom: string; createdThrough: string
   q: string; reportType: string; triggerSource: '' | 'manual' | 'scheduled' | 'retry'
 }
@@ -18,6 +19,7 @@ export function reportLibraryPath(filters: ReportLibraryFilters, cursor: string 
   if (filters.q.trim()) params.set('q', filters.q.trim())
   if (filters.reportType.trim()) params.set('report_type', filters.reportType.trim())
   if (filters.triggerSource) params.set('trigger_source', filters.triggerSource)
+  if (filters.publicationStatus) params.set('publication_status', filters.publicationStatus)
   if (filters.status) params.set('status', filters.status)
   if (filters.createdFrom) params.set('created_from', `${filters.createdFrom}T00:00:00Z`)
   if (filters.createdThrough) {

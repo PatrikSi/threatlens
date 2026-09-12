@@ -22,6 +22,12 @@ export function ReportLibrary({ controller }: { controller: Pick<ReportingContro
             {['queued', 'running', 'ready', 'error', 'skipped'].map((status) => <option key={status} value={status}>{status}</option>)}
           </select>
         </label>
+        <label className="text-xs font-semibold">Publication
+          <select aria-label="Report publication" className="ml-2 rounded border border-slate/30 bg-white p-2 dark:bg-[#072019]" value={library.filters.publicationStatus ?? ''} onChange={(event) => library.updateFilters({ publicationStatus: event.target.value as typeof library.filters.publicationStatus })}>
+            <option value="">All publication states</option>
+            {['draft', 'review', 'approved', 'published'].map((status) => <option key={status} value={status}>{status}</option>)}
+          </select>
+        </label>
         <label className="text-xs font-semibold">Trigger
           <select aria-label="Report trigger" className="ml-2 rounded border border-slate/30 bg-white p-2 dark:bg-[#072019]" value={library.filters.triggerSource} onChange={(event) => library.updateFilters({ triggerSource: event.target.value as typeof library.filters.triggerSource })}>
             <option value="">All triggers</option><option value="manual">Manual</option><option value="scheduled">Scheduled</option><option value="retry">Retry</option>
@@ -116,7 +122,7 @@ function ReportRow({ report, onOpen }: { report: ReportListItem; onOpen: (id: st
           </span>
         </button>
       </td>
-      <td className="px-3 py-2.5"><Status value={report.status} /></td>
+      <td className="px-3 py-2.5"><Status value={report.status} />{report.publication_status && <span className="ml-2 text-xs capitalize">{report.publication_status}</span>}</td>
       <td className="whitespace-nowrap px-3 py-2.5 text-xs">
         {new Date(report.period_start).toLocaleDateString()} - {new Date(report.period_end).toLocaleDateString()}
       </td>
@@ -148,7 +154,7 @@ function ReportMobileRow({ report, onOpen }: { report: ReportListItem; onOpen: (
     >
       <span className="flex items-start justify-between gap-2">
         <span className="min-w-0 break-words font-semibold">{report.title}</span>
-        <Status value={report.status} />
+        <Status value={report.status} />{report.publication_status && <span className="ml-2 text-xs capitalize">{report.publication_status}</span>}
       </span>
       <span className="mt-1 block text-xs text-slate dark:text-slate-400">
         {new Date(report.period_start).toLocaleDateString()} - {new Date(report.period_end).toLocaleDateString()}
