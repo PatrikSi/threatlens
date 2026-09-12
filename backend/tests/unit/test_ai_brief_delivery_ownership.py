@@ -1,11 +1,12 @@
 import uuid
 from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
-from celery.exceptions import Retry
 
 from app.models.ai_task_run import AITaskRun
+from app.models.ai_workflow import AIWorkflowDispatch
 from app.services.ai_integration import AIDailyBriefGenerationResult
 from app.services.ai_ops import (
     AI_TASK_TYPE_DAILY_BRIEF,
@@ -105,27 +106,23 @@ def test_busy_daily_brief_delivery_defers_unstarted_run(db_session, monkeypatch)
     monkeypatch.setattr("app.tasks.ai_brief_tasks.db_session", session_override)
     monkeypatch.setattr("app.tasks.ai_brief_tasks.daily_ai_brief_lock", busy_lock)
 
-    retries = []
-
-    def retry(**kwargs):
-        retries.append(kwargs)
-        raise Retry()
-
-    monkeypatch.setattr(dispatch_daily_ai_brief_generation, "retry", retry)
-    with pytest.raises(Retry):
-        dispatch_daily_ai_brief_generation.apply(
-            kwargs={"force": True, "task_run_id": str(run_id)},
-            task_id=str(uuid.uuid4()),
-            throw=True,
-        ).get()
+    before_delivery = datetime.now(timezone.utc)
+    result = dispatch_daily_ai_brief_generation.apply(
+        kwargs={"force": True, "task_run_id": str(run_id)},
+        task_id=str(uuid.uuid4()),
+        throw=True,
+    ).get()
 
     db_session.expire_all()
     persisted = db_session.get(AITaskRun, run_id)
     assert persisted.status == "queued"
     assert persisted.reason is None
     assert persisted.finished_at is None
-    assert retries == [{"countdown": 30, "max_retries": None}]
-    assert dispatch_daily_ai_brief_generation.max_retries is None
+    assert result == {"status": "queued", "reason": "brief_lock_busy", "run_id": str(run_id)}
+    dispatch = db_session.get(AIWorkflowDispatch, run_id)
+    assert dispatch.state == "pending"
+    assert dispatch.error == "brief_lock_busy"
+    assert dispatch.next_attempt_at >= before_delivery + timedelta(seconds=30)
 
 
 def test_duplicate_before_owner_claim_defers_and_owner_can_complete(
@@ -141,15 +138,11 @@ def test_duplicate_before_owner_claim_defers_and_owner_can_complete(
     db_session.commit()
     run_id = run.id
     depth = 0
-    retries = []
+    duplicate_results = []
 
     @contextmanager
     def session_override():
         yield db_session
-
-    def retry(**kwargs):
-        retries.append(kwargs)
-        raise Retry()
 
     @contextmanager
     def interleaved_lock():
@@ -159,16 +152,18 @@ def test_duplicate_before_owner_claim_defers_and_owner_can_complete(
             if depth == 1:
                 # Pause the owner after Redis acquisition, before the first
                 # database claim, and deliver the same broker message again.
-                with pytest.raises(Retry):
+                duplicate_results.append(
                     dispatch_daily_ai_brief_generation.apply(
                         kwargs={"force": True, "task_run_id": str(run_id)},
                         task_id="original-task",
                         throw=True,
                     ).get()
+                )
                 db_session.expire_all()
                 pending = db_session.get(AITaskRun, run_id)
                 assert pending.status == "queued"
                 assert pending.finished_at is None
+                assert db_session.get(AIWorkflowDispatch, run_id).state == "pending"
                 yield True
             else:
                 yield False
@@ -177,7 +172,6 @@ def test_duplicate_before_owner_claim_defers_and_owner_can_complete(
 
     monkeypatch.setattr("app.tasks.ai_brief_tasks.db_session", session_override)
     monkeypatch.setattr("app.tasks.ai_brief_tasks.daily_ai_brief_lock", interleaved_lock)
-    monkeypatch.setattr(dispatch_daily_ai_brief_generation, "retry", retry)
     monkeypatch.setattr(
         "app.tasks.ai_brief_tasks.load_active_ai_settings",
         lambda *_args, **_kwargs: SimpleNamespace(
@@ -201,8 +195,9 @@ def test_duplicate_before_owner_claim_defers_and_owner_can_complete(
 
     db_session.expire_all()
     persisted = db_session.get(AITaskRun, run_id)
-    assert retries == [{"countdown": 30, "max_retries": None}]
+    assert duplicate_results == [{"status": "queued", "reason": "brief_lock_busy", "run_id": str(run_id)}]
     assert result == {"status": "ready", "reason": None}
     assert persisted.status == "ready"
     assert persisted.finished_at is not None
     assert persisted.celery_task_id == "original-task"
+    assert db_session.get(AIWorkflowDispatch, run_id).state == "complete"
