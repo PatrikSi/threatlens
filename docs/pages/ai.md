@@ -213,6 +213,22 @@ all articles for regeneration. The next requested enrichment checks the current
 configuration and source fingerprint, including newly covered endpoint, prompt,
 and model settings, and can regenerate a result whose inputs changed.
 
+Migration `0100` separates the last successful enrichment's source and provider
+provenance from the latest attempt. A failed refresh retains the historical result
+for inspection, but briefs and newly planned reports use current publisher text
+when that result is stale or its source version cannot be verified. This check
+includes the article revision, classification, tags, feed, URL and publication
+time. Historical results without provenance are not certified during the upgrade,
+and the migration does not schedule paid regeneration. A later successful
+enrichment records verifiable provenance.
+
+Brief source selection projects at most 900 characters from each selected summary
+and loads no summary bodies for audit-only sources. Metadata has independent field
+limits, a 2,000-row ceiling and a 40 MiB projected text budget. An overlong URL is
+omitted rather than truncated into a different destination. Brief responses expose
+`evidence_warnings`; the dashboard shows these notes when current primary evidence
+replaces stale enrichment or the source audit budget limits coverage.
+
 Provider edits and routing updates carry optimistic versions. On a conflict,
 refresh and review the latest configuration before saving again. Remove routing
 references before deleting a provider.
@@ -336,6 +352,13 @@ repeating the same request.
 - Report run linkage back to the generated report identifier
 - Manual action history
 - Prompt-change history
+
+Reprocessing child history uses 50-row pages, with visible result scope and
+previous/next navigation through the complete accessible history. A transient
+page failure keeps the last accepted page visible and offers retry or a return to
+the first page. Losing access clears those results. Queue completion clears the
+scope form only when it still matches the submitted values; edits made while the
+request is pending remain available for the next operation.
 
 ### Configuration
 
