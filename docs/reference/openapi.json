@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "1.10.0",
-    "x-threatlens-contract-sha256": "3f5d36c4d39cdb0592fedcfa7bd020cfff4aef4022fafbed4929513633cdd121"
+    "x-threatlens-contract-sha256": "f49caff7d89f24f948fe7c0537135313edbdc3458655c413b4b2d5c9b60cc1b1"
   },
   "servers": [
     {
@@ -58528,6 +58528,47 @@
         ],
         "title": "WorkspaceEffectiveResponse"
       },
+      "WorkspaceModuleAlternateAccess": {
+        "properties": {
+          "required_permissions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Required Permissions"
+          },
+          "roles": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "admin",
+                "analyst",
+                "viewer"
+              ]
+            },
+            "type": "array",
+            "title": "Roles"
+          },
+          "feature_flag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feature Flag"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "required_permissions",
+          "roles"
+        ],
+        "title": "WorkspaceModuleAlternateAccess"
+      },
       "WorkspaceModuleDefinitionResponse": {
         "properties": {
           "id": {
@@ -58578,6 +58619,13 @@
             },
             "type": "array",
             "title": "Required Permissions"
+          },
+          "alternate_access": {
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceModuleAlternateAccess"
+            },
+            "type": "array",
+            "title": "Alternate Access"
           },
           "feature_flag": {
             "anyOf": [
