@@ -181,6 +181,13 @@ records. It excludes credentials, task arguments, request
 bodies, article content, and raw Celery payloads. Access to live topology, history,
 and diagnostics uses the same `read:operations` permission as the workspace.
 
+Proxy request diagnostics retain status, timing, upstream status and a correlated
+request reference while excluding query strings and referrers. HTTP error prose
+is disabled because nginx includes the original request line there; startup and
+process errors remain on stderr. See the
+[proxy logging contract and live checks](../../web/nginx/README.md) when
+investigating oversized uploads or unavailable upstreams.
+
 ## Prerequisites
 
 - Run on the Docker host as an account permitted to use Docker.
