@@ -89,6 +89,7 @@ ADMIN_ONLY_OPERATIONS = frozenset(
         ("POST", "/v1/ai/daily-brief/backfill"),
         ("POST", "/v1/ai/reprocess"),
         ("GET", "/v1/ai/ops/overview"),
+        ("GET", "/v1/ai/ops/statistics"),
         ("GET", "/v1/ai/ops/live"),
         ("GET", "/v1/ai/ops/providers"),
         ("GET", "/v1/ai/ops/runs"),
