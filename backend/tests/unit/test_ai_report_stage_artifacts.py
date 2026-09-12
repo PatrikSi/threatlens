@@ -74,3 +74,28 @@ def test_artifact_rollback_never_claims_completion(db_session):
     store_report_stage_completion(db_session, **args, completion=completion())
     db_session.rollback()
     assert load_report_stage_completion(db_session, **args) is None
+
+
+@pytest.mark.parametrize('field,value', [('attempt_count', 0), ('attempt_count', None),
+    ('latency_ms', None), ('prompt_char_count', None), ('response_char_count', -1),
+    ('total_tokens', 2_147_483_648), ('completion_tokens', True)])
+def test_corrupt_stage_usage_never_understates_attempts(db_session, field, value):
+    report, run = setup_report(db_session)
+    args = dict(task_run_id=run.id, report_id=report.id, operation_scope='evidence:0', request_fingerprint='a'*64)
+    store_report_stage_completion(db_session, **args, completion=completion())
+    db_session.commit()
+    artifact = db_session.get(AIReportStageArtifact, (run.id, 'evidence:0'))
+    artifact.completion_json = {**artifact.completion_json, field: value}
+    db_session.commit()
+    with pytest.raises(AIIntegrationError, match='unavailable'):
+        load_report_stage_completion(db_session, **args)
+
+
+def test_nullable_model_and_optional_usage_are_valid(db_session):
+    from dataclasses import replace
+    report, run = setup_report(db_session)
+    args = dict(task_run_id=run.id, report_id=report.id, operation_scope='evidence:0', request_fingerprint='a'*64)
+    saved = replace(completion(), model=None, prompt_tokens=None, completion_tokens=None, total_tokens=None)
+    store_report_stage_completion(db_session, **args, completion=saved)
+    db_session.commit()
+    assert load_report_stage_completion(db_session, **args) == saved
