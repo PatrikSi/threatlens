@@ -52,6 +52,15 @@ def recover_stale_workflow(db, run: AITaskRun) -> str | None:
         recalculate_reprocess_progress(db, parent=run)
         if run.finished_at is not None:
             return "finished"
+    if (run.task_type == "reprocess"
+            and (run.metadata_json or {}).get("scope") == "daily_brief_backfill"):
+        from app.services.ai_brief_recovery import backfill_recovery_is_blocked
+        if backfill_recovery_is_blocked(db, run):
+            finish_ai_task_run(
+                db, run_id=run.id, status="error", reason="provider_recovery_blocked",
+                error="Interrupted daily-brief provider work requires receipt reconciliation before retry.",
+            )
+            return "finished"
     resource = None
     if run.task_type == "item_enrichment" and run.item_id:
         resource = db.get(ItemAIEnrichment, run.item_id)

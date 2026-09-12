@@ -13,8 +13,10 @@ from app.services.ai_ops import (
     AI_TASK_TYPE_DAILY_BRIEF,
     AI_TASK_TYPE_REPROCESS,
     AI_TRIGGER_MANUAL,
+    _finish_reconciled_stale_run,
     queue_ai_task_run,
 )
+from app.services.data_access_runtime import lock_data_policy_revision_for_derivation
 from app.tasks import ai_brief_tasks
 
 
@@ -97,7 +99,18 @@ def test_backfill_redelivery_after_midnight_preserves_original_dates(
         db_session.commit()
 
     current_time = datetime(2026, 7, 4, 0, 5, tzinfo=timezone.utc)
-    result = ai_brief_tasks.backfill_daily_ai_briefs.run(3, task_run_id=str(parent_id))
+    # Accepted work is resumed only after durable recovery fences the old
+    # delivery. The synthetic interruption occurred before a provider claim.
+    lock_data_policy_revision_for_derivation(db_session)
+    assert _finish_reconciled_stale_run(
+        db_session, run=parent, snapshot_available=True,
+        stale_reason="stale_reprocess_tracking", stale_error="Synthetic worker loss",
+    ) == "guarded"
+    db_session.commit()
+    result = ai_brief_tasks.backfill_daily_ai_briefs.apply(
+        kwargs={"days": 3, "task_run_id": str(parent_id)},
+        task_id=parent.celery_task_id, throw=True,
+    ).get()
 
     db_session.expire_all()
     parent = db_session.get(AITaskRun, parent_id)

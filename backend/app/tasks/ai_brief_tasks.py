@@ -398,12 +398,8 @@ def _daily_brief_backfill_attempts(
 
 
 def _daily_brief_backfill_attempt_is_settled(run: AITaskRun) -> bool:
-    if run.finished_at is None or run.status not in {AI_STATUS_READY, AI_STATUS_ERROR, AI_STATUS_SKIPPED}:
-        return False
-    metadata = run.metadata_json or {}
-    if metadata.get(AI_PARENT_PROGRESS_ELIGIBLE_METADATA_KEY) is False:
-        return False
-    return not (run.reason and run.reason.startswith("stale_"))
+    from app.services.ai_brief_recovery import brief_attempt_is_settled
+    return brief_attempt_is_settled(run)
 
 
 def _daily_brief_backfill_attempt_number(attempts: list[AITaskRun]) -> int:
@@ -414,6 +410,27 @@ def _daily_brief_backfill_attempt_number(attempts: list[AITaskRun]) -> int:
         except (TypeError, ValueError):
             continue
     return max([len(attempts), *attempt_numbers], default=0) + 1
+
+
+def _supersede_daily_brief_attempts(
+    db: Session, *, attempts: list[AITaskRun], attempt_number: int,
+    worker_name: str | None, active_model: str | None,
+) -> None:
+    for attempt in attempts:
+        if attempt.finished_at is not None:
+            continue
+        attempt.metadata_json = {
+            **dict(attempt.metadata_json or {}),
+            AI_PARENT_PROGRESS_ELIGIBLE_METADATA_KEY: False,
+            "superseded_by_attempt": attempt_number,
+        }
+        db.add(attempt)
+        finish_ai_task_run(
+            db, run_id=attempt.id, status=AI_STATUS_SKIPPED,
+            reason="superseded_by_redelivery",
+            worker_name=attempt.worker_name or worker_name,
+            model=attempt.model or active_model,
+        )
 
 
 @celery_app.task(
@@ -450,11 +467,6 @@ def backfill_daily_ai_briefs(
                 parsed_actor_user_id = None
 
         run = db.scalar(select(AITaskRun).where(AITaskRun.id == parsed_run_id)) if parsed_run_id else None
-        parent_was_running = bool(
-            run is not None
-            and run.status == AI_STATUS_RUNNING
-            and run.finished_at is None
-        )
         if run is None:
             run = queue_ai_task_run(
                 db,
@@ -608,26 +620,20 @@ def backfill_daily_ai_briefs(
                         parent_run_id=parent_run_id,
                         brief_date=brief_date,
                     )
-                    if any(_daily_brief_backfill_attempt_is_settled(attempt) for attempt in attempts):
-                        processed_dates.append(brief_date)
-                        continue
+                    from app.services.ai_brief_recovery import reconcile_interrupted_brief_attempts
+                    recovery = reconcile_interrupted_brief_attempts(db, parent=parent_run, attempts=attempts)
+                    if recovery is not None:
+                        db.commit()
+                        if recovery == "ready":
+                            processed_dates.append(brief_date)
+                            continue
+                        return {"status": "error", "reason": "provider_recovery_blocked", "run_id": str(parent_run_id)}
 
                     attempt_number = _daily_brief_backfill_attempt_number(attempts)
-                    for interrupted_attempt in [attempt for attempt in attempts if attempt.finished_at is None]:
-                        interrupted_attempt.metadata_json = {
-                            **dict(interrupted_attempt.metadata_json or {}),
-                            AI_PARENT_PROGRESS_ELIGIBLE_METADATA_KEY: False,
-                            "superseded_by_attempt": attempt_number,
-                        }
-                        db.add(interrupted_attempt)
-                        finish_ai_task_run(
-                            db,
-                            run_id=interrupted_attempt.id,
-                            status=AI_STATUS_SKIPPED,
-                            reason="superseded_by_redelivery",
-                            worker_name=interrupted_attempt.worker_name or worker_name,
-                            model=interrupted_attempt.model or active_model,
-                        )
+                    _supersede_daily_brief_attempts(
+                        db, attempts=attempts, attempt_number=attempt_number,
+                        worker_name=worker_name, active_model=active_model,
+                    )
 
                     child_run = queue_ai_task_run(
                         db,
