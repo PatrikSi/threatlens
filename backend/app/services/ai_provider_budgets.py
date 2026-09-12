@@ -89,10 +89,11 @@ def reserve_provider_budget(
             budget_db.add(reservation)
             budget_db.flush()
             reservation_id = reservation.id
-            # Prune at most 100 settled/expired reservations per admission. Active
-            # leases and this hour's accounting are never removed.
+            # Globally prune at most 100 expired reservations per admission,
+            # including retired/inactive profiles. Active leases and this hour's
+            # accounting are never removed; the creation index bounds the scan.
             expired_ids = select(row.id).where(
-                row.provider_key == key, row.created_at < now - timedelta(hours=2), row.expires_at < now,
+                row.created_at < now - timedelta(hours=2), row.expires_at < now,
             ).order_by(row.created_at).limit(100)
             budget_db.execute(delete(row).where(row.id.in_(expired_ids)))
             budget_db.commit()

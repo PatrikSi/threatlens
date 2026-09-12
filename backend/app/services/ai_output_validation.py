@@ -37,6 +37,7 @@ def validate_feature_completion(
         response_json=completion.response_json,
         status_code=completion.status_code,
         retryable=True,
+        failure_category="invalid_output",
         provider_io_outcome="response_received",
         prompt_tokens=completion.prompt_tokens,
         completion_tokens=completion.completion_tokens,

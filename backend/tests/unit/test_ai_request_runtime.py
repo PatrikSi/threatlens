@@ -993,9 +993,10 @@ def test_report_grounding_failure_retries_before_success_receipt(db_session):
         return AICompletionResult(payload=next(outputs), provider="openai_compatible",
             model="test-model", latency_ms=12, prompt_tokens=20, completion_tokens=30, total_tokens=50)
 
+    messages = [{"role": "user", "content": json.dumps({"section": {"key": "assessment"},
+        "findings": [{"text": "A supported claim.", "citations": ["S1"]}]})}]
     result = _run_request(db_session, active=_active(retries=1), task_run_id=task_run.id,
-        messages=[{"role": "user", "content": json.dumps({"section": {"key": "assessment"},
-            "findings": [{"text": "A supported claim.", "citations": ["S1"]}]})}],
+        messages=messages,
         call_provider=call_provider, record_usage=lambda *_args, **kwargs: usages.append(kwargs))
     receipts = db_session.scalars(select(AIProviderAttemptReceipt).where(
         AIProviderAttemptReceipt.task_run_id_snapshot == task_run.id
@@ -1004,6 +1005,52 @@ def test_report_grounding_failure_retries_before_success_receipt(db_session):
     assert [row.state for row in receipts] == ["failed", "succeeded"]
     assert [entry["success"] for entry in usages] == [False, True]
     assert [entry["total_tokens"] for entry in usages] == [50, 50]
+
+    replayed = _run_request(db_session, active=_active(retries=1), task_run_id=task_run.id,
+        messages=messages, call_provider=lambda *_args, **_kwargs: pytest.fail("Paid request repeated"),
+        record_usage=lambda *_args, **_kwargs: pytest.fail("Usage counted twice"))
+    assert replayed.payload == result.payload
+    assert replayed.attempt_count == 2
+
+
+def test_ambiguous_settlement_preserves_deadline_category_and_provider_attribution(db_session):
+    usages = []
+    active = _active()
+    active.provider_name = "Legacy settings"
+
+    def call_provider(_active, **_kwargs):
+        raise AIIntegrationError("arbitrary text", failure_category="total_deadline",
+            provider_io_outcome="ambiguous", latency_ms=301000)
+
+    with pytest.raises(AIProviderAttemptAmbiguousError):
+        _run_request(db_session, active=active, call_provider=call_provider,
+            record_usage=lambda *_args, **kwargs: usages.append(kwargs))
+    assert len(usages) == 1
+    assert usages[0]["failure_category"] == "total_deadline"
+    assert usages[0]["provider_name"] == "Legacy settings"
+    assert usages[0]["provider_io_outcome"] == "ambiguous"
+    assert usages[0]["latency_ms"] == 301000
+
+
+def test_budget_deferral_usage_failure_cannot_leave_a_reserved_unsent_receipt(db_session, monkeypatch):
+    from app.services.ai_workflow_dispatch import AIWorkflowDeferred
+
+    task_run = _task_run(db_session)
+
+    def denied(*_args, **_kwargs):
+        raise AIWorkflowDeferred("provider_concurrency_budget", 10)
+
+    def broken_usage(*_args, **_kwargs):
+        raise OperationalError("INSERT usage", {}, Exception("synthetic database failure"))
+
+    monkeypatch.setattr("app.services.ai_request_runtime.call_with_provider_budget", denied)
+    with pytest.raises(AIWorkflowDeferred):
+        _run_request(db_session, task_run_id=task_run.id, record_usage=broken_usage)
+    receipt = db_session.scalar(select(AIProviderAttemptReceipt).where(
+        AIProviderAttemptReceipt.task_run_id_snapshot == task_run.id))
+    assert receipt.state == "voided"
+    assert receipt.io_outcome == "not_sent"
+    assert db_session.get(AITaskRun, task_run.id).status == "running"
 
 
 def _run_request(
