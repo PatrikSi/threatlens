@@ -1,4 +1,6 @@
-import { createContext, useContext } from 'react'
+import { createContext, useContext, useSyncExternalStore } from 'react'
+
+import { isSessionVerificationUnavailable, subscribeSessionVerification } from '../api/sessionLifecycle'
 
 import { DialogSurface } from './ConfirmDialog'
 
@@ -8,11 +10,18 @@ export function SessionVerificationBoundary({
   unavailable, onRetry, children,
 }: { unavailable: boolean; onRetry: () => void; children: React.ReactNode }) {
   const parentUnavailable = useContext(VerificationBoundaryContext)
+  const actionsPaused = useSyncExternalStore(
+    subscribeSessionVerification,
+    isSessionVerificationUnavailable,
+    isSessionVerificationUnavailable,
+  )
+  // Query error stays null during retries; use the same immediate state as API writes.
+  const currentUnavailable = unavailable || actionsPaused
   return (
-    <VerificationBoundaryContext.Provider value={parentUnavailable || unavailable}>
+    <VerificationBoundaryContext.Provider value={parentUnavailable || currentUnavailable}>
       {children}
       <DialogSurface
-        open={unavailable && !parentUnavailable}
+        open={currentUnavailable && !parentUnavailable}
         title="Session check unavailable"
         description="Your drafts remain open. Protected actions are paused until ThreatLens can verify your session."
         dismissDisabled

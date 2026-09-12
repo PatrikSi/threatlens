@@ -1,5 +1,6 @@
 let controller = new AbortController()
 let verificationUnavailable = false
+const verificationListeners = new Set<() => void>()
 
 export class SessionChangedError extends Error {
   readonly retryable = false
@@ -32,12 +33,23 @@ export function captureSessionLease() {
 export function invalidateSession() {
   const previous = controller
   controller = new AbortController()
-  verificationUnavailable = false
+  setSessionVerificationUnavailable(false)
   previous.abort(new SessionChangedError())
 }
 
 export function setSessionVerificationUnavailable(unavailable: boolean) {
+  if (verificationUnavailable === unavailable) return
   verificationUnavailable = unavailable
+  verificationListeners.forEach((listener) => listener())
+}
+
+export function isSessionVerificationUnavailable() {
+  return verificationUnavailable
+}
+
+export function subscribeSessionVerification(listener: () => void) {
+  verificationListeners.add(listener)
+  return () => { verificationListeners.delete(listener) }
 }
 
 export function assertSessionActionsAvailable() {
