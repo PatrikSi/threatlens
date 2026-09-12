@@ -304,7 +304,15 @@ not retrospectively backfilled. Aggregation is still by model, so profiles using
 the same model name are combined.
 
 Enrichment requires nonempty summary text when summaries are enabled and a finite
-score when relevance is enabled. Daily briefs require nonempty narrative text.
+score when relevance is enabled. Daily briefs require nonempty narrative text
+and a title of at most 255 characters when supplied. Before successful settlement,
+all feature output must contain database-safe Unicode and finite JSON values,
+with at most 32 levels, 100,000 values, and serialized size within
+`AI_RESPONSE_MAX_BYTES`. NUL characters and unpaired surrogates are rejected
+without changing quoted content. Invalid optional provider model metadata is
+omitted in favor of the configured model; diagnostic fields are bounded and
+escaped. These metadata faults do not discard known token usage or turn a
+received result into an uncertain transmission.
 Malformed outputs use the existing bounded retry and durable-attempt workflow;
 they are not published as empty successful results. An explicit provider refusal
 or content-policy stop produces a terminal diagnostic without automatically

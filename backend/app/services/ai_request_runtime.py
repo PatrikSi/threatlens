@@ -23,7 +23,7 @@ from app.services.ai_egress_data_policy import (
 from app.services.ai_request_identity import ai_request_fingerprint as _ai_request_fingerprint
 from app.services.ai_ops import record_ai_task_event
 from app.services.ai_provider_protocol import provider_output_ceiling, validate_provider_request
-from app.services.ai_output_validation import validate_feature_completion
+from app.services.ai_output_validation import normalize_completion_metadata, validate_feature_completion
 from app.services.report_grounding import report_stage_input
 from app.services.ai_provider_attempts import (
     AIProviderAttemptReservation,
@@ -206,6 +206,7 @@ def run_ai_json_request(
             lock_selected_provider(db, active)
             completion = call_with_provider_budget(db, active, call=call_ai_json,
                 messages=messages, requested_tokens=request_max_tokens, call_kwargs=call_kwargs)
+            completion = normalize_completion_metadata(active, completion)
             validate_feature_completion(active, feature_type=feature_type, completion=completion, messages=messages)
         except AIWorkflowDeferred as deferred:
             _void_final_provider_reservation(db, execution_commit=execution_commit,
