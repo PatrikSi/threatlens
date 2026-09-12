@@ -11,6 +11,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 
 import { apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
+import { accessibleQueryData } from '../api/queryData'
 import { SettingsPageHeader } from '../components/SettingsPageHeader'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
@@ -570,9 +571,11 @@ export function AiSettingsPage() {
     return ['all', ...Array.from(values)]
   }, [overviewQuery.data?.per_model, runsQuery.data?.items, settingsQuery.data?.model])
 
+  const queuedRunsData = accessibleQueryData(queuedRunsQuery)
+  const runningRunsData = accessibleQueryData(runningRunsQuery)
   const activeTopLevelRuns = useMemo(() => {
     const byId = new Map<string, AITaskRunResponse>()
-    for (const run of [...(runningRunsQuery.data?.items ?? []), ...(queuedRunsQuery.data?.items ?? [])]) {
+    for (const run of [...(runningRunsData?.items ?? []), ...(queuedRunsData?.items ?? [])]) {
       if (run.parent_run_id || run.finished_at || (run.status !== 'queued' && run.status !== 'running')) {
         continue
       }
@@ -586,7 +589,7 @@ export function AiSettingsPage() {
       }
       return (parseTimestamp(right.updated_at)?.getTime() ?? 0) - (parseTimestamp(left.updated_at)?.getTime() ?? 0)
     })
-  }, [queuedRunsQuery.data?.items, runningRunsQuery.data?.items])
+  }, [queuedRunsData?.items, runningRunsData?.items])
 
   const connectionTestBlockingRuns = useMemo(
     () => activeTopLevelRuns.filter(isConnectionTestBlockingRun),
@@ -768,7 +771,7 @@ export function AiSettingsPage() {
       modelOptions,
       onRefresh: () => invalidateAiQueries(queryClient),
       runs: activeTopLevelRuns,
-      live: liveStatusQuery.data,
+      live: accessibleQueryData(liveStatusQuery),
       activeTasksLoading,
       activeTasksRefreshing,
       activeTasksErrorMessage,
@@ -827,7 +830,7 @@ export function AiSettingsPage() {
         setSelectedRunId(runId)
       },
       runDetailQuery,
-      briefSources: briefSourcesQuery.data ?? [],
+      briefSources: accessibleQueryData(briefSourcesQuery) ?? [],
       briefSourcesLoading: briefSourcesQuery.isLoading,
       briefSourcesErrorMessage: briefSourcesQuery.isError
         ? resolveApiErrorMessage(briefSourcesQuery.error, 'Daily brief sources could not be loaded')

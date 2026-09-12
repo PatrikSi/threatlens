@@ -1,4 +1,5 @@
 import { resolveApiErrorMessage } from '../api/errors'
+import { accessibleQueryData } from '../api/queryData'
 import { ReportBuilder } from './ReportBuilder'
 import { ReportDetailView } from './ReportDetailView'
 import { ReportLibrary } from './ReportLibrary'
@@ -20,11 +21,12 @@ export function ReportingPage() {
 
 function ReportingContent({ controller }: { controller: ReportingController }) {
   const visibleTabs = controller.isAdmin ? TABS : TABS.filter((tab) => tab.id !== 'schedules')
+  const report = accessibleQueryData(controller.reportDetailQuery)
 
   if (controller.reportDetailQuery.isLoading) {
     return <PageStatus message="Loading intelligence report..." />
   }
-  if (controller.reportDetailQuery.data) {
+  if (report) {
     return (
       <div className="space-y-3 sm:space-y-4">
         <ReportingActionFeedback feedback={controller.feedback} />
@@ -39,7 +41,7 @@ function ReportingContent({ controller }: { controller: ReportingController }) {
         )}
         <ReportDetailView
           controller={controller}
-          report={controller.reportDetailQuery.data}
+          report={report}
         />
       </div>
     )

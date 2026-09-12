@@ -544,7 +544,7 @@ describe('ReportingPage detail actions', () => {
     expect(reportingPageMocks.anchorClick).not.toHaveBeenCalled()
   })
 
-  it('retains the loaded report when a status refresh fails', async () => {
+  it.each([401, 403, 404, 503])('handles a loaded report refresh returning HTTP %s according to current access', async (status) => {
     let detailRequests = 0
     reportingPageMocks.apiFetch.mockImplementation((path: string) => {
       if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
@@ -554,7 +554,7 @@ describe('ReportingPage detail actions', () => {
         detailRequests += 1
         return detailRequests === 1
           ? Promise.resolve(reportDetail())
-          : Promise.reject(new Error('Status endpoint unavailable'))
+          : Promise.reject(new ApiError('Status endpoint unavailable', status, path))
       }
       return Promise.reject(new Error(`Unexpected API path: ${path}`))
     })
@@ -572,8 +572,15 @@ describe('ReportingPage detail actions', () => {
         expect(view.textContent).toContain('Status endpoint unavailable')
       })
     })
-    expect(view.textContent).toContain('Weekly threat landscape')
-    expect(view.textContent).toContain('The last loaded report remains visible')
+    if (status === 503) {
+      expect(view.textContent).toContain('Weekly threat landscape')
+      expect(view.textContent).toContain('The last loaded report remains visible')
+    } else {
+      expect(view.textContent).not.toContain('Weekly threat landscape')
+      expect(view.textContent).not.toContain('The last loaded report remains visible')
+      expect([...view.querySelectorAll('button')].some((entry) => entry.textContent === 'PDF')).toBe(false)
+      expect(button(view, 'Retry')).toBeDefined()
+    }
   })
 
   it('reuses the retry idempotency key after an ambiguous failure', async () => {
