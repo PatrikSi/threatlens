@@ -24,8 +24,6 @@ def report_has_safe_resume_history(db, *, run: AITaskRun, report: Report) -> boo
         return False
     receipts = list(db.scalars(select(AIProviderAttemptReceipt).where(
         AIProviderAttemptReceipt.task_run_id_snapshot == run.id)))
-    artifacts = list(db.scalars(select(AIReportStageArtifact).where(
-        AIReportStageArtifact.task_run_id == run.id)))
     # Any uncertain operation for this report still blocks same-run recovery.
     unsafe = db.scalar(select(AIProviderAttemptReceipt.id).where(
         AIProviderAttemptReceipt.resource_type == 'report',
@@ -35,24 +33,36 @@ def report_has_safe_resume_history(db, *, run: AITaskRun, report: Report) -> boo
     if unsafe is not None:
         return False
     if not receipts:
-        return (not artifacts and int(report.model_calls or 0) == 0
+        artifact_exists = db.scalar(select(AIReportStageArtifact.task_run_id).where(
+            AIReportStageArtifact.task_run_id == run.id).limit(1)) is not None
+        return (not artifact_exists and int(report.model_calls or 0) == 0
                 and (run.metadata_json or {}).get(REPORT_STAGE_PROTOCOL_KEY) == 1)
     try:
         operation_root = uuid.UUID(str((run.metadata_json or {}).get('provider_operation_root_id')))
     except (TypeError, ValueError):
         return False
-    saved = {}
-    for artifact in artifacts:
-        if artifact.report_id != report.id:
-            return False
-        try:
-            completion = load_report_stage_completion(db, task_run_id=run.id, report_id=report.id,
-                operation_scope=artifact.operation_scope, request_fingerprint=artifact.request_fingerprint)
-        except AIIntegrationError:
-            return False
-        if completion is None:
-            return False
-        saved[uuid.uuid5(operation_root, artifact.operation_scope)] = completion
+    saved: dict[uuid.UUID, int] = {}
+    artifacts = db.execute(select(
+        AIReportStageArtifact.report_id, AIReportStageArtifact.operation_scope,
+        AIReportStageArtifact.request_fingerprint,
+    ).where(AIReportStageArtifact.task_run_id == run.id).execution_options(yield_per=50))
+    try:
+        for artifact in artifacts:
+            if artifact.report_id != report.id:
+                return False
+            try:
+                completion = load_report_stage_completion(db, task_run_id=run.id, report_id=report.id,
+                    operation_scope=artifact.operation_scope, request_fingerprint=artifact.request_fingerprint)
+            except AIIntegrationError:
+                return False
+            if completion is None:
+                return False
+            saved[uuid.uuid5(operation_root, artifact.operation_scope)] = completion.attempt_count
+            # Validation still examines the complete saved stage. Retain only
+            # its receipt evidence before loading the next potentially large body.
+            del completion
+    finally:
+        artifacts.close()
     successful = set()
     attempts_by_operation = {}
     for receipt in receipts:
@@ -62,8 +72,7 @@ def report_has_safe_resume_history(db, *, run: AITaskRun, report: Report) -> boo
         accounted = receipt.attempt_number - (receipt.state == 'voided')
         attempts_by_operation[receipt.operation_id] = max(attempts_by_operation.get(receipt.operation_id, 0), accounted)
         if receipt.state == 'succeeded':
-            completion = saved.get(receipt.operation_id)
-            if completion is None or completion.attempt_count != receipt.attempt_number:
+            if saved.get(receipt.operation_id) != receipt.attempt_number:
                 return False
             successful.add(receipt.operation_id)
         elif receipt.state == 'failed':
