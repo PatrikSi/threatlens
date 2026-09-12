@@ -35,7 +35,7 @@ export function TeamsPage() {
     Number.isSafeInteger(requestedPage) && requestedPage > 0 && requestedPage <= 1_000_000 ? requestedPage : 1
   const creating = canAdminister && params.get('create') === '1'
   const list = useQuery({
-    queryKey: ['teams', 'list', adminMode, page],
+    queryKey: ['teams', 'list', adminMode, page, 25],
     queryFn: () =>
       apiFetch<TeamPage>(
         `/teams${adminMode ? '/admin' : ''}?page=${page}&page_size=25`,

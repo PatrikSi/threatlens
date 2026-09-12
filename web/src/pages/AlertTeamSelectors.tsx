@@ -21,7 +21,7 @@ export function AlertQueueScopePicker({ value, onChange, disabled = false, allow
   const [page, setPage] = useState(1)
   const canRead = hasRequiredPermissions(user.data?.access?.permissions ?? [], ['read:teams'])
   const query = useQuery({
-    queryKey: ['teams', 'list', false, page],
+    queryKey: ['teams', 'list', false, page, 50],
     queryFn: ({ signal }) => apiFetch<TeamPage>(`/teams?page=${page}&page_size=50`, { signal }),
     enabled: canRead,
     staleTime: 30_000,
