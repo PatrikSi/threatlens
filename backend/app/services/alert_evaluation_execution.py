@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from collections import Counter
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import exists, select, update
 from sqlalchemy.exc import IntegrityError
@@ -127,7 +127,10 @@ def evaluate_alert_request(
     while True:
         owner_query = (
             select(AlertEvaluationMatch.owner_user_id)
-            .where(AlertEvaluationMatch.request_id == request.id)
+            .where(
+                AlertEvaluationMatch.request_id == request.id,
+                AlertEvaluationMatch.team_id.is_(None),
+            )
             .group_by(AlertEvaluationMatch.owner_user_id)
             .order_by(AlertEvaluationMatch.owner_user_id.asc())
             .limit(ALERT_EVALUATION_OWNER_PAGE_SIZE)
@@ -194,6 +197,49 @@ def evaluate_alert_request(
             if notification.skip_reason is not None:
                 notification_skip_reasons[notification.skip_reason] += 1
         owner_cursor = owner_ids[-1]
+
+    # Team matches create durable queue entries. Delivery to external destinations
+    # requires a separately configured team policy; never borrow creator credentials.
+    team_cursor: uuid.UUID | None = None
+    while True:
+        predicates = [
+            AlertEvaluationMatch.request_id == request.id,
+            AlertEvaluationMatch.team_id.is_not(None),
+        ]
+        if team_cursor is not None:
+            predicates.append(AlertEvaluationMatch.id > team_cursor)
+        team_matches = list(
+            db.scalars(
+                select(AlertEvaluationMatch)
+                .where(*predicates)
+                .order_by(AlertEvaluationMatch.id)
+                .limit(ALERT_EVALUATION_MATCH_PAGE_SIZE)
+            )
+        )
+        if not team_matches:
+            break
+        live_rule_ids = set(
+            db.scalars(
+                select(AlertInterest.id).where(
+                    AlertInterest.id.in_(
+                        [match.alert_interest_id for match in team_matches]
+                    )
+                )
+            )
+        )
+        for match in team_matches:
+            _, created = _get_or_create_occurrence(
+                db,
+                match=match,
+                live_rule_ids=live_rule_ids,
+                item=item,
+                source_snapshot=source_snapshot,
+                evidence_policy_revision=evidence_policy_revision,
+                now=current_time,
+            )
+            occurrence_count += int(created)
+            suppressed_count += int(created and match.suppressed)
+        team_cursor = team_matches[-1].id
 
     request.state = "succeeded"
     request.completed_at = current_time
@@ -430,6 +476,13 @@ def _get_or_create_occurrence(
         ),
         rule_id_snapshot=match.alert_interest_id,
         owner_user_id=match.owner_user_id,
+        team_id=match.team_id,
+        due_at=(
+            now + timedelta(minutes=match.due_after_minutes)
+            if match.due_after_minutes is not None
+            else None
+        ),
+        escalation_after_minutes=match.escalation_after_minutes,
         item_id=item.id,
         item_id_snapshot=item.id,
         rule_revision=match.rule_revision,

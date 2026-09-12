@@ -22,6 +22,22 @@ from app.db.base import Base
 class AlertEvaluationMatch(Base):
     __tablename__ = "alert_evaluation_matches"
     __table_args__ = (
+        CheckConstraint(
+            "due_after_minutes BETWEEN 1 AND 525600",
+            name="ck_alert_evaluation_matches_due_minutes",
+        ),
+        CheckConstraint(
+            "escalation_after_minutes BETWEEN 0 AND 525600",
+            name="ck_alert_evaluation_matches_escalation_minutes",
+        ),
+        CheckConstraint(
+            "escalation_after_minutes IS NULL OR due_after_minutes IS NOT NULL",
+            name="ck_alert_evaluation_matches_escalation_due",
+        ),
+        CheckConstraint(
+            "(owner_user_id IS NOT NULL AND team_id IS NULL) OR (owner_user_id IS NULL AND team_id IS NOT NULL)",
+            name="ck_alert_evaluation_matches_owner",
+        ),
         UniqueConstraint(
             "request_id",
             "alert_interest_id",
@@ -61,11 +77,18 @@ class AlertEvaluationMatch(Base):
     alert_interest_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True), nullable=False
     )
-    owner_user_id: Mapped[uuid.UUID] = mapped_column(
+    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
     )
+    team_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("teams.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+
     rule_revision: Mapped[int] = mapped_column(Integer, nullable=False)
     alert_name_snapshot: Mapped[str] = mapped_column(String(255), nullable=False)
     alert_category_snapshot: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -83,3 +106,6 @@ class AlertEvaluationMatch(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+    due_after_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    escalation_after_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)

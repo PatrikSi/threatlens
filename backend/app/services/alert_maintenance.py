@@ -272,23 +272,37 @@ def _maintain_alert_history_batch(
         if aggregate_occurrences
         else []
     )
-    public_counts: Counter[tuple[datetime, uuid.UUID, str, str, bool]] = Counter()
+    public_counts: Counter[
+        tuple[datetime, uuid.UUID | None, uuid.UUID | None, str, str, bool]
+    ] = Counter()
     cohort_counts: Counter[
-        tuple[datetime, uuid.UUID, str, str, bool, uuid.UUID, str]
+        tuple[
+            datetime, uuid.UUID | None, uuid.UUID | None, str, str, bool, uuid.UUID, str
+        ]
     ] = Counter()
     captured_labels_by_key: dict[
-        tuple[datetime, uuid.UUID, str, str, bool, uuid.UUID, str],
+        tuple[
+            datetime, uuid.UUID | None, uuid.UUID | None, str, str, bool, uuid.UUID, str
+        ],
         set[uuid.UUID],
     ] = {}
     taint_labels_by_key: dict[
-        tuple[datetime, uuid.UUID, str, str, bool, uuid.UUID, str],
+        tuple[
+            datetime, uuid.UUID | None, uuid.UUID | None, str, str, bool, uuid.UUID, str
+        ],
         set[uuid.UUID],
     ] = {}
     captured_revision_by_key: dict[
-        tuple[datetime, uuid.UUID, str, str, bool, uuid.UUID, str], int
+        tuple[
+            datetime, uuid.UUID | None, uuid.UUID | None, str, str, bool, uuid.UUID, str
+        ],
+        int,
     ] = {}
     provenance_complete_by_key: dict[
-        tuple[datetime, uuid.UUID, str, str, bool, uuid.UUID, str], bool
+        tuple[
+            datetime, uuid.UUID | None, uuid.UUID | None, str, str, bool, uuid.UUID, str
+        ],
+        bool,
     ] = {}
     for occurrence in aggregate_rows:
         envelope = ensure_alert_occurrence_data_access_envelope(
@@ -321,6 +335,7 @@ def _maintain_alert_history_batch(
         public_key = (
             bucket,
             occurrence.owner_user_id,
+            occurrence.team_id,
             occurrence.severity_snapshot,
             occurrence.lifecycle_state,
             occurrence.suppressed_at is not None,
@@ -349,7 +364,9 @@ def _maintain_alert_history_batch(
             and provenance.provenance_complete
         )
 
-    metric_ids: dict[tuple[datetime, uuid.UUID, str, str, bool], uuid.UUID] = {}
+    metric_ids: dict[
+        tuple[datetime, uuid.UUID | None, uuid.UUID | None, str, str, bool], uuid.UUID
+    ] = {}
     if public_counts:
         db.execute(
             text(
@@ -357,12 +374,13 @@ def _maintain_alert_history_batch(
             )
         )
     for key in sorted(public_counts, key=_alert_metric_public_key_sort):
-        bucket, owner_id, severity, state, suppressed = key
+        bucket, owner_id, team_id, severity, state, suppressed = key
         count = public_counts[key]
         statement = insert(AlertOccurrenceMetric).values(
             id=uuid.uuid4(),
             bucket_start=bucket,
             owner_user_id=owner_id,
+            team_id=team_id,
             severity=severity,
             lifecycle_state=state,
             suppressed=suppressed,
@@ -388,6 +406,7 @@ def _maintain_alert_history_batch(
         (
             bucket,
             owner_id,
+            team_id,
             severity,
             state,
             suppressed,
@@ -395,7 +414,9 @@ def _maintain_alert_history_batch(
             policy_cohort_key,
         ) = key
         count = cohort_counts[key]
-        metric_id = metric_ids.get((bucket, owner_id, severity, state, suppressed))
+        metric_id = metric_ids.get(
+            (bucket, owner_id, team_id, severity, state, suppressed)
+        )
         if metric_id is None:
             continue
         statement = insert(AlertOccurrenceMetricCohort).values(
@@ -555,11 +576,14 @@ def _maintain_alert_history_batch(
             candidate_ids=evaluation_ids,
             max_dependent_rows=max_dependent_rows,
             max_parent_records=batch_size,
-            pruning=PruningContext(evaluation_cutoff, and_(
-                AlertEvaluationRequest.state.in_(["succeeded", "dead_letter"]),
-                AlertEvaluationRequest.completed_at.is_not(None),
-                AlertEvaluationRequest.completed_at < evaluation_cutoff,
-            )),
+            pruning=PruningContext(
+                evaluation_cutoff,
+                and_(
+                    AlertEvaluationRequest.state.in_(["succeeded", "dead_letter"]),
+                    AlertEvaluationRequest.completed_at.is_not(None),
+                    AlertEvaluationRequest.completed_at < evaluation_cutoff,
+                ),
+            ),
         )
         evaluation_window.advance(selection)
         evaluation_ids = selection.ids
@@ -601,11 +625,15 @@ def _maintain_alert_history_batch(
             candidate_ids=metric_ids,
             max_dependent_rows=max_dependent_rows,
             max_parent_records=batch_size,
-            pruning=PruningContext(metric_cutoff, AlertOccurrenceMetric.bucket_start < metric_cutoff),
+            pruning=PruningContext(
+                metric_cutoff, AlertOccurrenceMetric.bucket_start < metric_cutoff
+            ),
         )
         metric_window.advance(selection)
         metric_ids = selection.ids
-    metric_ids = lock_history_dependants(db, model=AlertOccurrenceMetric, parent_ids=metric_ids)
+    metric_ids = lock_history_dependants(
+        db, model=AlertOccurrenceMetric, parent_ids=metric_ids
+    )
     metrics_deleted = _delete_ids(db, AlertOccurrenceMetric, metric_ids)
     if commit:
         db.commit()
@@ -779,19 +807,31 @@ def _alert_metric_provenance(
 
 
 def _alert_metric_public_key_sort(
-    key: tuple[datetime, uuid.UUID, str, str, bool],
-) -> tuple[datetime, str, str, str, bool]:
-    bucket, owner_id, severity, state, suppressed = key
-    return bucket, str(owner_id), severity, state, suppressed
+    key: tuple[datetime, uuid.UUID | None, uuid.UUID | None, str, str, bool],
+) -> tuple[datetime, str, str, str, str, bool]:
+    bucket, owner_id, team_id, severity, state, suppressed = key
+    return bucket, str(owner_id), str(team_id), severity, state, suppressed
 
 
 def _alert_metric_cohort_key_sort(
-    key: tuple[datetime, uuid.UUID, str, str, bool, uuid.UUID, str],
-) -> tuple[datetime, str, str, str, bool, str, str]:
-    bucket, owner_id, severity, state, suppressed, source_feed_id, cohort_key = key
+    key: tuple[
+        datetime, uuid.UUID | None, uuid.UUID | None, str, str, bool, uuid.UUID, str
+    ],
+) -> tuple[datetime, str, str, str, str, bool, str, str]:
+    (
+        bucket,
+        owner_id,
+        team_id,
+        severity,
+        state,
+        suppressed,
+        source_feed_id,
+        cohort_key,
+    ) = key
     return (
         bucket,
         str(owner_id),
+        str(team_id),
         severity,
         state,
         suppressed,
