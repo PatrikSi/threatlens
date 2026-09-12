@@ -4,7 +4,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision = "0104_report_editorial_lifecycle"
-down_revision = "0101_export_dispatch_progress"
+down_revision = "0103_shared_triage_queues"
 branch_labels = None
 depends_on = None
 

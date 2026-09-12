@@ -5,7 +5,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 revision = "0105_workspace_enforcement"
-down_revision = "0103_shared_triage_queues"
+down_revision = "0104_report_editorial_lifecycle"
 branch_labels = None
 depends_on = None
 
