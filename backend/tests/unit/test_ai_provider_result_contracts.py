@@ -11,6 +11,7 @@ import pytest
 from app.core.config import get_settings
 from app.schemas.ai import AISettingsUpdate
 from app.services.ai_normalization import coerce_score
+from app.services.ai_integration import _ai_error_is_retryable
 from app.services.ai_provider_client import AIIntegrationError, call_ai_json
 from app.services.safe_fetch import build_safe_http_client
 
@@ -77,6 +78,33 @@ def test_http_status_overrides_auth_wording_but_keeps_nonstandard_auth_errors(st
     with pytest.raises(AIIntegrationError) as caught:
         _call({"error": {"message": "Rate limit exceeded for this API key"}}, status=status)
     assert caught.value.retryable is retryable
+
+
+@pytest.mark.parametrize("finish_reason, refusal, content, category", [
+    ("stop", "untrusted refusal detail", None, "provider_refusal"),
+    ("stop", "untrusted refusal detail", '{"ok":true}', "provider_refusal"),
+    ("length", "untrusted refusal detail", None, "provider_refusal"),
+    ("content_filter", None, None, "provider_content_filter"),
+    ("content_filter", None, '{"ok":true}', "provider_content_filter"),
+])
+def test_explicit_provider_refusals_are_terminal_and_retain_usage(
+    finish_reason, refusal, content, category,
+):
+    with pytest.raises(AIIntegrationError) as caught:
+        _call({
+            "choices": [{"message": {"content": content, "refusal": refusal}, "finish_reason": finish_reason}],
+            "usage": {"prompt_tokens": 100, "completion_tokens": 5, "total_tokens": 105},
+        })
+    error = caught.value
+    assert error.provider_io_outcome == "response_received"
+    assert error.retry_hint == category
+    assert error.retryable is False
+    assert _ai_error_is_retryable(error) is False
+    assert error.total_tokens == 105
+    assert error.latency_ms is not None
+    assert "content policy" in str(error)
+    assert "untrusted refusal detail" not in str(error)
+    assert "untrusted refusal detail" not in json.dumps(error.debug_payload())
 
 
 @pytest.mark.parametrize("value", ["NaN", "Infinity", "-Infinity", float("nan"), float("inf"), True, 10**400])
