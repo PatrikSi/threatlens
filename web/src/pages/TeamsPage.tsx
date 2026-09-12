@@ -74,7 +74,7 @@ export function TeamsPage() {
     queryClient.setQueryData(['teams', 'detail', saved.id, adminMode], saved)
 
   return (
-    <main className="space-y-4">
+    <section className="space-y-4">
       <header className="tl-surface rounded-xl p-4">
         <h1 className="font-display text-2xl">Team workspaces</h1>
         <p className="mt-1 text-sm text-slate dark:text-slate-300">
@@ -163,7 +163,7 @@ export function TeamsPage() {
                     >
                       <Link
                         className="font-semibold text-cyan"
-                        to={`/alerts?team_id=${team.id}`}
+                        to={`/alerts?view=occurrences&queue_scope=team&team_id=${team.id}`}
                       >
                         Open shared triage
                       </Link>
@@ -216,7 +216,7 @@ export function TeamsPage() {
           </section>
         </div>
       )}
-    </main>
+    </section>
   )
 }
 

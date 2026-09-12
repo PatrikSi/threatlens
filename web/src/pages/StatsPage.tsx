@@ -3,6 +3,8 @@ import { useQuery } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
 import { AiStatisticsWorkspace } from './AiStatisticsWorkspace'
 import { PermissionRoute } from '../components/PermissionRoute'
+import { useCurrentUser } from '../hooks/useCurrentUser'
+import { hasRequiredPermissions } from '../workspace/workspaceModel'
 
 import { apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
@@ -28,20 +30,46 @@ const FEED_CHART_COLORS = [
 const FEED_TABLE_PREVIEW_LIMIT = 50
 
 export function StatsPage() {
+  return <PermissionRoute permissions={[]}><StatisticsSections /></PermissionRoute>
+}
+
+function StatisticsSections() {
+  const user = useCurrentUser()
   const [params, setParams] = useSearchParams()
-  const section = params.get('section') === 'ai' ? 'ai' : 'ingestion'
-  return <PermissionRoute permissions={section === 'ai' ? ['read:ai'] : ['read:stats']} roles={section === 'ai' ? ['admin'] : undefined}><div className="space-y-4">
-    <nav aria-label="Statistics sections" className="flex gap-2">
-      {(['ingestion', 'ai'] as const).map((value) => <button key={value} type="button" aria-pressed={section === value}
-        className={`rounded border px-4 py-2 text-sm font-semibold ${section === value ? 'bg-ink text-white dark:bg-cyan dark:text-ink' : ''}`}
-        onClick={() => { const next = new URLSearchParams(params); next.set('section', value); setParams(next) }}>
-        {value === 'ai' ? 'AI statistics' : 'Ingestion statistics'}
-      </button>)}
+  const permissions = user.data?.access?.permissions ?? []
+  const canIngest = hasRequiredPermissions(permissions, ['read:stats'])
+  const canAi = user.data?.role === 'admin' && hasRequiredPermissions(permissions, ['read:ai'])
+  const requested = params.get('section')
+  const section = requested === 'ai' || requested === 'ingestion'
+    ? requested : canIngest || !canAi ? 'ingestion' : 'ai'
+  const allowed = section === 'ai' ? canAi : canIngest
+
+  return <div className="space-y-4">
+    <nav aria-label="Statistics sections" className="flex flex-wrap gap-2">
+      {(['ingestion', 'ai'] as const).map((value) => {
+        const enabled = value === 'ai' ? canAi : canIngest
+        const label = value === 'ai' ? 'AI statistics' : 'Ingestion statistics'
+        return <button key={value} type="button" aria-pressed={section === value} disabled={!enabled}
+          title={enabled ? undefined : value === 'ai' ? 'Requires administrator role and read:ai.' : 'Requires read:stats.'}
+          className={`rounded border px-4 py-2 text-sm font-semibold disabled:opacity-50 ${section === value ? 'bg-ink text-white dark:bg-cyan dark:text-ink' : ''}`}
+          onClick={() => { const next = new URLSearchParams(params); next.set('section', value); setParams(next) }}>
+          {label}{!enabled && <span className="ml-1 text-xs">(access required)</span>}
+        </button>
+      })}
     </nav>
-    {section === 'ai' ? <><header><h1 className="font-display text-2xl">AI statistics</h1>
-      <p className="text-sm text-slate dark:text-slate-300">Usage, reliability, evidence coverage and current backlog. <Link className="underline" to="/settings/ai">Manage AI providers and jobs</Link></p>
-    </header><AiStatisticsWorkspace /></> : <IngestionStatistics />}
-  </div></PermissionRoute>
+    {!allowed ? <section className="tl-surface rounded-xl p-4" role="status">
+      <h1 className="font-display text-xl">Statistics access required</h1>
+      <p className="mt-2 text-sm">{section === 'ai'
+        ? 'AI statistics require the administrator role and read:ai permission.'
+        : 'Ingestion statistics require read:stats permission.'} Choose an available section above.</p>
+    </section> : section === 'ai' ? <>
+      <header><h1 className="font-display text-2xl">AI statistics</h1>
+        <p className="text-sm text-slate dark:text-slate-300">Usage, reliability, evidence coverage and current backlog.{' '}
+          <Link className="underline" to="/settings/ai">Manage AI providers and jobs</Link>
+        </p>
+      </header><AiStatisticsWorkspace />
+    </> : <IngestionStatistics />}
+  </div>
 }
 
 function IngestionStatistics() {

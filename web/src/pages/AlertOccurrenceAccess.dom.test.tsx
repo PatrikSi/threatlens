@@ -37,6 +37,7 @@ async function settle() {
 }
 
 function resultFor(path: string) {
+  if (path.startsWith('/teams/')) return { id: 'team-1', name: 'Team', active: true, can_manage: false }
   if (path.startsWith('/alerts?')) return [{ id: 'rule', name: 'Private watchlist', enabled: true }]
   if (path.includes('/activity?')) return {
     items: [{ id: 'activity', occurrence_id: occurrence.id, actor_user_id: 'reader', action: 'created',
@@ -69,9 +70,57 @@ afterEach(() => {
   client = null
   host = null
   vi.resetAllMocks()
+  delete occurrence.team_id
 })
 
 describe('alert access during real query-cache refreshes', () => {
+  it.each([
+    [404, 'team_not_found', false], [403, 'team_actor_unavailable', false],
+    [403, 'permission_denied', true], [503, 'team_access_unavailable', true],
+  ] as const)('propagates confirmed team access loss without treating metadata permission limits as evidence denial (%s/%s)', async (status, code, visible) => {
+    occurrence.team_id = 'team-1'
+    await mount()
+    await settle()
+    vi.mocked(apiFetch).mockImplementation((path) => path.startsWith('/teams/')
+      ? Promise.reject(new ApiError('Team verification failed', status, path, null, { code }))
+      : Promise.resolve(resultFor(path)) as never)
+    await act(async () => { await client!.invalidateQueries({ queryKey: ['teams', 'team-1'] }) })
+    await settle()
+    expect(host!.textContent!.includes('Sensitive source excerpt')).toBe(visible)
+    expect(host!.textContent!.includes('Sensitive activity context')).toBe(visible)
+    vi.mocked(apiFetch).mockImplementation((path) => Promise.resolve(resultFor(path)) as never)
+    await act(async () => { await client!.invalidateQueries({ queryKey: ['teams', 'team-1'] }) })
+    await settle()
+    expect(host!.textContent).toContain('Sensitive source excerpt')
+  })
+
+  it('keeps withdrawn evidence hidden while recovered team access waits for fresh evidence', async () => {
+    occurrence.team_id = 'team-1'
+    await mount()
+    await settle()
+    let resolveEvidence!: (value: AlertOccurrence) => void
+    const freshEvidence = new Promise<AlertOccurrence>((resolve) => { resolveEvidence = resolve })
+    let teamRecovered = false
+    vi.mocked(apiFetch).mockImplementation((path) => {
+      if (path.startsWith('/teams/') && !teamRecovered) {
+        return Promise.reject(new ApiError('Team not found', 404, path, null, { code: 'team_not_found' }))
+      }
+      if (path === `/alerts/occurrences/${occurrence.id}`) return freshEvidence as never
+      return Promise.resolve(resultFor(path)) as never
+    })
+    await act(async () => { await client!.invalidateQueries({ queryKey: ['teams', 'team-1'] }) })
+    await settle()
+    expect(host!.textContent).not.toContain('Sensitive source excerpt')
+    teamRecovered = true
+    await act(async () => { await client!.invalidateQueries({ queryKey: ['teams', 'team-1'] }) })
+    await settle()
+    expect(host!.textContent).not.toContain('Sensitive source excerpt')
+    expect(host!.textContent).not.toContain('Sensitive activity context')
+    await act(async () => { resolveEvidence(occurrence) })
+    await settle()
+    expect(host!.textContent).toContain('Sensitive source excerpt')
+  })
+
   it.each([401, 403, 404, 503])('handles HTTP %s without presenting withdrawn access as an outage', async (status) => {
     await mount()
     vi.mocked(apiFetch).mockRejectedValue(new ApiError('Occurrence refresh rejected', status, '/alerts/occurrences'))

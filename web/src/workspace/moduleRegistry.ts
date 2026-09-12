@@ -65,6 +65,7 @@ export interface TrustedWorkspaceModule {
   parentId: TrustedWorkspaceModuleId | null
   icon: LucideIcon
   requiredPermissions: readonly string[]
+  alternateAccess?: ReadonlyArray<{ requiredPermissions: readonly string[]; roles: readonly WorkspaceRole[]; featureDependency: WorkspaceFeatureKey | null }>
   featureDependency: WorkspaceFeatureKey | null
   serverFeatureFlag: string | null
   defaultVisibleRoles: readonly WorkspaceRole[]
@@ -149,6 +150,7 @@ export const TRUSTED_WORKSPACE_MODULES: readonly TrustedWorkspaceModule[] = [
   moduleDefinition({
     id: 'primary.stats', label: 'Stats', route: '/stats', icon: ChartNoAxesCombined,
     requiredPermissions: ['read:stats'], featureDependency: null, serverFeatureFlag: null,
+    alternateAccess: [{ requiredPermissions: ['read:ai'], roles: ['admin'], featureDependency: 'ai_enabled' }],
     defaultVisibleRoles: ALL_ROLES, defaultOptional: true, defaultOrder: 40,
     defaultMobilePriority: 40, mobileBehavior: 'secondary',
   }),

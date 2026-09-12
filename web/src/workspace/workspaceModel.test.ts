@@ -34,6 +34,17 @@ const FEATURES: AppFeatures = {
 }
 
 describe('workspace model', () => {
+  it('shows Stats for an AI-only administrator while preserving role, feature and policy restrictions', () => {
+    const context = { role: 'admin' as const, permissions: ['read:ai'], features: FEATURES }
+    const visible = (effective: WorkspaceEffectiveResponse | undefined, candidate = context) =>
+      resolveWorkspaceModel(effective, undefined, candidate).primaryNavigation.some((module) => module.id === 'primary.stats')
+    expect(visible(undefined)).toBe(true)
+    expect(visible(effectiveWorkspace())).toBe(true)
+    expect(visible(effectiveWorkspace({ 'primary.stats': { visible: false, policy_visible: false, reasons: ['policy_hidden'] } }))).toBe(false)
+    expect(visible(undefined, { ...context, features: { ...FEATURES, ai_enabled: false } })).toBe(false)
+    expect(resolveWorkspaceModel(undefined, undefined, { ...context, role: 'analyst' }).primaryNavigation.some((module) => module.id === 'primary.stats')).toBe(false)
+  })
+
   it('matches backend permission implication and wildcard semantics', () => {
     expect(hasRequiredPermissions(['write:items'], ['read:items'])).toBe(true)
     expect(hasRequiredPermissions(['write:*'], ['read:items', 'write:feeds'])).toBe(true)

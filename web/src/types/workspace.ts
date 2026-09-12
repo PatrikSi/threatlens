@@ -13,6 +13,7 @@ export interface WorkspaceModuleDefinitionResponse {
   parent_id: string | null
   required_permission: string | null
   required_permissions: string[]
+  alternate_access?: Array<{ required_permissions: string[]; roles: WorkspaceRole[]; feature_flag: string | null }>
   feature_flag: string | null
   default_optional: boolean
   default_order: number

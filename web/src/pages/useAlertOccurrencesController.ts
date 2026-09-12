@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { useAlertUrlState } from './alertUrlState'
+import { useAlertTeamAccess } from './useAlertTeamAccess'
 import { captureSessionLease } from '../api/sessionLifecycle'
 import { ApiError, apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
@@ -131,11 +132,28 @@ export function useAlertOccurrencesController(active = true) {
     enabled: active && Boolean(selectedOccurrenceId),
     retry: retryOperationalQuery,
   })
+  const teamAccess = useAlertTeamAccess(active, detailResult.data?.team_id, detailResult.dataUpdatedAt)
+  const accessLoss = teamAccess.accessLoss
+  useEffect(() => {
+    if (!teamAccess.currentLoss) return
+    void queryClient.invalidateQueries({ queryKey: ['alerts', 'occurrences'] })
+  }, [queryClient, teamAccess.currentLoss])
   const rulesQuery = { ...rulesResult, data: accessibleQueryData(rulesResult) }
-  const occurrencesQuery = { ...occurrencesResult, data: accessibleQueryData(occurrencesResult) }
-  const detailQuery = { ...detailResult, data: accessibleQueryData(detailResult) }
-  const activityQuery = { ...activityResult, data: accessibleQueryData(activityResult) }
-  const accessWithdrawn = [occurrencesResult, detailResult].some(
+  const occurrencesQuery = {
+    ...occurrencesResult, data: accessLoss ? undefined : accessibleQueryData(occurrencesResult),
+    error: accessLoss ?? occurrencesResult.error, isError: Boolean(accessLoss) || occurrencesResult.isError,
+    refetch: async () => { if (accessLoss) await teamAccess.refetch(); return occurrencesResult.refetch() },
+  }
+  const detailQuery = {
+    ...detailResult, data: accessLoss ? undefined : accessibleQueryData(detailResult),
+    error: accessLoss ?? detailResult.error, isError: Boolean(accessLoss) || detailResult.isError,
+    refetch: async () => { if (accessLoss) await teamAccess.refetch(); return detailResult.refetch() },
+  }
+  const activityQuery = {
+    ...activityResult, data: accessLoss ? undefined : accessibleQueryData(activityResult),
+    error: accessLoss ?? activityResult.error, isError: Boolean(accessLoss) || activityResult.isError,
+  }
+  const accessWithdrawn = Boolean(accessLoss) || [occurrencesResult, detailResult].some(
     (query) => query.error instanceof ApiError && [401, 403, 404].includes(query.error.status),
   )
 
