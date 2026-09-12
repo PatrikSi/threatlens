@@ -328,6 +328,7 @@ class AIDailyBriefResponse(BaseModel):
     brief_text: str | None
     key_points: list[str]
     recommended_actions: list[str]
+    evidence_warnings: list[str] = Field(default_factory=list)
     item_count: int
     items: list[AIDailyBriefItemResponse]
     model: str | None

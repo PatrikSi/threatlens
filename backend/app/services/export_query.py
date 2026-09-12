@@ -27,6 +27,7 @@ from app.services.export_models import (
     ExportUserState,
 )
 from app.services.export_artifacts import ExportSizeLimitError
+from app.services.ai_enrichment_provenance import current_enrichment_predicate
 from app.services.data_access_policy import (
     DataAccessContext,
     current_data_policy_revision,
@@ -466,11 +467,13 @@ def _load_export_record_batch(
                 ItemAIEnrichment.summary_text, projection=text_projection
             ).label("ai_summary"),
             _article_has_text_clause().label("article_text_available"),
+            current_enrichment_predicate().label("ai_source_current"),
         )
         .options(
             defer(Article.text, raiseload=True),
             defer(Item.summary, raiseload=True),
             defer(ItemAIEnrichment.summary_text, raiseload=True),
+            defer(ItemAIEnrichment.result_provenance_json, raiseload=True),
             defer(Item.last_error, raiseload=True),
             defer(Item.dedupe_key, raiseload=True),
         )
@@ -525,7 +528,7 @@ def _load_export_record_batch(
             first_seen_at=item.first_seen_at,
             status=item.status,
             classification=_serialize_classification(classification),
-            ai=_serialize_ai(enrichment, summary=row.ai_summary),
+            ai=_serialize_ai(enrichment, summary=row.ai_summary, source_current=bool(row.ai_source_current)),
             article=_serialize_article(
                 article,
                 text=row.article_text,
@@ -706,7 +709,7 @@ def _serialize_classification(
 
 
 def _serialize_ai(
-    value: ItemAIEnrichment | None, *, summary: str | None
+    value: ItemAIEnrichment | None, *, summary: str | None, source_current: bool = False
 ) -> ExportAIInsight | None:
     if value is None:
         return None
@@ -722,6 +725,7 @@ def _serialize_ai(
         model=value.model,
         generated_at=value.generated_at,
         error=value.error,
+        source_current=source_current,
     )
 
 

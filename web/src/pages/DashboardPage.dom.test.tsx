@@ -517,7 +517,8 @@ describe('DashboardPage DOM workflows', () => {
     dashboardPageDomMocks.currentUser.data.features.ai_daily_brief_enabled = true
     dashboardPageDomMocks.workspacePanelIds = ['daily_brief']
     dashboardPageDomMocks.dailyBriefs = [
-      { ...createBrief('one', 'Distinct narrative evidence.\n\nValidate the exposure before acting.'), key_points: ['Separate key point'] },
+      { ...createBrief('one', 'Distinct narrative evidence.\n\nValidate the exposure before acting.'),
+        key_points: ['Separate key point'], evidence_warnings: ['Current publisher text was used because prior AI evidence was stale.'] },
       createBrief('two', 'Narrative-only assessment. <img src="https://tracking.example.test/pixel">'),
     ]
     const view = renderPage()
@@ -525,6 +526,7 @@ describe('DashboardPage DOM workflows', () => {
     expect(overview.textContent).toContain('Distinct narrative evidence.\n\nValidate the exposure before acting.')
     expect(overview.querySelector('p')?.className).toContain('whitespace-pre-wrap')
     expect(view.textContent).toContain('Separate key point')
+    expect(view.querySelector('[aria-label="Briefing evidence notes"]')?.textContent).toContain('Current publisher text was used')
     const select = view.querySelector<HTMLSelectElement>('select[aria-label$="briefing selection"]')!
     act(() => {
       select.value = 'two'
@@ -535,6 +537,7 @@ describe('DashboardPage DOM workflows', () => {
     expect(overview.textContent).toContain('<img src=')
     expect(view.textContent).not.toContain('Distinct narrative evidence')
     expect(view.textContent).not.toContain('Separate key point')
+    expect(view.querySelector('[aria-label="Briefing evidence notes"]')).toBeNull()
     expect(overview.querySelector('img')).toBeNull()
   })
 
