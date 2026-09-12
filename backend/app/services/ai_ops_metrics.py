@@ -30,6 +30,7 @@ from app.schemas.ai import (
     AITimeSeriesPointResponse,
     AITokenEfficiencyResponse,
 )
+from app.services.ai_failure_categories import TIMEOUT_CATEGORIES
 from app.services.ai_ops_common import (
     AI_STATUS_ERROR,
     AI_STATUS_READY,
@@ -583,7 +584,7 @@ def _build_endpoint_health(
             .filter(AIUsageEvent.success.is_(True))
             .label("median"),
             func.count()
-            .filter(failed, func.lower(AIUsageEvent.error).contains("timeout"))
+            .filter(failed, AIUsageEvent.failure_category.in_(TIMEOUT_CATEGORIES))
             .label("timeouts"),
         ).where(*filters)
     ).one()
@@ -601,12 +602,7 @@ def _build_endpoint_health(
         .where(
             *filters,
             failed,
-            or_(
-                *(
-                    func.lower(AIUsageEvent.error).contains(fragment)
-                    for fragment in ("401", "403", "unauthorized", "forbidden", "auth")
-                )
-            ),
+            AIUsageEvent.failure_category == "provider_auth",
         )
         .order_by(AIUsageEvent.created_at.desc(), AIUsageEvent.id)
         .limit(1)

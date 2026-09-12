@@ -89,6 +89,7 @@ def test_overview_preserves_utc_buckets_nulls_failures_and_daily_brief_counts(
                 model=model,
                 feature_type=feature,
                 error=error,
+                failure_category="read_timeout" if hours == 3 else "provider_auth" if hours == 26 else None,
             )
             for hours, success, latency, prompt, completion, total, model, feature, error in fields
         ]
