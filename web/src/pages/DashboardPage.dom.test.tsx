@@ -12,7 +12,7 @@ import {
   type DashboardWindow,
 } from './dashboardSavedViews'
 import { invalidateSession } from '../api/sessionLifecycle'
-import type { SavedView } from '../types/api'
+import type { AIDailyBrief, SavedView } from '../types/api'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -46,6 +46,7 @@ const dashboardPageDomMocks = vi.hoisted(() => ({
   saveMutate: vi.fn(),
   updateMutate: vi.fn(),
   views: [] as SavedView[],
+  dailyBriefs: [] as AIDailyBrief[],
   itemsData: [] as Array<{
     id: string
     feed_id: string
@@ -118,6 +119,15 @@ function createSavedView(
   }
 }
 
+function createBrief(id: string, text: string | null): AIDailyBrief {
+  return {
+    id, title: `Brief ${id}`, brief_text: text, brief_date: '2026-09-12', status: 'ready',
+    window_start: '2026-09-11T00:00:00Z', window_end: '2026-09-12T00:00:00Z',
+    generated_at: '2026-09-12T00:00:00Z', item_count: 0, items: [], key_points: [],
+    recommended_actions: [], model: 'fixture', error: null,
+  }
+}
+
 function createNotesWindow(id: string, title: string): DashboardWindow {
   return {
     id,
@@ -183,6 +193,10 @@ vi.mock('@tanstack/react-query', () => ({
 
     if (key === 'views') {
       return { ...baseResult, data: dashboardPageDomMocks.views }
+    }
+
+    if (Array.isArray(queryKey) && queryKey.join(':') === 'ai:daily-briefs') {
+      return { ...baseResult, data: dashboardPageDomMocks.dailyBriefs }
     }
 
     if (key === 'tags' || key === 'alerts' || key === 'ai') {
@@ -437,6 +451,8 @@ async function uploadFile(input: HTMLInputElement, file: File) {
 
 beforeEach(() => {
   dashboardPageDomMocks.currentUser.data.features.ai_relevance_enabled = false
+  dashboardPageDomMocks.currentUser.data.features.ai_daily_brief_enabled = false
+  dashboardPageDomMocks.dailyBriefs = []
   dashboardPageDomMocks.views = [
     createSavedView(
       'view-rss',
@@ -497,6 +513,40 @@ afterEach(() => {
 })
 
 describe('DashboardPage DOM workflows', () => {
+  it('shows each selected daily brief narrative, including narrative-only briefs, as safe readable text', () => {
+    dashboardPageDomMocks.currentUser.data.features.ai_daily_brief_enabled = true
+    dashboardPageDomMocks.workspacePanelIds = ['daily_brief']
+    dashboardPageDomMocks.dailyBriefs = [
+      { ...createBrief('one', 'Distinct narrative evidence.\n\nValidate the exposure before acting.'), key_points: ['Separate key point'] },
+      createBrief('two', 'Narrative-only assessment. <img src="https://tracking.example.test/pixel">'),
+    ]
+    const view = renderPage()
+    let overview = view.querySelector('[aria-label="Briefing overview"]')!
+    expect(overview.textContent).toContain('Distinct narrative evidence.\n\nValidate the exposure before acting.')
+    expect(overview.querySelector('p')?.className).toContain('whitespace-pre-wrap')
+    expect(view.textContent).toContain('Separate key point')
+    const select = view.querySelector<HTMLSelectElement>('select[aria-label$="briefing selection"]')!
+    act(() => {
+      select.value = 'two'
+      select.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    overview = view.querySelector('[aria-label="Briefing overview"]')!
+    expect(overview.textContent).toContain('Narrative-only assessment.')
+    expect(overview.textContent).toContain('<img src=')
+    expect(view.textContent).not.toContain('Distinct narrative evidence')
+    expect(view.textContent).not.toContain('Separate key point')
+    expect(overview.querySelector('img')).toBeNull()
+  })
+
+  it.each([null, '   '])('omits an empty narrative without hiding other brief content (%s)', (text) => {
+    dashboardPageDomMocks.currentUser.data.features.ai_daily_brief_enabled = true
+    dashboardPageDomMocks.workspacePanelIds = ['daily_brief']
+    dashboardPageDomMocks.dailyBriefs = [{ ...createBrief('one', text), key_points: ['Retained evidence'] }]
+    const view = renderPage()
+    expect(view.querySelector('[aria-label="Briefing overview"]')).toBeNull()
+    expect(view.textContent).toContain('Retained evidence')
+  })
+
   it('waits for authoritative panel defaults before persisting a first-time dashboard layout', async () => {
     dashboardPageDomMocks.workspaceDefaultsAvailable = false
     dashboardPageDomMocks.workspacePanelIds = ['notes']

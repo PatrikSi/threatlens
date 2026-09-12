@@ -69,6 +69,13 @@ export function DashboardDailyBriefPanel({
                         </p>
                       </div>
 
+                      {selectedBrief.brief_text?.trim() && (
+                        <section aria-label="Briefing overview" className="tl-daily-brief-section rounded border border-slate/20 bg-white/90 p-2.5 sm:p-3 dark:border-cyan-900/40 dark:bg-[#041612]/92">
+                          <h3 className="text-xs font-semibold text-slate dark:text-slate-300">Briefing overview</h3>
+                          <p className="mt-2 whitespace-pre-wrap break-words text-sm text-slate dark:text-white/75">{selectedBrief.brief_text}</p>
+                        </section>
+                      )}
+
                       {selectedBrief.key_points.length > 0 && (
                         <div className="tl-daily-brief-section rounded border border-slate/20 bg-white/90 p-2.5 sm:p-3 dark:border-cyan-900/40 dark:bg-[#041612]/92">
                           <p className="text-xs font-semibold text-slate dark:text-slate-300">Key points</p>
