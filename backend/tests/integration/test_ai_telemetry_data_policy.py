@@ -15,6 +15,7 @@ from app.core.config import get_settings
 from app.main import app
 from app.models.ai_task_run import AITaskRun
 from app.models.ai_usage_event import AIUsageEvent
+from app.models.ai_workflow import AIWorkflowDispatch
 from app.models.article import Article
 from app.models.audit_log import (
     AuditLog,
@@ -42,6 +43,7 @@ from app.services.ai_ops import (
     list_ai_manual_actions,
     list_ai_prompt_history,
     queue_ai_task_run,
+    start_ai_task_run,
 )
 from app.services.ai_ops_metrics import build_ai_ops_overview, list_ai_failures
 from app.services.ai_persistence import record_usage_event
@@ -628,11 +630,13 @@ def test_ai_telemetry_services_fail_closed_for_enforced_and_ineligible_contexts(
 
 
 @pytest.mark.parametrize("mode", ["disabled", "audit"])
+@pytest.mark.parametrize("initial_status", ["queued", "running"])
 def test_ai_live_compatibility_reconciles_stale_runs_and_keeps_idle_workers(
     db_session,
     seed_users,
     monkeypatch: pytest.MonkeyPatch,
     mode: str,
+    initial_status: str,
 ):
     _label, _feed, item = _restricted_source(
         db_session,
@@ -646,14 +650,32 @@ def test_ai_live_compatibility_reconciles_stale_runs_and_keeps_idle_workers(
         item_id=item.id,
     )
     stale_at = datetime.now(timezone.utc) - timedelta(days=2)
+    original_delivery = f"stale-{mode}-{uuid.uuid4()}"
+    if initial_status == "running":
+        start_ai_task_run(
+            db_session, run_id=run.id, celery_task_id=original_delivery,
+            worker_name="lost-worker",
+        )
+        run.started_at = stale_at
+    else:
+        run.celery_task_id = original_delivery
+        dispatch = db_session.get(AIWorkflowDispatch, run.id)
+        dispatch.state = "published"
+        dispatch.delivery_id = original_delivery
+        dispatch.published_at = stale_at
+        dispatch.attempt_count = 1
     run.queued_at = stale_at
     run.updated_at = stale_at
-    run.celery_task_id = f"stale-{mode}-{uuid.uuid4()}"
     db_session.add(run)
     db_session.commit()
+    original_run_id = run.id
     monkeypatch.setattr(
         "app.services.ai_ops._load_live_task_snapshot",
         lambda: _live_snapshot([], workers=["idle-worker"]),
+    )
+    monkeypatch.setattr(
+        "app.tasks.celery_app.celery_app.send_task",
+        lambda *_args, **_kwargs: pytest.fail("Telemetry inspection must not publish broker work"),
     )
 
     response = get_ai_live_status_for_data_access(
@@ -669,13 +691,29 @@ def test_ai_live_compatibility_reconciles_stale_runs_and_keeps_idle_workers(
     )
 
     db_session.expire_all()
-    reconciled = db_session.get(AITaskRun, run.id)
+    reconciled = db_session.get(AITaskRun, original_run_id)
     assert reconciled is not None
-    assert reconciled.status == "error"
-    assert reconciled.reason == "stale_queued_task_unstarted"
+    assert reconciled.status == "queued"
+    assert reconciled.reason is None
+    assert reconciled.finished_at is None
+    assert reconciled.duration_ms is None
+    dispatch = db_session.get(AIWorkflowDispatch, original_run_id)
+    if initial_status == "running":
+        assert reconciled.celery_task_id != original_delivery
+        assert dispatch.state == "pending"
+        assert dispatch.error == "worker_recovery_pending"
+        assert dispatch.delivery_id == reconciled.celery_task_id
+    else:
+        # Broker inspection cannot distinguish an accepted backlog from lost
+        # publication. Durable dispatch retains its delivery and retry state.
+        assert reconciled.celery_task_id == original_delivery
+        assert dispatch.state == "published"
+        assert dispatch.delivery_id == original_delivery
+        assert dispatch.attempt_count == 1
     assert response.workers == ["idle-worker"]
     assert response.worker_count == 1
-    assert response.queued_count == 0
+    assert response.queued_count == 1
+    assert response.oldest_queued_age_seconds >= 2 * 24 * 60 * 60
 
 
 def test_ai_live_route_refences_policy_after_compatibility_commit(
