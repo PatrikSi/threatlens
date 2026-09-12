@@ -118,8 +118,8 @@ def test_source_build_version_ignores_runtime_app_version_override():
 def test_ai_worker_consumes_the_versioned_report_queue():
     compose_text = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
 
-    assert '"--queues=ai,ai-reports-v2"' in compose_text
-    assert "{'ai', 'ai-reports-v2'} <= names" in compose_text
+    assert '"--queues=ai,ai-reports-v2,ai-reports-v3"' in compose_text
+    assert "{'ai', 'ai-reports-v2', 'ai-reports-v3'} <= names" in compose_text
 
 
 def test_maintenance_worker_consumes_and_health_checks_the_versioned_lifecycle_queue():
