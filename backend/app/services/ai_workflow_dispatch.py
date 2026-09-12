@@ -74,7 +74,14 @@ def claim_workflow_execution(db: Session, run: AITaskRun, celery_task_id: str | 
     ).with_for_update().execution_options(populate_existing=True))
     if dispatch is None:
         return True
-    if dispatch.state in {"running", "complete"}:
+    api_handoff = (
+        dispatch.state == "running" and dispatch.delivery_id is None
+        and run.worker_name == "api" and run.celery_task_id is None
+        and celery_task_id is not None
+        and not (run.metadata_json or {}).get("inline_execution")
+        and not (run.metadata_json or {}).get("provider_claim")
+    )
+    if dispatch.state == "complete" or (dispatch.state == "running" and not api_handoff):
         return False
     if dispatch.delivery_id is not None and dispatch.delivery_id != celery_task_id:
         return False

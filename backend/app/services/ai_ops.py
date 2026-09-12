@@ -274,6 +274,10 @@ def finish_ai_task_run(
     daily_brief_id: uuid.UUID | None = None,
     report_id: uuid.UUID | None = None,
 ) -> AITaskRun | None:
+    task_type = db.scalar(select(AITaskRun.task_type).where(AITaskRun.id == run_id))
+    if task_type is not None and task_type != AI_TASK_TYPE_CONNECTION_TEST:
+        from app.services.data_access_runtime import lock_data_policy_revision_for_derivation
+        lock_data_policy_revision_for_derivation(db)
     run = db.scalar(
         select(AITaskRun)
         .where(AITaskRun.id == run_id)
@@ -922,6 +926,14 @@ def _reconcile_stale_ai_runs(
         )
     )
     for run in stale_parent_runs:
+        from app.services.ai_reprocess import article_reprocess_parent, recalculate_reprocess_progress
+        if article_reprocess_parent(run):
+            recalculate_reprocess_progress(db, parent=run)
+            db.flush()
+            changed = True
+            if run.finished_at is not None:
+                reconciled_count += 1
+                continue
         if run.status == AI_STATUS_QUEUED:
             continue
         unfinished_child_count = int(
