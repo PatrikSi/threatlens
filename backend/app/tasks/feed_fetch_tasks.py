@@ -18,6 +18,7 @@ from app.services import (
     url_utils,
 )
 from app.services.bounded_response import read_bounded_response
+from app.services.feed_input import safe_feed_cache_header
 from app.services.connectors import rss
 from app.services.outbound_deadline import outbound_deadline
 from app.tasks import (
@@ -530,8 +531,8 @@ def _read_feed_response(
             feed_task_coordination.ensure_lease_owned(lease)
             return FeedFetchResponse(
                 body=body,
-                etag=response.headers.get("etag"),
-                last_modified=response.headers.get("last-modified"),
+                etag=safe_feed_cache_header(response.headers.get("etag")),
+                last_modified=safe_feed_cache_header(response.headers.get("last-modified")),
                 final_url=str(response.url),
             )
         finally:
@@ -568,10 +569,10 @@ def _ensure_fetch_leases_owned(feed_lease, domain_lease) -> None:
 
 def _conditional_request_headers(feed: Feed) -> dict[str, str]:
     headers: dict[str, str] = {}
-    if feed.etag:
-        headers["If-None-Match"] = feed.etag
-    if feed.last_modified:
-        headers["If-Modified-Since"] = feed.last_modified
+    if etag := safe_feed_cache_header(feed.etag):
+        headers["If-None-Match"] = etag
+    if last_modified := safe_feed_cache_header(feed.last_modified):
+        headers["If-Modified-Since"] = last_modified
     return headers
 
 
@@ -734,8 +735,8 @@ def _record_feed_success(
     db, feed: Feed, response: FeedFetchResponse, claim, lease
 ) -> None:
     now = datetime.now(timezone.utc)
-    feed.etag = response.etag or feed.etag
-    feed.last_modified = response.last_modified or feed.last_modified
+    feed.etag = safe_feed_cache_header(response.etag)
+    feed.last_modified = safe_feed_cache_header(response.last_modified)
     feed.last_success_at = now
     feed.last_fetch_at = now
     feed.error_count = 0
