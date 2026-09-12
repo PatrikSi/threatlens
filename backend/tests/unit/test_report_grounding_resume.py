@@ -11,12 +11,16 @@ from app.models.ai_provider_attempt_receipt import AIProviderAttemptReceipt
 from app.models.ai_usage_event import AIUsageEvent
 from app.models.ai_workflow import AIReportStageArtifact
 from app.models.report import Report
+from app.models.report_generation_lease import ReportGenerationLease
 from app.models.report_section import ReportSection
 from app.models.report_source_item import ReportSourceItem
 from app.services import ai_request_runtime, report_generation
 from app.services.ai_persistence import record_usage_event
 from app.services.ai_provider_client import AICompletionResult
+from app.services.ai_ops import start_ai_task_run
+from app.services.ai_report_workflow import defer_report_workflow
 from app.services.ai_workflow_dispatch import AIWorkflowDeferred
+from app.services.report_execution import claim_report_generation
 from tests.unit.test_ai_request_runtime import _active, _run_request, _task_run
 
 
@@ -41,6 +45,11 @@ def test_resume_replays_committed_stages_without_duplicate_calls_usage_or_ground
         ("assessment", "Assessment"), ("executive_summary", "Executive Summary"),
     ])]
     db_session.add_all(sections)
+    db_session.commit()
+    claim = claim_report_generation(
+        db_session, report_id=report.id, lease_token="initial-owner", lease_seconds=120,
+    )
+    assert claim.status == "claimed"
     db_session.commit()
     active = _active()
     for name, value in {
@@ -81,10 +90,19 @@ def test_resume_replays_committed_stages_without_duplicate_calls_usage_or_ground
 
     monkeypatch.setattr(ai_request_runtime, "call_with_provider_budget", admission)
     monkeypatch.setattr(report_generation, "request_ai_json_with_usage", request)
-    with pytest.raises(AIWorkflowDeferred):
+    with pytest.raises(AIWorkflowDeferred) as deferred:
         report_generation.generate_report(db_session, report_id=report.id, task_run_id=run.id)
+    # The generator leaves this transition pending so the worker can commit the
+    # report, logical task and lease release atomically.
+    assert defer_report_workflow(
+        db_session, report_id=report.id, run_id=run.id,
+        lease_token="initial-owner", generation_fence=claim.generation_fence,
+        reason=deferred.value.reason, retry_after_seconds=deferred.value.retry_after_seconds,
+    ) == {"status": "queued", "reason": "provider_concurrency_budget"}
     db_session.expire_all()
-    assert report.status == "queued" and report.model_calls == 2
+    assert report.status == run.status == "queued" and report.model_calls == 2
+    assert run.finished_at is None
+    assert db_session.get(ReportGenerationLease, report.id).lease_token is None
     assert sections[0].status == "ready" and sections[1].status == "running"
     assert report.coverage_json["grounding"]["validated_findings"] == 1
     assert report.coverage_json["grounding"]["cited_claim_blocks"] == 1
@@ -103,6 +121,13 @@ def test_resume_replays_committed_stages_without_duplicate_calls_usage_or_ground
         assert len(list(db_session.scalars(select(AIUsageEvent).where(AIUsageEvent.report_id == report.id)))) == 3
         return
 
+    start_ai_task_run(db_session, run_id=run.id, celery_task_id=run.celery_task_id)
+    resumed_claim = claim_report_generation(
+        db_session, report_id=report.id, lease_token="resumed-owner", lease_seconds=120,
+    )
+    assert resumed_claim.status == "claimed"
+    assert resumed_claim.generation_fence > claim.generation_fence
+    db_session.commit()
     result = report_generation.generate_report(db_session, report_id=report.id, task_run_id=run.id)
     db_session.expire_all()
     assert result.status == report.status == "ready" and result.model_calls == 3
