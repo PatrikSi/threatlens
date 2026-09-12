@@ -40,6 +40,7 @@ from app.services.data_access_policy import (
     DataPolicyError,
     fence_data_access_context,
 )
+from app.services.report_markdown import ReportRenderingLimitError
 from app.services.report_availability import (
     ReportingUnavailableError,
     ensure_reporting_available,
@@ -185,18 +186,24 @@ def render_report_download(
 ) -> Response:
     detail = report_detail_response(db, report=report)
     filename = f"threatlens-report-{report.id}"
-    if format == "pdf":
-        content = render_report_pdf(detail)
-        media_type = "application/pdf"
-        extension = "pdf"
-    elif format == "html":
-        content = render_report_html(detail).encode("utf-8")
-        media_type = "text/html; charset=utf-8"
-        extension = "html"
-    else:
-        content = render_report_markdown(detail).encode("utf-8")
-        media_type = "text/markdown; charset=utf-8"
-        extension = "md"
+    try:
+        if format == "pdf":
+            content = render_report_pdf(detail)
+            media_type = "application/pdf"
+            extension = "pdf"
+        elif format == "html":
+            content = render_report_html(detail).encode("utf-8")
+            media_type = "text/html; charset=utf-8"
+            extension = "html"
+        else:
+            content = render_report_markdown(detail).encode("utf-8")
+            media_type = "text/markdown; charset=utf-8"
+            extension = "md"
+    except ReportRenderingLimitError as exc:
+        raise HTTPException(
+            status_code=413,
+            detail="Report exceeds the HTML/PDF export limits. Download Markdown or reduce the report size.",
+        ) from exc
     return Response(
         content=content,
         media_type=media_type,
