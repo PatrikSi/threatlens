@@ -5,7 +5,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ## Published Contract
 
 - Schema version: `1.10.0`
-- OpenAPI contract anchor: `openapi-sha256:6261bb35e2ebff34d1b49e32902ff31985e4eaa4fcb411731f5652ca0fc44944`
+- OpenAPI contract anchor: `openapi-sha256:0be859892e6a39851fa7d606f46c1477fd695b2174ccb9a4d775bc02014ce47b`
 - API service base path: `/v1`
 - Web proxy base path: `/api/v1`
 - Bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`.
@@ -195,7 +195,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Summary: Generate Daily Brief
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:ai`
-- Responses: `200` `application/json` -> AIDailyBriefResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+- Responses: `200` `application/json` -> AIDailyBriefResponse, `202` `application/json` -> AIWorkflowDeferredResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/ai/daily-brief/latest`
 - Summary: Get Latest Daily Brief
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -248,6 +248,15 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `limit` (query, optional): integer
 - Responses: `200` `application/json` -> array[AIAuditEntryResponse], `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `GET /v1/ai/ops/providers`
+- Summary: Get Ai Provider Usage
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:ai`
+- Parameters:
+  - `days` (query, optional): integer
+  - `limit` (query, optional): integer
+  - `offset` (query, optional): integer
+- Responses: `200` `application/json` -> AIProviderUsageResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/ai/ops/runs`
 - Summary: List Ai Ops Runs
 - Auth: ApiTokenBearer or SessionCookieAuth
