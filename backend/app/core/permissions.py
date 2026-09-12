@@ -42,6 +42,8 @@ def _permission(
 
 
 PERMISSION_DEFINITIONS: tuple[PermissionDefinition, ...] = (
+    _permission("read:teams", "Workspace", "View teams", "View workspaces backed by current IAM group membership."),
+    _permission("write:teams", "Workspace", "Work in teams", "Change team-owned resources and manage delegated team metadata; feature permissions still apply."),
     _permission(
         "read:feeds",
         "Intelligence",
