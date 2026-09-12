@@ -1,20 +1,37 @@
 import logging
 import uuid
-from datetime import datetime, timedelta, timezone
-
-from sqlalchemy import select
-
+from datetime import datetime
 from app.core.config import get_settings
+from app.core.worker_queues import QUEUE_EXPORTS
 from app.db import session as session_module
-from app.models.export_job import ExportJob
+from app.db.budgets import database_operation
+from app.services.export_job_dispatch import reserve_export_publications
 from app.services.export_job_worker import execute_export_job
 from app.services.export_jobs import maintain_export_jobs
+from app.services.queue_execution_canaries import read_queue_execution_canaries
 from app.tasks.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 
 
-def enqueue_export_job(job_id):
+def _export_consumer_progress() -> datetime | None:
+    canary = read_queue_execution_canaries(settings=get_settings(), queues=[QUEUE_EXPORTS]).get(QUEUE_EXPORTS)
+    return canary.heartbeat_at if canary is not None and canary.reason == "fresh" else None
+
+
+def enqueue_export_job(job_id: uuid.UUID) -> bool:
+    try:
+        canary_at = _export_consumer_progress()
+        with session_module.SessionLocal() as db, database_operation(db, operation="interactive"):
+            identities = reserve_export_publications(db, job_id=job_id, canary_at=canary_at, limit=1)
+            db.commit()
+    except Exception as exc:
+        logger.warning("export_job_reservation_deferred job_id=%s error_type=%s", job_id, type(exc).__name__)
+        return False
+    return bool(identities) and _publish_export_job(job_id)
+
+
+def _publish_export_job(job_id: uuid.UUID) -> bool:
     settings = get_settings()
     try:
         # Durable dispatch owns retries. A dedicated producer avoids changing
@@ -45,19 +62,12 @@ def generate_export_job(job_id: str):
 
 @celery_app.task(name="app.tasks.export_tasks.dispatch_export_jobs")
 def dispatch_export_jobs():
-    with session_module.SessionLocal() as db:
+    with session_module.SessionLocal() as db, database_operation(db, operation="repair"):
         repaired = maintain_export_jobs(db)
         db.commit()
-        now = datetime.now(timezone.utc)
-        jobs = db.scalars(select(ExportJob).where(
-            ExportJob.status == "queued", ExportJob.expires_at > now,
-            ExportJob.next_attempt_at <= now, ExportJob.next_dispatch_at <= now,
-        ).order_by(ExportJob.created_at, ExportJob.id).limit(25).with_for_update(skip_locked=True)).all()
-        ids = [job.id for job in jobs]
-        # A publication lease limits duplicate broker messages; the generation
-        # claim is independent, so a crash here is repaired on the next sweep.
-        for job in jobs:
-            job.next_dispatch_at = now + timedelta(seconds=30)
+    canary_at = _export_consumer_progress()
+    with session_module.SessionLocal() as db, database_operation(db, operation="repair"):
+        ids = reserve_export_publications(db, canary_at=canary_at)
         db.commit()
-    queued = sum(enqueue_export_job(job_id) for job_id in ids)
+    queued = sum(_publish_export_job(job_id) for job_id in ids)
     return {"queued": queued, "repaired": repaired}
