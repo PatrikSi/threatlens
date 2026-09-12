@@ -6,6 +6,7 @@ from app.models.ai_provider import AIProviderConfiguration, AIProviderRetiredID,
 from app.models.ai_settings import AISettings
 from app.models.ai_task_event import AITaskEvent
 from app.models.ai_task_run import AITaskRun
+from app.models.ai_workflow import AIReportStageArtifact, AIReprocessMember, AIWorkflowDispatch
 from app.models.ai_usage_event import AIUsageEvent
 from app.models.alert_interest import AlertInterest
 from app.models.alert_backfill_preview import AlertBackfillPreview
