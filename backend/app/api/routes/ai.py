@@ -1005,10 +1005,7 @@ def cancel_ai_ops_run_route(
     data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     summary = ai_task_run_would_deny_summary(
-        db,
-        data_access=data_access,
-        filters=(AITaskRun.id == run_id,),
-    )
+        db, data_access=data_access, filters=(AITaskRun.id == run_id,))
     authorization = require_ai_authorization_context(request)
     try:
         run = cancel_ai_task_run_for_data_access(
@@ -1033,7 +1030,6 @@ def cancel_ai_ops_run_route(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="AI task run not found"
         )
-    authorization = require_ai_authorization_context(request)
     refence_ai_context(db, authorization=authorization, data_access=data_access)
     record_audit(
         db,
