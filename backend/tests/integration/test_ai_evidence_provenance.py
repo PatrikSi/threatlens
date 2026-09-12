@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import select
@@ -13,6 +14,8 @@ from app.models.item_ai_enrichment import ItemAIEnrichment
 from app.models.item_classification import ItemClassification
 from app.models.tag import ItemTag, Tag
 from app.services import ai_integration
+from app.services.ai_execution_ownership import ai_worker_execution
+from app.services.ai_ops import queue_ai_task_run
 from app.services.ai_brief_sources import (
     MAX_AUDIT_ROWS,
     MAX_SOURCE_BYTES,
@@ -187,6 +190,46 @@ def test_non_ascii_tags_have_identical_python_and_sql_provenance(
         _sources(db_session).selected_rows[0].ai_summary
         == "The affected version is 1.0."
     )
+
+
+def test_superseded_worker_cannot_refresh_cached_result_provenance(
+    db_session,
+    configured_item,
+    monkeypatch,
+):
+    item, _settings = configured_item
+    enrichment = _success(db_session, item, monkeypatch)
+    saved_proof = dict(enrichment.result_provenance_json)
+    article = db_session.scalar(select(Article).where(Article.item_id == item.id))
+    article.retrieved_at += timedelta(seconds=1)
+    run = queue_ai_task_run(
+        db_session,
+        task_type="item_enrichment",
+        trigger_source="manual",
+        item_id=item.id,
+    )
+    run.status, run.celery_task_id = "running", "replacement"
+    db_session.commit()
+    monkeypatch.setattr(
+        ai_integration,
+        "_request_json_with_usage",
+        lambda *args, **kwargs: pytest.fail("cached evidence must not send"),
+    )
+
+    @ai_worker_execution
+    def stale_worker(task, task_run_id):
+        return ai_integration.run_item_ai_enrichment(
+            db_session, item_id=item.id, task_run_id=run.id
+        )
+
+    result = stale_worker(
+        SimpleNamespace(request=SimpleNamespace(id="original")), str(run.id)
+    )
+    db_session.commit()
+    assert result.reason == "superseded_delivery"
+    assert enrichment.result_provenance_json == saved_proof
+    assert not _current(db_session, item.id)
+    assert run.status == "running" and run.celery_task_id == "replacement"
 
 
 def test_brief_does_not_materialize_audit_only_bodies(db_session, configured_item):

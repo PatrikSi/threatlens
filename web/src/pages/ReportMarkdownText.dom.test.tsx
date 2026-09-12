@@ -37,7 +37,7 @@ describe('report Markdown presentation', () => {
     expect(article.querySelector('h4')?.textContent).toBe('Priorities')
     expect(article.querySelector('ol > li > ul')?.children).toHaveLength(2)
     expect(article.querySelectorAll('table thead th[scope="col"]')).toHaveLength(3)
-    expect(article.querySelectorAll('table tbody tr')).toHaveLength(2)
+    expect(article.querySelectorAll('table tbody tr')).toHaveLength(3)
     expect(article.querySelector('strong')?.textContent).toBe('Critical')
     expect(article.querySelector('em')?.textContent).toBe('careful validation')
     expect(article.querySelector('del')?.textContent).toBe('Dismiss')
@@ -51,7 +51,7 @@ describe('report Markdown presentation', () => {
     report.sources.push({ ...report.sources[0], citation_key: 'S99', included: false })
     const article = render(report)
     const citations = article.querySelectorAll<HTMLAnchorElement>('a[aria-label="Source S1"]')
-    expect(citations).toHaveLength(3)
+    expect(citations).toHaveLength(6)
     expect(article.querySelector('td a[aria-label="Source S1"]')).not.toBeNull()
     expect(article.querySelector('a[aria-label="Source S99"]')).toBeNull()
     const target = host.querySelector<HTMLElement>('#report-markdown-report-source-S1')!
