@@ -11,6 +11,7 @@ import { TeamCreateForm } from './TeamCreateForm'
 import { TeamMembersPanel } from './TeamMembersPanel'
 import { TeamSettingsEditor } from './TeamSettingsEditor'
 import { TeamsPage } from './TeamsPage'
+import { AlertQueueScopePicker } from './AlertTeamSelectors'
 ;(
   globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true
@@ -269,6 +270,35 @@ describe('team workspace asynchronous lifecycle', () => {
     expect(container.textContent).toContain('Page 2 of 2')
     expect(container.textContent).toContain('last@example.test')
     expect(button('Next members').disabled).toBe(true)
+  })
+
+  it('preserves distinct directory and triage selector pages when navigating with a warm cache', async () => {
+    const teams = Array.from({ length: 51 }, (_, index) => ({ ...team, id: `team-${index + 1}`, name: `Team ${index + 1}` }))
+    vi.mocked(apiFetch).mockImplementation((path) => {
+      const params = new URL(path, 'https://app.example.test').searchParams
+      const page = Number(params.get('page') ?? 1)
+      const size = Number(params.get('page_size') ?? 25)
+      return Promise.resolve({ items: teams.slice((page - 1) * size, page * size), total: teams.length, page, page_size: size })
+    })
+    let showSelector!: (value: boolean) => void
+    function Harness() {
+      const [selector, setSelector] = useState(false)
+      showSelector = setSelector
+      return selector ? <AlertQueueScopePicker value="personal" onChange={vi.fn()} /> : <TeamsPage />
+    }
+    await mount(<Harness />)
+    expect(container.querySelectorAll('[aria-label="Team list"] li')).toHaveLength(25)
+    act(() => showSelector(true))
+    await settle()
+    expect(container.querySelectorAll('option[value^="team:"]')).toHaveLength(50)
+    click('Next team choices')
+    await settle()
+    expect(container.querySelectorAll('option[value^="team:"]')).toHaveLength(1)
+    expect(container.querySelector('option[value="team:team-51"]')?.textContent).toBe('Team 51')
+    act(() => showSelector(false))
+    await settle()
+    expect(container.querySelectorAll('[aria-label="Team list"] li')).toHaveLength(25)
+    expect(container.textContent).toContain('Page 1 of 3')
   })
 
   it('hides previously cached team content when current membership is revoked', async () => {
