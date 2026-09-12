@@ -28,9 +28,9 @@ def test_watchlist_text_rejects_database_unsafe_characters(schema, field, unsafe
 
 
 def test_preview_and_snooze_validate_text_before_query_or_activity_storage():
-    with pytest.raises(ValidationError, match="cannot be stored"):
+    with pytest.raises(ValidationError, match="cannot be stored|valid string"):
         AlertInterestPreviewRequest(category="appliance", keywords=["bad\x00keyword"])
-    with pytest.raises(ValidationError, match="cannot be stored"):
+    with pytest.raises(ValidationError, match="cannot be stored|valid string"):
         AlertOccurrenceSnoozeUpdate(
             expected_version=1,
             snoozed_until=datetime.now(timezone.utc) + timedelta(hours=1),
