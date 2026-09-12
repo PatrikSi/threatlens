@@ -121,3 +121,50 @@ def test_unaccounted_saved_report_calls_block_automatic_recovery(db_session):
     report.model_calls = 2  # Only one completed provider attempt is retained.
     db_session.commit()
     assert not report_has_safe_resume_history(db_session, run=run, report=report)
+
+
+def test_report_recovery_validates_one_stage_body_at_a_time(db_session, monkeypatch):
+    import weakref
+
+    from sqlalchemy import event
+    import app.services.ai_report_recovery as recovery
+
+    report, run, _, root = resumable_report(db_session)
+    for index in range(1, 3):
+        scope = f'evidence_batch:{index}'
+        receipt(db_session, report, run, root, scope=scope)
+        store_report_stage_completion(
+            db_session, task_run_id=run.id, report_id=report.id,
+            operation_scope=scope, request_fingerprint='a' * 64,
+            completion=replace(completion(), attempt_count=1, payload={
+                'findings': [{'summary': f'Stage {index} ' + 'x' * 262_144, 'citations': ['S1']}],
+            }),
+        )
+    db_session.commit()
+    loaded = []
+    queries = []
+    original_load = recovery.load_report_stage_completion
+
+    def load_one(*args, **kwargs):
+        assert all(previous() is None for previous in loaded), 'Previous stage body remained retained'
+        result = original_load(*args, **kwargs)
+        loaded.append(weakref.ref(result))
+        return result
+
+    def capture_query(_connection, _cursor, statement, _parameters, _context, _executemany):
+        if statement.lstrip().upper().startswith('SELECT') and 'ai_report_stage_artifacts' in statement:
+            queries.append(statement)
+
+    monkeypatch.setattr(recovery, 'load_report_stage_completion', load_one)
+    engine = db_session.get_bind()
+    event.listen(engine, 'before_cursor_execute', capture_query)
+    try:
+        assert report_has_safe_resume_history(db_session, run=run, report=report)
+    finally:
+        event.remove(engine, 'before_cursor_execute', capture_query)
+    assert len(loaded) == 3
+    assert all(previous() is None for previous in loaded)
+    assert any('completion_json' not in query for query in queries)
+    payload_queries = [query for query in queries if 'completion_json' in query]
+    assert len(payload_queries) == 3
+    assert all('operation_scope =' in query.split('WHERE', 1)[1] for query in payload_queries)
