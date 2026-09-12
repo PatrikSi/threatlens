@@ -19,6 +19,7 @@ from app.services.ai_egress_data_policy import (
     mark_ai_egress_provider_io_state,
 )
 from app.services.ai_ops import record_ai_task_event
+from app.services.ai_output_validation import validate_feature_completion
 from app.services.ai_provider_attempts import (
     AIProviderAttemptReservation,
     AIProviderAttemptStateError,
@@ -204,6 +205,7 @@ def run_ai_json_request(
         try:
             lock_selected_provider(db, active)
             completion = call_ai_json(active, **call_kwargs)
+            validate_feature_completion(active, feature_type=feature_type, completion=completion)
         except AIIntegrationError as exc:
             checkpoint_error = _capture_checkpoint_error(execution_checkpoint)
             last_error = exc
@@ -322,6 +324,10 @@ def run_ai_json_request(
                     report_id=report_id,
                     task_run_id=task_run_id,
                     error=str(exc),
+                    prompt_tokens=exc.prompt_tokens,
+                    completion_tokens=exc.completion_tokens,
+                    total_tokens=exc.total_tokens,
+                    latency_ms=exc.latency_ms,
                 )
                 _commit_ai_progress(db, execution_commit)
             except Exception as settlement_exc:

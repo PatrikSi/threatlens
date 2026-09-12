@@ -422,12 +422,15 @@ def test_explicit_ambiguous_provider_outcome_is_settled_and_never_retried(
     assert receipt.state == "ambiguous"
     assert receipt.io_outcome == "ambiguous"
     assert receipt.retryable is False
-    assert [event.event_type for event in events] == [
-        "provider_exchange_started",
-        "provider_exchange_settled",
+    # Transaction timestamps can tie; verify the receipt lifecycle without
+    # assuming PostgreSQL returns tied rows in insertion order.
+    assert sorted(event.event_type for event in events) == [
         "provider_exchange_ambiguous",
+        "provider_exchange_settled",
+        "provider_exchange_started",
     ]
-    assert events[-1].payload_json["provider_io_outcome"] == "ambiguous"
+    ambiguous_event = next(event for event in events if event.event_type == "provider_exchange_ambiguous")
+    assert ambiguous_event.payload_json["provider_io_outcome"] == "ambiguous"
     assert len(usage_events) == 1
     assert usage_events[0]["success"] is False
     assert usage_events[0]["error"] == (
