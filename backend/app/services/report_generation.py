@@ -26,7 +26,7 @@ from app.services.ai_integration import (
     request_ai_json_with_usage,
 )
 from app.services.ai_ops import get_ai_task_run_stop_reason, record_ai_task_event
-from app.services.ai_provider_client import AIIntegrationError
+from app.services.ai_provider_client import AICompletionResult, AIIntegrationError
 from app.services.report_availability import (
     ReportingUnavailableError,
     ensure_reporting_available,
@@ -451,21 +451,14 @@ def _synthesize_evidence_batches(
             budget=budget,
         )
         _assert_messages_fit(messages, budget=budget)
-        completion_tokens, retry_completion_tokens = _report_completion_limits(
+        completion = _request_report_completion(
+            db,
             active=active,
             budget=budget,
-            messages=messages,
-        )
-        completion = request_ai_json_with_usage(
-            db,
-            active,
-            feature_type=FEATURE_REPORT,
             messages=messages,
             report_id=report.id,
             task_run_id=task_run_id,
             provider_operation_scope=f"evidence_batch:{index}",
-            max_completion_tokens=completion_tokens,
-            max_retry_completion_tokens=retry_completion_tokens,
             max_provider_attempts=active.report_max_model_calls - counters.model_calls,
             execution_checkpoint=execution_checkpoint,
             execution_commit=execution_commit,
@@ -547,21 +540,14 @@ def _generate_section(
         if message_plan.omitted_findings:
             _append_coverage_warning(report, FINDINGS_COMPACTION_WARNING)
         _assert_messages_fit(messages, budget=budget)
-        completion_tokens, retry_completion_tokens = _report_completion_limits(
+        completion = _request_report_completion(
+            db,
             active=active,
             budget=budget,
-            messages=messages,
-        )
-        completion = request_ai_json_with_usage(
-            db,
-            active,
-            feature_type=FEATURE_REPORT,
             messages=messages,
             report_id=report.id,
             task_run_id=task_run_id,
             provider_operation_scope=f"section:{section.id}",
-            max_completion_tokens=completion_tokens,
-            max_retry_completion_tokens=retry_completion_tokens,
             max_provider_attempts=active.report_max_model_calls - counters.model_calls,
             execution_checkpoint=execution_checkpoint,
             execution_commit=execution_commit,
@@ -686,6 +672,71 @@ def _assert_messages_fit(messages: list[dict[str, str]], *, budget) -> None:
             f"{budget.usable_input_tokens:,}-token budget after adaptive compaction. "
             "Reduce the output reserve or increase the model context window."
         )
+
+
+def _request_report_completion(
+    db: Session,
+    *,
+    active: ActiveAISettings,
+    budget: AIContextBudget,
+    messages: list[dict[str, str]],
+    report_id: uuid.UUID,
+    task_run_id: uuid.UUID | None,
+    provider_operation_scope: str,
+    max_provider_attempts: int,
+    execution_checkpoint: Callable[[], None] | None,
+    execution_commit: Callable[[], None] | None,
+) -> AICompletionResult:
+    initial, retry_ceiling = _report_completion_limits(
+        active=active, budget=budget, messages=messages,
+    )
+    try:
+        return request_ai_json_with_usage(
+            db,
+            active,
+            feature_type=FEATURE_REPORT,
+            messages=messages,
+            report_id=report_id,
+            task_run_id=task_run_id,
+            provider_operation_scope=provider_operation_scope,
+            max_completion_tokens=initial,
+            max_retry_completion_tokens=retry_ceiling,
+            max_provider_attempts=max_provider_attempts,
+            execution_checkpoint=execution_checkpoint,
+            execution_commit=execution_commit,
+        )
+    except AIIntegrationError as error:
+        if error.retry_hint != "expand_completion_budget":
+            raise
+        input_tokens = estimate_message_tokens(messages)
+        headroom = (
+            budget.context_window_tokens - input_tokens
+            - budget.safety_margin_tokens - budget.protocol_overhead_tokens
+        )
+        final_tokens = (error.request_payload or {}).get("max_tokens")
+        final_allowance = (
+            f"{final_tokens:,}" if type(final_tokens) is int else "unavailable"
+        )
+        if retry_ceiling == headroom:
+            limiting_factor = "The remaining context limits output for this call."
+        elif retry_ceiling == MAX_AI_COMPLETION_TOKENS:
+            limiting_factor = "The application output limit bounds retries for this call."
+        else:
+            limiting_factor = "The report/provider output settings bound retries for this call."
+        diagnostic = (
+            f"Report budget: context window {budget.context_window_tokens:,}; "
+            f"estimated serialized input {input_tokens:,}; "
+            f"safety reserve {budget.safety_margin_tokens:,}; "
+            f"protocol reserve {budget.protocol_overhead_tokens:,}; "
+            f"remaining output headroom {headroom:,} tokens. "
+            f"Initial report allowance {initial:,}; final request allowance {final_allowance}; "
+            f"retry ceiling {retry_ceiling:,} tokens; provider attempts {error.attempt_count}. "
+            f"{limiting_factor}"
+        )
+        # Add context only after the request runtime has finished its retries and
+        # settled its receipts. Retain the original exception and I/O metadata.
+        error.args = (f"{error}\n\n{diagnostic}", *error.args[1:])
+        raise
 
 
 def _report_completion_limits(
