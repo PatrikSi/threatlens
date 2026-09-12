@@ -90,7 +90,7 @@
 | `DATABASE_CONNECT_TIMEOUT_SECONDS` (`database_connect_timeout_seconds`) | `5` | PostgreSQL connection establishment timeout. |
 | `DATABASE_STATEMENT_TIMEOUT_MS` (`database_statement_timeout_ms`) | `30000` | PostgreSQL statement timeout applied to application connections. |
 | `DATABASE_POOL_TIMEOUT_SECONDS` (`database_pool_timeout_seconds`) | `10` | Maximum wait for an available pooled database connection. |
-| `DATABASE_POOL_SIZE` (`database_pool_size`) | `2` | Maximum persistent connections per process; Compose API overrides to 8 and export workers to 4. |
+| `DATABASE_POOL_SIZE` (`database_pool_size`) | `2` | Maximum persistent main-pool connections per process; Compose API overrides to 8 and export workers to 4. Limited AI calls additionally use one dedicated admission connection per executing process; include it in the [connection inventory](../pages/runtime-budgets.md#database-connection-inventory). |
 | `DATABASE_MAX_OVERFLOW` (`database_max_overflow`) | `0` | Extra connections beyond the pool; Compose API permits 2. Never set unlimited overflow. |
 | `DATABASE_LOCK_TIMEOUT_MS` (`database_lock_timeout_ms`) | `5000` | Maximum wait for each database lock acquisition; does not expire already-held authorization fences. |
 | `DATABASE_OPERATION_TIMEOUT_SECONDS` (`database_operation_timeout_seconds`) | `30` | Shared SQL deadline for bounded repair and lifecycle operations. External transfers retain their own deadlines. |

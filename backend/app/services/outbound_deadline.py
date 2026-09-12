@@ -31,10 +31,20 @@ class OutboundDeadlineExceeded(httpx.TimeoutException):
     """The whole request budget expired; this does not prove it was not sent."""
 
 
+class OutboundDNSDeadlineExceeded(OutboundDeadlineExceeded):
+    """DNS capacity or resolution exceeded the budget before HTTP I/O."""
+
+
 @contextmanager
 def outbound_deadline(seconds: float) -> Iterator[None]:
+    with outbound_deadline_at(time.monotonic() + seconds):
+        yield
+
+
+@contextmanager
+def outbound_deadline_at(deadline: float) -> Iterator[None]:
+    """Preserve a previously established lifetime across pauses before I/O."""
     previous = _deadline.get()
-    deadline = time.monotonic() + seconds
     token = _deadline.set(min(previous, deadline) if previous is not None else deadline)
     try:
         check_outbound_deadline()
@@ -70,12 +80,21 @@ def deadline_getaddrinfo(host: str) -> list:
     No provider request is delegated: policy/task fences remain held until all
     synchronous HTTP I/O has stopped. The system resolver is not cancellable.
     """
+    try:
+        return _deadline_getaddrinfo(host)
+    except OutboundDNSDeadlineExceeded:
+        raise
+    except OutboundDeadlineExceeded as exc:
+        raise OutboundDNSDeadlineExceeded("outbound DNS deadline exceeded before HTTP I/O") from exc
+
+
+def _deadline_getaddrinfo(host: str) -> list:
     remaining = remaining_timeout()
     if remaining is None:
         return socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
     slots = _resolver_slots
     if not slots.acquire(timeout=remaining):
-        raise OutboundDeadlineExceeded("outbound DNS capacity deadline exceeded")
+        raise OutboundDNSDeadlineExceeded("outbound DNS capacity deadline exceeded")
     finished = threading.Event()
     result: list = []
     failure: list[BaseException] = []
@@ -95,7 +114,7 @@ def deadline_getaddrinfo(host: str) -> list:
         slots.release()
         raise
     if not finished.wait(timeout=remaining_timeout()):
-        raise OutboundDeadlineExceeded("outbound DNS resolution deadline exceeded")
+        raise OutboundDNSDeadlineExceeded("outbound DNS resolution deadline exceeded")
     check_outbound_deadline()
     if failure:
         raise failure[0]

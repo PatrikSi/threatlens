@@ -64,7 +64,21 @@ For the default single-replica topology, a conservative inventory is:
 | Beat | 2 |
 | Concurrent worker healthcheck subprocesses | 12 |
 | Migration | 2 |
-| Total, including conservative probe/parent allowances | 62 |
+| AI admission, API and one AI worker child | 2 |
+| Total, including conservative probe/parent allowances | 64 |
+
+AI workload admission uses a separate pool with one connection, zero overflow,
+and a one-second checkout limit per application engine/process. It is opened
+only when a provider workload limit is enabled. The default topology reserves
+one additional connection for the API and one for the AI worker child; add one
+for every additional process or workload harness that executes limited AI calls.
+These slots are separate from `DATABASE_POOL_SIZE`, preventing admission from
+waiting for a second connection in a saturated request pool. Forked children
+detach inherited admission pools without closing parent-owned connections.
+Admission connection establishment is capped at two seconds and its database-only
+transactions share a three-second deadline. No admission row lock spans provider
+I/O. Each reservation's absolute lifetime bounds the synchronous provider call,
+so a paused worker cannot resume an expired reservation with a fresh timeout.
 
 The bundled PostgreSQL default is 100 connections. Keep spare connections for
 recovery and administration; do not use the superuser reserve for normal work.
