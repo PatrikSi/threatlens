@@ -13,7 +13,11 @@ from app.models.alert_interest import AlertInterest
 from app.models.user import User
 from app.schemas.alert import AlertInterestUpdate
 from app.services.authorization import AuthorizationContext
-from app.services.team_access import require_team_access, team_access_predicate
+from app.services.team_access import (
+    assert_current_team_access,
+    require_team_access,
+    team_access_predicate,
+)
 
 
 def alert_scope_predicate(
@@ -104,6 +108,8 @@ def get_alert_rule_for_update(
             error_code="alert_rule_not_found",
             detail="Watchlist not found or current membership does not permit access.",
         )
+    if row.team_id is not None:
+        assert_current_team_access(db, team_id=row.team_id, user_id=user.id)
     return row
 
 
