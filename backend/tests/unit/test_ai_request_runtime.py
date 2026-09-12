@@ -981,6 +981,31 @@ def test_post_provider_checkpoint_error_is_settled_before_propagation(db_session
     assert events[1].payload_json["outcome"] == "succeeded"
 
 
+def test_report_grounding_failure_retries_before_success_receipt(db_session):
+    task_run = _task_run(db_session)
+    usages = []
+    outputs = iter([
+        {"body_markdown": "An unsupported claim.", "citations": ["S1"]},
+        {"body_markdown": "A supported claim. [S1]", "citations": ["S1"]},
+    ])
+
+    def call_provider(_active, **_kwargs):
+        return AICompletionResult(payload=next(outputs), provider="openai_compatible",
+            model="test-model", latency_ms=12, prompt_tokens=20, completion_tokens=30, total_tokens=50)
+
+    result = _run_request(db_session, active=_active(retries=1), task_run_id=task_run.id,
+        messages=[{"role": "user", "content": json.dumps({"section": {"key": "assessment"},
+            "findings": [{"text": "A supported claim.", "citations": ["S1"]}]})}],
+        call_provider=call_provider, record_usage=lambda *_args, **kwargs: usages.append(kwargs))
+    receipts = db_session.scalars(select(AIProviderAttemptReceipt).where(
+        AIProviderAttemptReceipt.task_run_id_snapshot == task_run.id
+    ).order_by(AIProviderAttemptReceipt.attempt_number.asc())).all()
+    assert result.attempt_count == 2
+    assert [row.state for row in receipts] == ["failed", "succeeded"]
+    assert [entry["success"] for entry in usages] == [False, True]
+    assert [entry["total_tokens"] for entry in usages] == [50, 50]
+
+
 def _run_request(
     db_session,
     *,

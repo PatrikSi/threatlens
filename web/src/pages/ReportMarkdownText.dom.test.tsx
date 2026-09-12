@@ -21,6 +21,15 @@ function render(report: ReportDetail = markdownReport()) {
 afterEach(() => { act(() => root?.unmount()); host?.remove() })
 
 describe('report Markdown presentation', () => {
+  it('discloses incomplete evidence and the limits of structural citation checks', () => {
+    const report = markdownReport()
+    report.coverage.grounding = { version: 1, status: 'insufficient_evidence', validated_findings: 0, cited_claim_blocks: 0 }
+    render(report)
+    expect(host.textContent).toContain('Evidence synthesis is incomplete.')
+    expect(host.textContent).toContain('0 findings include quotations matched to supplied excerpts')
+    expect(host.textContent).toContain('not whether every claim follows from its evidence')
+  })
+
   it('renders report hierarchy, nested lists, tables, emphasis, quotes and literal code', () => {
     const article = render()
     expect(article.querySelector('h2')?.textContent).toBe('Assessment')

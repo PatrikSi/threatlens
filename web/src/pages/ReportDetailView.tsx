@@ -45,6 +45,7 @@ export function ReportDetailView({
         />
       )}
       {report.error && <GenerationError report={report} />}
+      <ReportGroundingStatus report={report} />
       {warnings.map((warning) => (
         <p
           key={warning}
@@ -57,6 +58,23 @@ export function ReportDetailView({
       <ReportStats report={report} />
       <ReportContent report={report} />
     </div>
+  )
+}
+
+
+function ReportGroundingStatus({ report }: { report: ReportDetail }) {
+  const value = report.coverage.grounding
+  const grounding = value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown> : undefined
+  if (report.status !== 'ready' || grounding?.version !== 1) return null
+  const degraded = grounding.status !== 'checked'
+  return (
+    <p className="rounded-lg border border-slate/20 px-3 py-2 text-xs dark:border-white/10">
+      {degraded ? 'Evidence synthesis is incomplete. ' : 'Citation checks completed. '}
+      {String(grounding.validated_findings ?? 0)} findings include quotations matched to supplied excerpts;{' '}
+      {String(grounding.cited_claim_blocks ?? 0)} narrative blocks carry source citations.
+      {' '}These checks confirm source references, not whether every claim follows from its evidence. Review the sources before acting.
+    </p>
   )
 }
 

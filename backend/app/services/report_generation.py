@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import re
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -33,6 +32,10 @@ from app.services.report_availability import (
 )
 from app.services.report_sources import DETERMINISTIC_SECTION_KEYS
 from app.services.report_execution import ReportGenerationOwnershipError
+from app.services.report_grounding import (
+    NO_FINDINGS_BODY, ReportGroundingError, evidence_sources, report_stage_input,
+    validate_findings, validate_section,
+)
 from app.services.report_prompt_budget import (
     CONTEXT_COMPACTION_WARNING,
     FINDINGS_COMPACTION_WARNING,
@@ -47,7 +50,6 @@ from app.services.report_prompt_budget import (
 
 
 logger = logging.getLogger(__name__)
-CITATION_PATTERN = re.compile(r"\[(S\d+)\]")
 
 
 class ReportGenerationError(RuntimeError):
@@ -100,6 +102,9 @@ def generate_report(
         reserved_output_tokens=active.report_reserved_output_tokens,
         safety_percent=active.report_context_safety_percent,
     )
+    coverage = dict(report.coverage_json or {})
+    coverage.pop("grounding", None)
+    report.coverage_json = coverage
     report.provider = active.provider_type
     report.model = active.model
     report.context_window_tokens = budget.context_window_tokens
@@ -181,6 +186,7 @@ def generate_report(
             if (
                 counters.model_calls >= active.report_max_model_calls
                 and section.section_key not in DETERMINISTIC_SECTION_KEYS
+                and findings
             ):
                 raise ReportGenerationError(
                     "Report generation reached the configured model-call limit before all sections were complete.",
@@ -233,6 +239,7 @@ def generate_report(
                 AIIntegrationError,
                 AITaskRunStoppedError,
                 ReportGenerationError,
+                ReportGroundingError,
                 ReportingUnavailableError,
             ),
         )
@@ -436,7 +443,6 @@ def _synthesize_evidence_batches(
     execution_commit: Callable[[], None] | None,
 ) -> list[dict]:
     findings: list[dict] = []
-    known_citations = {source.citation_key for source in sources}
     for index, batch in enumerate(batch_plan.batches, start=1):
         _raise_if_task_stopped(db, task_run_id)
         if counters.model_calls >= active.report_max_model_calls:
@@ -466,20 +472,20 @@ def _synthesize_evidence_batches(
         counters.add(completion)
         _check_execution(execution_checkpoint)
         _raise_if_task_stopped(db, task_run_id)
-        findings.extend(
-            _normalize_findings(
-                completion.payload.get("findings"), known_citations=known_citations
-            )
-        )
+        stage = report_stage_input(messages)
+        assert stage is not None
+        batch_findings = validate_findings(completion.payload.get("findings"), sources=evidence_sources(stage))
+        findings.extend(batch_findings)
+        _record_grounding(report, findings=len(batch_findings), empty_batch=index if not batch_findings else None)
+        if not batch_findings:
+            _append_coverage_warning(report, f"Evidence batch {index} returned no supported findings; its sources do not support narrative conclusions.")
         _record_provider_progress(
             db, task_run_id, report, counters, stage=f"evidence_batch_{index}"
         )
         _commit_execution(db, execution_commit)
     if not findings:
-        findings = [
-            {"text": source.title_snapshot, "citations": [source.citation_key]}
-            for source in sources[: min(20, len(sources))]
-        ]
+        _append_coverage_warning(report, "Evidence synthesis produced no supported findings. Narrative sections disclose insufficient evidence; source titles were not substituted.")
+        _commit_execution(db, execution_commit)
     return findings
 
 
@@ -504,11 +510,12 @@ def _generate_section(
         )
     if section.section_key in DETERMINISTIC_SECTION_KEYS:
         body, key_points, citations = _deterministic_section(report, section, sources)
+    elif not findings:
+        body, key_points, citations = NO_FINDINGS_BODY, [], []
     else:
         section.status = "running"
         db.add(section)
         _commit_execution(db, execution_commit)
-        known_citations = {source.citation_key for source in sources}
         section_config = next(
             (
                 entry
@@ -555,19 +562,12 @@ def _generate_section(
         counters.add(completion)
         _check_execution(execution_checkpoint)
         _raise_if_task_stopped(db, task_run_id)
-        body = str(completion.payload.get("body_markdown") or "").strip()
-        if not body:
-            raise ReportGenerationError(
-                f"The AI provider returned an empty {section.title} section.",
-                code="invalid_provider_output",
-            )
-        citations = _valid_citations(
-            completion.payload.get("citations"),
-            body=body,
-            known_citations=known_citations,
-        )
-        body = _remove_unknown_inline_citations(body, known_citations=known_citations)
-        key_points = _string_list(completion.payload.get("key_points"), limit=12)
+        stage = report_stage_input(messages)
+        assert stage is not None
+        known_citations = {citation for finding in stage["findings"] for citation in finding["citations"]}
+        grounded = validate_section(completion.payload, known_citations=known_citations)
+        body, key_points, citations = grounded.body, grounded.key_points, grounded.citations
+        _record_grounding(report, claim_blocks=grounded.claim_blocks)
 
     section.body_markdown = body
     section.key_points_json = key_points
@@ -635,33 +635,6 @@ def _generation_order(sections: list[ReportSection]) -> list[ReportSection]:
             section.position,
         ),
     )
-
-
-def _normalize_findings(value: object, *, known_citations: set[str]) -> list[dict]:
-    if not isinstance(value, list):
-        return []
-    findings: list[dict] = []
-    for entry in value[:100]:
-        if isinstance(entry, str):
-            text = entry.strip()
-            citations = _valid_citations(
-                None, body=text, known_citations=known_citations
-            )
-        elif isinstance(entry, dict):
-            text = str(entry.get("text") or entry.get("finding") or "").strip()
-            citations = _valid_citations(
-                entry.get("citations"), body=text, known_citations=known_citations
-            )
-        else:
-            continue
-        if text and citations:
-            findings.append(
-                {
-                    "text": _remove_unknown_inline_citations(text, known_citations),
-                    "citations": citations,
-                }
-            )
-    return findings
 
 
 def _assert_messages_fit(messages: list[dict[str, str]], *, budget) -> None:
@@ -778,28 +751,28 @@ def _append_coverage_warning(report: Report, warning: str) -> None:
     report.coverage_json = coverage
 
 
-def _valid_citations(
-    value: object, *, body: str, known_citations: set[str]
-) -> list[str]:
-    explicit = _string_list(value, limit=100)
-    inline = CITATION_PATTERN.findall(body)
-    return list(
-        dict.fromkeys(
-            citation for citation in [*explicit, *inline] if citation in known_citations
-        )
+def _record_grounding(
+    report: Report, *, findings: int = 0, claim_blocks: int = 0,
+    empty_batch: int | None = None,
+) -> None:
+    coverage = dict(report.coverage_json or {})
+    grounding = dict(coverage.get("grounding") or {})
+    grounding.update({
+        "version": 1,
+        "validated_findings": int(grounding.get("validated_findings", 0)) + findings,
+        "cited_claim_blocks": int(grounding.get("cited_claim_blocks", 0)) + claim_blocks,
+        "semantic_verification": False,
+    })
+    empty_batches = list(grounding.get("empty_batches") or [])
+    if empty_batch is not None and empty_batch not in empty_batches:
+        empty_batches.append(empty_batch)
+    grounding["empty_batches"] = empty_batches
+    grounding["status"] = (
+        "insufficient_evidence" if not grounding["validated_findings"]
+        else "degraded" if empty_batches else "checked"
     )
-
-
-def _remove_unknown_inline_citations(body: str, known_citations: set[str]) -> str:
-    return CITATION_PATTERN.sub(
-        lambda match: match.group(0) if match.group(1) in known_citations else "", body
-    )
-
-
-def _string_list(value: object, *, limit: int) -> list[str]:
-    if not isinstance(value, (list, tuple)):
-        return []
-    return [text for entry in value[:limit] if (text := str(entry).strip())]
+    coverage["grounding"] = grounding
+    report.coverage_json = coverage
 
 
 def _finalize_ready_report(

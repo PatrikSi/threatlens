@@ -205,7 +205,7 @@ def run_ai_json_request(
         try:
             lock_selected_provider(db, active)
             completion = call_ai_json(active, **call_kwargs)
-            validate_feature_completion(active, feature_type=feature_type, completion=completion)
+            validate_feature_completion(active, feature_type=feature_type, completion=completion, messages=messages)
         except AIIntegrationError as exc:
             checkpoint_error = _capture_checkpoint_error(execution_checkpoint)
             last_error = exc

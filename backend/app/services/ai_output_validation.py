@@ -3,10 +3,12 @@
 from app.services.ai_config import ActiveAISettings
 from app.services.ai_normalization import coerce_score
 from app.services.ai_provider_client import AICompletionResult, AIIntegrationError
+from app.services.report_grounding import ReportGroundingError, report_stage_input, validate_stage_output
 
 
 def validate_feature_completion(
-    active: ActiveAISettings, *, feature_type: str, completion: AICompletionResult
+    active: ActiveAISettings, *, feature_type: str, completion: AICompletionResult,
+    messages: list[dict[str, str]] | None = None,
 ) -> None:
     payload = completion.payload
     invalid_fields: list[str] = []
@@ -18,6 +20,13 @@ def validate_feature_completion(
     elif feature_type == "daily_brief":
         if not _has_text(payload.get("brief_text")):
             invalid_fields.append("brief_text (nonempty text)")
+    elif feature_type == "report" and messages:
+        stage = report_stage_input(messages)
+        if stage is not None:
+            try:
+                validate_stage_output(payload, stage=stage)
+            except ReportGroundingError as error:
+                invalid_fields.append(str(error))
     if not invalid_fields:
         return
     raise AIIntegrationError(
