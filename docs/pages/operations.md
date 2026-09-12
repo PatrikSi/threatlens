@@ -150,6 +150,15 @@ name in Redis. The UI derives safe, copyable `docker compose ps` and bounded
 `docker compose logs --since 15m --tail 200` commands from the affected service
 names. It never executes those commands from the browser.
 
+Beat uses a bounded producer check for these probes. With the supported singleton
+Beat service, a queue with eight waiting messages receives no additional canaries
+until work drains. The check includes Redis priority lists and configured key
+prefixes. Message expiration alone cannot bound a queue while its consumers are
+stopped. A broker inspection failure skips the probe and advances its schedule;
+the next interval retries without leaving a permanent admission claim. Execution
+evidence therefore becomes stale during a backlog or broker outage, and recovers
+when a fresh probe actually completes.
+
 The Trends view retains one server-recorded sample every five minutes and refreshes
 at that collection cadence; **Refresh** remains available for an immediate read.
 Select 1 hour, 6 hours, 24 hours, 7 days, or 30 days to compare worker capacity and load,

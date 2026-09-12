@@ -248,6 +248,7 @@ celery_app.conf.update(
     accept_content=["json"],
     result_serializer="json",
     timezone="UTC",
+    beat_scheduler="app.tasks.bounded_beat:BoundedCanaryScheduler",
     enable_utc=True,
     task_default_queue=QUEUE_DEFAULT,
     task_queues=(
