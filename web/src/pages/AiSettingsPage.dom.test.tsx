@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const aiSettingsPageDomMocks = vi.hoisted(() => ({
   savePending: false,
+  includeNamedProvider: false,
   currentUser: {
     data: {
       id: 'admin-1',
@@ -46,6 +47,9 @@ const aiSettingsPageDomMocks = vi.hoisted(() => ({
     max_completion_tokens: 4000,
     request_timeout_seconds: 120,
     request_max_retries: 2,
+    report_reserved_output_tokens: 1200,
+    report_context_window_tokens: 8192,
+    report_context_safety_percent: 15,
     summary_enabled: true,
     relevance_enabled: true,
     daily_brief_enabled: true,
@@ -229,6 +233,22 @@ function aiMutationResult(mutate: ReturnType<typeof vi.fn>) {
   }
 }
 
+function namedProviderQueryData(key: string) {
+  if (!aiSettingsPageDomMocks.includeNamedProvider) return undefined
+  const provider = {
+    ...aiSettingsPageDomMocks.settingsData,
+    id: 'provider-1', name: 'Large report model', enabled: true,
+    max_completion_tokens: 131072, version: 1, credential_error: null,
+  }
+  if (key === 'ai:providers::0') return { items: [provider], total: 1, offset: 0, limit: 25 }
+  if (key === 'ai:providers:detail:provider-1') return provider
+  if (key.startsWith('ai:provider-routing:names:')) return [provider]
+  if (key === 'ai:provider-routing') return {
+    version: 1, default_provider_id: 'provider-1', item_enrichment_provider_id: null,
+    daily_brief_provider_id: null, report_provider_id: null,
+  }
+}
+
 vi.mock('@tanstack/react-query', () => ({
   keepPreviousData: <T,>(previousData: T) => previousData,
   useQueryClient: () => aiSettingsPageDomMocks.queryClient,
@@ -241,6 +261,9 @@ vi.mock('@tanstack/react-query', () => ({
       error: null,
       data: undefined,
     }
+
+    const providerData = namedProviderQueryData(key)
+    if (providerData) return { ...baseResult, data: providerData }
 
     if (key === 'ai:settings') {
       if (aiSettingsPageDomMocks.settingsError) {
@@ -532,6 +555,9 @@ function clearActiveAiWork() {
 
 afterEach(() => {
   aiSettingsPageDomMocks.savePending = false;
+  aiSettingsPageDomMocks.includeNamedProvider = false
+  aiSettingsPageDomMocks.settingsData.report_reserved_output_tokens = 1200
+  aiSettingsPageDomMocks.settingsData.report_context_window_tokens = 8192
   act(() => {
     root?.unmount()
   })
@@ -597,6 +623,74 @@ afterEach(() => {
 })
 
 describe('AiSettingsPage DOM workflows', () => {
+  it('keeps saved report limits visible beside a named provider with a large completion default', () => {
+    aiSettingsPageDomMocks.includeNamedProvider = true
+    const view = renderPage()
+    act(() => getButton('Configuration')?.click())
+    act(() => view.querySelector<HTMLButtonElement>('button[aria-label="Edit provider Large report model"]')!.click())
+    expect(view.querySelector<HTMLInputElement>('input[aria-label="Provider default completion tokens"]')?.value).toBe('131072')
+    const summary = view.querySelector('section[aria-labelledby="saved-report-budgets-title"]')!
+    expect(summary.textContent).toContain('Initial completion1,200 tokens')
+    expect(summary.textContent).toContain('Context window8,192 tokens')
+    expect(summary.textContent).toContain('Safety margin15%')
+    expect(summary.textContent).toContain('Changing a provider default does not change the report budgets')
+    expect(summary.querySelector('[role="status"]')).toBeNull()
+    expect(summary.previousElementSibling?.textContent).toContain('AI feature assignments')
+    act(() => setInputValue(view.querySelector<HTMLInputElement>('input[aria-label="Provider default completion tokens"]')!, '65536'))
+    expect(summary.textContent).toContain('Initial completion1,200 tokens')
+    expect(summary.querySelector('[role="status"]')).toBeNull()
+  })
+
+  it('distinguishes unsaved report edits from saved values and reflects a saved settings refresh', () => {
+    const view = renderPage()
+    act(() => getButton('Configuration')?.click())
+    const summary = view.querySelector('section[aria-labelledby="saved-report-budgets-title"]')!
+    act(() => {
+      setInputValue(view.querySelector<HTMLInputElement>('input[aria-label="Model Context Window"]')!, '262144')
+      setInputValue(view.querySelector<HTMLInputElement>('input[aria-label="Initial report completion tokens"]')!, '32768')
+    })
+    expect(summary.textContent).toContain('1,200 tokens')
+    expect(summary.textContent).toContain('8,192 tokens')
+    expect(summary.textContent).not.toContain('32,768')
+    expect(summary.querySelector('[role="status"]')?.textContent).toContain('Report budget edits are unsaved')
+    // Simulate the server returning the saved values after a configuration refresh.
+    aiSettingsPageDomMocks.settingsData = {
+      ...aiSettingsPageDomMocks.settingsData,
+      report_reserved_output_tokens: 32768,
+      report_context_window_tokens: 262144,
+    }
+    act(() => root!.render(<AiSettingsPage />))
+    expect(summary.textContent).toContain('32,768 tokens')
+    expect(summary.textContent).toContain('262,144 tokens')
+    expect(summary.querySelector('[role="status"]')).toBeNull()
+  })
+
+  it('focuses the report controls through its named link after configuration unmounts and remounts', () => {
+    const view = renderPage()
+    for (let visit = 0; visit < 2; visit += 1) {
+      act(() => getButton('Configuration')?.click())
+      const link = view.querySelector<HTMLAnchorElement>('a[href="#ai-report-budget-controls"]')!
+      const controls = view.querySelector<HTMLElement>('#ai-report-budget-controls')!
+      expect(link.textContent).toBe('Review report budget controls')
+      expect(controls.getAttribute('aria-label')).toBe('Report context guardrails')
+      link.focus()
+      act(() => link.click())
+      expect(document.activeElement).toBe(controls)
+      expect(controls.querySelector('input[aria-label="Initial report completion tokens"]')).not.toBeNull()
+      act(() => getButton('Jobs')?.click())
+      expect(controls.isConnected).toBe(false)
+    }
+  })
+
+  it('does not substitute draft defaults when saved settings are unavailable', () => {
+    aiSettingsPageDomMocks.settingsError = true
+    const view = renderPage()
+    act(() => getButton('Configuration')?.click())
+    const summary = view.querySelector('section[aria-labelledby="saved-report-budgets-title"]')!
+    expect(summary.textContent).toContain('Saved report budgets are unavailable until AI settings load')
+    expect(summary.querySelector('dl')).toBeNull()
+  })
+
   it('explains independent report and default completion budgets with accessible help', () => {
     const view = renderPage()
     act(() => getButton('Configuration')?.click())
