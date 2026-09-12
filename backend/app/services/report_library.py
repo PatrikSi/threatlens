@@ -18,6 +18,7 @@ from app.schemas.report_library import ReportLibraryFilters, ReportLibraryPage
 from app.schemas.reports import ReportListItem
 from app.services.data_access_envelopes import DATA_ACCESS_RESOURCE_REPORT, data_access_envelope_predicate
 from app.services.data_access_policy import DataAccessContext
+from app.services.report_read_models import report_list_columns
 
 
 class ReportLibraryCursorError(ValueError):
@@ -73,9 +74,7 @@ def list_report_library_page(
     position = _decode(cursor, scope=scope, now=now) if cursor else _Cursor(as_of=now, scope=scope)
     # Cursors only describe positions, never authorization. Every page checks the
     # current permission envelope even when its timestamp/filter token is reused.
-    columns = [getattr(Report, name) if name != "error" else func.substr(Report.error, 1, 4000).label("error")
-               for name in ReportListItem.model_fields]
-    query = select(*columns).where(
+    query = select(*report_list_columns()).where(
         Report.created_at <= position.as_of,
         data_access_envelope_predicate(DATA_ACCESS_RESOURCE_REPORT, Report.id, data_access),
     )
