@@ -301,6 +301,7 @@ describe('workspace settings model', () => {
       'primary.dashboard',
       'primary.alerts',
       'primary.investigations',
+      'primary.teams',
       'primary.feeds',
       'primary.stats',
       'primary.export',
