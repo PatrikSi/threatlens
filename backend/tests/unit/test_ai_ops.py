@@ -8,6 +8,9 @@ from sqlalchemy.orm import Session
 
 from app.models.ai_task_event import AITaskEvent
 from app.models.ai_task_run import AITaskRun
+from app.models.ai_workflow import AIReprocessMember, AIWorkflowDispatch
+from app.models.article import Article
+from app.services.ai_reprocess import ensure_reprocess_child
 from app.models.feed import Feed
 from app.models.item import Item
 from app.models.item_ai_enrichment import ItemAIEnrichment
@@ -81,26 +84,23 @@ def _create_item(db_session: Session, *, source_guid: str) -> Item:
     return item
 
 
+def _reprocess_pair(db: Session, *, source_guid: str):
+    item = _create_item(db, source_guid=source_guid)
+    db.add(Article(item_id=item.id, final_url=item.url, http_status=200, text="Synthetic evidence"))
+    db.flush()
+    parent = queue_ai_task_run(
+        db, task_type=AI_TASK_TYPE_REPROCESS, trigger_source=AI_TRIGGER_MANUAL,
+        metadata={"item_ids": [str(item.id)], "limit": 1}, target_count=1,
+    )
+    child = ensure_reprocess_child(db, parent_id=parent.id, item_id=item.id, model=None)
+    assert child is not None
+    return parent, child, item
+
+
 def test_list_ai_task_runs_reconciles_stale_reprocess_and_child_runs(
     db_session, monkeypatch
 ):
-    item = _create_item(db_session, source_guid="stale-child")
-
-    parent_run = queue_ai_task_run(
-        db_session,
-        task_type=AI_TASK_TYPE_REPROCESS,
-        trigger_source=AI_TRIGGER_MANUAL,
-        metadata={"days": 7, "limit": 1},
-        target_count=1,
-    )
-    child_run = queue_ai_task_run(
-        db_session,
-        task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
-        trigger_source=AI_TRIGGER_MANUAL,
-        parent_run_id=parent_run.id,
-        item_id=item.id,
-        metadata={"parent_task": "reprocess"},
-    )
+    parent_run, child_run, item = _reprocess_pair(db_session, source_guid="stale-child")
     start_ai_task_run(
         db_session,
         run_id=parent_run.id,
@@ -151,19 +151,19 @@ def test_list_ai_task_runs_reconciles_stale_reprocess_and_child_runs(
     )
 
     assert refreshed_child is not None
-    assert refreshed_child.status == AI_STATUS_ERROR
-    assert refreshed_child.reason == "stale_task_lost"
-    assert refreshed_child.finished_at is not None
-
+    assert refreshed_child.status == AI_STATUS_QUEUED
+    assert refreshed_child.reason is None and refreshed_child.finished_at is None
+    assert refreshed_child.celery_task_id != "child-task-id"
     assert refreshed_parent is not None
-    assert refreshed_parent.status == AI_STATUS_ERROR
-    assert refreshed_parent.reason == "partial_failures"
-    assert refreshed_parent.processed_count == 1
-    assert refreshed_parent.error_count == 1
-    assert refreshed_parent.finished_at is not None
-
+    # The parent remains a running batch tracker while its durable child retries.
+    assert refreshed_parent.status == AI_STATUS_RUNNING
+    assert refreshed_parent.processed_count == 0 and refreshed_parent.error_count == 0
+    assert refreshed_parent.target_count == 1 and refreshed_parent.finished_at is None
+    member = db_session.get(AIReprocessMember, (parent_run.id, item.id))
+    assert member.child_run_id == child_run.id and member.outcome is None
+    assert db_session.get(AIWorkflowDispatch, child_run.id).state == "pending"
     assert response.items[0].id == parent_run.id
-    assert response.items[0].status == AI_STATUS_ERROR
+    assert response.items[0].status == AI_STATUS_RUNNING
 
 
 def test_list_ai_task_runs_can_skip_stale_reconciliation_for_plain_history(
@@ -217,7 +217,7 @@ def test_list_ai_task_runs_can_skip_stale_reconciliation_for_plain_history(
     assert response.items[0].status == AI_STATUS_RUNNING
 
 
-def test_list_ai_task_runs_preserves_very_old_stale_run_durations(
+def test_list_ai_task_runs_preserves_old_start_until_recovered_work_finishes(
     db_session, monkeypatch
 ):
     item = _create_item(db_session, source_guid="very-old-stale-run")
@@ -257,11 +257,14 @@ def test_list_ai_task_runs_preserves_very_old_stale_run_durations(
     db_session.expire_all()
     refreshed = db_session.scalar(select(AITaskRun).where(AITaskRun.id == run.id))
     assert refreshed is not None
-    assert refreshed.status == AI_STATUS_ERROR
-    assert refreshed.reason == "stale_task_lost"
-    assert refreshed.duration_ms is not None
-    assert refreshed.duration_ms > 2_147_483_647
-    assert response.items[0].duration_ms == refreshed.duration_ms
+    assert refreshed.status == AI_STATUS_QUEUED
+    assert refreshed.reason is None and refreshed.finished_at is None
+    assert refreshed.started_at == stale_time
+    assert refreshed.duration_ms is None and response.items[0].duration_ms is None
+    # Actual terminal settlement still preserves durations exceeding int32.
+    finish_ai_task_run(db_session, run_id=run.id, status=AI_STATUS_SKIPPED, reason="canceled")
+    db_session.commit()
+    assert refreshed.duration_ms is not None and refreshed.duration_ms > 2_147_483_647
 
 
 def test_ai_ops_overview_uses_database_queue_snapshot_without_live_inspection(
@@ -407,7 +410,7 @@ def test_list_ai_task_runs_does_not_mark_recent_queued_backlog_lost(
     assert response.items[0].status == AI_STATUS_QUEUED
 
 
-def test_list_ai_task_runs_marks_queued_backlog_lost_after_fallback_grace(
+def test_list_ai_task_runs_preserves_durable_queued_backlog_after_fallback_grace(
     db_session, monkeypatch
 ):
     item = _create_item(db_session, source_guid="queued-backlog-stale")
@@ -439,10 +442,11 @@ def test_list_ai_task_runs_marks_queued_backlog_lost_after_fallback_grace(
     db_session.expire_all()
     refreshed = db_session.scalar(select(AITaskRun).where(AITaskRun.id == run.id))
     assert refreshed is not None
-    assert refreshed.status == AI_STATUS_ERROR
-    assert refreshed.reason == "stale_queued_task_unstarted"
-    assert refreshed.finished_at is not None
-    assert response.items[0].status == AI_STATUS_ERROR
+    assert refreshed.status == AI_STATUS_QUEUED
+    assert refreshed.reason is None
+    assert refreshed.finished_at is None
+    assert db_session.get(AIWorkflowDispatch, run.id).state == "pending"
+    assert response.items[0].status == AI_STATUS_QUEUED
 
 
 def test_start_and_finish_do_not_overwrite_canceled_runs(db_session):
@@ -741,34 +745,12 @@ def test_stale_queued_report_remains_owned_by_durable_dispatcher(
 
 
 def test_finish_ai_task_run_is_atomic_across_postgresql_sessions(database_engine):
-    parent_id = uuid.uuid4()
-    child_id = uuid.uuid4()
     now = datetime.now(timezone.utc)
     with Session(database_engine) as setup:
-        setup.add_all(
-            [
-                AITaskRun(
-                    id=parent_id,
-                    task_type=AI_TASK_TYPE_REPROCESS,
-                    trigger_source=AI_TRIGGER_MANUAL,
-                    status=AI_STATUS_RUNNING,
-                    metadata_json={},
-                    target_count=1,
-                    started_at=now,
-                    queued_at=now,
-                ),
-                AITaskRun(
-                    id=child_id,
-                    task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
-                    trigger_source=AI_TRIGGER_MANUAL,
-                    status=AI_STATUS_RUNNING,
-                    metadata_json={},
-                    parent_run_id=parent_id,
-                    started_at=now,
-                    queued_at=now,
-                ),
-            ]
-        )
+        parent, child, item = _reprocess_pair(setup, source_guid=f"atomic-finish-{uuid.uuid4()}")
+        parent_id, child_id, item_id, feed_id = parent.id, child.id, item.id, item.feed_id
+        parent.status = child.status = AI_STATUS_RUNNING
+        parent.started_at = child.started_at = now
         setup.commit()
 
     barrier = Barrier(2)
@@ -820,6 +802,8 @@ def test_finish_ai_task_run_is_atomic_across_postgresql_sessions(database_engine
             assert parent is not None
             assert outcomes == [child.status, child.status]
             assert len(terminal_events) == 1
+            member = check.get(AIReprocessMember, (parent_id, item_id))
+            assert member.outcome == child.status and member.child_run_id == child.id
             assert parent.processed_count == 1
             assert parent.success_count == int(child.status == AI_STATUS_READY)
             assert parent.error_count == int(child.status == AI_STATUS_ERROR)
@@ -829,6 +813,8 @@ def test_finish_ai_task_run_is_atomic_across_postgresql_sessions(database_engine
                 cleanup,
                 run_ids=[child_id, parent_id],
             )
+            cleanup.execute(delete(Item).where(Item.id == item_id))
+            cleanup.execute(delete(Feed).where(Feed.id == feed_id))
             cleanup.commit()
 
 
@@ -1092,30 +1078,26 @@ def test_list_ai_task_runs_reconciles_stale_runs_when_live_snapshot_unavailable(
     db_session.expire_all()
     refreshed = db_session.scalar(select(AITaskRun).where(AITaskRun.id == run.id))
     assert refreshed is not None
-    assert refreshed.status == AI_STATUS_ERROR
-    assert refreshed.reason == "stale_task_snapshot_unavailable"
-    assert refreshed.finished_at is not None
-    assert (refreshed.metadata_json or {})["stale_snapshot_available"] is False
+    assert refreshed.status == AI_STATUS_QUEUED
+    assert refreshed.reason is None
+    assert refreshed.finished_at is None
+    assert (refreshed.metadata_json or {})["worker_recovery_requested_at"]
+    assert refreshed.celery_task_id != "task-id"
+    assert db_session.get(AIWorkflowDispatch, run.id).state == "pending"
 
-    assert response.items[0].status == AI_STATUS_ERROR
+    assert response.items[0].status == AI_STATUS_QUEUED
 
 
 def test_list_ai_task_runs_still_finishes_accounted_reprocess_runs_when_live_snapshot_unavailable(
     db_session, monkeypatch
 ):
-    parent_run = queue_ai_task_run(
-        db_session,
-        task_type=AI_TASK_TYPE_REPROCESS,
-        trigger_source=AI_TRIGGER_MANUAL,
-        metadata={"days": 7, "limit": 1},
-        target_count=1,
-    )
-    start_ai_task_run(
-        db_session,
-        run_id=parent_run.id,
-        worker_name="celery@test",
-        celery_task_id="parent-task-id",
-    )
+    parent_run, child_run, item = _reprocess_pair(db_session, source_guid="accounted-ready")
+    parent_run.status = AI_STATUS_RUNNING
+    # Simulate a retained terminal child whose parent counters were not settled.
+    child_run.status = AI_STATUS_READY
+    child_run.reason = None
+    child_run.finished_at = datetime.now(timezone.utc)
+    db_session.add(child_run)
 
     stale_time = datetime.now(timezone.utc) - timedelta(hours=1)
     parent_run = db_session.scalar(
@@ -1123,8 +1105,6 @@ def test_list_ai_task_runs_still_finishes_accounted_reprocess_runs_when_live_sna
     )
     assert parent_run is not None
     parent_run.status = AI_STATUS_RUNNING
-    parent_run.processed_count = 1
-    parent_run.success_count = 1
     parent_run.queued_at = stale_time
     parent_run.started_at = stale_time
     parent_run.created_at = stale_time
@@ -1146,6 +1126,8 @@ def test_list_ai_task_runs_still_finishes_accounted_reprocess_runs_when_live_sna
     assert refreshed_parent.status == AI_STATUS_READY
     assert refreshed_parent.reason is None
     assert refreshed_parent.finished_at is not None
+    assert refreshed_parent.processed_count == 1
+    assert db_session.get(AIReprocessMember, (parent_run.id, item.id)).outcome == child_run.status
 
     assert response.items[0].status == AI_STATUS_READY
 
@@ -1193,7 +1175,7 @@ def test_list_ai_task_runs_keeps_recent_runs_when_live_snapshot_unavailable(
     assert response.items[0].status == AI_STATUS_RUNNING
 
 
-def test_list_ai_task_runs_marks_stale_pending_enrichment_rows_as_error(
+def test_list_ai_task_runs_preserves_stale_pending_enrichment_for_safe_recovery(
     db_session, monkeypatch
 ):
     feed = Feed(
@@ -1260,19 +1242,15 @@ def test_list_ai_task_runs_marks_stale_pending_enrichment_rows_as_error(
     )
 
     assert refreshed_run is not None
-    assert refreshed_run.status == AI_STATUS_ERROR
-    assert refreshed_run.reason == "stale_task_lost"
-
+    assert refreshed_run.status == AI_STATUS_QUEUED and refreshed_run.reason is None
+    assert refreshed_run.finished_at is None and refreshed_run.celery_task_id != "stale-task"
+    assert db_session.get(AIWorkflowDispatch, run.id).state == "pending"
     assert refreshed_enrichment is not None
-    assert refreshed_enrichment.status == AI_STATUS_ERROR
-    assert (
-        refreshed_enrichment.error
-        == "Task no longer appears in Celery and did not report completion"
-    )
-    assert refreshed_enrichment.generated_at is not None
+    assert refreshed_enrichment.status == "pending" and refreshed_enrichment.source_hash == "hash"
+    assert refreshed_enrichment.error is None and refreshed_enrichment.generated_at is None
 
 
-def test_list_ai_task_runs_marks_snapshot_unavailable_pending_enrichment_rows_as_error(
+def test_list_ai_task_runs_preserves_pending_enrichment_during_snapshot_unavailable_recovery(
     db_session, monkeypatch
 ):
     feed = Feed(
@@ -1339,30 +1317,24 @@ def test_list_ai_task_runs_marks_snapshot_unavailable_pending_enrichment_rows_as
     )
 
     assert refreshed_run is not None
-    assert refreshed_run.status == AI_STATUS_ERROR
-    assert refreshed_run.reason == "stale_task_snapshot_unavailable"
-
+    assert refreshed_run.status == AI_STATUS_QUEUED and refreshed_run.reason is None
+    assert refreshed_run.finished_at is None and refreshed_run.celery_task_id != "stale-task"
+    assert db_session.get(AIWorkflowDispatch, run.id).state == "pending"
     assert refreshed_enrichment is not None
-    assert refreshed_enrichment.status == AI_STATUS_ERROR
-    assert (
-        refreshed_enrichment.error
-        == "Task exceeded the fallback stale-run grace period while Celery inspection was unavailable"
-    )
+    assert refreshed_enrichment.status == "pending" and refreshed_enrichment.source_hash == "hash"
+    assert refreshed_enrichment.error is None and refreshed_enrichment.generated_at is None
 
 
 def test_list_ai_task_runs_reconciles_partial_skip_parents_consistently(
     db_session, monkeypatch
 ):
-    parent_run = queue_ai_task_run(
-        db_session,
-        task_type=AI_TASK_TYPE_REPROCESS,
-        trigger_source=AI_TRIGGER_MANUAL,
-        metadata={"days": 7, "limit": 1},
-        target_count=1,
-    )
+    parent_run, child_run, item = _reprocess_pair(db_session, source_guid="accounted-skip")
     parent_run.status = AI_STATUS_RUNNING
-    parent_run.processed_count = 1
-    parent_run.skipped_count = 1
+    # Simulate a retained terminal child whose parent counters were not settled.
+    child_run.status = AI_STATUS_SKIPPED
+    child_run.reason = 'unchanged'
+    child_run.finished_at = datetime.now(timezone.utc)
+    db_session.add(child_run)
 
     stale_time = datetime.now(timezone.utc) - timedelta(hours=1)
     parent_run.queued_at = stale_time
@@ -1387,6 +1359,8 @@ def test_list_ai_task_runs_reconciles_partial_skip_parents_consistently(
     assert refreshed_parent.status == AI_STATUS_SKIPPED
     assert refreshed_parent.reason == "partial_skips"
     assert refreshed_parent.finished_at is not None
+    assert refreshed_parent.processed_count == 1
+    assert db_session.get(AIReprocessMember, (parent_run.id, item.id)).outcome == child_run.status
 
     assert response.items[0].status == AI_STATUS_SKIPPED
     assert response.items[0].reason == "partial_skips"
