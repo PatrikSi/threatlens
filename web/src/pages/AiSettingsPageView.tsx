@@ -6,13 +6,13 @@ import {
   type RefObject,
   type SetStateAction,
 } from 'react'
+import { Link } from 'react-router-dom'
 
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { SettingsPageHeader } from '../components/SettingsPageHeader'
 import { AISettings, AITaskRunResponse } from '../types/api'
 import { ActivityTab } from './AiSettingsActivityTab'
 import { ConfigurationTab } from './AiSettingsConfigurationTab'
-import { OverviewTab } from './AiSettingsOverviewTab'
 import { StatusPill, TabButton } from './aiSettingsSupport'
 import {
   cancelActionLabel,
@@ -29,7 +29,6 @@ export type AiSettingsNotice = {
   message: string
 }
 
-export type AiOverviewTabProps = ComponentProps<typeof OverviewTab>
 export type AiActivityTabProps = ComponentProps<typeof ActivityTab>
 export type AiConfigurationTabProps = ComponentProps<typeof ConfigurationTab>
 
@@ -38,7 +37,6 @@ type AiSettingsPageViewProps = {
   setActiveTab: Dispatch<SetStateAction<AiTab>>
   notice: AiSettingsNotice | null
   settings: AISettings | undefined
-  overviewProps: AiOverviewTabProps
   activityProps: AiActivityTabProps
   configurationProps: AiConfigurationTabProps
   activityTabRef: RefObject<HTMLElement | null>
@@ -53,7 +51,7 @@ type AiSettingsPageViewProps = {
 }
 
 const AI_TABS: Array<{ value: AiTab; label: string }> = [
-  { value: 'overview', label: 'Overview' },
+  { value: 'overview', label: 'Statistics' },
   { value: 'activity', label: 'Jobs' },
   { value: 'configuration', label: 'Configuration' },
 ]
@@ -195,7 +193,11 @@ function AiSettingsTabContent(props: AiSettingsPageViewProps) {
     <section className="min-w-0 space-y-3">
       {props.activeTab === 'overview' && (
         <section id={getAiTabPanelId('overview')} role="tabpanel" aria-labelledby={getAiTabButtonId('overview')}>
-          <OverviewTab {...props.overviewProps} />
+          <div className="tl-surface rounded-xl p-4">
+            <h2 className="font-display text-lg">AI statistics moved</h2>
+            <p className="mt-2 text-sm">Usage, provider performance, reliability and coverage are now together on the Statistics page.</p>
+            <Link className="mt-3 inline-flex rounded border px-3 py-2 font-semibold underline" to="/stats?section=ai">Open AI statistics</Link>
+          </div>
         </section>
       )}
       {props.activeTab === 'activity' && (

@@ -133,7 +133,7 @@ function createAppRouter() {
           />
           <Route
             path="stats"
-            element={<WorkspaceModuleRoute moduleId="primary.stats">{suspenseRoute(<StatsPage />, 'Loading statistics...')}</WorkspaceModuleRoute>}
+            element={suspenseRoute(<StatsPage />, 'Loading statistics...')}
           />
           <Route
             path="export"

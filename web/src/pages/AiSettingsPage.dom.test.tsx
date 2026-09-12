@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { MemoryRouter } from 'react-router-dom'
 
 import { act } from 'react'
 import { createRoot, Root } from 'react-dom/client'
@@ -513,7 +514,7 @@ function renderPage() {
   document.body.appendChild(container)
   root = createRoot(container)
   act(() => {
-    root?.render(<AiSettingsPage />)
+    root?.render(<MemoryRouter><AiSettingsPage /></MemoryRouter>)
   })
   return container
 }
@@ -661,7 +662,7 @@ describe('AiSettingsPage DOM workflows', () => {
       report_reserved_output_tokens: 32768,
       report_context_window_tokens: 262144,
     }
-    act(() => root!.render(<AiSettingsPage />))
+    act(() => root!.render(<MemoryRouter><AiSettingsPage /></MemoryRouter>))
     expect(summary.textContent).toContain('32,768 tokens')
     expect(summary.textContent).toContain('262,144 tokens')
     expect(summary.querySelector('[role="status"]')).toBeNull()
@@ -719,7 +720,7 @@ describe('AiSettingsPage DOM workflows', () => {
     expect(fields.every((field) => field.matches(':disabled'))).toBe(true)
     expect(pageText()).toContain('Saving AI settings. Editing resumes')
     aiSettingsPageDomMocks.savePending = false
-    act(() => root?.render(<AiSettingsPage />))
+    act(() => root?.render(<MemoryRouter><AiSettingsPage /></MemoryRouter>))
     expect(view.querySelector('fieldset input')?.matches(':disabled')).toBe(false)
     const endpoint = view.querySelector<HTMLInputElement>('input[aria-label="Base URL"]')!
     expect(endpoint.getAttribute('aria-describedby')).toBe('legacy-provider-endpoint-help')
@@ -738,7 +739,7 @@ describe('AiSettingsPage DOM workflows', () => {
 
     expect(mobileSection).not.toBeNull()
     expect(Array.from(mobileSection?.options ?? []).map((option) => option.textContent)).toEqual([
-      'Overview',
+      'Statistics',
       'Jobs',
       'Configuration',
     ])
@@ -851,16 +852,10 @@ describe('AiSettingsPage DOM workflows', () => {
   it('renders accessible tab and selection controls, then wires the queued-task cancellation dialog', () => {
     const view = renderPage()
 
-    expect(view.querySelector('label[for="ai-overview-window-days"]')?.textContent).toContain('Overview time window')
-    expect(view.querySelector<HTMLSelectElement>('#ai-overview-window-days')?.getAttribute('aria-label')).toBe(
-      'Overview time window',
-    )
-    expect(pageText()).not.toContain('Recent Problems')
-    expect(pageText()).not.toContain('The most common failures across requests and task runs.')
-    expect(pageText()).toContain('Database-backed snapshot of AI task runs.')
-    const overviewColumnHeaders = [...view.querySelectorAll('th')]
-    expect(overviewColumnHeaders).toHaveLength(5)
-    expect(overviewColumnHeaders.every((heading) => heading.getAttribute('scope') === 'col')).toBe(true)
+    expect(view.textContent).toContain('AI statistics moved')
+    expect(view.querySelector('a[href="/stats?section=ai"]')?.textContent).toContain('Open AI statistics')
+    expect(view.querySelector('#ai-overview-window-days')).toBeNull()
+    expect(view.querySelector('table')).toBeNull()
 
     const jobsTab = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.includes('Jobs'))
     expect(jobsTab).not.toBeNull()

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { MemoryRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -74,7 +75,7 @@ describe('saved AI settings with a real query cache', () => {
     host = document.createElement('div')
     document.body.appendChild(host)
     root = createRoot(host)
-    act(() => root!.render(<QueryClientProvider client={client}><AiSettingsPage /></QueryClientProvider>))
+    act(() => root!.render(<QueryClientProvider client={client}><MemoryRouter><AiSettingsPage /></MemoryRouter></QueryClientProvider>))
     await settle()
     act(() => button('Configuration').click())
     await settle()

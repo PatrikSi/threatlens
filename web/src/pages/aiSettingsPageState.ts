@@ -37,7 +37,7 @@ export function deriveAiQueryEnablement(
   const settledUsesWorkload = settledActiveTab === 'activity' || settledActiveTab === 'configuration'
   return {
     aiEnabled,
-    overview: aiEnabled && settledActiveTab === 'overview',
+    overview: false,
     activity: aiEnabled && settledActiveTab === 'activity',
     configuration: aiEnabled && settledActiveTab === 'configuration',
     workload: aiEnabled && (activeUsesWorkload || settledUsesWorkload),
