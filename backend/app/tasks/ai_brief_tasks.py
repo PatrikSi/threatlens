@@ -330,6 +330,12 @@ def _daily_brief_backfill_reference_times(days: int, *, now: datetime | None = N
 
 
 def _daily_brief_backfill_anchor(db: Session, run: AITaskRun) -> datetime:
+    from app.services.ai_execution_ownership import AIExecutionSuperseded
+    run = db.scalar(select(AITaskRun).where(AITaskRun.id == run.id).with_for_update()
+                    .execution_options(populate_existing=True))
+    stop_reason = "task_history_unavailable" if run is None else ai_task_run_stop_reason(run)
+    if stop_reason is not None:
+        raise AIExecutionSuperseded("Brief anchor execution was stopped or superseded.", reason=stop_reason)
     metadata = dict(run.metadata_json or {})
 
     def parse_reference(value: object) -> datetime | None:
@@ -412,8 +418,14 @@ def _supersede_daily_brief_attempts(
     worker_name: str | None, active_model: str | None,
 ) -> None:
     for attempt in attempts:
-        if attempt.finished_at is not None:
+        attempt = db.scalar(select(AITaskRun).where(AITaskRun.id == attempt.id).with_for_update()
+                            .execution_options(populate_existing=True))
+        if attempt is None or attempt.finished_at is not None:
             continue
+        from app.services.ai_execution_ownership import AIExecutionSuperseded, ai_execution_stop_reason
+        stop_reason = ai_execution_stop_reason(db, attempt, lock_parent=True)
+        if stop_reason is not None:
+            raise AIExecutionSuperseded("Brief supersession was stopped or superseded.", reason=stop_reason)
         attempt.metadata_json = {
             **dict(attempt.metadata_json or {}),
             AI_PARENT_PROGRESS_ELIGIBLE_METADATA_KEY: False,
@@ -426,6 +438,7 @@ def _supersede_daily_brief_attempts(
             worker_name=attempt.worker_name or worker_name,
             model=attempt.model or active_model,
         )
+        db.commit()  # Release child and parent before handling another attempt.
 
 
 def _require_backfill_history(run: AITaskRun | None, requested_id: uuid.UUID | None) -> None:
@@ -594,7 +607,8 @@ def backfill_daily_ai_briefs(
                     effective_days, now=backfill_anchor
                 ):
                     brief_date = reference_time.date().isoformat()
-                    parent_run = db.scalar(select(AITaskRun).where(AITaskRun.id == parent_run_id))
+                    parent_run = db.scalar(select(AITaskRun).where(AITaskRun.id == parent_run_id)
+                                           .execution_options(populate_existing=True))
                     if parent_run is None:
                         return {
                             "status": "error",
