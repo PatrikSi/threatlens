@@ -41,12 +41,14 @@ name is a label, and does not enable a different vendor protocol. Global prompts
 company context, feature switches, and report context-planning limits remain in
 AI settings.
 
-A named provider connection test can reach the endpoint but exhaust its fixed
+A legacy or named provider connection test can reach the endpoint but exhaust its fixed
 128-token allowance before returning valid JSON, especially when the model uses
 reasoning tokens. The error identifies this diagnostic limit; increasing the
 saved completion budget does not change the test. Such a result leaves feature
 compatibility unverified. Qualify a small feature request with its saved budget.
-Legacy connection tests continue to use the legacy saved request settings.
+Both settings paths use the same bounded diagnostic and recheck the caller's
+current authorization immediately before provider I/O. Saved feature budgets
+remain unchanged.
 
 ### Completion Budgets
 

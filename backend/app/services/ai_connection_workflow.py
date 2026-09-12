@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import uuid
 from collections.abc import Callable
+from dataclasses import replace
 
 from sqlalchemy.orm import Session
 
@@ -18,8 +19,13 @@ from app.services.authorization import AuthorizationContext
 def run_connection_test(
     db: Session, *, request_json: Callable[..., AICompletionResult], task_run_id: uuid.UUID | None = None,
     active_settings: ActiveAISettings | None = None,
-    request_authorization: AuthorizationContext | None = None,
+    request_authorization: AuthorizationContext,
 ) -> AITestConnectionResponse:
+    if not isinstance(request_authorization, AuthorizationContext):
+        raise AIIntegrationError(
+            "Connection tests require the authenticated caller's authorization context.",
+            retryable=False, provider_io_outcome="not_sent",
+        )
     active = active_settings or load_active_ai_settings(db, use_legacy=True)
     if not active.ai_enabled:
         raise AIIntegrationError("AI features are disabled")
@@ -28,6 +34,10 @@ def run_connection_test(
             active.configuration_error or "Configure the AI base URL and model before testing the connection"
         )
 
+    # Keep every diagnostic below the browser and proxy request deadlines.
+    # Feature qualification uses its own saved budgets, not this synthetic test.
+    active = replace(active, max_completion_tokens=128, request_max_retries=0,
+                     request_timeout_seconds=min(active.request_timeout_seconds, 30))
     try:
         completion = request_json(
             db,

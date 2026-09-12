@@ -78,7 +78,7 @@ import {
 
 const AI_QUERY_STALE_MS = 15_000
 const AI_REFERENCE_STALE_MS = 60_000
-const AI_CONNECTION_TEST_TIMEOUT_BUFFER_MS = 15_000
+const AI_CONNECTION_TEST_TIMEOUT_MS = 45_000
 const CONNECTION_TEST_BLOCKING_TASK_TYPES = new Set(['item_enrichment', 'daily_brief', 'reprocess'])
 const DEFAULT_RUN_FILTERS: RunFilters = {
   taskType: '',
@@ -449,13 +449,9 @@ export function AiSettingsPage() {
   const testConnectionMutation = useMutation({
     mutationKey: ['ai', 'settings', 'test-connection'],
     mutationFn: () => {
-      const timeoutMs =
-        typeof settingsQuery.data?.request_timeout_seconds === 'number'
-          ? settingsQuery.data.request_timeout_seconds * 1000 + AI_CONNECTION_TEST_TIMEOUT_BUFFER_MS
-          : undefined
       return apiFetch<AITestConnectionResponse>('/ai/test-connection', {
         method: 'POST',
-        timeoutMs,
+        timeoutMs: AI_CONNECTION_TEST_TIMEOUT_MS,
       })
     },
     onSuccess: (result) => {

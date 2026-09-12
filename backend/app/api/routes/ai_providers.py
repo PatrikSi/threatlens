@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import uuid
-from dataclasses import replace
 from collections.abc import Iterator
 from contextlib import contextmanager
 
@@ -313,13 +312,6 @@ def test_ai_provider_connection_route(
         start_ai_task_run(db, run_id=run.id, worker_name="api")
         db.commit()
 
-    # This small, explicit test does not wait for unrelated provider workloads.
-    active = replace(
-        active,
-        max_completion_tokens=128,
-        request_max_retries=0,
-        request_timeout_seconds=min(active.request_timeout_seconds, 30),
-    )
     result = test_ai_connection(
         db,
         task_run_id=run.id,

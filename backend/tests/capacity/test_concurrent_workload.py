@@ -249,7 +249,7 @@ def _governance(engine, owner_id, label_id, metrics, iterations, offset=0):
         time.sleep(0.02)
 
 
-def _ai(engine, metrics, iterations):
+def _ai(engine, metrics, iterations, owner_id):
     for _ in range(iterations):
         with metrics.operation("ai_connection") as operation:
             with Session(engine) as db:
@@ -259,7 +259,8 @@ def _ai(engine, metrics, iterations):
                 db.commit()
                 start_ai_task_run(db, run_id=run.id, worker_name="capacity-service")
                 db.commit()
-                result = run_connection_test(db, task_run_id=run.id)
+                authorization = authorization_context_for_user(db, db.get(User, owner_id))
+                result = run_connection_test(db, task_run_id=run.id, request_authorization=authorization)
                 finish_ai_task_run(
                     db, run_id=run.id, status="ready" if result.success else "error"
                 )
@@ -514,7 +515,7 @@ def test_concurrent_workload(database_engine, test_redis_url, monkeypatch):
                             ),
                             executor.submit(
                                 paced_lane,
-                                lambda _: _ai(engine, metrics, 1),
+                                lambda _: _ai(engine, metrics, 1, owner_id),
                                 duration_seconds=duration,
                                 interval_seconds=profile["service_interval_seconds"],
                                 initial_delay_seconds=profile["ai_phase_seconds"],
@@ -584,7 +585,7 @@ def test_concurrent_workload(database_engine, test_redis_url, monkeypatch):
                                 profile["operations"],
                             ),
                             executor.submit(
-                                _ai, engine, metrics, profile["operations"]
+                                _ai, engine, metrics, profile["operations"], owner_id
                             ),
                         ]
                         expected = profile["items_per_feed"] * (profile["feeds"] + 2)
@@ -611,7 +612,7 @@ def test_concurrent_workload(database_engine, test_redis_url, monkeypatch):
                 assert all(row["status"] == "ready" for row in disjoint_after_load)
                 # Confirm at least one export once the policy revision settles.
                 _export(engine, owner_id, seed_feed_id, settings, metrics, 1)
-                _ai(engine, metrics, 1)
+                _ai(engine, metrics, 1, owner_id)
                 observe_deadlines(metrics, base)
             with Session(engine) as db:
                 usage_rows = dict(
