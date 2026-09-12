@@ -42,6 +42,7 @@ class Investigation(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
+    team_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), ForeignKey("teams.id", ondelete="RESTRICT"), nullable=True, index=True)
     description: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="open", server_default="open", index=True)
     severity: Mapped[str] = mapped_column(

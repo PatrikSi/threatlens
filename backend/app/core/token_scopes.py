@@ -13,6 +13,8 @@ SCOPE_READ_TAGGING = "read:tagging"
 SCOPE_WRITE_TAGGING = "write:tagging"
 SCOPE_READ_VIEWS = "read:views"
 SCOPE_WRITE_VIEWS = "write:views"
+SCOPE_READ_TEAMS = "read:teams"
+SCOPE_WRITE_TEAMS = "write:teams"
 SCOPE_READ_ALERTS = "read:alerts"
 SCOPE_WRITE_ALERTS = "write:alerts"
 SCOPE_READ_TOKENS = "read:tokens"
@@ -58,6 +60,8 @@ SCOPE_ADMIN_ALL = "admin:*"
 SCOPE_ANY_ALL = "*:*"
 
 ALLOWED_API_TOKEN_SCOPES = {
+    SCOPE_READ_TEAMS,
+    SCOPE_WRITE_TEAMS,
     SCOPE_READ_FEEDS,
     SCOPE_WRITE_FEEDS,
     SCOPE_ADMIN_FEEDS,
@@ -124,6 +128,7 @@ ROLE_API_TOKEN_SCOPE_GRANTS = {
     ROLE_ADMIN: frozenset({SCOPE_ANY_ALL}),
     ROLE_ANALYST: frozenset(
         {
+            SCOPE_WRITE_TEAMS,
             SCOPE_READ_FEEDS,
             SCOPE_READ_ITEMS,
             SCOPE_READ_TAGS,
@@ -146,6 +151,7 @@ ROLE_API_TOKEN_SCOPE_GRANTS = {
     ),
     ROLE_VIEWER: frozenset(
         {
+            SCOPE_READ_TEAMS,
             SCOPE_READ_FEEDS,
             SCOPE_READ_ITEMS,
             SCOPE_READ_TAGS,
