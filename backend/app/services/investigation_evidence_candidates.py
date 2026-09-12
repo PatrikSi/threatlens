@@ -28,6 +28,7 @@ from app.core.token_scopes import (
     SCOPE_READ_ITEMS,
     SCOPE_READ_REPORTS,
 )
+from app.services.alert_team_access import alert_scope_predicate
 from app.models.alert_occurrence import AlertOccurrence
 from app.models.feed import Feed
 from app.models.investigation import Investigation, InvestigationEvidence
@@ -662,7 +663,9 @@ def _load_report_candidates(
     base = select(
         Report.id,
         preview_text(Report.title, MAX_CANDIDATE_TITLE).label("title"),
-        preview_text(Report.summary_text, MAX_CANDIDATE_DESCRIPTION).label("description"),
+        preview_text(Report.summary_text, MAX_CANDIDATE_DESCRIPTION).label(
+            "description"
+        ),
         Report.report_type,
         Report.status,
         Report.period_start,
@@ -685,11 +688,8 @@ def _load_report_candidates(
                 candidate=InvestigationEvidenceCandidate(
                     source_type="report",
                     source_id=row.id,
-                    title=_bounded(row.title, MAX_CANDIDATE_TITLE)
-                    or "Untitled report",
-                    description=_bounded(
-                        row.description, MAX_CANDIDATE_DESCRIPTION
-                    ),
+                    title=_bounded(row.title, MAX_CANDIDATE_TITLE) or "Untitled report",
+                    description=_bounded(row.description, MAX_CANDIDATE_DESCRIPTION),
                     url=None,
                     observed_at=row.observed_at,
                     source_label=_humanize(row.report_type),
@@ -724,7 +724,9 @@ def _load_alert_candidates(
     limit: int,
 ) -> tuple[list[RankedCandidate], int, bool]:
     predicates = [
-        AlertOccurrence.owner_user_id == user.id,
+        alert_scope_predicate(
+            AlertOccurrence.owner_user_id, AlertOccurrence.team_id, user.id
+        ),
         *_candidate_time_predicates(
             analysis,
             observed_at=AlertOccurrence.created_at,

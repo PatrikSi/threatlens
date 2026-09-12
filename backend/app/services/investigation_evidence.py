@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.services.alert_team_access import alert_scope_predicate
 from app.models.alert_occurrence import AlertOccurrence
 from app.models.feed import Feed
 from app.models.ioc import IOC, ItemIOC
@@ -216,7 +217,11 @@ def _alert_occurrence_snapshot(
         select(AlertOccurrence)
         .where(
             AlertOccurrence.id == source_id,
-            AlertOccurrence.owner_user_id == requesting_user_id,
+            alert_scope_predicate(
+                AlertOccurrence.owner_user_id,
+                AlertOccurrence.team_id,
+                requesting_user_id,
+            ),
             data_access_envelope_predicate(
                 DATA_ACCESS_RESOURCE_ALERT_OCCURRENCE,
                 AlertOccurrence.id,

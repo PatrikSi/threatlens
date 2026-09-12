@@ -259,6 +259,8 @@ _REQUEST_CONTEXT_OPERATIONS: tuple[OperationLiteral, ...] = (
     ('POST', '/v1/alerts/occurrences/reconciliation/preview', 'preview_alert_occurrence_backfill'),
     ('GET', '/v1/alerts/occurrences/{occurrence_id}', 'get_alert_occurrence_detail'),
     ('GET', '/v1/alerts/occurrences/{occurrence_id}/activity', 'get_alert_occurrence_activity'),
+    ('PATCH', '/v1/alerts/occurrences/{occurrence_id}/assignment', 'patch_alert_assignment'),
+    ('PATCH', '/v1/alerts/occurrences/{occurrence_id}/deadline', 'patch_alert_deadline'),
     ('PATCH', '/v1/alerts/occurrences/{occurrence_id}/lifecycle', 'patch_alert_occurrence_lifecycle'),
     ('PATCH', '/v1/alerts/occurrences/{occurrence_id}/snooze', 'patch_alert_occurrence_snooze'),
     ('POST', '/v1/alerts/preview', 'preview_alert_interest'),
@@ -423,6 +425,7 @@ _ENDPOINT_NAMES_BY_MODULE: Final[dict[str, tuple[str, ...]]] = {
         "update_ai_settings_route",
     ),
     "app.api.routes.ai_provider_usage": ("get_ai_provider_usage", "get_ai_statistics"),
+    "app.api.routes.alert_triage": ("patch_alert_assignment", "patch_alert_deadline"),
     "app.api.routes.alert_operations": (
         "get_alert_evaluation_activity",
         "get_alert_evaluation_detail",
