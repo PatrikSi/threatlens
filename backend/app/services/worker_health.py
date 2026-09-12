@@ -27,6 +27,7 @@ from app.services.queue_execution_canaries import (
 from app.core.worker_queues import (
     QUEUE_AI,
     QUEUE_AI_REPORTS,
+    QUEUE_AI_REPORTS_EDITORIAL,
     QUEUE_DEFAULT,
     QUEUE_EXPORTS,
     QUEUE_INGEST,
@@ -62,6 +63,7 @@ _QUEUE_PRESENTATION = {
     QUEUE_LIFECYCLE: ("Data lifecycle", "worker-maintenance"),
     QUEUE_AI: ("AI enrichment", "worker-ai"),
     QUEUE_AI_REPORTS: ("AI reports", "worker-ai"),
+    QUEUE_AI_REPORTS_EDITORIAL: ("AI report review and publication", "worker-ai"),
 }
 _KNOWN_QUEUES = frozenset(_QUEUE_PRESENTATION)
 _CANARY_DISPATCH_REASONS = frozenset(

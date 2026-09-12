@@ -2,12 +2,13 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
-from app.schemas.reports import ReportListItem, ReportStatus
+from app.schemas.reports import ReportListItem, ReportPublicationStatus, ReportStatus
 
 
 class ReportLibraryFilters(BaseModel):
     q: str = ""
     status: ReportStatus | None = None
+    publication_status: ReportPublicationStatus | None = None
     report_type: str | None = None
     trigger_source: str | None = None
     created_from: datetime | None = None

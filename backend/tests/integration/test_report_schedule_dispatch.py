@@ -98,7 +98,7 @@ def test_schedule_dispatch_commits_recoverable_work_before_publishing(
             assert run.trigger_source == "scheduled"
             assert run.dispatch_claim_token is not None
             assert schedule.next_run_at == DUE + timedelta(days=7)
-        assert queue == report_tasks.QUEUE_AI_REPORTS
+        assert queue == report_tasks.QUEUE_AI_REPORTS_EDITORIAL
         published.append((report_id, run_id, task_id))
         if not broker_available:
             raise ConnectionError("Isolated broker failure")

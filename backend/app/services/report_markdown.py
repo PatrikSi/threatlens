@@ -175,10 +175,17 @@ def html_fragment(tree: SyntaxTreeNode, sources: dict) -> str:
 
 def coverage_notes(report: ReportDetailResponse) -> list[str]:
     notes = [str(warning) for warning in report.coverage.get("warnings") or []]
+    if report.publication_status != "published":
+        notes.insert(0, f"UNPUBLISHED — editorial status: {report.publication_status}. This copy has not been published.")
+    else:
+        notes.insert(0, "Publication: published." + (" Automatically published; no human approval was required." if not report.review_required else ""))
     grounding = report.coverage.get("grounding")
     if not isinstance(grounding, dict) or grounding.get("version") != 1:
         return notes
     status = grounding.get("status")
+    if status == "human_edited":
+        notes.append("The narrative was edited by a person. Review the retained source evidence; original AI grounding counters no longer describe this revision.")
+        return notes
     if status not in {"checked", "degraded", "insufficient_evidence"}:
         return notes
     counts = [grounding.get("validated_findings"), grounding.get("cited_claim_blocks")]

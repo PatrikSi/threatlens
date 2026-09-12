@@ -33,6 +33,7 @@ from app.services.report_prompt_budget import (
 )
 from app.services.report_sources import ReportSourcePlan
 from app.services.report_evidence_contract import REPORT_EVIDENCE_CONTRACT_VERSION
+from app.services.report_revision import report_revision_hash
 
 
 class ReportStorageError(ValueError):
@@ -57,6 +58,7 @@ def create_report_from_plan(
     request_idempotency_key: str | None = None,
     request_idempotency_key_hash: str | None = None,
     request_fingerprint: str | None = None,
+    review_required: bool = True,
 ) -> Report:
     validate_report_section_set(payload.sections)
     if not plan.included_sources:
@@ -97,6 +99,7 @@ def create_report_from_plan(
         model=active.model,
         delivery_requested=payload.deliver_when_ready,
         delivery_mode=payload.delivery_mode,
+        review_required=review_required,
     )
     db.add(report)
     db.flush()
@@ -154,6 +157,19 @@ def reset_report_for_retry(db: Session, *, report: Report) -> None:
     report.citation_count = 0
     report.generation_lease_token = None
     report.generation_lease_expires_at = None
+    report.publication_status = "draft"
+    report.editorial_version += 1
+    report.review_revision_hash = None
+    report.approved_revision_hash = None
+    report.published_revision_hash = None
+    report.review_submitted_at = None
+    report.review_submitted_by_user_id = None
+    report.approved_at = None
+    report.approved_by_user_id = None
+    report.approval_self_review = False
+    report.published_at = None
+    report.published_by_user_id = None
+    report.editorial_note = None
     db.execute(
         update(ReportGenerationLease)
         .where(ReportGenerationLease.report_id == report.id)
@@ -236,6 +252,11 @@ def report_list_item(report: Report) -> ReportListItem:
         error=report.error,
         generated_at=report.generated_at,
         created_at=report.created_at,
+        publication_status=report.publication_status,
+        review_required=report.review_required,
+        editorial_version=report.editorial_version,
+        approved_at=report.approved_at,
+        published_at=report.published_at,
     )
 
 
@@ -274,6 +295,13 @@ def report_detail_response(db: Session, *, report: Report) -> ReportDetailRespon
         generation_batches=report.generation_batches,
         delivery_requested=report.delivery_requested,
         delivery_mode=report.delivery_mode,
+        review_submitted_at=report.review_submitted_at,
+        review_submitted_by_user_id=report.review_submitted_by_user_id,
+        approved_by_user_id=report.approved_by_user_id,
+        approval_self_review=report.approval_self_review,
+        published_by_user_id=report.published_by_user_id,
+        editorial_note=report.editorial_note,
+        revision_current=_revision_current(db, report),
         sections=[
             ReportSectionResponse(
                 key=section.section_key,
@@ -309,6 +337,11 @@ def report_detail_response(db: Session, *, report: Report) -> ReportDetailRespon
             for source in sources
         ],
     )
+
+
+def _revision_current(db: Session, report: Report) -> bool | None:
+    pinned = report.published_revision_hash or report.approved_revision_hash or report.review_revision_hash
+    return report_revision_hash(db, report) == pinned if pinned else None
 
 
 def delete_report(db: Session, *, report: Report) -> None:

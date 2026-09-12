@@ -1,5 +1,6 @@
 import uuid
 from contextlib import contextmanager
+from types import SimpleNamespace
 from datetime import datetime, timedelta, timezone
 
 from app.core.config import get_settings
@@ -88,7 +89,7 @@ def test_enqueue_uses_stable_task_id_and_records_publication(
     assert published == [
         (
             [str(report.id), str(run.id)],
-            report_tasks.QUEUE_AI_REPORTS,
+            report_tasks.QUEUE_AI_REPORTS_EDITORIAL,
             expected_task_id,
         )
     ]
@@ -147,7 +148,7 @@ def test_legacy_dispatch_is_superseded_before_v2_publication(
     assert published == [
         (
             [str(report.id), str(replacement.id)],
-            report_tasks.QUEUE_AI_REPORTS,
+            report_tasks.QUEUE_AI_REPORTS_EDITORIAL,
             task_id,
         )
     ]
@@ -567,7 +568,7 @@ def test_pending_dispatch_task_reports_partial_progress(monkeypatch):
 
     @contextmanager
     def _session():
-        yield object()
+        yield SimpleNamespace(scalars=lambda _query: [])
 
     monkeypatch.setattr(report_tasks, "db_session", _session)
     monkeypatch.setattr(
@@ -590,7 +591,7 @@ def test_pending_dispatch_task_reports_partial_progress(monkeypatch):
     monkeypatch.setattr(
         report_dispatch_service,
         "report_queue_subscription_available",
-        lambda: None,
+        lambda _queue=None: None,
     )
 
     result = report_tasks.dispatch_pending_report_tasks.run()
@@ -612,7 +613,7 @@ def test_pending_dispatch_marks_waiting_before_redrive_is_due(
     monkeypatch.setattr(
         report_dispatch_service,
         "report_queue_subscription_available",
-        lambda: False,
+        lambda _queue=None: False,
     )
     monkeypatch.setattr(
         report_tasks,
@@ -643,7 +644,7 @@ def test_pending_dispatch_resumes_when_report_queue_returns(
     monkeypatch.setattr(
         report_dispatch_service,
         "report_queue_subscription_available",
-        lambda: True,
+        lambda _queue=None: True,
     )
     monkeypatch.setattr(
         report_tasks,

@@ -80,7 +80,7 @@ def list_report_library_page(
     )
     if position.before is not None:
         query = query.where(tuple_(Report.created_at, Report.id) < tuple_(position.before, position.before_id))
-    for field in ("status", "report_type", "trigger_source"):
+    for field in ("status", "publication_status", "report_type", "trigger_source"):
         value = getattr(filters, field)
         if value is not None:
             query = query.where(getattr(Report, field) == value)

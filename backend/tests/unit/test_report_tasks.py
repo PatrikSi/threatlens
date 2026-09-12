@@ -97,7 +97,7 @@ def test_report_task_retries_redelivery_while_another_lease_is_active(
     assert db_session.get(Report, report.id).status == "queued"
     assert retry_info.value.sig is None
     assert retry_options["kwargs"] == {}
-    assert retry_options["queue"] == report_tasks.QUEUE_AI_REPORTS
+    assert retry_options["queue"] == report_tasks.QUEUE_AI_REPORTS_EDITORIAL
     assert retry_options["headers"] == {
         report_tasks.REPORT_INFRASTRUCTURE_RETRY_HEADER: 4,
     }
@@ -137,7 +137,7 @@ def test_report_infrastructure_retry_uses_classified_exponential_countdown():
 
     assert captured["countdown"] == 120
     assert captured["max_retries"] is None
-    assert captured["queue"] == report_tasks.QUEUE_AI_REPORTS
+    assert captured["queue"] == report_tasks.QUEUE_AI_REPORTS_EDITORIAL
     assert captured["kwargs"] == {}
     assert captured["headers"] == {
         report_tasks.REPORT_INFRASTRUCTURE_RETRY_HEADER: 3,
