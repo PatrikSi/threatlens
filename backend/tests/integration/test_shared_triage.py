@@ -369,3 +369,27 @@ def test_team_metrics_are_scoped_before_and_after_retention(
         client.get(path, params=params, headers=auth_headers["analyst"]).json()["items"]
         == []
     )
+
+
+def test_watchlist_deadline_only_edits_advance_compatibility_versions(
+    client, auth_headers, triage_context
+):
+    _now, _team, _group, rule, _item = triage_context
+    path = f"/alerts/{rule.id}"
+    updated = client.patch(
+        path,
+        json={"expected_row_version": 1, "due_after_minutes": 90},
+        headers=auth_headers["analyst"],
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["due_after_minutes"] == 90
+    assert updated.json()["revision"] == updated.json()["row_version"] == 2
+    cleared = client.patch(
+        path,
+        json={"expected_row_version": 2, "due_after_minutes": None},
+        headers=auth_headers["analyst"],
+    )
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["due_after_minutes"] is None
+    assert cleared.json()["escalation_after_minutes"] is None
+    assert cleared.json()["revision"] == cleared.json()["row_version"] == 3
