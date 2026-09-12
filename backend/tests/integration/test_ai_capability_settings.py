@@ -71,7 +71,7 @@ def test_capabilities_roundtrip_and_old_clients_preserve_additive_settings(
     assert calls[0]["reasoning_effort"] == "low"
     assert calls[0]["response_format"] == {"type": "json_object"}
     assert "temperature" not in calls[0] and "max_tokens" not in calls[0]
-    assert calls[0]["max_completion_tokens"] == (128 if named else 5000)
+    assert calls[0]["max_completion_tokens"] == 128
 
 
 def test_capability_migration_preserves_legacy_defaults(db_session, monkeypatch):
