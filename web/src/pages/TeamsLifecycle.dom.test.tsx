@@ -22,7 +22,7 @@ vi.mock('../hooks/useCurrentUser', () => ({
   useCurrentUser: () => ({
     data: {
       access: {
-        permissions: ['read:teams', 'write:teams', 'read:views', 'write:views'],
+        permissions: ['read:teams', 'write:teams', 'read:views', 'write:views', 'read:alerts'],
       },
     },
   }),
@@ -291,7 +291,7 @@ describe('team workspace asynchronous lifecycle', () => {
     })
     await mount(<TeamsPage />, '/teams?team=team-1')
     expect(container.querySelector('main')).toBeNull()
-    expect(container.querySelector('a[href="/alerts?view=occurrences&queue_scope=team&team_id=team-1"]')).not.toBeNull()
+    expect([...container.querySelectorAll('a')].map((link) => link.getAttribute('href'))).toContain('/alerts?view=occurrences&queue_scope=team&team_id=team-1')
     expect(
       container.querySelector('[aria-label="Team settings"]'),
     ).not.toBeNull()

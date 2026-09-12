@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { act } from 'react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { markdownReport } from '../../browser/report-markdown-fixture'
 import type { ReportDetail } from '../types/api'
 import { ReportDetailView } from './ReportDetailView'
@@ -10,15 +11,26 @@ import type { ReportingController } from './useReportingController'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 let root: Root | undefined
 let host: HTMLDivElement
+let client: QueryClient
 function render(report: ReportDetail = markdownReport()) {
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
-  const controller = { canAuthor: false, currentUser: { data: { id: 'reader' } }, detailActionPending: false } as ReportingController
-  act(() => root!.render(<ReportDetailView report={report} controller={controller} />))
+  client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
+  const controller = {
+    canAuthor: false,
+    currentUser: { data: { id: 'reader' } },
+    detailActionPending: false,
+    builderDraft: { confirmDiscard: vi.fn() },
+    setEditorialDirty: vi.fn(),
+    reportDetailQuery: { refetch: vi.fn() },
+  } as unknown as ReportingController
+  act(() => root!.render(<QueryClientProvider client={client}>
+    <ReportDetailView report={report} controller={controller} />
+  </QueryClientProvider>))
   return host.querySelector('article')!
 }
-afterEach(() => { act(() => root?.unmount()); host?.remove() })
+afterEach(() => { act(() => root?.unmount()); client?.clear(); host?.remove() })
 
 describe('report Markdown presentation', () => {
   it('discloses incomplete evidence and the limits of structural citation checks', () => {
