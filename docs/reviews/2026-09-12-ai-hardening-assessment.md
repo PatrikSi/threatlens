@@ -31,8 +31,11 @@ terminal children, before creating any replacement.
 
 ## Compatibility and operations
 
-Migrations 0096–0098 add capability fields, workflow state, report stage artifacts,
-provider usage attribution and budget reservations. Historical attribution is
+Migrations 0096–0099 add capability fields, workflow state, report stage artifacts,
+provider usage attribution, budget reservations and history-pruning reference
+guards. Cleanup counts the new dependent tables and drains composite-key rows
+within the existing transaction budget; crash recovery validates one saved
+payload at a time. Historical attribution is
 left unknown because a model name cannot identify its provider profile. Budget
 defaults are zero (unlimited); optional capability limits default to unset.
 Downgrade guards refuse to remove active recovery state or configured budgets
