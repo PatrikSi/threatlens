@@ -18,9 +18,10 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.models.ai_provider_capabilities import AIProviderCapabilities
 
 
-class AIProviderConfiguration(Base):
+class AIProviderConfiguration(AIProviderCapabilities, Base):
     __tablename__ = "ai_provider_configurations"
     __table_args__ = (CheckConstraint("version >= 1", name="ck_ai_provider_version"),)
 
@@ -39,8 +40,8 @@ class AIProviderConfiguration(Base):
     )
     base_url: Mapped[str] = mapped_column(Text, nullable=False)
     model: Mapped[str] = mapped_column(String(255), nullable=False)
-    temperature: Mapped[float] = mapped_column(
-        Float, nullable=False, default=0.2, server_default="0.2"
+    temperature: Mapped[float | None] = mapped_column(
+        Float().evaluates_none(), nullable=True, default=0.2, server_default="0.2"
     )
     max_completion_tokens: Mapped[int] = mapped_column(
         Integer, nullable=False, default=5000, server_default="5000"

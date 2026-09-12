@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import hashlib
-import json
 import logging
 import time
 import uuid
@@ -18,7 +16,9 @@ from app.services.ai_egress_data_policy import (
     AIEgressPolicyError,
     mark_ai_egress_provider_io_state,
 )
+from app.services.ai_request_identity import ai_request_fingerprint as _ai_request_fingerprint
 from app.services.ai_ops import record_ai_task_event
+from app.services.ai_provider_protocol import provider_output_ceiling, validate_provider_request
 from app.services.ai_output_validation import validate_feature_completion
 from app.services.ai_provider_attempts import (
     AIProviderAttemptReservation,
@@ -111,7 +111,10 @@ def run_ai_json_request(
         max_provider_attempts=max_provider_attempts,
     )
     last_error: AIIntegrationError | None = None
-    request_max_tokens = max_completion_tokens or active.max_completion_tokens
+    request_max_tokens = active.max_completion_tokens if max_completion_tokens is None else max_completion_tokens
+    validate_provider_request(active, messages, request_max_tokens)
+    provider_ceiling = provider_output_ceiling(active, messages)
+    max_retry_completion_tokens = min(max_retry_completion_tokens or provider_ceiling, provider_ceiling)
     provider_attempts = 0
     authorization_refreshes = 0
     authorization_callbacks = _AuthorizationCallbacks(
@@ -909,46 +912,6 @@ def _authorization_snapshot_matches(
         and receipt.data_policy_revision == authorization.data_policy_revision
         and receipt.data_policy_mode == authorization.data_policy_mode
     )
-
-
-def _ai_request_fingerprint(
-    *,
-    active: ActiveAISettings,
-    feature_type: str,
-    messages: list[dict[str, str]],
-    item_id: uuid.UUID | None,
-    daily_brief_id: uuid.UUID | None,
-    report_id: uuid.UUID | None,
-    requested_max_tokens: int,
-) -> str:
-    profile_identity = {}
-    if getattr(active, "provider_id", None) is not None:
-        profile_identity = {
-            "provider_id": str(active.provider_id),
-            "provider_version": active.provider_version,
-        }
-    serialized = json.dumps(
-        {
-            "feature_type": feature_type,
-            "messages": messages,
-            "item_id": str(item_id) if item_id is not None else None,
-            "daily_brief_id": (
-                str(daily_brief_id) if daily_brief_id is not None else None
-            ),
-            "report_id": str(report_id) if report_id is not None else None,
-            "provider_type": active.provider_type,
-            **profile_identity,
-            "base_url": getattr(active, "base_url", None),
-            "model": active.model,
-            "temperature": getattr(active, "temperature", None),
-            "max_tokens": max(1, int(requested_max_tokens)),
-            "stream": False,
-        },
-        ensure_ascii=True,
-        separators=(",", ":"),
-        sort_keys=True,
-    )
-    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
 def _next_authorization_refresh_or_raise(

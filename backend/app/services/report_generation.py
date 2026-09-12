@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.services.ai_provider_protocol import provider_report_context_budget, provider_output_ceiling
+
 import logging
 import uuid
 from collections.abc import Callable
@@ -17,7 +19,6 @@ from app.services.ai_config import ActiveAISettings, load_active_ai_settings
 from app.services.ai_context_budget import (
     AIContextBudget,
     AIContextBudgetError,
-    build_context_budget,
 )
 from app.services.ai_integration import (
     FEATURE_REPORT,
@@ -97,11 +98,7 @@ def generate_report(
     active = load_active_ai_settings(db, feature_type="report", task_run_id=task_run_id)
     ensure_reporting_available(active)
     _raise_if_task_stopped(db, task_run_id)
-    budget = build_context_budget(
-        context_window_tokens=active.report_context_window_tokens,
-        reserved_output_tokens=active.report_reserved_output_tokens,
-        safety_percent=active.report_context_safety_percent,
-    )
+    budget = provider_report_context_budget(active)
     coverage = dict(report.coverage_json or {})
     coverage.pop("grounding", None)
     report.coverage_json = coverage
@@ -686,7 +683,7 @@ def _request_report_completion(
             budget.context_window_tokens - input_tokens
             - budget.safety_margin_tokens - budget.protocol_overhead_tokens
         )
-        final_tokens = (error.request_payload or {}).get("max_tokens")
+        final_tokens = (error.request_payload or {}).get("max_completion_tokens", (error.request_payload or {}).get("max_tokens"))
         final_allowance = (
             f"{final_tokens:,}" if type(final_tokens) is int else "unavailable"
         )
@@ -728,6 +725,7 @@ def _report_completion_limits(
         )
     maximum = min(
         max(initial, active.max_completion_tokens),
+        provider_output_ceiling(active, messages),
         MAX_AI_COMPLETION_TOKENS,
         budget.context_window_tokens
         - budget.safety_margin_tokens

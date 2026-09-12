@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.services.ai_provider_protocol import provider_report_context_budget
+
 import uuid
 import math
 from collections import Counter
@@ -21,7 +23,6 @@ from app.services.ai_config import ActiveAISettings
 from app.services.ai_context_budget import (
     AIContextBudget,
     AIContextBudgetError,
-    build_context_budget,
     estimate_tokens,
 )
 from app.services.ai_prompting import build_company_context
@@ -103,11 +104,7 @@ def build_report_source_plan(
     active: ActiveAISettings,
     data_access: DataAccessContext,
 ) -> ReportSourcePlan:
-    budget = build_context_budget(
-        context_window_tokens=active.report_context_window_tokens,
-        reserved_output_tokens=active.report_reserved_output_tokens,
-        safety_percent=active.report_context_safety_percent,
-    )
+    budget = provider_report_context_budget(active)
     prompt_payload = prompt.model_dump(mode="json")
     generation_context = {
         "company_context": build_company_context(active)

@@ -15,6 +15,7 @@ from app.core.config import get_settings
 from app.core.logging_config import redact_log_text
 from app.services.ai_config import ActiveAISettings, is_shared_ai_base_url_allowed
 from app.services.ai_normalization import coerce_optional_int, normalize_optional_text
+from app.services.ai_provider_protocol import build_provider_request_payload
 from app.services.ai_provider_exchange import sanitize_provider_exchange
 from app.services.safe_fetch import SafeFetchError
 from app.services.bounded_response import ResponseBodyTooLarge, read_bounded_response
@@ -44,6 +45,7 @@ class AIIntegrationError(ValueError):
         completion_tokens: int | None = None,
         total_tokens: int | None = None,
         latency_ms: int | None = None,
+        failure_category: str | None = None,
     ):
         super().__init__(message)
         self.request_url = request_url
@@ -54,6 +56,7 @@ class AIIntegrationError(ValueError):
         self.retry_hint = retry_hint
         self.retryable = retryable
         self.provider_io_outcome = provider_io_outcome
+        self.failure_category = failure_category
         # Failed generations (including reasoning-only truncation) can still
         # consume billable tokens. Invalid optional telemetry must not turn a
         # received response into an ambiguous transport failure.
@@ -160,13 +163,7 @@ def call_ai_json(
             retryable=False,
             provider_io_outcome=AI_PROVIDER_IO_NOT_SENT,
         )
-    request_payload = {
-        "model": active.model,
-        "messages": messages,
-        "temperature": active.temperature,
-        "max_tokens": requested_tokens,
-        "stream": False,
-    }
+    request_payload = build_provider_request_payload(active, messages, requested_tokens)
     headers = {"Content-Type": "application/json"}
     if active.api_key:
         headers["Authorization"] = f"Bearer {active.api_key}"
@@ -320,7 +317,7 @@ def call_ai_json(
     if finish_reason == "length":
         raise AIIntegrationError(
             "AI response was truncated by max_tokens before returning valid JSON. "
-            f"The request allowed {request_payload['max_tokens']:,} completion tokens. "
+            f"The request allowed {requested_tokens:,} completion tokens. "
             "For reports, increase Initial report completion tokens and ensure the Model Context Window "
             "has room for both input and output. For other features, increase Default completion tokens. "
             "Stay within the selected model's limits; reasoning can also consume its token budget.",
