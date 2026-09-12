@@ -1,0 +1,168 @@
+[
+  {
+    "name": "ordinary cited paragraph",
+    "body": "Observed evidence [S1].",
+    "accepted": true,
+    "source_links": 1,
+    "claim_blocks": 1
+  },
+  {
+    "name": "numeric data row without citation",
+    "body": "Observed evidence [S1].\n\n| Year | Incidents | Growth |\n| --- | --- | --- |\n| 2026 | 12345 | 97% |",
+    "accepted": false,
+    "source_links": 1
+  },
+  {
+    "name": "numeric data row with citation",
+    "body": "Observed evidence [S1].\n\n| Year | Incidents | Growth |\n| --- | --- | --- |\n| 2026 | 12345 | 97% [S1] |",
+    "accepted": true,
+    "source_links": 2,
+    "claim_blocks": 2
+  },
+  {
+    "name": "uncited numeric paragraph",
+    "body": "Observed evidence [S1].\n\n2026: 12345 (97%).",
+    "accepted": false,
+    "source_links": 1
+  },
+  {
+    "name": "cited numeric paragraph",
+    "body": "2026: 12345 (97%) [S1].",
+    "accepted": true,
+    "source_links": 1,
+    "claim_blocks": 1
+  },
+  {
+    "name": "uncited numeric indicator in list",
+    "body": "1. `192.0.2.1`\n2. Observed evidence [S1].",
+    "accepted": false,
+    "source_links": 1
+  },
+  {
+    "name": "cited numeric indicator in list",
+    "body": "1. `192.0.2.1` [S1].\n2. Observed evidence [S1].",
+    "accepted": true,
+    "source_links": 2,
+    "claim_blocks": 2
+  },
+  {
+    "name": "nonclaim numbering headings and decorative rows",
+    "body": "Observed evidence [S1].\n\n1.\n2.\n\n---\n\n| 1 | 2 |\n| --- | --- |\n| — | … |",
+    "accepted": true,
+    "source_links": 1,
+    "claim_blocks": 1,
+    "rationale": "Empty ordered-list markers and numeric column labels are structure, not data; the row contains only decorative punctuation."
+  },
+  {
+    "name": "literal numeric code sample",
+    "body": "Observed evidence [S1].\n\n```\n12345\n```",
+    "accepted": true,
+    "source_links": 1,
+    "claim_blocks": 1,
+    "rationale": "Fenced examples remain literal code rather than narrative claim blocks."
+  },
+  {
+    "name": "GFM URL consumes marker",
+    "body": "The advisory is at https://example.test/[S1].",
+    "accepted": true,
+    "source_links": 1,
+    "claim_blocks": 1
+  },
+  {
+    "name": "GFM URL query consumes marker",
+    "body": "The advisory is at https://example.test/?source=[S1].",
+    "accepted": true,
+    "source_links": 1,
+    "claim_blocks": 1
+  },
+  {
+    "name": "GFM URL consumes adjacent markers",
+    "body": "The advisory is at https://example.test/[S1][S1].",
+    "accepted": true,
+    "source_links": 2,
+    "claim_blocks": 1
+  },
+  {
+    "name": "ordinary autolink and separate citation",
+    "body": "See https://example.test/advisory with evidence [S1].",
+    "accepted": true,
+    "source_links": 1,
+    "claim_blocks": 1
+  },
+  {
+    "name": "explicit angle link marker",
+    "body": "The advisory is at <https://example.test/[S1]>.",
+    "accepted": false,
+    "source_links": 0
+  },
+  {
+    "name": "explicit Markdown link marker",
+    "body": "[Reference [S1]](https://example.test/advisory).",
+    "accepted": false,
+    "source_links": 0
+  },
+  {
+    "name": "inline code marker",
+    "body": "Observed evidence `[S1]`.",
+    "accepted": false,
+    "source_links": 0
+  },
+  {
+    "name": "escaped marker",
+    "body": "Observed evidence \\[S1].",
+    "accepted": true,
+    "source_links": 1,
+    "claim_blocks": 1
+  },
+  {
+    "name": "entity marker",
+    "body": "Observed evidence &#91;S1&#93;.",
+    "accepted": true,
+    "source_links": 1,
+    "claim_blocks": 1
+  },
+  {
+    "name": "unknown entity marker",
+    "body": "Observed evidence &#91;S99&#93;.",
+    "accepted": false,
+    "source_links": 0
+  },
+  {
+    "name": "hidden HTML marker",
+    "body": "Observed evidence. <!-- [S1] -->",
+    "accepted": false,
+    "source_links": 0
+  },
+  {
+    "name": "GFM URL consumes entity marker",
+    "body": "The advisory is at https://example.test/&#91;S1&#93;.",
+    "accepted": true,
+    "source_links": 1,
+    "claim_blocks": 1
+  },
+  {
+    "name": "numeric inline code cannot supply its own citation",
+    "body": "Observed evidence [S1].\n\n`192.0.2.1 [S1]`",
+    "accepted": false,
+    "source_links": 1
+  },
+  {
+    "name": "Unicode numeric data still requires citation",
+    "body": "Observed evidence [S1].\n\n| Count |\n| --- |\n| ١٢٣ |",
+    "accepted": false,
+    "source_links": 1
+  },
+  {
+    "name": "double encoded URL marker stays literal",
+    "body": "The advisory is at https://example.test/&amp;#91;S1&amp;#93;.",
+    "accepted": false,
+    "source_links": 0
+  },
+  {
+    "name": "citation repair does not decode following text twice",
+    "body": "The advisory is at https://example.test/[S1]. Literal &amp;#91;S99&amp;#93;.",
+    "accepted": true,
+    "source_links": 1,
+    "claim_blocks": 1
+  }
+]

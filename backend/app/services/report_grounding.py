@@ -127,11 +127,15 @@ def _claim_citations(body: str, known: set[str]) -> tuple[set[str], int]:
 
     def check(content: str) -> None:
         nonlocal count
-        if not any(character.isalpha() for character in CITATION_PATTERN.sub("", content)):
+        # Digits in a data cell, paragraph or list body are claims too (dates,
+        # counts, percentages, IP addresses). Markdown list numbering/rules and
+        # table headings never reach this check; empty/punctuation-only rows
+        # and standalone citation markers contain no substantive claim.
+        if not any(character.isalnum() for character in CITATION_PATTERN.sub("", content)):
             return
         citations = set(CITATION_PATTERN.findall(content)) & known
         if not citations:
-            raise ReportGroundingError("Every narrative paragraph, list item and textual table row must carry a valid source citation.")
+            raise ReportGroundingError("Every narrative paragraph, list item and table data row must carry a valid source citation.")
         count += 1
         used.update(citations)
 
