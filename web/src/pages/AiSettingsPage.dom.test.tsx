@@ -379,8 +379,8 @@ vi.mock('@tanstack/react-query', () => ({
   },
   useMutation: (options: {
     mutationKey?: unknown
-    onMutate?: (value: string) => void
-    onSuccess?: (result: unknown, value: unknown) => void
+    onMutate?: (value: unknown) => unknown
+    onSuccess?: (result: unknown, value: unknown, context?: unknown) => void
     onSettled?: () => void
   }) => {
     const mutationKey = Array.isArray(options?.mutationKey) ? options.mutationKey.join(':') : String(options?.mutationKey ?? '')
@@ -407,6 +407,7 @@ vi.mock('@tanstack/react-query', () => ({
     if (mutationKey === 'ai:reprocess') {
       return aiMutationResult(
         vi.fn((payload: unknown) => {
+          const submittedScope = options.onMutate?.(payload)
           aiSettingsPageDomMocks.reprocessMutate(payload)
           if (aiSettingsPageDomMocks.completeReprocessMutation) {
             options.onSuccess?.(
@@ -417,6 +418,7 @@ vi.mock('@tanstack/react-query', () => ({
                 celery_task_id: 'task-reprocess-1',
               },
               payload,
+              submittedScope,
             )
           }
         }),
