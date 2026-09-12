@@ -256,7 +256,8 @@ Primary key on `item_id`:
 ### `AlertInterest`
 
 - `id: UUID` (PK)
-- `user_id: UUID` (FK users)
+- `user_id: UUID?` (FK users; exclusive with `team_id`)
+- `team_id: UUID?` (FK teams; immutable owner)
 - `name: string(255)`
 - `category: string(64)`
 - `keywords: JSON string[]`
@@ -267,10 +268,25 @@ Primary key on `item_id`:
 - `durable_since: timestamptz?`
 - `suppression_until: timestamptz?`
 - `suppression_reason: string(500)?`
+- `due_after_minutes: int?` (defaults for new team occurrences)
+- `escalation_after_minutes: int?` (delay after the due time)
 - `created_at: timestamptz`
 - `updated_at: timestamptz`
 
 ### Alerting V2
+
+Team-owned alert matches, occurrences and retained metrics have nullable
+`user_id`/`team_id` ownership with an exclusive-owner constraint. Occurrences add
+`assignee_user_id`, `due_at`, `escalation_after_minutes` and `escalated_at`; claim,
+assignment and deadline changes use the occurrence's optimistic version and
+activity history. Shared rows survive creator deletion. Retained metric
+uniqueness includes team identity.
+
+`Team` stores a stable unique key, name, description, member group, optional
+manager group, active flag, revision, optional creator and timestamps. Membership
+is evaluated against current eligible `IAMGroupMembership` records, including
+OIDC assertion expiry. Saved views add an exclusive team/personal owner and a
+revision; investigations use team group authority when `team_id` is present.
 
 `AlertEvaluationRequest` is the durable, idempotent intent to evaluate one item
 content hash. It records live, reconciliation, backfill, and replay provenance;
