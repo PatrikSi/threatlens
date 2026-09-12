@@ -1365,3 +1365,31 @@ def test_workspace_template_rejects_unsafe_or_oversized_snapshots(
         json={**_role_policy_payload(policy), "dashboard_view_json": template},
     )
     assert response.status_code == 422, response.text
+
+
+def test_ai_only_stats_navigation_preserves_endpoint_and_policy_boundaries(
+    workspace_client, db_session, seed_users, auth_headers, monkeypatch,
+):
+    from app.core.token_scopes import SCOPE_READ_AI
+
+    monkeypatch.setattr(workspace_routes, "runtime_workspace_feature_flags", lambda _db: {"ai_enabled": True})
+    admin = seed_users["admin"]
+    headers = _workspace_token(db_session, admin.id, [SCOPE_READ_WORKSPACE, SCOPE_READ_AI])
+    response = workspace_client.get("/v1/workspace/effective", headers=headers)
+    assert response.status_code == 200
+    stats = next(module for module in response.json()["modules"] if module["id"] == "primary.stats")
+    assert stats["visible"] is True
+    assert stats["missing_permissions"] == []
+    authorization = authorization_context_for_user(db_session, admin, credential_scopes=[SCOPE_READ_WORKSPACE, SCOPE_READ_AI])
+    disabled = effective_workspace(db_session, user=admin, authorization=authorization, feature_flags={"ai_enabled": False})
+    assert next(module for module in disabled.modules if module.id == "primary.stats").visible is False
+    analyst = seed_users["analyst"]
+    analyst_headers = _workspace_token(db_session, analyst.id, [SCOPE_READ_WORKSPACE, SCOPE_READ_AI])
+    analyst_result = workspace_client.get("/v1/workspace/effective", headers=analyst_headers)
+    assert next(module for module in analyst_result.json()["modules"] if module["id"] == "primary.stats")["visible"] is False
+    policy = workspace_client.get("/v1/workspace/role-policies/admin", headers=auth_headers["admin"]).json()
+    updated = workspace_client.put("/v1/workspace/role-policies/admin", headers=auth_headers["admin"],
+        json=_role_policy_payload(policy, module_changes={"primary.stats": {"visible": False}}))
+    assert updated.status_code == 200
+    hidden = workspace_client.get("/v1/workspace/effective", headers=headers)
+    assert next(module for module in hidden.json()["modules"] if module["id"] == "primary.stats")["visible"] is False

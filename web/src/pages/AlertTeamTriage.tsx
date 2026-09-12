@@ -33,6 +33,7 @@ function TeamTriageActions({ occurrence, teamId, disabled, onUpdated }: {
     queryKey: ['teams', teamId],
     queryFn: ({ signal }) => apiFetch<Team>(`/teams/${encodeURIComponent(teamId)}`, { signal }),
     staleTime: 30_000,
+    retry: false,
   })
   const team = accessibleQueryData(teamQuery)
   const [assigning, setAssigning] = useState(false)

@@ -477,7 +477,15 @@ def effective_workspace(
             for permission in definition.required_permissions
             if not authorization.has(permission)
         ]
-        permission_allowed = not missing_permissions
+        alternate_permission_allowed = any(
+            role in alternative.roles
+            and (alternative.feature_flag is None or features.get(alternative.feature_flag, False))
+            and all(authorization.has(permission) for permission in alternative.required_permissions)
+            for alternative in definition.alternate_access
+        )
+        permission_allowed = not missing_permissions or alternate_permission_allowed
+        if alternate_permission_allowed:
+            missing_permissions = []
         feature_available = definition.feature_flag is None or features.get(
             definition.feature_flag, False
         )

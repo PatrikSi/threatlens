@@ -290,6 +290,8 @@ describe('team workspace asynchronous lifecycle', () => {
       return Promise.resolve([])
     })
     await mount(<TeamsPage />, '/teams?team=team-1')
+    expect(container.querySelector('main')).toBeNull()
+    expect(container.querySelector('a[href="/alerts?view=occurrences&queue_scope=team&team_id=team-1"]')).not.toBeNull()
     expect(
       container.querySelector('[aria-label="Team settings"]'),
     ).not.toBeNull()

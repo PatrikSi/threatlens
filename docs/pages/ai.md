@@ -464,3 +464,9 @@ an MCP server or consume external MCP tools.
 - `GET /ai/ops/manual-actions`
 - `GET /ai/ops/prompt-history`
 - `GET /ai/daily-briefs/{id}/sources`
+
+Statistics navigation is available with `read:stats`, or to administrators with
+`read:ai` while AI is enabled. Each statistics section keeps its own permission
+boundary. AI-only administrators open directly into AI statistics; restricted
+section links keep the navigation visible so users can switch to an allowed
+section. Hidden organization navigation policy still takes precedence.

@@ -102,8 +102,7 @@ export function resolveWorkspaceModel(
       warnings.push(...moduleContractWarnings(definition, serverModule))
     }
 
-    const localPermissionAllowed = definition.isContainer ||
-      hasRequiredPermissions(context.permissions, definition.requiredPermissions)
+    const localPermissionAllowed = workspaceModulePermissionAllowed(definition, context)
     const localRoleAllowed = isWorkspaceModuleRoleAllowed(definition, context.role)
     const localFeatureAvailable = hasRequiredFeature(context.features, definition.featureDependency)
     const parentVisible = definition.parentId === null || resolvedById.get(definition.parentId)?.visible === true
@@ -601,4 +600,14 @@ export function workspaceWarningMessage(warning: string): string {
     return `${subject} is retained for compatibility but cannot be edited by this frontend release.`
   }
   return warning.replaceAll('_', ' ')
+}
+
+
+function workspaceModulePermissionAllowed(definition: TrustedWorkspaceModule, context: WorkspaceUserContext) {
+  return definition.isContainer || hasRequiredPermissions(context.permissions, definition.requiredPermissions) ||
+    (definition.alternateAccess?.some((alternative) =>
+      alternative.roles.includes(context.role) &&
+      hasRequiredPermissions(context.permissions, alternative.requiredPermissions) &&
+      hasRequiredFeature(context.features, alternative.featureDependency),
+    ) ?? false)
 }

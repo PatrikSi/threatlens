@@ -24,6 +24,12 @@ class StrictWorkspaceModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class WorkspaceModuleAlternateAccess(StrictWorkspaceModel):
+    required_permissions: list[str]
+    roles: list[WorkspaceRole]
+    feature_flag: str | None = None
+
+
 class WorkspaceModuleDefinitionResponse(StrictWorkspaceModel):
     id: str
     label: str
@@ -32,6 +38,7 @@ class WorkspaceModuleDefinitionResponse(StrictWorkspaceModel):
     parent_id: str | None = None
     required_permission: str | None = None
     required_permissions: list[str] = Field(default_factory=list)
+    alternate_access: list[WorkspaceModuleAlternateAccess] = Field(default_factory=list)
     feature_flag: str | None = None
     default_optional: bool
     default_order: int = Field(ge=0)
