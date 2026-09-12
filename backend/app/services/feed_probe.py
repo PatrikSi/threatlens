@@ -3,11 +3,11 @@ from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from typing import Any
 
-import feedparser
 import httpx
 
 from app.core.config import get_settings
 from app.services.bounded_response import ResponseBodyTooLarge, read_bounded_response
+from app.services.feed_input import FeedInputError, clean_feed_text, parse_feed_document, safe_feed_cache_header
 from app.services.outbound_deadline import outbound_deadline
 from app.services.safe_fetch import (
     RedirectError,
@@ -78,8 +78,8 @@ def probe_feed_metadata(
                 if response.status_code != 200:
                     raise FeedProbeError(f"Feed returned HTTP {response.status_code}")
 
-                etag = response.headers.get("etag")
-                last_modified = response.headers.get("last-modified")
+                etag = safe_feed_cache_header(response.headers.get("etag"))
+                last_modified = safe_feed_cache_header(response.headers.get("last-modified"))
                 resolved_url = str(response.url)
 
                 body = read_bounded_response(
@@ -94,13 +94,16 @@ def probe_feed_metadata(
     except (httpx.HTTPError, SafeFetchError, RedirectError) as exc:
         raise FeedProbeError(f"Unable to fetch feed: {exc}") from exc
 
-    parsed = feedparser.parse(body)
+    try:
+        parsed = parse_feed_document(body)
+    except FeedInputError as exc:
+        raise FeedProbeError("The publisher did not return a valid feed document. Check the feed URL or try again after the publisher fixes its content.") from exc
     metadata = parsed.feed if hasattr(parsed, "feed") else {}
 
-    title = _clean(metadata.get("title"))
-    description = _clean(metadata.get("subtitle") or metadata.get("description"))
-    site_url = _clean(metadata.get("link"))
-    language = _clean(metadata.get("language"))
+    title = clean_feed_text(metadata.get("title"))
+    description = clean_feed_text(metadata.get("subtitle") or metadata.get("description"))
+    site_url = clean_feed_text(metadata.get("link"))
+    language = clean_feed_text(metadata.get("language"), max_chars=64)
 
     return FeedProbeResult(
         name=title,
@@ -110,15 +113,8 @@ def probe_feed_metadata(
         etag=etag,
         last_modified=last_modified,
         resolved_url=resolved_url,
-        feed_type=_clean(getattr(parsed, "version", None)),
+        feed_type=clean_feed_text(getattr(parsed, "version", None)),
     )
-
-
-def _clean(value: object) -> str | None:
-    if value is None:
-        return None
-    text = str(value).strip()
-    return text or None
 
 
 def _validate_request_guard(
