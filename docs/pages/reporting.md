@@ -102,6 +102,18 @@ with a 5,000-token article/brief default when the model and context window suppo
 it. Configure both values within the selected model's actual output limits;
 ThreatLens does not infer vendor-specific limits from the model name.
 
+If a report still truncates at a small retry allowance such as **1,588 tokens**
+after raising a named provider's default to **131,072**, check **Saved report
+budgets** beside the provider controls in **Settings -> AI -> Configuration**.
+Provider changes do not update the shared report settings. For example, an
+8,192-token context with a 15% safety margin (1,229 tokens), 384 tokens of
+protocol overhead, and a 4,991-token estimated prompt leaves only
+`8,192 - 1,229 - 384 - 4,991 = 1,588` tokens for output. The initial report
+allowance can still be the saved 1,200 tokens. Follow **Review report budget
+controls**, set the context window and initial completion allowance within the
+actual report model's limits, and use **Save changes** before retrying the report.
+The summary shows saved values and identifies unsaved report budget edits.
+
 Keep AI worker concurrency at `1` for memory-constrained local inference. These
 are admission-control settings, not quality guarantees; very small models may
 still struggle to return valid structured JSON or follow citation instructions.

@@ -1,4 +1,4 @@
-import { AiConfigurationAudit, AiConfigurationSidebar } from './AiConfigurationSummary'
+import { AiConfigurationAudit, AiConfigurationSidebar, AiReportBudgetSummary } from './AiConfigurationSummary'
 import { AiCompanyContextConfiguration, AiPromptConfiguration } from './AiContextConfiguration'
 import { AiDailyBriefConfiguration, AiFeatureControls, AiReportingConfiguration } from './AiFeatureConfiguration'
 import { AiProviderConfiguration } from './AiProviderConfiguration'
@@ -28,6 +28,7 @@ export function ConfigurationTab(props: AiSettingsConfigurationTabProps) {
         )}
 
         <AiProviderConnections controller={props.providers} />
+        <AiReportBudgetSummary settings={props.settings} draft={props.draft} isError={props.isError} />
         <AiProviderConfiguration
           {...draftProps}
           draftDirty={props.draftDirty}
@@ -39,7 +40,9 @@ export function ConfigurationTab(props: AiSettingsConfigurationTabProps) {
         />
         <AiFeatureControls {...draftProps} />
         <AiDailyBriefConfiguration {...draftProps} />
-        <AiReportingConfiguration {...draftProps} />
+        <section id="ai-report-budget-controls" aria-label="Report context guardrails" tabIndex={-1} className="rounded-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
+          <AiReportingConfiguration {...draftProps} />
+        </section>
         <AiCompanyContextConfiguration {...draftProps} />
         <AiPromptConfiguration {...draftProps} />
         <AiConfigurationAudit promptHistory={props.promptHistory} manualActions={props.manualActions} />
