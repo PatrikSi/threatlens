@@ -1119,6 +1119,9 @@ def _finish_reconciled_stale_run(
         ):
             return "unchanged"
         report = db.get(Report, run.report_id)
+        from app.services.ai_report_recovery import requeue_interrupted_report
+        if report is not None and requeue_interrupted_report(db, run=run, report=report):
+            return "guarded"
         if report is not None and report.status in {"ready", "error", "skipped"}:
             status = {
                 "ready": AI_STATUS_READY,
