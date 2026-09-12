@@ -41,6 +41,13 @@ name is a label, and does not enable a different vendor protocol. Global prompts
 company context, feature switches, and report context-planning limits remain in
 AI settings.
 
+A named provider connection test can reach the endpoint but exhaust its fixed
+128-token allowance before returning valid JSON, especially when the model uses
+reasoning tokens. The error identifies this diagnostic limit; increasing the
+saved completion budget does not change the test. Such a result leaves feature
+compatibility unverified. Qualify a small feature request with its saved budget.
+Legacy connection tests continue to use the legacy saved request settings.
+
 ### Completion Budgets
 
 **Default completion tokens** sets the initial output allowance for article
@@ -123,7 +130,7 @@ credential before trying again.
 Public endpoints require HTTPS. Private-network endpoints require
 `ALLOW_PRIVATE_NETWORK_AI=true`; only private endpoints may use plain HTTP under
 that opt-in. Embedded URL credentials, query parameters, and fragments are not
-accepted. For named HTTP providers, runtime connection checks also filter the
+accepted. For both legacy and named HTTP providers, runtime connection checks filter the
 resolved IP addresses to nonpublic unicast destinations before opening a socket;
 a private-looking hostname cannot cause a connection to a public address.
 
@@ -224,6 +231,19 @@ applies both permission predicates before grouping, and returns only the request
 top groups. Error normalization retains Python whitespace/200-character grouping
 semantics; ties have a stable order. Task last-seen time uses the latest available
 finish/update time, including unfinished failures.
+
+Usage totals include valid token counts reported on failed responses, including
+truncated reasoning-only output. Missing or malformed provider counts remain
+unknown, rather than overflowing storage or inventing usage. Older failures are
+not retrospectively backfilled. Aggregation is still by model, so profiles using
+the same model name are combined.
+
+Enrichment requires nonempty summary text when summaries are enabled and a finite
+score when relevance is enabled. Daily briefs require nonempty narrative text.
+Malformed outputs use the existing bounded retry and durable-attempt workflow;
+they are not published as empty successful results. An explicit provider refusal
+or content-policy stop produces a terminal diagnostic without automatically
+repeating the same request.
 
 ### Activity / Operations
 
