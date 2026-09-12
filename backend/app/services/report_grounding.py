@@ -11,7 +11,7 @@ from markdown_it import MarkdownIt
 CITATION_PATTERN = re.compile(r"\[(S\d+)\]")
 SOURCE_HEADER = re.compile(r"^\[(S\d+)\]\s")
 NO_FINDINGS_BODY = "No supported findings were identified in the supplied evidence."
-_MARKDOWN = MarkdownIt("commonmark", {"html": False}).enable("table")
+_MARKDOWN = MarkdownIt("commonmark", {"html": True, "maxNesting": 32}).enable(["table", "strikethrough"])
 
 
 class ReportGroundingError(ValueError):
@@ -136,6 +136,10 @@ def _claim_citations(body: str, known: set[str]) -> tuple[set[str], int]:
         used.update(citations)
 
     for token in _MARKDOWN.parse(body):
+        if token.type == "inline":
+            for child in token.children or []:
+                if child.type in {"text", "code_inline"}:
+                    _reject_unknown_markers(child.content, known)
         if token.nesting == 1:
             stack.append(token.type)
         elif token.nesting == -1:
@@ -151,6 +155,10 @@ def _claim_citations(body: str, known: set[str]) -> tuple[set[str], int]:
                     link_depth += 1
                 elif child.type == "link_close":
                     link_depth -= 1
+                elif child.type == "code_inline":
+                    # Inline code is visible content, but its literal markers
+                    # are not navigable source citations in any renderer.
+                    text.append(CITATION_PATTERN.sub("", child.content))
                 elif child.type == "text":
                     # Link labels are visible claims, but their embedded markers
                     # do not become source links in the report renderer.

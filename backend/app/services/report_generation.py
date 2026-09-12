@@ -560,28 +560,37 @@ def _generate_section(
             _append_coverage_warning(report, CONTEXT_COMPACTION_WARNING)
         if message_plan.omitted_findings:
             _append_coverage_warning(report, FINDINGS_COMPACTION_WARNING)
-        _assert_messages_fit(messages, budget=budget)
-        completion = _request_report_completion(
-            db,
-            active=active,
-            budget=budget,
-            messages=messages,
-            report_id=report.id,
-            task_run_id=task_run_id,
-            provider_operation_scope=f"section:{section.id}",
-            max_provider_attempts=active.report_max_model_calls - counters.model_calls,
-            execution_checkpoint=execution_checkpoint,
-            execution_commit=execution_commit,
-        )
-        counters.add(completion)
-        _check_execution(execution_checkpoint)
-        _raise_if_task_stopped(db, task_run_id)
-        stage = report_stage_input(messages)
-        assert stage is not None
-        known_citations = {citation for finding in stage["findings"] for citation in finding["citations"]}
-        grounded = validate_section(completion.payload, known_citations=known_citations)
-        body, key_points, citations = grounded.body, grounded.key_points, grounded.citations
-        _record_grounding(report, claim_blocks=grounded.claim_blocks)
+        if message_plan.included_findings == 0:
+            body = (
+                "No supported findings fit this section's context budget. "
+                "Increase the model context window or reduce the report output reserve to include the evidence."
+            )
+            key_points, citations = [], []
+            _append_coverage_warning(report, f"Section {section.title} has no narrative findings because its evidence could not fit the context budget.")
+            _record_grounding(report, degraded_section=section.section_key)
+        else:
+            _assert_messages_fit(messages, budget=budget)
+            completion = _request_report_completion(
+                db,
+                active=active,
+                budget=budget,
+                messages=messages,
+                report_id=report.id,
+                task_run_id=task_run_id,
+                provider_operation_scope=f"section:{section.id}",
+                max_provider_attempts=active.report_max_model_calls - counters.model_calls,
+                execution_checkpoint=execution_checkpoint,
+                execution_commit=execution_commit,
+            )
+            counters.add(completion)
+            _check_execution(execution_checkpoint)
+            _raise_if_task_stopped(db, task_run_id)
+            stage = report_stage_input(messages)
+            assert stage is not None
+            known_citations = {citation for finding in stage["findings"] for citation in finding["citations"]}
+            grounded = validate_section(completion.payload, known_citations=known_citations)
+            body, key_points, citations = grounded.body, grounded.key_points, grounded.citations
+            _record_grounding(report, claim_blocks=grounded.claim_blocks)
 
     section.body_markdown = body
     section.key_points_json = key_points
@@ -769,6 +778,7 @@ def _append_coverage_warning(report: Report, warning: str) -> None:
 def _record_grounding(
     report: Report, *, findings: int = 0, claim_blocks: int = 0,
     empty_batch: int | None = None,
+    degraded_section: str | None = None,
 ) -> None:
     coverage = dict(report.coverage_json or {})
     grounding = dict(coverage.get("grounding") or {})
@@ -782,9 +792,13 @@ def _record_grounding(
     if empty_batch is not None and empty_batch not in empty_batches:
         empty_batches.append(empty_batch)
     grounding["empty_batches"] = empty_batches
+    degraded_sections = list(grounding.get("degraded_sections") or [])
+    if degraded_section is not None and degraded_section not in degraded_sections:
+        degraded_sections.append(degraded_section)
+    grounding["degraded_sections"] = degraded_sections
     grounding["status"] = (
         "insufficient_evidence" if not grounding["validated_findings"]
-        else "degraded" if empty_batches else "checked"
+        else "degraded" if empty_batches or degraded_sections else "checked"
     )
     coverage["grounding"] = grounding
     report.coverage_json = coverage
