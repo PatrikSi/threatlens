@@ -1,6 +1,7 @@
 import { type Dispatch, type SetStateAction } from 'react'
 
 import { AISettings, AIOpsOverviewResponse } from '../types/api'
+import { AiProviderUsagePanel } from './AiProviderUsagePanel'
 import {
   EmptyInline,
   LiveTaskCard,
@@ -154,6 +155,8 @@ export function OverviewTab({
             value={overview.kpis.last_successful_run_at ? formatTimestamp(overview.kpis.last_successful_run_at) : 'Never'}
           />
         </section>
+
+        <AiProviderUsagePanel key={days} days={days} />
 
         <div className="grid gap-3 xl:grid-cols-2">
           <Panel title="Requests and failures over time" subtitle="Recent request volume and failure pressure across the selected window.">
