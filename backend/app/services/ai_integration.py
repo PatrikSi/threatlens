@@ -186,12 +186,21 @@ def test_ai_connection(
             ],
         )
     except AIIntegrationError as exc:
+        error = str(exc)
+        if active.provider_id is not None and exc.retry_hint == "expand_completion_budget":
+            error = (
+                "The AI endpoint responded, but the connection test exhausted its fixed "
+                f"{active.max_completion_tokens:,}-token completion limit before returning valid JSON. "
+                "Reasoning can consume this allowance. Increasing the saved default completion "
+                "budget does not change this small diagnostic test. Feature compatibility remains "
+                "unverified; check a small article or report request using the saved feature budget."
+            )
         return AITestConnectionResponse(
             success=False,
             latency_ms=None,
             provider="openai_compatible",
             model=active.model,
-            error=str(exc),
+            error=error,
         )
 
     return AITestConnectionResponse(

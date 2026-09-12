@@ -149,6 +149,51 @@ def test_named_connection_error_redacts_key_and_does_not_retry(
     assert run.status == "error" and "profile-only-key" not in run.error
 
 
+def test_named_connection_truncation_explains_fixed_diagnostic_budget(
+    client, provider_api, monkeypatch, db_session
+):
+    provider, headers = provider_api
+    calls = []
+
+    def handler(request):
+        calls.append(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"finish_reason": "length", "message": {"content": None}}],
+                "usage": {"prompt_tokens": 20, "completion_tokens": 128, "total_tokens": 148},
+            },
+        )
+
+    monkeypatch.setattr(
+        ai_integration,
+        "build_safe_http_client",
+        lambda **kwargs: httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    response = client.post(
+        f"/v1/ai/providers/{provider['id']}/test-connection",
+        headers=headers,
+        json={"version": provider["version"]},
+    )
+
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result["success"] is False
+    assert "endpoint responded" in result["error"]
+    assert "fixed 128-token" in result["error"]
+    assert "does not change this small diagnostic test" in result["error"]
+    assert "Feature compatibility remains unverified" in result["error"]
+    assert len(calls) == 1
+    assert calls[0]["max_tokens"] == 128
+    run = db_session.scalar(
+        select(AITaskRun).where(AITaskRun.task_type == "connection_test")
+    )
+    assert run.status == "error" and run.error == result["error"]
+    receipt = db_session.scalar(select(AIProviderAttemptReceipt))
+    assert receipt.state == "failed"
+    assert receipt.io_outcome == "response_received"
+
+
 def test_named_connection_revalidates_request_authorization_before_io(
     client, provider_api, db_session, monkeypatch
 ):
