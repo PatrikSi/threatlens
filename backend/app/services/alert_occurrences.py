@@ -9,6 +9,8 @@ from sqlalchemy.orm import Session
 
 from app.models.alert_occurrence import AlertOccurrence, AlertOccurrenceActivity
 from app.models.user import User
+from app.services.authorization import AuthorizationContext
+from app.services.alert_team_access import alert_scope_predicate, lock_alert_teams
 from app.services.data_access_envelopes import (
     DATA_ACCESS_RESOURCE_ALERT_OCCURRENCE,
     data_access_envelope_predicate,
@@ -70,15 +72,42 @@ def list_alert_occurrences(
     until: datetime | None,
     page: int,
     page_size: int,
+    team_id: uuid.UUID | None = None,
+    queue_scope: str = "all",
+    assignee_user_id: uuid.UUID | None = None,
+    unassigned: bool = False,
+    overdue: bool = False,
+    escalated: bool = False,
 ) -> AlertOccurrencePage:
     predicates = [
-        AlertOccurrence.owner_user_id == user.id,
+        alert_scope_predicate(
+            AlertOccurrence.owner_user_id, AlertOccurrence.team_id, user.id
+        ),
         data_access_envelope_predicate(
             DATA_ACCESS_RESOURCE_ALERT_OCCURRENCE,
             AlertOccurrence.id,
             data_access,
         ),
     ]
+    if team_id is not None:
+        predicates.append(AlertOccurrence.team_id == team_id)
+    if queue_scope == "personal":
+        predicates.append(AlertOccurrence.team_id.is_(None))
+    elif queue_scope == "team":
+        predicates.append(AlertOccurrence.team_id.is_not(None))
+    if assignee_user_id is not None:
+        predicates.append(AlertOccurrence.assignee_user_id == assignee_user_id)
+    if unassigned:
+        predicates.append(AlertOccurrence.assignee_user_id.is_(None))
+    if overdue:
+        predicates.extend(
+            [
+                AlertOccurrence.due_at < datetime.now(timezone.utc),
+                AlertOccurrence.lifecycle_state != "closed",
+            ]
+        )
+    if escalated:
+        predicates.append(AlertOccurrence.escalated_at.is_not(None))
     if lifecycle_states:
         predicates.append(AlertOccurrence.lifecycle_state.in_(lifecycle_states))
     if severities:
@@ -126,10 +155,13 @@ def get_alert_occurrence(
     occurrence_id: uuid.UUID,
     data_access: DataAccessContext,
     for_update: bool = False,
+    authorization: AuthorizationContext | None = None,
 ) -> AlertOccurrence:
     query = select(AlertOccurrence).where(
         AlertOccurrence.id == occurrence_id,
-        AlertOccurrence.owner_user_id == user.id,
+        alert_scope_predicate(
+            AlertOccurrence.owner_user_id, AlertOccurrence.team_id, user.id
+        ),
         data_access_envelope_predicate(
             DATA_ACCESS_RESOURCE_ALERT_OCCURRENCE,
             AlertOccurrence.id,
@@ -137,6 +169,18 @@ def get_alert_occurrence(
         ),
     )
     if for_update:
+        team_id = db.scalar(
+            select(AlertOccurrence.team_id).where(
+                AlertOccurrence.id == occurrence_id,
+                alert_scope_predicate(
+                    AlertOccurrence.owner_user_id, AlertOccurrence.team_id, user.id
+                ),
+            )
+        )
+        if team_id is not None:
+            lock_alert_teams(
+                db, user=user, authorization=authorization, team_ids=[team_id]
+            )
         query = query.with_for_update().execution_options(populate_existing=True)
     occurrence = db.scalar(query)
     if occurrence is None:
@@ -154,6 +198,7 @@ def update_alert_occurrence_lifecycle(
     target_state: str,
     disposition: str | None,
     now: datetime | None = None,
+    authorization: AuthorizationContext | None = None,
 ) -> AlertOccurrence:
     occurrence = get_alert_occurrence(
         db,
@@ -161,6 +206,7 @@ def update_alert_occurrence_lifecycle(
         occurrence_id=occurrence_id,
         data_access=data_access,
         for_update=True,
+        authorization=authorization,
     )
     _require_expected_version(occurrence, expected_version)
     return _apply_lifecycle_transition(
@@ -182,6 +228,7 @@ def bulk_update_alert_occurrence_lifecycle(
     target_state: str,
     disposition: str | None,
     now: datetime | None = None,
+    authorization: AuthorizationContext | None = None,
 ) -> list[AlertOccurrence]:
     if not entries or len(entries) > ALERT_BULK_LIMIT:
         raise AlertOccurrenceValidationError(
@@ -194,11 +241,23 @@ def bulk_update_alert_occurrence_lifecycle(
         )
 
     occurrence_ids = sorted(expected_by_id, key=str)
+    team_ids = db.scalars(
+        select(AlertOccurrence.team_id).where(
+            AlertOccurrence.id.in_(occurrence_ids),
+            AlertOccurrence.team_id.is_not(None),
+            alert_scope_predicate(
+                AlertOccurrence.owner_user_id, AlertOccurrence.team_id, user.id
+            ),
+        )
+    ).all()
+    lock_alert_teams(db, user=user, authorization=authorization, team_ids=team_ids)
     rows = list(
         db.scalars(
             select(AlertOccurrence)
             .where(
-                AlertOccurrence.owner_user_id == user.id,
+                alert_scope_predicate(
+                    AlertOccurrence.owner_user_id, AlertOccurrence.team_id, user.id
+                ),
                 AlertOccurrence.id.in_(occurrence_ids),
                 data_access_envelope_predicate(
                     DATA_ACCESS_RESOURCE_ALERT_OCCURRENCE,
@@ -213,7 +272,7 @@ def bulk_update_alert_occurrence_lifecycle(
     )
     if len(rows) != len(occurrence_ids):
         raise AlertOccurrenceNotFoundError(
-            "One or more alert occurrences were not found or are not owned by this account."
+            "One or more alert occurrences were not found or current membership does not permit access."
         )
     for occurrence in rows:
         _require_expected_version(occurrence, expected_by_id[occurrence.id])
@@ -242,6 +301,7 @@ def update_alert_occurrence_snooze(
     snoozed_until: datetime | None,
     reason: str | None,
     now: datetime | None = None,
+    authorization: AuthorizationContext | None = None,
 ) -> AlertOccurrence:
     current_time = now or datetime.now(timezone.utc)
     occurrence = get_alert_occurrence(
@@ -250,6 +310,7 @@ def update_alert_occurrence_snooze(
         occurrence_id=occurrence_id,
         data_access=data_access,
         for_update=True,
+        authorization=authorization,
     )
     _require_expected_version(occurrence, expected_version)
     if occurrence.lifecycle_state == "closed":

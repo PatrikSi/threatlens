@@ -22,6 +22,9 @@ AlertKeyword = Annotated[
 
 
 class AlertInterestCreate(BaseModel):
+    team_id: uuid.UUID | None = None
+    due_after_minutes: int | None = Field(default=None, ge=1, le=525600)
+    escalation_after_minutes: int | None = Field(default=None, ge=0, le=525600)
     name: str = Field(min_length=1, max_length=255)
     category: str = Field(min_length=1, max_length=64)
     keywords: list[AlertKeyword] = Field(min_length=1, max_length=64)
@@ -37,11 +40,16 @@ class AlertInterestCreate(BaseModel):
 
     @model_validator(mode="after")
     def validate_suppression(self):
+        if self.escalation_after_minutes is not None and self.due_after_minutes is None:
+            raise ValueError("An escalation delay requires a due time.")
         _validate_suppression_pair(self.suppression_until, self.suppression_reason)
         return self
 
 
 class AlertInterestUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    due_after_minutes: int | None = Field(default=None, ge=1, le=525600)
+    escalation_after_minutes: int | None = Field(default=None, ge=0, le=525600)
     # expected_revision remains as a compatibility alias for expected_row_version.
     expected_revision: int | None = Field(default=None, ge=1)
     expected_row_version: int | None = Field(default=None, ge=1)
@@ -84,7 +92,10 @@ class AlertInterestResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
-    user_id: uuid.UUID
+    user_id: uuid.UUID | None
+    team_id: uuid.UUID | None = None
+    due_after_minutes: int | None = None
+    escalation_after_minutes: int | None = None
     name: str
     category: str
     keywords: list[str]
@@ -135,7 +146,12 @@ class AlertOccurrenceResponse(BaseModel):
     id: uuid.UUID
     alert_interest_id: uuid.UUID | None
     rule_id_snapshot: uuid.UUID
-    owner_user_id: uuid.UUID
+    owner_user_id: uuid.UUID | None
+    team_id: uuid.UUID | None = None
+    assignee_user_id: uuid.UUID | None = None
+    due_at: datetime | None = None
+    escalation_after_minutes: int | None = None
+    escalated_at: datetime | None = None
     item_id: uuid.UUID | None
     item_id_snapshot: uuid.UUID
     integration_event_id: uuid.UUID | None
@@ -406,7 +422,8 @@ class AlertOccurrenceMetricResponse(BaseModel):
 
     id: uuid.UUID
     bucket_start: datetime
-    owner_user_id: uuid.UUID
+    team_id: uuid.UUID | None = None
+    owner_user_id: uuid.UUID | None
     severity: AlertSeverity
     lifecycle_state: AlertOccurrenceState
     suppressed: bool
