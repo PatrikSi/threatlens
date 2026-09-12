@@ -4,11 +4,12 @@ import { createRoot, type Root } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { ApiError } from '../api/client'
 import { AiProviderUsagePanel } from './AiProviderUsagePanel'
 import type { AIProviderUsageResponse, AIProviderUsageRow } from '../types/aiProviderUsage'
 
 const mocks = vi.hoisted(() => ({ apiFetch: vi.fn() }))
-vi.mock('../api/client', () => ({ apiFetch: mocks.apiFetch }))
+vi.mock('../api/client', async (original) => ({ ...(await original<typeof import('../api/client')>()), apiFetch: mocks.apiFetch }))
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const row = (changes: Partial<AIProviderUsageRow> = {}): AIProviderUsageRow => ({
@@ -122,6 +123,19 @@ describe('provider usage with a real QueryClient', () => {
     await settle(() => expect(host.textContent).toContain('Recovered provider'))
     expect(host.querySelector('[role="alert"]')).toBeNull()
     expect(host.textContent).toContain('Recovered provider')
+  })
+
+  it.each([401, 403, 404, 503])('hides withdrawn cached provider usage but preserves outage snapshots (%s)', async (status) => {
+    mocks.apiFetch.mockResolvedValueOnce(response([row()]))
+      .mockRejectedValueOnce(new ApiError('Usage access check failed', status, '/ai/ops/providers'))
+    const { host } = mount()
+    await settle(() => expect(host.textContent).toContain('Local provider'))
+    act(() => button(host, 'Refresh provider usage').click())
+    await settle(() => expect(host.textContent).toContain('Usage access check failed'))
+    expect(host.textContent!.includes('Local provider')).toBe(status === 503)
+    mocks.apiFetch.mockResolvedValue(response([row({ provider_name: 'Current permitted provider' })]))
+    act(() => button(host, 'Refresh provider usage').click())
+    await settle(() => expect(host.textContent).toContain('Current permitted provider'))
   })
 
   it('renders initial errors with retry and supports an out-of-range page after history pruning', async () => {

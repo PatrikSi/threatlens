@@ -22,7 +22,6 @@ import {
 
 export function OverviewTab({
   settings,
-  readiness,
   overview,
   isLoading,
   isError,
@@ -32,7 +31,6 @@ export function OverviewTab({
   onRefresh,
 }: {
   settings: AISettings | undefined
-  readiness: string | null
   overview: AIOpsOverviewResponse | undefined
   isLoading: boolean
   isError: boolean
@@ -64,7 +62,7 @@ export function OverviewTab({
       <Panel title="Current window">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <MiniStat label="Legacy model" value={settings?.model || 'Not configured'} />
+            <MiniStat label="Legacy model" value={settings ? settings.model || 'Not configured' : 'Unknown'} />
             <MiniStat label="Requests" value={overview.kpis.total_requests.toLocaleString()} />
             <MiniStat label="Success rate" value={`${overview.kpis.success_rate_pct.toFixed(1)}%`} />
             <MiniStat label="Queued" value={overview.live.queued_count} />
@@ -98,15 +96,17 @@ export function OverviewTab({
 
       <OverviewSection
         title="Health"
-        description="Use this section to confirm the endpoint is configured, the queue is moving, and problems are visible quickly."
+        description="Review saved provider assignments, queue progress and recorded failures."
       >
         <div className="grid gap-3 xl:grid-cols-2">
-          <Panel title="AI status" subtitle={readiness ?? 'Loading runtime state...'}>
+          <Panel title="AI status" subtitle="Saved configuration and recorded request outcomes.">
             <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
-              <Metric label="Configured" value={settings?.ai_configured ? 'Yes' : 'No'} />
-              <Metric label="API key in environment" value={settings?.api_key_configured ? 'Yes' : 'No (optional)'} />
-              <Metric label="Legacy model" value={settings?.model || 'Not configured'} />
-              <Metric label="Legacy retry attempts" value={settings?.request_max_retries ?? 0} />
+              <Metric label="Configured feature routes" value={settings?.effective_feature_configured
+                ? `${Object.values(settings.effective_feature_configured).filter(Boolean).length} of 3` : 'Unknown'} />
+              <Metric label="Legacy provider configured" value={settings ? settings.ai_configured ? 'Yes' : 'No' : 'Unknown'} />
+              <Metric label="API key in environment" value={settings ? settings.api_key_configured ? 'Yes' : 'No (optional)' : 'Unknown'} />
+              <Metric label="Legacy model" value={settings ? settings.model || 'Not configured' : 'Unknown'} />
+              <Metric label="Legacy retry attempts" value={settings?.request_max_retries ?? 'Unknown'} />
               <Metric label="Last success" value={overview.endpoint_health.last_success_at ? formatTimestamp(overview.endpoint_health.last_success_at) : 'Never'} />
               <Metric label="Failure rate" value={`${overview.endpoint_health.rolling_failure_rate_pct.toFixed(1)}%`} />
               <Metric label="Median latency" value={`${overview.endpoint_health.median_latency_ms.toFixed(1)} ms`} />
@@ -148,7 +148,7 @@ export function OverviewTab({
 
       <OverviewSection
         title="Usage"
-        description="Volume, token cost, and model performance for the selected time window."
+        description="Volume, recorded token usage, and model performance for the selected time window."
       >
         <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           <StatCard label="Requests" value={overview.kpis.total_requests.toLocaleString()} />

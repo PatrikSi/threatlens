@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ApiError, apiFetch } from '../api/client'
 import { AiReliabilityStatistics, AiStatisticsWorkspace } from './AiStatisticsWorkspace'
+import { emptyOverview } from '../../browser/ai-overview-fixture'
 import type { AIStatisticsResponse } from '../types/aiStatistics'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -39,6 +40,34 @@ describe('AI statistics workspace', () => {
     user.role = 'admin'; user.access.permissions = []
     act(() => root!.render(<QueryClientProvider client={client!}><AiStatisticsWorkspace /></QueryClientProvider>))
     await settle(); expect(apiFetch).not.toHaveBeenCalled()
+  })
+
+  it('keeps recorded metrics available when configuration fails and distinguishes named routes from legacy readiness', async () => {
+    user.role = 'admin'
+    let recovered = false
+    vi.mocked(apiFetch).mockImplementation((path) => {
+      if (path === '/ai/settings') return recovered ? Promise.resolve({
+        ai_configured: false, api_key_configured: false, model: null, request_max_retries: 3,
+        effective_feature_configured: { item_enrichment: true, daily_brief: true, report: true },
+      }) as never : Promise.reject(new ApiError('Configuration unavailable', 503, path))
+      if (path.startsWith('/ai/ops/overview')) return Promise.resolve(emptyOverview) as never
+      if (path.startsWith('/ai/ops/providers')) return Promise.resolve({ items: [], total: 0, offset: 0, limit: 25, days: 30 }) as never
+      return Promise.resolve(response) as never
+    })
+    render(true); await settle()
+    expect(host!.textContent).toContain('Configuration unavailable')
+    expect(host!.textContent).toContain('Configuration status is unknown.')
+    expect(host!.textContent).toContain('1 successful / 3 recorded')
+    expect(host!.textContent).not.toContain('Loading runtime state')
+    const metric = (label: string) => [...host!.querySelectorAll('dt')].find((node) => node.textContent === label)?.nextElementSibling?.textContent
+    expect(metric('Legacy provider configured')).toBe('Unknown')
+    expect(metric('Configured feature routes')).toBe('Unknown')
+    recovered = true
+    act(() => [...host!.querySelectorAll('button')].find((button) => button.textContent === 'Retry AI configuration')!.click())
+    await settle()
+    expect(metric('Legacy provider configured')).toBe('No')
+    expect(metric('Configured feature routes')).toBe('3 of 3')
+    expect(host!.textContent).not.toContain('Configuration unavailable')
   })
 
   it.each([403, 503])('distinguishes a successful snapshot followed by HTTP %s', async (status) => {

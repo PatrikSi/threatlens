@@ -26,8 +26,15 @@ function AllowedAiStatistics() {
   const client = useQueryClient()
   const settings = useQuery({ queryKey: ['ai', 'settings'], queryFn: ({ signal }) => apiFetch<AISettings>('/ai/settings', { signal }), staleTime: 60_000 })
   const overview = useQuery({ queryKey: ['ai', 'ops', 'overview', days], queryFn: ({ signal }) => apiFetch<AIOpsOverviewResponse>(`/ai/ops/overview?days=${days}`, { signal }), staleTime: 30_000, refetchInterval: 60_000 })
+  const configuration = accessibleQueryData(settings)
   return <div className="space-y-4">
-    <OverviewTab settings={accessibleQueryData(settings)} readiness={null} overview={accessibleQueryData(overview)} isLoading={overview.isLoading}
+    {settings.isError && <div role="alert" className="rounded border border-amber-500 p-3 text-sm">
+      <p>{resolveApiErrorMessage(settings.error, 'Saved AI configuration could not be loaded')}{' '}
+        {configuration ? 'Showing previously loaded configuration.' : 'Configuration status is unknown.'}</p>
+      <button type="button" className="mt-2 underline" disabled={settings.isFetching}
+        onClick={() => { void settings.refetch() }}>Retry AI configuration</button>
+    </div>}
+    <OverviewTab settings={configuration} overview={accessibleQueryData(overview)} isLoading={overview.isLoading}
       isError={overview.isError} errorMessage={overview.isError ? resolveApiErrorMessage(overview.error, 'AI statistics could not be loaded') : ''}
       days={days} setDays={setDays} onRefresh={() => { void client.invalidateQueries({ queryKey: ['ai', 'ops'] }) }} />
     <AiReliabilityStatistics days={days} />

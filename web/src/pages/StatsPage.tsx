@@ -7,6 +7,7 @@ import { useCurrentUser } from '../hooks/useCurrentUser'
 import { hasRequiredPermissions } from '../workspace/workspaceModel'
 
 import { apiFetch } from '../api/client'
+import { accessibleQueryData } from '../api/queryData'
 import { resolveApiErrorMessage } from '../api/errors'
 import { formatDateOnly, formatDateTime } from '../utils/datetime'
 import {
@@ -78,14 +79,14 @@ function IngestionStatistics() {
   const [showAllFeedRows, setShowAllFeedRows] = useState(false)
   const [mobileFeedFiltersOpen, setMobileFeedFiltersOpen] = useState(false)
 
-  const feedsQuery = useQuery({
+  const feedsResult = useQuery({
     queryKey: ['feeds'],
     queryFn: () => apiFetch<Feed[]>('/feeds'),
   })
 
   const feedIdsParam = useMemo(() => selectedFeedIds.slice().sort().join(','), [selectedFeedIds])
 
-  const statsQuery = useQuery({
+  const statsResult = useQuery({
     queryKey: ['stats', 'overview', days, feedIdsParam],
     queryFn: () => {
       const params = new URLSearchParams()
@@ -97,7 +98,7 @@ function IngestionStatistics() {
     },
   })
 
-  const feedTimeSeriesQuery = useQuery({
+  const feedTimeSeriesResult = useQuery({
     queryKey: ['stats', 'feed-timeseries', days, feedIdsParam],
     queryFn: () => {
       const params = new URLSearchParams()
@@ -109,7 +110,7 @@ function IngestionStatistics() {
     },
   })
 
-  const activityHeatmapQuery = useQuery({
+  const activityHeatmapResult = useQuery({
     queryKey: ['stats', 'activity-heatmap', days, feedIdsParam],
     queryFn: () => {
       const params = new URLSearchParams()
@@ -121,7 +122,7 @@ function IngestionStatistics() {
     },
   })
 
-  const signalRadarQuery = useQuery({
+  const signalRadarResult = useQuery({
     queryKey: ['stats', 'signal-radar', days, feedIdsParam],
     queryFn: () => {
       const params = new URLSearchParams()
@@ -132,6 +133,12 @@ function IngestionStatistics() {
       return apiFetch<StatsSignalRadarResponse>(`/stats/signal-radar?${params.toString()}`)
     },
   })
+
+  const feedsQuery = { ...feedsResult, data: accessibleQueryData(feedsResult) }
+  const statsQuery = { ...statsResult, data: accessibleQueryData(statsResult) }
+  const feedTimeSeriesQuery = { ...feedTimeSeriesResult, data: accessibleQueryData(feedTimeSeriesResult) }
+  const activityHeatmapQuery = { ...activityHeatmapResult, data: accessibleQueryData(activityHeatmapResult) }
+  const signalRadarQuery = { ...signalRadarResult, data: accessibleQueryData(signalRadarResult) }
 
   const statusTotal = useMemo(
     () => (statsQuery.data?.status_breakdown ?? []).reduce((acc, row) => acc + row.count, 0),
