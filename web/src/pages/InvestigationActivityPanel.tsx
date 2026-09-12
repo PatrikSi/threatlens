@@ -2,7 +2,10 @@ import { resolveApiErrorMessage } from '../api/errors'
 import { CopyableIdentifier } from '../components/CopyableIdentifier'
 import type { InvestigationActivity } from '../types/investigations'
 import { formatDateTime } from '../utils/datetime'
-import { formatInvestigationActivitySummary } from './investigationPageModel'
+import {
+  formatInvestigationActivitySummary,
+  isTerminalInvestigationAccessError,
+} from './investigationPageModel'
 import { InvestigationPagination } from './InvestigationListWorkspace'
 import { InvestigationRefreshWarning } from './InvestigationShared'
 import type { InvestigationDetailController } from './useInvestigationDetail'
@@ -13,7 +16,8 @@ export function InvestigationActivityPanel({
   controller: InvestigationDetailController
 }) {
   const query = controller.activityQuery
-  const data = query.data
+  const accessUnavailable = query.isError && isTerminalInvestigationAccessError(query.error)
+  const data = accessUnavailable ? undefined : query.data
 
   return (
     <section aria-labelledby="investigation-activity-heading" className="min-w-0">
