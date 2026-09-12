@@ -433,6 +433,7 @@ export function AiSettingsPage() {
         body: JSON.stringify(payload),
       }),
     onSuccess: (saved) => {
+      queryClient.setQueryData(['ai', 'settings'], saved)
       setDraftState(createDraftFromSettings(saved))
       setDraftDirty(false)
       setNotice({ tone: 'success', message: 'AI settings saved.' })
