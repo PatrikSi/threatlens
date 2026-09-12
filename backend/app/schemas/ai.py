@@ -1,3 +1,4 @@
+from app.schemas.ai_provider_capabilities import AIProviderCapabilityFields
 import math
 import uuid
 from datetime import date, datetime
@@ -61,11 +62,11 @@ def _normalize_string_list(values: object) -> list[str]:
     return normalized
 
 
-class AISettingsUpdate(BaseModel):
+class AISettingsUpdate(AIProviderCapabilityFields):
     provider_type: AIProviderType = "openai_compatible"
     base_url: str | None = Field(default=None, max_length=4000)
     model: str | None = Field(default=None, max_length=255)
-    temperature: float = Field(default=0.2, ge=0.0, le=2.0)
+    temperature: float | None = Field(default=0.2, ge=0.0, le=2.0)
     max_completion_tokens: int = Field(default=5000, ge=128, le=MAX_AI_COMPLETION_TOKENS)
     request_timeout_seconds: int = Field(default=300, ge=5, le=300)
     request_max_retries: int = Field(default=3, ge=0, le=5)
@@ -199,7 +200,7 @@ class AISettingsUpdate(BaseModel):
         return self
 
 
-class AISettingsResponse(BaseModel):
+class AISettingsResponse(AIProviderCapabilityFields):
     id: uuid.UUID
     ai_enabled: bool
     ai_configured: bool
@@ -209,7 +210,7 @@ class AISettingsResponse(BaseModel):
     provider_type: AIProviderType
     base_url: str | None
     model: str | None
-    temperature: float
+    temperature: float | None
     max_completion_tokens: int
     request_timeout_seconds: int
     request_max_retries: int

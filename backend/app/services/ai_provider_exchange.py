@@ -92,7 +92,7 @@ def summarize_request_payload(request_payload: dict[str, object]) -> dict[str, o
     temperature = request_payload.get("temperature")
     if isinstance(temperature, (int, float)):
         summary["request_temperature"] = float(temperature)
-    max_tokens = request_payload.get("max_tokens")
+    max_tokens = request_payload.get("max_completion_tokens", request_payload.get("max_tokens"))
     if isinstance(max_tokens, int):
         summary["request_max_tokens"] = max_tokens
     return summary

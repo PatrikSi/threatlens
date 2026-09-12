@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.schemas.ai_provider_capabilities import AIProviderCapabilityFields
+
 import uuid
 from datetime import datetime
 from typing import Literal
@@ -19,14 +21,14 @@ from app.core.config import get_settings
 from app.services.url_utils import is_fetchable_url
 
 
-class AIProviderFields(BaseModel):
+class AIProviderFields(AIProviderCapabilityFields):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1, max_length=120)
     provider_type: Literal["openai_compatible"] = "openai_compatible"
     base_url: str = Field(min_length=1, max_length=4000)
     model: str = Field(min_length=1, max_length=255)
-    temperature: float = Field(default=0.2, ge=0, le=2, allow_inf_nan=False)
+    temperature: float | None = Field(default=0.2, ge=0, le=2, allow_inf_nan=False)
     max_completion_tokens: int = Field(default=5000, ge=128, le=MAX_AI_COMPLETION_TOKENS)
     request_timeout_seconds: int = Field(default=300, ge=5, le=300)
     request_max_retries: int = Field(default=3, ge=0, le=5)

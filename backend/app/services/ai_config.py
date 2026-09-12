@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.core.ai_endpoints import matches_ai_key_origin
 from app.core.config import get_settings
 from app.models.ai_settings import AISettings
+from app.schemas.ai_provider_capabilities import CAPABILITY_FIELDS, capability_values
 from app.schemas.ai import AIPromptPreview, AIPromptPreviews, AISettingsResponse, AISettingsUpdate
 
 
@@ -32,7 +33,7 @@ class ActiveAISettings:
     base_url: str | None
     model: str | None
     api_key: str | None = field(repr=False)
-    temperature: float
+    temperature: float | None
     max_completion_tokens: int
     request_timeout_seconds: int
     request_max_retries: int
@@ -74,6 +75,11 @@ class ActiveAISettings:
     credential_origin: str | None = None
     configuration_error: str | None = None
     configuration_error_code: str | None = None
+    request_dialect: str = "chat_completions"
+    reasoning_effort: str | None = None
+    structured_output_mode: str = "off"
+    model_context_window_tokens: int | None = None
+    model_max_output_tokens: int | None = None
 
 
 DEFAULT_ITEM_ENRICHMENT_SYSTEM_PROMPT = "\n".join(
@@ -148,6 +154,9 @@ def get_or_create_ai_settings(db: Session) -> AISettings:
 
 
 def apply_ai_settings_update(settings: AISettings, payload: AISettingsUpdate) -> None:
+    for name in CAPABILITY_FIELDS:
+        if name in payload.model_fields_set:
+            setattr(settings, name, getattr(payload, name))
     settings.provider_type = payload.provider_type
     settings.base_url = _normalize_optional_text(payload.base_url)
     settings.model = _normalize_optional_text(payload.model)
@@ -210,7 +219,8 @@ def ai_settings_response_from_model(settings: AISettings, *, db: Session | None 
         base_url=base_url,
         model=model,
         api_key=api_key,
-        temperature=float(settings.temperature),
+        temperature=settings.temperature,
+        **capability_values(settings),
         max_completion_tokens=int(settings.max_completion_tokens),
         request_timeout_seconds=int(settings.request_timeout_seconds),
         request_max_retries=int(settings.request_max_retries),
@@ -256,7 +266,8 @@ def ai_settings_response_from_model(settings: AISettings, *, db: Session | None 
         provider_type=settings.provider_type,
         base_url=base_url,
         model=model,
-        temperature=float(settings.temperature),
+        temperature=settings.temperature,
+        **capability_values(settings),
         max_completion_tokens=int(settings.max_completion_tokens),
         request_timeout_seconds=int(settings.request_timeout_seconds),
         request_max_retries=int(settings.request_max_retries),
@@ -345,7 +356,8 @@ def load_active_ai_settings(
         base_url=base_url,
         model=model,
         api_key=api_key,
-        temperature=float(settings.temperature),
+        temperature=settings.temperature,
+        **capability_values(settings),
         max_completion_tokens=int(settings.max_completion_tokens),
         request_timeout_seconds=int(settings.request_timeout_seconds),
         request_max_retries=int(settings.request_max_retries),

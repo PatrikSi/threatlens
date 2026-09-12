@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.services.ai_provider_protocol import provider_report_context_window, provider_report_safety_percent
 
 import logging
 import time
@@ -136,7 +137,6 @@ from app.services.report_templates import (
 from app.services.report_task_lineage import ReportTaskLineageError
 from app.tasks.report_tasks import create_report_task_run, enqueue_report_task
 
-
 router = APIRouter(prefix="/reports", tags=["reports"])
 router.include_router(report_library_router)
 logger = logging.getLogger(__name__)
@@ -185,11 +185,11 @@ def get_report_capabilities(
         classifications=[value for value in classifications if value],
         max_sources=active.report_max_sources,
         preview_limit=REPORT_PREVIEW_LIMIT,
-        context_window_tokens=active.report_context_window_tokens,
+        context_window_tokens=provider_report_context_window(active),
         reserved_output_tokens=active.report_reserved_output_tokens,
         source_token_cap=active.report_source_token_cap,
         max_model_calls=active.report_max_model_calls,
-        safety_percent=active.report_context_safety_percent,
+        safety_percent=provider_report_safety_percent(active),
     )
 
 

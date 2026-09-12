@@ -15,6 +15,7 @@ from app.models.item import Item
 from app.models.item_classification import ItemClassification
 from app.models.tag import ItemTag, Tag
 from app.services.ai_config import ActiveAISettings
+from app.services.ai_provider_protocol import provider_capability_snapshot
 from app.services.ai_telemetry_data_policy import (
     capture_ai_usage_event_data_access,
 )
@@ -119,6 +120,7 @@ def compute_item_source_hash(
         {
             "settings": {
                 "model": active.model,
+                **provider_capability_snapshot(active),
                 "provider_id": str(active.provider_id) if getattr(active, "provider_id", None) else None,
                 "provider_version": getattr(active, "provider_version", None),
                 "provider_type": active.provider_type,

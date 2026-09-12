@@ -1174,9 +1174,10 @@ def _next_retry_max_completion_tokens(
         ceiling = min(MAX_AI_COMPLETION_TOKENS, maximum)
         return max(current, min(ceiling, max(current + 256, int(current * 1.5))))
     increment = 512 if feature_type == FEATURE_DAILY_BRIEF else 256
+    ceiling = min(MAX_AI_COMPLETION_TOKENS, maximum) if maximum is not None else MAX_AI_COMPLETION_TOKENS
     return max(
         current,
-        min(MAX_AI_COMPLETION_TOKENS, max(current + increment, int(current * 1.5))),
+        min(ceiling, max(current + increment, int(current * 1.5))),
     )
 
 
