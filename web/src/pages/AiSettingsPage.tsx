@@ -174,8 +174,9 @@ export function AiSettingsPage() {
         endTime: reprocessEndTime.trim(),
         feedIds: [...reprocessFeedIds].sort(),
         selectedItemIds: selectedReprocessItems.map((item) => item.id).sort(),
+        itemSearch: reprocessItemSearch.trim(),
       }),
-    [reprocessDays, reprocessEndTime, reprocessFeedIds, reprocessLimit, reprocessStartTime, selectedReprocessItems],
+    [reprocessDays, reprocessEndTime, reprocessFeedIds, reprocessItemSearch, reprocessLimit, reprocessStartTime, selectedReprocessItems],
   )
   const rawReprocessScopeDirty = useMemo(
     () =>
@@ -184,8 +185,9 @@ export function AiSettingsPage() {
       reprocessStartTime.trim() !== '' ||
       reprocessEndTime.trim() !== '' ||
       reprocessFeedIds.length > 0 ||
-      selectedReprocessItems.length > 0,
-    [reprocessDays, reprocessEndTime, reprocessFeedIds, reprocessLimit, reprocessStartTime, selectedReprocessItems],
+      selectedReprocessItems.length > 0 ||
+      reprocessItemSearch.trim() !== '',
+    [reprocessDays, reprocessEndTime, reprocessFeedIds, reprocessItemSearch, reprocessLimit, reprocessStartTime, selectedReprocessItems],
   )
   const reprocessScopeDirty = isReprocessScopeDirty(
     rawReprocessScopeDirty,
@@ -500,8 +502,10 @@ export function AiSettingsPage() {
         method: 'POST',
         body: JSON.stringify(payload),
       }),
-    onSuccess: (result) => {
-      clearReprocessScope()
+    onMutate: () => reprocessScopeFingerprint,
+    onSuccess: (result, _payload, submittedScope) => {
+      if (submittedScope === reprocessScopeFingerprint) clearReprocessScope()
+      else setQueuedReprocessScopeFingerprint(null)
       setNotice({ tone: 'success', message: `Queued AI reprocessing run ${result.run_id ?? result.task_id}.` })
       markAiQueriesStale(queryClient)
     },
