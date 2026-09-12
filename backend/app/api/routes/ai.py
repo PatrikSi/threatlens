@@ -1,5 +1,6 @@
 import logging
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
 from starlette.responses import JSONResponse
@@ -294,8 +295,8 @@ def test_ai_connection_route(
     finish_ai_task_run(
         db,
         run_id=run.id,
-        status=AI_STATUS_READY if result.success else AI_STATUS_ERROR,
-        reason=None if result.success else "unexpected_response",
+        status=AI_STATUS_SKIPPED if result.skipped else AI_STATUS_READY if result.success else AI_STATUS_ERROR,
+        reason=result.skip_reason if result.skipped else None if result.success else "unexpected_response",
         error=result.error,
         worker_name="api",
         model=result.model,
@@ -787,7 +788,15 @@ def _enqueue_task_run_or_fail(
     if db.get(AIWorkflowDispatch, run_id) is not None:
         # Registration committed with acceptance. Broker failure leaves accepted
         # work queued for the durable dispatcher instead of discarding it.
-        return publish_ai_workflow(run_id)
+        bind = db.get_bind()
+        db.commit()  # Release the request's connection before the short dispatch transactions.
+
+        @contextmanager
+        def publication_session():
+            with Session(bind=bind) as publication_db:
+                yield publication_db
+
+        return publish_ai_workflow(run_id, session_factory=publication_session)
     try:
         return task_factory()
     except Exception as exc:

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import random
 import time
 import uuid
@@ -28,7 +27,6 @@ from app.services import ai_prompting as _ai_prompting
 from app.services import ai_provider_client as _ai_provider_client
 from app.services.ai_workflow_recovery import owns_pending_daily_brief
 from app.services.ai_config import ActiveAISettings, load_active_ai_settings
-from app.services.ai_connection_diagnostics import connection_test_error
 from app.services.ai_egress_data_policy import (
     AIEgressPolicyError,
     enforce_ai_egress_data_policy as _enforce_ai_egress_data_policy,
@@ -155,56 +153,10 @@ def test_ai_connection(
     active_settings: ActiveAISettings | None = None,
     request_authorization: AuthorizationContext | None = None,
 ) -> AITestConnectionResponse:
-    active = active_settings or load_active_ai_settings(db, use_legacy=True)
-    if not active.ai_enabled:
-        raise AIIntegrationError("AI features are disabled")
-    if not active.ai_configured:
-        raise AIIntegrationError(
-            active.configuration_error or "Configure the AI base URL and model before testing the connection"
-        )
+    from app.services.ai_connection_workflow import run_connection_test
 
-    try:
-        completion = _request_json_with_usage(
-            db,
-            active,
-            feature_type=FEATURE_CONNECTION_TEST,
-            task_run_id=task_run_id,
-            provider_operation_scope="connection_test",
-            request_authorization=request_authorization,
-            messages=[
-                {
-                    "role": "system",
-                    "content": "Return only JSON. Do not include markdown code fences.",
-                },
-                {
-                    "role": "user",
-                    "content": json.dumps(
-                        {
-                            "task": "connection_test",
-                            "instructions": 'Return {"ok": true, "message": "ready"}.',
-                        }
-                    ),
-                },
-            ],
-        )
-    except AIIntegrationError as exc:
-        return AITestConnectionResponse(
-            success=False,
-            latency_ms=None,
-            provider="openai_compatible",
-            model=active.model,
-            error=connection_test_error(active, exc),
-        )
-
-    return AITestConnectionResponse(
-        success=bool(completion.payload.get("ok") is True),
-        latency_ms=completion.latency_ms,
-        provider="openai_compatible",
-        model=completion.model,
-        error=None
-        if completion.payload.get("ok") is True
-        else "Unexpected response from AI endpoint",
-    )
+    return run_connection_test(db, request_json=_request_json_with_usage, task_run_id=task_run_id,
+        active_settings=active_settings, request_authorization=request_authorization)
 
 
 def generate_item_ai_enrichment(
@@ -378,7 +330,7 @@ def run_item_ai_enrichment(
                 status="error",
                 error=str(exc),
                 generated_at=generated_at,
-                updated_at=generated_at,
+                updated_at=claim_updated_at,
             )
         )
         enrichment = _load_item_enrichment(db, item_id=item_id)
@@ -460,7 +412,7 @@ def run_item_ai_enrichment(
             latency_ms=completion.latency_ms,
             error=None,
             generated_at=generated_at,
-            updated_at=generated_at,
+            updated_at=claim_updated_at,
         )
     )
     enrichment = _load_item_enrichment(db, item_id=item_id)
@@ -801,7 +753,7 @@ def run_daily_brief_generation(
                 status="error",
                 error=str(exc),
                 generated_at=generated_at,
-                updated_at=generated_at,
+                updated_at=claim_updated_at,
             )
         )
         brief = _load_daily_brief(db, brief_id=brief_id)
@@ -872,7 +824,7 @@ def run_daily_brief_generation(
             latency_ms=completion.latency_ms,
             error=None,
             generated_at=generated_at,
-            updated_at=generated_at,
+            updated_at=claim_updated_at,
         )
     )
     brief = _load_daily_brief(db, brief_id=brief_id)

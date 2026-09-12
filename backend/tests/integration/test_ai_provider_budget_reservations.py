@@ -174,3 +174,24 @@ def test_budget_settings_roundtrip_preserve_omission_and_audit_applied_values(cl
     assert audit.metadata_json["provider_limits"] == {"max_concurrent_requests": 2, "hourly_token_budget": 10000}
     assert "max_concurrent_requests" not in audit.metadata_json.get("changed_fields", [])
     assert "hourly_token_budget" not in audit.metadata_json.get("changed_fields", [])
+
+
+def test_new_admissions_prune_retired_provider_history_in_bounded_batches(database_engine, active):
+    old_key = f"profile:{uuid.uuid4()}"
+    now = datetime.now(timezone.utc)
+    with Session(database_engine) as db:
+        db.add_all(AIProviderBudgetReservation(provider_key=old_key, reserved_tokens=128,
+            created_at=now - timedelta(hours=3), expires_at=now - timedelta(hours=2)) for _ in range(105))
+        recent = AIProviderBudgetReservation(provider_key=old_key, reserved_tokens=128,
+            created_at=now - timedelta(minutes=30), expires_at=now - timedelta(minutes=20))
+        db.add(recent)
+        db.commit()
+        try:
+            assert reserve(db, active)
+            remaining = db.scalars(select(AIProviderBudgetReservation).where(
+                AIProviderBudgetReservation.provider_key == old_key)).all()
+            assert len(remaining) == 6
+            assert recent.id in {entry.id for entry in remaining}
+        finally:
+            db.execute(delete(AIProviderBudgetReservation).where(AIProviderBudgetReservation.provider_key == old_key))
+            db.commit()

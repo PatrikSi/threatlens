@@ -1,3 +1,4 @@
+from app.models.ai_provider_budget import AIProviderBudgetState, AIProviderBudgetReservation
 from app.models.lifecycle_pruning import LifecyclePruningRecord
 from app.models.ai_daily_brief import AIDailyBrief
 from app.models.ai_daily_brief_source_item import AIDailyBriefSourceItem
@@ -126,6 +127,8 @@ from app.models.user import User
 from app.models.workspace import WorkspaceRolePolicy, WorkspaceUserPreference
 
 __all__ = [
+    "AIProviderBudgetState",
+    "AIProviderBudgetReservation",
     "ProcessingDispatchState",
     "ProcessingWork",
     "ProcessingRecoveryRun",
@@ -141,6 +144,9 @@ __all__ = [
     "AISettings",
     "AITaskEvent",
     "AITaskRun",
+    "AIReportStageArtifact",
+    "AIReprocessMember",
+    "AIWorkflowDispatch",
     "AIUsageEvent",
     "ApiToken",
     "AccessReviewApplyReceipt",

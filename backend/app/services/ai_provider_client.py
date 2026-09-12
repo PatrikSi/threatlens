@@ -19,7 +19,8 @@ from app.services.ai_provider_protocol import build_provider_request_payload
 from app.services.ai_provider_exchange import sanitize_provider_exchange
 from app.services.safe_fetch import SafeFetchError
 from app.services.bounded_response import ResponseBodyTooLarge, read_bounded_response
-from app.services.outbound_deadline import outbound_deadline
+from app.services.outbound_deadline import OutboundDNSDeadlineExceeded, outbound_deadline
+from app.services.ai_failure_categories import http_failure_category, transport_failure_category
 
 
 AIProviderIOOutcome = Literal["not_sent", "response_received", "ambiguous"]
@@ -200,6 +201,7 @@ def call_ai_json(
     except ResponseBodyTooLarge as exc:
         raise AIIntegrationError(
             "AI response exceeds configured byte cap",
+            failure_category="response_too_large",
             request_url=request_url,
             request_payload=request_payload,
             status_code=streamed.status_code,
@@ -222,10 +224,12 @@ def call_ai_json(
             response_json=response_json,
             status_code=exc.response.status_code,
             retryable=ai_status_code_is_retryable(exc.response.status_code),
+            failure_category=http_failure_category(exc.response.status_code),
             provider_io_outcome=AI_PROVIDER_IO_RESPONSE_RECEIVED,
             latency_ms=int((time.perf_counter() - started_at) * 1000),
         ) from exc
     except (
+        OutboundDNSDeadlineExceeded,
         httpx.ConnectError,
         httpx.ConnectTimeout,
         httpx.PoolTimeout,
@@ -235,6 +239,8 @@ def call_ai_json(
     ) as exc:
         raise AIIntegrationError(
             f"AI request failed: {exc}",
+            failure_category=transport_failure_category(exc),
+            latency_ms=int((time.perf_counter() - started_at) * 1000),
             request_url=request_url,
             request_payload=request_payload,
             retryable=True,
@@ -243,6 +249,8 @@ def call_ai_json(
     except (httpx.HTTPError, ValueError) as exc:
         raise AIIntegrationError(
             f"AI request outcome is unknown: {exc}",
+            failure_category=transport_failure_category(exc),
+            latency_ms=int((time.perf_counter() - started_at) * 1000),
             request_url=request_url,
             request_payload=request_payload,
             retryable=False,
@@ -256,6 +264,7 @@ def call_ai_json(
     except ValueError as exc:
         raise AIIntegrationError(
             "AI endpoint returned non-JSON output",
+            failure_category="invalid_json",
             request_url=request_url,
             request_payload=request_payload,
             response_body=response_body,
@@ -275,6 +284,7 @@ def call_ai_json(
             status_code=response.status_code,
             latency_ms=latency_ms,
             retryable=not looks_like_provider_auth_error(provider_error_message),
+            failure_category="provider_response_error",
             provider_io_outcome=AI_PROVIDER_IO_RESPONSE_RECEIVED,
         )
 
@@ -286,6 +296,7 @@ def call_ai_json(
     except (KeyError, IndexError, TypeError) as exc:
         raise AIIntegrationError(
             "AI endpoint returned an unexpected response shape",
+            failure_category="invalid_output",
             request_url=request_url,
             request_payload=request_payload,
             response_body=response_body,
@@ -310,6 +321,7 @@ def call_ai_json(
             response_json=payload,
             status_code=response.status_code,
             latency_ms=latency_ms,
+            failure_category="provider_refusal",
             retry_hint="provider_content_filter" if finish_reason == "content_filter" else "provider_refusal",
             retryable=False,
             provider_io_outcome=AI_PROVIDER_IO_RESPONSE_RECEIVED,
@@ -327,6 +339,7 @@ def call_ai_json(
             response_json=payload,
             status_code=response.status_code,
             latency_ms=latency_ms,
+            failure_category="truncated_output",
             retry_hint="expand_completion_budget",
             retryable=True,
             provider_io_outcome=AI_PROVIDER_IO_RESPONSE_RECEIVED,
@@ -337,6 +350,7 @@ def call_ai_json(
     except AIIntegrationError as exc:
         raise AIIntegrationError(
             str(exc),
+            failure_category="invalid_json",
             request_url=request_url,
             request_payload=request_payload,
             response_body=response_body,

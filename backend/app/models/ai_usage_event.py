@@ -22,6 +22,7 @@ class AIUsageEvent(Base):
     __tablename__ = "ai_usage_events"
     __table_args__ = (
         Index("ix_ai_usage_events_item_id", "item_id"),
+        Index("ix_ai_usage_provider_created", "provider_id", "created_at"),
         Index("ix_ai_usage_events_daily_brief_id", "daily_brief_id"),
         Index("ix_ai_usage_events_report_id", "report_id"),
         Index("ix_ai_usage_events_task_run_snapshot", "task_run_id_snapshot"),
@@ -42,6 +43,12 @@ class AIUsageEvent(Base):
     success: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     provider: Mapped[str | None] = mapped_column(String(64), nullable=True)
     model: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    # Immutable attribution survives profile deletion and same-model routing changes.
+    provider_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True))
+    provider_version: Mapped[int | None] = mapped_column(Integer)
+    provider_name: Mapped[str | None] = mapped_column(String(120))
+    failure_category: Mapped[str | None] = mapped_column(String(64))
+    provider_io_outcome: Mapped[str | None] = mapped_column(String(32))
     item_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), ForeignKey("items.id", ondelete="SET NULL"), nullable=True)
     daily_brief_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True),

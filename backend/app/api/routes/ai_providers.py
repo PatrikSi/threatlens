@@ -33,6 +33,7 @@ from app.services.ai_ops import (
     AI_TASK_TYPE_CONNECTION_TEST,
     AI_TRIGGER_MANUAL,
     AI_STATUS_READY,
+    AI_STATUS_SKIPPED,
     AI_STATUS_ERROR,
     queue_ai_task_run,
     start_ai_task_run,
@@ -328,8 +329,8 @@ def test_ai_provider_connection_route(
     finish_ai_task_run(
         db,
         run_id=run.id,
-        status=AI_STATUS_READY if result.success else AI_STATUS_ERROR,
-        reason=None if result.success else "connection_test_failed",
+        status=AI_STATUS_SKIPPED if result.skipped else AI_STATUS_READY if result.success else AI_STATUS_ERROR,
+        reason=result.skip_reason if result.skipped else None if result.success else "connection_test_failed",
         error=result.error,
         worker_name="api",
         model=result.model,
