@@ -474,6 +474,13 @@ jobs:
           timeout 1m docker compose exec -T api python -m alembic current | grep -F '(head)'
           docker compose ps
 
+      - name: Verify access logs omit sensitive query values
+        run: >-
+          timeout 1m python3 scripts/verify_access_log_privacy.py
+          --base-url http://localhost:3000
+          --container "$(docker compose ps -q web)"
+          --container "$(docker compose ps -q api)"
+
       - name: Scan backend image
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:

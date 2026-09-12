@@ -17,15 +17,16 @@ _LOG_CONTEXT: ContextVar[dict[str, str] | None] = ContextVar(
     "threatlens_log_context",
     default=None,
 )
-_BEARER_PATTERN = re.compile(r"(?i)\b(Bearer\s+)[A-Za-z0-9._~+\-/]+=*")
+_AUTHORIZATION_PATTERN = re.compile(r"(?i)\b((?:Bearer|Basic)\s+)[A-Za-z0-9._~+\-/]+=*")
 _URL_CREDENTIAL_PATTERN = re.compile(
     r"(?P<scheme>[a-z][a-z0-9+.-]*://)(?P<credentials>[^/@\s]+)@", re.IGNORECASE
 )
 _SENSITIVE_VALUE_PATTERN = re.compile(
     r"(?i)([\"']?\b(?:password|passwd|secret|token|access[_-]?token|refresh[_-]?token|id[_-]?token|"
     r"api[_-]?key|authorization|cookie|csrf|smtp[_-]?password|client[_-]?secret|authorization[_-]?code)\b[\"']?"
-    r"\s*[=:]\s*[\"']?)([^\s,;&}\"']+)"
+    r"\s*[=:]\s*)(\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'|[^\s,;&}\"']+)"
 )
+_CONTROL_PATTERN = re.compile(r"[\x00-\x1f\x7f\u0085\u2028\u2029]")
 _SAFE_RECORD_FIELDS = (
     "request_id",
     "task_id",
@@ -96,12 +97,33 @@ def get_log_context() -> dict[str, str]:
 
 def redact_log_text(value: object, *, max_chars: int = 20_000) -> str:
     text = str(value)
-    text = _BEARER_PATTERN.sub(r"\1[REDACTED]", text)
+    text = _AUTHORIZATION_PATTERN.sub(r"\1[REDACTED]", text)
     text = _URL_CREDENTIAL_PATTERN.sub(r"\g<scheme>[REDACTED]@", text)
     text = _SENSITIVE_VALUE_PATTERN.sub(r"\1[REDACTED]", text)
     if len(text) > max_chars:
         return f"{text[:max_chars]}...[truncated {len(text) - max_chars} chars]"
     return text
+
+
+def _single_line(value: str) -> str:
+    """Keep untrusted text from forging extra physical log records."""
+    return _CONTROL_PATTERN.sub(lambda match: ascii(match.group())[1:-1], value)
+
+
+def _record_message(record: logging.LogRecord) -> str:
+    # Uvicorn's access record includes the complete query string, including OIDC
+    # codes and analyst searches. Format a copy so other handlers are unaffected.
+    if record.name == "uvicorn.access" and isinstance(record.args, tuple) and len(record.args) == 5:
+        client, method, target, version, status = record.args
+        target = str(target).split("?", 1)[0].split("#", 1)[0]
+        return str(record.msg) % (client, method, target, version, status)
+    return record.getMessage()
+
+
+def _safe_context_value(value: object) -> object:
+    if isinstance(value, (bool, int, float)):
+        return value
+    return redact_log_text(value, max_chars=512)
 
 
 class DiagnosticContextFilter(logging.Filter):
@@ -122,18 +144,18 @@ class ThreatLensTextFormatter(logging.Formatter):
             timespec="milliseconds"
         )
         context = " ".join(
-            f"{field}={redact_log_text(getattr(record, field), max_chars=512)}"
+            f"{field}={_single_line(str(_safe_context_value(getattr(record, field))))}"
             for field in _SAFE_RECORD_FIELDS
             if getattr(record, field, None) not in (None, "")
         )
-        message = redact_log_text(record.getMessage(), max_chars=self.max_chars)
+        message = _single_line(redact_log_text(_record_message(record), max_chars=self.max_chars))
         rendered = f"{timestamp} level={record.levelname} logger={record.name}"
         if context:
             rendered = f"{rendered} {context}"
         rendered = f"{rendered} {message}"
         if record.exc_info:
             exception_text = "".join(traceback.format_exception(*record.exc_info))
-            rendered = f"{rendered}\n{redact_log_text(exception_text, max_chars=self.max_chars)}"
+            rendered = f"{rendered} exception={_single_line(redact_log_text(exception_text, max_chars=self.max_chars))}"
         return rendered
 
 
@@ -149,12 +171,12 @@ class ThreatLensJsonFormatter(logging.Formatter):
             ),
             "level": record.levelname,
             "logger": record.name,
-            "message": redact_log_text(record.getMessage(), max_chars=self.max_chars),
+            "message": redact_log_text(_record_message(record), max_chars=self.max_chars),
         }
         for field in _SAFE_RECORD_FIELDS:
             value = getattr(record, field, None)
             if value not in (None, ""):
-                payload[field] = value
+                payload[field] = _safe_context_value(value)
         if record.exc_info:
             exception_text = "".join(traceback.format_exception(*record.exc_info))
             payload["exception"] = redact_log_text(
