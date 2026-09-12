@@ -2,7 +2,7 @@
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { expect, it } from 'vitest'
-import corpus from '../../../tests/fixtures/report-citation-corpus.json'
+import corpus from '../../tests/fixtures/report-citation-corpus.json'
 import { ReportMarkdownText } from './ReportMarkdownText'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
