@@ -49,6 +49,7 @@ from app.services.ai_config import (
     get_or_create_ai_settings,
     load_active_ai_settings,
 )
+from app.services.ai_connection_lifecycle import finish_connection_test
 from app.services.ai_integration import (
     AIIntegrationError,
     daily_brief_response_from_model,
@@ -294,29 +295,7 @@ def test_ai_connection_route(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         ) from exc
 
-    finish_ai_task_run(
-        db,
-        run_id=run.id,
-        status=AI_STATUS_SKIPPED if result.skipped else AI_STATUS_READY if result.success else AI_STATUS_ERROR,
-        reason=result.skip_reason if result.skipped else None if result.success else "unexpected_response",
-        error=result.error,
-        worker_name="api",
-        model=result.model,
-        latency_ms=result.latency_ms,
-    )
-    record_audit(
-        db,
-        actor_user_id=admin.id,
-        action="ai.connection.test",
-        resource_type="ai_settings",
-        success=result.success,
-        metadata={
-            "model": result.model,
-            "latency_ms": result.latency_ms,
-            "run_id": str(run.id),
-        },
-    )
-    db.commit()
+    finish_connection_test(db, run_id=run.id, result=result, actor_user_id=admin.id)
     return result
 
 

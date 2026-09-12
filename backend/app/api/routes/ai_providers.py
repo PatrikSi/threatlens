@@ -28,15 +28,12 @@ from app.schemas.ai_provider_capabilities import capability_values
 from app.schemas.ai import AIProviderTestConnectionRequest, AITestConnectionResponse
 from app.services.ai_config import load_active_ai_settings
 from app.services.ai_integration import test_ai_connection
+from app.services.ai_connection_lifecycle import finish_connection_test
 from app.services.ai_ops import (
     AI_TASK_TYPE_CONNECTION_TEST,
     AI_TRIGGER_MANUAL,
-    AI_STATUS_READY,
-    AI_STATUS_SKIPPED,
-    AI_STATUS_ERROR,
     queue_ai_task_run,
     start_ai_task_run,
-    finish_ai_task_run,
 )
 from app.services.ai_provider_selection import PROVIDER_SELECTION_KEY
 from app.schemas.ai_providers import (
@@ -318,24 +315,6 @@ def test_ai_provider_connection_route(
         active_settings=active,
         request_authorization=authorization,
     )
-    finish_ai_task_run(
-        db,
-        run_id=run.id,
-        status=AI_STATUS_SKIPPED if result.skipped else AI_STATUS_READY if result.success else AI_STATUS_ERROR,
-        reason=result.skip_reason if result.skipped else None if result.success else "connection_test_failed",
-        error=result.error,
-        worker_name="api",
-        model=result.model,
-        latency_ms=result.latency_ms,
-    )
-    record_audit(
-        db,
-        actor_user_id=admin.id,
-        action="ai.provider.test",
-        resource_type="ai_provider",
-        resource_id=str(provider_id),
-        success=result.success,
-        metadata={"version": payload.version, "run_id": str(run.id)},
-    )
-    db.commit()
+    finish_connection_test(db, run_id=run.id, result=result, actor_user_id=admin.id,
+                           provider=(provider_id, payload.version))
     return result
