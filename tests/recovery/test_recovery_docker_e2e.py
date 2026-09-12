@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 import secrets
 import shlex
 import shutil
@@ -13,6 +14,7 @@ from pathlib import Path
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 RECOVERY = REPOSITORY_ROOT / "scripts" / "recovery" / "threatlens-recovery.sh"
 COMPOSE_FILE = REPOSITORY_ROOT / "tests" / "recovery" / "docker-compose.e2e.yml"
+ENTERPRISE_FIXTURE = REPOSITORY_ROOT / "tests" / "recovery" / "enterprise_fixture.py"
 PROJECT = f"threatlens-recovery-e2e-{secrets.token_hex(6)}"
 
 
@@ -138,6 +140,7 @@ class RecoveryDockerEndToEndTests(unittest.TestCase):
         hook.chmod(0o700)
         confirmation = self._recovery(
             "restore", "--backup", backup, "--show-confirmation",
+            "--quarantine-hook", str(hook),
         ).stdout.strip()
         failed = self._recovery(
             "restore", "--backup", backup, "--confirm", confirmation,
@@ -296,6 +299,8 @@ class RecoveryDockerEndToEndTests(unittest.TestCase):
         ), "false")
         denied = self._compose("run", "--rm", "--no-deps", "api", "alembic", "downgrade", "-1", check=False)
         self.assertNotEqual(denied.returncode, 0)
+        seeded = self._compose("run", "--rm", "--no-deps", "api", "python", "-c", ENTERPRISE_FIXTURE.read_text(), "seed")
+        publication_pins = json.dumps(json.loads(seeded.stdout.strip().splitlines()[-1]))
         self._compose("run", "--rm", "--no-deps", "api", "python", "-c", """
 from datetime import datetime, timedelta, timezone
 import uuid
@@ -419,6 +424,7 @@ with SessionLocal() as db:
         ), "1")
 
         self.assertIn("RESTORE_STATUS=completed_quarantined", restore.stdout)
+        self._compose("run", "--rm", "--no-deps", "api", "python", "-c", ENTERPRISE_FIXTURE.read_text(), "verify", publication_pins)
         self.assertEqual(
             self._psql("SELECT value FROM recovery_e2e_marker;"), "before-backup"
         )

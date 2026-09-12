@@ -469,6 +469,16 @@ production target before the hook runs, so historical archives use the current
 quarantine schema contract instead of brittle direct-schema branches. Exit zero
 is accepted only after the phase is complete.
 
+Completed publications keep their original approval and evidence pins, including
+the delivery intent captured in that revision. Quarantine suppresses their
+outbound work through disabled integrations and subscriptions and terminal
+events and deliveries; retaining historical delivery intent does not resume a
+send. Other reports have delivery requests cleared, and active generation is
+interrupted. A review or approval made stale by that change must return to draft
+and be reviewed again. Published reports remain readable and exportable without
+rewriting their approval history. Resuming any delivery remains an explicit
+operator action after recovery validation.
+
 Override the default only with a reviewed hook using --quarantine-hook
 /absolute/path/to/hook or THREATLENS_POST_RESTORE_HOOK. Symlink hooks are
 rejected. Run the default or replacement preflight directly during change review
