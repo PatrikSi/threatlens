@@ -250,3 +250,11 @@ It does not send an external email or webhook notification. The Operations tab's
 30-day occurrence totals use the selected team's scope; without a named team,
 they remain the current user's personal totals. Evaluation-worker diagnostics
 remain system-wide administrator information.
+
+Migration `0103_shared_triage_queues` requires the matching API and evaluation
+workers before team watchlists are created. Stop classification and alert
+producers/workers during the migration and replace all affected workers before
+resuming queues. Old workers assume a personal owner and cannot process team
+rules. The compatibility trigger versions deadline-default changes and rejects
+ownership changes; it does not make old evaluation workers team-aware. See
+[Named team workspaces](teams.md) for group configuration and shared ownership.
