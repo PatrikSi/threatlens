@@ -23,7 +23,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from joserfc import jwt
 from joserfc.jwk import RSAKey
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select, text, update
 import uvicorn
 
@@ -127,8 +127,12 @@ def evaluate_fixture_alerts(item_id: uuid.UUID):
         return {"occurrences": outcome.occurrences_created, "events": len(outcome.integration_event_ids)}
 
 
+class BrowserExportItemRequest(BaseModel):
+    keyword: str = Field(default="", pattern=r"^[a-z0-9]{0,40}$")
+
+
 @harness.post("/__browser__/export-item", dependencies=[Depends(require_control)])
-def create_export_item():
+def create_export_item(payload: BrowserExportItemRequest | None = None):
     with SessionLocal.begin() as db:
         feed = db.scalar(select(Feed).limit(1))
         identity = uuid.uuid4()
@@ -136,7 +140,7 @@ def create_export_item():
             id=identity, feed_id=feed.id, source_guid=str(identity),
             url=f"https://source.example.com/{identity}",
             canonical_url=f"https://source.example.com/{identity}",
-            title=f"Browser export proof {identity}",
+            title=f"Browser export proof {identity}" + (f" {payload.keyword}" if payload and payload.keyword else ""),
             summary="Synthetic browser export summary", dedupe_key=str(identity),
             content_hash="a" * 64, status="content_fetched",
         )
