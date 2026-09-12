@@ -8,6 +8,7 @@ from sqlalchemy import case, func, select
 from sqlalchemy.engine import Row
 from sqlalchemy.orm import Session
 
+from app.db.text_projection import stripped_text
 from app.models.article import Article
 from app.models.feed import Feed
 from app.models.item import Item
@@ -71,7 +72,7 @@ def load_brief_sources(
         .cte("brief_candidates")
     )
     selected = candidates.c.position <= selected_limit
-    primary = func.coalesce(func.nullif(func.trim(Item.summary), ""), Article.text)
+    primary = func.coalesce(func.nullif(stripped_text(Item.summary), ""), Article.text)
     rows = db.execute(
         select(
             Item.id,
