@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "1.10.0",
-    "x-threatlens-contract-sha256": "6261bb35e2ebff34d1b49e32902ff31985e4eaa4fcb411731f5652ca0fc44944"
+    "x-threatlens-contract-sha256": "0be859892e6a39851fa7d606f46c1477fd695b2174ccb9a4d775bc02014ce47b"
   },
   "servers": [
     {
@@ -16447,6 +16447,16 @@
               }
             }
           },
+          "202": {
+            "description": "Accepted; queued until provider capacity is available.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIWorkflowDeferredResponse"
+                }
+              }
+            }
+          },
           "401": {
             "description": "Authentication is required or the credential is invalid",
             "content": {
@@ -18217,6 +18227,115 @@
         },
         "x-threatlens-required-token-scopes": [
           "write:ai"
+        ]
+      }
+    },
+    "/v1/ai/ops/providers": {
+      "get": {
+        "tags": [
+          "ai"
+        ],
+        "summary": "Get Ai Provider Usage",
+        "operationId": "get_ai_provider_usage_v1_ai_ops_providers_get",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 365,
+              "minimum": 1,
+              "default": 30,
+              "title": "Days"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 25,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIProviderUsageResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "read:ai"
         ]
       }
     },
@@ -29101,6 +29220,84 @@
       },
       "AIProviderCreate": {
         "properties": {
+          "request_dialect": {
+            "type": "string",
+            "enum": [
+              "chat_completions",
+              "chat_completions_modern"
+            ],
+            "title": "Request Dialect",
+            "default": "chat_completions"
+          },
+          "reasoning_effort": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "none",
+                  "minimal",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasoning Effort"
+          },
+          "structured_output_mode": {
+            "type": "string",
+            "enum": [
+              "off",
+              "json_object"
+            ],
+            "title": "Structured Output Mode",
+            "default": "off"
+          },
+          "model_context_window_tokens": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 2097152.0,
+                "minimum": 2048.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Context Window Tokens"
+          },
+          "model_max_output_tokens": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 131072.0,
+                "minimum": 128.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Max Output Tokens"
+          },
+          "max_concurrent_requests": {
+            "type": "integer",
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "Max Concurrent Requests",
+            "default": 0
+          },
+          "hourly_token_budget": {
+            "type": "integer",
+            "maximum": 1000000000000.0,
+            "minimum": 0.0,
+            "title": "Hourly Token Budget",
+            "default": 0
+          },
           "name": {
             "type": "string",
             "maxLength": 120,
@@ -29126,9 +29323,16 @@
             "title": "Model"
           },
           "temperature": {
-            "type": "number",
-            "maximum": 2.0,
-            "minimum": 0.0,
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 2.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Temperature",
             "default": 0.2
           },
@@ -29225,6 +29429,84 @@
       },
       "AIProviderResponse": {
         "properties": {
+          "request_dialect": {
+            "type": "string",
+            "enum": [
+              "chat_completions",
+              "chat_completions_modern"
+            ],
+            "title": "Request Dialect",
+            "default": "chat_completions"
+          },
+          "reasoning_effort": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "none",
+                  "minimal",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasoning Effort"
+          },
+          "structured_output_mode": {
+            "type": "string",
+            "enum": [
+              "off",
+              "json_object"
+            ],
+            "title": "Structured Output Mode",
+            "default": "off"
+          },
+          "model_context_window_tokens": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 2097152.0,
+                "minimum": 2048.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Context Window Tokens"
+          },
+          "model_max_output_tokens": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 131072.0,
+                "minimum": 128.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Max Output Tokens"
+          },
+          "max_concurrent_requests": {
+            "type": "integer",
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "Max Concurrent Requests",
+            "default": 0
+          },
+          "hourly_token_budget": {
+            "type": "integer",
+            "maximum": 1000000000000.0,
+            "minimum": 0.0,
+            "title": "Hourly Token Budget",
+            "default": 0
+          },
           "name": {
             "type": "string",
             "maxLength": 120,
@@ -29250,9 +29532,16 @@
             "title": "Model"
           },
           "temperature": {
-            "type": "number",
-            "maximum": 2.0,
-            "minimum": 0.0,
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 2.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Temperature",
             "default": 0.2
           },
@@ -29474,6 +29763,84 @@
       },
       "AIProviderUpdate": {
         "properties": {
+          "request_dialect": {
+            "type": "string",
+            "enum": [
+              "chat_completions",
+              "chat_completions_modern"
+            ],
+            "title": "Request Dialect",
+            "default": "chat_completions"
+          },
+          "reasoning_effort": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "none",
+                  "minimal",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasoning Effort"
+          },
+          "structured_output_mode": {
+            "type": "string",
+            "enum": [
+              "off",
+              "json_object"
+            ],
+            "title": "Structured Output Mode",
+            "default": "off"
+          },
+          "model_context_window_tokens": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 2097152.0,
+                "minimum": 2048.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Context Window Tokens"
+          },
+          "model_max_output_tokens": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 131072.0,
+                "minimum": 128.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Max Output Tokens"
+          },
+          "max_concurrent_requests": {
+            "type": "integer",
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "Max Concurrent Requests",
+            "default": 0
+          },
+          "hourly_token_budget": {
+            "type": "integer",
+            "maximum": 1000000000000.0,
+            "minimum": 0.0,
+            "title": "Hourly Token Budget",
+            "default": 0
+          },
           "name": {
             "type": "string",
             "maxLength": 120,
@@ -29499,9 +29866,16 @@
             "title": "Model"
           },
           "temperature": {
-            "type": "number",
-            "maximum": 2.0,
-            "minimum": 0.0,
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 2.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Temperature",
             "default": 0.2
           },
@@ -29565,6 +29939,178 @@
           "version"
         ],
         "title": "AIProviderUpdate"
+      },
+      "AIProviderUsageResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AIProviderUsageRow"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "days": {
+            "type": "integer",
+            "title": "Days"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "days",
+          "limit",
+          "offset"
+        ],
+        "title": "AIProviderUsageResponse"
+      },
+      "AIProviderUsageRow": {
+        "properties": {
+          "provider_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Id"
+          },
+          "provider_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Version"
+          },
+          "provider_name": {
+            "type": "string",
+            "title": "Provider Name"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "total_requests": {
+            "type": "integer",
+            "title": "Total Requests"
+          },
+          "successful_requests": {
+            "type": "integer",
+            "title": "Successful Requests"
+          },
+          "failed_requests": {
+            "type": "integer",
+            "title": "Failed Requests"
+          },
+          "success_rate_pct": {
+            "type": "number",
+            "title": "Success Rate Pct"
+          },
+          "prompt_tokens": {
+            "type": "integer",
+            "title": "Prompt Tokens"
+          },
+          "completion_tokens": {
+            "type": "integer",
+            "title": "Completion Tokens"
+          },
+          "total_tokens": {
+            "type": "integer",
+            "title": "Total Tokens"
+          },
+          "unknown_token_requests": {
+            "type": "integer",
+            "title": "Unknown Token Requests"
+          },
+          "average_latency_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Average Latency Ms"
+          },
+          "p95_latency_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P95 Latency Ms"
+          },
+          "not_sent_requests": {
+            "type": "integer",
+            "title": "Not Sent Requests"
+          },
+          "ambiguous_requests": {
+            "type": "integer",
+            "title": "Ambiguous Requests"
+          },
+          "deadline_failures": {
+            "type": "integer",
+            "title": "Deadline Failures"
+          },
+          "failure_categories": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Failure Categories"
+          },
+          "last_request_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Last Request At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "provider_id",
+          "provider_version",
+          "provider_name",
+          "model",
+          "total_requests",
+          "successful_requests",
+          "failed_requests",
+          "success_rate_pct",
+          "prompt_tokens",
+          "completion_tokens",
+          "total_tokens",
+          "unknown_token_requests",
+          "average_latency_ms",
+          "p95_latency_ms",
+          "not_sent_requests",
+          "ambiguous_requests",
+          "deadline_failures",
+          "failure_categories",
+          "last_request_at"
+        ],
+        "title": "AIProviderUsageRow"
       },
       "AIQueuedTaskResponse": {
         "properties": {
@@ -29791,6 +30337,84 @@
       },
       "AISettingsResponse": {
         "properties": {
+          "request_dialect": {
+            "type": "string",
+            "enum": [
+              "chat_completions",
+              "chat_completions_modern"
+            ],
+            "title": "Request Dialect",
+            "default": "chat_completions"
+          },
+          "reasoning_effort": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "none",
+                  "minimal",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasoning Effort"
+          },
+          "structured_output_mode": {
+            "type": "string",
+            "enum": [
+              "off",
+              "json_object"
+            ],
+            "title": "Structured Output Mode",
+            "default": "off"
+          },
+          "model_context_window_tokens": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 2097152.0,
+                "minimum": 2048.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Context Window Tokens"
+          },
+          "model_max_output_tokens": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 131072.0,
+                "minimum": 128.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Max Output Tokens"
+          },
+          "max_concurrent_requests": {
+            "type": "integer",
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "Max Concurrent Requests",
+            "default": 0
+          },
+          "hourly_token_budget": {
+            "type": "integer",
+            "maximum": 1000000000000.0,
+            "minimum": 0.0,
+            "title": "Hourly Token Budget",
+            "default": 0
+          },
           "id": {
             "type": "string",
             "format": "uuid",
@@ -29848,7 +30472,14 @@
             "title": "Model"
           },
           "temperature": {
-            "type": "number",
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Temperature"
           },
           "max_completion_tokens": {
@@ -30136,6 +30767,84 @@
       },
       "AISettingsUpdate": {
         "properties": {
+          "request_dialect": {
+            "type": "string",
+            "enum": [
+              "chat_completions",
+              "chat_completions_modern"
+            ],
+            "title": "Request Dialect",
+            "default": "chat_completions"
+          },
+          "reasoning_effort": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "none",
+                  "minimal",
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasoning Effort"
+          },
+          "structured_output_mode": {
+            "type": "string",
+            "enum": [
+              "off",
+              "json_object"
+            ],
+            "title": "Structured Output Mode",
+            "default": "off"
+          },
+          "model_context_window_tokens": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 2097152.0,
+                "minimum": 2048.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Context Window Tokens"
+          },
+          "model_max_output_tokens": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 131072.0,
+                "minimum": 128.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Max Output Tokens"
+          },
+          "max_concurrent_requests": {
+            "type": "integer",
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "Max Concurrent Requests",
+            "default": 0
+          },
+          "hourly_token_budget": {
+            "type": "integer",
+            "maximum": 1000000000000.0,
+            "minimum": 0.0,
+            "title": "Hourly Token Budget",
+            "default": 0
+          },
           "provider_type": {
             "type": "string",
             "const": "openai_compatible",
@@ -30167,9 +30876,16 @@
             "title": "Model"
           },
           "temperature": {
-            "type": "number",
-            "maximum": 2.0,
-            "minimum": 0.0,
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 2.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Temperature",
             "default": 0.2
           },
@@ -31337,6 +32053,31 @@
           "features"
         ],
         "title": "AIUsageSummaryResponse"
+      },
+      "AIWorkflowDeferredResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "queued",
+            "title": "Status",
+            "default": "queued"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "run_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Run Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "reason",
+          "run_id"
+        ],
+        "title": "AIWorkflowDeferredResponse"
       },
       "AccessExplanationResponse": {
         "properties": {
