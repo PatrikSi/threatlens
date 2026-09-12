@@ -59,11 +59,28 @@ export function AiReliabilityStatistics({ days }: { days: number }) {
       {!data.features.length && <p className="py-3">No provider requests recorded in this window.</p>}
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <div><h3 className="font-semibold">Successful latency distribution</h3><dl className="mt-2 space-y-2 text-sm">{Object.entries(data.latency_histogram).map(([key, value]) => <Metric key={key} label={key.replaceAll('_', ' ')} value={value} />)}</dl></div>
-        <div><h3 className="font-semibold">Retry accounting</h3><dl className="mt-2 space-y-2 text-sm"><Metric label="Reserved provider retry attempts" value={data.provider_retry_attempts} /><Metric label="Recorded pre-send failures" value={data.recovered_pre_io_failures} /></dl><p className="mt-2 text-xs">Receipts linked to retained, accessible runs and created in this window. Reservations do not prove a request was sent; counts are not additional billable calls.</p></div>
+        <div>
+          <h3 className="font-semibold">Retry accounting</h3>
+          <dl className="mt-2 space-y-2 text-sm">
+            <Metric label="Reserved provider retry attempts" value={data.provider_retry_attempts} />
+            <Metric label="Recorded pre-send failures" value={data.recovered_pre_io_failures} />
+          </dl>
+          <p className="mt-2 text-xs">
+            Receipts linked to retained, accessible runs and created in this window. Reservations do not
+            prove a request was sent; counts are not additional billable calls.
+          </p>
+        </div>
       </div>
       <h3 className="mt-4 font-semibold">Current queue by feature</h3>
       {!data.queues.length && <p className="mt-2 text-sm">No queued or running accessible AI jobs.</p>}
-      <ul className="mt-2 space-y-2 text-sm">{data.queues.map((row) => <li key={row.feature} className="rounded border p-3"><strong>{row.feature.replaceAll('_', ' ')}</strong>: {row.queued} queued / {row.running} running<p>Oldest queued: {age(row.oldest_queued_at, data.until)} · oldest running: {age(row.oldest_running_at, data.until)}</p></li>)}</ul>
+      <ul className="mt-2 space-y-2 text-sm">
+        {data.queues.map((row) => (
+          <li key={row.feature} className="rounded border p-3">
+            <strong>{row.feature.replaceAll('_', ' ')}</strong>: {row.queued} queued / {row.running} running
+            <p>Oldest queued: {age(row.oldest_queued_at, data.until)} · oldest running: {age(row.oldest_running_at, data.until)}</p>
+          </li>
+        ))}
+      </ul>
     </>}
   </Panel>
 }
