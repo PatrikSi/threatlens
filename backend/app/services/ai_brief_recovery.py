@@ -79,8 +79,10 @@ def reconcile_interrupted_brief_attempts(
 
     if any(brief_attempt_is_settled(attempt) for attempt in attempts):
         return "ready"
-    if any(recover_completed_brief_attempt(db, attempt) for attempt in attempts):
-        return "ready"
+    for attempt in attempts:
+        if recover_completed_brief_attempt(db, attempt):
+            return "ready"
+        db.commit()  # A read-only miss must release its parent before the next child lock.
     if any(not safe_interrupted_brief_attempt(db, attempt) for attempt in attempts):
         finish_ai_task_run(
             db, run_id=parent.id, status="error", reason="provider_recovery_blocked",
@@ -99,16 +101,16 @@ def recover_completed_brief_attempt(db: Session, run: AITaskRun) -> bool:
                     .with_for_update().execution_options(populate_existing=True))
     if run is None or _attempt_canceled(run):
         return False
+    from app.services.ai_execution_ownership import AIExecutionSuperseded, ai_execution_stop_reason
+    stop_reason = ai_execution_stop_reason(db, run, lock_parent=True)
+    if stop_reason is not None:
+        raise AIExecutionSuperseded("Brief recovery execution was stopped or superseded.", reason=stop_reason)
     if run.daily_brief_id is not None:
         db.scalar(select(AIDailyBrief).where(AIDailyBrief.id == run.daily_brief_id)
                   .with_for_update().execution_options(populate_existing=True))
     brief = completed_brief_for_attempt(db, run)
     if brief is None:
         return False
-    from app.services.ai_execution_ownership import AIExecutionSuperseded, ai_execution_stop_reason
-    stop_reason = ai_execution_stop_reason(db, run, lock_parent=True)
-    if stop_reason is not None:
-        raise AIExecutionSuperseded("Brief recovery execution was stopped or superseded.", reason=stop_reason)
     # This is completion recovery of the original child, including a child
     # previously marked stale; it never submits a replacement provider call.
     run.status = "running"
