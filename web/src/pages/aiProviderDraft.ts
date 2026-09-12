@@ -1,7 +1,8 @@
 import type { AIProvider, AIProviderRouting, AIProviderWriteRequest } from '../types/ai'
 import { DEFAULT_DRAFT, validateAISettingsDraft } from './aiSettingsDraft'
+import { createCapabilitiesDraft, createCapabilitiesRequest, type ProviderCapabilitiesDraft } from './aiProviderCapabilitiesDraft'
 
-export type ProviderDraft = {
+export type ProviderDraft = ProviderCapabilitiesDraft & {
   name: string
   enabled: boolean
   base_url: string
@@ -25,11 +26,12 @@ export const ROUTING_FIELDS: { key: RoutingField; label: string }[] = [
 
 export function createProviderDraft(provider?: AIProvider): ProviderDraft {
   return {
+    ...createCapabilitiesDraft(provider),
     name: provider?.name ?? '',
     enabled: provider?.enabled ?? true,
     base_url: provider?.base_url ?? '',
     model: provider?.model ?? '',
-    temperature: String(provider?.temperature ?? 0.2),
+    temperature: provider?.temperature === null ? '' : String(provider?.temperature ?? 0.2),
     max_completion_tokens: String(provider?.max_completion_tokens ?? 5000),
     request_timeout_seconds: String(provider?.request_timeout_seconds ?? 300),
     request_max_retries: String(provider?.request_max_retries ?? 3),
@@ -71,12 +73,13 @@ export function createProviderRequestId(): string {
 
 export function createProviderRequest(draft: ProviderDraft): AIProviderWriteRequest {
   return {
+    ...createCapabilitiesRequest(draft),
     name: draft.name.trim(),
     enabled: draft.enabled,
     provider_type: 'openai_compatible',
     base_url: draft.base_url.trim(),
     model: draft.model.trim(),
-    temperature: Number(draft.temperature),
+    temperature: draft.temperature.trim() ? Number(draft.temperature) : null,
     max_completion_tokens: Number(draft.max_completion_tokens),
     request_timeout_seconds: Number(draft.request_timeout_seconds),
     request_max_retries: Number(draft.request_max_retries),

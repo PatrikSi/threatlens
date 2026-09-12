@@ -38,6 +38,11 @@ function change(label: string, value: string) {
   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(field, value)
   field.dispatchEvent(new Event('input', { bubbles: true }))
 }
+function select(label: string, value: string) {
+  const field = host.querySelector<HTMLSelectElement>(`select[aria-label="${label}"]`)!
+  field.value = value
+  field.dispatchEvent(new Event('change', { bubbles: true }))
+}
 function button(label: string) {
   return [...host.querySelectorAll('button')].find((node) => node.textContent?.trim() === label)!
 }
@@ -78,11 +83,21 @@ describe('saved AI settings with a real query cache', () => {
       change('Default completion tokens', '16000')
       change('Model Context Window', '65536')
       change('Initial report completion tokens', '8000')
+      change('Temperature', '')
+      change('Model context limit (tokens)', '65536')
+      change('Model output limit (tokens)', '16384')
+      select('Request format', 'chat_completions_modern')
+      select('Reasoning effort', 'low')
+      select('JSON response mode', 'json_object')
     })
     expect(button('Save changes').disabled).toBe(false)
     act(() => button('Save changes').click())
     await settle()
     expect(writes).toHaveLength(1)
+    expect(writes[0]).toMatchObject({
+      temperature: null, request_dialect: 'chat_completions_modern', reasoning_effort: 'low',
+      structured_output_mode: 'json_object', model_context_window_tokens: 65536, model_max_output_tokens: 16384,
+    })
     expect(reads).toBeGreaterThan(1)
     expect(input('Model').value).toBe('model-after-save')
     expect(input('Default completion tokens').value).toBe('16000')
@@ -101,7 +116,7 @@ describe('saved AI settings with a real query cache', () => {
     if (outcome === 'delayed') {
       act(() => button('Save changes').click())
       await settle()
-      expect(writes[1]).toMatchObject({ model: 'model-after-save', max_completion_tokens: 16000, company_name: 'Later unsaved edit' })
+      expect(writes[1]).toMatchObject({ model: 'model-after-save', max_completion_tokens: 16000, company_name: 'Later unsaved edit', temperature: null, reasoning_effort: 'low', model_max_output_tokens: 16384 })
     } else {
       expect(host.textContent).toContain('Settings refresh unavailable')
       expect(client.getQueryData<AISettings>(['ai', 'settings'])?.max_completion_tokens).toBe(16000)
