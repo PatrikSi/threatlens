@@ -39,6 +39,7 @@ This documentation covers:
 - [AI Implementation Review — 2026-09-12](./reviews/2026-09-12-ai-implementation-review.md)
 - [AI Hardening Implementation Assessment — 2026-09-12](./reviews/2026-09-12-ai-hardening-assessment.md)
 - [AI Resilience and Code Review — 2026-09-12](./reviews/2026-09-12-ai-resilience-review.md)
+- [Team Workflows and Article Chatbot Proposal — 2026-09-12](./reviews/2026-09-12-team-and-chatbot-proposal.md)
 - [Auth, RBAC, and Token Scopes](./reference/auth-rbac.md)
 - [Access Governance and Data Policy](./reference/access-governance.md)
 - [Backend API Reference](./reference/api.md)
