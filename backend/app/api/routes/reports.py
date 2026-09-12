@@ -121,7 +121,6 @@ from app.services.report_storage import (
     create_report_from_plan,
     delete_report,
     report_detail_response,
-    report_list_item,
     reset_report_for_retry,
 )
 from app.services.report_templates import (
@@ -135,6 +134,7 @@ from app.services.report_templates import (
     update_report_template,
 )
 from app.services.report_task_lineage import ReportTaskLineageError
+from app.services.report_read_models import report_list_columns
 from app.tasks.report_tasks import create_report_task_run, enqueue_report_task
 
 router = APIRouter(prefix="/reports", tags=["reports"])
@@ -505,7 +505,7 @@ def list_reports(
     data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     created_from, created_before = normalize_report_creation_range(created_from, created_before)
-    query = select(Report).where(
+    query = select(*report_list_columns()).where(
         data_access_envelope_predicate(
             DATA_ACCESS_RESOURCE_REPORT,
             Report.id,
@@ -523,10 +523,10 @@ def list_reports(
                 detail="Invalid report status filter",
             )
         query = query.where(Report.status == report_status)
-    reports = db.scalars(
+    reports = db.execute(
         query.order_by(Report.created_at.desc(), Report.id.desc()).offset(offset).limit(limit)
     ).all()
-    return [report_list_item(report) for report in reports]
+    return [ReportListItem.model_validate(report._mapping) for report in reports]
 
 
 @router.post(
@@ -872,6 +872,7 @@ def remove_report(
         db,
         report_id=report_id,
         data_access=data_access,
+        for_update=True,
     )
     if report is None:
         raise HTTPException(

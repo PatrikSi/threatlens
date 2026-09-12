@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import delete, select, update
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer
 
 from app.models.report import Report
 from app.models.report_generation_lease import ReportGenerationLease
@@ -250,6 +250,7 @@ def report_detail_response(db: Session, *, report: Report) -> ReportDetailRespon
     sources = list(
         db.scalars(
             select(ReportSourceItem)
+            .options(defer(ReportSourceItem.evidence_text, raiseload=True))
             .where(ReportSourceItem.report_id == report.id)
             .order_by(ReportSourceItem.rank.asc(), ReportSourceItem.id.asc())
         ).all()
