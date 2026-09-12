@@ -8,6 +8,7 @@ from app.models.report import Report
 from app.models.report_section import ReportSection
 from app.models.report_source_item import ReportSourceItem
 from app.services import report_generation
+from app.services.report_evidence_contract import REPORT_EVIDENCE_CONTRACT_VERSION
 from app.services.ai_context_budget import AIContextBudgetError, build_context_budget
 from app.services.ai_provider_client import AICompletionResult, AIIntegrationError
 from app.services.report_prompt_budget import build_evidence_messages, estimate_message_tokens
@@ -32,7 +33,7 @@ def test_unexpected_generation_error_moves_report_to_terminal_state(
         prompt_config_json={"objective": "Summarize material threats."},
         sections_config_json=[],
         metrics_json={},
-        coverage_json={},
+        coverage_json={"evidence_contract_version": REPORT_EVIDENCE_CONTRACT_VERSION},
         source_count=1,
         included_source_count=1,
         estimated_input_tokens=10,
@@ -269,7 +270,7 @@ def test_lost_execution_lease_does_not_overwrite_report_state(
         prompt_config_json={"objective": "Summarize material threats."},
         sections_config_json=[],
         metrics_json={},
-        coverage_json={},
+        coverage_json={"evidence_contract_version": REPORT_EVIDENCE_CONTRACT_VERSION},
         source_count=1,
         included_source_count=1,
         estimated_input_tokens=10,
@@ -471,6 +472,7 @@ def test_evidence_and_section_requests_use_the_configured_report_output_budget(
         period_start=now - timedelta(days=1), period_end=now,
         prompt_config_json={"objective": "Summarize the observed activity."},
         source_count=1, included_source_count=1,
+        coverage_json={"evidence_contract_version": REPORT_EVIDENCE_CONTRACT_VERSION},
     )
     db_session.add(report)
     db_session.flush()

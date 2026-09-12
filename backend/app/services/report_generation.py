@@ -34,6 +34,7 @@ from app.services.report_availability import (
 )
 from app.services.report_sources import DETERMINISTIC_SECTION_KEYS
 from app.services.report_execution import ReportGenerationOwnershipError
+from app.services.report_evidence_contract import has_current_evidence_contract
 from app.services.report_grounding import (
     NO_FINDINGS_BODY, ReportGroundingError, evidence_sources, report_stage_input,
     validate_findings, validate_section,
@@ -96,45 +97,61 @@ def generate_report(
             code="generation_interrupted",
         )
 
-    active = load_active_ai_settings(db, feature_type="report", task_run_id=task_run_id)
-    ensure_reporting_available(active)
-    _raise_if_task_stopped(db, task_run_id)
-    budget = provider_report_context_budget(active)
-    coverage = dict(report.coverage_json or {})
-    coverage.pop("grounding", None)
-    report.coverage_json = coverage
-    report.provider = active.provider_type
-    report.model = active.model
-    report.context_window_tokens = budget.context_window_tokens
-    db.add(report)
-    sources = list(
-        db.scalars(
-            select(ReportSourceItem)
-            .where(
-                ReportSourceItem.report_id == report.id,
-                ReportSourceItem.included.is_(True),
-            )
-            .order_by(ReportSourceItem.rank.asc())
-        ).all()
+    # A rejected historical snapshot keeps its already-recorded usage. Current
+    # attempts reconstruct usage from their paid-stage artifacts below.
+    counters = _UsageCounters(
+        model_calls=report.model_calls,
+        prompt_tokens=report.prompt_tokens or 0,
+        completion_tokens=report.completion_tokens or 0,
+        total_tokens=report.total_tokens or 0,
     )
-    sections = list(
-        db.scalars(
-            select(ReportSection)
-            .where(ReportSection.report_id == report.id)
-            .order_by(ReportSection.position.asc())
-        ).all()
-    )
-    if not sources:
-        raise ReportGenerationError(
-            "The report has no included source evidence.", code="no_sources"
-        )
-    if not sections:
-        raise ReportGenerationError(
-            "The report has no enabled sections.", code="no_sections"
-        )
-    _commit_execution(db, execution_commit)
-    counters = _UsageCounters()
     try:
+        _check_execution(execution_checkpoint)
+        _raise_if_task_stopped(db, task_run_id)
+        if not has_current_evidence_contract(report.coverage_json):
+            raise ReportGenerationError(
+                "This report snapshot predates the current source-evidence contract or uses an unknown version. "
+                "Its frozen evidence cannot be verified safely. Please create a new report from current sources; "
+                "retrying this snapshot will not rebuild its evidence.",
+                code="source_snapshot_requires_rebuild",
+            )
+        counters = _UsageCounters()
+        active = load_active_ai_settings(db, feature_type="report", task_run_id=task_run_id)
+        ensure_reporting_available(active)
+        budget = provider_report_context_budget(active)
+        coverage = dict(report.coverage_json or {})
+        coverage.pop("grounding", None)
+        report.coverage_json = coverage
+        report.provider = active.provider_type
+        report.model = active.model
+        report.context_window_tokens = budget.context_window_tokens
+        db.add(report)
+        sources = list(
+            db.scalars(
+                select(ReportSourceItem)
+                .where(
+                    ReportSourceItem.report_id == report.id,
+                    ReportSourceItem.included.is_(True),
+                )
+                .order_by(ReportSourceItem.rank.asc())
+            ).all()
+        )
+        sections = list(
+            db.scalars(
+                select(ReportSection)
+                .where(ReportSection.report_id == report.id)
+                .order_by(ReportSection.position.asc())
+            ).all()
+        )
+        if not sources:
+            raise ReportGenerationError(
+                "The report has no included source evidence.", code="no_sources"
+            )
+        if not sections:
+            raise ReportGenerationError(
+                "The report has no enabled sections.", code="no_sections"
+            )
+        _commit_execution(db, execution_commit)
         sources, evidence_plan = _prepare_runtime_evidence(
             db,
             active=active,

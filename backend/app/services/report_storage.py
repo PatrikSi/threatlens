@@ -32,6 +32,7 @@ from app.services.report_prompt_budget import (
     FINDINGS_COMPACTION_WARNING,
 )
 from app.services.report_sources import ReportSourcePlan
+from app.services.report_evidence_contract import REPORT_EVIDENCE_CONTRACT_VERSION
 
 
 class ReportStorageError(ValueError):
@@ -114,6 +115,7 @@ def report_plan_record_fields(plan: ReportSourcePlan) -> dict[str, object]:
     return {
         "metrics_json": plan.metrics,
         "coverage_json": {
+            "evidence_contract_version": REPORT_EVIDENCE_CONTRACT_VERSION,
             "total_matches": plan.total_matches,
             "included_sources": included_count,
             "omitted_sources": plan.omitted_source_count,
@@ -339,10 +341,10 @@ def replace_report_sources_from_plan(
                 if record.classification
                 else None,
                 relevance_score_snapshot=record.ai.relevance_score
-                if record.ai
+                if record.ai and record.ai.source_current
                 else None,
                 relevance_label_snapshot=record.ai.relevance_label
-                if record.ai
+                if record.ai and record.ai.source_current
                 else None,
                 published_at_snapshot=record.published_at,
                 first_seen_at_snapshot=record.first_seen_at,
