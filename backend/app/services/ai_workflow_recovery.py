@@ -1,7 +1,7 @@
 """Adopt legacy accepted work and recover only operations safe to resume."""
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 
@@ -115,3 +115,16 @@ def owns_pending_daily_brief(db, *, task_run_id, brief) -> bool:
         and isinstance((run.metadata_json or {}).get("provider_claim"), dict)
         and _provider_claim_matches(run, resource_type="daily_brief", resource_id=brief.id,
                                     resource_updated_at=brief.updated_at))
+
+
+def postpone_parent_reconciliation(db, *, run_id: uuid.UUID, now: datetime) -> bool:
+    """Schedule a bounded fair parent pass without changing its worker heartbeat."""
+    run = db.scalar(select(AITaskRun).where(AITaskRun.id == run_id).with_for_update()
+                    .execution_options(populate_existing=True))
+    if run is None or run.finished_at is not None or run.status != "running":
+        return False
+    job = db.get(AIWorkflowDispatch, run.id) or register_ai_workflow(db, run)
+    if job is not None:
+        job.next_attempt_at = now + timedelta(seconds=60)
+        db.add(job)
+    return True

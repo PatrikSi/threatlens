@@ -86,6 +86,7 @@ def claim_workflow_execution(db: Session, run: AITaskRun, celery_task_id: str | 
     if dispatch.delivery_id is not None and dispatch.delivery_id != celery_task_id:
         return False
     dispatch.state = "running"
+    dispatch.next_attempt_at = datetime.now(timezone.utc)
     dispatch.delivery_id = celery_task_id
     dispatch.claim_token = None
     dispatch.claim_expires_at = None
@@ -95,6 +96,9 @@ def claim_workflow_execution(db: Session, run: AITaskRun, celery_task_id: str | 
 
 
 def complete_workflow_dispatch(db: Session, run_id: uuid.UUID) -> None:
+    from app.services.ai_execution_ownership import fence_ai_execution
+    if not fence_ai_execution(db, run_id=run_id):
+        return
     dispatch = db.get(AIWorkflowDispatch, run_id)
     if dispatch is not None:
         dispatch.state = "complete"
@@ -109,6 +113,9 @@ def defer_ai_workflow_run(
     run = db.scalar(select(AITaskRun).where(AITaskRun.id == run_id).with_for_update()
                     .execution_options(populate_existing=True))
     if run is None or run.status in TERMINAL or run.finished_at is not None:
+        return False
+    from app.services.ai_execution_ownership import ai_execution_is_current
+    if not ai_execution_is_current(run, allow_unassigned=True):
         return False
     if (run.metadata_json or {}).get("cancel_requested_at"):
         return False

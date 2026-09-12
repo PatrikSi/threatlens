@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
-from typing import Iterable, Sequence
+from datetime import datetime
+from typing import Callable, Iterable, Sequence
 
 from sqlalchemy import and_, exists, false, func, literal, or_, select, true
 from sqlalchemy.dialects.postgresql import insert
@@ -290,142 +290,12 @@ def get_ai_task_run_detail_for_data_access(
 
 
 def cancel_ai_task_run_for_data_access(
-    db: Session,
-    *,
-    run_id: uuid.UUID,
-    actor_user_id: uuid.UUID | None,
-    data_access: DataAccessContext,
+    db: Session, *, run_id: uuid.UUID, actor_user_id: uuid.UUID | None,
+    data_access: DataAccessContext, authorization_checkpoint: Callable[[Session], None] | None = None,
 ) -> AITaskRun | None:
-    """Authorize before any Celery inspection or cancellation side effect."""
-
-    from app.services.ai_ops import (
-        _load_live_task_snapshot,
-        _mark_ai_task_run_cancel_requested,
-        _normalize_live_task_snapshot,
-        finish_ai_task_run,
-        record_ai_task_event,
-    )
-    from app.services.ai_ops_common import (
-        AI_STATUS_QUEUED,
-        AI_STATUS_RUNNING,
-        AI_STATUS_SKIPPED,
-        AI_TASK_TYPE_REPORT,
-        AI_TASK_TYPE_REPROCESS,
-    )
-    from app.services.report_task_lineage import resolve_report_task_run
-    from app.tasks.celery_app import celery_app
-
-    fence_data_access_context(db, data_access)
-    run = db.scalar(
-        select(AITaskRun)
-        .where(
-            AITaskRun.id == run_id,
-            ai_task_run_access_predicate(data_access),
-        )
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    if run is None:
-        return None
-    if run.task_type == AI_TASK_TYPE_REPORT:
-        run = resolve_report_task_run(db, run, lock=True)
-        if (
-            db.scalar(
-                select(AITaskRun.id).where(
-                    AITaskRun.id == run.id,
-                    ai_task_run_access_predicate(data_access),
-                )
-            )
-            is None
-        ):
-            return None
-
-    unfinished = {AI_STATUS_QUEUED, AI_STATUS_RUNNING}
-    if run.finished_at is not None or run.status not in unfinished:
-        return run
-    targets = [run]
-    if run.task_type == AI_TASK_TYPE_REPROCESS:
-        children = list(
-            db.scalars(
-                select(AITaskRun)
-                .where(
-                    AITaskRun.parent_run_id == run.id,
-                    AITaskRun.finished_at.is_(None),
-                    AITaskRun.status.in_(unfinished),
-                )
-                .order_by(AITaskRun.id)
-                .with_for_update()
-            ).all()
-        )
-        if children:
-            accessible_child_ids = set(
-                db.scalars(
-                    select(AITaskRun.id).where(
-                        AITaskRun.id.in_([child.id for child in children]),
-                        ai_task_run_access_predicate(data_access),
-                    )
-                ).all()
-            )
-            if any(child.id not in accessible_child_ids for child in children):
-                return None
-        targets = [*children, run]
-
-    snapshot = _normalize_live_task_snapshot(_load_live_task_snapshot())
-    snapshot_available, _workers, active, reserved, scheduled = snapshot
-    active_ids = {task.celery_task_id for task in active if task.celery_task_id}
-    pending_ids = {
-        task.celery_task_id for task in [*reserved, *scheduled] if task.celery_task_id
-    }
-    for target in targets:
-        terminate = bool(target.celery_task_id and target.celery_task_id in active_ids)
-        removed = bool(
-            target.status == AI_STATUS_QUEUED
-            and not terminate
-            and (
-                target.celery_task_id is None
-                or target.celery_task_id in pending_ids
-                or (snapshot_available and target.celery_task_id not in active_ids)
-            )
-        )
-        revoke_failed = False
-        if target.celery_task_id:
-            try:
-                celery_app.control.revoke(
-                    target.celery_task_id,
-                    terminate=terminate,
-                    signal="SIGTERM",
-                )
-            except Exception:
-                revoke_failed = True
-                record_ai_task_event(
-                    db,
-                    run_id=target.id,
-                    event_type="cancel_revoke_failed",
-                    payload={"celery_task_id": target.celery_task_id},
-                )
-        _mark_ai_task_run_cancel_requested(
-            db,
-            run_id=target.id,
-            actor_user_id=actor_user_id,
-            removed_from_queue=removed,
-            terminated_running_task=terminate,
-            revoke_failed=revoke_failed,
-        )
-        if removed:
-            finish_ai_task_run(
-                db,
-                run_id=target.id,
-                status=AI_STATUS_SKIPPED,
-                reason="canceled",
-                worker_name=target.worker_name,
-                model=target.model,
-                metadata_updates={
-                    "cancel_observed_at": datetime.now(timezone.utc).isoformat(),
-                    "cancel_completed_without_worker": True,
-                },
-            )
-    db.flush()
-    return db.get(AITaskRun, run.id)
+    from app.services.ai_task_cancellation import cancel_ai_task
+    return cancel_ai_task(db, run_id=run_id, actor_user_id=actor_user_id,
+                          data_access=data_access, authorization_checkpoint=authorization_checkpoint)
 
 
 def initialize_ai_task_run_data_access(

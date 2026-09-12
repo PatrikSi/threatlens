@@ -1009,12 +1009,16 @@ def cancel_ai_ops_run_route(
         data_access=data_access,
         filters=(AITaskRun.id == run_id,),
     )
+    authorization = require_ai_authorization_context(request)
     try:
         run = cancel_ai_task_run_for_data_access(
             db,
             run_id=run_id,
             actor_user_id=admin.id,
             data_access=data_access,
+            authorization_checkpoint=lambda session: refence_ai_context(
+                session, authorization=authorization, data_access=data_access
+            ),
         )
     except ReportTaskLineageError as exc:
         logger.exception("report_task_lineage_invalid run_id=%s", run_id)
