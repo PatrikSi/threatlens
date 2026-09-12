@@ -274,6 +274,22 @@ def test_brief_does_not_materialize_audit_only_bodies(db_session, configured_ite
     assert MAX_AUDIT_ROWS * METADATA_ROW_BYTES + 100 * 2 * 900 * 4 <= MAX_SOURCE_BYTES
 
 
+@pytest.mark.parametrize("summary", [None, "  \n  ", "\u00a0\u2003\u2028"])
+def test_brief_primary_fallback_bounds_unicode_metadata_and_omits_overlong_urls(
+    db_session, configured_item, summary,
+):
+    item, _settings = configured_item
+    item.summary, item.title = summary, "😀" * 1000
+    item.url = "https://example.com/" + "x" * 5000
+    article = db_session.scalar(select(Article).where(Article.item_id == item.id))
+    article.text = "Primary evidence. " * 1000
+    db_session.commit()
+    selected = _sources(db_session).selected_rows[0]
+    assert selected.summary == article.text[:900]
+    assert selected.title == "😀" * 512
+    assert selected.url is None
+
+
 def test_report_primary_evidence_precedes_verified_ai_and_excludes_stale_output(
     db_session, configured_item, monkeypatch
 ):
