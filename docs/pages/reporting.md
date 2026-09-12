@@ -12,6 +12,14 @@ The Reporting workspace turns a filtered set of stored articles into a durable, 
 
 Generated reports are shared records. Reporting filters therefore cannot use private per-user read or starred state. Article text, notes, and mutable article state are not copied into the report response. The report stores the bounded evidence excerpts, metadata, tags, IOCs, and source URLs actually used during generation.
 
+New report plans prioritize publisher summaries and extracted article text over
+prior AI summaries. A prior summary contributes only when its successful source
+provenance matches the current evidence and its enrichment is ready. Otherwise,
+the plan falls back to primary evidence and discloses that fallback in its coverage
+warnings. Source freshness checks do not establish that an AI summary is factually
+correct; reused summaries are explicitly labeled as prior AI output. Saved report
+evidence remains an immutable snapshot of the inputs used for that report.
+
 ## Builder
 
 The builder supports:
