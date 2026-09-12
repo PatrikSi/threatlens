@@ -8,6 +8,8 @@ import {
   formatAlertTimestamp,
   shouldShowSaveGuidance,
 } from './alertPageModel'
+import { AlertRuleTeamFields } from './AlertRuleTeamFields'
+import { AlertQueueScopePicker } from './AlertTeamSelectors'
 import { AlertSeverityChip } from './AlertOccurrenceShared'
 import { AlertsPageController } from './useAlertsPageController'
 
@@ -67,6 +69,7 @@ export function AlertEditorPanel({ controller }: AlertsPanelProps) {
       </div>
 
       <form className="mt-4 space-y-3" onSubmit={onSave}>
+        <AlertRuleTeamFields controller={controller} />
         <div>
           <label htmlFor="alert-interest-name" className="text-sm font-semibold">
             Interest Name
@@ -389,6 +392,14 @@ export function ConfiguredAlertsPanel({ controller }: AlertsPanelProps) {
         </label>
       </div>
 
+      <div className="mt-3">
+        <AlertQueueScopePicker value={controller.listScope ?? 'all'} onChange={controller.setListScope} />
+        <p className="mt-1 text-xs text-slate dark:text-slate-300">
+          Showing {alertsQuery.data?.length ?? 0} loaded rules in this scope. Each team can own up to 100 watchlists.
+          {(alertsQuery.data?.length ?? 0) >= 1000 && ' The 1,000-rule result limit was reached; choose a team to see its complete watchlist.'}
+        </p>
+      </div>
+
       {updateAlertError && (
         <p
           role="alert"
@@ -431,6 +442,7 @@ export function ConfiguredAlertsPanel({ controller }: AlertsPanelProps) {
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
                       <div className="min-w-0">
                         <p className="font-semibold">{alert.name}</p>
+                        <p className="mt-1 text-xs">{alert.team_id ? `Team watchlist · ${alert.team_id.slice(0, 8)}` : 'Personal watchlist'}</p>
                         <div className="mt-1 flex flex-wrap items-center gap-1.5">
                           <AlertSeverityChip severity={alert.severity ?? 'medium'} />
                           <span className="tl-chip tl-chip-neutral">

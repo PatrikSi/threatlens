@@ -20,6 +20,7 @@ import {
   AlertOccurrenceStateFlags,
   AlertSeverityChip,
 } from './AlertOccurrenceShared'
+import { AlertTeamTriage } from './AlertTeamTriage'
 import type { AlertOccurrencesController } from './useAlertOccurrencesController'
 
 export function AlertOccurrenceDetail({ controller }: { controller: AlertOccurrencesController }) {
@@ -145,6 +146,8 @@ export function AlertOccurrenceDetail({ controller }: { controller: AlertOccurre
           version {occurrence.version}
         </p>
       </header>
+      <AlertTeamTriage occurrence={occurrence} disabled={controller.mutationPending || controller.writeDenied || detailQuery.isError}
+        onUpdated={controller.applyOccurrenceUpdates} />
 
       {controller.writeDenied && (
         <p
