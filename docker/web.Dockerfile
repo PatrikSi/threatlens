@@ -69,7 +69,9 @@ COPY --from=build /app/dist /usr/share/nginx/html
 # Run unprivileged with an immutable root filesystem. Only rendered config and
 # nginx's bounded temporary files are writable at deployment time.
 RUN mkdir -p /etc/nginx/conf.d \
-    && chown nginx:nginx /etc/nginx/conf.d
+    && chown nginx:nginx /etc/nginx/conf.d \
+    && chmod 0644 /etc/nginx/nginx.conf /etc/nginx/templates/default.conf.template \
+    && chmod -R a+rX /usr/share/nginx/html /usr/share/doc/threatlens
 USER nginx
 HEALTHCHECK --interval=15s --timeout=3s --retries=3 CMD wget -q -O /dev/null http://127.0.0.1:3000/ || exit 1
 LABEL org.opencontainers.image.title="ThreatLens Web" \
