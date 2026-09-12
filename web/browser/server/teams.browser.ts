@@ -36,10 +36,10 @@ test('real named team creation and group-backed access withdrawal', async ({ pag
   expect((await page.request.get(`/api/v1/teams/${team.id}`)).status()).toBe(200)
   const ruleName = `Browser shared watch ${suffix}`
   await writeApi(page, '/alerts', 'POST', {
-    team_id: team.id, name: ruleName, category: 'other', keywords: ['browser'],
+    team_id: team.id, name: ruleName, category: 'other', keywords: [`team${suffix}`],
     due_after_minutes: 60, escalation_after_minutes: 15,
   })
-  const article = await control(request, 'export-item')
+  const article = await control(request, 'export-item', { keyword: `team${suffix}` })
   expect(await control(request, `evaluate-alerts/${article.id}`)).toMatchObject({ occurrences: 1, events: 0 })
   await page.goto(`/alerts?view=occurrences&team_id=${team.id}&queue_scope=team`)
   await page.getByRole('button', { name: `Inspect occurrence from ${ruleName}`, exact: true }).click()
