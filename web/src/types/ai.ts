@@ -1,3 +1,8 @@
+export interface AIProviderAdmissionLimits {
+  max_concurrent_requests?: number
+  hourly_token_budget?: number
+}
+
 /** Optional fields keep older server responses and clients compatible. */
 export interface AIProviderCapabilities {
   request_dialect?: 'chat_completions' | 'chat_completions_modern'
@@ -18,7 +23,7 @@ export interface AIPromptPreviews {
   daily_brief: AIPromptPreview
 }
 
-export interface AISettings extends AIProviderCapabilities {
+export interface AISettings extends AIProviderCapabilities, AIProviderAdmissionLimits {
   id: string
   ai_enabled: boolean
   ai_configured: boolean
@@ -69,7 +74,7 @@ export interface AISettings extends AIProviderCapabilities {
   prompt_previews: AIPromptPreviews
 }
 
-export interface AIProviderConfiguration extends AIProviderCapabilities {
+export interface AIProviderConfiguration extends AIProviderCapabilities, AIProviderAdmissionLimits {
   name: string
   enabled: boolean
   provider_type: 'openai_compatible'
@@ -112,7 +117,7 @@ export interface AIProviderRouting {
   report_provider_id: string | null
 }
 
-export interface AISettingsUpdateRequest extends AIProviderCapabilities {
+export interface AISettingsUpdateRequest extends AIProviderCapabilities, AIProviderAdmissionLimits {
   provider_type: 'openai_compatible'
   base_url: string | null
   model: string | null

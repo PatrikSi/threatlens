@@ -5,6 +5,7 @@ import { AiConfigurationDraftProps } from './AiSettingsConfigurationTypes'
 import { AiProviderEndpointHelp } from './AiProviderEndpointHelp'
 import { AiCompletionTokenHelp } from './AiCompletionTokenHelp'
 import { AiProviderCapabilityFields } from './AiProviderCapabilityFields'
+import { AiProviderAdmissionFields } from './AiProviderAdmissionFields'
 
 type AiProviderConfigurationProps = AiConfigurationDraftProps & {
   draftDirty: boolean
@@ -152,6 +153,7 @@ export function AiProviderConfiguration({
           </span>
         </Field>
       </div>
+      <AiProviderAdmissionFields draft={draft} validation={validation} onChange={(key, value) => updateDraft(setDraft, key, value)} />
       <AiProviderCapabilityFields draft={draft} validation={validation} onChange={(key, value) => updateDraft(setDraft, key, value)} />
       {testResult && <ConnectionTestResult result={testResult} />}
     </Panel>

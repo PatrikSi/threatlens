@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.core.ai_endpoints import ai_endpoint_origin, validate_chat_completion_endpoint
 from app.core.config import get_settings
 from app.schemas.ai_provider_capabilities import capability_values
+from app.schemas.ai_provider_admission import admission_limit_values
 from app.models.ai_provider import AIProviderConfiguration, AIProviderRouting
 from app.models.ai_task_run import AITaskRun
 from app.services.ai_providers import read_provider_api_key
@@ -150,6 +151,7 @@ def apply_provider_selection(
         credential_origin=None,
         temperature=provider.temperature,
         **capability_values(provider),
+        **admission_limit_values(provider),
         max_completion_tokens=provider.max_completion_tokens,
         request_timeout_seconds=provider.request_timeout_seconds,
         request_max_retries=provider.request_max_retries,

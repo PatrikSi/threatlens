@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.schemas.ai_provider_capabilities import AIProviderCapabilityFields
+from app.schemas.ai_provider_admission import AIProviderAdmissionFields
 
 import uuid
 from datetime import datetime
@@ -21,7 +22,7 @@ from app.core.config import get_settings
 from app.services.url_utils import is_fetchable_url
 
 
-class AIProviderFields(AIProviderCapabilityFields):
+class AIProviderFields(AIProviderAdmissionFields, AIProviderCapabilityFields):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1, max_length=120)

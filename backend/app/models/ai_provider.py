@@ -19,9 +19,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
 from app.models.ai_provider_capabilities import AIProviderCapabilities
+from app.models.ai_provider_admission import AIProviderAdmissionLimits
 
 
-class AIProviderConfiguration(AIProviderCapabilities, Base):
+class AIProviderConfiguration(AIProviderAdmissionLimits, AIProviderCapabilities, Base):
     __tablename__ = "ai_provider_configurations"
     __table_args__ = (CheckConstraint("version >= 1", name="ck_ai_provider_version"),)
 
