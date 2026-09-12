@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 
 import { apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
+import { accessibleQueryData } from '../api/queryData'
 import { AIProviderUsageResponse } from '../types/aiProviderUsage'
 import { Panel } from './aiSettingsSupport'
 import { formatTimestamp } from './aiSettingsUtils'
@@ -23,7 +24,7 @@ export function AiProviderUsagePanel({ days }: { days: number }) {
     ),
     staleTime: 15_000,
   })
-  const data = query.data
+  const data = accessibleQueryData(query)
   const start = data?.items.length ? data.offset + 1 : 0
   const end = data?.items.length ? data.offset + data.items.length : 0
   const hasNext = Boolean(data && data.offset + data.items.length < data.total)
