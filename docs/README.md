@@ -74,6 +74,7 @@ This documentation covers:
 - [Dashboard](./pages/dashboard.md)
 - [Alerts](./pages/alerts.md)
 - [Investigations](./pages/investigations.md)
+- [Named team workspaces](./pages/teams.md)
 - [Feeds](./pages/feeds.md)
 - [Export](./pages/export.md)
 - [Reporting](./pages/reporting.md)

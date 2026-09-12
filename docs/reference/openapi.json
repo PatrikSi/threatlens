@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "1.10.0",
-    "x-threatlens-contract-sha256": "7e13db71c4d1dc0f10eccfa71dd6b7bd108fd3e4404555ba7ffb558fbcf10b3b"
+    "x-threatlens-contract-sha256": "3f5d36c4d39cdb0592fedcfa7bd020cfff4aef4022fafbed4929513633cdd121"
   },
   "servers": [
     {
@@ -23,6 +23,761 @@
     }
   ],
   "paths": {
+    "/v1/teams": {
+      "get": {
+        "tags": [
+          "teams"
+        ],
+        "summary": "List Teams",
+        "operationId": "list_teams_v1_teams_get",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000000,
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Page Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "read:teams"
+        ]
+      },
+      "post": {
+        "tags": [
+          "teams"
+        ],
+        "summary": "Create Team",
+        "operationId": "create_team_v1_teams_post",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TeamCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "write:iam"
+        ]
+      }
+    },
+    "/v1/teams/admin": {
+      "get": {
+        "tags": [
+          "teams"
+        ],
+        "summary": "List Admin Teams",
+        "operationId": "list_admin_teams_v1_teams_admin_get",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000000,
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Page Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "read:iam"
+        ]
+      }
+    },
+    "/v1/teams/admin/{team_id}": {
+      "get": {
+        "tags": [
+          "teams"
+        ],
+        "summary": "Get Admin Team",
+        "operationId": "get_admin_team_v1_teams_admin__team_id__get",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "team_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Team Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "read:iam"
+        ]
+      }
+    },
+    "/v1/teams/{team_id}": {
+      "get": {
+        "tags": [
+          "teams"
+        ],
+        "summary": "Get Team",
+        "operationId": "get_team_v1_teams__team_id__get",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "team_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Team Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "read:teams"
+        ]
+      },
+      "patch": {
+        "tags": [
+          "teams"
+        ],
+        "summary": "Update Team",
+        "operationId": "update_team_v1_teams__team_id__patch",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "team_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Team Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TeamUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "write:teams"
+        ]
+      }
+    },
+    "/v1/teams/{team_id}/bindings": {
+      "put": {
+        "tags": [
+          "teams"
+        ],
+        "summary": "Update Team Bindings",
+        "operationId": "update_team_bindings_v1_teams__team_id__bindings_put",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "team_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Team Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TeamBindingsUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "write:iam"
+        ]
+      }
+    },
+    "/v1/teams/{team_id}/members": {
+      "get": {
+        "tags": [
+          "teams"
+        ],
+        "summary": "List Team Members",
+        "operationId": "list_team_members_v1_teams__team_id__members_get",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "team_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Team Id"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000000,
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Page Size"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 255
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamMemberListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "read:teams"
+        ]
+      }
+    },
     "/v1/auth/registration-settings": {
       "get": {
         "tags": [
@@ -3491,6 +4246,28 @@
             }
           },
           {
+            "name": "publication_status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "draft",
+                    "review",
+                    "approved",
+                    "published"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Publication Status"
+            }
+          },
+          {
             "name": "report_type",
             "in": "query",
             "required": false,
@@ -3648,6 +4425,341 @@
         "x-threatlens-required-token-scopes": [
           "read:reports"
         ]
+      }
+    },
+    "/v1/reports/{report_id}/draft": {
+      "put": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Edit Report Draft",
+        "operationId": "edit_report_draft_v1_reports__report_id__draft_put",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "report_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Report Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReportDraftUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportDetailResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/reports/{report_id}/editorial": {
+      "post": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Change Report Editorial State",
+        "operationId": "change_report_editorial_state_v1_reports__report_id__editorial_post",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "report_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Report Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReportEditorialTransition"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportDetailResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/reports/{report_id}": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Get Report",
+        "operationId": "get_report_v1_reports__report_id__get",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "report_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Report Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportDetailResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Remove Report",
+        "operationId": "remove_report_v1_reports__report_id__delete",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "report_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Report Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/v1/reports/capabilities": {
@@ -4556,159 +5668,6 @@
         "x-threatlens-required-token-scopes": [
           "write:reports"
         ]
-      }
-    },
-    "/v1/reports/{report_id}": {
-      "get": {
-        "tags": [
-          "reports"
-        ],
-        "summary": "Get Report",
-        "operationId": "get_report_v1_reports__report_id__get",
-        "security": [
-          {
-            "ApiTokenBearer": []
-          },
-          {
-            "SessionCookieAuth": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "report_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "title": "Report Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ReportDetailResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Authentication is required or the credential is invalid",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "The authenticated principal is not allowed to perform this operation",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Authorization policy could not be evaluated safely",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      },
-      "delete": {
-        "tags": [
-          "reports"
-        ],
-        "summary": "Remove Report",
-        "operationId": "remove_report_v1_reports__report_id__delete",
-        "security": [
-          {
-            "ApiTokenBearer": []
-          },
-          {
-            "SessionCookieAuth": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "report_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "title": "Report Id"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Successful Response"
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Authentication is required or the credential is invalid",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "The authenticated principal is not allowed to perform this operation",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Authorization policy could not be evaluated safely",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          }
-        }
       }
     },
     "/v1/reports/{report_id}/download": {
@@ -8011,17 +8970,54 @@
         ],
         "summary": "List Views",
         "operationId": "list_views_v1_views_get",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "team_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Team Id"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
+                  "type": "array",
                   "items": {
                     "$ref": "#/components/schemas/SavedViewResponse"
                   },
-                  "type": "array",
                   "title": "Response List Views V1 Views Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
                 }
               }
             }
@@ -8057,14 +9053,6 @@
             }
           }
         },
-        "security": [
-          {
-            "ApiTokenBearer": []
-          },
-          {
-            "SessionCookieAuth": []
-          }
-        ],
         "x-threatlens-required-token-scopes": [
           "read:views"
         ]
@@ -8075,15 +9063,23 @@
         ],
         "summary": "Create View",
         "operationId": "create_view_v1_views_post",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/SavedViewCreate"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "201": {
@@ -8137,14 +9133,6 @@
             }
           }
         },
-        "security": [
-          {
-            "ApiTokenBearer": []
-          },
-          {
-            "SessionCookieAuth": []
-          }
-        ],
         "x-threatlens-required-token-scopes": [
           "write:views"
         ]
@@ -8267,6 +9255,23 @@
               "format": "uuid",
               "title": "View Id"
             }
+          },
+          {
+            "name": "expected_revision",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Expected Revision"
+            }
           }
         ],
         "responses": {
@@ -8343,6 +9348,38 @@
               "type": "boolean",
               "default": true,
               "title": "Include Disabled"
+            }
+          },
+          {
+            "name": "team_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Team Id"
+            }
+          },
+          {
+            "name": "queue_scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "all",
+                "personal",
+                "team"
+              ],
+              "type": "string",
+              "default": "all",
+              "title": "Queue Scope"
             }
           }
         ],
@@ -8895,6 +9932,85 @@
             }
           },
           {
+            "name": "team_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Team Id"
+            }
+          },
+          {
+            "name": "queue_scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "all",
+                "personal",
+                "team"
+              ],
+              "type": "string",
+              "default": "all",
+              "title": "Queue Scope"
+            }
+          },
+          {
+            "name": "assignee_user_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Assignee User Id"
+            }
+          },
+          {
+            "name": "unassigned",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Unassigned"
+            }
+          },
+          {
+            "name": "overdue",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Overdue"
+            }
+          },
+          {
+            "name": "escalated",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Escalated"
+            }
+          },
+          {
             "name": "since",
             "in": "query",
             "required": false,
@@ -9359,6 +10475,23 @@
           }
         ],
         "parameters": [
+          {
+            "name": "team_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Team Id"
+            }
+          },
           {
             "name": "since",
             "in": "query",
@@ -9939,6 +11072,198 @@
         },
         "x-threatlens-required-token-scopes": [
           "write:alerts"
+        ]
+      }
+    },
+    "/v1/alerts/occurrences/{occurrence_id}/assignment": {
+      "patch": {
+        "tags": [
+          "alerts"
+        ],
+        "summary": "Patch Alert Assignment",
+        "operationId": "patch_alert_assignment_v1_alerts_occurrences__occurrence_id__assignment_patch",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "occurrence_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Occurrence Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssignmentRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertOccurrenceResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "write:alerts",
+          "write:teams",
+          "read:items"
+        ]
+      }
+    },
+    "/v1/alerts/occurrences/{occurrence_id}/deadline": {
+      "patch": {
+        "tags": [
+          "alerts"
+        ],
+        "summary": "Patch Alert Deadline",
+        "operationId": "patch_alert_deadline_v1_alerts_occurrences__occurrence_id__deadline_patch",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "occurrence_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Occurrence Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeadlineRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertOccurrenceResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "write:alerts",
+          "write:teams",
+          "read:items"
         ]
       }
     },
@@ -13511,6 +14836,23 @@
           }
         ],
         "parameters": [
+          {
+            "name": "team_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Team Id"
+            }
+          },
           {
             "name": "q",
             "in": "query",
@@ -18230,6 +19572,92 @@
         ]
       }
     },
+    "/v1/ai/ops/statistics": {
+      "get": {
+        "tags": [
+          "ai"
+        ],
+        "summary": "Get Ai Statistics",
+        "operationId": "get_ai_statistics_v1_ai_ops_statistics_get",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 365,
+              "minimum": 1,
+              "default": 30,
+              "title": "Days"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIStatisticsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "read:ai"
+        ]
+      }
+    },
     "/v1/ai/ops/providers": {
       "get": {
         "tags": [
@@ -18490,16 +19918,10 @@
             "in": "query",
             "required": false,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "integer",
-                  "maximum": 500,
-                  "minimum": 1
-                },
-                {
-                  "type": "null"
-                }
-              ],
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 100,
               "title": "Top Feeds"
             }
           }
@@ -28813,6 +30235,130 @@
         ],
         "title": "AIFeatureHealthRowResponse"
       },
+      "AIFeatureStatistics": {
+        "properties": {
+          "feature": {
+            "type": "string",
+            "title": "Feature"
+          },
+          "requests": {
+            "type": "integer",
+            "title": "Requests"
+          },
+          "successful": {
+            "type": "integer",
+            "title": "Successful"
+          },
+          "failed": {
+            "type": "integer",
+            "title": "Failed"
+          },
+          "known_usage_requests": {
+            "type": "integer",
+            "title": "Known Usage Requests"
+          },
+          "unknown_usage_requests": {
+            "type": "integer",
+            "title": "Unknown Usage Requests"
+          },
+          "prompt_tokens": {
+            "type": "integer",
+            "title": "Prompt Tokens"
+          },
+          "completion_tokens": {
+            "type": "integer",
+            "title": "Completion Tokens"
+          },
+          "total_tokens": {
+            "type": "integer",
+            "title": "Total Tokens"
+          },
+          "not_sent": {
+            "type": "integer",
+            "title": "Not Sent"
+          },
+          "ambiguous": {
+            "type": "integer",
+            "title": "Ambiguous"
+          },
+          "deadline_failures": {
+            "type": "integer",
+            "title": "Deadline Failures"
+          },
+          "timeout_failures": {
+            "type": "integer",
+            "title": "Timeout Failures"
+          },
+          "truncated_outputs": {
+            "type": "integer",
+            "title": "Truncated Outputs"
+          },
+          "budget_rejections": {
+            "type": "integer",
+            "title": "Budget Rejections"
+          },
+          "latency_samples": {
+            "type": "integer",
+            "title": "Latency Samples"
+          },
+          "p50_latency_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P50 Latency Ms"
+          },
+          "p95_latency_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P95 Latency Ms"
+          },
+          "p99_latency_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P99 Latency Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "feature",
+          "requests",
+          "successful",
+          "failed",
+          "known_usage_requests",
+          "unknown_usage_requests",
+          "prompt_tokens",
+          "completion_tokens",
+          "total_tokens",
+          "not_sent",
+          "ambiguous",
+          "deadline_failures",
+          "timeout_failures",
+          "truncated_outputs",
+          "budget_rejections",
+          "latency_samples",
+          "p50_latency_ms",
+          "p95_latency_ms",
+          "p99_latency_ms"
+        ],
+        "title": "AIFeatureStatistics"
+      },
       "AILiveStatusResponse": {
         "properties": {
           "worker_count": {
@@ -30119,6 +31665,55 @@
         ],
         "title": "AIProviderUsageRow"
       },
+      "AIQueueStatistics": {
+        "properties": {
+          "feature": {
+            "type": "string",
+            "title": "Feature"
+          },
+          "queued": {
+            "type": "integer",
+            "title": "Queued"
+          },
+          "running": {
+            "type": "integer",
+            "title": "Running"
+          },
+          "oldest_queued_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldest Queued At"
+          },
+          "oldest_running_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldest Running At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "feature",
+          "queued",
+          "running",
+          "oldest_queued_at",
+          "oldest_running_at"
+        ],
+        "title": "AIQueueStatistics"
+      },
       "AIQueuedTaskResponse": {
         "properties": {
           "task_id": {
@@ -31179,6 +32774,64 @@
         },
         "type": "object",
         "title": "AISettingsUpdate"
+      },
+      "AIStatisticsResponse": {
+        "properties": {
+          "since": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Since"
+          },
+          "until": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Until"
+          },
+          "days": {
+            "type": "integer",
+            "title": "Days"
+          },
+          "features": {
+            "items": {
+              "$ref": "#/components/schemas/AIFeatureStatistics"
+            },
+            "type": "array",
+            "title": "Features"
+          },
+          "queues": {
+            "items": {
+              "$ref": "#/components/schemas/AIQueueStatistics"
+            },
+            "type": "array",
+            "title": "Queues"
+          },
+          "provider_retry_attempts": {
+            "type": "integer",
+            "title": "Provider Retry Attempts"
+          },
+          "recovered_pre_io_failures": {
+            "type": "integer",
+            "title": "Recovered Pre Io Failures"
+          },
+          "latency_histogram": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Latency Histogram"
+          }
+        },
+        "type": "object",
+        "required": [
+          "since",
+          "until",
+          "days",
+          "features",
+          "queues",
+          "provider_retry_attempts",
+          "recovered_pre_io_failures"
+        ],
+        "title": "AIStatisticsResponse"
       },
       "AIStorageStatsResponse": {
         "properties": {
@@ -34823,6 +36476,44 @@
       },
       "AlertInterestCreate": {
         "properties": {
+          "team_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Id"
+          },
+          "due_after_minutes": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 525600.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due After Minutes"
+          },
+          "escalation_after_minutes": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 525600.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Escalation After Minutes"
+          },
           "name": {
             "type": "string",
             "maxLength": 255,
@@ -34947,9 +36638,50 @@
             "title": "Id"
           },
           "user_id": {
-            "type": "string",
-            "format": "uuid",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "User Id"
+          },
+          "team_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Id"
+          },
+          "due_after_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due After Minutes"
+          },
+          "escalation_after_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Escalation After Minutes"
           },
           "name": {
             "type": "string",
@@ -35055,6 +36787,32 @@
       },
       "AlertInterestUpdate": {
         "properties": {
+          "due_after_minutes": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 525600.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due After Minutes"
+          },
+          "escalation_after_minutes": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 525600.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Escalation After Minutes"
+          },
           "expected_revision": {
             "anyOf": [
               {
@@ -35175,6 +36933,7 @@
             "title": "Suppression Reason"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "title": "AlertInterestUpdate"
       },
@@ -35689,9 +37448,28 @@
             "format": "date-time",
             "title": "Bucket Start"
           },
+          "team_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Id"
+          },
           "owner_user_id": {
-            "type": "string",
-            "format": "uuid",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Owner User Id"
           },
           "severity": {
@@ -35773,9 +37551,75 @@
             "title": "Rule Id Snapshot"
           },
           "owner_user_id": {
-            "type": "string",
-            "format": "uuid",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Owner User Id"
+          },
+          "team_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Id"
+          },
+          "assignee_user_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assignee User Id"
+          },
+          "due_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due At"
+          },
+          "escalation_after_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Escalation After Minutes"
+          },
+          "escalated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Escalated At"
           },
           "item_id": {
             "anyOf": [
@@ -37208,6 +39052,43 @@
         ],
         "title": "ArticleResponse"
       },
+      "AssignmentRequest": {
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Version"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "claim",
+              "unclaim",
+              "assign"
+            ],
+            "title": "Action"
+          },
+          "assignee_user_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assignee User Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_version",
+          "action"
+        ],
+        "title": "AssignmentRequest"
+      },
       "AuditLogExportResponse": {
         "properties": {
           "exported_at": {
@@ -38197,6 +40078,47 @@
           "updated_at"
         ],
         "title": "DataPolicyStateResponse"
+      },
+      "DeadlineRequest": {
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Version"
+          },
+          "due_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due At"
+          },
+          "escalation_after_minutes": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 525600.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Escalation After Minutes"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_version",
+          "due_at"
+        ],
+        "title": "DeadlineRequest"
       },
       "DerivedSummary": {
         "properties": {
@@ -39531,6 +41453,21 @@
             },
             "type": "array",
             "title": "Series"
+          },
+          "total_feeds": {
+            "type": "integer",
+            "title": "Total Feeds",
+            "default": 0
+          },
+          "feed_limit": {
+            "type": "integer",
+            "title": "Feed Limit",
+            "default": 100
+          },
+          "truncated": {
+            "type": "boolean",
+            "title": "Truncated",
+            "default": false
           }
         },
         "type": "object",
@@ -40587,6 +42524,18 @@
               }
             ],
             "title": "Assignee User Id"
+          },
+          "team_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Id"
           }
         },
         "type": "object",
@@ -40597,6 +42546,18 @@
       },
       "InvestigationDetailResponse": {
         "properties": {
+          "team_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Id"
+          },
           "id": {
             "type": "string",
             "format": "uuid",
@@ -41633,6 +43594,18 @@
       },
       "InvestigationSummaryResponse": {
         "properties": {
+          "team_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Id"
+          },
           "id": {
             "type": "string",
             "format": "uuid",
@@ -48688,6 +50661,51 @@
             "format": "date-time",
             "title": "Created At"
           },
+          "publication_status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "review",
+              "approved",
+              "published"
+            ],
+            "title": "Publication Status",
+            "default": "draft"
+          },
+          "review_required": {
+            "type": "boolean",
+            "title": "Review Required",
+            "default": true
+          },
+          "editorial_version": {
+            "type": "integer",
+            "title": "Editorial Version",
+            "default": 1
+          },
+          "approved_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved At"
+          },
+          "published_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Published At"
+          },
           "filters": {
             "$ref": "#/components/schemas/ArticleExportFilters"
           },
@@ -48793,6 +50811,81 @@
             },
             "type": "array",
             "title": "Sources"
+          },
+          "review_submitted_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Submitted At"
+          },
+          "review_submitted_by_user_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Submitted By User Id"
+          },
+          "approved_by_user_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved By User Id"
+          },
+          "approval_self_review": {
+            "type": "boolean",
+            "title": "Approval Self Review",
+            "default": false
+          },
+          "published_by_user_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Published By User Id"
+          },
+          "editorial_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Editorial Note"
+          },
+          "revision_current": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision Current"
           }
         },
         "additionalProperties": false,
@@ -48836,6 +50929,88 @@
           "sources"
         ],
         "title": "ReportDetailResponse"
+      },
+      "ReportDraftUpdate": {
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Version"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Title"
+          },
+          "summary_text": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary Text"
+          },
+          "sections": {
+            "items": {
+              "$ref": "#/components/schemas/ReportSectionEdit"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Sections"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_version",
+          "title",
+          "sections"
+        ],
+        "title": "ReportDraftUpdate"
+      },
+      "ReportEditorialTransition": {
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Version"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "submit",
+              "return_to_draft",
+              "approve",
+              "publish"
+            ],
+            "title": "Action"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_version",
+          "action"
+        ],
+        "title": "ReportEditorialTransition"
       },
       "ReportLibraryPage": {
         "properties": {
@@ -49033,6 +51208,51 @@
             "type": "string",
             "format": "date-time",
             "title": "Created At"
+          },
+          "publication_status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "review",
+              "approved",
+              "published"
+            ],
+            "title": "Publication Status",
+            "default": "draft"
+          },
+          "review_required": {
+            "type": "boolean",
+            "title": "Review Required",
+            "default": true
+          },
+          "editorial_version": {
+            "type": "integer",
+            "title": "Editorial Version",
+            "default": 1
+          },
+          "approved_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved At"
+          },
+          "published_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Published At"
           }
         },
         "additionalProperties": false,
@@ -49505,6 +51725,11 @@
             "title": "Delivery Mode",
             "default": "summary"
           },
+          "review_required": {
+            "type": "boolean",
+            "title": "Review Required",
+            "default": true
+          },
           "skip_empty": {
             "type": "boolean",
             "title": "Skip Empty",
@@ -49637,6 +51862,11 @@
             ],
             "title": "Delivery Mode",
             "default": "summary"
+          },
+          "review_required": {
+            "type": "boolean",
+            "title": "Review Required",
+            "default": true
           },
           "skip_empty": {
             "type": "boolean",
@@ -49904,6 +52134,17 @@
             "title": "Delivery Mode",
             "default": "summary"
           },
+          "review_required": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Required"
+          },
           "skip_empty": {
             "type": "boolean",
             "title": "Skip Empty",
@@ -49968,6 +52209,35 @@
           "title"
         ],
         "title": "ReportSectionConfig"
+      },
+      "ReportSectionEdit": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Key"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Title"
+          },
+          "body_markdown": {
+            "type": "string",
+            "maxLength": 400000,
+            "title": "Body Markdown"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "key",
+          "title",
+          "body_markdown"
+        ],
+        "title": "ReportSectionEdit"
       },
       "ReportSectionResponse": {
         "properties": {
@@ -52232,6 +54502,18 @@
           },
           "query_json": {
             "$ref": "#/components/schemas/SavedViewQueryPayload-Input"
+          },
+          "team_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Id"
           }
         },
         "type": "object",
@@ -52334,9 +54616,43 @@
             "title": "Id"
           },
           "user_id": {
-            "type": "string",
-            "format": "uuid",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "User Id"
+          },
+          "team_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Id"
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision",
+            "default": 1
+          },
+          "can_edit": {
+            "type": "boolean",
+            "title": "Can Edit",
+            "default": false
+          },
+          "can_delete": {
+            "type": "boolean",
+            "title": "Can Delete",
+            "default": false
           },
           "name": {
             "type": "string",
@@ -52513,6 +54829,18 @@
                 "type": "null"
               }
             ]
+          },
+          "expected_revision": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Revision"
           }
         },
         "type": "object",
@@ -54594,6 +56922,284 @@
         "type": "object",
         "title": "TaggingSettingsUpdate"
       },
+      "TeamBindingsUpdate": {
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Revision"
+          },
+          "membership_group_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Membership Group Id"
+          },
+          "manager_group_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manager Group Id"
+          },
+          "active": {
+            "type": "boolean",
+            "title": "Active"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_revision",
+          "membership_group_id",
+          "active"
+        ],
+        "title": "TeamBindingsUpdate"
+      },
+      "TeamCreate": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{1,62}[a-z0-9]$",
+            "title": "Key"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 4000,
+            "title": "Description",
+            "default": ""
+          },
+          "membership_group_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Membership Group Id"
+          },
+          "manager_group_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manager Group Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "key",
+          "name",
+          "membership_group_id"
+        ],
+        "title": "TeamCreate"
+      },
+      "TeamListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TeamResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size"
+        ],
+        "title": "TeamListResponse"
+      },
+      "TeamMemberListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TeamMemberResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size"
+        ],
+        "title": "TeamMemberListResponse"
+      },
+      "TeamMemberResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "account_role": {
+            "type": "string",
+            "title": "Account Role"
+          },
+          "is_manager": {
+            "type": "boolean",
+            "title": "Is Manager"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "email",
+          "account_role",
+          "is_manager"
+        ],
+        "title": "TeamMemberResponse"
+      },
+      "TeamResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "membership_group_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Membership Group Id"
+          },
+          "manager_group_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manager Group Id"
+          },
+          "active": {
+            "type": "boolean",
+            "title": "Active"
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision"
+          },
+          "can_manage": {
+            "type": "boolean",
+            "title": "Can Manage",
+            "default": false
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "key",
+          "name",
+          "description",
+          "membership_group_id",
+          "manager_group_id",
+          "active",
+          "revision",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "TeamResponse"
+      },
+      "TeamUpdate": {
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Revision"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 4000,
+            "title": "Description",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_revision",
+          "name"
+        ],
+        "title": "TeamUpdate"
+      },
       "TemporaryElevationListResponse": {
         "properties": {
           "elevations": {
@@ -55860,6 +58466,34 @@
             "type": "array",
             "title": "Dashboard Panel Ids"
           },
+          "landing_mode": {
+            "type": "string",
+            "enum": [
+              "default",
+              "enforced"
+            ],
+            "title": "Landing Mode",
+            "default": "default"
+          },
+          "dashboard_mode": {
+            "type": "string",
+            "enum": [
+              "default",
+              "enforced"
+            ],
+            "title": "Dashboard Mode",
+            "default": "default"
+          },
+          "dashboard_view_json": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SavedViewQueryPayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "dashboard_panels": {
             "items": {
               "$ref": "#/components/schemas/WorkspaceEffectiveDashboardPanelResponse"
@@ -56149,6 +58783,34 @@
             "type": "array",
             "title": "Dashboard Panel Ids"
           },
+          "landing_mode": {
+            "type": "string",
+            "enum": [
+              "default",
+              "enforced"
+            ],
+            "title": "Landing Mode",
+            "default": "default"
+          },
+          "dashboard_mode": {
+            "type": "string",
+            "enum": [
+              "default",
+              "enforced"
+            ],
+            "title": "Dashboard Mode",
+            "default": "default"
+          },
+          "dashboard_view_json": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SavedViewQueryPayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "revision": {
             "type": "integer",
             "minimum": 1.0,
@@ -56242,6 +58904,46 @@
             "type": "array",
             "maxItems": 32,
             "title": "Dashboard Panel Ids"
+          },
+          "landing_mode": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "default",
+                  "enforced"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Landing Mode"
+          },
+          "dashboard_mode": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "default",
+                  "enforced"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dashboard Mode"
+          },
+          "dashboard_view_json": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SavedViewQueryPayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "additionalProperties": false,
