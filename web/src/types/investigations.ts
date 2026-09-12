@@ -112,6 +112,7 @@ export interface InvestigationActivity {
 }
 
 export interface InvestigationSummary {
+  team_id?: string | null
   id: string
   title: string
   description: string
@@ -169,6 +170,7 @@ export interface InvestigationNoteListResponse {
 }
 
 export interface InvestigationCreateRequest {
+  team_id?: string | null
   title: string
   description: string
   severity: InvestigationSeverity
@@ -217,6 +219,7 @@ export interface InvestigationNoteUpdateRequest {
 }
 
 export interface InvestigationListFilters {
+  teamId?: string
   query: string
   statuses: InvestigationStatus[]
   severities: InvestigationSeverity[]

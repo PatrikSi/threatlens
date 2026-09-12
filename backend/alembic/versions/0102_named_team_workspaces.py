@@ -62,6 +62,10 @@ def upgrade() -> None:
         )
         op.create_index(f"ix_{table}_team_id", table, ["team_id"])
     op.alter_column("saved_views", "user_id", nullable=True)
+    op.add_column(
+        "saved_views",
+        sa.Column("revision", sa.Integer(), nullable=False, server_default="1"),
+    )
     op.create_check_constraint(
         "ck_saved_views_owner",
         "saved_views",
@@ -78,10 +82,11 @@ def downgrade() -> None:
         )
     ):
         raise RuntimeError(
-            "Archive or explicitly migrate team-owned views and investigations before downgrading named teams."
+            "Remove or explicitly migrate team-owned views and investigations before downgrading named teams."
         )
     op.drop_constraint("ck_saved_views_owner", "saved_views", type_="check")
     op.alter_column("saved_views", "user_id", nullable=False)
+    op.drop_column("saved_views", "revision")
     for table in ("saved_views", "investigations"):
         op.drop_index(f"ix_{table}_team_id", table_name=table)
         op.drop_column(table, "team_id")

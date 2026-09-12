@@ -64,6 +64,7 @@ const TaggingSettingsPage = lazy(() =>
   import('./pages/TaggingSettingsPage').then((module) => ({ default: module.TaggingSettingsPage })),
 )
 const TokensPage = lazy(() => import('./pages/TokensPage').then((module) => ({ default: module.TokensPage })))
+const TeamsPage = lazy(() => import('./pages/TeamsPage').then((module) => ({ default: module.TeamsPage })))
 const UsersPage = lazy(() => import('./pages/UsersPage').then((module) => ({ default: module.UsersPage })))
 const WorkspaceSettingsPage = lazy(() =>
   import('./pages/WorkspaceSettingsPage').then((module) => ({ default: module.WorkspaceSettingsPage })),
@@ -115,6 +116,7 @@ function createAppRouter() {
             )}
           />
           <Route path="start" element={<WorkspaceStartRoute />} />
+          <Route path="teams" element={<WorkspaceModuleRoute moduleId="primary.teams">{suspenseRoute(<TeamsPage />, 'Loading team workspaces...')}</WorkspaceModuleRoute>} />
           <Route
             path="alerts"
             element={<WorkspaceModuleRoute moduleId="primary.alerts">{suspenseRoute(<AlertsPage />, 'Loading alerts...')}</WorkspaceModuleRoute>}

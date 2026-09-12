@@ -20,6 +20,7 @@ class InvestigationCreate(BaseModel):
     severity: InvestigationSeverity = "medium"
     visibility: InvestigationVisibility = "private"
     assignee_user_id: uuid.UUID | None = None
+    team_id: uuid.UUID | None = None
 
 
 class InvestigationUpdate(BaseModel):
@@ -204,6 +205,7 @@ class InvestigationActivityResponse(BaseModel):
 
 
 class InvestigationSummaryResponse(BaseModel):
+    team_id: uuid.UUID | None = None
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID

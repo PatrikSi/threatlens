@@ -13,6 +13,7 @@ from app.models.iam import (
     IAMGroupRoleAssignment,
     IAMRole,
 )
+from app.models.team import Team
 from app.models.user import User
 from app.models.oidc_access import OIDCGroupClaimMapping
 from app.schemas.iam import (
@@ -248,6 +249,8 @@ def delete_group(
         raise IAMGroupConflict(
             "Group is referenced by an OIDC claim mapping. Remove that mapping before deleting the group."
         )
+    if db.scalar(select(Team.id).where((Team.membership_group_id == group.id) | (Team.manager_group_id == group.id)).limit(1)):
+        raise IAMGroupConflict("Group controls access to a named team. Rebind that team's groups before deleting this group.")
     db.delete(group)
     bump_iam_policy_revision(db)
     db.flush()

@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import select
@@ -8,10 +9,12 @@ from app.core.api_errors import ApiHTTPException
 from app.models.team import Team
 from app.services.authorization import authorization_context_for_user
 from app.services.team_access import (
+    assert_current_team_access,
     require_team_access,
     team_access_predicate,
     team_member_user_ids_query,
 )
+from tests.integration.test_oidc_access_sync import _sync_fixture
 
 
 def test_team_membership_and_manager_access_do_not_grant_outsiders_or_admins(
@@ -97,7 +100,43 @@ def test_team_access_disappears_after_membership_removal_or_deactivation(
     team.active = False
     db_session.flush()
     assert db_session.scalar(query) is None
+
     team.active = True
     db_session.delete(member)
     db_session.flush()
     assert db_session.scalar(query) is None
+
+
+def test_team_membership_rechecks_oidc_assertion_expiry_without_cleanup(
+    db_session, seed_users
+):
+    fixture = _sync_fixture(db_session, seed_users)
+    mapping = fixture["group_mapping"]
+    team = Team(
+        key=f"team-{uuid.uuid4().hex}",
+        name="Federated SOC",
+        membership_group_id=fixture["group"].id,
+    )
+    member = IAMGroupMembership(
+        group_id=fixture["group"].id,
+        user_id=seed_users["viewer"].id,
+        source="oidc",
+        source_key=mapping.source_key,
+        oidc_group_mapping_id=mapping.id,
+        oidc_assertion_expires_at=datetime.now(timezone.utc) + timedelta(minutes=1),
+    )
+    db_session.add_all([team, member])
+    db_session.flush()
+    query = select(Team.id).where(
+        team_access_predicate(Team.id, seed_users["viewer"].id)
+    )
+    assert db_session.scalar(query) == team.id
+    member.oidc_assertion_expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+    db_session.flush()
+    assert db_session.scalar(query) is None
+    assert list(db_session.scalars(team_member_user_ids_query(team.id))) == []
+    with pytest.raises(ApiHTTPException) as expired:
+        assert_current_team_access(
+            db_session, team_id=team.id, user_id=seed_users["viewer"].id
+        )
+    assert expired.value.status_code == 404

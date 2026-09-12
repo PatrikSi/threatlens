@@ -70,6 +70,26 @@ def team_member_user_ids_query(
     return select(User.id).where(team_access_predicate(team_id, User.id, manage=manage))
 
 
+def assert_current_team_access(
+    db: Session,
+    *,
+    team_id: uuid.UUID,
+    user_id: uuid.UUID,
+    manage: bool = False,
+) -> None:
+    """Recheck expiring membership after resource waits under the caller's fences.
+
+    This is not a substitute for IAM/actor/team locking or feature permissions.
+    It handles clock-based assertion expiry that those locks cannot prevent.
+    """
+    if not db.scalar(select(team_access_predicate(team_id, user_id, manage=manage))):
+        raise ApiHTTPException(
+            status_code=404,
+            error_code="team_not_found",
+            detail="Team not found or current group membership does not permit this action.",
+        )
+
+
 def require_team_access(
     db: Session,
     *,
@@ -113,10 +133,13 @@ def require_team_access(
         .with_for_update(read=not for_update, of=Team)
         .execution_options(populate_existing=True)
     )
+    # A time-limited OIDC assertion may expire while the row lock is waiting.
+    # Re-evaluate in a fresh statement after acquiring the team fence.
     if row is None:
         raise ApiHTTPException(
             status_code=404,
             error_code="team_not_found",
             detail="Team not found or current group membership does not permit this action.",
         )
+    assert_current_team_access(db, team_id=row.id, user_id=user.id, manage=manage)
     return row
