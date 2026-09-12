@@ -77,6 +77,7 @@ This documentation covers:
 - [Settings](./pages/settings.md) including access governance, integrations,
   tagging, tokens, users, and audit logs
 - [AI](./pages/ai.md)
+- [AI workflow and provider recovery](./pages/ai-workflow-recovery.md)
 - [Database privileges and upgrades](./pages/database-privileges.md)
 - [Runtime resource and database budgets](./pages/runtime-budgets.md)
 - [Processing operator workflow](./pages/processing.md)

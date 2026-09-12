@@ -12,7 +12,7 @@ from app.core.redis_client import redis_client_from_url
 from app.models.ai_task_run import AITaskRun
 from app.models.ai_workflow import AIWorkflowDispatch
 from app.services.ai_workflow_dispatch import (
-    TERMINAL, WORKFLOW_BATCH_SIZE, WORKFLOW_CLAIM_SECONDS,
+    WORKFLOW_BATCH_SIZE, WORKFLOW_CLAIM_SECONDS,
     WORKFLOW_MAX_OUTSTANDING_PUBLICATIONS, WORKFLOW_REPUBLISH_SECONDS, as_utc,
 )
 

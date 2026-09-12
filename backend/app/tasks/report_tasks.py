@@ -333,11 +333,23 @@ def generate_intelligence_report(
                 generation_fence=generation_fence, infrastructure_retry_count=infrastructure_retry_count,
             )
 
+    return _execute_claimed_report(
+        self, report_id=parsed_report_id, run_id=parsed_run_id, worker_name=worker_name,
+        lease_token=lease_token, generation_fence=generation_fence,
+        infrastructure_retry_count=infrastructure_retry_count,
+    )
+
+
+def _execute_claimed_report(
+    task, *, report_id: uuid.UUID, run_id: uuid.UUID, worker_name: str | None,
+    lease_token: str, generation_fence: int, infrastructure_retry_count: int,
+):
+    """Execute and settle report stages under the already acquired generation lease."""
     with db_session() as db:
 
         def execution_checkpoint() -> None:
             _heartbeat_report_generation(
-                report_id=parsed_report_id,
+                report_id=report_id,
                 lease_token=lease_token,
                 generation_fence=generation_fence,
             )
@@ -346,7 +358,7 @@ def generate_intelligence_report(
             try:
                 owned = fence_report_generation(
                     db,
-                    report_id=parsed_report_id,
+                    report_id=report_id,
                     lease_token=lease_token,
                     generation_fence=generation_fence,
                     lease_seconds=settings.report_generation_lease_seconds,
@@ -368,28 +380,28 @@ def generate_intelligence_report(
         try:
             result = generate_report(
                 db,
-                report_id=parsed_report_id,
-                task_run_id=parsed_run_id,
+                report_id=report_id,
+                task_run_id=run_id,
                 execution_checkpoint=execution_checkpoint,
                 execution_commit=execution_commit,
             )
         except ReportGenerationLeaseLostError:
             logger.warning(
                 "report_generation_ownership_lost report_id=%s task_run_id=%s",
-                parsed_report_id,
-                parsed_run_id,
+                report_id,
+                run_id,
             )
             return {"status": "skipped", "reason": "ownership_lost"}
         except ReportGenerationLeaseUnavailableError as exc:
             logger.warning(
                 "report_generation_ownership_unverified report_id=%s task_run_id=%s",
-                parsed_report_id,
-                parsed_run_id,
+                report_id,
+                run_id,
             )
             return _retry_or_settle_report_infrastructure(
-                self,
-                report_id=parsed_report_id,
-                run_id=parsed_run_id,
+                task,
+                report_id=report_id,
+                run_id=run_id,
                 worker_name=worker_name,
                 lease_token=lease_token,
                 generation_fence=generation_fence,
@@ -400,16 +412,16 @@ def generate_intelligence_report(
         except AIWorkflowDeferred as exc:
             from app.services.ai_report_workflow import defer_report_workflow
             return defer_report_workflow(
-                db, report_id=parsed_report_id, run_id=parsed_run_id,
+                db, report_id=report_id, run_id=run_id,
                 lease_token=lease_token, generation_fence=generation_fence,
                 reason=exc.reason, retry_after_seconds=exc.retry_after_seconds,
             )
         except Exception as exc:
             return _settle_failed_generation(
-                self,
+                task,
                 db=db,
-                report_id=parsed_report_id,
-                run_id=parsed_run_id,
+                report_id=report_id,
+                run_id=run_id,
                 worker_name=worker_name,
                 lease_token=lease_token,
                 generation_fence=generation_fence,
@@ -419,28 +431,28 @@ def generate_intelligence_report(
 
         finish_ai_task_run(
             db,
-            run_id=parsed_run_id,
+            run_id=run_id,
             status=AI_STATUS_READY,
             worker_name=worker_name,
-            model=db.get(Report, parsed_report_id).model
-            if db.get(Report, parsed_report_id)
+            model=db.get(Report, report_id).model
+            if db.get(Report, report_id)
             else None,
             prompt_tokens=result.prompt_tokens,
             completion_tokens=result.completion_tokens,
             total_tokens=result.total_tokens,
             metadata_updates={"model_calls": result.model_calls},
-            report_id=parsed_report_id,
+            report_id=report_id,
         )
         event_id = db.scalar(
             select(IntegrationEvent.id).where(
                 IntegrationEvent.event_type == REPORT_READY_EVENT_TYPE,
                 IntegrationEvent.source_type == "report",
-                IntegrationEvent.source_id == str(parsed_report_id),
+                IntegrationEvent.source_id == str(report_id),
             )
         )
         if not release_report_generation(
             db,
-            report_id=parsed_report_id,
+            report_id=report_id,
             lease_token=lease_token,
             generation_fence=generation_fence,
         ):
@@ -451,9 +463,9 @@ def generate_intelligence_report(
         except Exception as exc:
             db.rollback()
             return _retry_or_settle_report_infrastructure(
-                self,
-                report_id=parsed_report_id,
-                run_id=parsed_run_id,
+                task,
+                report_id=report_id,
+                run_id=run_id,
                 worker_name=worker_name,
                 lease_token=lease_token,
                 generation_fence=generation_fence,
@@ -466,7 +478,7 @@ def generate_intelligence_report(
     )
     return {
         "status": "ready",
-        "report_id": str(parsed_report_id),
+        "report_id": str(report_id),
         "model_calls": result.model_calls,
         "notification_enqueue_failed": not notification_enqueued,
     }
