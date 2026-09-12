@@ -3,6 +3,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.schemas.storage_text import validate_storage_text
+
 
 class TeamText(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -11,9 +13,7 @@ class TeamText(BaseModel):
     @classmethod
     def storage_safe_text(cls, value):
         if isinstance(value, str):
-            if "\x00" in value or any(0xD800 <= ord(char) <= 0xDFFF for char in value):
-                raise ValueError("Text contains a character that cannot be stored.")
-            return value.strip()
+            return validate_storage_text(value).strip()
         return value
 
 
