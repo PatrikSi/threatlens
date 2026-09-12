@@ -5,6 +5,7 @@ import { useAlertUrlState } from './alertUrlState'
 import { captureSessionLease } from '../api/sessionLifecycle'
 import { ApiError, apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
+import { accessibleQueryData } from '../api/queryData'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import type {
   AlertBackfillApplyResponse,
@@ -85,7 +86,7 @@ export function useAlertOccurrencesController(active = true) {
   const [snoozeReason, setSnoozeReason] = useState('')
   const detailReturnTargetRef = useRef<HTMLButtonElement | null>(null)
 
-  const rulesQuery = useQuery({
+  const rulesResult = useQuery({
     queryKey: ['alerts', 'occurrences', 'rules'],
     queryFn: () => apiFetch<AlertInterest[]>('/alerts?include_disabled=true'),
     enabled: active,
@@ -96,7 +97,7 @@ export function useAlertOccurrencesController(active = true) {
     [filters, page, pageSize],
   )
   const filterValidationError = validateAlertOccurrenceFilters(filters)
-  const occurrencesQuery = useQuery({
+  const occurrencesResult = useQuery({
     queryKey: ['alerts', 'occurrences', 'list', occurrencePath],
     queryFn: () => apiFetch<AlertOccurrenceListResponse>(occurrencePath),
     placeholderData: (previous) => previous,
@@ -104,14 +105,14 @@ export function useAlertOccurrencesController(active = true) {
     refetchInterval: OCCURRENCE_REFRESH_MS,
     retry: retryOperationalQuery,
   })
-  const detailQuery = useQuery({
+  const detailResult = useQuery({
     queryKey: ['alerts', 'occurrences', 'detail', selectedOccurrenceId],
     queryFn: () => apiFetch<AlertOccurrence>(`/alerts/occurrences/${encodeURIComponent(selectedOccurrenceId ?? '')}`),
     enabled: active && Boolean(selectedOccurrenceId),
     refetchInterval: OCCURRENCE_REFRESH_MS,
     retry: retryOperationalQuery,
   })
-  const activityQuery = useQuery({
+  const activityResult = useQuery({
     queryKey: ['alerts', 'occurrences', 'activity', selectedOccurrenceId, activityPage],
     queryFn: () => {
       const params = new URLSearchParams({
@@ -125,6 +126,13 @@ export function useAlertOccurrencesController(active = true) {
     enabled: active && Boolean(selectedOccurrenceId),
     retry: retryOperationalQuery,
   })
+  const rulesQuery = { ...rulesResult, data: accessibleQueryData(rulesResult) }
+  const occurrencesQuery = { ...occurrencesResult, data: accessibleQueryData(occurrencesResult) }
+  const detailQuery = { ...detailResult, data: accessibleQueryData(detailResult) }
+  const activityQuery = { ...activityResult, data: accessibleQueryData(activityResult) }
+  const accessWithdrawn = [occurrencesResult, detailResult].some(
+    (query) => query.error instanceof ApiError && [401, 403, 404].includes(query.error.status),
+  )
 
   const applyOccurrenceUpdates = (updates: AlertOccurrence[]) => {
     const byId = new Map(updates.map((occurrence) => [occurrence.id, occurrence]))
@@ -399,7 +407,7 @@ export function useAlertOccurrencesController(active = true) {
     setCloseTarget({ occurrences: selectedOccurrences, bulk: true, mode: 'close' })
   }
   const confirmClose = () => {
-    if (!closeTarget) return
+    if (!closeTarget || accessWithdrawn) return
     if (closeTarget.bulk) {
       bulkLifecycleMutation.mutate({
         occurrences: closeTarget.occurrences,
@@ -424,7 +432,7 @@ export function useAlertOccurrencesController(active = true) {
     setActionError(null)
   }
   const confirmSnooze = () => {
-    if (!snoozeTarget || snoozeValidationError) return
+    if (!snoozeTarget || snoozeValidationError || accessWithdrawn) return
     snoozeMutation.mutate({
       occurrence: snoozeTarget,
       snoozedUntil: new Date(snoozeUntil).toISOString(),
@@ -462,7 +470,7 @@ export function useAlertOccurrencesController(active = true) {
     closeOccurrenceDetail,
     closeDisposition,
     closeConfirmationDisabled,
-    closeTarget,
+    closeTarget: accessWithdrawn ? null : closeTarget,
     confirmClose,
     confirmSnooze,
     conflictNotice,
@@ -500,7 +508,7 @@ export function useAlertOccurrencesController(active = true) {
     setSnoozeUntil,
     snoozeMutation,
     snoozeReason,
-    snoozeTarget,
+    snoozeTarget: accessWithdrawn ? null : snoozeTarget,
     snoozeUntil,
     snoozeValidationError,
     stats,
@@ -510,7 +518,7 @@ export function useAlertOccurrencesController(active = true) {
     toggleStateFilter,
     updateFilters,
     visibleOccurrences,
-    writeDenied,
+    writeDenied: writeDenied || accessWithdrawn,
   }
 }
 
