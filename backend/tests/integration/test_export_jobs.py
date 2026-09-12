@@ -41,6 +41,7 @@ def export_env(database_engine, monkeypatch, _install_test_redis_backend):
         yield
 
     monkeypatch.setattr(worker, "acquire_export_lock", unlocked)
+    monkeypatch.setattr(export_tasks, "read_queue_execution_canaries", lambda **_kwargs: {})
     monkeypatch.setattr(export_tasks.generate_export_job, "apply_async", lambda **_kwargs: None)
     with Session(database_engine) as db:
         key = uuid.uuid4().hex
@@ -102,6 +103,15 @@ def test_acceptance_survives_broker_failure_and_idempotent_retry(export_env, mon
     assert conflict.status_code == 409
     dispatched = []
     monkeypatch.setattr(export_tasks.generate_export_job, "apply_async", lambda **kwargs: dispatched.append(kwargs))
+    assert export_tasks.dispatch_export_jobs()["queued"] == 0
+    with Session(env.engine) as db:
+        job = db.get(ExportJob, job_id)
+        job.published_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+        job.next_dispatch_at = job.published_at
+        db.commit()
+    monkeypatch.setattr(export_tasks, "read_queue_execution_canaries", lambda **_kwargs: {
+        "exports-v1": SimpleNamespace(reason="fresh", heartbeat_at=datetime.now(timezone.utc)),
+    })
     result = export_tasks.dispatch_export_jobs()
     assert result["queued"] == 1
     assert dispatched[0]["args"] == [str(job_id)]

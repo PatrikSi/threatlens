@@ -21,6 +21,7 @@ from app.schemas.exports import (
 from app.services.authorization import AuthorizationContext
 from app.services.data_access_policy import DataAccessContext
 from app.services.export_job_access import capture_export_authorization
+from app.services.export_job_dispatch import reset_export_publication
 from app.services.export_job_contracts import (
     AcceptedExportJob,
     ExportPrincipal,
@@ -281,6 +282,7 @@ def maintain_export_jobs(db: Session, *, limit: int = 50) -> int:
             job.claim_token = None
             job.lease_expires_at = None
             job.next_attempt_at = now
+            reset_export_publication(job)
             job.completed_items = 0
             job.source_encrypted = None
         repaired += 1

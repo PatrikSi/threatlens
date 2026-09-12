@@ -44,6 +44,7 @@ from app.services.export_job_contracts import (
     ExportCheckpoint,
     ExportExecutionResult,
 )
+from app.services.export_job_dispatch import reset_export_publication
 from app.services.export_models import ExportRecord
 from app.services.export_job_scratch import (
     clean_local_export_scratch,
@@ -383,6 +384,7 @@ def _settle_failure(job_id: uuid.UUID, token: uuid.UUID, exc: Exception) -> None
             job.next_attempt_at = datetime.now(timezone.utc) + timedelta(
                 seconds=min(60, 10 * job.attempts)
             )
+            reset_export_publication(job)
             job.error_code = "coordination_unavailable"
             if isinstance(exc, ExportAlreadyRunningError):
                 job.attempts -= 1

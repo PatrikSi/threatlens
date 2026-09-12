@@ -24,7 +24,7 @@ def test_export_publisher_isolated_from_worker_transport_and_result_channels(mon
     monkeypatch.setattr(export_tasks.celery_app, "connection_for_write", write_connection)
     monkeypatch.setattr(export_tasks.generate_export_job, "apply_async", lambda **kwargs: captured.update(kwargs))
     job_id = uuid.uuid4()
-    assert export_tasks.enqueue_export_job(job_id)
+    assert export_tasks._publish_export_job(job_id)
     assert captured["args"] == [str(job_id)]
     assert captured["connection"] is connection
     assert captured["closed"] and captured["retry"] is False and captured["ignore_result"] is True
@@ -74,9 +74,9 @@ def test_nonresponsive_local_broker_does_not_strand_export_publication(tmp_path)
     code = """
 import time
 import uuid
-from app.tasks.export_tasks import enqueue_export_job
+from app.tasks.export_tasks import _publish_export_job
 started = time.monotonic()
-assert enqueue_export_job(uuid.uuid4()) is False
+assert _publish_export_job(uuid.uuid4()) is False
 assert time.monotonic() - started < 2
 print('publication returned for durable retry')
 """
@@ -92,3 +92,17 @@ print('publication returned for durable retry')
         thread.join(timeout=1)
         for peer in peers:
             peer.close()
+
+
+def test_export_acceptance_survives_publication_reservation_failure(monkeypatch):
+    monkeypatch.setattr(export_tasks, "read_queue_execution_canaries", lambda **_kwargs: {})
+
+    def unavailable_session():
+        raise ConnectionError("Database temporarily unavailable")
+
+    def unexpected_publish(_job_id):
+        raise AssertionError("Publication must follow a committed reservation")
+
+    monkeypatch.setattr(export_tasks.session_module, "SessionLocal", unavailable_session)
+    monkeypatch.setattr(export_tasks, "_publish_export_job", unexpected_publish)
+    assert export_tasks.enqueue_export_job(uuid.uuid4()) is False
