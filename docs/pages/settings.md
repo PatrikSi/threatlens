@@ -244,6 +244,25 @@ permission requires the built-in administrator base role.
   defaults are presented separately; both support visibility, optionality, and
   ordering, while mobile priority applies only to the top navigation. Role
   policies also define the default landing page and first-use dashboard panels.
+- Start-page and dashboard policies each support **Default** and **Enforced**
+  modes. Default dashboard templates apply only on first use; an existing local
+  arrangement or a personal initial-panel preference wins. Enforced start pages
+  ignore personal landing choices and keep their navigation ancestors available,
+  subject to current permissions and feature flags.
+- Administrators can copy a saved dashboard view into an immutable organization
+  template, including panel titles, layout and search defaults. The server removes
+  scratch notes, selected feed IDs, personal alert-rule IDs and individual brief
+  selections, resets paging, and limits snapshots to 12 panels and 64 KiB.
+  Later edits or deletion of the original saved view do not change the policy.
+  Titles and search text are intentionally shared; review them before publishing.
+- Enforced dashboard arrangements disable layout editing, saved-view loading and
+  scratch-pad editing. Analysts can still adjust live filters and write article
+  notes. Personal layouts and active edit drafts remain separate and return when
+  enforcement ends. Updated policy revisions refresh the organization arrangement.
+  Enforcement controls presentation; it never grants access to protected data.
+- Older policy clients that omit the new mode/template fields preserve them.
+  Explicit policy reset removes enforcement and the template. Existing navigation
+  revision conflicts, durable management permissions and audit events apply.
 - The role top-navigation preview is inert and contains only primary header
   modules. It does not impersonate a role, issue requests as another user, or
   turn preview entries into links.

@@ -31,6 +31,9 @@ export interface RolePolicyDraft {
   landingModuleId: string
   modules: Map<TrustedWorkspaceModuleId, WorkspaceModulePolicy>
   dashboardPanelIds: string[]
+  landingMode?: 'default' | 'enforced'
+  dashboardMode?: 'default' | 'enforced'
+  dashboardView?: import('../types/savedViews').SavedViewQueryPayload | null
 }
 
 export interface PersonalWorkspaceDraft {
@@ -54,6 +57,9 @@ export interface PersonalNavigationPreviewItem {
 export function createRolePolicyDraft(policy: WorkspaceRolePolicyResponse): RolePolicyDraft {
   return {
     landingModuleId: policy.landing_module_id,
+    landingMode: policy.landing_mode ?? 'default',
+    dashboardMode: policy.dashboard_mode ?? 'default',
+    dashboardView: policy.dashboard_view_json ?? null,
     modules: new Map(
       policy.modules
         .filter((module): module is WorkspaceModulePolicy & { module_id: TrustedWorkspaceModuleId } =>
@@ -100,17 +106,20 @@ export function buildRolePolicyPayload(
   policy: WorkspaceRolePolicyResponse,
   draft: RolePolicyDraft,
 ): WorkspaceRolePolicyWriteRequest {
-  return rolePolicyWriteRequest(
+  return { ...rolePolicyWriteRequest(
     policy,
     draft.modules,
     draft.landingModuleId,
     draft.dashboardPanelIds,
-  )
+  ), landing_mode: draft.landingMode ?? 'default', dashboard_mode: draft.dashboardMode ?? 'default', dashboard_view_json: draft.dashboardView ?? null }
 }
 
 export function rolePolicyDraftIsDirty(policy: WorkspaceRolePolicyResponse, draft: RolePolicyDraft): boolean {
   const payload = buildRolePolicyPayload(policy, draft)
   return JSON.stringify(payload.modules) !== JSON.stringify(policy.modules) ||
+    payload.landing_mode !== (policy.landing_mode ?? 'default') ||
+    payload.dashboard_mode !== (policy.dashboard_mode ?? 'default') ||
+    JSON.stringify(payload.dashboard_view_json) !== JSON.stringify(policy.dashboard_view_json ?? null) ||
     payload.landing_module_id !== policy.landing_module_id ||
     JSON.stringify(payload.dashboard_panel_ids) !== JSON.stringify(policy.dashboard_panel_ids)
 }

@@ -50,7 +50,7 @@ export function loadStoredDashboardWindows(
   }
 }
 
-function createDefaultDashboardWindows(
+export function createDefaultDashboardWindows(
   containerWidth: number,
   containerHeight: number,
   requestedTypes: readonly DashboardWindowType[],

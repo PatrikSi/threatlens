@@ -25,6 +25,16 @@ import {
 } from './workspaceSettingsModel'
 
 describe('workspace settings model', () => {
+  it('keeps organization enforcement choices with the loaded revision baseline', () => {
+    const baseline = { ...rolePolicy(), revision: 7, landing_mode: 'enforced' as const, dashboard_mode: 'enforced' as const }
+    const draft = createRolePolicyDraft(baseline)
+    const payload = buildRolePolicyPayload(baseline, { ...draft, dashboardMode: 'default' })
+    expect(payload.expected_revision).toBe(7)
+    expect(payload.landing_mode).toBe('enforced')
+    expect(payload.dashboard_mode).toBe('default')
+    expect(payload.dashboard_view_json).toBeNull()
+  })
+
   it('moves personal modules only among navigation siblings', () => {
     const draft = {
       landingModuleId: null,
