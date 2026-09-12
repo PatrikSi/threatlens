@@ -11,6 +11,7 @@ from app.core.ai_endpoints import matches_ai_key_origin
 from app.core.config import get_settings
 from app.models.ai_settings import AISettings
 from app.schemas.ai_provider_capabilities import CAPABILITY_FIELDS, capability_values
+from app.schemas.ai_provider_admission import ADMISSION_FIELDS, admission_limit_values
 from app.schemas.ai import AIPromptPreview, AIPromptPreviews, AISettingsResponse, AISettingsUpdate
 
 
@@ -75,6 +76,8 @@ class ActiveAISettings:
     credential_origin: str | None = None
     configuration_error: str | None = None
     configuration_error_code: str | None = None
+    max_concurrent_requests: int = 0
+    hourly_token_budget: int = 0
     request_dialect: str = "chat_completions"
     reasoning_effort: str | None = None
     structured_output_mode: str = "off"
@@ -154,7 +157,7 @@ def get_or_create_ai_settings(db: Session) -> AISettings:
 
 
 def apply_ai_settings_update(settings: AISettings, payload: AISettingsUpdate) -> None:
-    for name in CAPABILITY_FIELDS:
+    for name in (*CAPABILITY_FIELDS, *ADMISSION_FIELDS):
         if name in payload.model_fields_set:
             setattr(settings, name, getattr(payload, name))
     settings.provider_type = payload.provider_type
@@ -221,6 +224,7 @@ def ai_settings_response_from_model(settings: AISettings, *, db: Session | None 
         api_key=api_key,
         temperature=settings.temperature,
         **capability_values(settings),
+        **admission_limit_values(settings),
         max_completion_tokens=int(settings.max_completion_tokens),
         request_timeout_seconds=int(settings.request_timeout_seconds),
         request_max_retries=int(settings.request_max_retries),
@@ -268,6 +272,7 @@ def ai_settings_response_from_model(settings: AISettings, *, db: Session | None 
         model=model,
         temperature=settings.temperature,
         **capability_values(settings),
+        **admission_limit_values(settings),
         max_completion_tokens=int(settings.max_completion_tokens),
         request_timeout_seconds=int(settings.request_timeout_seconds),
         request_max_retries=int(settings.request_max_retries),
@@ -358,6 +363,7 @@ def load_active_ai_settings(
         api_key=api_key,
         temperature=settings.temperature,
         **capability_values(settings),
+        **admission_limit_values(settings),
         max_completion_tokens=int(settings.max_completion_tokens),
         request_timeout_seconds=int(settings.request_timeout_seconds),
         request_max_retries=int(settings.request_max_retries),

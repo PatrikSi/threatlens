@@ -117,6 +117,22 @@ Migration 0096 preserves existing requests. Downgrade is blocked while nonlegacy
 capabilities or omitted temperatures remain configured; restore legacy settings
 and resolve queued AI work before rolling back.
 
+### Provider Workload Limits
+
+Each connection has a **Concurrent request limit** (0–1,000) and a
+**Rolling-hour token budget** (0–1,000,000,000,000). Zero means unlimited and
+preserves existing installations. Configure these independently for the legacy
+connection and each named provider. They apply across API and worker processes,
+not separately to each worker. The token budget reserves estimated input plus
+requested completion tokens; unknown usage retains a conservative reservation.
+These settings limit admission and do not alter provider request parameters.
+
+The API fields are `max_concurrent_requests` and `hourly_token_budget`. Older
+clients omitting them retain saved limits; explicitly save zero to remove a
+limit. Changes appear in AI configuration audit history. Distinct profiles are
+separate budgets even if they use the same external account, so account-wide
+provider quotas still need operator coordination.
+
 ### Gemini Compatibility
 
 For Gemini, enter `https://generativelanguage.googleapis.com/v1beta/openai/` as the

@@ -1,4 +1,5 @@
 from app.schemas.ai_provider_capabilities import AIProviderCapabilityFields
+from app.schemas.ai_provider_admission import AIProviderAdmissionFields
 import math
 import uuid
 from datetime import date, datetime
@@ -62,7 +63,7 @@ def _normalize_string_list(values: object) -> list[str]:
     return normalized
 
 
-class AISettingsUpdate(AIProviderCapabilityFields):
+class AISettingsUpdate(AIProviderAdmissionFields, AIProviderCapabilityFields):
     provider_type: AIProviderType = "openai_compatible"
     base_url: str | None = Field(default=None, max_length=4000)
     model: str | None = Field(default=None, max_length=255)
@@ -200,7 +201,7 @@ class AISettingsUpdate(AIProviderCapabilityFields):
         return self
 
 
-class AISettingsResponse(AIProviderCapabilityFields):
+class AISettingsResponse(AIProviderAdmissionFields, AIProviderCapabilityFields):
     id: uuid.UUID
     ai_enabled: bool
     ai_configured: bool

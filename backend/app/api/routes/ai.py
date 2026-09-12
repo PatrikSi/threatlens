@@ -18,6 +18,8 @@ from app.db.session import get_db
 from app.models.user import User
 from app.models.ai_task_run import AITaskRun
 from app.models.audit_log import AuditLog
+from app.schemas.ai_provider_admission import admission_limit_values
+from app.schemas.ai_provider_capabilities import capability_values
 from app.schemas.ai import (
     AIAuditEntryResponse,
     AIDailyBriefBackfillRequest,
@@ -178,12 +180,14 @@ def update_ai_settings_route(
         "report_context_safety_percent",
     )
     before_values.update({field: getattr(settings, field) for field in report_setting_fields})
+    before_values.update(capability_values(settings))
+    before_values.update(admission_limit_values(settings))
     apply_ai_settings_update(settings, payload)
     db.add(settings)
     after_changed_fields = [
         field_name
         for field_name in before_values
-        if before_values[field_name] != getattr(payload, field_name)
+        if before_values[field_name] != getattr(settings, field_name)
     ]
     record_audit(
         db,
@@ -205,6 +209,8 @@ def update_ai_settings_route(
             "daily_brief_schedule_minute_utc": payload.daily_brief_schedule_minute_utc,
             "request_max_retries": payload.request_max_retries,
             "changed_fields": after_changed_fields,
+            "provider_capabilities": capability_values(settings),
+            "provider_limits": admission_limit_values(settings),
             "report_settings": {field: getattr(payload, field) for field in report_setting_fields},
             "prompt_hashes": {
                 "item_enrichment_system_prompt": _hash_prompt(

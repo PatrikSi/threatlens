@@ -1,7 +1,8 @@
 import { AISettings, AISettingsUpdateRequest } from '../types/api'
+import { createAdmissionDraft, createAdmissionRequest, validateAdmissionDraft, type ProviderAdmissionDraft } from './aiProviderAdmissionDraft'
 import { createCapabilitiesDraft, createCapabilitiesRequest, validateCapabilitiesDraft, type ProviderCapabilitiesDraft } from './aiProviderCapabilitiesDraft'
 
-export type AISettingsDraft = ProviderCapabilitiesDraft & {
+export type AISettingsDraft = ProviderCapabilitiesDraft & ProviderAdmissionDraft & {
   base_url: string
   model: string
   temperature: string
@@ -47,6 +48,7 @@ const MAX_COMPLETION_TOKENS = 131072
 
 export const DEFAULT_DRAFT: AISettingsDraft = {
   ...createCapabilitiesDraft(),
+  ...createAdmissionDraft(),
   base_url: '',
   model: '',
   temperature: '0.2',
@@ -129,7 +131,7 @@ const TEXT_RULES: Array<{
 ]
 
 export function validateAISettingsDraft(draft: AISettingsDraft): AISettingsDraftValidation {
-  const errors: AISettingsDraftValidation = validateCapabilitiesDraft(draft)
+  const errors: AISettingsDraftValidation = { ...validateCapabilitiesDraft(draft), ...validateAdmissionDraft(draft) }
 
   for (const rule of TEXT_RULES) {
     const value = draft[rule.key]
@@ -198,6 +200,7 @@ export function getFirstAISettingsDraftValidationError(validation: AISettingsDra
 export function createDraftFromSettings(settings: AISettings): AISettingsDraft {
   return {
     ...createCapabilitiesDraft(settings),
+    ...createAdmissionDraft(settings),
     base_url: settings.base_url ?? '',
     model: settings.model ?? '',
     temperature: settings.temperature == null ? '' : String(settings.temperature),
@@ -242,6 +245,7 @@ export function createRequestFromDraft(draft: AISettingsDraft): AISettingsUpdate
   const dailyBriefSchedule = parseUtcTimeInput(draft.daily_brief_run_time_utc)
   return {
     ...createCapabilitiesRequest(draft),
+    ...createAdmissionRequest(draft),
     provider_type: 'openai_compatible',
     base_url: normalizeOptionalText(draft.base_url),
     model: normalizeOptionalText(draft.model),

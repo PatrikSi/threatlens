@@ -86,6 +86,8 @@ describe('saved AI settings with a real query cache', () => {
       change('Temperature', '')
       change('Model context limit (tokens)', '65536')
       change('Model output limit (tokens)', '16384')
+      change('Concurrent request limit', '2')
+      change('Rolling-hour token budget', '100000')
       select('Request format', 'chat_completions_modern')
       select('Reasoning effort', 'low')
       select('JSON response mode', 'json_object')
@@ -97,6 +99,7 @@ describe('saved AI settings with a real query cache', () => {
     expect(writes[0]).toMatchObject({
       temperature: null, request_dialect: 'chat_completions_modern', reasoning_effort: 'low',
       structured_output_mode: 'json_object', model_context_window_tokens: 65536, model_max_output_tokens: 16384,
+      max_concurrent_requests: 2, hourly_token_budget: 100000,
     })
     expect(reads).toBeGreaterThan(1)
     expect(input('Model').value).toBe('model-after-save')

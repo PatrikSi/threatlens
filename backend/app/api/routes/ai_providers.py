@@ -23,6 +23,9 @@ from app.core.api_errors import ApiHTTPException
 from app.db.budgets import DatabaseDeadlineExceeded, database_operation
 from app.db.session import get_db
 from app.models.user import User
+from app.models.ai_provider import AIProviderConfiguration
+from app.schemas.ai_provider_admission import admission_limit_values
+from app.schemas.ai_provider_capabilities import capability_values
 from app.schemas.ai import AIProviderTestConnectionRequest, AITestConnectionResponse
 from app.services.ai_config import load_active_ai_settings
 from app.services.ai_integration import test_ai_connection
@@ -160,6 +163,7 @@ def create_ai_provider_route(
                 action="create",
                 provider_id=provider.id,
                 version=provider.version,
+                configuration=provider,
             )
         else:
             response.status_code = 200
@@ -185,6 +189,7 @@ def update_ai_provider_route(
             action="update",
             provider_id=provider.id,
             version=provider.version,
+            configuration=provider,
         )
         result = provider_response(provider)
         db.commit()
@@ -243,7 +248,8 @@ def update_ai_provider_routing_route(
 
 
 def _audit_provider(
-    db: Session, actor: User, *, action: str, provider_id: uuid.UUID, version: int
+    db: Session, actor: User, *, action: str, provider_id: uuid.UUID, version: int,
+    configuration: AIProviderConfiguration | None = None,
 ) -> None:
     record_audit(
         db,
@@ -251,7 +257,11 @@ def _audit_provider(
         action=f"ai.provider.{action}",
         resource_type="ai_provider_configuration",
         resource_id=str(provider_id),
-        metadata={"version": version},
+        metadata={
+            "version": version,
+            **({"provider_capabilities": capability_values(configuration),
+                "provider_limits": admission_limit_values(configuration)} if configuration is not None else {}),
+        },
     )
 
 

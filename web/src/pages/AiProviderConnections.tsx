@@ -7,6 +7,7 @@ import type { AiProviderConnectionsController } from './useAiProviderConnections
 import { AiProviderEndpointHelp } from './AiProviderEndpointHelp'
 import { AiCompletionTokenHelp } from './AiCompletionTokenHelp'
 import { AiProviderCapabilityFields } from './AiProviderCapabilityFields'
+import { AiProviderAdmissionFields } from './AiProviderAdmissionFields'
 
 const inputClass =
   'mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]'
@@ -333,6 +334,7 @@ function ProviderEditor({
             ))}
             <ProviderKeyField c={c} />
           </div>
+          <AiProviderAdmissionFields draft={c.editor.draft} validation={c.validation} onChange={c.updateDraft} />
           <AiProviderCapabilityFields draft={c.editor.draft} validation={c.validation} onChange={c.updateDraft} />
           <label className="flex items-center gap-2 text-sm">
             <input

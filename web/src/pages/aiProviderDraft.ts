@@ -1,8 +1,9 @@
 import type { AIProvider, AIProviderRouting, AIProviderWriteRequest } from '../types/ai'
 import { DEFAULT_DRAFT, validateAISettingsDraft } from './aiSettingsDraft'
+import { createAdmissionDraft, createAdmissionRequest, type ProviderAdmissionDraft } from './aiProviderAdmissionDraft'
 import { createCapabilitiesDraft, createCapabilitiesRequest, type ProviderCapabilitiesDraft } from './aiProviderCapabilitiesDraft'
 
-export type ProviderDraft = ProviderCapabilitiesDraft & {
+export type ProviderDraft = ProviderCapabilitiesDraft & ProviderAdmissionDraft & {
   name: string
   enabled: boolean
   base_url: string
@@ -27,6 +28,7 @@ export const ROUTING_FIELDS: { key: RoutingField; label: string }[] = [
 export function createProviderDraft(provider?: AIProvider): ProviderDraft {
   return {
     ...createCapabilitiesDraft(provider),
+    ...createAdmissionDraft(provider),
     name: provider?.name ?? '',
     enabled: provider?.enabled ?? true,
     base_url: provider?.base_url ?? '',
@@ -74,6 +76,7 @@ export function createProviderRequestId(): string {
 export function createProviderRequest(draft: ProviderDraft): AIProviderWriteRequest {
   return {
     ...createCapabilitiesRequest(draft),
+    ...createAdmissionRequest(draft),
     name: draft.name.trim(),
     enabled: draft.enabled,
     provider_type: 'openai_compatible',

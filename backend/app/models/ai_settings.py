@@ -6,9 +6,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
 from app.models.ai_provider_capabilities import AIProviderCapabilities
+from app.models.ai_provider_admission import AIProviderAdmissionLimits
 
 
-class AISettings(AIProviderCapabilities, Base):
+class AISettings(AIProviderAdmissionLimits, AIProviderCapabilities, Base):
     __tablename__ = "ai_settings"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)

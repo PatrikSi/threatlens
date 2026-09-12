@@ -25,6 +25,7 @@ from app.schemas.ai_providers import (
     AIProviderWrite,
 )
 from app.schemas.ai_provider_capabilities import CAPABILITY_FIELDS
+from app.schemas.ai_provider_admission import ADMISSION_FIELDS
 from app.services.secret_storage import decrypt_text, encrypt_text, is_encrypted_text
 
 PROVIDER_FIELDS = tuple(AIProviderFields.model_fields)
@@ -263,7 +264,7 @@ def _apply_provider_fields(
     provider: AIProviderConfiguration, payload: AIProviderWrite
 ) -> None:
     for field in PROVIDER_FIELDS:
-        if isinstance(payload, AIProviderUpdate) and field in CAPABILITY_FIELDS and field not in payload.model_fields_set:
+        if isinstance(payload, AIProviderUpdate) and field in (*CAPABILITY_FIELDS, *ADMISSION_FIELDS) and field not in payload.model_fields_set:
             continue
         setattr(provider, field, getattr(payload, field))
     provider.normalized_name = payload.name.casefold()

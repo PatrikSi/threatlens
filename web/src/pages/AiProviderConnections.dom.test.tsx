@@ -501,6 +501,7 @@ describe('AI provider lifecycle with a real query cache', () => {
       }
       for (const [label, value] of [
         ['Provider temperature', ''], ['Model context limit (tokens)', '32768'], ['Model output limit (tokens)', '8192'],
+        ['Concurrent request limit', '3'], ['Rolling-hour token budget', '1000000'],
       ]) {
         const field = host.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)!
         Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(field, value)
@@ -514,6 +515,7 @@ describe('AI provider lifecycle with a real query cache', () => {
       version: 1, request_dialect: 'chat_completions_modern', temperature: null,
       reasoning_effort: 'minimal', structured_output_mode: 'json_object',
       model_context_window_tokens: 32768, model_max_output_tokens: 8192,
+      max_concurrent_requests: 3, hourly_token_budget: 1000000,
     })
     expect(current.editorDirty).toBe(false)
     expect(current.editor?.draft.temperature).toBe('')
