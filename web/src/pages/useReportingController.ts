@@ -100,7 +100,8 @@ export function useReportingController() {
     queryFn: ({ signal }) => apiFetch<ReportTemplate[]>('/reports/templates', { signal }),
     staleTime: 60_000,
   })
-  const builderDraft = useReportBuilderDraft(templatesQuery.data, canAuthor)
+  const [editorialDirty, setEditorialDirty] = useState(false)
+  const builderDraft = useReportBuilderDraft(templatesQuery.data, canAuthor, editorialDirty)
   const { selectedTemplateId, setSelectedTemplateId, selectedTemplate, filterDraft, setFilterDraft, prompt,
     setPrompt, sections, setSections, excludedItemIds, setExcludedItemIds, title, setTitle,
     deliverWhenReady, setDeliverWhenReady, deliveryMode, setDeliveryMode } = builderDraft
@@ -698,6 +699,7 @@ export function useReportingController() {
     activeTab,
     setActiveTab,
     builderDraft,
+    setEditorialDirty,
     currentUser,
     isAdmin,
     canAuthor,

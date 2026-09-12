@@ -1,3 +1,4 @@
+import { ReportEditorialPanel } from './ReportEditorialPanel'
 import type { ReportDetail } from '../types/api'
 import { Status } from './ReportLibrary'
 import { formatReportDate } from './reportingPageModel'
@@ -38,6 +39,7 @@ export function ReportDetailView({
         canManage={canManage}
       />
 
+      <ReportEditorialPanel key={report.id} report={report} canManage={canManage} canReview={controller.canAuthor} onDirtyChange={controller.setEditorialDirty} discard={controller.builderDraft.confirmDiscard} onRefresh={() => { void controller.reportDetailQuery.refetch() }} />
       {running && (
         <GenerationStatus
           status={report.status}
@@ -67,6 +69,7 @@ function ReportGroundingStatus({ report }: { report: ReportDetail }) {
   const grounding = value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown> : undefined
   if (report.status !== 'ready' || grounding?.version !== 1) return null
+  if (grounding.status === 'human_edited') return <p className="rounded-lg border border-slate/20 px-3 py-2 text-xs">The narrative was edited by a person. Review the retained source evidence; original AI grounding counters no longer describe this revision.</p>
   const degraded = grounding.status !== 'checked'
   return (
     <p className="rounded-lg border border-slate/20 px-3 py-2 text-xs dark:border-white/10">

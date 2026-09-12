@@ -4,7 +4,7 @@ import type { ReportDeliveryMode, ReportPromptConfig, ReportSectionConfig, Repor
 import type { ExportFilterDraft } from './exportPageModel'
 import { reportBuilderFromTemplate } from './reportingPageModel'
 
-export function useReportBuilderDraft(templates: ReportTemplate[] | undefined, canAuthor: boolean) {
+export function useReportBuilderDraft(templates: ReportTemplate[] | undefined, canAuthor: boolean, editorialDirty = false) {
   const [initial] = useState(() => reportBuilderFromTemplate(undefined))
   const [selectedTemplateId, setSelectedTemplateId] = useState('')
   const selectedTemplateIdRef = useRef(selectedTemplateId)
@@ -22,7 +22,7 @@ export function useReportBuilderDraft(templates: ReportTemplate[] | undefined, c
   const fingerprintRef = useRef(fingerprint)
   fingerprintRef.current = fingerprint
   const dirty = fingerprint !== baseline
-  const confirmDiscard = useUnsavedChangesWarning(canAuthor && dirty, 'Discard unsaved report changes?', { ignoreSearchChanges: true })
+  const confirmDiscard = useUnsavedChangesWarning((canAuthor && dirty) || editorialDirty, 'Discard unsaved report changes or review notes?', { ignoreSearchChanges: true })
   const initializedRef = useRef(false)
 
   const hydrate = useCallback((template: ReportTemplate) => {
@@ -55,7 +55,7 @@ export function useReportBuilderDraft(templates: ReportTemplate[] | undefined, c
     selectedTemplateId, selectedTemplate: loadedTemplate, filterDraft, setFilterDraft, prompt, setPrompt,
     sections, setSections, excludedItemIds, setExcludedItemIds, title, setTitle, deliverWhenReady, setDeliverWhenReady,
     deliveryMode, setDeliveryMode, dirty, fingerprint, discardDialog: confirmDiscard.discardDialog,
-    templateRevisionChanged, templateUnavailable,
+    templateRevisionChanged, templateUnavailable, confirmDiscard,
     setSelectedTemplateId: (id: string) => {
       const template = templates?.find((entry) => entry.id === id)
       if (template && id !== selectedTemplateId) confirmDiscard(() => hydrate(template))

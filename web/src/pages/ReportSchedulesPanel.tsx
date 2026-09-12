@@ -103,6 +103,7 @@ function ScheduleEditor({
   const [windowType, setWindowType] = useState<ReportSchedule['window_type']>(defaults.windowType)
   const [rollingDays, setRollingDays] = useState(defaults.rollingDays)
   const [customInstructions, setCustomInstructions] = useState(defaults.customInstructions)
+  const [reviewRequired, setReviewRequired] = useState(defaults.reviewRequired)
   const [deliveryEnabled, setDeliveryEnabled] = useState(defaults.deliveryEnabled)
   const [deliveryMode, setDeliveryMode] = useState<ReportSchedule['delivery_mode']>(defaults.deliveryMode)
   const [skipEmpty, setSkipEmpty] = useState(defaults.skipEmpty)
@@ -124,12 +125,13 @@ function ScheduleEditor({
       rolling_days: rollingDays,
       filters,
       custom_instructions: customInstructions.trim() || null,
+      review_required: reviewRequired,
       delivery_enabled: deliveryEnabled,
       delivery_mode: deliveryMode,
       skip_empty: skipEmpty,
       missed_run_policy: missedRunPolicy,
     }
-  }, [cadence, customInstructions, dayOfMonth, dayOfWeek, deliveryEnabled, deliveryMode, enabled, filters, missedRunPolicy, name, rollingDays, skipEmpty, templateId, time, timezone, windowType])
+  }, [reviewRequired, cadence, customInstructions, dayOfMonth, dayOfWeek, deliveryEnabled, deliveryMode, enabled, filters, missedRunPolicy, name, rollingDays, skipEmpty, templateId, time, timezone, windowType])
 
   function changeCadence(next: ReportSchedule['cadence']) {
     setCadence(next)
@@ -212,7 +214,9 @@ function ScheduleEditor({
         <div className="grid gap-2 sm:grid-cols-2 lg:col-span-4 lg:grid-cols-4">
           <Toggle label="Enabled" checked={enabled} onChange={setEnabled} />
           <Toggle label="Skip periods with no sources" checked={skipEmpty} onChange={setSkipEmpty} />
-          <Toggle label="Deliver when ready" checked={deliveryEnabled} onChange={setDeliveryEnabled} />
+          <Toggle label="Require editorial review before publication" checked={reviewRequired} onChange={setReviewRequired} />
+          <p className="text-xs text-slate dark:text-slate-300">{reviewRequired ? 'An authorized reviewer must approve each generated report before it can be published and delivered.' : 'Reports publish and deliver automatically. No human approval is recorded.'}</p>
+          <Toggle label="Deliver after publication" checked={deliveryEnabled} onChange={setDeliveryEnabled} />
           <label className="text-xs font-semibold">
             Delivery content
             <select className={INPUT_CLASS} disabled={!deliveryEnabled} value={deliveryMode} onChange={(event) => setDeliveryMode(event.target.value as ReportSchedule['delivery_mode'])}>
@@ -372,6 +376,7 @@ function createScheduleEditorDefaults(templates: ReportTemplate[], initial?: Rep
     windowType: 'previous_complete_week' as const,
     rollingDays: 7,
     customInstructions: '',
+    reviewRequired: true,
     deliveryEnabled: false,
     deliveryMode: 'summary' as const,
     skipEmpty: true,
@@ -393,6 +398,7 @@ function existingScheduleEditorDefaults(schedule: ReportSchedule) {
     windowType: schedule.window_type,
     rollingDays: schedule.rolling_days,
     customInstructions: schedule.custom_instructions ?? '',
+    reviewRequired: schedule.review_required ?? false,
     deliveryEnabled: schedule.delivery_enabled,
     deliveryMode: schedule.delivery_mode,
     skipEmpty: schedule.skip_empty,
