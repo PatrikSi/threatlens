@@ -2,6 +2,8 @@ import type { ReportDetail } from '../types/api'
 import { Status } from './ReportLibrary'
 import { formatReportDate } from './reportingPageModel'
 import type { ReportingController } from './useReportingController'
+import { ReportMarkdownText } from './ReportMarkdownText'
+import { sanitizeHref } from './dashboardContent'
 
 
 type ReportDownloadFormat = 'markdown' | 'html' | 'pdf'
@@ -293,10 +295,11 @@ function ReportStats({ report }: { report: ReportDetail }) {
 
 function ReportContent({ report }: { report: ReportDetail }) {
   const includedSources = report.sources.filter((source) => source.included)
+  const citationTargets = new Map(includedSources.map((source) => [source.citation_key, `report-${report.id}-source-${source.citation_key}`]))
 
   return (
     <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-      <article className="rounded-lg border border-slate/20 bg-white/90 px-3 py-4 dark:border-cyan-900/40 dark:bg-[#041612]/90 sm:px-5">
+      <article className="min-w-0 rounded-lg border border-slate/20 bg-white/90 px-3 py-4 dark:border-cyan-900/40 dark:bg-[#041612]/90 sm:px-5">
         {report.sections.map((section) => (
           <section
             key={section.key}
@@ -304,7 +307,7 @@ function ReportContent({ report }: { report: ReportDetail }) {
           >
             <h2 className="font-display text-xl">{section.title}</h2>
             {section.body_markdown ? (
-              <ReportMarkdownText value={section.body_markdown} />
+              <ReportMarkdownText value={section.body_markdown} citationTargets={citationTargets} />
             ) : (
               <p className="mt-2 text-sm italic text-slate dark:text-slate-400">
                 This section is {section.status}.
@@ -324,10 +327,12 @@ function ReportContent({ report }: { report: ReportDetail }) {
           {includedSources.map((source) => (
             <a
               key={source.citation_key}
-              href={source.url}
+              id={citationTargets.get(source.citation_key)}
+              href={sanitizeHref(source.url) ?? undefined}
+              tabIndex={0}
               target="_blank"
               rel="noreferrer"
-              className="block px-3 py-2.5 text-sm hover:bg-slate/5 dark:hover:bg-white/[0.03]"
+              className="block px-3 py-2.5 text-sm hover:bg-slate/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] dark:hover:bg-white/[0.03]"
             >
               <span className="text-xs font-bold text-cyan-800 dark:text-cyan-200">
                 [{source.citation_key}]
@@ -342,24 +347,6 @@ function ReportContent({ report }: { report: ReportDetail }) {
           ))}
         </div>
       </aside>
-    </div>
-  )
-}
-
-
-function ReportMarkdownText({ value }: { value: string }) {
-  return (
-    <div className="mt-2 space-y-2 text-sm leading-6 text-slate-800 dark:text-slate-200">
-      {value.split('\n').map((line, index) =>
-        line.trim() ? (
-          <p
-            key={`${index}-${line.slice(0, 20)}`}
-            className={line.startsWith('- ') ? 'pl-3 before:mr-2 before:content-["•"]' : ''}
-          >
-            {line.replace(/^- /, '')}
-          </p>
-        ) : null,
-      )}
     </div>
   )
 }
