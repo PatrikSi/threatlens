@@ -4,7 +4,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision = "0102_named_team_workspaces"
-down_revision = "0100_ai_evidence_provenance"
+down_revision = "0101_export_dispatch_progress"
 branch_labels = None
 depends_on = None
 
