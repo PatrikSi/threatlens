@@ -15,6 +15,7 @@ import secrets
 import time
 from urllib.parse import urlencode
 import uuid
+from typing import Literal
 
 from alembic import command
 from alembic.config import Config
@@ -22,6 +23,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from joserfc import jwt
 from joserfc.jwk import RSAKey
+from pydantic import BaseModel
 from sqlalchemy import select, text, update
 import uvicorn
 
@@ -35,6 +37,7 @@ from app.models.feed import Feed
 from app.models.item import Item
 from app.models.oidc import OIDCProvider
 from app.models.user import User
+from editorial_fixture import install_editorial_controls
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -74,24 +77,54 @@ def require_control(request: Request):
         raise HTTPException(403, "Invalid isolated-test control token")
 
 
+install_editorial_controls(harness, require_control)
+
+
 @harness.get("/__browser__/ready")
 def ready():
     return {"ready": True}
 
 
+class BrowserUserRequest(BaseModel):
+    role: Literal["admin", "analyst", "viewer"] = "admin"
+
+
 @harness.post("/__browser__/users", dependencies=[Depends(require_control)])
-def create_user():
+def create_user(payload: BrowserUserRequest | None = None):
     with SessionLocal.begin() as db:
         user = User(
             email=f"browser-{uuid.uuid4().hex}@example.com",
             password_hash=get_password_hash(PASSWORD),
-            role="admin",
+            role=payload.role if payload is not None else "admin",
             is_active=True,
             is_approved=True,
         )
         db.add(user)
         db.flush()
         return {"id": str(user.id), "email": user.email, "password": PASSWORD}
+
+
+@harness.post("/__browser__/evaluate-alerts/{item_id}", dependencies=[Depends(require_control)])
+def evaluate_fixture_alerts(item_id: uuid.UUID):
+    from app.services.alert_evaluation import (
+        claim_alert_evaluation_request,
+        evaluate_alert_request,
+        persist_alert_evaluation_intent,
+    )
+
+    with SessionLocal() as db:
+        item = db.get(Item, item_id)
+        if item is None:
+            raise HTTPException(404, "Fixture article not found")
+        intent = persist_alert_evaluation_intent(db, item=item)
+        db.commit()
+        claim = claim_alert_evaluation_request(db, request_id=intent.request_id)
+        db.commit()
+        if claim is None:
+            raise HTTPException(409, "Fixture evaluation was already claimed")
+        outcome = evaluate_alert_request(db, request_id=intent.request_id, lease_token=claim.lease_token)
+        db.commit()
+        return {"occurrences": outcome.occurrences_created, "events": len(outcome.integration_event_ids)}
 
 
 @harness.post("/__browser__/export-item", dependencies=[Depends(require_control)])
