@@ -32,13 +32,22 @@ const components: Components = {
   input: ({ checked }) => <span role="img" aria-label={checked ? 'Completed task' : 'Incomplete task'}>{checked ? '☑' : '☐'}</span>,
 }
 
+const markdownClassName = [
+  'mt-2 min-w-0 space-y-3 break-words text-sm leading-6 text-slate-800 dark:text-slate-200',
+  '[&_h3]:mt-4 [&_h3]:text-lg [&_h3]:font-semibold',
+  '[&_h4]:mt-3 [&_h4]:text-base [&_h4]:font-semibold [&_h5]:font-semibold [&_h6]:font-semibold',
+  '[&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_li]:my-1 [&_li>p]:my-1',
+  '[&_blockquote]:border-l-4 [&_blockquote]:border-slate/30 [&_blockquote]:pl-4 [&_blockquote]:italic',
+  '[&_code]:font-mono [&_code]:text-[0.9em] [&_hr]:border-slate/20',
+].join(' ')
+
 export function ReportMarkdownText({ value, citationTargets }: {
   value: string
   citationTargets: ReadonlyMap<string, string>
 }) {
   const id = useId()
   return (
-    <div className="mt-2 min-w-0 space-y-3 break-words text-sm leading-6 text-slate-800 dark:text-slate-200 [&_h3]:mt-4 [&_h3]:text-lg [&_h3]:font-semibold [&_h4]:mt-3 [&_h4]:text-base [&_h4]:font-semibold [&_h5]:font-semibold [&_h6]:font-semibold [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_li]:my-1 [&_li>p]:my-1 [&_blockquote]:border-l-4 [&_blockquote]:border-slate/30 [&_blockquote]:pl-4 [&_blockquote]:italic [&_code]:font-mono [&_code]:text-[0.9em] [&_hr]:border-slate/20">
+    <div className={markdownClassName}>
       <Markdown skipHtml remarkPlugins={[remarkGfm]} rehypePlugins={[[reportMarkdownCitations, citationTargets]]}
         remarkRehypeOptions={{ clobberPrefix: `report-markdown-${id}-` }}
         urlTransform={(url, key) => key === 'href' ? (url.startsWith('#') ? url : sanitizeHref(url) ?? undefined) : undefined}
