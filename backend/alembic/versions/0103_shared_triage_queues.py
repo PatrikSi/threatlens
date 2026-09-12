@@ -90,6 +90,23 @@ def upgrade() -> None:
         [*METRIC_DIMENSIONS[:2], "team_id", *METRIC_DIMENSIONS[2:]],
         postgresql_nulls_not_distinct=True,
     )
+    _update_rule_trigger(extended=True)
+    op.execute("""
+        CREATE FUNCTION threatlens_alert_team_ownership_immutable()
+        RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN
+            IF NEW.team_id IS DISTINCT FROM OLD.team_id THEN
+                RAISE EXCEPTION 'Alert team ownership cannot change after creation'
+                    USING ERRCODE = '23514', CONSTRAINT = 'ck_alert_team_ownership_immutable';
+            END IF;
+            RETURN NEW;
+        END;
+        $$
+    """)
+    for table in OWNERS:
+        op.execute(
+            f"CREATE TRIGGER trg_alert_team_ownership_immutable BEFORE UPDATE ON {table} FOR EACH ROW EXECUTE FUNCTION threatlens_alert_team_ownership_immutable()"
+        )
 
 
 def downgrade() -> None:
@@ -103,6 +120,10 @@ def downgrade() -> None:
         raise RuntimeError(
             "Archive team alert rules, occurrences and metrics before downgrading shared triage."
         )
+    for table in OWNERS:
+        op.execute(f"DROP TRIGGER trg_alert_team_ownership_immutable ON {table}")
+    op.execute("DROP FUNCTION threatlens_alert_team_ownership_immutable()")
+    _update_rule_trigger(extended=False)
     op.drop_constraint(
         "uq_alert_occurrence_metrics_bucket_dimensions",
         "alert_occurrence_metrics",
@@ -134,3 +155,28 @@ def downgrade() -> None:
         op.alter_column(table, owner, nullable=False)
         op.drop_index(f"ix_{table}_team_id", table_name=table)
         op.drop_column(table, "team_id")
+
+
+def _update_rule_trigger(*, extended: bool) -> None:
+    """Retain the installed compatibility contract and extend semantic changes.
+
+    A guarded replacement avoids copying the full historical trigger into another
+    migration. Unexpected customized definitions fail visibly before any rollout.
+    """
+    baseline = "OR NEW.severity IS DISTINCT FROM OLD.severity;"
+    with_deadlines = """OR NEW.severity IS DISTINCT FROM OLD.severity
+                    OR NEW.due_after_minutes IS DISTINCT FROM OLD.due_after_minutes
+                    OR NEW.escalation_after_minutes IS DISTINCT FROM OLD.escalation_after_minutes;"""
+    definition = op.get_bind().scalar(
+        sa.text(
+            "SELECT pg_get_functiondef('threatlens_alert_interests_v2_compat'::regproc)"
+        )
+    )
+    before, after = (
+        (baseline, with_deadlines) if extended else (with_deadlines, baseline)
+    )
+    if not isinstance(definition, str) or definition.count(before) != 1:
+        raise RuntimeError(
+            "The alert compatibility trigger has an unexpected definition; inspect it before migrating team deadlines."
+        )
+    op.execute(sa.text(definition.replace(before, after)))
