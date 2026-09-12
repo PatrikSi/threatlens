@@ -97,6 +97,13 @@ and incomplete synthesis. Existing reports remain readable without claiming
 these newer checks were performed. Optional context and findings compaction
 remain visible through coverage warnings.
 
+If section prompt compaction removes every verified finding, that section gets
+an explicit context-budget warning and makes no provider request. Increase the
+selected model's context allowance or reduce the output reserve to fit evidence.
+Report token totals summarize completed stages; per-attempt usage events and the
+provider usage view also account for failed paid retries. Missing provider usage
+remains unknown in that view rather than becoming a billing estimate.
+
 Configure these limits in **Settings -> AI -> Report Context Guardrails**. Set **Model Context Window** to the actual context supported by the loaded model and runtime, not the model family maximum. Conservative starting points are:
 
 | Model context | Initial report completion tokens | Safety margin | Source cap |
@@ -191,10 +198,13 @@ move keyboard focus there. Generated HTML is ignored, images appear as omitted
 image descriptions, and external links require a deliberate click. Existing
 reports use this rendering without regeneration.
 
-Download formatting is currently more limited: HTML supports simple unordered
-lists, bold and code, while PDF converts the body to plain paragraphs. Headings,
-tables and nested structures inside a section do not yet have equivalent export
-formatting. The Markdown download preserves the original section content.
+HTML and PDF share a bounded Markdown parser and support headings, nested and
+ordered lists, tables, emphasis, quotations, code, safe links and source anchors.
+They retain coverage disclosures and never fetch images or other external
+resources while rendering. Oversized documents fail with a clear download limit
+and a Markdown alternative. See the [export formatting contract](../reference/report-export-format.md)
+for limits, font coverage and PDF accessibility constraints. The Markdown
+download preserves section content and adds the same coverage disclosures.
 
 When delivery is requested, the ready-report transaction writes one idempotent `report_ready` integration event. Existing SMTP and webhook hooks can subscribe to this event and retain generic delivery attempts, retries, circuit state, dead-letter replay, and metrics. Set `PUBLIC_APP_URL` so email and webhook templates receive an absolute `{{ brief.url }}` link.
 

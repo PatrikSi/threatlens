@@ -1,5 +1,11 @@
 # AI implementation review — 2026-09-12
 
+Follow-up: the requested provider capabilities, durable recovery, grounding,
+provider operations, export formatting and Vitest changes are recorded in the
+[AI hardening implementation assessment](2026-09-12-ai-hardening-assessment.md).
+The findings below retain the original review baseline and are not a current
+list of unimplemented work.
+
 This review follows the Gemini endpoint and report completion-budget fixes. It
 covers the implemented AI workflows, from configuration and authorization through
 provider calls, durable processing, generated artifacts, and browser display.
