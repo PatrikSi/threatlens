@@ -152,8 +152,16 @@ def dispatch_daily_ai_brief_generation(
             with daily_ai_brief_lock() as acquired:
                 if not acquired:
                     if parsed_run_id is not None:
-                        run = db.scalar(select(AITaskRun).where(AITaskRun.id == parsed_run_id))
-                        if run is not None:
+                        run = db.scalar(
+                            select(AITaskRun)
+                            .where(AITaskRun.id == parsed_run_id)
+                            .with_for_update()
+                            .execution_options(populate_existing=True)
+                        )
+                        # A redelivery can refer to the run that owns the busy
+                        # lease. Only settle work that has not started; the
+                        # running owner must retain its right to save results.
+                        if run is not None and run.status == AI_STATUS_QUEUED:
                             finish_ai_task_run(
                                 db,
                                 run_id=run.id,
