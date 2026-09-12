@@ -10,7 +10,7 @@ test('real report editorial preserves drafts, pins approval and publishes only a
   expect(await control(request, `editorial-deliveries/${report.id}`)).toEqual({ count: 0 })
   await editorial.getByRole('button', { name: 'Edit draft', exact: true }).click()
   await editorial.getByLabel('Report title', { exact: true }).fill('Reviewed browser publication')
-  await editorial.getByLabel('Executive Summary Markdown', { exact: true }).fill('Reviewed claim: twelve affected systems [S1].')
+  await editorial.getByRole('textbox', { name: 'Executive Summary Markdown', exact: true }).fill('Reviewed claim: twelve affected systems [S1].')
   await page.getByRole('button', { name: '← Report library', exact: true }).click()
   const discard = page.getByRole('alertdialog', { name: 'Discard unsaved changes?', exact: true })
   await expect(discard).toBeVisible()
