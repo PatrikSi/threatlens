@@ -1,9 +1,12 @@
 import uuid
 from contextlib import contextmanager
+from types import SimpleNamespace
 
 import pytest
+from celery.exceptions import Retry
 
 from app.models.ai_task_run import AITaskRun
+from app.services.ai_integration import AIDailyBriefGenerationResult
 from app.services.ai_ops import (
     AI_TASK_TYPE_DAILY_BRIEF,
     AI_TRIGGER_MANUAL,
@@ -81,7 +84,7 @@ def test_busy_daily_brief_delivery_preserves_running_owner(
     assert db_session.get(AITaskRun, run_id).status == "ready"
 
 
-def test_busy_daily_brief_delivery_still_settles_unstarted_run(db_session, monkeypatch):
+def test_busy_daily_brief_delivery_defers_unstarted_run(db_session, monkeypatch):
     run = queue_ai_task_run(
         db_session,
         task_type=AI_TASK_TYPE_DAILY_BRIEF,
@@ -102,13 +105,104 @@ def test_busy_daily_brief_delivery_still_settles_unstarted_run(db_session, monke
     monkeypatch.setattr("app.tasks.ai_brief_tasks.db_session", session_override)
     monkeypatch.setattr("app.tasks.ai_brief_tasks.daily_ai_brief_lock", busy_lock)
 
-    dispatch_daily_ai_brief_generation.apply(
+    retries = []
+
+    def retry(**kwargs):
+        retries.append(kwargs)
+        raise Retry()
+
+    monkeypatch.setattr(dispatch_daily_ai_brief_generation, "retry", retry)
+    with pytest.raises(Retry):
+        dispatch_daily_ai_brief_generation.apply(
+            kwargs={"force": True, "task_run_id": str(run_id)},
+            task_id=str(uuid.uuid4()),
+            throw=True,
+        ).get()
+
+    db_session.expire_all()
+    persisted = db_session.get(AITaskRun, run_id)
+    assert persisted.status == "queued"
+    assert persisted.reason is None
+    assert persisted.finished_at is None
+    assert retries == [{"countdown": 30, "max_retries": None}]
+    assert dispatch_daily_ai_brief_generation.max_retries is None
+
+
+def test_duplicate_before_owner_claim_defers_and_owner_can_complete(
+    db_session, monkeypatch
+):
+    run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_DAILY_BRIEF,
+        trigger_source=AI_TRIGGER_MANUAL,
+        metadata={"force": True},
+    )
+    run.celery_task_id = "original-task"
+    db_session.commit()
+    run_id = run.id
+    depth = 0
+    retries = []
+
+    @contextmanager
+    def session_override():
+        yield db_session
+
+    def retry(**kwargs):
+        retries.append(kwargs)
+        raise Retry()
+
+    @contextmanager
+    def interleaved_lock():
+        nonlocal depth
+        depth += 1
+        try:
+            if depth == 1:
+                # Pause the owner after Redis acquisition, before the first
+                # database claim, and deliver the same broker message again.
+                with pytest.raises(Retry):
+                    dispatch_daily_ai_brief_generation.apply(
+                        kwargs={"force": True, "task_run_id": str(run_id)},
+                        task_id="original-task",
+                        throw=True,
+                    ).get()
+                db_session.expire_all()
+                pending = db_session.get(AITaskRun, run_id)
+                assert pending.status == "queued"
+                assert pending.finished_at is None
+                yield True
+            else:
+                yield False
+        finally:
+            depth -= 1
+
+    monkeypatch.setattr("app.tasks.ai_brief_tasks.db_session", session_override)
+    monkeypatch.setattr("app.tasks.ai_brief_tasks.daily_ai_brief_lock", interleaved_lock)
+    monkeypatch.setattr(dispatch_daily_ai_brief_generation, "retry", retry)
+    monkeypatch.setattr(
+        "app.tasks.ai_brief_tasks.load_active_ai_settings",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            ai_enabled=True, ai_configured=True, daily_brief_enabled=True,
+            model="synthetic-model",
+        ),
+    )
+    monkeypatch.setattr(
+        "app.tasks.ai_brief_tasks.run_daily_brief_generation",
+        lambda *_args, **_kwargs: AIDailyBriefGenerationResult(
+            brief=None, status="ready", reason=None, items_considered=0,
+            items_selected=0,
+        ),
+    )
+
+    result = dispatch_daily_ai_brief_generation.apply(
         kwargs={"force": True, "task_run_id": str(run_id)},
-        task_id=str(uuid.uuid4()),
+        task_id="original-task",
+        throw=True,
     ).get()
 
     db_session.expire_all()
     persisted = db_session.get(AITaskRun, run_id)
-    assert persisted.status == "skipped"
-    assert persisted.reason == "already_running"
+    assert retries == [{"countdown": 30, "max_retries": None}]
+    assert result == {"status": "ready", "reason": None}
+    assert persisted.status == "ready"
     assert persisted.finished_at is not None
+    assert persisted.celery_task_id == "original-task"

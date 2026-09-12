@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
+from celery.exceptions import Retry
 from sqlalchemy import select
 
 from app.core.config import get_settings
@@ -649,7 +650,7 @@ def test_dispatch_daily_ai_brief_generation_claims_api_started_run_and_skips_dup
     assert refreshed_duplicate.status == "running"
 
 
-def test_dispatch_daily_ai_brief_marks_manual_run_skipped_when_lock_is_busy(db_session, monkeypatch):
+def test_dispatch_daily_ai_brief_defers_manual_run_when_lock_is_busy(db_session, monkeypatch):
     @contextmanager
     def _db_session_override():
         yield db_session
@@ -674,18 +675,24 @@ def test_dispatch_daily_ai_brief_marks_manual_run_skipped_when_lock_is_busy(db_s
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("busy lock should skip execution")),
     )
 
-    result = dispatch_daily_ai_brief_generation.apply(
-        kwargs={"force": True, "task_run_id": str(run.id), "actor_user_id": None},
-        task_id="worker-lock-busy",
-    ).get()
+    def retry(**_kwargs):
+        raise Retry()
+
+    monkeypatch.setattr(dispatch_daily_ai_brief_generation, "retry", retry)
+    with pytest.raises(Retry):
+        dispatch_daily_ai_brief_generation.apply(
+            kwargs={"force": True, "task_run_id": str(run.id), "actor_user_id": None},
+            task_id="worker-lock-busy",
+            throw=True,
+        ).get()
 
     db_session.expire_all()
     refreshed_run = db_session.scalar(select(AITaskRun).where(AITaskRun.id == run.id))
-    assert result == {"status": "skipped", "reason": "already_running", "run_id": str(run.id)}
     assert refreshed_run is not None
-    assert refreshed_run.status == "skipped"
-    assert refreshed_run.reason == "already_running"
-    assert refreshed_run.worker_name
+    assert refreshed_run.status == "queued"
+    assert refreshed_run.reason is None
+    assert refreshed_run.finished_at is None
+    assert refreshed_run.metadata_json["lock_deferred_at"]
 
 
 def test_reapply_recent_item_tags_skips_when_reapply_lock_is_busy(db_session, monkeypatch):

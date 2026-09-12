@@ -122,6 +122,7 @@ def reconcile_ai_task_runs():
     name="app.tasks.feed_tasks.dispatch_daily_ai_brief_generation",
     acks_late=True,
     reject_on_worker_lost=True,
+    max_retries=None,
 )
 def dispatch_daily_ai_brief_generation(
     self,
@@ -158,22 +159,24 @@ def dispatch_daily_ai_brief_generation(
                             .with_for_update()
                             .execution_options(populate_existing=True)
                         )
-                        # A redelivery can refer to the run that owns the busy
-                        # lease. Only settle work that has not started; the
-                        # running owner must retain its right to save results.
-                        if run is not None and run.status == AI_STATUS_QUEUED:
-                            finish_ai_task_run(
-                                db,
-                                run_id=run.id,
-                                status=AI_STATUS_SKIPPED,
-                                reason="already_running",
-                                worker_name=getattr(self.request, "hostname", None),
-                                metadata_updates={
-                                    "force": bool(force),
-                                    "lock_observed_at": datetime.now(timezone.utc).isoformat(),
-                                },
+                        # The lease owner may not have started its run yet.
+                        # A queued status does not prove this is unrelated work;
+                        # defer this delivery without terminalizing its owner.
+                        if (
+                            run is not None
+                            and run.status == AI_STATUS_QUEUED
+                            and ai_task_run_stop_reason(run) is None
+                            and run.celery_task_id in (
+                                None, getattr(self.request, "id", None)
                             )
+                        ):
+                            run.metadata_json = {
+                                **dict(run.metadata_json or {}),
+                                "lock_deferred_at": datetime.now(timezone.utc).isoformat(),
+                            }
+                            db.add(run)
                             db.commit()
+                            raise self.retry(countdown=30, max_retries=None)
                     result = {"status": "skipped", "reason": "already_running"}
                     if parsed_run_id is not None:
                         result["run_id"] = str(parsed_run_id)
