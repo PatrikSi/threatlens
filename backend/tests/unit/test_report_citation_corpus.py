@@ -14,7 +14,7 @@ from app.schemas.reports import ReportDetailResponse, ReportSectionResponse, Rep
 from app.services.report_grounding import ReportGroundingError, validate_section
 from app.services.report_rendering import render_report_html, render_report_pdf
 
-CORPUS = json.loads((Path(__file__).resolve().parents[3] / "tests/fixtures/report-citation-corpus.json").read_text())
+CORPUS = json.loads((Path(__file__).resolve().parents[3] / "web/tests/fixtures/report-citation-corpus.json").read_text())
 
 
 def report_fixture(body: str) -> ReportDetailResponse:
