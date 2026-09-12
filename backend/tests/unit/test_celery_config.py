@@ -6,6 +6,7 @@ from app.core.logging_config import get_log_context
 from app.tasks.celery_app import (
     QUEUE_AI,
     QUEUE_AI_REPORTS,
+    QUEUE_AI_REPORTS_EDITORIAL,
     QUEUE_DEFAULT,
     QUEUE_EXPORTS,
     QUEUE_INGEST,
@@ -28,7 +29,7 @@ def test_celery_routes_keep_feed_ingestion_off_the_ai_queue():
     assert TASK_ROUTES["app.tasks.feed_tasks.generate_item_ai_enrichment"]["queue"] == QUEUE_AI
     assert TASK_ROUTES["app.tasks.feed_tasks.dispatch_daily_ai_brief_generation"]["queue"] == QUEUE_AI
     assert TASK_ROUTES["app.tasks.feed_tasks.backfill_daily_ai_briefs"]["queue"] == QUEUE_AI
-    assert TASK_ROUTES["app.tasks.feed_tasks.generate_intelligence_report"]["queue"] == QUEUE_AI_REPORTS
+    assert TASK_ROUTES["app.tasks.feed_tasks.generate_intelligence_report"]["queue"] == QUEUE_AI_REPORTS_EDITORIAL
 
 
 def test_celery_routes_smtp_notifications_to_notification_queue():
@@ -59,6 +60,7 @@ def test_celery_declares_expected_named_queues():
         QUEUE_NOTIFICATIONS,
         QUEUE_AI,
         QUEUE_AI_REPORTS,
+        QUEUE_AI_REPORTS_EDITORIAL,
         QUEUE_MAINTENANCE,
         QUEUE_LIFECYCLE,
     }
@@ -96,7 +98,7 @@ def test_system_health_sampling_and_queue_canaries_are_routed_and_scheduled():
         QUEUE_LIFECYCLE,
     ]
     if settings.ai_enabled:
-        required_queues.extend([QUEUE_AI, QUEUE_AI_REPORTS])
+        required_queues.extend([QUEUE_AI, QUEUE_AI_REPORTS, QUEUE_AI_REPORTS_EDITORIAL])
     for queue_name in required_queues:
         schedule = celery_app.conf.beat_schedule[
             f"record-{queue_name}-execution-canary"
