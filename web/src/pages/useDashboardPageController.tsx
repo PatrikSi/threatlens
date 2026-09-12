@@ -35,6 +35,7 @@ import {
 import { MOBILE_DASHBOARD_PAGE_SIZE } from './dashboardPanelPresentation'
 import {
   buildSavedViewPreview,
+  canUpdateDashboardSavedView,
   buildDashboardSavedViewState,
   createDefaultAlertWindowFilters,
   createDefaultRssWindowFilters,
@@ -69,7 +70,10 @@ import { useEnforcedDashboardLayout } from './useEnforcedDashboardLayout'
 import { useWorkspace } from '../workspace/useWorkspace'
 import { hasRequiredPermissions } from '../workspace/workspaceModel'
 
+type SavedViewBaseline = Pick<SavedView, 'revision' | 'can_edit' | 'team_id'>
+
 type DashboardEditSessionSnapshot = {
+  savedViewBaseline: SavedViewBaseline | null
   activeSavedViewId: string | null
   savedViewName: string
   state: DashboardSavedViewState
@@ -95,6 +99,7 @@ export function useDashboardPageController() {
 
   const [savedViewName, setSavedViewName] = useState('')
   const [activeSavedViewId, setActiveSavedViewId] = useState<string | null>(null)
+  const [savedViewBaseline, setSavedViewBaseline] = useState<SavedViewBaseline | null>(null)
   const [pendingViewDelete, setPendingViewDelete] = useState<DashboardSavedViewPreview | null>(null)
   const [pendingSavedViewLoad, setPendingSavedViewLoad] = useState<{ id: string; name: string } | null>(null)
   const [showManageViewsModal, setShowManageViewsModal] = useState(false)
@@ -358,6 +363,7 @@ export function useDashboardPageController() {
     onSuccess: (view) => {
       setSavedViewName('')
       setActiveSavedViewId(view.id)
+      setSavedViewBaseline(view)
       setEditSessionSnapshot(null)
       setIsEditMode(false)
       setShowAddWindowMenu(false)
@@ -372,11 +378,12 @@ export function useDashboardPageController() {
 
   const deleteView = useMutation({
     mutationKey: ['dashboard-saved-views', 'delete'],
-    mutationFn: (viewId: string) =>
-      apiFetch(`/views/${viewId}`, {
+    mutationFn: (view: DashboardSavedViewPreview) =>
+      apiFetch(`/views/${view.id}${view.revision === undefined ? '' : `?expected_revision=${view.revision}`}`, {
         method: 'DELETE',
       }),
-    onSuccess: (_data, deletedViewId) => {
+    onSuccess: (_data, deletedView) => {
+      const deletedViewId = deletedView.id
       setActiveSavedViewId((current) => (current === deletedViewId ? null : current))
       setEditSessionSnapshot((current) => {
         if (!current || current.activeSavedViewId !== deletedViewId) {
@@ -385,6 +392,7 @@ export function useDashboardPageController() {
         return {
           ...current,
           activeSavedViewId: null,
+          savedViewBaseline: null,
         }
       })
       setPendingSavedViewLoad((current) => (current?.id === deletedViewId ? null : current))
@@ -398,21 +406,21 @@ export function useDashboardPageController() {
   })
 
   const onConfirmDeleteView = () => {
-    if (!pendingViewDelete) {
+    if (!pendingViewDelete || pendingViewDelete.can_delete === false) {
       return
     }
 
-    const viewId = pendingViewDelete.id
     setViewDeleteError('')
-    deleteView.mutate(viewId)
+    deleteView.mutate(pendingViewDelete)
   }
 
   const updateExistingView = useMutation({
     mutationKey: ['dashboard-saved-views', 'update'],
-    mutationFn: (payload: { viewId: string; name?: string; query?: DashboardSavedViewState }) =>
+    mutationFn: (payload: { viewId: string; expectedRevision?: number; name?: string; query?: DashboardSavedViewState }) =>
       apiFetch<SavedView>(`/views/${payload.viewId}`, {
         method: 'PATCH',
         body: JSON.stringify({
+          ...(payload.expectedRevision !== undefined ? { expected_revision: payload.expectedRevision } : {}),
           ...(payload.name !== undefined ? { name: payload.name } : {}),
           ...(payload.query !== undefined ? { query_json: payload.query } : {}),
         }),
@@ -422,6 +430,7 @@ export function useDashboardPageController() {
     },
     onSuccess: (view) => {
       setActiveSavedViewId(view.id)
+      setSavedViewBaseline(view)
       setEditSessionSnapshot(null)
       setIsEditMode(false)
       setShowAddWindowMenu(false)
@@ -454,7 +463,7 @@ export function useDashboardPageController() {
     )
   }
 
-  const applyDashboardSavedViewState = (state: DashboardSavedViewState, nextActiveSavedViewId: string | null) => {
+  const applyDashboardSavedViewState = (state: DashboardSavedViewState, nextActiveSavedViewId: string | null, baseline: SavedViewBaseline | null = null) => {
     if (layoutEnforced) return
     const nextDashboardTimeRange =
       state.rss_filters.time_range !== 'all' ||
@@ -479,6 +488,7 @@ export function useDashboardPageController() {
     setExpandedItemIdsByWindowId({})
     setWindows(state.windows)
     setActiveSavedViewId(nextActiveSavedViewId)
+    setSavedViewBaseline(baseline)
   }
 
   const rssWindowQueries = useQueries({
@@ -913,11 +923,14 @@ export function useDashboardPageController() {
     })
   }
 
+  const canUpdateActiveView = canUpdateDashboardSavedView(activeSavedViewId, savedViewBaseline, viewsQuery.data)
+
   const updateActiveView = () => {
-    if (!activeSavedViewId) return
+    if (!activeSavedViewId || !canUpdateActiveView || layoutEnforced) return
 
     updateExistingView.mutate({
       viewId: activeSavedViewId,
+      expectedRevision: savedViewBaseline?.revision,
       query: captureCurrentDashboardViewState(),
     })
   }
@@ -926,6 +939,7 @@ export function useDashboardPageController() {
 
   const clearActiveSavedViewSelection = () => {
     setActiveSavedViewId(null)
+    setSavedViewBaseline(null)
     setShowSaveAsNew(false)
     setViewSaveError('')
     if (!isEditMode) {
@@ -943,7 +957,7 @@ export function useDashboardPageController() {
     setShowAddWindowMenu(false)
     setShowSaveAsNew(false)
     setViewSaveError('')
-    applyDashboardSavedViewState(parsed, view.id)
+    applyDashboardSavedViewState(parsed, view.id, view)
   }
 
   const requestSavedViewLoad = (viewId: string) => {
@@ -1104,7 +1118,7 @@ export function useDashboardPageController() {
     [containerDimensions.height, containerDimensions.width, viewsQuery.data],
   )
   return {
-    layoutEnforced,
+    layoutEnforced, savedViewBaseline, canUpdateActiveView,
     activeSavedViewId, addWindow, addWindowActionRefs, addWindowMenuId, addWindowMenuRef,
     addWindowTriggerRef,
     adjustArticlePreviewWidth, aiDailyBriefEnabled, aiRelevanceEnabled, aiSummaryEnabled, alertInterestsQuery,

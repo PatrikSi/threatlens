@@ -56,7 +56,11 @@ export function OverviewTab({
   return (
     <div className="space-y-3">
       {isError && <p role="alert" className="rounded border border-amber-500 p-3 text-sm">{errorMessage} Showing previously loaded statistics. <button type="button" className="underline" onClick={onRefresh}>Retry refresh</button></p>}
-      <p className="text-xs text-slate dark:text-slate-300">Request and token metrics use the selected window. Coverage, relevance, queue and retained-history totals describe the current accessible dataset; they do not use ingestion feed filters. Token totals include recorded usage only; cost is unavailable without provider pricing.</p>
+      <p className="text-xs text-slate dark:text-slate-300">
+        Request and token metrics use the selected window. Coverage, relevance, queue and retained-history
+        totals describe the current accessible dataset; they do not use ingestion feed filters.
+        Token totals include recorded usage only; cost is unavailable without provider pricing.
+      </p>
       <Panel title="Current window">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">

@@ -26,7 +26,13 @@ export function DashboardToolbar({ controller }: { controller: DashboardPageCont
 
   return (
       <div className="border-b border-slate/20 bg-white/85 px-3 py-1.5 shadow-sm dark:border-cyan-900/40 dark:bg-[#041612]/92">
-        {controller.layoutEnforced && <p role="status" className="mb-2 rounded border border-amber-500/40 p-2 text-xs">Your organization enforces this dashboard arrangement. Filters remain available. Your personal layout and any open edit draft remain stored separately and return when enforcement is removed.</p>}
+        {controller.layoutEnforced && (
+          <p role="status" className="mb-2 rounded border border-amber-500/40 p-2 text-xs">
+            Your organization enforces this dashboard arrangement. Filters remain available.
+            Your personal layout and any open edit draft remain stored separately and return
+            when enforcement is removed.
+          </p>
+        )}
         <div className="grid grid-cols-[minmax(0,1fr)_112px_auto] items-center gap-1.5 sm:hidden">
           <input
             value={globalSearchState.value}
@@ -214,6 +220,7 @@ export function DashboardToolbar({ controller }: { controller: DashboardPageCont
                 if (!dashboardReady || controller.layoutEnforced) return
                 setEditSessionSnapshot({
                   activeSavedViewId,
+                  savedViewBaseline: controller.savedViewBaseline,
                   savedViewName,
                   state: captureCurrentDashboardViewState(),
                 })
@@ -305,7 +312,7 @@ export function DashboardToolbar({ controller }: { controller: DashboardPageCont
                   </div>
                 )}
               </div>
-              {activeSavedViewId ? (
+              {activeSavedViewId && controller.canUpdateActiveView ? (
                 <>
                   <span className="hidden items-center rounded border border-cyan/30 bg-cyan/8 px-2.5 text-xs font-semibold text-cyan sm:flex dark:border-cyan-800/40 dark:bg-cyan-950/40 dark:text-cyan-200">
                     Editing &ldquo;{viewsQuery.data?.find((v) => v.id === activeSavedViewId)?.name}&rdquo;
@@ -381,7 +388,7 @@ export function DashboardToolbar({ controller }: { controller: DashboardPageCont
                 disabled={viewSavePending}
                 onClick={() => {
                   if (editSessionSnapshot) {
-                    applyDashboardSavedViewState(editSessionSnapshot.state, editSessionSnapshot.activeSavedViewId)
+                    applyDashboardSavedViewState(editSessionSnapshot.state, editSessionSnapshot.activeSavedViewId, editSessionSnapshot.savedViewBaseline)
                     setSavedViewName(editSessionSnapshot.savedViewName)
                   }
                   setIsEditMode(false)

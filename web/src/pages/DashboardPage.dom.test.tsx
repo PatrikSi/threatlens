@@ -272,13 +272,13 @@ vi.mock('@tanstack/react-query', () => ({
     const mutationKey = Array.isArray(options?.mutationKey) ? options.mutationKey.join(':') : String(options?.mutationKey ?? '')
     if (mutationKey === 'dashboard-saved-views:delete') {
       return {
-        mutate: vi.fn((viewId: string) => {
-          dashboardPageDomMocks.deleteMutate(viewId)
+        mutate: vi.fn((view: { id: string }) => {
+          dashboardPageDomMocks.deleteMutate(view)
           if (dashboardPageDomMocks.deleteShouldFail) {
-            options.onError?.(new Error('Saved view deletion failed.'), viewId)
+            options.onError?.(new Error('Saved view deletion failed.'), view)
             return
           }
-          options.onSuccess?.(undefined, viewId)
+          options.onSuccess?.(undefined, view)
         }),
         mutateAsync: vi.fn(),
         isPending: false,
@@ -515,6 +515,44 @@ afterEach(() => {
 })
 
 describe('DashboardPage DOM workflows', () => {
+  it('keeps the loaded shared-view revision when a background refresh changes the server version', () => {
+    dashboardPageDomMocks.views[0] = { ...dashboardPageDomMocks.views[0], team_id: 'team-1', revision: 4, can_edit: true }
+    renderPage()
+    act(() => setSelectValue(getSelect('Load saved dashboard view')!, 'view-rss'))
+    act(() => getButton('Edit Layout')?.click())
+    dashboardPageDomMocks.views = dashboardPageDomMocks.views.map((view) => ({ ...view, revision: 5 }))
+    act(() => { root?.render(<DashboardPage />) })
+    act(() => getButton('Save')?.click())
+    expect(dashboardPageDomMocks.updateMutate).toHaveBeenCalledWith(expect.objectContaining({ viewId: 'view-rss', expectedRevision: 4 }))
+    act(() => getButton('Cancel')?.click())
+    act(() => getButton('Edit Layout')?.click())
+    act(() => getButton('Save')?.click())
+    expect(dashboardPageDomMocks.updateMutate).toHaveBeenLastCalledWith(expect.objectContaining({ expectedRevision: 4 }))
+  })
+
+  it('allows a personal copy of a read-only shared view and hides destructive actions', () => {
+    dashboardPageDomMocks.views[0] = { ...dashboardPageDomMocks.views[0], team_id: 'team-1', revision: 4, can_edit: false, can_delete: false }
+    renderPage()
+    act(() => setSelectValue(getSelect('Load saved dashboard view')!, 'view-rss'))
+    act(() => getButton('Edit Layout')?.click())
+    expect(Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Save')).toBeUndefined()
+    expect(getButton('Save New View')).not.toBeNull()
+    act(() => getButton('Views')?.click())
+    expect(document.querySelector('[aria-label="Delete saved view RSS intel"]')).toBeNull()
+    expect(pageText()).toContain('Team view · read only')
+  })
+
+  it('keeps the delete confirmation revision after a background saved-view refresh', () => {
+    dashboardPageDomMocks.views[0] = { ...dashboardPageDomMocks.views[0], team_id: 'team-1', revision: 4, can_delete: true }
+    renderPage()
+    act(() => getButton('Views')?.click())
+    act(() => document.querySelector<HTMLButtonElement>('[aria-label="Delete saved view RSS intel"]')?.click())
+    dashboardPageDomMocks.views = dashboardPageDomMocks.views.map((view) => ({ ...view, revision: 5 }))
+    act(() => { root?.render(<DashboardPage />) })
+    act(() => getButton('Delete view')?.click())
+    expect(dashboardPageDomMocks.deleteMutate).toHaveBeenCalledWith(expect.objectContaining({ id: 'view-rss', revision: 4 }))
+  })
+
   it('seeds an organization template only on first use and preserves stored personal layouts', async () => {
     dashboardPageDomMocks.workspacePresentation = {
       dashboard_mode: 'default', policy_revision: 2,
@@ -875,7 +913,7 @@ describe('DashboardPage DOM workflows', () => {
       getButton('Delete view')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    expect(dashboardPageDomMocks.deleteMutate).toHaveBeenCalledWith('view-notes')
+    expect(dashboardPageDomMocks.deleteMutate).toHaveBeenCalledWith(expect.objectContaining({ id: 'view-notes' }))
     expect(getSelect('Load saved dashboard view')?.value).toBe('view-rss')
 
     act(() => {

@@ -131,6 +131,7 @@ export function DashboardDialogs({ controller }: { controller: DashboardPageCont
                   <SavedViewThumbnail windows={view.windows} />
                   <div className="min-w-0 flex-1">
                     <p className="truncate font-semibold">{view.name}</p>
+                    {view.team_id && <p className="text-xs">Team view{view.can_delete === false ? ' · read only' : ''}</p>}
                     <p className="text-xs text-slate dark:text-slate-300">{formatDateTime(view.created_at)}</p>
                     <div className="mt-1 flex flex-wrap gap-1.5 text-[11px]">
                       <span className="rounded border border-slate/20 px-1.5 py-0.5 dark:border-cyan-900/40">
@@ -159,7 +160,7 @@ export function DashboardDialogs({ controller }: { controller: DashboardPageCont
                   >
                     Load
                   </button>
-                  <button
+                  {view.can_delete !== false && <button
                     type="button"
                     className="rounded border border-slate/20 px-2 py-1 text-xs text-red-600 dark:border-cyan-900/40"
                     onClick={() => {
@@ -170,7 +171,7 @@ export function DashboardDialogs({ controller }: { controller: DashboardPageCont
                     aria-label={`Delete saved view ${view.name}`}
                   >
                     Delete
-                  </button>
+                  </button>}
                 </div>
               </div>
             ))}
