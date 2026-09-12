@@ -148,3 +148,66 @@ def test_output_validation_only_requires_enabled_enrichment_fields(
     _provider(monkeypatch, [payload])
     _run_row, result, resource = _run(db_session, feature="item_enrichment", item=item)
     assert result.status == resource.status == "ready"
+
+
+@pytest.mark.parametrize("feature, payload, field", [
+    ("item_enrichment", {"summary_text": "Summary\x00text", "relevance_score": 0.7}, "Unicode"),
+    ("item_enrichment", {"summary_text": "Summary\ud800text", "relevance_score": 0.7}, "Unicode"),
+    ("item_enrichment", {"summary_text": "Summary", "relevance_score": 0.7, "unused": float("nan")}, "finite"),
+    ("daily_brief", {"brief_text": "Brief\x00text"}, "Unicode"),
+    ("daily_brief", {"brief_text": "Brief text", "title": "x" * 256}, "title"),
+    ("daily_brief", {"brief_text": "Brief text", "title": {"text": "Invalid title type"}}, "title"),
+])
+def test_unstorable_output_settles_received_failure_and_known_usage(
+    db_session, configured_item, monkeypatch, feature, payload, field,
+):
+    item, _settings = configured_item
+    sent = _provider(monkeypatch, [payload])
+    run, result, resource = _run(db_session, feature=feature, item=item)
+    assert len(sent) == 1
+    assert result.status == resource.status == "error"
+    assert field in resource.error
+    receipt = db_session.scalar(select(AIProviderAttemptReceipt).where(AIProviderAttemptReceipt.task_run_id_snapshot == run.id))
+    assert (receipt.state, receipt.io_outcome) == ("failed", "response_received")
+    usage = db_session.scalar(select(AIUsageEvent).where(AIUsageEvent.task_run_id_snapshot == run.id))
+    assert usage.success is False and usage.total_tokens == 150
+    assert usage.failure_category == "invalid_output"
+
+
+@pytest.mark.parametrize("status", [200, 401])
+def test_malformed_optional_metadata_cannot_poison_receipts_or_usage(
+    db_session, configured_item, monkeypatch, status,
+):
+    from app.models.ai_task_event import AITaskEvent
+    from app.services.ai_output_storage import validate_output_storage
+
+    item, settings = configured_item
+    calls = []
+    response = {
+        "model": "synthetic\x00model", "bad\ud800key": True,
+        "choices": [{"message": {"content": json.dumps({"summary_text": "Valid summary", "relevance_score": 0.7})},
+                     "finish_reason": "unknown\x00reason"}],
+        "usage": {"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150},
+    }
+    if status != 200:
+        response["error"] = {"message": "Rejected\x00request", "param": {"untrusted": float("nan")},
+                             "type": "type\ud800", "code": ["arbitrary", {"nested": True}]}
+
+    def transport(request):
+        calls.append(request)
+        return httpx.Response(status, request=request, content=json.dumps(response).encode(), headers={"Content-Type": "application/json"})
+
+    monkeypatch.setattr(ai_integration, "build_safe_http_client", lambda **kwargs: httpx.Client(transport=httpx.MockTransport(transport)))
+    run, result, resource = _run(db_session, feature="item_enrichment", item=item)
+    expected_success = status == 200
+    assert len(calls) == 1
+    assert result.status == resource.status == ("ready" if expected_success else "error")
+    receipt = db_session.scalar(select(AIProviderAttemptReceipt).where(AIProviderAttemptReceipt.task_run_id_snapshot == run.id))
+    assert receipt.state == ("succeeded" if expected_success else "failed")
+    assert receipt.io_outcome == "response_received"
+    usage = db_session.scalar(select(AIUsageEvent).where(AIUsageEvent.task_run_id_snapshot == run.id))
+    assert usage.success is expected_success and usage.total_tokens == 150
+    assert usage.model == settings.model
+    for event in db_session.scalars(select(AITaskEvent).where(AITaskEvent.task_run_id == run.id)):
+        validate_output_storage(event.payload_json, max_bytes=10000)
+        assert "\x00" not in (event.message or "")

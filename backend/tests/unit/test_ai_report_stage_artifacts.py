@@ -99,3 +99,18 @@ def test_nullable_model_and_optional_usage_are_valid(db_session):
     store_report_stage_completion(db_session, **args, completion=saved)
     db_session.commit()
     assert load_report_stage_completion(db_session, **args) == saved
+
+
+def test_loaded_stage_with_unstorable_unicode_blocks_replay(db_session):
+    report, run = setup_report(db_session)
+    args = dict(task_run_id=run.id, report_id=report.id, operation_scope='evidence:0', request_fingerprint='a'*64)
+    store_report_stage_completion(db_session, **args, completion=completion())
+    db_session.commit()
+    artifact = db_session.get(AIReportStageArtifact, (run.id, 'evidence:0'))
+    # Simulate unsafe loaded history; current pruning triggers also reject a new
+    # NUL-bearing artifact. Do not disable that independent database protection.
+    artifact.completion_json = {**artifact.completion_json, 'payload': {'findings': [], 'extra': '\x00'}}
+    with db_session.no_autoflush, pytest.raises(AIIntegrationError, match='unavailable') as caught:
+        load_report_stage_completion(db_session, **args)
+    assert caught.value.provider_io_outcome == 'not_sent'
+    assert caught.value.retryable is False

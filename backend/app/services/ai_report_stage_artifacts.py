@@ -5,7 +5,9 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.models.ai_task_run import AITaskRun
+from app.services.ai_output_storage import optional_storage_text, validate_output_storage
 from app.models.ai_workflow import AIReportStageArtifact
 from app.services.ai_provider_client import AICompletionResult, AIIntegrationError
 
@@ -50,9 +52,10 @@ def load_report_stage_completion(
             raise ValueError("Invalid saved completion fields")
         if not isinstance(values["payload"], dict):
             raise ValueError("Invalid saved completion payload")
-        if not isinstance(values["provider"], str) or not values["provider"]:
+        validate_output_storage(values["payload"], max_bytes=get_settings().ai_response_max_bytes)
+        if optional_storage_text(values["provider"], limit=64) != values["provider"] or not values["provider"]:
             raise ValueError("Invalid saved provider identity")
-        if values["model"] is not None and not isinstance(values["model"], str):
+        if values["model"] is not None and optional_storage_text(values["model"], limit=255) != values["model"]:
             raise ValueError("Invalid saved model identity")
         for field in COMPLETION_FIELDS[3:]:
             value = values[field]

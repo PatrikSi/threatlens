@@ -15,6 +15,7 @@ from app.core.config import get_settings
 from app.core.logging_config import redact_log_text
 from app.services.ai_config import ActiveAISettings, is_shared_ai_base_url_allowed
 from app.services.ai_normalization import coerce_optional_int, normalize_optional_text
+from app.services.ai_output_storage import diagnostic_storage_text, optional_storage_text
 from app.services.ai_provider_protocol import build_provider_request_payload
 from app.services.ai_provider_exchange import sanitize_provider_exchange
 from app.services.safe_fetch import SafeFetchError
@@ -48,7 +49,7 @@ class AIIntegrationError(ValueError):
         latency_ms: int | None = None,
         failure_category: str | None = None,
     ):
-        super().__init__(message)
+        super().__init__(diagnostic_storage_text(message, limit=20_000))
         self.request_url = request_url
         self.request_payload = request_payload
         self.response_body = response_body
@@ -213,7 +214,7 @@ def call_ai_json(
         response_body = _redact_response_text(exc.response.text, active.api_key)
         try:
             response_json: object | None = _redact_response_value(exc.response.json(), active.api_key)
-        except ValueError:
+        except (ValueError, RecursionError):
             response_json = None
         provider_error_message = _safe_provider_error(response_json, active.api_key)
         raise AIIntegrationError(
@@ -261,7 +262,7 @@ def call_ai_json(
     response_body = _redact_response_text(response.text, active.api_key)
     try:
         payload = _redact_response_value(response.json(), active.api_key)
-    except ValueError as exc:
+    except (ValueError, RecursionError) as exc:
         raise AIIntegrationError(
             "AI endpoint returned non-JSON output",
             failure_category="invalid_json",
@@ -368,7 +369,7 @@ def call_ai_json(
     return AICompletionResult(
         payload=parsed,
         provider=active.provider_type,
-        model=reported_model[:255] if isinstance(reported_model, str) and reported_model else active.model,
+        model=optional_storage_text(reported_model, limit=255) or active.model,
         latency_ms=latency_ms,
         prompt_tokens=coerce_optional_int(usage.get("prompt_tokens")),
         completion_tokens=coerce_optional_int(usage.get("completion_tokens")),
@@ -380,7 +381,7 @@ def call_ai_json(
         response_body=response_body,
         response_json=payload,
         status_code=response.status_code,
-        finish_reason=finish_reason if isinstance(finish_reason, str) else None,
+        finish_reason=optional_storage_text(finish_reason, limit=255),
     )
 
 
@@ -479,6 +480,8 @@ def parse_ai_json_content(content: str) -> dict[str, object]:
     candidate = strip_code_fence_wrapper(content.strip())
     try:
         parsed = json.loads(candidate)
+    except RecursionError as exc:
+        raise AIIntegrationError("AI response JSON exceeds the supported nesting limit") from exc
     except ValueError as exc:
         recovered = extract_first_json_object(candidate)
         if recovered is None:
@@ -537,7 +540,7 @@ def extract_first_json_object(candidate: str) -> dict[str, object] | None:
             continue
         try:
             parsed = json.loads(candidate[start : index + 1])
-        except ValueError:
+        except (ValueError, RecursionError):
             return None
         if not isinstance(parsed, dict):
             return None
@@ -557,7 +560,7 @@ def repair_unclosed_json_object(candidate: str) -> dict[str, object] | None:
     repaired = candidate + ("}" * depth)
     try:
         parsed = json.loads(repaired)
-    except ValueError:
+    except (ValueError, RecursionError):
         return None
     if not isinstance(parsed, dict):
         return None

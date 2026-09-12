@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import hashlib
+from itertools import islice
 from urllib.parse import urlsplit
+
+from app.services.ai_normalization import coerce_optional_int
+from app.services.ai_output_storage import diagnostic_storage_text, optional_storage_text
 
 
 def build_provider_exchange_payload(
@@ -39,8 +43,8 @@ def sanitize_provider_exchange(
         payload.update(summarize_request_payload(request_payload))
     if status_code is not None:
         payload["status_code"] = status_code
-    if finish_reason:
-        payload["finish_reason"] = finish_reason
+    if isinstance(finish_reason, str):
+        payload["finish_reason"] = diagnostic_storage_text(finish_reason, limit=255)
     if response_body is not None:
         payload["response_body_chars"] = len(response_body)
         payload["response_body_sha256"] = hashlib.sha256(response_body.encode("utf-8", errors="ignore")).hexdigest()
@@ -101,17 +105,17 @@ def summarize_request_payload(request_payload: dict[str, object]) -> dict[str, o
 def summarize_response_json(response_json: object) -> dict[str, object]:
     if isinstance(response_json, dict):
         summary: dict[str, object] = {
-            "top_level_keys": sorted(str(key) for key in response_json.keys())[:20],
+            "top_level_keys": sorted(diagnostic_storage_text(str(key), limit=120) for key in islice(response_json, 20)),
         }
-        model = response_json.get("model")
-        if isinstance(model, str):
+        model = optional_storage_text(response_json.get("model"), limit=255)
+        if model is not None:
             summary["response_model"] = model
         usage = response_json.get("usage")
         if isinstance(usage, dict):
             usage_summary: dict[str, int] = {}
             for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
-                value = usage.get(key)
-                if isinstance(value, int):
+                value = coerce_optional_int(usage.get(key))
+                if value is not None:
                     usage_summary[key] = value
             if usage_summary:
                 summary["usage"] = usage_summary
@@ -121,13 +125,15 @@ def summarize_response_json(response_json: object) -> dict[str, object]:
             if choices and isinstance(choices[0], dict):
                 finish_reason = choices[0].get("finish_reason")
                 if isinstance(finish_reason, str):
-                    summary["first_choice_finish_reason"] = finish_reason
+                    summary["first_choice_finish_reason"] = diagnostic_storage_text(finish_reason, limit=255)
         error = response_json.get("error")
         if isinstance(error, dict):
             error_summary: dict[str, object] = {}
             for key in ("type", "code", "param"):
                 value = error.get(key)
-                if value is not None:
+                if isinstance(value, str):
+                    error_summary[key] = diagnostic_storage_text(value, limit=255)
+                elif type(value) is int and -(2**31) <= value < 2**31:
                     error_summary[key] = value
             message = error.get("message")
             if isinstance(message, str):
