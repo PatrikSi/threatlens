@@ -40,6 +40,10 @@ class AIIntegrationError(ValueError):
         retry_hint: str | None = None,
         retryable: bool = False,
         provider_io_outcome: AIProviderIOOutcome = AI_PROVIDER_IO_AMBIGUOUS,
+        prompt_tokens: int | None = None,
+        completion_tokens: int | None = None,
+        total_tokens: int | None = None,
+        latency_ms: int | None = None,
     ):
         super().__init__(message)
         self.request_url = request_url
@@ -50,6 +54,21 @@ class AIIntegrationError(ValueError):
         self.retry_hint = retry_hint
         self.retryable = retryable
         self.provider_io_outcome = provider_io_outcome
+        # Failed generations (including reasoning-only truncation) can still
+        # consume billable tokens. Invalid optional telemetry must not turn a
+        # received response into an ambiguous transport failure.
+        usage = response_json.get("usage") if isinstance(response_json, dict) else None
+        usage = usage if isinstance(usage, dict) else {}
+        self.prompt_tokens = coerce_optional_int(
+            prompt_tokens if prompt_tokens is not None else usage.get("prompt_tokens")
+        )
+        self.completion_tokens = coerce_optional_int(
+            completion_tokens if completion_tokens is not None else usage.get("completion_tokens")
+        )
+        self.total_tokens = coerce_optional_int(
+            total_tokens if total_tokens is not None else usage.get("total_tokens")
+        )
+        self.latency_ms = coerce_optional_int(latency_ms)
         self.attempt_count = 1
 
     def debug_payload(self) -> dict[str, object]:
@@ -161,7 +180,7 @@ def call_ai_json(
         pool=active.request_timeout_seconds,
     )
     transport_options = {}
-    if getattr(active, "provider_id", None) is not None and urlsplit(active.base_url).scheme == "http":
+    if urlsplit(active.base_url).scheme == "http":
         transport_options["private_network_only"] = True
     try:
         with outbound_deadline(active.request_timeout_seconds), client_factory(
@@ -187,6 +206,7 @@ def call_ai_json(
             request_url=request_url,
             request_payload=request_payload,
             status_code=streamed.status_code,
+            latency_ms=int((time.perf_counter() - started_at) * 1000),
             retryable=False,
             provider_io_outcome=AI_PROVIDER_IO_RESPONSE_RECEIVED,
         ) from exc
@@ -204,10 +224,9 @@ def call_ai_json(
             response_body=response_body,
             response_json=response_json,
             status_code=exc.response.status_code,
-            retryable=False
-            if looks_like_provider_auth_error(provider_error_message)
-            else ai_status_code_is_retryable(exc.response.status_code),
+            retryable=ai_status_code_is_retryable(exc.response.status_code),
             provider_io_outcome=AI_PROVIDER_IO_RESPONSE_RECEIVED,
+            latency_ms=int((time.perf_counter() - started_at) * 1000),
         ) from exc
     except (
         httpx.ConnectError,
@@ -244,6 +263,7 @@ def call_ai_json(
             request_payload=request_payload,
             response_body=response_body,
             status_code=response.status_code,
+            latency_ms=latency_ms,
             retryable=True,
             provider_io_outcome=AI_PROVIDER_IO_RESPONSE_RECEIVED,
         ) from exc
@@ -256,6 +276,7 @@ def call_ai_json(
             response_body=response_body,
             response_json=payload,
             status_code=response.status_code,
+            latency_ms=latency_ms,
             retryable=not looks_like_provider_auth_error(provider_error_message),
             provider_io_outcome=AI_PROVIDER_IO_RESPONSE_RECEIVED,
         )
@@ -273,6 +294,7 @@ def call_ai_json(
             response_body=response_body,
             response_json=payload,
             status_code=response.status_code,
+            latency_ms=latency_ms,
             retryable=True,
             provider_io_outcome=AI_PROVIDER_IO_RESPONSE_RECEIVED,
         ) from exc
@@ -290,6 +312,7 @@ def call_ai_json(
             response_body=response_body,
             response_json=payload,
             status_code=response.status_code,
+            latency_ms=latency_ms,
             retry_hint="expand_completion_budget",
             retryable=True,
             provider_io_outcome=AI_PROVIDER_IO_RESPONSE_RECEIVED,
@@ -305,6 +328,7 @@ def call_ai_json(
             response_body=response_body,
             response_json=payload,
             status_code=response.status_code,
+            latency_ms=latency_ms,
             retryable=True,
             provider_io_outcome=AI_PROVIDER_IO_RESPONSE_RECEIVED,
         ) from exc

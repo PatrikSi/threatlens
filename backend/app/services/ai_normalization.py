@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import json
+import math
 
 from app.services.ai_config import ActiveAISettings
 
@@ -21,7 +22,9 @@ def coerce_score(value: object) -> float | None:
         return None
     try:
         numeric = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if isinstance(value, bool) or not math.isfinite(numeric):
         return None
     if numeric < 0:
         numeric = 0.0
@@ -31,12 +34,16 @@ def coerce_score(value: object) -> float | None:
 
 
 def coerce_optional_int(value: object) -> int | None:
-    if value is None:
+    """Read optional provider counts without overflowing PostgreSQL INTEGER."""
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        return None
+    if isinstance(value, float) and not value.is_integer():
         return None
     try:
-        return int(value)
-    except (TypeError, ValueError):
+        numeric = int(value)
+    except (TypeError, ValueError, OverflowError):
         return None
+    return numeric if 0 <= numeric <= 2_147_483_647 else None
 
 
 def normalize_optional_text(value: object) -> str | None:
