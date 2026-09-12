@@ -87,7 +87,7 @@ export function useInvestigationsPage() {
     !currentUserQuery.isError &&
     hasRequiredPermissions(
       currentUserQuery.data?.access?.permissions ?? [],
-      ['write:investigations'],
+      filters.teamId ? ['write:investigations', 'write:teams'] : ['write:investigations'],
     )
   const createDraftDirty =
     createDraft.title !== EMPTY_CREATE_DRAFT.title ||
@@ -136,6 +136,7 @@ export function useInvestigationsPage() {
     const title = createDraft.title.trim()
     if (!title || !currentUserQuery.data) return
     createInvestigation.mutate({
+      ...(filters.teamId ? { team_id: filters.teamId } : {}),
       title,
       description: createDraft.description.trim(),
       severity: createDraft.severity,

@@ -57,6 +57,14 @@ OperationLiteral: TypeAlias = tuple[str, str, str] | tuple[str, str, str, str]
 # security-sensitive contract changes.
 # fmt: off
 _CONTROL_PLANE_OPERATIONS: tuple[OperationLiteral, ...] = (
+    ('GET', '/v1/teams', 'list_teams'),
+    ('POST', '/v1/teams', 'create_team'),
+    ('GET', '/v1/teams/admin', 'list_admin_teams'),
+    ('GET', '/v1/teams/admin/{team_id}', 'get_admin_team'),
+    ('GET', '/v1/teams/{team_id}', 'get_team'),
+    ('PATCH', '/v1/teams/{team_id}', 'update_team'),
+    ('PUT', '/v1/teams/{team_id}/bindings', 'update_team_bindings'),
+    ('GET', '/v1/teams/{team_id}/members', 'list_team_members'),
     ('GET', '/v1/ai/providers', 'list_ai_providers_route'),
     ('POST', '/v1/ai/providers', 'create_ai_provider_route'),
     ('GET', '/v1/ai/providers/{provider_id}', 'get_ai_provider_route'),
@@ -381,6 +389,10 @@ _EGRESS_FENCED_OPERATIONS: tuple[OperationLiteral, ...] = (
 # retained as useful operator evidence, but cannot by themselves detect a handler
 # replacement that reuses the same display name.
 _ENDPOINT_NAMES_BY_MODULE: Final[dict[str, tuple[str, ...]]] = {
+    "app.api.routes.teams": (
+        "list_teams", "create_team", "list_admin_teams", "get_admin_team", "get_team",
+        "update_team", "update_team_bindings", "list_team_members",
+    ),
     "app.api.routes.access_reviews": (
         "get_access_review_campaign_route",
         "get_access_review_campaigns",

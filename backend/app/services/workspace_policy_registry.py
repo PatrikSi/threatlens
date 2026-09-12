@@ -20,6 +20,7 @@ from app.core.token_scopes import (
     SCOPE_READ_REPORTS,
     SCOPE_READ_STATS,
     SCOPE_READ_TAGGING,
+    SCOPE_READ_TEAMS,
     SCOPE_READ_TOKENS,
     SCOPE_READ_USERS,
 )
@@ -140,6 +141,7 @@ WORKSPACE_MODULES: tuple[WorkspaceModuleDefinition, ...] = (
         permissions=(SCOPE_READ_FEEDS,),
         mobile_behavior="primary",
     ),
+    _module("primary.teams", "Teams", "/teams", order=25, permissions=(SCOPE_READ_TEAMS,), mobile_behavior="secondary"),
     _module(
         "primary.stats",
         "Stats",

@@ -7,6 +7,7 @@ import { formatDateTime } from '../utils/datetime'
 import { InvestigationActivityPanel } from './InvestigationActivityPanel'
 import { InvestigationEvidencePanel } from './InvestigationEvidencePanel'
 import { InvestigationMembersPanel } from './InvestigationMembersPanel'
+import { TeamMembersPanel } from './TeamMembersPanel'
 import { InvestigationNotesPanel } from './InvestigationNotesPanel'
 import { InvestigationOverviewPanel } from './InvestigationOverviewPanel'
 import {
@@ -33,6 +34,11 @@ type LifecycleConfirmation = {
   kind: LifecycleConfirmationKind
   expectedVersion: number
 } | null
+
+function canChangeLifecycle(controller: InvestigationDetailController) {
+  const detail = controller.detailQuery.data
+  return Boolean(controller.access?.canWrite && detail && (!detail.team_id || detail.current_user_role === 'owner'))
+}
 
 export function InvestigationDetailWorkspace({
   controller,
@@ -103,6 +109,7 @@ export function InvestigationDetailWorkspace({
                 Access: {detail.current_user_role ?? 'team read-only'}
               </span>
               <span>Version {detail.version}</span>
+              {detail.team_id && <Link className="font-semibold text-cyan" to={`/teams?team=${detail.team_id}`}>Named team workspace</Link>}
               <span>
                 Record updated{' '}
                 <time dateTime={detail.updated_at}>{formatDateTime(detail.updated_at)}</time>
@@ -116,7 +123,7 @@ export function InvestigationDetailWorkspace({
           </div>
           <LifecycleActions
             status={detail.status}
-            canWrite={controller.access.canWrite}
+            canWrite={canChangeLifecycle(controller)}
             canArchive={controller.access.canArchive}
             canReopen={controller.access.canReopen}
             pending={controller.mutation.isPending}
@@ -205,7 +212,7 @@ export function InvestigationDetailWorkspace({
           <InvestigationOverviewPanel controller={controller} />
         )}
         {controller.activeTab === 'members' && (
-          <InvestigationMembersPanel controller={controller} />
+          detail.team_id ? <TeamMembersPanel key={detail.team_id} teamId={detail.team_id} /> : <InvestigationMembersPanel controller={controller} />
         )}
         {controller.activeTab === 'evidence' && (
           <InvestigationEvidencePanel controller={controller} />

@@ -87,7 +87,7 @@ export function resolveInvestigationAccess(
     canWrite: canAuthor && isWriter && !archived,
     canManageMembers: canAuthor && isOwner && !archived,
     canArchive: canAuthor && isOwner && !archived,
-    canReopen: canAuthor && isWriter && archived,
+    canReopen: canAuthor && (investigation.team_id ? isOwner : isWriter) && archived,
     readOnlyReason,
   }
 }
@@ -116,6 +116,7 @@ export function readInvestigationListFilters(searchParams: URLSearchParams): Inv
   )
   const rawPage = Number(searchParams.get('page'))
   return {
+    ...(searchParams.get('team_id') ? { teamId: searchParams.get('team_id')! } : {}),
     query: (searchParams.get('q') ?? '').slice(0, 255),
     statuses,
     severities,
@@ -127,6 +128,7 @@ export function readInvestigationListFilters(searchParams: URLSearchParams): Inv
 
 export function writeInvestigationListFilters(filters: InvestigationListFilters): URLSearchParams {
   const params = new URLSearchParams()
+  if (filters.teamId) params.set('team_id', filters.teamId)
   const query = filters.query.trim()
   if (query) params.set('q', query)
   filters.statuses.forEach((status) => params.append('status', status))
@@ -139,6 +141,7 @@ export function writeInvestigationListFilters(filters: InvestigationListFilters)
 
 export function buildInvestigationListPath(filters: InvestigationListFilters): string {
   const params = new URLSearchParams({ page: String(filters.page), page_size: String(INVESTIGATION_PAGE_SIZE) })
+  if (filters.teamId) params.set('team_id', filters.teamId)
   const query = filters.query.trim()
   if (query) params.set('q', query)
   filters.statuses.forEach((status) => params.append('statuses', status))

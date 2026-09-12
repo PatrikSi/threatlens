@@ -34,6 +34,7 @@ export type TrustedWorkspaceModuleId =
   | 'primary.dashboard'
   | 'primary.alerts'
   | 'primary.investigations'
+  | 'primary.teams'
   | 'primary.feeds'
   | 'primary.stats'
   | 'primary.export'
@@ -132,6 +133,12 @@ export const TRUSTED_WORKSPACE_MODULES: readonly TrustedWorkspaceModule[] = [
     requiredPermissions: ['read:investigations'], featureDependency: null, serverFeatureFlag: null,
     defaultVisibleRoles: ALL_ROLES, defaultOptional: true, defaultOrder: 20,
     defaultMobilePriority: 20, mobileBehavior: 'primary',
+  }),
+  moduleDefinition({
+    id: 'primary.teams', label: 'Teams', route: '/teams', icon: Users,
+    requiredPermissions: ['read:teams'], featureDependency: null, serverFeatureFlag: null,
+    defaultVisibleRoles: ALL_ROLES, defaultOptional: true, defaultOrder: 25,
+    defaultMobilePriority: 25, mobileBehavior: 'secondary',
   }),
   moduleDefinition({
     id: 'primary.feeds', label: 'Feeds', route: '/feeds', icon: Rss,

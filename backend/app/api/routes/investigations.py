@@ -5,6 +5,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy.orm import Session
+from sqlalchemy import select
 
 from app.api.deps import (
     get_authorization_context,
@@ -22,6 +23,7 @@ from app.core.token_scopes import (
 )
 from app.db.session import get_db
 from app.models.user import User
+from app.models.investigation import Investigation
 from app.schemas.investigation import (
     InvestigationActivityListResponse,
     InvestigationCreate,
@@ -79,10 +81,43 @@ EVIDENCE_SOURCE_READ_SCOPES = {
     "report": (SCOPE_READ_REPORTS,),
     "alert_occurrence": (SCOPE_READ_ALERTS, SCOPE_READ_ITEMS),
 }
-require_investigation_write = require_permissions(
+_require_investigation_permission = require_permissions(
     SCOPE_WRITE_INVESTIGATIONS,
     denial_detail="Investigation changes require write access to investigations.",
 )
+
+
+def _require_team_write_scope(request: Request) -> None:
+    authorization = get_authorization_context(request)
+    if authorization is None or not authorization.has("write:teams"):
+        raise ApiHTTPException(
+            status_code=403,
+            error_code="team_write_permission_required",
+            detail="Changing team investigations requires write:teams as well as write:investigations.",
+        )
+
+
+def require_investigation_write(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(_require_investigation_permission),
+) -> User:
+    identity = request.path_params.get("investigation_id")
+    if identity is not None:
+        try:
+            investigation_id = uuid.UUID(str(identity))
+        except ValueError:
+            return user  # The route's UUID validator returns the normal 422.
+        if (
+            db.scalar(
+                select(Investigation.team_id).where(
+                    Investigation.id == investigation_id
+                )
+            )
+            is not None
+        ):
+            _require_team_write_scope(request)
+    return user
 
 
 InvestigationPage = Annotated[
@@ -93,6 +128,7 @@ InvestigationPage = Annotated[
 
 @router.get("", response_model=InvestigationListResponse)
 def get_investigations(
+    team_id: uuid.UUID | None = Query(default=None),
     q: str | None = Query(default=None, max_length=255),
     statuses: list[str] = Query(default=[]),
     severities: list[str] = Query(default=[]),
@@ -127,6 +163,7 @@ def get_investigations(
         include_archived=include_archived,
         page=page,
         page_size=page_size,
+        team_id=team_id,
     )
 
 
@@ -135,11 +172,14 @@ def get_investigations(
 )
 def post_investigation(
     payload: InvestigationCreate,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(require_investigation_write),
     data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     try:
+        if payload.team_id is not None:
+            _require_team_write_scope(request)
         investigation = create_investigation(
             db,
             user=user,
@@ -148,6 +188,7 @@ def post_investigation(
             severity=payload.severity,
             visibility=payload.visibility,
             assignee_user_id=payload.assignee_user_id,
+            team_id=payload.team_id,
         )
         record_audit(
             db,

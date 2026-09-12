@@ -698,18 +698,24 @@ class SavedViewQueryPayload(BaseModel):
 class SavedViewCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     query_json: SavedViewQueryPayload
+    team_id: uuid.UUID | None = None
 
 
 class SavedViewUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     query_json: SavedViewQueryPayload | None = None
+    expected_revision: int | None = Field(default=None, ge=1)
 
 
 class SavedViewResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
-    user_id: uuid.UUID
+    user_id: uuid.UUID | None
+    team_id: uuid.UUID | None = None
+    revision: int = 1
+    can_edit: bool = False
+    can_delete: bool = False
     name: str
     query_json: SavedViewQueryPayload
     created_at: datetime

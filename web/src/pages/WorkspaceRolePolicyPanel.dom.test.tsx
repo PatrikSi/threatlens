@@ -19,6 +19,7 @@ const ROLE_TOP_NAVIGATION_IDS = [
   'primary.dashboard',
   'primary.alerts',
   'primary.investigations',
+  'primary.teams',
   'primary.feeds',
   'primary.stats',
   'primary.export',
@@ -137,7 +138,7 @@ describe('WorkspaceRolePolicyPanel', () => {
   })
 
   it.each(['admin', 'analyst', 'viewer'] as const)(
-    'keeps the %s role editor scoped to the seven policy-managed top-navigation items',
+    'keeps the %s role editor scoped to the eight policy-managed top-navigation items',
     (role) => {
       const policy = rolePolicy(role)
       const controller = {
@@ -236,7 +237,7 @@ describe('WorkspaceRolePolicyPanel', () => {
     expect(
       container.querySelector<HTMLButtonElement>('[aria-label^="Drag Dashboard."]')
         ?.getAttribute('aria-label'),
-    ).toContain('of 7')
+    ).toContain('of 8')
     expect(earlierButton).not.toBeNull()
 
     const transfer = createDataTransfer()
