@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.models.alert_occurrence import AlertOccurrence, AlertOccurrenceActivity
 from app.models.user import User
 from app.services.authorization import AuthorizationContext
+from app.services.team_access import assert_current_team_access
 from app.services.alert_team_access import alert_scope_predicate, lock_alert_teams
 from app.services.data_access_envelopes import (
     DATA_ACCESS_RESOURCE_ALERT_OCCURRENCE,
@@ -185,6 +186,8 @@ def get_alert_occurrence(
     occurrence = db.scalar(query)
     if occurrence is None:
         raise AlertOccurrenceNotFoundError("Alert occurrence not found.")
+    if for_update and occurrence.team_id is not None:
+        assert_current_team_access(db, team_id=occurrence.team_id, user_id=user.id)
     return occurrence
 
 
@@ -274,6 +277,11 @@ def bulk_update_alert_occurrence_lifecycle(
         raise AlertOccurrenceNotFoundError(
             "One or more alert occurrences were not found or current membership does not permit access."
         )
+    # Resource waits may outlive an OIDC assertion even while IAM/Team rows stay locked.
+    for team_id in sorted(
+        {row.team_id for row in rows if row.team_id is not None}, key=str
+    ):
+        assert_current_team_access(db, team_id=team_id, user_id=user.id)
     for occurrence in rows:
         _require_expected_version(occurrence, expected_by_id[occurrence.id])
 
