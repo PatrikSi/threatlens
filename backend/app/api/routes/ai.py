@@ -2,6 +2,9 @@ import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 
+from starlette.responses import JSONResponse
+from app.schemas.ai_workflow import AIWorkflowDeferredResponse
+from app.services.ai_workflow_dispatch import AIWorkflowDeferred, defer_ai_workflow_run
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
@@ -405,6 +408,7 @@ def list_daily_briefs_route(
 @router.post(
     "/daily-brief/generate",
     response_model=AIDailyBriefResponse,
+    responses={202: {"model": AIWorkflowDeferredResponse, "description": "Accepted; queued until provider capacity is available."}},
     dependencies=[Depends(require_ai_enabled)],
 )
 def generate_daily_brief_route(
@@ -445,6 +449,11 @@ def generate_daily_brief_route(
                 )
 
             result = run_daily_brief_generation(db, force=True, task_run_id=run.id)
+    except AIWorkflowDeferred as exc:
+        defer_ai_workflow_run(db, run_id=run.id, reason=exc.reason, retry_after_seconds=exc.retry_after_seconds)
+        db.commit()
+        queued = AIWorkflowDeferredResponse(reason=exc.reason, run_id=run.id)
+        return JSONResponse(status_code=202, content=queued.model_dump(mode="json"))
     except CoordinationUnavailableError as exc:
         finish_ai_task_run(
             db,
@@ -773,6 +782,12 @@ def reprocess_ai_for_recent_items_route(
 def _enqueue_task_run_or_fail(
     db: Session, *, run_id: uuid.UUID, task_factory, on_enqueue_failure=None
 ):
+    from app.models.ai_workflow import AIWorkflowDispatch
+    from app.services.ai_workflow_publication import publish_ai_workflow
+    if db.get(AIWorkflowDispatch, run_id) is not None:
+        # Registration committed with acceptance. Broker failure leaves accepted
+        # work queued for the durable dispatcher instead of discarding it.
+        return publish_ai_workflow(run_id)
     try:
         return task_factory()
     except Exception as exc:

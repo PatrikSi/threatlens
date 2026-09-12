@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.models.ai_daily_brief import AIDailyBrief
 from app.models.ai_task_run import AITaskRun
 from app.services.ai_config import load_active_ai_settings
+from app.services.ai_workflow_dispatch import AIWorkflowDeferred, defer_ai_workflow_run
 from app.services.ai_integration import is_stale_daily_brief_pending, run_daily_brief_generation
 from app.services.ai_ops import (
     AI_DAILY_BRIEF_BACKFILL_SCOPE,
@@ -92,7 +93,7 @@ def _scheduled_daily_ai_brief_due(db: Session, *, now: datetime) -> tuple[bool, 
     )
     if in_flight_run is not None:
         task_run = db.scalar(select(AITaskRun).where(AITaskRun.id == in_flight_run))
-        if task_run is not None and not _is_stale_daily_brief_task_run(task_run, now=now):
+        if task_run is not None and task_run.finished_at is None:
             return False, "already_running"
 
     return True, None
@@ -171,13 +172,9 @@ def dispatch_daily_ai_brief_generation(
                                 None, getattr(self.request, "id", None)
                             )
                         ):
-                            run.metadata_json = {
-                                **dict(run.metadata_json or {}),
-                                "lock_deferred_at": datetime.now(timezone.utc).isoformat(),
-                            }
-                            db.add(run)
+                            defer_ai_workflow_run(db, run_id=run.id, reason="brief_lock_busy", retry_after_seconds=30)
                             db.commit()
-                            raise self.retry(countdown=30, max_retries=None)
+                            return {"status": "queued", "reason": "brief_lock_busy", "run_id": str(run.id)}
                     result = {"status": "skipped", "reason": "already_running"}
                     if parsed_run_id is not None:
                         result["run_id"] = str(parsed_run_id)
@@ -260,7 +257,9 @@ def dispatch_daily_ai_brief_generation(
                     db.commit()
                     return {"status": "skipped", "reason": "daily_brief_disabled"}
 
-                result = run_daily_brief_generation(db, force=force, task_run_id=run.id)
+                result = run_daily_brief_generation(
+                    db, force=force, task_run_id=run.id, reference_time=run.created_at
+                )
                 finish_ai_task_run(
                     db,
                     run_id=run.id,
@@ -295,18 +294,18 @@ def dispatch_daily_ai_brief_generation(
                     ),
                     "notification_enqueue_failed": not notification_enqueue_ok,
                 }
+        except AIWorkflowDeferred as exc:
+            if run is not None:
+                defer_ai_workflow_run(db, run_id=run.id, reason=exc.reason, retry_after_seconds=exc.retry_after_seconds)
+                db.commit()
+            return {"status": "queued", "reason": exc.reason}
         except CoordinationUnavailableError as exc:
             logger.warning("daily_brief_coordination_unavailable error_type=%s", _exception_type_name(exc))
-            if run is not None:
-                finish_ai_task_run(
-                    db,
-                    run_id=run.id,
-                    status=AI_STATUS_ERROR,
-                    reason="coordination_unavailable",
-                    error="coordination_unavailable",
-                    worker_name=getattr(self.request, "hostname", None),
-                )
+            deferred_id = run.id if run is not None else parsed_run_id
+            if deferred_id is not None:
+                defer_ai_workflow_run(db, run_id=deferred_id, reason="coordination_unavailable", retry_after_seconds=30)
                 db.commit()
+                return {"status": "queued", "reason": "coordination_unavailable"}
             return {"status": "error", "reason": "coordination_unavailable"}
 
 
@@ -567,31 +566,9 @@ def backfill_daily_ai_briefs(
         try:
             with daily_ai_brief_lock() as acquired:
                 if not acquired:
-                    active_parent = db.scalar(select(AITaskRun).where(AITaskRun.id == parent_run_id))
-                    if parent_was_running and active_parent is not None and active_parent.finished_at is None:
-                        active_parent.metadata_json = {
-                            **dict(active_parent.metadata_json or {}),
-                            "duplicate_lock_observed_at": datetime.now(timezone.utc).isoformat(),
-                        }
-                        db.add(active_parent)
-                        record_ai_task_event(
-                            db,
-                            run_id=parent_run_id,
-                            event_type="duplicate_delivery_deferred",
-                            payload={"celery_task_id": celery_task_id, "worker_name": worker_name},
-                        )
-                        db.commit()
-                        return {"status": "skipped", "reason": "already_running", "run_id": str(parent_run_id)}
-                    finish_ai_task_run(
-                        db,
-                        run_id=parent_run_id,
-                        status=AI_STATUS_SKIPPED,
-                        reason="already_running",
-                        worker_name=worker_name,
-                        metadata_updates={"lock_observed_at": datetime.now(timezone.utc).isoformat()},
-                    )
+                    defer_ai_workflow_run(db, run_id=parent_run_id, reason="brief_lock_busy", retry_after_seconds=30)
                     db.commit()
-                    return {"status": "skipped", "reason": "already_running", "run_id": str(parent_run_id)}
+                    return {"status": "queued", "reason": "brief_lock_busy", "run_id": str(parent_run_id)}
 
                 processed_dates: list[str] = []
                 for reference_time in _daily_brief_backfill_reference_times(
@@ -686,6 +663,10 @@ def backfill_daily_ai_briefs(
                             task_run_id=child_run_id,
                             emit_notification=False,
                         )
+                    except AIWorkflowDeferred as exc:
+                        defer_ai_workflow_run(db, run_id=parent_run_id, reason=exc.reason, retry_after_seconds=exc.retry_after_seconds)
+                        db.commit()
+                        return {"status": "queued", "reason": exc.reason, "run_id": str(parent_run_id), "processed_dates": processed_dates}
                     except Exception as exc:
                         db.rollback()
                         logger.exception("daily_brief_backfill_day_failed brief_date=%s", reference_time.date().isoformat())
@@ -740,13 +721,6 @@ def backfill_daily_ai_briefs(
                 }
         except CoordinationUnavailableError as exc:
             logger.warning("daily_brief_backfill_coordination_unavailable error_type=%s", _exception_type_name(exc))
-            finish_ai_task_run(
-                db,
-                run_id=parent_run_id,
-                status=AI_STATUS_ERROR,
-                reason="coordination_unavailable",
-                error="coordination_unavailable",
-                worker_name=worker_name,
-            )
+            defer_ai_workflow_run(db, run_id=parent_run_id, reason="coordination_unavailable", retry_after_seconds=30)
             db.commit()
-            return {"status": "error", "reason": "coordination_unavailable", "run_id": str(parent_run_id)}
+            return {"status": "queued", "reason": "coordination_unavailable", "run_id": str(parent_run_id)}

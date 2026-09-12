@@ -26,6 +26,7 @@ from app.schemas.ai import AITestConnectionResponse
 from app.services import ai_normalization as _ai_normalization
 from app.services import ai_prompting as _ai_prompting
 from app.services import ai_provider_client as _ai_provider_client
+from app.services.ai_workflow_recovery import owns_pending_daily_brief
 from app.services.ai_config import ActiveAISettings, load_active_ai_settings
 from app.services.ai_connection_diagnostics import connection_test_error
 from app.services.ai_egress_data_policy import (
@@ -600,6 +601,7 @@ def run_daily_brief_generation(
         and existing.status == "pending"
         and not force
         and not is_stale_daily_brief_pending(existing, now=now)
+        and not owns_pending_daily_brief(db, task_run_id=task_run_id, brief=existing)
     ):
         return AIDailyBriefGenerationResult(
             brief=existing,

@@ -142,6 +142,8 @@ def queue_ai_task_run(
     db.flush()
     initialize_ai_task_run_data_access(db, run=run)
     record_ai_task_event(db, run_id=run.id, event_type="queued", payload=metadata or {})
+    from app.services.ai_workflow_dispatch import register_ai_workflow
+    register_ai_workflow(db, run)
     return run
 
 
@@ -174,6 +176,10 @@ def update_ai_task_run_celery(
     run = db.scalar(select(AITaskRun).where(AITaskRun.id == run_id))
     if run is None:
         return None
+    from app.models.ai_workflow import AIWorkflowDispatch
+    dispatch = db.get(AIWorkflowDispatch, run_id)
+    if dispatch is not None and dispatch.delivery_id is not None and celery_task_id != dispatch.delivery_id:
+        return run
     run.celery_task_id = celery_task_id
     if worker_name:
         run.worker_name = worker_name
@@ -202,6 +208,9 @@ def start_ai_task_run(
 
     if celery_task_id and run.celery_task_id not in (None, celery_task_id):
         return run
+    from app.services.ai_workflow_dispatch import claim_workflow_execution
+    if not claim_workflow_execution(db, run, celery_task_id):
+        return None
 
     now = datetime.now(timezone.utc)
     started_at_was_missing = run.started_at is None
@@ -331,6 +340,8 @@ def finish_ai_task_run(
     )
     db.add(run)
     db.flush()
+    from app.services.ai_workflow_dispatch import complete_workflow_dispatch
+    complete_workflow_dispatch(db, run.id)
     complete_ai_task_run_data_access(db, run_id=run.id)
     event_type = (
         "completed"
@@ -482,6 +493,13 @@ def cancel_ai_task_run(
     }
     runs_to_cancel = [run]
     if run.task_type == AI_TASK_TYPE_REPROCESS:
+        # Publish cancellation before taking child locks: child completion locks
+        # its own row before updating the parent. New fanout sees this intent.
+        _mark_ai_task_run_cancel_requested(
+            db, run_id=run.id, actor_user_id=actor_user_id, removed_from_queue=False,
+            terminated_running_task=False, revoke_failed=False,
+        )
+        db.commit()
         child_runs = list(
             db.scalars(
                 select(AITaskRun).where(
@@ -639,52 +657,8 @@ def _increment_parent_run_progress(db: Session, *, child_run: AITaskRun) -> None
         _recalculate_daily_brief_backfill_parent_progress(db, parent=parent)
         return
 
-    parent.processed_count = int(parent.processed_count or 0) + 1
-    if child_run.status == AI_STATUS_READY:
-        parent.success_count = int(parent.success_count or 0) + 1
-    elif child_run.status == AI_STATUS_ERROR:
-        parent.error_count = int(parent.error_count or 0) + 1
-    elif child_run.status == AI_STATUS_SKIPPED:
-        parent.skipped_count = int(parent.skipped_count or 0) + 1
-        if child_run.reason in {"unchanged", "source_hash_unchanged"}:
-            parent.skipped_unchanged_count = (
-                int(parent.skipped_unchanged_count or 0) + 1
-            )
-        if child_run.reason in INELIGIBLE_REASONS:
-            parent.skipped_ineligible_count = (
-                int(parent.skipped_ineligible_count or 0) + 1
-            )
-        if child_run.reason == "canceled":
-            parent.metadata_json = _merge_metadata(
-                parent.metadata_json, {"was_canceled": True}
-            )
-    if parent.started_at is None:
-        parent.started_at = datetime.now(timezone.utc)
-    target_count = int(parent.target_count or 0)
-    if (
-        target_count > 0
-        and parent.processed_count >= target_count
-        and parent.finished_at is None
-    ):
-        parent.finished_at = datetime.now(timezone.utc)
-        parent.duration_ms = _duration_ms_between(parent.started_at, parent.finished_at)
-        parent.status, parent.reason = _resolve_parent_terminal_state(parent)
-        record_ai_task_event(
-            db,
-            run_id=parent.id,
-            event_type="completed",
-            payload={
-                "status": parent.status,
-                "processed_count": parent.processed_count,
-                "success_count": parent.success_count,
-                "error_count": parent.error_count,
-                "skipped_count": parent.skipped_count,
-            },
-        )
-    db.add(parent)
-    if parent.finished_at is not None:
-        db.flush()
-        complete_ai_task_run_data_access(db, run_id=parent.id)
+    from app.services.ai_reprocess import record_reprocess_outcome
+    record_reprocess_outcome(db, child=child_run, parent=parent)
 
 
 def reconcile_daily_brief_backfill_parent_progress(
@@ -892,11 +866,8 @@ def _reconcile_stale_ai_runs(
         )
     )
     for run in unfinished_leaf_runs:
-        # Queued report runs are owned by the durable report dispatcher. Celery
-        # inspection cannot see messages waiting in the broker, so absence from
-        # active/reserved/scheduled snapshots is not evidence that queued work
-        # was lost.
-        if run.task_type == AI_TASK_TYPE_REPORT and run.status == AI_STATUS_QUEUED:
+        # Durable dispatch owns queued work; inspection cannot see broker backlog.
+        if run.status == AI_STATUS_QUEUED:
             continue
         if can_reconcile_missing_live_tasks:
             if not _is_stale_unfinished_run(
@@ -951,6 +922,8 @@ def _reconcile_stale_ai_runs(
         )
     )
     for run in stale_parent_runs:
+        if run.status == AI_STATUS_QUEUED:
+            continue
         unfinished_child_count = int(
             db.scalar(
                 select(func.count(AITaskRun.id)).where(
@@ -988,19 +961,15 @@ def _reconcile_stale_ai_runs(
             queued_stale_before=fallback_stale_before,
         ):
             continue
-        if (
-            _finish_reconciled_stale_run(
-                db,
-                run=run,
-                snapshot_available=can_reconcile_missing_live_tasks,
-                stale_reason="stale_reprocess_tracking",
-                stale_error="Reprocess task stopped updating and is no longer active in Celery",
-            )
-            != "finished"
-        ):
-            continue
-        changed = True
-        reconciled_count += 1
+        outcome = _finish_reconciled_stale_run(
+            db, run=run, snapshot_available=can_reconcile_missing_live_tasks,
+            stale_reason="stale_reprocess_tracking",
+            stale_error="Reprocess task stopped updating and is no longer active in Celery",
+        )
+        if outcome in {"guarded", "finished"}:
+            changed = True
+        if outcome == "finished":
+            reconciled_count += 1
 
     if changed:
         db.commit()
@@ -1105,6 +1074,7 @@ def _finish_reconciled_stale_run(
     stale_reason: str,
     stale_error: str,
 ) -> Literal["unchanged", "guarded", "finished"]:
+    observed_updated_at = run.updated_at
     locked_run = db.scalar(
         select(AITaskRun)
         .where(AITaskRun.id == run.id)
@@ -1115,9 +1085,15 @@ def _finish_reconciled_stale_run(
         locked_run is None
         or locked_run.finished_at is not None
         or locked_run.status in AI_TERMINAL_STATUSES
+        or locked_run.updated_at != observed_updated_at
     ):
         return "unchanged"
     run = locked_run
+    if run.task_type != AI_TASK_TYPE_REPORT and not _is_cancel_requested_run(run):
+        from app.services.ai_workflow_recovery import recover_stale_workflow
+        recovery = recover_stale_workflow(db, run)
+        if recovery is not None:
+            return recovery
     if run.task_type == AI_TASK_TYPE_REPORT and run.report_id is not None:
         if guard_unfenced_report_generation(
             db,

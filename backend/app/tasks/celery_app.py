@@ -212,6 +212,7 @@ TASK_ROUTES = {
     "app.tasks.lifecycle_tasks.run_lifecycle_housekeeping": {
         "queue": QUEUE_LIFECYCLE
     },
+    "app.tasks.ai_workflow_tasks.dispatch_pending_ai_workflows": {"queue": QUEUE_MAINTENANCE},
     "app.tasks.alert_tasks.process_alert_evaluation": {"queue": QUEUE_PROCESSING},
     "app.tasks.alert_tasks.dispatch_pending_alert_evaluations": {
         "queue": QUEUE_MAINTENANCE
@@ -230,6 +231,7 @@ celery_app = Celery(
         "app.tasks.export_tasks",
         "app.tasks.processing_tasks",
         "app.tasks.feed_tasks",
+        "app.tasks.ai_workflow_tasks",
         "app.tasks.history_maintenance_tasks",
         "app.tasks.alert_tasks",
         "app.tasks.system_health_tasks",
@@ -327,6 +329,10 @@ celery_app.conf.update(
         },
         "dispatch-pending-report-tasks": {
             "task": "app.tasks.feed_tasks.dispatch_pending_report_tasks",
+            "schedule": 30.0,
+        },
+        "dispatch-pending-ai-workflows": {
+            "task": "app.tasks.ai_workflow_tasks.dispatch_pending_ai_workflows",
             "schedule": 30.0,
         },
         "reconcile-ai-task-runs": {
