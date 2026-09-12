@@ -94,6 +94,17 @@ remaining selection stays waiting so cancellation can be exercised reliably.
 
 The server suite verifies:
 
+- Named team creation through IAM groups; a member's shared alert claim,
+  URL-based reopening and assignment filters; current access rejection after
+  group membership is withdrawn. Alert evaluation uses a protected fixture
+  control invoking production evaluation helpers, not a live Celery consumer.
+- Organization-enforced start pages, navbar policy and dashboard layouts through
+  real administrator and analyst sessions; policy restoration and editable
+  personal layouts after enforcement is released.
+- Report draft edits and discard, review notes, approval invalidation on return
+  to draft, exact-revision publication, immutable published content and one
+  publication event. Synthetic report evidence is seeded only in the disposable
+  server; provider generation is not part of this browser assertion.
 - HttpOnly session cookies, SameSite=Lax, persistent CSRF-authorized writes,
   rejected missing/incorrect CSRF, logout, and subsequent API rejection.
 - A real API verification outage, draft preservation, keyboard recovery, and

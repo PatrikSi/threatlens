@@ -73,9 +73,11 @@ export function TeamCreateForm({
             onChange={(event) => setName(event.target.value)}
           />
         </label>
-        <label className="block text-sm">
-          Stable key
+        <div className="block text-sm">
+          <label htmlFor="team-create-key">Stable key</label>
           <input
+            id="team-create-key"
+            aria-describedby="team-create-key-help"
             required
             pattern="[a-z][a-z0-9-]{1,62}[a-z0-9]"
             maxLength={64}
@@ -83,10 +85,10 @@ export function TeamCreateForm({
             value={key}
             onChange={(event) => setKey(event.target.value)}
           />
-          <span className="text-xs">
+          <span id="team-create-key-help" className="text-xs">
             3–64 lowercase letters, numbers and hyphens; start with a letter.
           </span>
-        </label>
+        </div>
         <label className="block text-sm">
           Member group
           <select
