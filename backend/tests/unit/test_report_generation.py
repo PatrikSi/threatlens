@@ -458,9 +458,10 @@ def test_report_rejects_invalid_persisted_output_budget(output_budget):
         )
 
 
+@pytest.mark.parametrize("empty_evidence", [False, True])
 @pytest.mark.parametrize("output_budget", [1200, 16_384, 65_536])
 def test_evidence_and_section_requests_use_the_configured_report_output_budget(
-    db_session, monkeypatch, output_budget
+    db_session, monkeypatch, output_budget, empty_evidence
 ):
     now = datetime.now(timezone.utc)
     context_window = 262_144
@@ -505,10 +506,13 @@ def test_evidence_and_section_requests_use_the_configured_report_output_budget(
         assert selected_provider.max_completion_tokens == 5000
         requests.append(kwargs)
         payload = (
-            {"findings": [{"text": "Suspicious authentication activity.", "citations": ["S1"]}]}
+            {"findings": [{"text": "Suspicious authentication activity.", "citations": ["S1"],
+                           "evidence_quotes": [{"citation": "S1", "quote": "Analysts observed suspicious authentication activity."}]}]}
             if kwargs["provider_operation_scope"].startswith("evidence_batch:")
             else {"body_markdown": "Suspicious authentication activity was observed. [S1]", "citations": ["S1"]}
         )
+        if empty_evidence and "findings" in payload:
+            payload["findings"] = []
         return AICompletionResult(
             payload=payload, provider=active.provider_type, model=active.model,
             latency_ms=1, prompt_tokens=100, completion_tokens=200, total_tokens=300,
@@ -520,16 +524,24 @@ def test_evidence_and_section_requests_use_the_configured_report_output_budget(
     )
 
     assert result.status == "ready"
-    assert result.model_calls == 2
-    assert len(requests) == 2
+    expected_calls = 1 if empty_evidence else 2
+    assert result.model_calls == expected_calls
+    assert len(requests) == expected_calls
     assert requests[0]["provider_operation_scope"] == "evidence_batch:1"
-    assert requests[1]["provider_operation_scope"] == f"section:{section.id}"
+    if not empty_evidence:
+        assert requests[1]["provider_operation_scope"] == f"section:{section.id}"
     for request in requests:
         assert request["max_completion_tokens"] == output_budget
         assert request["max_retry_completion_tokens"] == max(output_budget, 5000)
         assert request["feature_type"] == "report"
     assert section.status == "ready"
-    assert section.citations_json == ["S1"]
+    assert section.citations_json == ([] if empty_evidence else ["S1"])
+    grounding = report.coverage_json["grounding"]
+    assert grounding["status"] == ("insufficient_evidence" if empty_evidence else "checked")
+    assert grounding["validated_findings"] == (0 if empty_evidence else 1)
+    if empty_evidence:
+        assert section.body_markdown == report_generation.NO_FINDINGS_BODY
+        assert any("no supported findings" in value for value in report.coverage_json["warnings"])
 
 
 def test_usage_counters_count_provider_attempts():

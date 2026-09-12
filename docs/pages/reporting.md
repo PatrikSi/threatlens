@@ -77,14 +77,25 @@ Reporting does not place the full corpus into one prompt. It:
 8. writes report sections from a representative, context-bounded finding set and generates the executive summary last
 9. enforces a hard model-call ceiling
 10. retries truncated structured output only within the exact unused context headroom for that call
-11. filters unknown citation identifiers and renders scope, source, and IOC sections deterministically
+11. validates each evidence quote against its supplied batch and requires citations on narrative paragraphs, list items, table rows, and key points
 
-Citation filtering checks identifiers against the frozen sources. It does not
-verify that a cited source supports every claim. Unknown inline citation markers
-are removed; the surrounding claim can remain. Review the source evidence before
-acting on generated conclusions. Empty synthesis currently falls back to source
-titles, and nonempty uncited sections can still complete; stronger grounding
-validation is tracked in the [AI implementation review](../reviews/2026-09-12-ai-implementation-review.md).
+New generations reject unknown citations and quotations absent from the exact
+bounded excerpt. Each finding must include `evidence_quotes` objects with a
+`citation` and an exact 12–2,000 character `quote`; whitespace differences are
+normalized. Section citations must refer to findings actually included in that
+section's prompt and match the identifiers used in the narrative. Code and link
+labels cannot masquerade as source citations. Invalid responses consume the
+normal bounded retry/call budget and are recorded as failed provider attempts.
+
+These are structural provenance checks, not semantic verification: a matching
+quotation does not prove a generated conclusion follows from it. Review source
+evidence before acting. Empty evidence batches add explicit coverage warnings;
+if all batches are empty, narrative sections disclose insufficient evidence and
+require no further provider calls. Source titles are never substituted for
+missing findings. The report view displays checked finding/claim-block counts
+and incomplete synthesis. Existing reports remain readable without claiming
+these newer checks were performed. Optional context and findings compaction
+remain visible through coverage warnings.
 
 Configure these limits in **Settings -> AI -> Report Context Guardrails**. Set **Model Context Window** to the actual context supported by the loaded model and runtime, not the model family maximum. Conservative starting points are:
 
