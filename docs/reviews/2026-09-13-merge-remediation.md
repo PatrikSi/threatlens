@@ -23,7 +23,7 @@ require scans and smoke checks of the exact promoted image digests.
 | MR05 · AI freshness | Latest-finished statistics exclude unfinished runs and retain permission filtering. | Completed/queued combinations, empty data and inaccessible newer results are covered. |
 | Investigation write expiry | All ten mutation routes preserve the accepted credential's permission cap and recheck current write grants and team membership before commit. The checkpoint adds no locks. | Fourteen regressions include real HTTP requests waiting on team, investigation and note rows while either required write permission expires. Failures roll back; valid and restricted-credential controls are included. |
 | Dialog lifecycle | One dialog layer remains registered through pending/error changes to its initial-focus reference. | Focus returns to the opener after failed submission; nested session verification retains correct stack order. |
-| Browser synchronization | Provider statistics tests follow current navigation. Real-server routing tests await the exact successful PUT before independent persistence checks. | The original WebKit trace showed its GET beginning before the PUT finished. Corrected workflows pass across all three engines. |
+| Test lifecycle | Provider statistics tests follow current navigation. Real-server routing tests await the exact successful PUT before independent persistence checks. Recovery version-mismatch fixtures stay distinct from the application release. | The original WebKit trace showed its GET beginning before the PUT finished. Corrected workflows pass across all three engines. Fresh CI identified the version fixture's collision with 2.0.0. |
 | Release artifacts | Frontend runtime inventories and legal notices match the qualified image. | 114 package records and 114 legal-file hashes were verified. A new image-artifact gate checks both native images and rejects deliberately stale reference data. |
 | Pre-merge platform coverage | CI builds, scans and starts amd64 and arm64 application stacks; PostgreSQL and Redis remain native CI infrastructure. | ARM64 uses the existing QEMU action and publication's emulated worker-health budgets. Actionlint passes. Native smoke retains normal deployment health budgets. |
 
@@ -92,9 +92,9 @@ service workload on `patrik-local-shared-20260913`:
 
 Both passed all workload budgets. The comparison had enough required samples
 and flagged no regression. The candidate completed 480 ingested articles,
-295 successful exports, 301 successful AI operations and 300 governance
+295 successful exports, 301 successful AI connection-test operations and 300 governance
 updates. Six export policy conflicts were recorded as safe rejections. Export
-success P95 was 434 ms, AI success P95 276 ms, peak process RSS 331 MiB and
+success P95 was 434 ms, AI connection-test success P95 276 ms, peak process RSS 331 MiB and
 sampled oldest pending-message age 3.12 seconds. Both disjoint export workers
 completed during and after the candidate load.
 
