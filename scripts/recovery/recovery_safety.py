@@ -554,16 +554,75 @@ def _command_sha256(args: argparse.Namespace) -> None:
     print(_sha256_regular(Path(args.path), label="file"))
 
 
+def _container_identity(value: object) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        _fail("Deployment container identity must be an object")
+
+    def field(document: dict, key: str, *, allow_empty: bool = False) -> str:
+        result = document.get(key)
+        if (
+            not isinstance(result, str)
+            or (not result and not allow_empty)
+            or any(character in result for character in "\r\0")
+        ):
+            _fail(f"Deployment container identity has an invalid {key} field")
+        return result
+
+    identity: dict[str, Any] = {
+        key: field(value, key) for key in ("Id", "Image", "Name")
+    }
+    if "Mounts" not in value:
+        _fail("Deployment container identity has no Mounts field")
+    mounts = value["Mounts"]
+    if mounts is None:
+        mounts = []
+    if not isinstance(mounts, list):
+        _fail("Deployment container mounts must be an array")
+    normalized = []
+    for mount in mounts:
+        if not isinstance(mount, dict):
+            _fail("Deployment container mount must be an object")
+        mount_type = field(mount, "Type")
+        source = (
+            "" if mount_type == "tmpfs" and "Source" not in mount
+            else field(mount, "Source", allow_empty=mount_type == "tmpfs")
+        )
+        normalized.append({
+            "Type": mount_type,
+            "Name": field(mount, "Name") if mount_type == "volume" else "",
+            "Source": source,
+            "Destination": field(mount, "Destination"),
+        })
+    # Docker can return the same mount set in a different order on each inspect.
+    # Keep every binding field, using structured encoding for paths containing
+    # delimiters, and sort without discarding duplicate entries.
+    identity["Mounts"] = sorted(
+        normalized, key=lambda mount: json.dumps(mount, sort_keys=True)
+    )
+    return identity
+
+
 def _command_identity(args: argparse.Namespace) -> None:
     raw = sys.stdin.buffer.read(MAX_COMPOSE_CONFIG_BYTES + 1)
     if len(raw) > MAX_COMPOSE_CONFIG_BYTES:
         _fail("Deployment identity input exceeds the safety limit")
+    try:
+        document = json.loads(raw.decode("utf-8", errors="strict"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        _fail("Deployment identity input must be valid UTF-8 JSON")
+    if not isinstance(document, dict) or set(document) != {"database", "redis"}:
+        _fail("Deployment identity must contain database and redis objects")
+    inspected = json.dumps(
+        {service: _container_identity(document[service]) for service in ("database", "redis")},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
     values = (
         args.project,
         args.database,
         args.target_config_sha256,
         args.archive_sha256,
-        raw.decode("utf-8", errors="strict"),
+        inspected,
     )
     if any(
         not value or any(character in value for character in "\r\0") for value in values
