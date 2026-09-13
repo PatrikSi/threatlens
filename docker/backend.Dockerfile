@@ -4,7 +4,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends fonts-dejavu-core fonts-dejavu-extra \
+    && apt-get install -y --no-install-recommends fonts-dejavu-core fonts-dejavu-extra libpcre2-8-0 \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libpcre2-8-0)" ge '10.42-1+deb12u1' \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
