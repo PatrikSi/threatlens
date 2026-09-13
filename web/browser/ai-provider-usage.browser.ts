@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import type { AIProviderUsageResponse, AIProviderUsageRow } from '../src/types/aiProviderUsage'
+import type { AIStatisticsResponse } from '../src/types/aiStatistics'
 import { createRequestFromDraft, DEFAULT_DRAFT } from '../src/pages/aiSettingsDraft'
 import { emptyOverview } from './ai-overview-fixture'
 import { test, expect } from './fixtures'
@@ -28,6 +29,15 @@ test('paginates provider snapshots with the keyboard, resets the window, and kee
       created_at: '2026-09-12T00:00:00Z', updated_at: '2026-09-12T00:00:00Z',
     } })
     if (path === '/ai/ops/overview') return route.fulfill({ json: emptyOverview })
+    if (path === '/ai/ops/statistics') {
+      const days = Number(url.searchParams.get('days'))
+      const until = '2026-09-13T12:00:00Z'
+      const response: AIStatisticsResponse = {
+        since: new Date(Date.parse(until) - days * 86_400_000).toISOString(), until, days,
+        features: [], queues: [], provider_retry_attempts: 0, recovered_pre_io_failures: 0, latency_histogram: {},
+      }
+      return route.fulfill({ json: response })
+    }
     if (path === '/ai/ops/live') return route.fulfill({ json: emptyOverview.live })
     if (path === '/ai/ops/runs') return route.fulfill({ json: { items: [], total: 0, limit: 20, offset: 0 } })
     if (path === '/ai/ops/prompt-history' || path === '/ai/ops/manual-actions') return route.fulfill({ json: [] })
@@ -43,6 +53,9 @@ test('paginates provider snapshots with the keyboard, resets the window, and kee
     throw new Error(`Unexpected provider usage fixture request: ${path}`)
   })
   await page.goto('/settings/ai')
+  await page.getByRole('link', { name: 'Open AI statistics', exact: true }).click()
+  await expect(page).toHaveURL('/stats?section=ai')
+  await expect(page.getByRole('heading', { name: 'AI statistics', exact: true })).toBeVisible()
   const records = page.getByRole('region', { name: 'Provider usage records' })
   await expect(records.getByRole('row')).toHaveCount(26)
   await expect(records.getByText('Historical provider 1', { exact: true })).toBeVisible()
