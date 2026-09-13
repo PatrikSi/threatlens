@@ -11,6 +11,7 @@ import {
   normalizeDashboardWindows,
   normalizePanelRect,
   parseDashboardSavedView,
+  parseDashboardWindowCandidate,
   parseImportedSavedViews,
   resolveWindowRect,
   resolveSavedViewSelectionChange,
@@ -59,6 +60,14 @@ function createNotesWindow(index: number): DashboardWindow {
     selected_daily_brief_id: null,
   }
 }
+
+it('restores saved windows missing an ID on HTTP LAN origins', () => {
+  vi.stubGlobal('crypto', { getRandomValues: crypto.getRandomValues.bind(crypto) })
+  const candidate = { ...createNotesWindow(0), id: undefined }
+  const restored = parseDashboardWindowCandidate(candidate, 0)
+  expect(restored?.title).toBe(candidate.title)
+  expect(restored?.id).toMatch(/^[\da-f]{8}-[\da-f]{4}-4[\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}$/)
+})
 
 beforeEach(() => {
   localStorageMock = createLocalStorageMock()

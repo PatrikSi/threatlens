@@ -85,9 +85,26 @@ afterEach(() => {
   client?.clear()
   host?.remove()
   vi.clearAllMocks()
+  vi.unstubAllGlobals()
 })
 
 describe('AI provider lifecycle with a real query cache', () => {
+  it('keeps the current provider when a new provider cannot obtain a secure request ID', async () => {
+    mount(true)
+    await settle()
+    act(() => current.select(provider))
+    const originalCrypto = crypto
+    vi.stubGlobal('crypto', undefined)
+    act(() => current.select('new'))
+    expect(current.editor?.baseline?.id).toBe(provider.id)
+    expect(host.textContent).toContain('Secure random generation is unavailable')
+    expect(host.textContent).toContain('No request was sent')
+    vi.stubGlobal('crypto', originalCrypto)
+    act(() => current.select('new'))
+    expect(current.editor?.baseline).toBeNull()
+    expect(current.notice).toBeNull()
+  })
+
   it('keeps the original provider version and draft after a concurrent refresh and conflict', async () => {
     let submitted: unknown
     vi.mocked(apiFetch).mockImplementation((path, init) => {

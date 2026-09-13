@@ -85,6 +85,7 @@ afterEach(() => {
   client?.clear()
   invalidateSession()
   vi.resetAllMocks()
+  vi.unstubAllGlobals()
   localStorage.clear()
   sessionStorage.clear()
   document.body.replaceChildren()
@@ -130,6 +131,7 @@ describe('processing work with actual router, session cache and mutations', () =
   })
 
   it('reuses its idempotency key after ambiguous acceptance and restores the accepted run', async () => {
+    vi.stubGlobal('crypto', { getRandomValues: crypto.getRandomValues.bind(crypto) })
     const accepted: ProcessingRecoveryRequest[] = []
     recovery = async (request) => {
       accepted.push(request)
@@ -142,6 +144,8 @@ describe('processing work with actual router, session cache and mutations', () =
     click('Queue selected recovery')
     await settle()
     expect(text()).toContain('reuses the same request key')
+    click('Cancel', document.querySelector('[role=alertdialog]')!)
+    click('Review selected recovery')
     click('Queue selected recovery')
     await settle()
     expect(accepted).toHaveLength(2)
@@ -152,6 +156,23 @@ describe('processing work with actual router, session cache and mutations', () =
     await act(async () => { await router.navigate('/elsewhere'); await router.navigate(-1) })
     await settle()
     expect(text()).toContain('Queued: 0 completed')
+  })
+
+  it('keeps selected work and shows actionable feedback when request preparation fails', async () => {
+    await mount()
+    selectRow()
+    const originalCrypto = crypto
+    vi.stubGlobal('crypto', undefined)
+    click('Review selected recovery')
+    expect(text()).toContain('Secure random generation is unavailable')
+    expect(text()).toContain('Your selection has been kept and no request was sent')
+    expect(text()).toContain('1 selected on this page')
+    expect(document.querySelector('[role=alertdialog]')).toBeNull()
+    expect(requests('POST')).toHaveLength(0)
+    vi.stubGlobal('crypto', originalCrypto)
+    click('Review selected recovery')
+    expect(document.querySelector('[role=alertdialog]')).not.toBeNull()
+    expect(text()).not.toContain('Secure random generation is unavailable')
   })
 
   it('blocks stale review resubmission after a selection conflict', async () => {
@@ -212,6 +233,14 @@ describe('processing work with actual router, session cache and mutations', () =
     expect(router.state.location.search).not.toContain('work_run')
     expect(client.getQueryData(['processing', 'run', processingRunId])).toBeUndefined()
     expect(text()).toContain('0 selected on this page')
+    recovery = async () => run
+    selectRow()
+    click('Review selected recovery')
+    click('Queue selected recovery')
+    await settle()
+    const submitted = requests('POST').map(([, init]) => JSON.parse(String(init?.body)) as ProcessingRecoveryRequest)
+    expect(submitted).toHaveLength(2)
+    expect(submitted[1].idempotency_key).not.toBe(submitted[0].idempotency_key)
   })
 
   it('rechecks the run version after a cancellation conflict without losing completed results', async () => {

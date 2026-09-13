@@ -198,7 +198,11 @@ export function useAiProviderConnections(enabled: boolean) {
       }
       setEditor({ baseline: latest, draft: createProviderDraft(latest), creationId: latest.id })
     } else if (selection === 'new') {
-      setEditor({ baseline: null, draft: createProviderDraft(), creationId: createProviderRequestId() })
+      try {
+        setEditor({ baseline: null, draft: createProviderDraft(), creationId: createProviderRequestId() })
+      } catch (error) {
+        setNotice({ error: true, message: resolveApiErrorMessage(error, 'The new provider could not be prepared. No request was sent.') })
+      }
     } else {
       setEditor({ baseline: selection, draft: createProviderDraft(selection), creationId: selection.id })
     }

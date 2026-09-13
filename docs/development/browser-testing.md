@@ -22,6 +22,17 @@ calls and external requests fail this suite; publisher resources in the preview
 consent test are fulfilled locally. Each article uses distinct resource URLs so
 browser caching cannot hide an unexpected request after consent resets.
 
+The interaction suite also serves the real application at the isolated
+`http://threatlens-browser.invalid` origin. Only static assets are forwarded to
+the suite's Vite server; API responses stay intercepted and no DNS or external
+service is needed. Chromium, Firefox and WebKit verify their native nonsecure
+context, where `crypto.randomUUID` is absent, then complete background export
+and selected processing recovery workflows using `crypto.getRandomValues`.
+The workflows cover ambiguous acceptance, reuse of the unchanged request key,
+reopening recovery confirmation, and new keys after confirmed acceptance.
+Schedule editing separately verifies both editorial-review policy choices
+through versioned writes, editor reopening and page reload.
+
 CI has an independent job for each browser. It runs both suites and retains
 traces from failures, axe reports, and the disposable server log for seven days.
 Each browser also runs the real provider-settings scenario with `--ai-providers`.

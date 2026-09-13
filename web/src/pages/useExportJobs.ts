@@ -5,12 +5,14 @@ import { apiDownload, apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
 import { captureSessionLease } from '../api/sessionLifecycle'
 import type { ArticleExportJob, ArticleExportJobList, ArticleExportJobRequest, ArticleExportRequest } from '../types/exports'
+import { createSecureRequestId } from '../utils/secureRandomId'
 import { defaultExportFilename, triggerBrowserDownload } from './exportPageModel'
 
 export function useExportJobs() {
   const client = useQueryClient()
   const [page, setPage] = useState(0)
   const [notice, setNotice] = useState<string | null>(null)
+  const [preparationError, setPreparationError] = useState<string | null>(null)
   const requestRef = useRef<{ serialized: string; request: ArticleExportJobRequest } | null>(null)
   const mounted = useRef(true)
   const downloadAbort = useRef<AbortController | null>(null)
@@ -72,20 +74,25 @@ export function useExportJobs() {
   })
   const queueExport = (request: ArticleExportRequest) => {
     if (createMutation.isPending) return
-    const serialized = JSON.stringify(request)
-    // An ambiguous response is retried with the exact accepting operation key.
-    // Filter edits form a new request, while the durable list reveals prior work.
-    if (requestRef.current?.serialized !== serialized) {
-      requestRef.current = { serialized, request: { ...request, idempotency_key: crypto.randomUUID() } }
-    }
     setNotice(null)
-    createMutation.mutate(requestRef.current.request)
+    setPreparationError(null)
+    try {
+      const serialized = JSON.stringify(request)
+      // An ambiguous response is retried with the exact accepting operation key.
+      // Filter edits form a new request, while the durable list reveals prior work.
+      if (requestRef.current?.serialized !== serialized) {
+        requestRef.current = { serialized, request: { ...request, idempotency_key: createSecureRequestId() } }
+      }
+      createMutation.mutate(requestRef.current.request)
+    } catch (error) {
+      setPreparationError(resolveApiErrorMessage(error, 'The background export could not be prepared. No request was sent.'))
+    }
   }
 
   const error = createMutation.error ?? cancelMutation.error ?? downloadMutation.error
   return {
     page, setPage, jobsQuery, createMutation, cancelMutation, downloadMutation, queueExport,
-    notice, error: error ? resolveApiErrorMessage(error, 'The background export request could not be completed') : null,
+    notice, error: preparationError ?? (error ? resolveApiErrorMessage(error, 'The background export request could not be completed') : null),
   }
 }
 

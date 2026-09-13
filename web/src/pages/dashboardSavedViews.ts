@@ -1,3 +1,4 @@
+import { createSecureRequestId } from '../utils/secureRandomId'
 import type {
   SavedViewAIRelevanceFilter,
   SavedViewAlertFilters,
@@ -551,7 +552,7 @@ export function parseDashboardWindowCandidate(
   if (!rect) return null
 
   const base = {
-    id: typeof value.id === 'string' && value.id ? value.id : crypto.randomUUID(),
+    id: typeof value.id === 'string' && value.id ? value.id : createSecureRequestId(),
     title: typeof value.title === 'string' && value.title ? value.title : defaultWindowTitle(value.type, index),
     snap: value.snap,
     rect,
