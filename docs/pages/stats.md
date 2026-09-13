@@ -101,10 +101,23 @@ a link to Statistics. The AI section includes:
 - Recorded pre-send failures and reserved provider retry attempts.
 - Current queued/running work, oldest work by feature and evidence coverage.
 
+Four linked trend charts show successful/failed requests, recorded tokens, request
+latency (average and P95), and success rate. Hover a graph or use the **Trend date**
+slider (arrow keys, Home and End) to inspect the same UTC date across all charts.
+**View exact trend data** opens an accessible table of every daily bucket.
+
+The charts use UTC calendar days within the rolling window, so the first and last
+days can be partial. Idle days have zero requests and no success rate. Missing
+latency or entirely unreported token usage appears as a gap, while recorded zero
+measurements remain zero. Partially reported token totals include only the known
+usage; the selected date and table disclose how many requests have unreported usage.
+The latency **trend** includes all measured requests, including failures; the
+successful-call reliability table and headline latency metrics exclude failures.
+
 The request window supports 1, 7, 30 or 90 days. Coverage, current queues and
 retained-history totals describe the current accessible dataset and do not inherit
 ingestion feed filters. Deadline failures are included within timeout totals.
-Latency percentiles exclude failed calls and missing measurements. Unknown usage
+Successful-call latency percentiles exclude failed calls and missing measurements. Unknown usage
 is disclosed; it is not proof of a zero-token or zero-cost request. Retry receipts
 are not additional billable requests, and currency costs are not estimated.
 

@@ -10,6 +10,14 @@ The AI statistics workspace includes provider/version/model usage, per-feature o
 
 `GET /ai/ops/statistics?days=30` returns bounded database aggregates, under the interactive database deadline and current authorization/data-policy fences. Confirmed access loss hides cached records; transient errors retain the previous snapshot with an explicit error and retry action.
 
+The [AI statistics charts](stats.md#ai-statistics) compare request outcomes, recorded
+tokens, request latency, and success rate over time, with a shared keyboard-accessible
+date slider and exact-data table. Daily UTC buckets disclose partial days and missing
+measurements. The request-latency trend includes measured failed calls as well as
+successes; successful-call reliability metrics remain separate. The overview API adds
+`since`/`until`, bucket metadata, and per-bucket measurement counts without changing
+existing numeric fields. Reporting windows exclude future-dated events.
+
 All API paths on this page are relative to the published `/api/v1` base.
 
 ## Access and Visibility

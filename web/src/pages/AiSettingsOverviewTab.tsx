@@ -2,6 +2,7 @@ import { type Dispatch, type SetStateAction } from 'react'
 
 import { AISettings, AIOpsOverviewResponse } from '../types/api'
 import { AiProviderUsagePanel } from './AiProviderUsagePanel'
+import { AiStatisticsTrends } from './AiStatisticsTrends'
 import {
   EmptyInline,
   LiveTaskCard,
@@ -11,7 +12,6 @@ import {
   Panel,
   StatCard,
   StatusPill,
-  TimeSeriesBars,
 } from './aiSettingsSupport'
 import {
   formatAgeSeconds,
@@ -94,6 +94,8 @@ export function OverviewTab({
         </div>
       </Panel>
 
+      <AiStatisticsTrends key={days} overview={overview} />
+
       <OverviewSection
         title="Health"
         description="Review saved provider assignments, queue progress and recorded failures."
@@ -154,8 +156,8 @@ export function OverviewTab({
           <StatCard label="Requests" value={overview.kpis.total_requests.toLocaleString()} />
           <StatCard label="Success rate" value={`${overview.kpis.success_rate_pct.toFixed(1)}%`} />
           <StatCard label="Total tokens" value={overview.kpis.total_tokens.toLocaleString()} />
-          <StatCard label="Average latency" value={`${overview.kpis.average_latency_ms.toFixed(1)} ms`} />
-          <StatCard label="P95 latency" value={`${overview.kpis.p95_latency_ms.toFixed(1)} ms`} />
+          <StatCard label="Successful-request average latency" value={`${overview.kpis.average_latency_ms.toFixed(1)} ms`} />
+          <StatCard label="Successful-request P95 latency" value={`${overview.kpis.p95_latency_ms.toFixed(1)} ms`} />
           <StatCard
             label="Last success"
             value={overview.kpis.last_successful_run_at ? formatTimestamp(overview.kpis.last_successful_run_at) : 'Never'}
@@ -165,16 +167,6 @@ export function OverviewTab({
         <AiProviderUsagePanel key={days} days={days} />
 
         <div className="grid gap-3 xl:grid-cols-2">
-          <Panel title="Requests and failures over time" subtitle="Recent request volume and failure pressure across the selected window.">
-            <TimeSeriesBars
-              points={overview.time_series}
-              valueKey="requests"
-              accentClass="bg-cyan"
-              secondaryKey="failures"
-              secondaryClass="bg-red-400/80"
-            />
-          </Panel>
-
           <Panel title="Per-model usage" subtitle="Requests, success rate, latency, and token footprint by model.">
             <div className="space-y-2 sm:hidden" aria-label="Per-model AI usage records">
               {overview.per_model.map((row) => (
@@ -226,14 +218,8 @@ export function OverviewTab({
             </div>
             {!overview.per_model.length && <EmptyInline>No model usage has been recorded yet.</EmptyInline>}
           </Panel>
-        </div>
 
-        <div className="grid gap-3 xl:grid-cols-2">
-          <Panel title="Token usage over time" subtitle="Total tokens by day.">
-            <TimeSeriesBars points={overview.time_series} valueKey="total_tokens" accentClass="bg-emerald-500" />
-          </Panel>
-
-          <Panel title="Token efficiency" subtitle="Average AI cost profile across successful requests.">
+          <Panel title="Token efficiency" subtitle="Average token usage across requests with reported usage.">
             <div className="grid gap-3 sm:grid-cols-2">
               <MiniStat label="Average prompt tokens" value={overview.token_efficiency.average_prompt_tokens.toFixed(1)} />
               <MiniStat label="Average completion tokens" value={overview.token_efficiency.average_completion_tokens.toFixed(1)} />
