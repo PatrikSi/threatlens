@@ -761,7 +761,7 @@ class ReportDownloadCanceledError extends Error {
 
 export type ReportingController = ReturnType<typeof useReportingController>
 
-function schedulePayload(schedule: ReportSchedule) {
+function schedulePayload(schedule: ReportSchedule): ReportScheduleWrite {
   return {
     template_id: schedule.template_id,
     name: schedule.name,
@@ -776,6 +776,7 @@ function schedulePayload(schedule: ReportSchedule) {
     rolling_days: schedule.rolling_days,
     filters: schedule.filters,
     custom_instructions: schedule.custom_instructions,
+    review_required: schedule.review_required,
     delivery_enabled: schedule.delivery_enabled,
     delivery_mode: schedule.delivery_mode,
     skip_empty: schedule.skip_empty,

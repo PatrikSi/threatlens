@@ -922,6 +922,55 @@ describe('ReportingPage template pending state', () => {
 })
 
 describe('ReportingPage resource version refresh', () => {
+  it('persists both editorial review choices and keeps controls locked during each save', async () => {
+    reportingPageMocks.routeReportId = undefined
+    reportingPageMocks.userRole = 'admin'
+    let current = { ...reportSchedule('schedule-1', 'Monday landscape'), review_required: false, resource_version: 'v1' }
+    const writes: Array<{ version: string | null; body: Record<string, unknown> }> = []
+    let finishSave!: () => void
+    reportingPageMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
+      if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
+      if (path === '/reports/templates') return Promise.resolve([REPORT_TEMPLATE])
+      if (path.startsWith('/reports/library?')) return Promise.resolve({ items: [], current_cursor: 'first', next_cursor: null, as_of: '2026-09-08T00:00:00Z' })
+      if (path === '/reports/schedules') return Promise.resolve([current])
+      if (path === '/reports/schedules/schedule-1' && options?.method === 'PUT') {
+        const body = JSON.parse(String(options.body))
+        writes.push({ version: new Headers(options.headers).get('If-Match'), body })
+        return new Promise((resolve) => {
+          finishSave = () => {
+            current = { ...current, ...body, resource_version: `v${writes.length + 1}` }
+            resolve(current)
+          }
+        })
+      }
+      return Promise.reject(new Error(`Unexpected API path: ${path}`))
+    })
+    const view = renderPage()
+    await openReportingTab(view, 'Schedules')
+    for (const reviewRequired of [true, false]) {
+      const row = rowByName(view, 'Monday landscape')
+      act(() => rowButton(row, 'Edit').click())
+      const label = [...row.querySelectorAll('label')].find((entry) => entry.textContent?.includes('Require editorial review before publication'))!
+      const checkbox = label.querySelector('input')!
+      expect(checkbox.checked).toBe(!reviewRequired)
+      act(() => checkbox.click())
+      await act(async () => {
+        row.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+        await vi.waitFor(() => expect(checkbox.matches(':disabled')).toBe(true))
+      })
+      expect(writes.at(-1)?.body.review_required).toBe(reviewRequired)
+      await act(async () => {
+        finishSave()
+        await vi.waitFor(() => expect(row.querySelector('form')).toBeNull())
+      })
+      expect(current.review_required).toBe(reviewRequired)
+    }
+    act(() => rowButton(rowByName(view, 'Monday landscape'), 'Edit').click())
+    const label = [...view.querySelectorAll('form label')].find((entry) => entry.textContent?.includes('Require editorial review before publication'))!
+    expect(label.querySelector('input')!.checked).toBe(false)
+    expect(writes.map(({ version }) => version)).toEqual(['"v1"', '"v2"'])
+  })
+
   it('uses the server version from each successful schedule update', async () => {
     reportingPageMocks.routeReportId = undefined
     reportingPageMocks.userRole = 'admin'

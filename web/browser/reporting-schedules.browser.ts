@@ -79,3 +79,52 @@ test('rejects a stale schedule draft and adopts a newer version only after reope
     await expect(row.getByRole('button', { name: 'Edit', exact: true })).toBeVisible()
   } finally { releaseSave() }
 })
+
+
+test('persists editorial review changes in both directions across reopening and reloading', async ({ page, api }) => {
+  api.identity.role = 'admin'
+  let schedule = {
+    id: 'browser-schedule', owner_user_id: 'browser-analyst', template_id: template.id, name: 'Weekly report',
+    enabled: true, cadence: 'weekly', day_of_week: 0, day_of_month: 1, hour: 9, minute: 0, timezone: 'UTC',
+    window_type: 'previous_complete_week', rolling_days: 7, filters, custom_instructions: null,
+    delivery_enabled: true, delivery_mode: 'summary', skip_empty: true, missed_run_policy: 'latest', review_required: false,
+    next_run_at: '2026-09-14T09:00:00Z', last_run_at: null, resource_version: 'v1',
+    created_at: template.created_at, updated_at: template.updated_at,
+  }
+  const writes: Array<{ review_required: boolean; version: string | undefined }> = []
+  await page.route('**/api/v1/reports/capabilities', (route) => route.fulfill({ json: capabilities }))
+  await page.route('**/api/v1/reports/templates', (route) => route.fulfill({ json: [template] }))
+  await page.route('**/api/v1/reports/library?*', (route) => route.fulfill({ json: {
+    items: [], current_cursor: 'first', next_cursor: null, as_of: template.created_at,
+  } }))
+  await page.route('**/api/v1/reports/schedules', (route) => route.fulfill({ json: [schedule] }))
+  await page.route('**/api/v1/reports/schedules/browser-schedule', (route) => {
+    const body = route.request().postDataJSON()
+    const version = route.request().headers()['if-match']
+    writes.push({ review_required: body.review_required, version })
+    if (version !== `"${schedule.resource_version}"`) return route.fulfill({ status: 412, json: { detail: 'Schedule changed' } })
+    schedule = { ...schedule, ...body, resource_version: `v${writes.length + 1}` }
+    return route.fulfill({ json: schedule })
+  })
+  await page.goto('/reporting')
+  await page.getByRole('button', { name: 'Schedules', exact: true }).click()
+  const row = page.locator('article').filter({ has: page.getByRole('heading', { name: 'Weekly report', exact: true }) })
+  const review = row.getByLabel('Require editorial review before publication', { exact: true })
+  for (const required of [true, false]) {
+    await row.getByRole('button', { name: 'Edit', exact: true }).click()
+    await expect(review).toBeChecked({ checked: !required })
+    await review.focus()
+    await page.keyboard.press('Space')
+    await row.getByRole('button', { name: 'Save schedule', exact: true }).click()
+    await expect(row.getByRole('button', { name: 'Edit', exact: true })).toBeVisible()
+    expect(schedule.review_required).toBe(required)
+    await page.reload()
+    await page.getByRole('button', { name: 'Schedules', exact: true }).click()
+  }
+  await row.getByRole('button', { name: 'Edit', exact: true }).click()
+  await expect(review).not.toBeChecked()
+  expect(writes).toEqual([
+    { review_required: true, version: '"v1"' },
+    { review_required: false, version: '"v2"' },
+  ])
+})
