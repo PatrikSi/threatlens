@@ -507,6 +507,8 @@ def test_ai_telemetry_services_fail_closed_for_enforced_and_ineligible_contexts(
     assert [row.model for row in overview.per_model] == ["system-model"]
     assert sum(point.requests for point in overview.time_series) == 1
     assert sum(point.failures for point in overview.time_series) == 0
+    assert sum(point.latency_samples for point in overview.time_series) == 1
+    assert sum(point.known_usage_requests for point in overview.time_series) == 1
     assert overview.token_efficiency.average_total_tokens == 1
     assert overview.endpoint_health.last_provider_error is None
     assert overview.endpoint_health.median_latency_ms == 2

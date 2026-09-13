@@ -63,7 +63,7 @@ def build_ai_ops_overview(
 ) -> AIOpsOverviewResponse:
     now = datetime.now(timezone.utc)
     since = now - timedelta(days=max(1, days))
-    usage_filters = _usage_filters(since, data_access)
+    usage_filters = _usage_filters(since, data_access, until=now)
     totals = db.execute(
         select(
             func.count().label("requests"),
@@ -76,7 +76,7 @@ def build_ai_ops_overview(
     ).one()
     live = live_status_loader(db)
     p95_latency = db.scalar(
-        _latency_percentiles(since, data_access, successful_only=True)
+        _latency_percentiles(since, data_access, successful_only=True, until=now)
     )
     last_successful_run_at = db.scalar(
         select(AITaskRun.finished_at)
@@ -100,9 +100,11 @@ def build_ai_ops_overview(
     )
 
     return AIOpsOverviewResponse(
+        since=since,
+        until=now,
         kpis=kpis,
         live=live,
-        per_model=_build_per_model_usage(db, since=since, data_access=data_access),
+        per_model=_build_per_model_usage(db, since=since, until=now, data_access=data_access),
         time_series=_build_time_series(
             db,
             since=since,
@@ -110,7 +112,7 @@ def build_ai_ops_overview(
             data_access=data_access,
         ),
         token_efficiency=_build_token_efficiency(
-            db, since=since, data_access=data_access
+            db, since=since, until=now, data_access=data_access
         ),
         relevance_distribution=_build_relevance_distribution(
             db, data_access=data_access
@@ -174,8 +176,13 @@ def _normalized_error_expression(column):
     )
 
 
-def _usage_filters(since: datetime, data_access: DataAccessContext | None):
-    return AIUsageEvent.created_at >= since, _usage_access_predicate(data_access)
+def _usage_filters(
+    since: datetime, data_access: DataAccessContext | None, *, until: datetime | None = None
+):
+    filters = (AIUsageEvent.created_at >= since, _usage_access_predicate(data_access))
+    if until is not None:
+        filters += (AIUsageEvent.created_at < until,)
+    return filters
 
 
 def _rounded(value, digits: int = 2) -> float:
@@ -197,6 +204,7 @@ def _latency_percentiles(
     *,
     successful_only: bool = False,
     by_day: bool = False,
+    until: datetime | None = None,
 ):
     day = _utc_day(AIUsageEvent.created_at)
     partition = day if by_day else None
@@ -207,7 +215,7 @@ def _latency_percentiles(
         .over(partition_by=partition, order_by=AIUsageEvent.latency_ms)
         .label("rank"),
         func.count().over(partition_by=partition).label("count"),
-    ).where(*_usage_filters(since, data_access), AIUsageEvent.latency_ms.is_not(None))
+    ).where(*_usage_filters(since, data_access, until=until), AIUsageEvent.latency_ms.is_not(None))
     if successful_only:
         ranked = ranked.where(AIUsageEvent.success.is_(True))
     values = ranked.subquery()
@@ -229,6 +237,7 @@ def _build_per_model_usage(
     db: Session,
     *,
     since: datetime,
+    until: datetime | None = None,
     data_access: DataAccessContext | None = None,
 ) -> list[AIOverviewPerModelResponse]:
     model = func.coalesce(func.nullif(AIUsageEvent.model, ""), "unknown")
@@ -241,7 +250,7 @@ def _build_per_model_usage(
             func.avg(AIUsageEvent.latency_ms).label("latency"),
             func.max(AIUsageEvent.created_at).label("last_request"),
         )
-        .where(*_usage_filters(since, data_access))
+        .where(*_usage_filters(since, data_access, until=until))
         .group_by(model)
         .order_by(
             func.coalesce(func.sum(AIUsageEvent.total_tokens), 0).desc(),
@@ -284,8 +293,10 @@ def _build_time_series(
             func.count().filter(AIUsageEvent.success.is_(False)).label("failures"),
             func.sum(AIUsageEvent.total_tokens).label("tokens"),
             func.avg(AIUsageEvent.latency_ms).label("latency"),
+            func.count(AIUsageEvent.latency_ms).label("latency_samples"),
+            func.count(AIUsageEvent.total_tokens).label("known_usage_requests"),
         )
-        .where(*_usage_filters(since, data_access))
+        .where(*_usage_filters(since, data_access, until=now))
         .group_by(day)
     ):
         key = row.day.isoformat()
@@ -294,8 +305,10 @@ def _build_time_series(
         bucket.failures = row.failures
         bucket.total_tokens = int(row.tokens or 0)
         bucket.average_latency_ms = _rounded(row.latency)
+        bucket.latency_samples = row.latency_samples
+        bucket.known_usage_requests = row.known_usage_requests
     for day_value, latency in db.execute(
-        _latency_percentiles(since, data_access, by_day=True)
+        _latency_percentiles(since, data_access, by_day=True, until=now)
     ):
         buckets[day_value.isoformat()].p95_latency_ms = _rounded(latency)
     run_day = _utc_day(AITaskRun.created_at)
@@ -309,6 +322,7 @@ def _build_time_series(
         .where(
             AITaskRun.task_type == AI_TASK_TYPE_DAILY_BRIEF,
             AITaskRun.created_at >= since,
+            AITaskRun.created_at < now,
             _run_access_predicate(data_access),
         )
         .group_by(run_day)
@@ -339,6 +353,7 @@ def _build_token_efficiency(
     db: Session,
     *,
     since: datetime,
+    until: datetime | None = None,
     data_access: DataAccessContext | None = None,
 ) -> AITokenEfficiencyResponse:
     row = db.execute(
@@ -346,14 +361,14 @@ def _build_token_efficiency(
             func.avg(AIUsageEvent.prompt_tokens).label("prompt"),
             func.avg(AIUsageEvent.completion_tokens).label("completion"),
             func.avg(AIUsageEvent.total_tokens).label("total"),
-        ).where(*_usage_filters(since, data_access))
+        ).where(*_usage_filters(since, data_access, until=until))
     ).one()
     top = db.execute(
         select(
             AIUsageEvent.feature_type,
             func.avg(AIUsageEvent.total_tokens).label("average"),
         )
-        .where(*_usage_filters(since, data_access))
+        .where(*_usage_filters(since, data_access, until=until))
         .group_by(AIUsageEvent.feature_type)
         .having(
             func.avg(AIUsageEvent.total_tokens) > 0,
@@ -569,7 +584,7 @@ def _build_endpoint_health(
     now: datetime,
     data_access: DataAccessContext | None = None,
 ) -> AIEndpointHealthResponse:
-    filters = _usage_filters(since, data_access)
+    filters = _usage_filters(since, data_access, until=now)
     recent = AIUsageEvent.created_at >= now - timedelta(hours=24)
     failed = AIUsageEvent.success.is_(False)
     row = db.execute(

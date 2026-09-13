@@ -503,6 +503,8 @@ class AITimeSeriesPointResponse(BaseModel):
     total_tokens: int
     average_latency_ms: float
     p95_latency_ms: float
+    latency_samples: int = 0
+    known_usage_requests: int = 0
     daily_brief_successes: int
     daily_brief_failures: int
     daily_brief_skips: int
@@ -595,6 +597,10 @@ class AICacheStatsResponse(BaseModel):
 
 
 class AIOpsOverviewResponse(BaseModel):
+    since: datetime | None = None
+    until: datetime | None = None
+    bucket_unit: Literal["day"] = "day"
+    bucket_timezone: Literal["UTC"] = "UTC"
     kpis: AIOverviewKpiResponse
     live: AILiveStatusResponse
     per_model: list[AIOverviewPerModelResponse]
