@@ -69,6 +69,397 @@
     ]
   },
   {
+    "name": "@types/debug",
+    "version": "4.1.13",
+    "license": "MIT",
+    "description": "TypeScript definitions for debug",
+    "homepage": "https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/debug",
+    "repository": "https://github.com/DefinitelyTyped/DefinitelyTyped.git",
+    "author": null,
+    "package_path": "node_modules/@types/debug",
+    "license_files": [
+      "LICENSE"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "LICENSE",
+        "source_path": "node_modules/@types/debug/LICENSE",
+        "artifact_path": "@types/debug/4.1.13/LICENSE",
+        "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+      }
+    ]
+  },
+  {
+    "name": "@types/estree",
+    "version": "1.0.8",
+    "license": "MIT",
+    "description": "TypeScript definitions for estree",
+    "homepage": "https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/estree",
+    "repository": "https://github.com/DefinitelyTyped/DefinitelyTyped.git",
+    "author": null,
+    "package_path": "node_modules/@types/estree",
+    "license_files": [
+      "LICENSE"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "LICENSE",
+        "source_path": "node_modules/@types/estree/LICENSE",
+        "artifact_path": "@types/estree/1.0.8/LICENSE",
+        "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+      }
+    ]
+  },
+  {
+    "name": "@types/estree-jsx",
+    "version": "1.0.5",
+    "license": "MIT",
+    "description": "TypeScript definitions for estree-jsx",
+    "homepage": "https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/estree-jsx",
+    "repository": "https://github.com/DefinitelyTyped/DefinitelyTyped.git",
+    "author": null,
+    "package_path": "node_modules/@types/estree-jsx",
+    "license_files": [
+      "LICENSE"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "LICENSE",
+        "source_path": "node_modules/@types/estree-jsx/LICENSE",
+        "artifact_path": "@types/estree-jsx/1.0.5/LICENSE",
+        "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+      }
+    ]
+  },
+  {
+    "name": "@types/hast",
+    "version": "3.0.5",
+    "license": "MIT",
+    "description": "TypeScript definitions for hast",
+    "homepage": "https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/hast",
+    "repository": "https://github.com/DefinitelyTyped/DefinitelyTyped.git",
+    "author": null,
+    "package_path": "node_modules/@types/hast",
+    "license_files": [
+      "LICENSE"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "LICENSE",
+        "source_path": "node_modules/@types/hast/LICENSE",
+        "artifact_path": "@types/hast/3.0.5/LICENSE",
+        "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+      }
+    ]
+  },
+  {
+    "name": "@types/mdast",
+    "version": "4.0.4",
+    "license": "MIT",
+    "description": "TypeScript definitions for mdast",
+    "homepage": "https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/mdast",
+    "repository": "https://github.com/DefinitelyTyped/DefinitelyTyped.git",
+    "author": null,
+    "package_path": "node_modules/@types/mdast",
+    "license_files": [
+      "LICENSE"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "LICENSE",
+        "source_path": "node_modules/@types/mdast/LICENSE",
+        "artifact_path": "@types/mdast/4.0.4/LICENSE",
+        "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+      }
+    ]
+  },
+  {
+    "name": "@types/ms",
+    "version": "2.1.0",
+    "license": "MIT",
+    "description": "TypeScript definitions for ms",
+    "homepage": "https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/ms",
+    "repository": "https://github.com/DefinitelyTyped/DefinitelyTyped.git",
+    "author": null,
+    "package_path": "node_modules/@types/ms",
+    "license_files": [
+      "LICENSE"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "LICENSE",
+        "source_path": "node_modules/@types/ms/LICENSE",
+        "artifact_path": "@types/ms/2.1.0/LICENSE",
+        "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+      }
+    ]
+  },
+  {
+    "name": "@types/react",
+    "version": "19.2.14",
+    "license": "MIT",
+    "description": "TypeScript definitions for react",
+    "homepage": "https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/react",
+    "repository": "https://github.com/DefinitelyTyped/DefinitelyTyped.git",
+    "author": null,
+    "package_path": "node_modules/@types/react",
+    "license_files": [
+      "LICENSE"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "LICENSE",
+        "source_path": "node_modules/@types/react/LICENSE",
+        "artifact_path": "@types/react/19.2.14/LICENSE",
+        "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+      }
+    ]
+  },
+  {
+    "name": "@types/unist",
+    "version": "2.0.11",
+    "license": "MIT",
+    "description": "TypeScript definitions for unist",
+    "homepage": "https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/unist",
+    "repository": "https://github.com/DefinitelyTyped/DefinitelyTyped.git",
+    "author": null,
+    "package_path": "node_modules/parse-entities/node_modules/@types/unist",
+    "license_files": [
+      "LICENSE"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "LICENSE",
+        "source_path": "node_modules/parse-entities/node_modules/@types/unist/LICENSE",
+        "artifact_path": "@types/unist/2.0.11/LICENSE",
+        "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+      }
+    ]
+  },
+  {
+    "name": "@types/unist",
+    "version": "3.0.3",
+    "license": "MIT",
+    "description": "TypeScript definitions for unist",
+    "homepage": "https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/unist",
+    "repository": "https://github.com/DefinitelyTyped/DefinitelyTyped.git",
+    "author": null,
+    "package_path": "node_modules/@types/unist",
+    "license_files": [
+      "LICENSE"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "LICENSE",
+        "source_path": "node_modules/@types/unist/LICENSE",
+        "artifact_path": "@types/unist/3.0.3/LICENSE",
+        "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+      }
+    ]
+  },
+  {
+    "name": "@ungap/structured-clone",
+    "version": "1.4.0",
+    "license": "ISC",
+    "description": "A structuredClone polyfill",
+    "homepage": "https://github.com/ungap/structured-clone#readme",
+    "repository": "git+https://github.com/ungap/structured-clone.git",
+    "author": "Andrea Giammarchi",
+    "package_path": "node_modules/@ungap/structured-clone",
+    "license_files": [
+      "LICENSE"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "LICENSE",
+        "source_path": "node_modules/@ungap/structured-clone/LICENSE",
+        "artifact_path": "@ungap/structured-clone/1.4.0/LICENSE",
+        "sha256": "dc6d4961d8b6ee747231582ae9c53ce1d66bf76bc9f5a28f554c0e97210953bf"
+      }
+    ]
+  },
+  {
+    "name": "bail",
+    "version": "2.0.2",
+    "license": "MIT",
+    "description": "Throw a given error",
+    "homepage": null,
+    "repository": "wooorm/bail",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/bail",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/bail/license",
+        "artifact_path": "bail/2.0.2/license",
+        "sha256": "63cb98b3f6abfb3c3592c16f88253c1bdc834087bf52671e8ce5609e4eb693cf"
+      }
+    ]
+  },
+  {
+    "name": "ccount",
+    "version": "2.0.1",
+    "license": "MIT",
+    "description": "Count how often a character (or substring) is used in a string",
+    "homepage": null,
+    "repository": "wooorm/ccount",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/ccount",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/ccount/license",
+        "artifact_path": "ccount/2.0.1/license",
+        "sha256": "63cb98b3f6abfb3c3592c16f88253c1bdc834087bf52671e8ce5609e4eb693cf"
+      }
+    ]
+  },
+  {
+    "name": "character-entities",
+    "version": "2.0.2",
+    "license": "MIT",
+    "description": "Map of named character references",
+    "homepage": null,
+    "repository": "wooorm/character-entities",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/character-entities",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/character-entities/license",
+        "artifact_path": "character-entities/2.0.2/license",
+        "sha256": "63cb98b3f6abfb3c3592c16f88253c1bdc834087bf52671e8ce5609e4eb693cf"
+      }
+    ]
+  },
+  {
+    "name": "character-entities-html4",
+    "version": "2.1.0",
+    "license": "MIT",
+    "description": "Map of named character references from HTML 4",
+    "homepage": null,
+    "repository": "wooorm/character-entities-html4",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/character-entities-html4",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/character-entities-html4/license",
+        "artifact_path": "character-entities-html4/2.1.0/license",
+        "sha256": "63cb98b3f6abfb3c3592c16f88253c1bdc834087bf52671e8ce5609e4eb693cf"
+      }
+    ]
+  },
+  {
+    "name": "character-entities-legacy",
+    "version": "3.0.0",
+    "license": "MIT",
+    "description": "List of legacy HTML named character references that don’t need a trailing semicolon",
+    "homepage": null,
+    "repository": "wooorm/character-entities-legacy",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/character-entities-legacy",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/character-entities-legacy/license",
+        "artifact_path": "character-entities-legacy/3.0.0/license",
+        "sha256": "63cb98b3f6abfb3c3592c16f88253c1bdc834087bf52671e8ce5609e4eb693cf"
+      }
+    ]
+  },
+  {
+    "name": "character-reference-invalid",
+    "version": "2.0.1",
+    "license": "MIT",
+    "description": "Map of invalid numeric character references to their replacements, according to HTML",
+    "homepage": null,
+    "repository": "wooorm/character-reference-invalid",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/character-reference-invalid",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/character-reference-invalid/license",
+        "artifact_path": "character-reference-invalid/2.0.1/license",
+        "sha256": "63cb98b3f6abfb3c3592c16f88253c1bdc834087bf52671e8ce5609e4eb693cf"
+      }
+    ]
+  },
+  {
+    "name": "comma-separated-tokens",
+    "version": "2.0.3",
+    "license": "MIT",
+    "description": "Parse and stringify comma-separated tokens",
+    "homepage": null,
+    "repository": "wooorm/comma-separated-tokens",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/comma-separated-tokens",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/comma-separated-tokens/license",
+        "artifact_path": "comma-separated-tokens/2.0.3/license",
+        "sha256": "ca4662cb5d1b738fbe5350c0d5485ba11773b4b7208974082ae6e129a52d631d"
+      }
+    ]
+  },
+  {
     "name": "cookie",
     "version": "1.1.1",
     "license": "MIT",
@@ -92,6 +483,420 @@
     ]
   },
   {
+    "name": "csstype",
+    "version": "3.2.3",
+    "license": "MIT",
+    "description": "Strict TypeScript and Flow types for style based on MDN data",
+    "homepage": null,
+    "repository": "https://github.com/frenic/csstype",
+    "author": "Fredrik Nicol <fredrik.nicol@gmail.com>",
+    "package_path": "node_modules/csstype",
+    "license_files": [
+      "LICENSE"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "LICENSE",
+        "source_path": "node_modules/csstype/LICENSE",
+        "artifact_path": "csstype/3.2.3/LICENSE",
+        "sha256": "11d55bd4541c75ee7879547ac49089c489163dae49551389713c3d026cab383e"
+      }
+    ]
+  },
+  {
+    "name": "debug",
+    "version": "4.4.3",
+    "license": "MIT",
+    "description": "Lightweight debugging utility for Node.js and the browser",
+    "homepage": null,
+    "repository": "git://github.com/debug-js/debug.git",
+    "author": "Josh Junon (https://github.com/qix-)",
+    "package_path": "node_modules/debug",
+    "license_files": [
+      "LICENSE"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "LICENSE",
+        "source_path": "node_modules/debug/LICENSE",
+        "artifact_path": "debug/4.4.3/LICENSE",
+        "sha256": "3a61c6c96caf5c1d9b623fb9b04c822b783dfcb78aa7e49c76a3f643e6ed7f95"
+      }
+    ]
+  },
+  {
+    "name": "decode-named-character-reference",
+    "version": "1.3.0",
+    "license": "MIT",
+    "description": "Decode named character references",
+    "homepage": null,
+    "repository": "wooorm/decode-named-character-reference",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/decode-named-character-reference",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/decode-named-character-reference/license",
+        "artifact_path": "decode-named-character-reference/1.3.0/license",
+        "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
+      }
+    ]
+  },
+  {
+    "name": "dequal",
+    "version": "2.0.3",
+    "license": "MIT",
+    "description": "A tiny (304B to 489B) utility for check for deep equality",
+    "homepage": null,
+    "repository": "lukeed/dequal",
+    "author": "Luke Edwards",
+    "package_path": "node_modules/dequal",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/dequal/license",
+        "artifact_path": "dequal/2.0.3/license",
+        "sha256": "306fa513e39b23a6e8747520de761809d206b99800ef41907b530226574c59ae"
+      }
+    ]
+  },
+  {
+    "name": "devlop",
+    "version": "1.1.0",
+    "license": "MIT",
+    "description": "Do things in development and nothing otherwise",
+    "homepage": null,
+    "repository": "wooorm/devlop",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/devlop",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/devlop/license",
+        "artifact_path": "devlop/1.1.0/license",
+        "sha256": "6f296a5eccc1dc96714bb94ebaa9cac25b0a1467d74cc5263ac4d0646ab01f62"
+      }
+    ]
+  },
+  {
+    "name": "escape-string-regexp",
+    "version": "5.0.0",
+    "license": "MIT",
+    "description": "Escape RegExp special characters",
+    "homepage": null,
+    "repository": "sindresorhus/escape-string-regexp",
+    "author": "Sindre Sorhus",
+    "package_path": "node_modules/mdast-util-find-and-replace/node_modules/escape-string-regexp",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/mdast-util-find-and-replace/node_modules/escape-string-regexp/license",
+        "artifact_path": "escape-string-regexp/5.0.0/license",
+        "sha256": "5c932d88256b4ab958f64a856fa48e8bd1f55bc1d96b8149c65689e0c61789d3"
+      }
+    ]
+  },
+  {
+    "name": "estree-util-is-identifier-name",
+    "version": "3.0.0",
+    "license": "MIT",
+    "description": "Check if something can be an ecmascript (javascript) identifier name",
+    "homepage": null,
+    "repository": "syntax-tree/estree-util-is-identifier-name",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/estree-util-is-identifier-name",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/estree-util-is-identifier-name/license",
+        "artifact_path": "estree-util-is-identifier-name/3.0.0/license",
+        "sha256": "536804b3adbff17dbbb9ed0d2bf9655b78f07640278581e37e3d7475282d5e61"
+      }
+    ]
+  },
+  {
+    "name": "extend",
+    "version": "3.0.2",
+    "license": "MIT",
+    "description": "Port of jQuery.extend for node.js and the browser",
+    "homepage": null,
+    "repository": "https://github.com/justmoon/node-extend.git",
+    "author": "Stefan Thomas <justmoon@members.fsf.org> (http://www.justmoon.net)",
+    "package_path": "node_modules/extend",
+    "license_files": [
+      "LICENSE"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "LICENSE",
+        "source_path": "node_modules/extend/LICENSE",
+        "artifact_path": "extend/3.0.2/LICENSE",
+        "sha256": "97af7428f93afbab9bf79cd09254da1357161794f4255eb1b4599f04dd2d2e7c"
+      }
+    ]
+  },
+  {
+    "name": "hast-util-to-jsx-runtime",
+    "version": "2.3.6",
+    "license": "MIT",
+    "description": "hast utility to transform to preact, react, solid, svelte, vue, etc",
+    "homepage": null,
+    "repository": "syntax-tree/hast-util-to-jsx-runtime",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/hast-util-to-jsx-runtime",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/hast-util-to-jsx-runtime/license",
+        "artifact_path": "hast-util-to-jsx-runtime/2.3.6/license",
+        "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
+      }
+    ]
+  },
+  {
+    "name": "hast-util-whitespace",
+    "version": "3.0.0",
+    "license": "MIT",
+    "description": "hast utility to check if a node is inter-element whitespace",
+    "homepage": null,
+    "repository": "syntax-tree/hast-util-whitespace",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/hast-util-whitespace",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/hast-util-whitespace/license",
+        "artifact_path": "hast-util-whitespace/3.0.0/license",
+        "sha256": "ca4662cb5d1b738fbe5350c0d5485ba11773b4b7208974082ae6e129a52d631d"
+      }
+    ]
+  },
+  {
+    "name": "html-url-attributes",
+    "version": "3.0.1",
+    "license": "MIT",
+    "description": "Map of URL attributes in HTML",
+    "homepage": null,
+    "repository": "https://github.com/rehypejs/rehype-minify/tree/main/packages/html-url-attributes",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/html-url-attributes",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/html-url-attributes/license",
+        "artifact_path": "html-url-attributes/3.0.1/license",
+        "sha256": "e18cf5173e928f808f0cd208097fee8fbec9d28fc0255213938e4c559e29ff58"
+      }
+    ]
+  },
+  {
+    "name": "inline-style-parser",
+    "version": "0.2.7",
+    "license": "MIT",
+    "description": "An inline style parser.",
+    "homepage": null,
+    "repository": "git+https://github.com/remarkablemark/inline-style-parser.git",
+    "author": null,
+    "package_path": "node_modules/inline-style-parser",
+    "license_files": [
+      "LICENSE"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "LICENSE",
+        "source_path": "node_modules/inline-style-parser/LICENSE",
+        "artifact_path": "inline-style-parser/0.2.7/LICENSE",
+        "sha256": "395c95f20598da653ff1eb1cb9d74947c7fac689697147f1d192fd0242a0e635"
+      }
+    ]
+  },
+  {
+    "name": "is-alphabetical",
+    "version": "2.0.1",
+    "license": "MIT",
+    "description": "Check if a character is alphabetical",
+    "homepage": null,
+    "repository": "wooorm/is-alphabetical",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/is-alphabetical",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/is-alphabetical/license",
+        "artifact_path": "is-alphabetical/2.0.1/license",
+        "sha256": "ca4662cb5d1b738fbe5350c0d5485ba11773b4b7208974082ae6e129a52d631d"
+      }
+    ]
+  },
+  {
+    "name": "is-alphanumerical",
+    "version": "2.0.1",
+    "license": "MIT",
+    "description": "Check if a character is alphanumerical",
+    "homepage": null,
+    "repository": "wooorm/is-alphanumerical",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/is-alphanumerical",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/is-alphanumerical/license",
+        "artifact_path": "is-alphanumerical/2.0.1/license",
+        "sha256": "ca4662cb5d1b738fbe5350c0d5485ba11773b4b7208974082ae6e129a52d631d"
+      }
+    ]
+  },
+  {
+    "name": "is-decimal",
+    "version": "2.0.1",
+    "license": "MIT",
+    "description": "Check if a character is decimal",
+    "homepage": null,
+    "repository": "wooorm/is-decimal",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/is-decimal",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/is-decimal/license",
+        "artifact_path": "is-decimal/2.0.1/license",
+        "sha256": "ca4662cb5d1b738fbe5350c0d5485ba11773b4b7208974082ae6e129a52d631d"
+      }
+    ]
+  },
+  {
+    "name": "is-hexadecimal",
+    "version": "2.0.1",
+    "license": "MIT",
+    "description": "Check if a character is hexadecimal",
+    "homepage": null,
+    "repository": "wooorm/is-hexadecimal",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/is-hexadecimal",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/is-hexadecimal/license",
+        "artifact_path": "is-hexadecimal/2.0.1/license",
+        "sha256": "ca4662cb5d1b738fbe5350c0d5485ba11773b4b7208974082ae6e129a52d631d"
+      }
+    ]
+  },
+  {
+    "name": "is-plain-obj",
+    "version": "4.1.0",
+    "license": "MIT",
+    "description": "Check if a value is a plain object",
+    "homepage": null,
+    "repository": "sindresorhus/is-plain-obj",
+    "author": "Sindre Sorhus",
+    "package_path": "node_modules/is-plain-obj",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/is-plain-obj/license",
+        "artifact_path": "is-plain-obj/4.1.0/license",
+        "sha256": "5c932d88256b4ab958f64a856fa48e8bd1f55bc1d96b8149c65689e0c61789d3"
+      }
+    ]
+  },
+  {
+    "name": "longest-streak",
+    "version": "3.1.0",
+    "license": "MIT",
+    "description": "Count the longest repeating streak of a substring",
+    "homepage": null,
+    "repository": "wooorm/longest-streak",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/longest-streak",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/longest-streak/license",
+        "artifact_path": "longest-streak/3.1.0/license",
+        "sha256": "9f084fac69d8cf1e6ce983ba5a3499c7695ed74a26ec625c38f0fd19fddd5e10"
+      }
+    ]
+  },
+  {
     "name": "lucide-react",
     "version": "1.37.0",
     "license": "ISC",
@@ -111,6 +916,1087 @@
         "source_path": "node_modules/lucide-react/LICENSE",
         "artifact_path": "lucide-react/1.37.0/LICENSE",
         "sha256": "b495047bd93a9b06913511076f504daba17d5bbeb3e0650f3bb53a4220329c57"
+      }
+    ]
+  },
+  {
+    "name": "markdown-table",
+    "version": "3.0.4",
+    "license": "MIT",
+    "description": "Generate a markdown (GFM) table",
+    "homepage": null,
+    "repository": "wooorm/markdown-table",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/markdown-table",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/markdown-table/license",
+        "artifact_path": "markdown-table/3.0.4/license",
+        "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
+      }
+    ]
+  },
+  {
+    "name": "mdast-util-find-and-replace",
+    "version": "3.0.2",
+    "license": "MIT",
+    "description": "mdast utility to find and replace text in a tree",
+    "homepage": null,
+    "repository": "syntax-tree/mdast-util-find-and-replace",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/mdast-util-find-and-replace",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/mdast-util-find-and-replace/license",
+        "artifact_path": "mdast-util-find-and-replace/3.0.2/license",
+        "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
+      }
+    ]
+  },
+  {
+    "name": "mdast-util-from-markdown",
+    "version": "2.0.3",
+    "license": "MIT",
+    "description": "mdast utility to parse markdown",
+    "homepage": null,
+    "repository": "syntax-tree/mdast-util-from-markdown",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/mdast-util-from-markdown",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/mdast-util-from-markdown/license",
+        "artifact_path": "mdast-util-from-markdown/2.0.3/license",
+        "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
+      }
+    ]
+  },
+  {
+    "name": "mdast-util-gfm",
+    "version": "3.1.0",
+    "license": "MIT",
+    "description": "mdast extension to parse and serialize GFM (GitHub Flavored Markdown)",
+    "homepage": null,
+    "repository": "syntax-tree/mdast-util-gfm",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/mdast-util-gfm",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/mdast-util-gfm/license",
+        "artifact_path": "mdast-util-gfm/3.1.0/license",
+        "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
+      }
+    ]
+  },
+  {
+    "name": "mdast-util-gfm-autolink-literal",
+    "version": "2.0.1",
+    "license": "MIT",
+    "description": "mdast extension to parse and serialize GFM autolink literals",
+    "homepage": null,
+    "repository": "syntax-tree/mdast-util-gfm-autolink-literal",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/mdast-util-gfm-autolink-literal",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/mdast-util-gfm-autolink-literal/license",
+        "artifact_path": "mdast-util-gfm-autolink-literal/2.0.1/license",
+        "sha256": "536804b3adbff17dbbb9ed0d2bf9655b78f07640278581e37e3d7475282d5e61"
+      }
+    ]
+  },
+  {
+    "name": "mdast-util-gfm-footnote",
+    "version": "2.1.0",
+    "license": "MIT",
+    "description": "mdast extension to parse and serialize GFM footnotes",
+    "homepage": null,
+    "repository": "syntax-tree/mdast-util-gfm-footnote",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/mdast-util-gfm-footnote",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/mdast-util-gfm-footnote/license",
+        "artifact_path": "mdast-util-gfm-footnote/2.1.0/license",
+        "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
+      }
+    ]
+  },
+  {
+    "name": "mdast-util-gfm-strikethrough",
+    "version": "2.0.0",
+    "license": "MIT",
+    "description": "mdast extension to parse and serialize GFM strikethrough",
+    "homepage": null,
+    "repository": "syntax-tree/mdast-util-gfm-strikethrough",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/mdast-util-gfm-strikethrough",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/mdast-util-gfm-strikethrough/license",
+        "artifact_path": "mdast-util-gfm-strikethrough/2.0.0/license",
+        "sha256": "536804b3adbff17dbbb9ed0d2bf9655b78f07640278581e37e3d7475282d5e61"
+      }
+    ]
+  },
+  {
+    "name": "mdast-util-gfm-table",
+    "version": "2.0.0",
+    "license": "MIT",
+    "description": "mdast extension to parse and serialize GFM tables",
+    "homepage": null,
+    "repository": "syntax-tree/mdast-util-gfm-table",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/mdast-util-gfm-table",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/mdast-util-gfm-table/license",
+        "artifact_path": "mdast-util-gfm-table/2.0.0/license",
+        "sha256": "536804b3adbff17dbbb9ed0d2bf9655b78f07640278581e37e3d7475282d5e61"
+      }
+    ]
+  },
+  {
+    "name": "mdast-util-gfm-task-list-item",
+    "version": "2.0.0",
+    "license": "MIT",
+    "description": "mdast extension to parse and serialize GFM task list items",
+    "homepage": null,
+    "repository": "syntax-tree/mdast-util-gfm-task-list-item",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/mdast-util-gfm-task-list-item",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/mdast-util-gfm-task-list-item/license",
+        "artifact_path": "mdast-util-gfm-task-list-item/2.0.0/license",
+        "sha256": "536804b3adbff17dbbb9ed0d2bf9655b78f07640278581e37e3d7475282d5e61"
+      }
+    ]
+  },
+  {
+    "name": "mdast-util-mdx-expression",
+    "version": "2.0.1",
+    "license": "MIT",
+    "description": "mdast extension to parse and serialize MDX (or MDX.js) expressions",
+    "homepage": null,
+    "repository": "syntax-tree/mdast-util-mdx-expression",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/mdast-util-mdx-expression",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/mdast-util-mdx-expression/license",
+        "artifact_path": "mdast-util-mdx-expression/2.0.1/license",
+        "sha256": "536804b3adbff17dbbb9ed0d2bf9655b78f07640278581e37e3d7475282d5e61"
+      }
+    ]
+  },
+  {
+    "name": "mdast-util-mdx-jsx",
+    "version": "3.2.0",
+    "license": "MIT",
+    "description": "mdast extension to parse and serialize MDX or MDX.js JSX",
+    "homepage": null,
+    "repository": "syntax-tree/mdast-util-mdx-jsx",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/mdast-util-mdx-jsx",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/mdast-util-mdx-jsx/license",
+        "artifact_path": "mdast-util-mdx-jsx/3.2.0/license",
+        "sha256": "536804b3adbff17dbbb9ed0d2bf9655b78f07640278581e37e3d7475282d5e61"
+      }
+    ]
+  },
+  {
+    "name": "mdast-util-mdxjs-esm",
+    "version": "2.0.1",
+    "license": "MIT",
+    "description": "mdast extension to parse and serialize MDX.js ESM (import/exports)",
+    "homepage": null,
+    "repository": "syntax-tree/mdast-util-mdxjs-esm",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/mdast-util-mdxjs-esm",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/mdast-util-mdxjs-esm/license",
+        "artifact_path": "mdast-util-mdxjs-esm/2.0.1/license",
+        "sha256": "536804b3adbff17dbbb9ed0d2bf9655b78f07640278581e37e3d7475282d5e61"
+      }
+    ]
+  },
+  {
+    "name": "mdast-util-phrasing",
+    "version": "4.1.0",
+    "license": "MIT",
+    "description": "mdast utility to check if a node is phrasing content",
+    "homepage": null,
+    "repository": "syntax-tree/mdast-util-phrasing",
+    "author": "Victor Felder <victor@draft.li> (https://draft.li)",
+    "package_path": "node_modules/mdast-util-phrasing",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/mdast-util-phrasing/license",
+        "artifact_path": "mdast-util-phrasing/4.1.0/license",
+        "sha256": "b6d1a4e1831b177acc96f22a817d4f0f4c18419355badc3125754445fc69e3a7"
+      }
+    ]
+  },
+  {
+    "name": "mdast-util-to-hast",
+    "version": "13.2.1",
+    "license": "MIT",
+    "description": "mdast utility to transform to hast",
+    "homepage": null,
+    "repository": "syntax-tree/mdast-util-to-hast",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/mdast-util-to-hast",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/mdast-util-to-hast/license",
+        "artifact_path": "mdast-util-to-hast/13.2.1/license",
+        "sha256": "ca4662cb5d1b738fbe5350c0d5485ba11773b4b7208974082ae6e129a52d631d"
+      }
+    ]
+  },
+  {
+    "name": "mdast-util-to-markdown",
+    "version": "2.1.2",
+    "license": "MIT",
+    "description": "mdast utility to serialize markdown",
+    "homepage": null,
+    "repository": "syntax-tree/mdast-util-to-markdown",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/mdast-util-to-markdown",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/mdast-util-to-markdown/license",
+        "artifact_path": "mdast-util-to-markdown/2.1.2/license",
+        "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
+      }
+    ]
+  },
+  {
+    "name": "mdast-util-to-string",
+    "version": "4.0.0",
+    "license": "MIT",
+    "description": "mdast utility to get the plain text content of a node",
+    "homepage": null,
+    "repository": "syntax-tree/mdast-util-to-string",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/mdast-util-to-string",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/mdast-util-to-string/license",
+        "artifact_path": "mdast-util-to-string/4.0.0/license",
+        "sha256": "63cb98b3f6abfb3c3592c16f88253c1bdc834087bf52671e8ce5609e4eb693cf"
+      }
+    ]
+  },
+  {
+    "name": "micromark",
+    "version": "4.0.2",
+    "license": "MIT",
+    "description": "small commonmark compliant markdown parser with positional info and concrete tokens",
+    "homepage": null,
+    "repository": "https://github.com/micromark/micromark/tree/main/packages/micromark",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/micromark",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/micromark/license",
+        "artifact_path": "micromark/4.0.2/license",
+        "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
+      }
+    ]
+  },
+  {
+    "name": "micromark-core-commonmark",
+    "version": "2.0.3",
+    "license": "MIT",
+    "description": "The CommonMark markdown constructs",
+    "homepage": null,
+    "repository": "https://github.com/micromark/micromark/tree/main/packages/micromark-core-commonmark",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/micromark-core-commonmark",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/micromark-core-commonmark/license",
+        "artifact_path": "micromark-core-commonmark/2.0.3/license",
+        "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
+      }
+    ]
+  },
+  {
+    "name": "micromark-extension-gfm",
+    "version": "3.0.0",
+    "license": "MIT",
+    "description": "micromark extension to support GFM (GitHub Flavored Markdown)",
+    "homepage": null,
+    "repository": "micromark/micromark-extension-gfm",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/micromark-extension-gfm",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/micromark-extension-gfm/license",
+        "artifact_path": "micromark-extension-gfm/3.0.0/license",
+        "sha256": "536804b3adbff17dbbb9ed0d2bf9655b78f07640278581e37e3d7475282d5e61"
+      }
+    ]
+  },
+  {
+    "name": "micromark-extension-gfm-autolink-literal",
+    "version": "2.1.0",
+    "license": "MIT",
+    "description": "micromark extension to support GFM autolink literals",
+    "homepage": null,
+    "repository": "micromark/micromark-extension-gfm-autolink-literal",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/micromark-extension-gfm-autolink-literal",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/micromark-extension-gfm-autolink-literal/license",
+        "artifact_path": "micromark-extension-gfm-autolink-literal/2.1.0/license",
+        "sha256": "536804b3adbff17dbbb9ed0d2bf9655b78f07640278581e37e3d7475282d5e61"
+      }
+    ]
+  },
+  {
+    "name": "micromark-extension-gfm-footnote",
+    "version": "2.1.0",
+    "license": "MIT",
+    "description": "micromark extension to support GFM footnotes",
+    "homepage": null,
+    "repository": "micromark/micromark-extension-gfm-footnote",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/micromark-extension-gfm-footnote",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/micromark-extension-gfm-footnote/license",
+        "artifact_path": "micromark-extension-gfm-footnote/2.1.0/license",
+        "sha256": "807a88522a850092aece49486207c17c313c4d5708ac276524840fe1caa0b0fa"
+      }
+    ]
+  },
+  {
+    "name": "micromark-extension-gfm-strikethrough",
+    "version": "2.1.0",
+    "license": "MIT",
+    "description": "micromark extension to support GFM strikethrough",
+    "homepage": null,
+    "repository": "micromark/micromark-extension-gfm-strikethrough",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/micromark-extension-gfm-strikethrough",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/micromark-extension-gfm-strikethrough/license",
+        "artifact_path": "micromark-extension-gfm-strikethrough/2.1.0/license",
+        "sha256": "536804b3adbff17dbbb9ed0d2bf9655b78f07640278581e37e3d7475282d5e61"
+      }
+    ]
+  },
+  {
+    "name": "micromark-extension-gfm-table",
+    "version": "2.1.2",
+    "license": "MIT",
+    "description": "micromark extension to support GFM tables",
+    "homepage": null,
+    "repository": "micromark/micromark-extension-gfm-table",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/micromark-extension-gfm-table",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/micromark-extension-gfm-table/license",
+        "artifact_path": "micromark-extension-gfm-table/2.1.2/license",
+        "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
+      }
+    ]
+  },
+  {
+    "name": "micromark-extension-gfm-tagfilter",
+    "version": "2.0.0",
+    "license": "MIT",
+    "description": "micromark extension to support GFM tagfilter",
+    "homepage": null,
+    "repository": "micromark/micromark-extension-gfm-tagfilter",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/micromark-extension-gfm-tagfilter",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/micromark-extension-gfm-tagfilter/license",
+        "artifact_path": "micromark-extension-gfm-tagfilter/2.0.0/license",
+        "sha256": "536804b3adbff17dbbb9ed0d2bf9655b78f07640278581e37e3d7475282d5e61"
+      }
+    ]
+  },
+  {
+    "name": "micromark-extension-gfm-task-list-item",
+    "version": "2.1.0",
+    "license": "MIT",
+    "description": "micromark extension to support GFM task list items",
+    "homepage": null,
+    "repository": "micromark/micromark-extension-gfm-task-list-item",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/micromark-extension-gfm-task-list-item",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/micromark-extension-gfm-task-list-item/license",
+        "artifact_path": "micromark-extension-gfm-task-list-item/2.1.0/license",
+        "sha256": "536804b3adbff17dbbb9ed0d2bf9655b78f07640278581e37e3d7475282d5e61"
+      }
+    ]
+  },
+  {
+    "name": "micromark-factory-destination",
+    "version": "2.0.1",
+    "license": "MIT",
+    "description": "micromark factory to parse destinations (found in resources, definitions)",
+    "homepage": null,
+    "repository": "https://github.com/micromark/micromark/tree/main/packages/micromark-factory-destination",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/micromark-factory-destination",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/micromark-factory-destination/license",
+        "artifact_path": "micromark-factory-destination/2.0.1/license",
+        "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
+      }
+    ]
+  },
+  {
+    "name": "micromark-factory-label",
+    "version": "2.0.1",
+    "license": "MIT",
+    "description": "micromark factory to parse labels (found in media, definitions)",
+    "homepage": null,
+    "repository": "https://github.com/micromark/micromark/tree/main/packages/micromark-factory-label",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/micromark-factory-label",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/micromark-factory-label/license",
+        "artifact_path": "micromark-factory-label/2.0.1/license",
+        "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
+      }
+    ]
+  },
+  {
+    "name": "micromark-factory-space",
+    "version": "2.0.1",
+    "license": "MIT",
+    "description": "micromark factory to parse markdown space (found in lots of places)",
+    "homepage": null,
+    "repository": "https://github.com/micromark/micromark/tree/main/packages/micromark-factory-space",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/micromark-factory-space",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/micromark-factory-space/license",
+        "artifact_path": "micromark-factory-space/2.0.1/license",
+        "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
+      }
+    ]
+  },
+  {
+    "name": "micromark-factory-title",
+    "version": "2.0.1",
+    "license": "MIT",
+    "description": "micromark factory to parse markdown titles (found in resources, definitions)",
+    "homepage": null,
+    "repository": "https://github.com/micromark/micromark/tree/main/packages/micromark-factory-title",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/micromark-factory-title",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/micromark-factory-title/license",
+        "artifact_path": "micromark-factory-title/2.0.1/license",
+        "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
+      }
+    ]
+  },
+  {
+    "name": "micromark-factory-whitespace",
+    "version": "2.0.1",
+    "license": "MIT",
+    "description": "micromark factory to parse markdown whitespace (found in lots of places)",
+    "homepage": null,
+    "repository": "https://github.com/micromark/micromark/tree/main/packages/micromark-factory-whitespace",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/micromark-factory-whitespace",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/micromark-factory-whitespace/license",
+        "artifact_path": "micromark-factory-whitespace/2.0.1/license",
+        "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
+      }
+    ]
+  },
+  {
+    "name": "micromark-util-character",
+    "version": "2.1.1",
+    "license": "MIT",
+    "description": "micromark utility to handle character codes",
+    "homepage": null,
+    "repository": "https://github.com/micromark/micromark/tree/main/packages/micromark-util-character",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/micromark-util-character",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/micromark-util-character/license",
+        "artifact_path": "micromark-util-character/2.1.1/license",
+        "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
+      }
+    ]
+  },
+  {
+    "name": "micromark-util-chunked",
+    "version": "2.0.1",
+    "license": "MIT",
+    "description": "micromark utility to splice and push with giant arrays",
+    "homepage": null,
+    "repository": "https://github.com/micromark/micromark/tree/main/packages/micromark-util-chunked",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/micromark-util-chunked",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/micromark-util-chunked/license",
+        "artifact_path": "micromark-util-chunked/2.0.1/license",
+        "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
+      }
+    ]
+  },
+  {
+    "name": "micromark-util-classify-character",
+    "version": "2.0.1",
+    "license": "MIT",
+    "description": "micromark utility to classify whether a character is whitespace or punctuation",
+    "homepage": null,
+    "repository": "https://github.com/micromark/micromark/tree/main/packages/micromark-util-classify-character",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/micromark-util-classify-character",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/micromark-util-classify-character/license",
+        "artifact_path": "micromark-util-classify-character/2.0.1/license",
+        "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
+      }
+    ]
+  },
+  {
+    "name": "micromark-util-combine-extensions",
+    "version": "2.0.1",
+    "license": "MIT",
+    "description": "micromark utility to combine syntax or html extensions",
+    "homepage": null,
+    "repository": "https://github.com/micromark/micromark/tree/main/packages/micromark-util-combine-extensions",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/micromark-util-combine-extensions",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/micromark-util-combine-extensions/license",
+        "artifact_path": "micromark-util-combine-extensions/2.0.1/license",
+        "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
+      }
+    ]
+  },
+  {
+    "name": "micromark-util-decode-numeric-character-reference",
+    "version": "2.0.2",
+    "license": "MIT",
+    "description": "micromark utility to decode numeric character references",
+    "homepage": null,
+    "repository": "https://github.com/micromark/micromark/tree/main/packages/micromark-util-decode-numeric-character-reference",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/micromark-util-decode-numeric-character-reference",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/micromark-util-decode-numeric-character-reference/license",
+        "artifact_path": "micromark-util-decode-numeric-character-reference/2.0.2/license",
+        "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
+      }
+    ]
+  },
+  {
+    "name": "micromark-util-decode-string",
+    "version": "2.0.1",
+    "license": "MIT",
+    "description": "micromark utility to decode markdown strings",
+    "homepage": null,
+    "repository": "https://github.com/micromark/micromark/tree/main/packages/micromark-util-decode-string",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/micromark-util-decode-string",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/micromark-util-decode-string/license",
+        "artifact_path": "micromark-util-decode-string/2.0.1/license",
+        "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
+      }
+    ]
+  },
+  {
+    "name": "micromark-util-encode",
+    "version": "2.0.1",
+    "license": "MIT",
+    "description": "micromark utility to encode dangerous html characters",
+    "homepage": null,
+    "repository": "https://github.com/micromark/micromark/tree/main/packages/micromark-util-encode",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/micromark-util-encode",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/micromark-util-encode/license",
+        "artifact_path": "micromark-util-encode/2.0.1/license",
+        "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
+      }
+    ]
+  },
+  {
+    "name": "micromark-util-html-tag-name",
+    "version": "2.0.1",
+    "license": "MIT",
+    "description": "micromark utility with list of html tag names",
+    "homepage": null,
+    "repository": "https://github.com/micromark/micromark/tree/main/packages/micromark-util-html-tag-name",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/micromark-util-html-tag-name",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/micromark-util-html-tag-name/license",
+        "artifact_path": "micromark-util-html-tag-name/2.0.1/license",
+        "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
+      }
+    ]
+  },
+  {
+    "name": "micromark-util-normalize-identifier",
+    "version": "2.0.1",
+    "license": "MIT",
+    "description": "micromark utility normalize identifiers (as found in references, definitions)",
+    "homepage": null,
+    "repository": "https://github.com/micromark/micromark/tree/main/packages/micromark-util-normalize-identifier",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/micromark-util-normalize-identifier",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/micromark-util-normalize-identifier/license",
+        "artifact_path": "micromark-util-normalize-identifier/2.0.1/license",
+        "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
+      }
+    ]
+  },
+  {
+    "name": "micromark-util-resolve-all",
+    "version": "2.0.1",
+    "license": "MIT",
+    "description": "micromark utility to resolve subtokens",
+    "homepage": null,
+    "repository": "https://github.com/micromark/micromark/tree/main/packages/micromark-util-resolve-all",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/micromark-util-resolve-all",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/micromark-util-resolve-all/license",
+        "artifact_path": "micromark-util-resolve-all/2.0.1/license",
+        "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
+      }
+    ]
+  },
+  {
+    "name": "micromark-util-sanitize-uri",
+    "version": "2.0.1",
+    "license": "MIT",
+    "description": "micromark utility to sanitize urls",
+    "homepage": null,
+    "repository": "https://github.com/micromark/micromark/tree/main/packages/micromark-util-sanitize-uri",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/micromark-util-sanitize-uri",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/micromark-util-sanitize-uri/license",
+        "artifact_path": "micromark-util-sanitize-uri/2.0.1/license",
+        "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
+      }
+    ]
+  },
+  {
+    "name": "micromark-util-subtokenize",
+    "version": "2.1.0",
+    "license": "MIT",
+    "description": "micromark utility to tokenize subtokens",
+    "homepage": null,
+    "repository": "https://github.com/micromark/micromark/tree/main/packages/micromark-util-subtokenize",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/micromark-util-subtokenize",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/micromark-util-subtokenize/license",
+        "artifact_path": "micromark-util-subtokenize/2.1.0/license",
+        "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
+      }
+    ]
+  },
+  {
+    "name": "micromark-util-symbol",
+    "version": "2.0.1",
+    "license": "MIT",
+    "description": "micromark utility with symbols",
+    "homepage": null,
+    "repository": "https://github.com/micromark/micromark/tree/main/packages/micromark-util-symbol",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/micromark-util-symbol",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/micromark-util-symbol/license",
+        "artifact_path": "micromark-util-symbol/2.0.1/license",
+        "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
+      }
+    ]
+  },
+  {
+    "name": "micromark-util-types",
+    "version": "2.0.2",
+    "license": "MIT",
+    "description": "micromark utility with a couple of typescript types",
+    "homepage": null,
+    "repository": "https://github.com/micromark/micromark/tree/main/packages/micromark-util-types",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/micromark-util-types",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/micromark-util-types/license",
+        "artifact_path": "micromark-util-types/2.0.2/license",
+        "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
+      }
+    ]
+  },
+  {
+    "name": "ms",
+    "version": "2.1.3",
+    "license": "MIT",
+    "description": "Tiny millisecond conversion utility",
+    "homepage": null,
+    "repository": "vercel/ms",
+    "author": null,
+    "package_path": "node_modules/ms",
+    "license_files": [
+      "license.md"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license.md",
+        "source_path": "node_modules/ms/license.md",
+        "artifact_path": "ms/2.1.3/license.md",
+        "sha256": "1662fae9b5314d11cf51284e2dcd1f006a354f7343f08712a730fcff9a359801"
+      }
+    ]
+  },
+  {
+    "name": "parse-entities",
+    "version": "4.0.2",
+    "license": "MIT",
+    "description": "Parse HTML character references",
+    "homepage": null,
+    "repository": "wooorm/parse-entities",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/parse-entities",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/parse-entities/license",
+        "artifact_path": "parse-entities/4.0.2/license",
+        "sha256": "5d0698266086f217bb11ea0499d33453e401fe479fb9126ad04e625e63d3557b"
+      }
+    ]
+  },
+  {
+    "name": "property-information",
+    "version": "7.2.0",
+    "license": "MIT",
+    "description": "Info on the properties and attributes of the web platform",
+    "homepage": null,
+    "repository": "wooorm/property-information",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/property-information",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/property-information/license",
+        "artifact_path": "property-information/7.2.0/license",
+        "sha256": "5d0698266086f217bb11ea0499d33453e401fe479fb9126ad04e625e63d3557b"
       }
     ]
   },
@@ -161,6 +2047,29 @@
     ]
   },
   {
+    "name": "react-markdown",
+    "version": "10.1.0",
+    "license": "MIT",
+    "description": "React component to render markdown",
+    "homepage": null,
+    "repository": "remarkjs/react-markdown",
+    "author": "Espen Hovlandsdal <espen@hovlandsdal.com>",
+    "package_path": "node_modules/react-markdown",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/react-markdown/license",
+        "artifact_path": "react-markdown/10.1.0/license",
+        "sha256": "f6196c64e144f9a6fa9154c3a80bc8b89615a9567934b83a8951879f06ba2aef"
+      }
+    ]
+  },
+  {
     "name": "react-router",
     "version": "7.18.2",
     "license": "MIT",
@@ -203,6 +2112,98 @@
         "source_path": "node_modules/react-router-dom/LICENSE.md",
         "artifact_path": "react-router-dom/7.18.2/LICENSE.md",
         "sha256": "77c9ee6a9c5d5782fb0c50b50d101189116314c14f7df0a1b0d385fc96a7ba49"
+      }
+    ]
+  },
+  {
+    "name": "remark-gfm",
+    "version": "4.0.1",
+    "license": "MIT",
+    "description": "remark plugin to support GFM (autolink literals, footnotes, strikethrough, tables, tasklists)",
+    "homepage": null,
+    "repository": "remarkjs/remark-gfm",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/remark-gfm",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/remark-gfm/license",
+        "artifact_path": "remark-gfm/4.0.1/license",
+        "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
+      }
+    ]
+  },
+  {
+    "name": "remark-parse",
+    "version": "11.0.0",
+    "license": "MIT",
+    "description": "remark plugin to add support for parsing markdown input",
+    "homepage": "https://remark.js.org",
+    "repository": "https://github.com/remarkjs/remark/tree/main/packages/remark-parse",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/remark-parse",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/remark-parse/license",
+        "artifact_path": "remark-parse/11.0.0/license",
+        "sha256": "413654b0a78b98661dce96d2aff2e4d075603d220b8483e28b1aa010ccc138b4"
+      }
+    ]
+  },
+  {
+    "name": "remark-rehype",
+    "version": "11.1.2",
+    "license": "MIT",
+    "description": "remark plugin that turns markdown into HTML to support rehype",
+    "homepage": null,
+    "repository": "remarkjs/remark-rehype",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/remark-rehype",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/remark-rehype/license",
+        "artifact_path": "remark-rehype/11.1.2/license",
+        "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
+      }
+    ]
+  },
+  {
+    "name": "remark-stringify",
+    "version": "11.0.0",
+    "license": "MIT",
+    "description": "remark plugin to add support for serializing markdown",
+    "homepage": "https://remark.js.org",
+    "repository": "https://github.com/remarkjs/remark/tree/main/packages/remark-stringify",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/remark-stringify",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/remark-stringify/license",
+        "artifact_path": "remark-stringify/11.0.0/license",
+        "sha256": "413654b0a78b98661dce96d2aff2e4d075603d220b8483e28b1aa010ccc138b4"
       }
     ]
   },
@@ -253,6 +2254,98 @@
     ]
   },
   {
+    "name": "space-separated-tokens",
+    "version": "2.0.2",
+    "license": "MIT",
+    "description": "Parse and stringify space separated tokens",
+    "homepage": null,
+    "repository": "wooorm/space-separated-tokens",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/space-separated-tokens",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/space-separated-tokens/license",
+        "artifact_path": "space-separated-tokens/2.0.2/license",
+        "sha256": "ca4662cb5d1b738fbe5350c0d5485ba11773b4b7208974082ae6e129a52d631d"
+      }
+    ]
+  },
+  {
+    "name": "stringify-entities",
+    "version": "4.0.4",
+    "license": "MIT",
+    "description": "Serialize (encode) HTML character references",
+    "homepage": null,
+    "repository": "wooorm/stringify-entities",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/stringify-entities",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/stringify-entities/license",
+        "artifact_path": "stringify-entities/4.0.4/license",
+        "sha256": "9f084fac69d8cf1e6ce983ba5a3499c7695ed74a26ec625c38f0fd19fddd5e10"
+      }
+    ]
+  },
+  {
+    "name": "style-to-js",
+    "version": "1.1.21",
+    "license": "MIT",
+    "description": "Parses CSS inline style to JavaScript object (camelCased).",
+    "homepage": null,
+    "repository": "git+https://github.com/remarkablemark/style-to-js.git",
+    "author": "Mark <mark@remarkablemark.org>",
+    "package_path": "node_modules/style-to-js",
+    "license_files": [
+      "LICENSE"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "LICENSE",
+        "source_path": "node_modules/style-to-js/LICENSE",
+        "artifact_path": "style-to-js/1.1.21/LICENSE",
+        "sha256": "bbb380e5c1a717079378d6ea4d33c8a5a81655d4612b749f882e34e46712aab5"
+      }
+    ]
+  },
+  {
+    "name": "style-to-object",
+    "version": "1.0.14",
+    "license": "MIT",
+    "description": "Parse CSS inline style to JavaScript object.",
+    "homepage": null,
+    "repository": "git+https://github.com/remarkablemark/style-to-object.git",
+    "author": "Mark <mark@remarkablemark.org>",
+    "package_path": "node_modules/style-to-object",
+    "license_files": [
+      "LICENSE"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "LICENSE",
+        "source_path": "node_modules/style-to-object/LICENSE",
+        "artifact_path": "style-to-object/1.0.14/LICENSE",
+        "sha256": "896c9fd6b5fc48ac31800b9d29a6e3ffcb0c2d534ed077ebfa5c2fa388cc38b7"
+      }
+    ]
+  },
+  {
     "name": "tabbable",
     "version": "6.3.0",
     "license": "MIT",
@@ -272,6 +2365,259 @@
         "source_path": "node_modules/tabbable/LICENSE",
         "artifact_path": "tabbable/6.3.0/LICENSE",
         "sha256": "8e714750725e75c8b31172ef84c0805f94873f86e3b5cfca8a948553f0778fa1"
+      }
+    ]
+  },
+  {
+    "name": "trim-lines",
+    "version": "3.0.1",
+    "license": "MIT",
+    "description": "Remove spaces and tabs around line-breaks",
+    "homepage": null,
+    "repository": "wooorm/trim-lines",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/trim-lines",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/trim-lines/license",
+        "artifact_path": "trim-lines/3.0.1/license",
+        "sha256": "9f084fac69d8cf1e6ce983ba5a3499c7695ed74a26ec625c38f0fd19fddd5e10"
+      }
+    ]
+  },
+  {
+    "name": "trough",
+    "version": "2.2.0",
+    "license": "MIT",
+    "description": "`trough` is middleware",
+    "homepage": null,
+    "repository": "wooorm/trough",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/trough",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/trough/license",
+        "artifact_path": "trough/2.2.0/license",
+        "sha256": "6c03fd41cfd7c92d8aa8a2fa521b94b2683f059123281dcf921ddea9216b6254"
+      }
+    ]
+  },
+  {
+    "name": "unified",
+    "version": "11.0.5",
+    "license": "MIT",
+    "description": "parse, inspect, transform, and serialize content through syntax trees",
+    "homepage": "https://unifiedjs.com",
+    "repository": "unifiedjs/unified",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/unified",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/unified/license",
+        "artifact_path": "unified/11.0.5/license",
+        "sha256": "05811400116ed61f1a7693b78fe8ca6598c155a12f3978e609db4df648a4cb3d"
+      }
+    ]
+  },
+  {
+    "name": "unist-util-is",
+    "version": "6.0.1",
+    "license": "MIT",
+    "description": "unist utility to check if a node passes a test",
+    "homepage": null,
+    "repository": "syntax-tree/unist-util-is",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/unist-util-is",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/unist-util-is/license",
+        "artifact_path": "unist-util-is/6.0.1/license",
+        "sha256": "82974dbf2639d13edab95c32ed9cb6c0867ede272cd2e07ce47ce8548fe55c05"
+      }
+    ]
+  },
+  {
+    "name": "unist-util-position",
+    "version": "5.0.0",
+    "license": "MIT",
+    "description": "unist utility to get the position of a node",
+    "homepage": null,
+    "repository": "syntax-tree/unist-util-position",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/unist-util-position",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/unist-util-position/license",
+        "artifact_path": "unist-util-position/5.0.0/license",
+        "sha256": "63cb98b3f6abfb3c3592c16f88253c1bdc834087bf52671e8ce5609e4eb693cf"
+      }
+    ]
+  },
+  {
+    "name": "unist-util-stringify-position",
+    "version": "4.0.0",
+    "license": "MIT",
+    "description": "unist utility to serialize a node, position, or point as a human readable location",
+    "homepage": null,
+    "repository": "syntax-tree/unist-util-stringify-position",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/unist-util-stringify-position",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/unist-util-stringify-position/license",
+        "artifact_path": "unist-util-stringify-position/4.0.0/license",
+        "sha256": "ca4662cb5d1b738fbe5350c0d5485ba11773b4b7208974082ae6e129a52d631d"
+      }
+    ]
+  },
+  {
+    "name": "unist-util-visit",
+    "version": "5.1.0",
+    "license": "MIT",
+    "description": "unist utility to visit nodes",
+    "homepage": null,
+    "repository": "syntax-tree/unist-util-visit",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/unist-util-visit",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/unist-util-visit/license",
+        "artifact_path": "unist-util-visit/5.1.0/license",
+        "sha256": "63cb98b3f6abfb3c3592c16f88253c1bdc834087bf52671e8ce5609e4eb693cf"
+      }
+    ]
+  },
+  {
+    "name": "unist-util-visit-parents",
+    "version": "6.0.2",
+    "license": "MIT",
+    "description": "unist utility to recursively walk over nodes, with ancestral information",
+    "homepage": null,
+    "repository": "syntax-tree/unist-util-visit-parents",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/unist-util-visit-parents",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/unist-util-visit-parents/license",
+        "artifact_path": "unist-util-visit-parents/6.0.2/license",
+        "sha256": "ca4662cb5d1b738fbe5350c0d5485ba11773b4b7208974082ae6e129a52d631d"
+      }
+    ]
+  },
+  {
+    "name": "vfile",
+    "version": "6.0.3",
+    "license": "MIT",
+    "description": "Virtual file format for text processing",
+    "homepage": null,
+    "repository": "vfile/vfile",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/vfile",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/vfile/license",
+        "artifact_path": "vfile/6.0.3/license",
+        "sha256": "05811400116ed61f1a7693b78fe8ca6598c155a12f3978e609db4df648a4cb3d"
+      }
+    ]
+  },
+  {
+    "name": "vfile-message",
+    "version": "4.0.3",
+    "license": "MIT",
+    "description": "vfile utility to create a virtual message",
+    "homepage": null,
+    "repository": "vfile/vfile-message",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/vfile-message",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/vfile-message/license",
+        "artifact_path": "vfile-message/4.0.3/license",
+        "sha256": "dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb"
+      }
+    ]
+  },
+  {
+    "name": "zwitch",
+    "version": "2.0.4",
+    "license": "MIT",
+    "description": "Handle values based on a property",
+    "homepage": null,
+    "repository": "wooorm/zwitch",
+    "author": "Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)",
+    "package_path": "node_modules/zwitch",
+    "license_files": [
+      "license"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "license",
+        "source_path": "node_modules/zwitch/license",
+        "artifact_path": "zwitch/2.0.4/license",
+        "sha256": "ca4662cb5d1b738fbe5350c0d5485ba11773b4b7208974082ae6e129a52d631d"
       }
     ]
   }
