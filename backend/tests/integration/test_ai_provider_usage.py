@@ -195,7 +195,10 @@ def test_endpoint_health_uses_typed_deadlines_and_auth_instead_of_english_error_
     usage(db_session, success=False, failure_category="dns_deadline", error="DNS lifetime exhausted", created_at=now - timedelta(minutes=3))
     usage(db_session, success=False, failure_category="total_deadline", error="Request lifetime exhausted", created_at=now - timedelta(minutes=2))
     usage(db_session, success=False, failure_category="provider_auth", error="Credentials declined", created_at=now - timedelta(minutes=1))
-    usage(db_session, success=False, failure_category=None, error="timeout auth 401 misleading historical text", created_at=now)
+    usage(db_session, success=False, failure_category=None, error="timeout auth 401 misleading historical text",
+          created_at=now - timedelta(microseconds=1))
+    # Endpoint health shares the charts' [since, until) reporting window.
+    usage(db_session, success=False, failure_category="total_deadline", error="Exclusive upper bound", created_at=now)
     health = _build_endpoint_health(db_session, since=now - timedelta(days=1), now=now, data_access=access(db_session))
     assert health.timeout_failures == 2
     assert health.last_auth_error == "Credentials declined"
