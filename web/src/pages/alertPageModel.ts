@@ -95,19 +95,13 @@ export function formatAlertPreviewSummary(value: string): string {
 }
 
 function decodeHtmlEntities(value: string): string {
-  return value
-    .replace(/&#x([0-9a-f]+);/gi, (match, codePoint: string) =>
-      decodeCodePoint(match, Number.parseInt(codePoint, 16)),
-    )
-    .replace(/&#(\d+);/g, (match, codePoint: string) =>
-      decodeCodePoint(match, Number.parseInt(codePoint, 10)),
-    )
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;|&apos;/gi, "'")
+  const named: Record<string, string> = { nbsp: ' ', amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }
+  // Decode source entities once: replacement text such as "&lt;" stays literal.
+  return value.replace(/&(#x[0-9a-f]+|#\d+|nbsp|amp|lt|gt|quot|apos);/gi, (match, entity: string) => {
+    if (!entity.startsWith('#')) return named[entity.toLowerCase()] ?? match
+    const hexadecimal = entity[1].toLowerCase() === 'x'
+    return decodeCodePoint(match, Number.parseInt(entity.slice(hexadecimal ? 2 : 1), hexadecimal ? 16 : 10))
+  })
 }
 
 function decodeCodePoint(fallback: string, codePoint: number): string {
