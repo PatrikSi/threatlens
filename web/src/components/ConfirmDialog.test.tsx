@@ -2,7 +2,7 @@
 
 import type { ReactElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   applyDialogDocumentIsolation,
@@ -22,23 +22,24 @@ function renderStaticDialog(element: ReactElement) {
   }
 }
 
-function createFocusableElement(options?: { disabled?: boolean; ariaHidden?: boolean }) {
-  const disabled = options?.disabled ?? false
-  const ariaHidden = options?.ariaHidden ?? false
+afterEach(() => { document.body.innerHTML = ''; vi.restoreAllMocks() })
 
-  return {
-    focus: vi.fn(),
-    hasAttribute: (name: string) => name === 'disabled' && disabled,
-    getAttribute: (name: string) => (name === 'aria-hidden' ? (ariaHidden ? 'true' : null) : null),
-  } as unknown as HTMLElement
+function createFocusableElement(options?: { disabled?: boolean; ariaHidden?: boolean }) {
+  const element = document.createElement('button')
+  element.disabled = options?.disabled ?? false
+  if (options?.ariaHidden) element.setAttribute('aria-hidden', 'true')
+  // JSDOM has no layout. Only these explicitly visible controls get a rectangle;
+  // browser tests exercise real CSS visibility and geometry.
+  vi.spyOn(element, 'getClientRects').mockReturnValue([new DOMRect(0, 0, 10, 10)] as unknown as DOMRectList)
+  vi.spyOn(element, 'focus')
+  return element
 }
 
-function createDialogContainer(focusable: HTMLElement[]) {
-  return {
-    focus: vi.fn(),
-    contains: (candidate: unknown) => focusable.includes(candidate as HTMLElement),
-    querySelectorAll: () => focusable,
-  } as unknown as HTMLElement
+function createDialogContainer(controls: HTMLElement[]) {
+  const container = document.createElement('div')
+  container.append(...controls)
+  document.body.append(container)
+  return container
 }
 
 describe('ConfirmDialog', () => {
@@ -123,6 +124,33 @@ describe('ConfirmDialog', () => {
     const hidden = createFocusableElement({ ariaHidden: true })
 
     expect(getFocusableDialogElements(createDialogContainer([first, disabled, hidden]))).toEqual([first])
+  })
+
+  it('excludes negative tabindex and inherited disabled, inert or aria-hidden state', () => {
+    const first = createFocusableElement()
+    const last = createFocusableElement()
+    const negative = createFocusableElement()
+    negative.tabIndex = -1
+    const disabledParent = document.createElement('fieldset')
+    disabledParent.disabled = true
+    disabledParent.append(createFocusableElement())
+    const inertParent = document.createElement('div')
+    inertParent.setAttribute('inert', '')
+    inertParent.append(createFocusableElement())
+    const hiddenParent = document.createElement('div')
+    hiddenParent.setAttribute('aria-hidden', 'true')
+    hiddenParent.append(createFocusableElement())
+    const container = createDialogContainer([first, negative, disabledParent, inertParent, hiddenParent, last])
+    expect(getFocusableDialogElements(container)).toEqual([first, last])
+  })
+
+  it('uses positive tabindex order before ordinary controls', () => {
+    const ordinary = createFocusableElement()
+    const second = createFocusableElement()
+    second.tabIndex = 2
+    const first = createFocusableElement()
+    first.tabIndex = 1
+    expect(getFocusableDialogElements(createDialogContainer([ordinary, second, first]))).toEqual([first, second, ordinary])
   })
 
   it('closes on Escape when dismissal is allowed', () => {

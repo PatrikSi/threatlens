@@ -617,9 +617,12 @@ def _audit_lineage_blockers(
         db.scalar(
             text(
                 r"""
-                WITH base_invalid AS (
+                WITH retained_audits AS NOT MATERIALIZED (
+                    SELECT * FROM audit_logs
+                    WHERE retention_pruning_started_at IS NULL
+                ), base_invalid AS (
                     SELECT audit.id AS audit_log_id
-                    FROM audit_logs AS audit
+                    FROM retained_audits AS audit
                     WHERE (
                         audit.data_access_governed AND NOT EXISTS (
                             SELECT 1
@@ -636,7 +639,7 @@ def _audit_lineage_blockers(
                 ),
                 linked_envelopes AS (
                     SELECT audit.id AS audit_log_id, envelope.id AS envelope_id
-                    FROM audit_logs AS audit
+                    FROM retained_audits AS audit
                     JOIN data_access_envelopes AS envelope
                       ON envelope.resource_type = CASE
                           WHEN audit.resource_type = 'daily_brief'
@@ -650,7 +653,7 @@ def _audit_lineage_blockers(
                      END
                     UNION
                     SELECT audit.id, envelope.id
-                    FROM audit_logs AS audit
+                    FROM retained_audits AS audit
                     JOIN data_access_envelopes AS envelope
                       ON envelope.resource_type = 'ai_task_run'
                      AND envelope.resource_id = CASE
@@ -668,7 +671,7 @@ def _audit_lineage_blockers(
                 ),
                 invalid_legacy AS (
                     SELECT DISTINCT audit.id AS audit_log_id
-                    FROM audit_logs AS audit
+                    FROM retained_audits AS audit
                     CROSS JOIN LATERAL jsonb_array_elements_text(
                         audit.data_access_label_ids
                     ) AS value(label_id)

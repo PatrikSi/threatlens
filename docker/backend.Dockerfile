@@ -3,6 +3,11 @@ FROM python:3.12.13-slim-bookworm
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends fonts-dejavu-core fonts-dejavu-extra libpcre2-8-0 \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libpcre2-8-0)" ge '10.42-1+deb12u1' \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 COPY requirements.txt requirements-lock.txt /app/
@@ -30,7 +35,7 @@ ENV PYTHONPATH=/app
 USER app
 
 ARG BUILD_DATE=unknown
-ARG APP_VERSION=1.10.0
+ARG APP_VERSION=2.0.0
 ARG VCS_REF=unknown
 ENV APP_VERSION=${APP_VERSION}
 

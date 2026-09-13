@@ -11,7 +11,8 @@ import {
   MAX_DASHBOARD_WINDOWS,
   type DashboardWindow,
 } from './dashboardSavedViews'
-import type { SavedView } from '../types/api'
+import { invalidateSession } from '../api/sessionLifecycle'
+import type { AIDailyBrief, SavedView } from '../types/api'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -45,6 +46,7 @@ const dashboardPageDomMocks = vi.hoisted(() => ({
   saveMutate: vi.fn(),
   updateMutate: vi.fn(),
   views: [] as SavedView[],
+  dailyBriefs: [] as AIDailyBrief[],
   itemsData: [] as Array<{
     id: string
     feed_id: string
@@ -93,6 +95,7 @@ const dashboardPageDomMocks = vi.hoisted(() => ({
   queryOptions: [] as Array<{ queryKey: unknown[]; enabled: boolean | undefined }>,
   unsavedChangesWarning: vi.fn(),
   workspaceDefaultsAvailable: true,
+  workspacePresentation: {} as Record<string, unknown>,
   workspaceDefaultsDegraded: false,
   workspacePanelIds: ['rss'] as Array<'rss' | 'alerts' | 'notes' | 'daily_brief'>,
 }))
@@ -114,6 +117,15 @@ function createSavedView(
       custom_until_date: '',
       rolling_days: '7',
     }),
+  }
+}
+
+function createBrief(id: string, text: string | null): AIDailyBrief {
+  return {
+    id, title: `Brief ${id}`, brief_text: text, brief_date: '2026-09-12', status: 'ready',
+    window_start: '2026-09-11T00:00:00Z', window_end: '2026-09-12T00:00:00Z',
+    generated_at: '2026-09-12T00:00:00Z', item_count: 0, items: [], key_points: [],
+    recommended_actions: [], model: 'fixture', error: null,
   }
 }
 
@@ -182,6 +194,10 @@ vi.mock('@tanstack/react-query', () => ({
 
     if (key === 'views') {
       return { ...baseResult, data: dashboardPageDomMocks.views }
+    }
+
+    if (Array.isArray(queryKey) && queryKey.join(':') === 'ai:daily-briefs') {
+      return { ...baseResult, data: dashboardPageDomMocks.dailyBriefs }
     }
 
     if (key === 'tags' || key === 'alerts' || key === 'ai') {
@@ -256,13 +272,13 @@ vi.mock('@tanstack/react-query', () => ({
     const mutationKey = Array.isArray(options?.mutationKey) ? options.mutationKey.join(':') : String(options?.mutationKey ?? '')
     if (mutationKey === 'dashboard-saved-views:delete') {
       return {
-        mutate: vi.fn((viewId: string) => {
-          dashboardPageDomMocks.deleteMutate(viewId)
+        mutate: vi.fn((view: { id: string }) => {
+          dashboardPageDomMocks.deleteMutate(view)
           if (dashboardPageDomMocks.deleteShouldFail) {
-            options.onError?.(new Error('Saved view deletion failed.'), viewId)
+            options.onError?.(new Error('Saved view deletion failed.'), view)
             return
           }
-          options.onSuccess?.(undefined, viewId)
+          options.onSuccess?.(undefined, view)
         }),
         mutateAsync: vi.fn(),
         isPending: false,
@@ -340,7 +356,7 @@ vi.mock('../workspace/useWorkspace', () => ({
   useWorkspace: () => ({
     isLoading: false,
     isDegraded: dashboardPageDomMocks.workspaceDefaultsDegraded,
-    effective: dashboardPageDomMocks.workspaceDefaultsAvailable ? { role: 'admin' } : undefined,
+    effective: dashboardPageDomMocks.workspaceDefaultsAvailable ? { role: 'admin', ...dashboardPageDomMocks.workspacePresentation } : undefined,
     userContext: { role: 'admin' },
     model: { dashboardPanelIds: dashboardPageDomMocks.workspacePanelIds },
   }),
@@ -436,6 +452,8 @@ async function uploadFile(input: HTMLInputElement, file: File) {
 
 beforeEach(() => {
   dashboardPageDomMocks.currentUser.data.features.ai_relevance_enabled = false
+  dashboardPageDomMocks.currentUser.data.features.ai_daily_brief_enabled = false
+  dashboardPageDomMocks.dailyBriefs = []
   dashboardPageDomMocks.views = [
     createSavedView(
       'view-rss',
@@ -458,6 +476,7 @@ beforeEach(() => {
   dashboardPageDomMocks.queryKeys = []
   dashboardPageDomMocks.queryOptions = []
   dashboardPageDomMocks.workspaceDefaultsAvailable = true
+  dashboardPageDomMocks.workspacePresentation = {}
   dashboardPageDomMocks.workspaceDefaultsDegraded = false
   dashboardPageDomMocks.workspacePanelIds = ['rss']
 
@@ -496,6 +515,137 @@ afterEach(() => {
 })
 
 describe('DashboardPage DOM workflows', () => {
+  it('keeps the loaded shared-view revision when a background refresh changes the server version', () => {
+    dashboardPageDomMocks.views[0] = { ...dashboardPageDomMocks.views[0], team_id: 'team-1', revision: 4, can_edit: true }
+    renderPage()
+    act(() => setSelectValue(getSelect('Load saved dashboard view')!, 'view-rss'))
+    act(() => getButton('Edit Layout')?.click())
+    dashboardPageDomMocks.views = dashboardPageDomMocks.views.map((view) => ({ ...view, revision: 5 }))
+    act(() => { root?.render(<DashboardPage />) })
+    act(() => getButton('Save')?.click())
+    expect(dashboardPageDomMocks.updateMutate).toHaveBeenCalledWith(expect.objectContaining({ viewId: 'view-rss', expectedRevision: 4 }))
+    act(() => getButton('Cancel')?.click())
+    act(() => getButton('Edit Layout')?.click())
+    act(() => getButton('Save')?.click())
+    expect(dashboardPageDomMocks.updateMutate).toHaveBeenLastCalledWith(expect.objectContaining({ expectedRevision: 4 }))
+  })
+
+  it('allows a personal copy of a read-only shared view and hides destructive actions', () => {
+    dashboardPageDomMocks.views[0] = { ...dashboardPageDomMocks.views[0], team_id: 'team-1', revision: 4, can_edit: false, can_delete: false }
+    renderPage()
+    act(() => setSelectValue(getSelect('Load saved dashboard view')!, 'view-rss'))
+    act(() => getButton('Edit Layout')?.click())
+    expect(Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Save')).toBeUndefined()
+    expect(getButton('Save New View')).not.toBeNull()
+    act(() => getButton('Views')?.click())
+    expect(document.querySelector('[aria-label="Delete saved view RSS intel"]')).toBeNull()
+    expect(pageText()).toContain('Team view · read only')
+  })
+
+  it('keeps the delete confirmation revision after a background saved-view refresh', () => {
+    dashboardPageDomMocks.views[0] = { ...dashboardPageDomMocks.views[0], team_id: 'team-1', revision: 4, can_delete: true }
+    renderPage()
+    act(() => getButton('Views')?.click())
+    act(() => document.querySelector<HTMLButtonElement>('[aria-label="Delete saved view RSS intel"]')?.click())
+    dashboardPageDomMocks.views = dashboardPageDomMocks.views.map((view) => ({ ...view, revision: 5 }))
+    act(() => { root?.render(<DashboardPage />) })
+    act(() => getButton('Delete view')?.click())
+    expect(dashboardPageDomMocks.deleteMutate).toHaveBeenCalledWith(expect.objectContaining({ id: 'view-rss', revision: 4 }))
+  })
+
+  it('seeds an organization template only on first use and preserves stored personal layouts', async () => {
+    dashboardPageDomMocks.workspacePresentation = {
+      dashboard_mode: 'default', policy_revision: 2,
+      dashboard_view_json: createSavedView('seed', 'Seed', [createNotesWindow('template', 'Starter notebook')], '').query_json,
+    }
+    renderPage()
+    await flushAsyncWork()
+    expect(document.querySelector('[aria-label="Starter notebook dashboard panel"]')).not.toBeNull()
+    dashboardPageDomMocks.workspacePresentation = {
+      ...dashboardPageDomMocks.workspacePresentation,
+      policy_revision: 3,
+      dashboard_view_json: createSavedView('next', 'Next', [createRssWindow('new-template', 'Later template')], '').query_json,
+    }
+    act(() => { root?.render(<DashboardPage />) })
+    expect(document.querySelector('[aria-label="Starter notebook dashboard panel"]')).not.toBeNull()
+    expect(document.querySelector('[aria-label="Later template dashboard panel"]')).toBeNull()
+  })
+
+  it('enforces live layout revisions without overwriting personal storage or an active edit session', async () => {
+    const storageKey = 'threatlens.dashboard.windows.v2:user-1'
+    window.localStorage.setItem(storageKey, JSON.stringify([createNotesWindow('personal', 'Personal notebook')]))
+    renderPage()
+    await flushAsyncWork()
+    act(() => getButton('Edit Layout')?.click())
+    expect(getButton('Cancel')).not.toBeNull()
+    await act(async () => { await new Promise((resolve) => window.setTimeout(resolve, 250)) })
+    const personalBefore = window.localStorage.getItem(storageKey)
+    dashboardPageDomMocks.workspacePresentation = {
+      dashboard_mode: 'enforced', policy_revision: 2,
+      dashboard_view_json: createSavedView('seed', 'Seed', [createNotesWindow('template', 'Organization notebook')], '').query_json,
+    }
+    act(() => { root?.render(<DashboardPage />) })
+    expect(document.querySelector('[aria-label="Organization notebook dashboard panel"]')).not.toBeNull()
+    expect(document.querySelector('[aria-label="Personal notebook dashboard panel"]')).toBeNull()
+    expect(getButton('Edit Layout')?.disabled).toBe(true)
+    expect(getButton('Cancel')).toBeNull()
+    expect(pageText()).toContain('personal')
+    expect(document.querySelector<HTMLTextAreaElement>('textarea')?.readOnly).toBe(true)
+    dashboardPageDomMocks.workspacePresentation = {
+      ...dashboardPageDomMocks.workspacePresentation,
+      policy_revision: 3,
+      dashboard_view_json: createSavedView('next', 'Next', [createRssWindow('new-template', 'Updated organization feed')], '').query_json,
+    }
+    await act(async () => {
+      root?.render(<DashboardPage />)
+      await new Promise((resolve) => window.setTimeout(resolve, 250))
+    })
+    expect(document.querySelector('[aria-label="Updated organization feed dashboard panel"]')).not.toBeNull()
+    expect(window.localStorage.getItem(storageKey)).toBe(personalBefore)
+    dashboardPageDomMocks.workspacePresentation = { dashboard_mode: 'default', policy_revision: 4 }
+    act(() => { root?.render(<DashboardPage />) })
+    expect(document.querySelector('[aria-label="Personal notebook dashboard panel"]')).not.toBeNull()
+    expect(getButton('Cancel')).not.toBeNull()
+    expect(document.querySelector<HTMLTextAreaElement>('textarea')?.value).toBe('Track pivots here.')
+  })
+
+  it('shows each selected daily brief narrative, including narrative-only briefs, as safe readable text', () => {
+    dashboardPageDomMocks.currentUser.data.features.ai_daily_brief_enabled = true
+    dashboardPageDomMocks.workspacePanelIds = ['daily_brief']
+    dashboardPageDomMocks.dailyBriefs = [
+      { ...createBrief('one', 'Distinct narrative evidence.\n\nValidate the exposure before acting.'),
+        key_points: ['Separate key point'], evidence_warnings: ['Current publisher text was used because prior AI evidence was stale.'] },
+      createBrief('two', 'Narrative-only assessment. <img src="https://tracking.example.test/pixel">'),
+    ]
+    const view = renderPage()
+    let overview = view.querySelector('[aria-label="Briefing overview"]')!
+    expect(overview.textContent).toContain('Distinct narrative evidence.\n\nValidate the exposure before acting.')
+    expect(overview.querySelector('p')?.className).toContain('whitespace-pre-wrap')
+    expect(view.textContent).toContain('Separate key point')
+    expect(view.querySelector('[aria-label="Briefing evidence notes"]')?.textContent).toContain('Current publisher text was used')
+    const select = view.querySelector<HTMLSelectElement>('select[aria-label$="briefing selection"]')!
+    act(() => {
+      select.value = 'two'
+      select.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    overview = view.querySelector('[aria-label="Briefing overview"]')!
+    expect(overview.textContent).toContain('Narrative-only assessment.')
+    expect(overview.textContent).toContain('<img src=')
+    expect(view.textContent).not.toContain('Distinct narrative evidence')
+    expect(view.textContent).not.toContain('Separate key point')
+    expect(view.querySelector('[aria-label="Briefing evidence notes"]')).toBeNull()
+    expect(overview.querySelector('img')).toBeNull()
+  })
+
+  it.each([null, '   '])('omits an empty narrative without hiding other brief content (%s)', (text) => {
+    dashboardPageDomMocks.currentUser.data.features.ai_daily_brief_enabled = true
+    dashboardPageDomMocks.workspacePanelIds = ['daily_brief']
+    dashboardPageDomMocks.dailyBriefs = [{ ...createBrief('one', text), key_points: ['Retained evidence'] }]
+    const view = renderPage()
+    expect(view.querySelector('[aria-label="Briefing overview"]')).toBeNull()
+    expect(view.textContent).toContain('Retained evidence')
+  })
+
   it('waits for authoritative panel defaults before persisting a first-time dashboard layout', async () => {
     dashboardPageDomMocks.workspaceDefaultsAvailable = false
     dashboardPageDomMocks.workspacePanelIds = ['notes']
@@ -506,6 +656,10 @@ describe('DashboardPage DOM workflows', () => {
     })
     const storageKey = 'threatlens.dashboard.windows.v2:user-1'
     expect(window.localStorage.getItem(storageKey)).toBeNull()
+    expect(getButton('Edit Layout')?.disabled).toBe(true)
+    expect(pageText()).toContain('Loading dashboard configuration')
+    act(() => getButton('Edit Layout')?.click())
+    expect(pageText()).not.toContain('Cancel Edit')
 
     dashboardPageDomMocks.workspaceDefaultsAvailable = true
     await act(async () => {
@@ -518,6 +672,7 @@ describe('DashboardPage DOM workflows', () => {
 
     const stored = JSON.parse(window.localStorage.getItem(storageKey) ?? '[]') as DashboardWindow[]
     expect(stored.map((windowLayout) => windowLayout.type)).toEqual(['notes'])
+    expect(getButton('Edit Layout')?.disabled).toBe(false)
   })
 
   it('loads a valid existing dashboard layout while workspace defaults are unavailable', async () => {
@@ -758,7 +913,7 @@ describe('DashboardPage DOM workflows', () => {
       getButton('Delete view')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    expect(dashboardPageDomMocks.deleteMutate).toHaveBeenCalledWith('view-notes')
+    expect(dashboardPageDomMocks.deleteMutate).toHaveBeenCalledWith(expect.objectContaining({ id: 'view-notes' }))
     expect(getSelect('Load saved dashboard view')?.value).toBe('view-rss')
 
     act(() => {
@@ -1021,6 +1176,23 @@ describe('DashboardPage DOM workflows', () => {
     expect(dashboardPageDomMocks.queryClient.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['views'] })
   })
 
+  it('does not import a file read under a previous account into the next session', async () => {
+    renderPage()
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    act(() => getButton('Views')?.click())
+    const input = document.querySelector<HTMLInputElement>('[aria-label="Import saved dashboard views JSON"]')!
+    let finishRead!: (value: string) => void
+    const file = new File([''], 'views.json', { type: 'application/json' })
+    Object.defineProperty(file, 'text', { value: () => new Promise<string>((resolve) => { finishRead = resolve }) })
+    await uploadFile(input, file)
+    act(() => invalidateSession())
+    await act(async () => finishRead(JSON.stringify({ views: [{ name: 'Old private view', query_json: { windows: [] } }] })))
+    await flushAsyncWork()
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(pageText()).not.toContain('Old private view')
+  })
+
   it('wires the Add Panel menu with expanded state and keyboard navigation', () => {
     renderPage()
 
@@ -1201,6 +1373,41 @@ describe('DashboardPage DOM workflows', () => {
     expect(document.querySelector('[aria-label="Move RSS Panel 1 left"]')).toBeNull()
     expect(document.querySelector('[aria-label="Make RSS Panel 1 wider"]')).toBeNull()
     expect(document.querySelector('[aria-label="Resize panel"]')).not.toBeNull()
+  })
+
+  it('moves and resizes floating panels with keyboard steps within workspace bounds', () => {
+    const bounds = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      x: 0, y: 0, left: 0, top: 0, right: 1000, bottom: 700, width: 1000, height: 700,
+      toJSON: () => ({}),
+    })
+    const view = renderPage()
+    act(() => getButton('Edit Layout')?.click())
+    const layout = view.querySelector<HTMLSelectElement>('[aria-label="RSS Panel 1 panel layout"]')!
+    act(() => setSelectValue(layout, 'free'))
+    const panel = view.querySelector<HTMLElement>('[aria-label="RSS Panel 1 dashboard panel"]')!
+    const resize = panel.querySelector<HTMLButtonElement>('[aria-label="Resize panel"]')!
+    const move = panel.querySelector<HTMLButtonElement>('[aria-label="Move RSS Panel 1 panel"]')!
+    const width = Number.parseFloat(panel.style.width)
+    const height = Number.parseFloat(panel.style.height)
+    const press = (button: HTMLButtonElement, key: string, shiftKey = false) => act(() => {
+      button.focus()
+      button.dispatchEvent(new KeyboardEvent('keydown', { key, shiftKey, bubbles: true, cancelable: true }))
+    })
+    press(resize, 'ArrowLeft', true)
+    press(resize, 'ArrowUp', true)
+    expect(Number.parseFloat(panel.style.width)).toBe(width - 40)
+    expect(Number.parseFloat(panel.style.height)).toBe(height - 40)
+    const left = Number.parseFloat(panel.style.left)
+    press(move, 'ArrowRight')
+    expect(Number.parseFloat(panel.style.left)).toBe(left + 10)
+    press(move, 'ArrowRight', true)
+    press(move, 'ArrowRight', true)
+    expect(Number.parseFloat(panel.style.left)).toBe(40)
+    press(move, 'ArrowLeft', true)
+    press(move, 'ArrowLeft', true)
+    expect(Number.parseFloat(panel.style.left)).toBe(0)
+    expect(document.activeElement).toBe(move)
+    bounds.mockRestore()
   })
 
   it('uses subtle semantic chip tones for starred, tagged, and AI relevance item state', () => {

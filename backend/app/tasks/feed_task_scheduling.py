@@ -3,8 +3,10 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from croniter import croniter
+from sqlalchemy.orm import Session
 
 from app.models.feed import Feed
+from app.services.feed_pipeline import clear_feed_dispatch_claim
 
 
 def is_feed_due(feed: Feed, now: datetime) -> bool:
@@ -69,3 +71,17 @@ def next_scheduled_feed_fetch_at(feed: Feed, now: datetime) -> datetime | None:
 
 def refresh_feed_next_fetch_at(feed: Feed, now: datetime) -> None:
     feed.next_fetch_at = next_feed_fetch_at(feed, now)
+
+
+def stage_feed_after_coordination_failure(feed: Feed) -> None:
+    next_attempt_at = datetime.now(timezone.utc) + timedelta(seconds=60)
+    clear_feed_dispatch_claim(feed)
+    feed.dispatch_backoff_until = next_attempt_at
+    feed.next_fetch_at = next_attempt_at
+    feed.last_error = "coordination_unavailable"
+
+
+def reschedule_feed_after_coordination_failure(db: Session, feed: Feed) -> None:
+    stage_feed_after_coordination_failure(feed)
+    db.add(feed)
+    db.commit()

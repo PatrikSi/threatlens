@@ -1450,6 +1450,45 @@
     ]
   },
   {
+    "name": "markdown-it-py",
+    "version": "4.0.0",
+    "license": "MIT",
+    "license_source": "classifier",
+    "summary": "Python port of markdown-it. Markdown parsing, done right!",
+    "license_files": [
+      "LICENSE",
+      "LICENSE.markdown-it"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "LICENSE",
+        "source_path": "markdown_it_py-4.0.0.dist-info/licenses/LICENSE",
+        "artifact_path": "markdown-it-py/4.0.0/markdown_it_py-4.0.0.dist-info/licenses/LICENSE",
+        "sha256": "4a2260d6e2cd0f5a151a1e86dbfe7d3ed552b1e2beabf9941c1ba5c49cbce484"
+      },
+      {
+        "kind": "license",
+        "file_name": "LICENSE.markdown-it",
+        "source_path": "markdown_it_py-4.0.0.dist-info/licenses/LICENSE.markdown-it",
+        "artifact_path": "markdown-it-py/4.0.0/markdown_it_py-4.0.0.dist-info/licenses/LICENSE.markdown-it",
+        "sha256": "792c48c5a849a15fdf9e37e8bcf9e6d1dd13b32b46c642a748a0a46a9919d473"
+      }
+    ],
+    "project_urls": [
+      "Documentation, https://markdown-it-py.readthedocs.io",
+      "Homepage, https://github.com/executablebooks/markdown-it-py"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: MIT License"
+    ],
+    "metadata_license_files": [
+      "LICENSE",
+      "LICENSE.markdown-it"
+    ]
+  },
+  {
     "name": "MarkupSafe",
     "version": "3.0.3",
     "license": "BSD-3-Clause",
@@ -1478,6 +1517,32 @@
     ],
     "metadata_license_files": [
       "LICENSE.txt"
+    ]
+  },
+  {
+    "name": "mdurl",
+    "version": "0.1.2",
+    "license": "MIT",
+    "license_source": "classifier",
+    "summary": "Markdown URL utilities",
+    "license_files": [
+      "LICENSE"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "LICENSE",
+        "source_path": "mdurl-0.1.2.dist-info/LICENSE",
+        "artifact_path": "mdurl/0.1.2/mdurl-0.1.2.dist-info/LICENSE",
+        "sha256": "7c605df6e28667a9603118e98274f64a49ce3eed0d26fccce9534a345e0ef955"
+      }
+    ],
+    "project_urls": [
+      "Homepage, https://github.com/executablebooks/mdurl"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: MIT License"
     ]
   },
   {

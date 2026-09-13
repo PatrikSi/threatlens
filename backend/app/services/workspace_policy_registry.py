@@ -20,12 +20,14 @@ from app.core.token_scopes import (
     SCOPE_READ_REPORTS,
     SCOPE_READ_STATS,
     SCOPE_READ_TAGGING,
+    SCOPE_READ_TEAMS,
     SCOPE_READ_TOKENS,
     SCOPE_READ_USERS,
 )
 from app.schemas.workspace import (
     WorkspaceDashboardPanelDefinitionResponse,
     WorkspaceModuleDefinitionResponse,
+    WorkspaceModuleAlternateAccess,
     WorkspaceRegistryResponse,
     WorkspaceRole,
 )
@@ -34,6 +36,13 @@ from app.schemas.workspace import (
 WORKSPACE_ROLES: tuple[WorkspaceRole, ...] = ("admin", "analyst", "viewer")
 _ALL_ROLES = frozenset(WORKSPACE_ROLES)
 _ADMIN_ONLY = frozenset({"admin"})
+
+
+@dataclass(frozen=True)
+class WorkspaceModuleAccessAlternative:
+    required_permissions: tuple[str, ...]
+    roles: frozenset[str]
+    feature_flag: str | None = None
 
 
 @dataclass(frozen=True)
@@ -51,6 +60,7 @@ class WorkspaceModuleDefinition:
     default_mobile_priority: int
     mobile_behavior: Literal["primary", "secondary"]
     policy_managed: bool
+    alternate_access: tuple[WorkspaceModuleAccessAlternative, ...] = ()
 
     @property
     def required_permission(self) -> str | None:
@@ -83,6 +93,7 @@ def _module(
     parent_id: str | None = None,
     mobile_behavior: Literal["primary", "secondary"] = "secondary",
     policy_managed: bool = True,
+    alternate_access: tuple[WorkspaceModuleAccessAlternative, ...] = (),
 ) -> WorkspaceModuleDefinition:
     section: Literal["primary", "settings"] = (
         "settings" if module_id.startswith("settings.") else "primary"
@@ -103,6 +114,7 @@ def _module(
         default_mobile_priority=order,
         mobile_behavior=mobile_behavior,
         policy_managed=policy_managed,
+        alternate_access=alternate_access,
     )
 
 
@@ -140,12 +152,14 @@ WORKSPACE_MODULES: tuple[WorkspaceModuleDefinition, ...] = (
         permissions=(SCOPE_READ_FEEDS,),
         mobile_behavior="primary",
     ),
+    _module("primary.teams", "Teams", "/teams", order=25, permissions=(SCOPE_READ_TEAMS,), mobile_behavior="secondary"),
     _module(
         "primary.stats",
         "Stats",
         "/stats",
         order=40,
         permissions=(SCOPE_READ_STATS,),
+        alternate_access=(WorkspaceModuleAccessAlternative((SCOPE_READ_AI,), _ADMIN_ONLY, "ai_enabled"),),
     ),
     _module(
         "primary.export",
@@ -310,6 +324,14 @@ def workspace_registry_response() -> WorkspaceRegistryResponse:
                 parent_id=module.parent_id,
                 required_permission=module.required_permission,
                 required_permissions=list(module.required_permissions),
+                alternate_access=[
+                    WorkspaceModuleAlternateAccess(
+                        required_permissions=list(alternative.required_permissions),
+                        roles=sorted(alternative.roles),
+                        feature_flag=alternative.feature_flag,
+                    )
+                    for alternative in module.alternate_access
+                ],
                 feature_flag=module.feature_flag,
                 default_optional=module.default_optional,
                 default_order=module.default_order,

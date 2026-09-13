@@ -213,11 +213,17 @@ jobs:
               image: ${backend_ref}
               platform: ${{ matrix.platform }}
               pull_policy: always
+            migrate:
+              <<: *backend-image
             worker:
               <<: *backend-image
               healthcheck:
                 <<: *smoke-worker-health
             worker-ai:
+              <<: *backend-image
+              healthcheck:
+                <<: *smoke-worker-health
+            worker-exports:
               <<: *backend-image
               healthcheck:
                 <<: *smoke-worker-health
@@ -474,7 +480,11 @@ jobs:
 
           - ${contract_sha}
 
-          Pinned Compose install:
+          Existing installations must complete the documented offline database-role cutover
+          before starting this Compose version. See docs/pages/database-privileges.md in
+          this release. Preserve existing database credentials and volumes.
+
+          Pinned Compose install (after configuration and any required cutover):
 
               THREATLENS_IMAGE_TAG=${app_version} docker compose pull
               THREATLENS_IMAGE_TAG=${app_version} docker compose up -d

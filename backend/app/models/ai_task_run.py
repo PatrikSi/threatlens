@@ -24,6 +24,8 @@ from app.db.base import Base
 class AITaskRun(Base):
     __tablename__ = "ai_task_runs"
     __table_args__ = (
+        Index("ix_ai_task_runs_failure_created", "created_at",
+              postgresql_where=text("status = 'error' OR error IS NOT NULL")),
         Index(
             "ix_ai_task_runs_item_task_status_active",
             "item_id",

@@ -988,7 +988,73 @@ describe('InvestigationsPage DOM workflows', () => {
     expect(technicalDetails?.textContent).toContain('2026-08-27T12:34:56.123456Z')
     expect(technicalDetails?.textContent).toContain('investigation.evidence_added')
   })
+
+  it.each([401, 403, 404])('hides previously loaded activity after its refresh returns HTTP %s', async (status) => {
+    await renderActivityBeforeRefresh()
+    expect(pageText()).toContain('Sensitive evidence title')
+
+    await failActivityRefresh(status)
+
+    expect(pageText()).not.toContain('Sensitive evidence title')
+    expect(pageText()).not.toContain('Sensitive activity payload')
+    expect(pageText()).not.toContain('The last loaded page remains visible')
+    expect(pageText()).toContain('Activity refresh rejected')
+    expect(document.querySelector('#investigation-activity-heading')?.textContent).toBe('Activity')
+    expect(document.querySelector('ol')).toBeNull()
+    expect(findButton('Retry')).not.toBeNull()
+    // Only the activity request failed. This must not depend on a later detail poll.
+    expect(pageText()).toContain(baseDetail.title)
+  })
+
+  it('preserves loaded activity during a transient refresh failure and recovers on retry', async () => {
+    await renderActivityBeforeRefresh()
+    await failActivityRefresh(503)
+
+    expect(pageText()).toContain('Sensitive evidence title')
+    expect(pageText()).toContain('The last loaded page remains visible')
+
+    domMocks.apiFetch.mockResolvedValue({ activities: [], total: 0, page: 1, page_size: 25 })
+    act(() => findButton('Retry refresh')?.click())
+    await flushRequests(2)
+    expect(pageText()).toContain('No activity has been recorded')
+    expect(pageText()).not.toContain('Activity refresh rejected')
+    expect(pageText()).not.toContain('Sensitive evidence title')
+  })
 })
+
+async function renderActivityBeforeRefresh() {
+  domMocks.apiFetch.mockResolvedValue({
+    activities: [{
+      id: 'sensitive-activity',
+      actor_user_id: 'user-1',
+      actor_email: 'analyst@example.com',
+      action: 'investigation.evidence_added',
+      entity_type: 'evidence',
+      entity_id: 'evidence-1',
+      details: { source_title: 'Sensitive evidence title', note: 'Sensitive activity payload' },
+      created_at: '2026-08-27T12:34:56Z',
+    }],
+    total: 1,
+    page: 1,
+    page_size: 25,
+  })
+  await renderDetail(baseDetail, '?tab=activity')
+  await flushRequests(2)
+  expect(pageText()).toContain('Sensitive evidence title')
+}
+
+async function failActivityRefresh(status: number) {
+  domMocks.apiFetch.mockRejectedValue(new ApiError(
+    'Activity refresh rejected', status, `/investigations/${baseDetail.id}/activity`,
+  ))
+  await act(async () => {
+    await queryClient!.invalidateQueries({
+      queryKey: ['investigations', 'activity', baseDetail.id, 1], exact: true,
+    })
+  })
+  await flushRequests(2)
+  expect(pageText()).toContain('Activity refresh rejected')
+}
 
 async function renderDetail(detail: InvestigationDetail, suffix = '') {
   const client = createQueryClient()

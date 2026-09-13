@@ -8,6 +8,11 @@ This page documents worker behavior, processing stages, and internal value sets 
 - Notification webhooks are a separate outbound boundary. User-configured request templates are rendered server-side, stored encrypted at rest, and retried from the saved rendered request snapshot.
 - AI enrichment, daily-brief generation, and report generation are an admin-controlled outbound boundary. ThreatLens records usage data and sanitized provider-exchange metadata for those calls.
 
+Outbound HTTP uses total monotonic deadlines as well as per-operation timeouts.
+Feed, article, preview, metadata, and AI response readers bound encoded and
+decoded bytes. Only global unicast destinations are accepted by default; see
+[outbound request budgets](outbound-request-budgets.md) for limits and opt-ins.
+
 ## Celery Tasks
 
 Defined in `backend/app/tasks/feed_tasks.py`:
@@ -76,6 +81,29 @@ Defined in `backend/app/services/classification.py`.
 - Rules version constant: `CLASSIFICATION_RULES_VERSION = "v2"`
 - Article text scoring trim: first `8000` chars after whitespace normalization
 
+Each item persists required and completed classification revisions. Changes to
+feed title/summary or extracted/fallback article text advance the required
+revision in the same transaction. Classification acknowledges it while holding
+the item lock. Maintenance recovers both missing classifications and pending
+revisions, including a refresh whose Celery publication failed. Migration
+`0086_classification_versions` also identifies historical hash mismatches.
+
+### Classification recovery cutover
+
+Stop ingestion and classification writers for migration
+`0086_classification_versions` and replace workers together: older code cannot
+advance the new revision fields. The migration compares current title, summary,
+and article text against classification hashes inside PostgreSQL. Current
+results are acknowledged; stale or missing results remain pending. Explicitly
+purged article content keeps its retained classification. The one-time scan
+belongs in the maintenance window; measure its duration on a representative
+copy for a large catalog.
+
+After cutover, `DISPATCH_UNCLASSIFIED_ITEMS_BATCH_SIZE` bounds recovery candidate
+selection and publication. Duplicate candidates are removed and successful
+classification deliveries remain idempotent by source hash and rules version.
+Failed publication leaves the required revision available for another pass.
+
 ### Classification categories
 
 - `vulnerability`
@@ -140,6 +168,12 @@ The classifier uses weighted regex/token rules for each category and applies fee
 
 ## AI Enrichment and Daily Briefing
 
+- Named provider assignments resolve independently for article enrichment, daily
+  briefs and reports. Newly queued work captures a provider ID/version; child work
+  inherits that selection. Legacy tasks retain legacy settings. An unavailable or
+  changed selection fails explicitly before sending, with no automatic provider
+  failover. The final provider lock follows existing authorization and attempt
+  fences and remains held through settlement. See [provider routing](../pages/ai.md#routing-and-legacy-compatibility).
 - When AI is enabled/configured and `auto_enrich_new_items` is on, items queue AI enrichment after ingestion/classification only when they are recently published and recently first seen according to `AI_AUTO_ENRICH_NEW_ITEM_MAX_AGE_HOURS`.
 - Older feed backlog is left alone unless an admin explicitly queues AI reprocess by lookback, time range, feed, count, or exact item selection.
 - Item enrichment stores:

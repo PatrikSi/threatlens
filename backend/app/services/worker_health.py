@@ -24,17 +24,19 @@ from app.services.queue_execution_canaries import (
     required_worker_queues,
     safe_worker_name,
 )
-from app.tasks.celery_app import (
+from app.core.worker_queues import (
     QUEUE_AI,
     QUEUE_AI_REPORTS,
+    QUEUE_AI_REPORTS_EDITORIAL,
     QUEUE_DEFAULT,
+    QUEUE_EXPORTS,
     QUEUE_INGEST,
     QUEUE_LIFECYCLE,
     QUEUE_MAINTENANCE,
     QUEUE_NOTIFICATIONS,
     QUEUE_PROCESSING,
-    celery_app,
 )
+from app.tasks.celery_app import celery_app
 
 
 MAX_WORKERS = 64
@@ -55,11 +57,13 @@ _QUEUE_PRESENTATION = {
     QUEUE_DEFAULT: ("Default tasks", "worker"),
     QUEUE_INGEST: ("Feed ingestion", "worker"),
     QUEUE_PROCESSING: ("Item processing", "worker"),
+    QUEUE_EXPORTS: ("Background exports", "worker-exports"),
     QUEUE_NOTIFICATIONS: ("Notifications", "worker-notifications"),
     QUEUE_MAINTENANCE: ("Maintenance", "worker-maintenance"),
     QUEUE_LIFECYCLE: ("Data lifecycle", "worker-maintenance"),
     QUEUE_AI: ("AI enrichment", "worker-ai"),
     QUEUE_AI_REPORTS: ("AI reports", "worker-ai"),
+    QUEUE_AI_REPORTS_EDITORIAL: ("AI report review and publication", "worker-ai"),
 }
 _KNOWN_QUEUES = frozenset(_QUEUE_PRESENTATION)
 _CANARY_DISPATCH_REASONS = frozenset(

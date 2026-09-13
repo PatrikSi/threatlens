@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
 from app.models.feed import Feed
+from app.models.ai_provider import AIProviderConfiguration
 from app.models.integration import IntegrationInstance
 from app.models.mfa import UserRecoveryCode, UserTOTPCredential
 from app.models.notification_webhook import NotificationWebhook
@@ -132,6 +133,14 @@ def _scan_encrypted_data_inventory(
 ) -> EncryptedDataInventoryResponse:
     feeds = _scan_feeds(db, bounds=bounds)
     integration_secrets = _scan_integration_secrets(db, bounds=bounds)
+    ai_provider_secrets = _scan_encrypted_text_column(
+        db,
+        AIProviderConfiguration.api_key_encrypted,
+        category_name="ai_provider_secrets",
+        order_columns=(AIProviderConfiguration.updated_at, AIProviderConfiguration.id),
+        bounds=bounds,
+        require_encrypted=True,
+    )
     notification_webhooks = _scan_notification_webhooks(db, bounds=bounds)
     notification_delivery_snapshots = _scan_notification_delivery_snapshots(
         db, bounds=bounds
@@ -159,6 +168,7 @@ def _scan_encrypted_data_inventory(
         oidc_client_secrets,
         mfa_secrets,
         recovery_hashes,
+        ai_provider_secrets,
     )
 
     warnings: list[str] = []
@@ -196,6 +206,7 @@ def _scan_encrypted_data_inventory(
         startup_scan=get_startup_encrypted_data_inventory(),
         feeds=feeds,
         integration_secrets=integration_secrets,
+        ai_provider_secrets=ai_provider_secrets,
         notification_webhooks=notification_webhooks,
         notification_delivery_snapshots=notification_delivery_snapshots,
         oidc_client_secrets=oidc_client_secrets,
@@ -438,6 +449,7 @@ def _scan_encrypted_text_column(
     category_name: str,
     order_columns: tuple,
     bounds: _InventoryScanBounds | None = None,
+    require_encrypted: bool = False,
 ) -> EncryptedDataInventoryCategory:
     category = EncryptedDataInventoryCategory()
     for (value,) in _inventory_rows(
@@ -449,6 +461,9 @@ def _scan_encrypted_text_column(
     ):
         category.total_records += 1
         if not is_encrypted_text(value):
+            if require_encrypted and value is not None:
+                category.unreadable_records += 1
+                category.unreadable_fields += 1
             continue
         category.encrypted_records += 1
         category.encrypted_fields += 1
@@ -510,6 +525,7 @@ def _build_summary(
     oidc_client_secrets: EncryptedDataInventoryCategory,
     mfa_secrets: EncryptedDataInventoryCategory,
     recovery_hashes: RecoveryCodeHashInventory,
+    ai_provider_secrets: EncryptedDataInventoryCategory,
 ) -> EncryptedDataInventorySummary:
     categories = (
         feeds,
@@ -518,6 +534,7 @@ def _build_summary(
         notification_delivery_snapshots,
         oidc_client_secrets,
         mfa_secrets,
+        ai_provider_secrets,
     )
     return EncryptedDataInventorySummary(
         total_records=sum(category.total_records for category in categories),

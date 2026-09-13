@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from app.services.ai_provider_protocol import provider_report_context_budget, provider_output_ceiling
+
 import logging
-import re
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -10,13 +11,14 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.ai_limits import MAX_AI_COMPLETION_TOKENS
 from app.models.report import Report
 from app.models.report_section import ReportSection
 from app.models.report_source_item import ReportSourceItem
 from app.services.ai_config import ActiveAISettings, load_active_ai_settings
 from app.services.ai_context_budget import (
+    AIContextBudget,
     AIContextBudgetError,
-    build_context_budget,
 )
 from app.services.ai_integration import (
     FEATURE_REPORT,
@@ -24,13 +26,19 @@ from app.services.ai_integration import (
     request_ai_json_with_usage,
 )
 from app.services.ai_ops import get_ai_task_run_stop_reason, record_ai_task_event
-from app.services.ai_provider_client import AIIntegrationError
+from app.services.ai_provider_client import AICompletionResult, AIIntegrationError
+from app.services.ai_workflow_dispatch import AIWorkflowDeferred
 from app.services.report_availability import (
     ReportingUnavailableError,
     ensure_reporting_available,
 )
 from app.services.report_sources import DETERMINISTIC_SECTION_KEYS
 from app.services.report_execution import ReportGenerationOwnershipError
+from app.services.report_evidence_contract import has_current_evidence_contract
+from app.services.report_grounding import (
+    NO_FINDINGS_BODY, ReportGroundingError, evidence_sources, report_stage_input,
+    validate_findings, validate_section,
+)
 from app.services.report_prompt_budget import (
     CONTEXT_COMPACTION_WARNING,
     FINDINGS_COMPACTION_WARNING,
@@ -45,7 +53,6 @@ from app.services.report_prompt_budget import (
 
 
 logger = logging.getLogger(__name__)
-CITATION_PATTERN = re.compile(r"\[(S\d+)\]")
 
 
 class ReportGenerationError(RuntimeError):
@@ -90,46 +97,61 @@ def generate_report(
             code="generation_interrupted",
         )
 
-    active = load_active_ai_settings(db)
-    ensure_reporting_available(active)
-    _raise_if_task_stopped(db, task_run_id)
-    budget = build_context_budget(
-        context_window_tokens=active.report_context_window_tokens,
-        reserved_output_tokens=active.report_reserved_output_tokens,
-        safety_percent=active.report_context_safety_percent,
+    # A rejected historical snapshot keeps its already-recorded usage. Current
+    # attempts reconstruct usage from their paid-stage artifacts below.
+    counters = _UsageCounters(
+        model_calls=report.model_calls,
+        prompt_tokens=report.prompt_tokens or 0,
+        completion_tokens=report.completion_tokens or 0,
+        total_tokens=report.total_tokens or 0,
     )
-    report.provider = active.provider_type
-    report.model = active.model
-    report.context_window_tokens = budget.context_window_tokens
-    db.add(report)
-    sources = list(
-        db.scalars(
-            select(ReportSourceItem)
-            .where(
-                ReportSourceItem.report_id == report.id,
-                ReportSourceItem.included.is_(True),
-            )
-            .order_by(ReportSourceItem.rank.asc())
-        ).all()
-    )
-    sections = list(
-        db.scalars(
-            select(ReportSection)
-            .where(ReportSection.report_id == report.id)
-            .order_by(ReportSection.position.asc())
-        ).all()
-    )
-    if not sources:
-        raise ReportGenerationError(
-            "The report has no included source evidence.", code="no_sources"
-        )
-    if not sections:
-        raise ReportGenerationError(
-            "The report has no enabled sections.", code="no_sections"
-        )
-    _commit_execution(db, execution_commit)
-    counters = _UsageCounters()
     try:
+        _check_execution(execution_checkpoint)
+        _raise_if_task_stopped(db, task_run_id)
+        if not has_current_evidence_contract(report.coverage_json):
+            raise ReportGenerationError(
+                "This report snapshot predates the current source-evidence contract or uses an unknown version. "
+                "Its frozen evidence cannot be verified safely. Please create a new report from current sources; "
+                "retrying this snapshot will not rebuild its evidence.",
+                code="source_snapshot_requires_rebuild",
+            )
+        counters = _UsageCounters()
+        active = load_active_ai_settings(db, feature_type="report", task_run_id=task_run_id)
+        ensure_reporting_available(active)
+        budget = provider_report_context_budget(active)
+        coverage = dict(report.coverage_json or {})
+        coverage.pop("grounding", None)
+        report.coverage_json = coverage
+        report.provider = active.provider_type
+        report.model = active.model
+        report.context_window_tokens = budget.context_window_tokens
+        db.add(report)
+        sources = list(
+            db.scalars(
+                select(ReportSourceItem)
+                .where(
+                    ReportSourceItem.report_id == report.id,
+                    ReportSourceItem.included.is_(True),
+                )
+                .order_by(ReportSourceItem.rank.asc())
+            ).all()
+        )
+        sections = list(
+            db.scalars(
+                select(ReportSection)
+                .where(ReportSection.report_id == report.id)
+                .order_by(ReportSection.position.asc())
+            ).all()
+        )
+        if not sources:
+            raise ReportGenerationError(
+                "The report has no included source evidence.", code="no_sources"
+            )
+        if not sections:
+            raise ReportGenerationError(
+                "The report has no enabled sections.", code="no_sections"
+            )
+        _commit_execution(db, execution_commit)
         sources, evidence_plan = _prepare_runtime_evidence(
             db,
             active=active,
@@ -179,6 +201,7 @@ def generate_report(
             if (
                 counters.model_calls >= active.report_max_model_calls
                 and section.section_key not in DETERMINISTIC_SECTION_KEYS
+                and findings
             ):
                 raise ReportGenerationError(
                     "Report generation reached the configured model-call limit before all sections were complete.",
@@ -217,6 +240,21 @@ def generate_report(
             counters.completion_tokens,
             counters.total_tokens,
         )
+    except AIWorkflowDeferred:
+        db.rollback()
+        _raise_if_task_stopped(db, task_run_id)
+        _check_execution(execution_checkpoint)
+        current = db.get(Report, report_id)
+        if current is not None:
+            current.status, current.generation_stage = "queued", "waiting_for_capacity"
+            current.model_calls = counters.model_calls
+            current.prompt_tokens = counters.prompt_tokens or None
+            current.completion_tokens = counters.completion_tokens or None
+            current.total_tokens = counters.total_tokens or None
+            db.add(current)
+            # The worker commits this state together with task deferral and
+            # lease release; a crash cannot publish only half the transition.
+        raise
     except Exception as exc:
         if isinstance(exc, ReportGenerationOwnershipError):
             db.rollback()
@@ -231,6 +269,7 @@ def generate_report(
                 AIIntegrationError,
                 AITaskRunStoppedError,
                 ReportGenerationError,
+                ReportGroundingError,
                 ReportingUnavailableError,
             ),
         )
@@ -434,7 +473,6 @@ def _synthesize_evidence_batches(
     execution_commit: Callable[[], None] | None,
 ) -> list[dict]:
     findings: list[dict] = []
-    known_citations = {source.citation_key for source in sources}
     for index, batch in enumerate(batch_plan.batches, start=1):
         _raise_if_task_stopped(db, task_run_id)
         if counters.model_calls >= active.report_max_model_calls:
@@ -449,22 +487,14 @@ def _synthesize_evidence_batches(
             budget=budget,
         )
         _assert_messages_fit(messages, budget=budget)
-        completion_tokens, retry_completion_tokens = _report_completion_limits(
+        completion = _request_report_completion(
+            db,
             active=active,
             budget=budget,
-            messages=messages,
-            stage_cap=800,
-        )
-        completion = request_ai_json_with_usage(
-            db,
-            active,
-            feature_type=FEATURE_REPORT,
             messages=messages,
             report_id=report.id,
             task_run_id=task_run_id,
             provider_operation_scope=f"evidence_batch:{index}",
-            max_completion_tokens=completion_tokens,
-            max_retry_completion_tokens=retry_completion_tokens,
             max_provider_attempts=active.report_max_model_calls - counters.model_calls,
             execution_checkpoint=execution_checkpoint,
             execution_commit=execution_commit,
@@ -472,20 +502,20 @@ def _synthesize_evidence_batches(
         counters.add(completion)
         _check_execution(execution_checkpoint)
         _raise_if_task_stopped(db, task_run_id)
-        findings.extend(
-            _normalize_findings(
-                completion.payload.get("findings"), known_citations=known_citations
-            )
-        )
+        stage = report_stage_input(messages)
+        assert stage is not None
+        batch_findings = validate_findings(completion.payload.get("findings"), sources=evidence_sources(stage))
+        findings.extend(batch_findings)
+        _record_grounding(report, findings=len(batch_findings), empty_batch=index if not batch_findings else None)
+        if not batch_findings:
+            _append_coverage_warning(report, f"Evidence batch {index} returned no supported findings; its sources do not support narrative conclusions.")
         _record_provider_progress(
             db, task_run_id, report, counters, stage=f"evidence_batch_{index}"
         )
         _commit_execution(db, execution_commit)
     if not findings:
-        findings = [
-            {"text": source.title_snapshot, "citations": [source.citation_key]}
-            for source in sources[: min(20, len(sources))]
-        ]
+        _append_coverage_warning(report, "Evidence synthesis produced no supported findings. Narrative sections disclose insufficient evidence; source titles were not substituted.")
+        _commit_execution(db, execution_commit)
     return findings
 
 
@@ -510,11 +540,13 @@ def _generate_section(
         )
     if section.section_key in DETERMINISTIC_SECTION_KEYS:
         body, key_points, citations = _deterministic_section(report, section, sources)
+    elif not findings:
+        body, key_points, citations = NO_FINDINGS_BODY, [], []
     else:
-        section.status = "running"
-        db.add(section)
-        _commit_execution(db, execution_commit)
-        known_citations = {source.citation_key for source in sources}
+        if section.status != "ready":
+            section.status = "running"
+            db.add(section)
+            _commit_execution(db, execution_commit)
         section_config = next(
             (
                 entry
@@ -545,42 +577,37 @@ def _generate_section(
             _append_coverage_warning(report, CONTEXT_COMPACTION_WARNING)
         if message_plan.omitted_findings:
             _append_coverage_warning(report, FINDINGS_COMPACTION_WARNING)
-        _assert_messages_fit(messages, budget=budget)
-        completion_tokens, retry_completion_tokens = _report_completion_limits(
-            active=active,
-            budget=budget,
-            messages=messages,
-        )
-        completion = request_ai_json_with_usage(
-            db,
-            active,
-            feature_type=FEATURE_REPORT,
-            messages=messages,
-            report_id=report.id,
-            task_run_id=task_run_id,
-            provider_operation_scope=f"section:{section.id}",
-            max_completion_tokens=completion_tokens,
-            max_retry_completion_tokens=retry_completion_tokens,
-            max_provider_attempts=active.report_max_model_calls - counters.model_calls,
-            execution_checkpoint=execution_checkpoint,
-            execution_commit=execution_commit,
-        )
-        counters.add(completion)
-        _check_execution(execution_checkpoint)
-        _raise_if_task_stopped(db, task_run_id)
-        body = str(completion.payload.get("body_markdown") or "").strip()
-        if not body:
-            raise ReportGenerationError(
-                f"The AI provider returned an empty {section.title} section.",
-                code="invalid_provider_output",
+        if message_plan.included_findings == 0:
+            body = (
+                "No supported findings fit this section's context budget. "
+                "Increase the model context window or reduce the report output reserve to include the evidence."
             )
-        citations = _valid_citations(
-            completion.payload.get("citations"),
-            body=body,
-            known_citations=known_citations,
-        )
-        body = _remove_unknown_inline_citations(body, known_citations=known_citations)
-        key_points = _string_list(completion.payload.get("key_points"), limit=12)
+            key_points, citations = [], []
+            _append_coverage_warning(report, f"Section {section.title} has no narrative findings because its evidence could not fit the context budget.")
+            _record_grounding(report, degraded_section=section.section_key)
+        else:
+            _assert_messages_fit(messages, budget=budget)
+            completion = _request_report_completion(
+                db,
+                active=active,
+                budget=budget,
+                messages=messages,
+                report_id=report.id,
+                task_run_id=task_run_id,
+                provider_operation_scope=f"section:{section.id}",
+                max_provider_attempts=active.report_max_model_calls - counters.model_calls,
+                execution_checkpoint=execution_checkpoint,
+                execution_commit=execution_commit,
+            )
+            counters.add(completion)
+            _check_execution(execution_checkpoint)
+            _raise_if_task_stopped(db, task_run_id)
+            stage = report_stage_input(messages)
+            assert stage is not None
+            known_citations = {citation for finding in stage["findings"] for citation in finding["citations"]}
+            grounded = validate_section(completion.payload, known_citations=known_citations)
+            body, key_points, citations = grounded.body, grounded.key_points, grounded.citations
+            _record_grounding(report, claim_blocks=grounded.claim_blocks)
 
     section.body_markdown = body
     section.key_points_json = key_points
@@ -650,33 +677,6 @@ def _generation_order(sections: list[ReportSection]) -> list[ReportSection]:
     )
 
 
-def _normalize_findings(value: object, *, known_citations: set[str]) -> list[dict]:
-    if not isinstance(value, list):
-        return []
-    findings: list[dict] = []
-    for entry in value[:100]:
-        if isinstance(entry, str):
-            text = entry.strip()
-            citations = _valid_citations(
-                None, body=text, known_citations=known_citations
-            )
-        elif isinstance(entry, dict):
-            text = str(entry.get("text") or entry.get("finding") or "").strip()
-            citations = _valid_citations(
-                entry.get("citations"), body=text, known_citations=known_citations
-            )
-        else:
-            continue
-        if text and citations:
-            findings.append(
-                {
-                    "text": _remove_unknown_inline_citations(text, known_citations),
-                    "citations": citations,
-                }
-            )
-    return findings
-
-
 def _assert_messages_fit(messages: list[dict[str, str]], *, budget) -> None:
     token_count = estimate_message_tokens(messages)
     if token_count > budget.usable_input_tokens:
@@ -687,25 +687,100 @@ def _assert_messages_fit(messages: list[dict[str, str]], *, budget) -> None:
         )
 
 
+def _request_report_completion(
+    db: Session,
+    *,
+    active: ActiveAISettings,
+    budget: AIContextBudget,
+    messages: list[dict[str, str]],
+    report_id: uuid.UUID,
+    task_run_id: uuid.UUID | None,
+    provider_operation_scope: str,
+    max_provider_attempts: int,
+    execution_checkpoint: Callable[[], None] | None,
+    execution_commit: Callable[[], None] | None,
+) -> AICompletionResult:
+    initial, retry_ceiling = _report_completion_limits(
+        active=active, budget=budget, messages=messages,
+    )
+    try:
+        return request_ai_json_with_usage(
+            db,
+            active,
+            feature_type=FEATURE_REPORT,
+            messages=messages,
+            report_id=report_id,
+            task_run_id=task_run_id,
+            provider_operation_scope=provider_operation_scope,
+            max_completion_tokens=initial,
+            max_retry_completion_tokens=retry_ceiling,
+            max_provider_attempts=max_provider_attempts,
+            execution_checkpoint=execution_checkpoint,
+            execution_commit=execution_commit,
+        )
+    except AIIntegrationError as error:
+        if error.retry_hint != "expand_completion_budget":
+            raise
+        input_tokens = estimate_message_tokens(messages)
+        headroom = (
+            budget.context_window_tokens - input_tokens
+            - budget.safety_margin_tokens - budget.protocol_overhead_tokens
+        )
+        final_tokens = (error.request_payload or {}).get("max_completion_tokens", (error.request_payload or {}).get("max_tokens"))
+        final_allowance = (
+            f"{final_tokens:,}" if type(final_tokens) is int else "unavailable"
+        )
+        if retry_ceiling == headroom:
+            limiting_factor = "The remaining context limits output for this call."
+        elif retry_ceiling == MAX_AI_COMPLETION_TOKENS:
+            limiting_factor = "The application output limit bounds retries for this call."
+        else:
+            limiting_factor = "The report/provider output settings bound retries for this call."
+        diagnostic = (
+            f"Report budget: context window {budget.context_window_tokens:,}; "
+            f"estimated serialized input {input_tokens:,}; "
+            f"safety reserve {budget.safety_margin_tokens:,}; "
+            f"protocol reserve {budget.protocol_overhead_tokens:,}; "
+            f"remaining output headroom {headroom:,} tokens. "
+            f"Initial report allowance {initial:,}; final request allowance {final_allowance}; "
+            f"retry ceiling {retry_ceiling:,} tokens; provider attempts {error.attempt_count}. "
+            f"{limiting_factor}"
+        )
+        # Add context only after the request runtime has finished its retries and
+        # settled its receipts. Retain the original exception and I/O metadata.
+        error.args = (f"{error}\n\n{diagnostic}", *error.args[1:])
+        raise
+
+
 def _report_completion_limits(
     *,
     active: ActiveAISettings,
-    budget,
+    budget: AIContextBudget,
     messages: list[dict[str, str]],
-    stage_cap: int | None = None,
 ) -> tuple[int, int]:
-    initial = min(active.report_reserved_output_tokens, active.max_completion_tokens)
+    # The planner reserves this output budget independently of the provider's
+    # default for enrichment and briefs. Retries may use remaining context up to
+    # the greater of the report budget and that provider default.
+    initial = active.report_reserved_output_tokens
+    if not 256 <= initial <= MAX_AI_COMPLETION_TOKENS:
+        raise AIContextBudgetError(
+            f"The report output budget must be between 256 and {MAX_AI_COMPLETION_TOKENS:,} tokens."
+        )
     maximum = min(
-        active.max_completion_tokens,
+        max(initial, active.max_completion_tokens),
+        provider_output_ceiling(active, messages),
+        MAX_AI_COMPLETION_TOKENS,
         budget.context_window_tokens
         - budget.safety_margin_tokens
         - budget.protocol_overhead_tokens
         - estimate_message_tokens(messages),
     )
-    if stage_cap is not None:
-        initial = min(initial, stage_cap)
-        maximum = min(maximum, stage_cap)
-    return initial, max(initial, maximum)
+    if initial > maximum:
+        raise AIContextBudgetError(
+            "The report output budget does not fit the remaining model context. "
+            "Increase the context window or reduce the report output budget."
+        )
+    return initial, maximum
 
 
 def _append_coverage_warning(report: Report, warning: str) -> None:
@@ -717,28 +792,33 @@ def _append_coverage_warning(report: Report, warning: str) -> None:
     report.coverage_json = coverage
 
 
-def _valid_citations(
-    value: object, *, body: str, known_citations: set[str]
-) -> list[str]:
-    explicit = _string_list(value, limit=100)
-    inline = CITATION_PATTERN.findall(body)
-    return list(
-        dict.fromkeys(
-            citation for citation in [*explicit, *inline] if citation in known_citations
-        )
+def _record_grounding(
+    report: Report, *, findings: int = 0, claim_blocks: int = 0,
+    empty_batch: int | None = None,
+    degraded_section: str | None = None,
+) -> None:
+    coverage = dict(report.coverage_json or {})
+    grounding = dict(coverage.get("grounding") or {})
+    grounding.update({
+        "version": 1,
+        "validated_findings": int(grounding.get("validated_findings", 0)) + findings,
+        "cited_claim_blocks": int(grounding.get("cited_claim_blocks", 0)) + claim_blocks,
+        "semantic_verification": False,
+    })
+    empty_batches = list(grounding.get("empty_batches") or [])
+    if empty_batch is not None and empty_batch not in empty_batches:
+        empty_batches.append(empty_batch)
+    grounding["empty_batches"] = empty_batches
+    degraded_sections = list(grounding.get("degraded_sections") or [])
+    if degraded_section is not None and degraded_section not in degraded_sections:
+        degraded_sections.append(degraded_section)
+    grounding["degraded_sections"] = degraded_sections
+    grounding["status"] = (
+        "insufficient_evidence" if not grounding["validated_findings"]
+        else "degraded" if empty_batches or degraded_sections else "checked"
     )
-
-
-def _remove_unknown_inline_citations(body: str, known_citations: set[str]) -> str:
-    return CITATION_PATTERN.sub(
-        lambda match: match.group(0) if match.group(1) in known_citations else "", body
-    )
-
-
-def _string_list(value: object, *, limit: int) -> list[str]:
-    if not isinstance(value, (list, tuple)):
-        return []
-    return [text for entry in value[:limit] if (text := str(entry).strip())]
+    coverage["grounding"] = grounding
+    report.coverage_json = coverage
 
 
 def _finalize_ready_report(
@@ -762,7 +842,11 @@ def _finalize_ready_report(
         ).all()
     )
     db.add(report)
-    if report.delivery_requested:
+    from app.services.report_publication import publish_automatic_report
+
+    if not report.review_required:
+        publish_automatic_report(db, report)
+    if report.delivery_requested and report.publication_status == "published":
         from app.services.report_notifications import emit_report_ready_event
 
         emit_report_ready_event(db, report=report)

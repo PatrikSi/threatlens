@@ -568,6 +568,9 @@ def test_lifecycle_migration_upgrades_and_downgrades(test_database_url, monkeypa
                     requester_id,
                     canceller_id,
                 )
+            # The application metadata describes the current head; the 0085
+            # assertions above remain pinned to that historical migration.
+            command.upgrade(config, "head")
             command.check(config)
 
             command.downgrade(config, "0084_ioc_candidate_search")

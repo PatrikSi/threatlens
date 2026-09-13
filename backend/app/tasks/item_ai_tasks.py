@@ -1,14 +1,22 @@
+import logging
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from types import ModuleType
 
 from sqlalchemy import func, select
 
+from app.core import config
 from app.models.ai_task_run import AITaskRun
+from app.services.ai_execution_ownership import ai_worker_execution
 from app.models.article import Article
 from app.models.item import Item
+from app.services import ai_config, ai_integration, ai_ops
+from app.services.ai_workflow_dispatch import AIWorkflowDeferred, defer_ai_workflow_run
 from app.services.ai_telemetry_data_policy import capture_ai_task_run_data_access
+from app.tasks import feed_task_runtime
+from app.tasks.feed_task_dependencies import ItemAIDependencies
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -28,58 +36,66 @@ class AIReprocessSelection:
         return max(0, self.requested_item_count - len(self.item_ids))
 
 
+@ai_worker_execution
 def run_generate_item_ai_enrichment(
     task,
     item_id: str,
     force: bool = False,
     task_run_id: str | None = None,
     *,
-    runtime: ModuleType,
+    dependencies: ItemAIDependencies,
 ):
-    r = runtime
-    with r.db_session() as db:
+    with dependencies.db_session() as db:
         parsed_run_id = _parse_uuid(task_run_id)
         if parsed_run_id:
-            start_result = _start_item_run(
-                db, task, parsed_run_id, item_id, force, runtime=r
-            )
+            start_result = _start_item_run(db, task, parsed_run_id, item_id, force)
             if start_result is not None:
                 return start_result
 
         parsed_item_id = _parse_uuid(item_id)
         if parsed_item_id is None:
-            _finish_invalid_item_run(db, task, parsed_run_id, runtime=r)
+            _finish_invalid_item_run(db, task, parsed_run_id)
             return {
                 "status": "skipped",
                 "reason": "invalid_item_id",
                 "item_id": item_id,
             }
 
-        _claimed_item, claim_reason = r._claim_item_ai_enrichment_target(
+        _claimed_item, claim_reason = feed_task_runtime.claim_item_processing_target(
             db, item_id=parsed_item_id
         )
+        if claim_reason == "already_running" and parsed_run_id is not None:
+            defer_ai_workflow_run(db, run_id=parsed_run_id, reason="item_busy", retry_after_seconds=30)
+            db.commit()
+            return {"status": "queued", "reason": "item_busy", "item_id": item_id}
         if claim_reason is not None:
-            _finish_skipped_item_run(db, task, parsed_run_id, claim_reason, runtime=r)
+            _finish_skipped_item_run(db, task, parsed_run_id, claim_reason)
             return {"status": "skipped", "reason": claim_reason, "item_id": item_id}
         db.commit()
 
         try:
-            result = r.run_item_ai_enrichment(
+            result = ai_integration.run_item_ai_enrichment(
                 db, item_id=parsed_item_id, force=force, task_run_id=parsed_run_id
             )
+        except AIWorkflowDeferred as exc:
+            if parsed_run_id is not None:
+                defer_ai_workflow_run(db, run_id=parsed_run_id, reason=exc.reason,
+                                      retry_after_seconds=exc.retry_after_seconds)
+                db.commit()
+            return {"status": "queued", "reason": exc.reason, "item_id": item_id}
         except Exception:
             db.rollback()
-            _finish_unexpected_item_error(db, task, parsed_run_id, runtime=r)
-            r.logger.exception(
+            _finish_unexpected_item_error(db, task, parsed_run_id)
+            logger.exception(
                 "AI enrichment task failed unexpectedly for item %s", item_id
             )
             return {"status": "error", "reason": "unexpected_error", "item_id": item_id}
         if parsed_run_id:
-            _finish_item_result(db, task, parsed_run_id, result, runtime=r)
+            _finish_item_result(db, task, parsed_run_id, result)
         db.commit()
         if result.enrichment is None:
             return {
-                "status": "skipped",
+                "status": result.status,
                 "reason": result.reason or "not_eligible",
                 "item_id": item_id,
             }
@@ -119,11 +135,15 @@ def parse_datetime_text(value: str | None) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
-def _start_item_run(
-    db, task, run_id: uuid.UUID, item_id: str, force: bool, *, runtime: ModuleType
-):
-    r = runtime
-    started_run = r.start_ai_task_run(
+def _start_item_run(db, task, run_id: uuid.UUID, item_id: str, force: bool):
+    from app.services.ai_reprocess import is_canonical_reprocess_child
+    if not is_canonical_reprocess_child(db, run_id=run_id):
+        db.commit()  # Release selection ownership before taking the child lock.
+        ai_ops.finish_ai_task_run(db, run_id=run_id, status="skipped", reason="superseded_reprocess_child")
+        db.commit()
+        return {"status": "skipped", "reason": "superseded_reprocess_child", "item_id": item_id}
+    db.commit()  # Release the legacy selection/parent lock before claiming a child.
+    started_run = ai_ops.start_ai_task_run(
         db,
         run_id=run_id,
         worker_name=getattr(task.request, "hostname", None),
@@ -131,18 +151,18 @@ def _start_item_run(
         metadata_updates={"force": bool(force)},
     )
     db.commit()
-    if not r._task_run_claimed_by_current_worker(
+    if not feed_task_runtime.task_run_claimed_by_current_worker(
         started_run, celery_task_id=getattr(task.request, "id", None)
     ):
         return {"status": "skipped", "reason": "already_running", "item_id": item_id}
-    stop_reason = r.ai_task_run_stop_reason(started_run)
+    stop_reason = ai_ops.ai_task_run_stop_reason(started_run)
     if stop_reason is None:
         return None
     if stop_reason == "canceled":
-        r.finish_ai_task_run(
+        ai_ops.finish_ai_task_run(
             db,
             run_id=run_id,
-            status=r.AI_STATUS_SKIPPED,
+            status=ai_ops.AI_STATUS_SKIPPED,
             reason="canceled",
             worker_name=getattr(task.request, "hostname", None),
             metadata_updates={
@@ -153,50 +173,39 @@ def _start_item_run(
     return {"status": "skipped", "reason": stop_reason, "item_id": item_id}
 
 
-def _finish_invalid_item_run(
-    db, task, run_id: uuid.UUID | None, *, runtime: ModuleType
-) -> None:
+def _finish_invalid_item_run(db, task, run_id: uuid.UUID | None) -> None:
     if run_id is None:
         return
-    runtime.finish_ai_task_run(
+    ai_ops.finish_ai_task_run(
         db,
         run_id=run_id,
-        status=runtime.AI_STATUS_SKIPPED,
+        status=ai_ops.AI_STATUS_SKIPPED,
         reason="invalid_item_id",
         worker_name=getattr(task.request, "hostname", None),
     )
     db.commit()
 
 
-def _finish_skipped_item_run(
-    db,
-    task,
-    run_id: uuid.UUID | None,
-    reason: str,
-    *,
-    runtime: ModuleType,
-) -> None:
+def _finish_skipped_item_run(db, task, run_id: uuid.UUID | None, reason: str) -> None:
     if run_id is None:
         return
-    runtime.finish_ai_task_run(
+    ai_ops.finish_ai_task_run(
         db,
         run_id=run_id,
-        status=runtime.AI_STATUS_SKIPPED,
+        status=ai_ops.AI_STATUS_SKIPPED,
         reason=reason,
         worker_name=getattr(task.request, "hostname", None),
     )
     db.commit()
 
 
-def _finish_unexpected_item_error(
-    db, task, run_id: uuid.UUID | None, *, runtime: ModuleType
-) -> None:
+def _finish_unexpected_item_error(db, task, run_id: uuid.UUID | None) -> None:
     if run_id is None:
         return
-    runtime.finish_ai_task_run(
+    ai_ops.finish_ai_task_run(
         db,
         run_id=run_id,
-        status=runtime.AI_STATUS_ERROR,
+        status=ai_ops.AI_STATUS_ERROR,
         reason="unexpected_error",
         error="unexpected_error",
         worker_name=getattr(task.request, "hostname", None),
@@ -204,24 +213,24 @@ def _finish_unexpected_item_error(
     db.commit()
 
 
-def _finish_item_result(
-    db, task, run_id: uuid.UUID, result, *, runtime: ModuleType
-) -> None:
+def _finish_item_result(db, task, run_id: uuid.UUID, result) -> None:
     enrichment = result.enrichment
-    runtime.finish_ai_task_run(
+    ai_ops.finish_ai_task_run(
         db,
         run_id=run_id,
         status=(
-            runtime.AI_STATUS_READY
+            ai_ops.AI_STATUS_READY
             if result.status == "ready"
-            else runtime.AI_STATUS_ERROR
+            else ai_ops.AI_STATUS_ERROR
             if result.status == "error"
-            else runtime.AI_STATUS_SKIPPED
+            else ai_ops.AI_STATUS_SKIPPED
         ),
         reason=result.reason,
-        error=enrichment.error
-        if enrichment is not None and result.status == "error"
-        else None,
+        error=(
+            enrichment.error
+            if enrichment is not None
+            else getattr(result, "error", None)
+        ) if result.status == "error" else None,
         worker_name=getattr(task.request, "hostname", None),
         model=enrichment.model if enrichment is not None else None,
         prompt_tokens=enrichment.prompt_tokens if enrichment is not None else None,
@@ -244,6 +253,7 @@ def _finish_item_result(
     )
 
 
+@ai_worker_execution
 def run_reprocess_recent_ai_items(
     task,
     days: int | None,
@@ -255,29 +265,32 @@ def run_reprocess_recent_ai_items(
     task_run_id: str | None = None,
     actor_user_id: str | None = None,
     *,
-    runtime: ModuleType,
+    dependencies: ItemAIDependencies,
 ):
-    r = runtime
-    selection = _build_selection(
-        days, limit, start_time, end_time, feed_ids, item_ids, runtime=r
-    )
+    selection = _build_selection(days, limit, start_time, end_time, feed_ids, item_ids)
     parsed_run_id = _parse_uuid(task_run_id)
     parsed_actor_user_id = _parse_uuid(actor_user_id)
-    with r.db_session() as db:
+    with dependencies.db_session() as db:
         start_result = _start_reprocess_run(
-            db, task, parsed_run_id, task_run_id, selection, runtime=r
+            db, task, parsed_run_id, task_run_id, selection
         )
         if start_result is not None:
             return start_result
         active_ai_settings, unavailable_result = _load_reprocess_ai_settings(
-            db, task, parsed_run_id, runtime=r
+            db, task, parsed_run_id
         )
         if unavailable_result is not None:
             return unavailable_result
-        selected_item_ids = _select_item_ids(db, selection)
-        _record_selection(db, parsed_run_id, selected_item_ids, selection, runtime=r)
+        if parsed_run_id is not None:
+            from app.services.ai_reprocess import freeze_reprocess_selection
+            parent = db.get(AITaskRun, parsed_run_id)
+            selected_item_ids = [member.item_id for member in freeze_reprocess_selection(db, parent)]
+            db.commit()
+        else:
+            selected_item_ids = _select_item_ids(db, selection)
+            _record_selection(db, parsed_run_id, selected_item_ids, selection)
         if not selected_item_ids:
-            _finish_empty_selection(db, task, parsed_run_id, selection, runtime=r)
+            _finish_empty_selection(db, task, parsed_run_id, selection)
             return {"queued": 0, "reason": "no_items"}
 
     return _queue_selected_items(
@@ -288,7 +301,7 @@ def run_reprocess_recent_ai_items(
         parsed_actor_user_id,
         active_ai_settings.model,
         task_run_id,
-        runtime=r,
+        dependencies=dependencies,
     )
 
 
@@ -299,11 +312,9 @@ def _build_selection(
     end_time: str | None,
     feed_ids: list[str] | None,
     item_ids: list[str] | None,
-    *,
-    runtime: ModuleType,
 ) -> AIReprocessSelection:
     effective_limit = max(
-        1, min(int(limit), int(runtime.get_settings().dispatch_ai_reprocess_batch_size))
+        1, min(int(limit), int(config.get_settings().dispatch_ai_reprocess_batch_size))
     )
     parsed_start_time = parse_datetime_text(start_time)
     parsed_end_time = parse_datetime_text(end_time)
@@ -333,13 +344,10 @@ def _start_reprocess_run(
     run_id: uuid.UUID | None,
     task_run_id: str | None,
     selection: AIReprocessSelection,
-    *,
-    runtime: ModuleType,
 ):
     if run_id is None:
         return None
-    r = runtime
-    started_run = r.start_ai_task_run(
+    started_run = ai_ops.start_ai_task_run(
         db,
         run_id=run_id,
         worker_name=getattr(task.request, "hostname", None),
@@ -347,7 +355,7 @@ def _start_reprocess_run(
         metadata_updates=_selection_metadata(selection, include_effective_limit=True),
     )
     db.commit()
-    if not r._task_run_claimed_by_current_worker(
+    if not feed_task_runtime.task_run_claimed_by_current_worker(
         started_run, celery_task_id=getattr(task.request, "id", None)
     ):
         return {
@@ -356,14 +364,14 @@ def _start_reprocess_run(
             "run_id": task_run_id,
             "reason": "already_running",
         }
-    stop_reason = r.ai_task_run_stop_reason(started_run)
+    stop_reason = ai_ops.ai_task_run_stop_reason(started_run)
     if stop_reason is None:
         return None
     if stop_reason == "canceled":
-        r.finish_ai_task_run(
+        ai_ops.finish_ai_task_run(
             db,
             run_id=run_id,
-            status=r.AI_STATUS_SKIPPED,
+            status=ai_ops.AI_STATUS_SKIPPED,
             reason="canceled",
             worker_name=getattr(task.request, "hostname", None),
             metadata_updates={
@@ -394,27 +402,36 @@ def _selection_metadata(
     return metadata
 
 
-def _load_reprocess_ai_settings(
-    db, task, run_id: uuid.UUID | None, *, runtime: ModuleType
-):
-    settings = runtime.load_active_ai_settings(db)
+def _load_reprocess_ai_settings(db, task, run_id: uuid.UUID | None):
+    settings = ai_config.load_active_ai_settings(
+        db, feature_type="item_enrichment", task_run_id=run_id
+    )
     reason = None
+    error = None
+    status = ai_ops.AI_STATUS_SKIPPED
     if not settings.ai_enabled:
         reason = "ai_disabled"
     elif not settings.ai_configured:
-        reason = "ai_not_configured"
+        reason = getattr(settings, "configuration_error_code", None) or "ai_not_configured"
+        if reason != "ai_not_configured":
+            status = ai_ops.AI_STATUS_ERROR
+            error = getattr(settings, "configuration_error", None) or reason
     if reason is None:
         return settings, None
     if run_id:
-        runtime.finish_ai_task_run(
+        ai_ops.finish_ai_task_run(
             db,
             run_id=run_id,
-            status=runtime.AI_STATUS_SKIPPED,
+            status=status,
             reason=reason,
+            error=error,
             worker_name=getattr(task.request, "hostname", None),
         )
         db.commit()
-    return settings, {"queued": 0, "reason": reason}
+    result = {"queued": 0, "reason": reason}
+    if status == ai_ops.AI_STATUS_ERROR:
+        result["status"] = status
+    return settings, result
 
 
 def _select_item_ids(db, selection: AIReprocessSelection) -> list[uuid.UUID]:
@@ -446,8 +463,6 @@ def _record_selection(
     run_id: uuid.UUID | None,
     item_ids: list[uuid.UUID],
     selection: AIReprocessSelection,
-    *,
-    runtime: ModuleType,
 ) -> None:
     if run_id is None:
         return
@@ -464,7 +479,7 @@ def _record_selection(
         feed_ids=selection.feed_ids,
         complete=True,
     )
-    runtime.record_ai_task_event(
+    ai_ops.record_ai_task_event(
         db,
         run_id=run_id,
         event_type="selection_complete",
@@ -477,19 +492,14 @@ def _record_selection(
 
 
 def _finish_empty_selection(
-    db,
-    task,
-    run_id: uuid.UUID | None,
-    selection: AIReprocessSelection,
-    *,
-    runtime: ModuleType,
+    db, task, run_id: uuid.UUID | None, selection: AIReprocessSelection
 ) -> None:
     if run_id is None:
         return
-    runtime.finish_ai_task_run(
+    ai_ops.finish_ai_task_run(
         db,
         run_id=run_id,
-        status=runtime.AI_STATUS_SKIPPED,
+        status=ai_ops.AI_STATUS_SKIPPED,
         reason="no_items",
         worker_name=getattr(task.request, "hostname", None),
         metadata_updates=_selection_metadata(selection, include_effective_limit=False),
@@ -506,15 +516,20 @@ def _queue_selected_items(
     model: str,
     task_run_id: str | None,
     *,
-    runtime: ModuleType,
+    dependencies: ItemAIDependencies,
 ):
     queued = 0
     queue_errors = 0
     for item_id in item_ids:
-        stop_reason = runtime._get_ai_run_stop_reason(run_id)
+        stop_reason = dependencies.ai_run_stop_reason(run_id)
         if stop_reason is not None:
             _record_queue_stop(
-                task, run_id, stop_reason, queued, queue_errors, runtime=runtime
+                task,
+                run_id,
+                stop_reason,
+                queued,
+                queue_errors,
+                dependencies=dependencies,
             )
             return {
                 "queued": queued,
@@ -522,9 +537,9 @@ def _queue_selected_items(
                 "run_id": task_run_id,
                 "reason": stop_reason,
             }
-        queued_ok = runtime._safe_queue_item_ai_enrichment_run(
+        queued_ok = dependencies.queue_ai_enrichment(
             item_id=item_id,
-            trigger_source=runtime.AI_TRIGGER_MANUAL,
+            trigger_source=ai_ops.AI_TRIGGER_MANUAL,
             reason=None,
             actor_user_id=actor_user_id,
             parent_run_id=run_id,
@@ -536,7 +551,7 @@ def _queue_selected_items(
             queued += 1
         else:
             queue_errors += 1
-    _record_children_queued(run_id, queued, queue_errors, runtime=runtime)
+    _record_children_queued(run_id, queued, queue_errors, dependencies=dependencies)
     return {"queued": queued, "queue_errors": queue_errors, "run_id": task_run_id}
 
 
@@ -562,22 +577,27 @@ def _record_queue_stop(
     queued: int,
     queue_errors: int,
     *,
-    runtime: ModuleType,
+    dependencies: ItemAIDependencies,
 ) -> None:
     if run_id is None:
         return
-    with runtime.db_session() as db:
-        runtime.record_ai_task_event(
+    with dependencies.db_session() as db:
+        from app.services.ai_execution_ownership import fence_ai_execution
+        if not fence_ai_execution(db, run_id=run_id):
+            return
+        from app.services.ai_workflow_dispatch import complete_workflow_dispatch
+        complete_workflow_dispatch(db, run_id)
+        ai_ops.record_ai_task_event(
             db,
             run_id=run_id,
             event_type="queueing_stopped",
             payload={"reason": reason, "queued": queued, "queue_errors": queue_errors},
         )
         if reason == "canceled":
-            runtime.finish_ai_task_run(
+            ai_ops.finish_ai_task_run(
                 db,
                 run_id=run_id,
-                status=runtime.AI_STATUS_SKIPPED,
+                status=ai_ops.AI_STATUS_SKIPPED,
                 reason="canceled",
                 worker_name=getattr(task.request, "hostname", None),
                 metadata_updates={
@@ -594,12 +614,17 @@ def _record_children_queued(
     queued: int,
     queue_errors: int,
     *,
-    runtime: ModuleType,
+    dependencies: ItemAIDependencies,
 ) -> None:
     if run_id is None:
         return
-    with runtime.db_session() as db:
-        runtime.record_ai_task_event(
+    with dependencies.db_session() as db:
+        from app.services.ai_execution_ownership import fence_ai_execution
+        if not fence_ai_execution(db, run_id=run_id):
+            return
+        from app.services.ai_reprocess import finish_reprocess_publication
+        finish_reprocess_publication(db, run_id=run_id)
+        ai_ops.record_ai_task_event(
             db,
             run_id=run_id,
             event_type="children_queued",

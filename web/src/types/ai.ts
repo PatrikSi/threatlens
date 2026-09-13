@@ -1,3 +1,17 @@
+export interface AIProviderAdmissionLimits {
+  max_concurrent_requests?: number
+  hourly_token_budget?: number
+}
+
+/** Optional fields keep older server responses and clients compatible. */
+export interface AIProviderCapabilities {
+  request_dialect?: 'chat_completions' | 'chat_completions_modern'
+  reasoning_effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
+  structured_output_mode?: 'off' | 'json_object'
+  model_context_window_tokens?: number | null
+  model_max_output_tokens?: number | null
+}
+
 export interface AIPromptPreview {
   label: string
   system_prompt: string
@@ -9,15 +23,17 @@ export interface AIPromptPreviews {
   daily_brief: AIPromptPreview
 }
 
-export interface AISettings {
+export interface AISettings extends AIProviderCapabilities, AIProviderAdmissionLimits {
   id: string
   ai_enabled: boolean
   ai_configured: boolean
   api_key_configured: boolean
+  provider_routing_supported?: boolean
+  effective_feature_configured?: { item_enrichment: boolean; daily_brief: boolean; report: boolean }
   provider_type: 'openai_compatible'
   base_url: string | null
   model: string | null
-  temperature: number
+  temperature: number | null
   max_completion_tokens: number
   request_timeout_seconds: number
   request_max_retries: number
@@ -58,11 +74,54 @@ export interface AISettings {
   prompt_previews: AIPromptPreviews
 }
 
-export interface AISettingsUpdateRequest {
+export interface AIProviderConfiguration extends AIProviderCapabilities, AIProviderAdmissionLimits {
+  name: string
+  enabled: boolean
+  provider_type: 'openai_compatible'
+  base_url: string
+  model: string
+  temperature: number | null
+  max_completion_tokens: number
+  request_timeout_seconds: number
+  request_max_retries: number
+}
+
+export interface AIProvider extends AIProviderConfiguration {
+  id: string
+  version: number
+  api_key_configured: boolean
+  credential_error: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface AIProviderPage {
+  items: AIProvider[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export interface AIProviderWriteRequest extends AIProviderConfiguration {
+  id?: string
+  version?: number
+  api_key?: string
+  clear_api_key?: boolean
+}
+
+export interface AIProviderRouting {
+  version: number
+  default_provider_id: string | null
+  item_enrichment_provider_id: string | null
+  daily_brief_provider_id: string | null
+  report_provider_id: string | null
+}
+
+export interface AISettingsUpdateRequest extends AIProviderCapabilities, AIProviderAdmissionLimits {
   provider_type: 'openai_compatible'
   base_url: string | null
   model: string | null
-  temperature: number
+  temperature: number | null
   max_completion_tokens: number
   request_timeout_seconds: number
   request_max_retries: number
@@ -156,6 +215,7 @@ export interface AIDailyBrief {
   brief_text: string | null
   key_points: string[]
   recommended_actions: string[]
+  evidence_warnings?: string[]
   item_count: number
   items: AIDailyBriefItem[]
   model: string | null
@@ -301,6 +361,8 @@ export interface AITimeSeriesPointResponse {
   total_tokens: number
   average_latency_ms: number
   p95_latency_ms: number
+  latency_samples?: number
+  known_usage_requests?: number
   daily_brief_successes: number
   daily_brief_failures: number
   daily_brief_skips: number
@@ -393,6 +455,10 @@ export interface AICacheStatsResponse {
 }
 
 export interface AIOpsOverviewResponse {
+  since?: string | null
+  until?: string | null
+  bucket_unit?: 'day'
+  bucket_timezone?: 'UTC'
   kpis: AIOverviewKpiResponse
   live: AILiveStatusResponse
   per_model: AIOverviewPerModelResponse[]

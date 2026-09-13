@@ -57,6 +57,21 @@ OperationLiteral: TypeAlias = tuple[str, str, str] | tuple[str, str, str, str]
 # security-sensitive contract changes.
 # fmt: off
 _CONTROL_PLANE_OPERATIONS: tuple[OperationLiteral, ...] = (
+    ('GET', '/v1/teams', 'list_teams'),
+    ('POST', '/v1/teams', 'create_team'),
+    ('GET', '/v1/teams/admin', 'list_admin_teams'),
+    ('GET', '/v1/teams/admin/{team_id}', 'get_admin_team'),
+    ('GET', '/v1/teams/{team_id}', 'get_team'),
+    ('PATCH', '/v1/teams/{team_id}', 'update_team'),
+    ('PUT', '/v1/teams/{team_id}/bindings', 'update_team_bindings'),
+    ('GET', '/v1/teams/{team_id}/members', 'list_team_members'),
+    ('GET', '/v1/ai/providers', 'list_ai_providers_route'),
+    ('POST', '/v1/ai/providers', 'create_ai_provider_route'),
+    ('GET', '/v1/ai/providers/{provider_id}', 'get_ai_provider_route'),
+    ('PUT', '/v1/ai/providers/{provider_id}', 'update_ai_provider_route'),
+    ('DELETE', '/v1/ai/providers/{provider_id}', 'delete_ai_provider_route'),
+    ('GET', '/v1/ai/provider-routing', 'get_ai_provider_routing_route'),
+    ('PUT', '/v1/ai/provider-routing', 'update_ai_provider_routing_route'),
     ('GET', '/v1/ai/settings', 'get_ai_settings_route'),
     ('PUT', '/v1/ai/settings', 'update_ai_settings_route'),
     ('GET', '/v1/alerts', 'list_alert_interests'),
@@ -232,6 +247,8 @@ _REQUEST_CONTEXT_OPERATIONS: tuple[OperationLiteral, ...] = (
     ('GET', '/v1/ai/ops/live', 'get_ai_ops_live_route'),
     ('GET', '/v1/ai/ops/manual-actions', 'list_ai_ops_manual_actions_route'),
     ('GET', '/v1/ai/ops/overview', 'get_ai_ops_overview_route'),
+    ('GET', '/v1/ai/ops/providers', 'get_ai_provider_usage'),
+    ('GET', '/v1/ai/ops/statistics', 'get_ai_statistics'),
     ('GET', '/v1/ai/ops/prompt-history', 'list_ai_ops_prompt_history_route'),
     ('GET', '/v1/ai/ops/runs', 'list_ai_ops_runs_route'),
     ('GET', '/v1/ai/ops/runs/{run_id}', 'get_ai_ops_run_detail_route'),
@@ -250,6 +267,8 @@ _REQUEST_CONTEXT_OPERATIONS: tuple[OperationLiteral, ...] = (
     ('POST', '/v1/alerts/occurrences/reconciliation/preview', 'preview_alert_occurrence_backfill'),
     ('GET', '/v1/alerts/occurrences/{occurrence_id}', 'get_alert_occurrence_detail'),
     ('GET', '/v1/alerts/occurrences/{occurrence_id}/activity', 'get_alert_occurrence_activity'),
+    ('PATCH', '/v1/alerts/occurrences/{occurrence_id}/assignment', 'patch_alert_assignment'),
+    ('PATCH', '/v1/alerts/occurrences/{occurrence_id}/deadline', 'patch_alert_deadline'),
     ('PATCH', '/v1/alerts/occurrences/{occurrence_id}/lifecycle', 'patch_alert_occurrence_lifecycle'),
     ('PATCH', '/v1/alerts/occurrences/{occurrence_id}/snooze', 'patch_alert_occurrence_snooze'),
     ('POST', '/v1/alerts/preview', 'preview_alert_interest'),
@@ -258,6 +277,16 @@ _REQUEST_CONTEXT_OPERATIONS: tuple[OperationLiteral, ...] = (
     ('POST', '/v1/exports', 'download_export'),
     ('GET', '/v1/exports/capabilities', 'get_export_capabilities'),
     ('POST', '/v1/exports/preview', 'preview_export'),
+    ('GET', '/v1/processing/work', 'get_processing_work'),
+    ('POST', '/v1/processing/recovery-runs', 'post_processing_recovery'),
+    ('GET', '/v1/processing/recovery-runs', 'get_processing_recoveries'),
+    ('GET', '/v1/processing/recovery-runs/{run_id}', 'get_processing_recovery'),
+    ('POST', '/v1/processing/recovery-runs/{run_id}/cancel', 'post_processing_recovery_cancel'),
+    ('POST', '/v1/exports/jobs', 'accept_export_job'),
+    ('GET', '/v1/exports/jobs', 'list_export_jobs'),
+    ('GET', '/v1/exports/jobs/{job_id}', 'get_export_job'),
+    ('POST', '/v1/exports/jobs/{job_id}/cancel', 'cancel_export_job'),
+    ('GET', '/v1/exports/jobs/{job_id}/download', 'download_export_job'),
     ('GET', '/v1/feeds', 'list_feeds'),
     ('POST', '/v1/feeds', 'create_feed'),
     ('GET', '/v1/feeds/export', 'export_feeds_sanitized'),
@@ -313,10 +342,13 @@ _REQUEST_CONTEXT_OPERATIONS: tuple[OperationLiteral, ...] = (
     ('GET', '/v1/reports', 'list_reports'),
     ('POST', '/v1/reports', 'create_report'),
     ('GET', '/v1/reports/capabilities', 'get_report_capabilities'),
+    ('GET', '/v1/reports/library', 'list_report_library'),
     ('POST', '/v1/reports/preview', 'preview_report'),
     ('DELETE', '/v1/reports/{report_id}', 'remove_report', '/v1/reports/{report_id:uuid}'),
     ('GET', '/v1/reports/{report_id}', 'get_report', '/v1/reports/{report_id:uuid}'),
     ('GET', '/v1/reports/{report_id}/download', 'download_report', '/v1/reports/{report_id:uuid}/download'),
+    ('PUT', '/v1/reports/{report_id}/draft', 'edit_report_draft', '/v1/reports/{report_id:uuid}/draft'),
+    ('POST', '/v1/reports/{report_id}/editorial', 'change_report_editorial_state', '/v1/reports/{report_id:uuid}/editorial'),
     ('POST', '/v1/reports/{report_id}/retry', 'retry_report', '/v1/reports/{report_id:uuid}/retry'),
     ('GET', '/v1/stats/activity-heatmap', 'get_activity_heatmap'),
     ('GET', '/v1/stats/feed-timeseries', 'get_feed_timeseries'),
@@ -349,6 +381,7 @@ _DYNAMIC_TARGET_OPERATIONS: tuple[OperationLiteral, ...] = (
 )
 
 _EGRESS_FENCED_OPERATIONS: tuple[OperationLiteral, ...] = (
+    ('POST', '/v1/ai/providers/{provider_id}/test-connection', 'test_ai_provider_connection_route'),
     ('POST', '/v1/ai/test-connection', 'test_ai_connection_route'),
 )
 # fmt: on
@@ -358,6 +391,10 @@ _EGRESS_FENCED_OPERATIONS: tuple[OperationLiteral, ...] = (
 # retained as useful operator evidence, but cannot by themselves detect a handler
 # replacement that reuses the same display name.
 _ENDPOINT_NAMES_BY_MODULE: Final[dict[str, tuple[str, ...]]] = {
+    "app.api.routes.teams": (
+        "list_teams", "create_team", "list_admin_teams", "get_admin_team", "get_team",
+        "update_team", "update_team_bindings", "list_team_members",
+    ),
     "app.api.routes.access_reviews": (
         "get_access_review_campaign_route",
         "get_access_review_campaigns",
@@ -401,6 +438,8 @@ _ENDPOINT_NAMES_BY_MODULE: Final[dict[str, tuple[str, ...]]] = {
         "test_ai_connection_route",
         "update_ai_settings_route",
     ),
+    "app.api.routes.ai_provider_usage": ("get_ai_provider_usage", "get_ai_statistics"),
+    "app.api.routes.alert_triage": ("patch_alert_assignment", "patch_alert_deadline"),
     "app.api.routes.alert_operations": (
         "get_alert_evaluation_activity",
         "get_alert_evaluation_detail",
@@ -464,6 +503,14 @@ _ENDPOINT_NAMES_BY_MODULE: Final[dict[str, tuple[str, ...]]] = {
         "download_export",
         "get_export_capabilities",
         "preview_export",
+    ),
+    "app.api.routes.processing": (
+        "get_processing_work", "post_processing_recovery", "get_processing_recoveries",
+        "get_processing_recovery", "post_processing_recovery_cancel",
+    ),
+    "app.api.routes.export_jobs": (
+        "accept_export_job", "list_export_jobs", "get_export_job",
+        "cancel_export_job", "download_export_job",
     ),
     "app.api.routes.feeds": (
         "create_feed",
@@ -610,13 +657,15 @@ _ENDPOINT_NAMES_BY_MODULE: Final[dict[str, tuple[str, ...]]] = {
         "runs",
         "workers",
     ),
+    "app.api.routes.report_documents": ("get_report",),
+    "app.api.routes.report_editorial": ("edit_report_draft", "change_report_editorial_state"),
+    "app.api.routes.report_library": ("list_report_library",),
     "app.api.routes.reports": (
         "clone_template",
         "create_report",
         "create_schedule",
         "create_template",
         "download_report",
-        "get_report",
         "get_report_capabilities",
         "list_report_templates",
         "list_reports",
@@ -670,6 +719,16 @@ _ENDPOINT_NAMES_BY_MODULE: Final[dict[str, tuple[str, ...]]] = {
         "post_elevation",
         "post_elevation_close",
         "post_elevation_decision",
+    ),
+    "app.api.routes.ai_providers": (
+        "test_ai_provider_connection_route",
+        "list_ai_providers_route",
+        "create_ai_provider_route",
+        "get_ai_provider_route",
+        "update_ai_provider_route",
+        "delete_ai_provider_route",
+        "get_ai_provider_routing_route",
+        "update_ai_provider_routing_route",
     ),
     "app.api.routes.tokens": (
         "create_token",

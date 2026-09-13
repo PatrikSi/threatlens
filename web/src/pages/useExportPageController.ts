@@ -4,6 +4,7 @@ import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query'
 import { apiDownload, apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
+import { useExportJobs } from './useExportJobs'
 import type {
   ArticleExportCapabilities,
   ArticleExportFormat,
@@ -23,6 +24,7 @@ import {
 } from './exportPageModel'
 
 export function useExportPageController() {
+  const jobs = useExportJobs()
   const [filterDraft, setFilterDraft] = useState(createDefaultExportFilterDraft)
   const [format, setFormatState] = useState<ArticleExportFormat>('csv')
   const [options, setOptions] = useState<ArticleExportOptions>(() => createDefaultExportOptions('csv'))
@@ -117,7 +119,7 @@ export function useExportPageController() {
       : previewQuery.isError
         ? 'The matching article preview must load before an export can be generated.'
         : exportBlockingReason(previewQuery.data, format, validation.errors)
-  const canExport = !blockingReason && !previewQuery.isFetching && !exportMutation.isPending
+  const canExport = !blockingReason && !previewQuery.isFetching && !exportMutation.isPending && !jobs.createMutation.isPending
   const exportError = exportMutation.isError
     ? resolveApiErrorMessage(exportMutation.error, 'The article export could not be generated')
     : null
@@ -149,6 +151,7 @@ export function useExportPageController() {
     capabilitiesQuery,
     previewQuery,
     exportMutation,
+    jobs,
     filterDraft,
     setFilterDraft,
     format,
@@ -161,6 +164,9 @@ export function useExportPageController() {
     exportError,
     notice,
     generateExport,
+    queueBackgroundExport: () => {
+      if (validation.filters && canExport) jobs.queueExport({ format, filters: validation.filters, options })
+    },
   }
 }
 

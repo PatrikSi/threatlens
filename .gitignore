@@ -8,6 +8,7 @@ venv/
 .pytest_cache/
 .mypy_cache/
 .coverage
+.coverage.*
 coverage.json
 htmlcov/
 
@@ -47,3 +48,7 @@ docker-compose.portainer.yml
 docker-compose.private-main.yml
 /web/vite.config.js
 /web/vite.config.d.ts
+
+# Browser test artifacts
+/web/test-results/
+/web/playwright-report/

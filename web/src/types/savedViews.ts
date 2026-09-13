@@ -146,6 +146,9 @@ export interface SavedViewWindowSummary {
 }
 
 export interface SavedViewPreview {
+  revision?: number
+  team_id?: string | null
+  can_delete?: boolean
   id: string
   name: string
   created_at: string
@@ -169,7 +172,11 @@ export interface SavedViewQueryPayload {
 
 export interface SavedView {
   id: string
-  user_id: string
+  user_id: string | null
+  team_id?: string | null
+  revision?: number
+  can_edit?: boolean
+  can_delete?: boolean
   name: string
   query_json: SavedViewQueryPayload
   created_at: string

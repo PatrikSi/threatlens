@@ -8,10 +8,12 @@ from datetime import datetime, timezone
 
 from app.core.config import Settings
 from app.core.redis_client import redis_client_from_url
-from app.tasks.celery_app import (
+from app.core.worker_queues import (
     QUEUE_AI,
     QUEUE_AI_REPORTS,
+    QUEUE_AI_REPORTS_EDITORIAL,
     QUEUE_DEFAULT,
+    QUEUE_EXPORTS,
     QUEUE_INGEST,
     QUEUE_LIFECYCLE,
     QUEUE_MAINTENANCE,
@@ -40,12 +42,13 @@ def required_worker_queues(settings: Settings) -> list[str]:
     queues = [
         QUEUE_INGEST,
         QUEUE_PROCESSING,
+        QUEUE_EXPORTS,
         QUEUE_NOTIFICATIONS,
         QUEUE_MAINTENANCE,
         QUEUE_LIFECYCLE,
     ]
     if settings.ai_enabled:
-        queues.extend([QUEUE_AI, QUEUE_AI_REPORTS])
+        queues.extend([QUEUE_AI, QUEUE_AI_REPORTS, QUEUE_AI_REPORTS_EDITORIAL])
     return queues
 
 

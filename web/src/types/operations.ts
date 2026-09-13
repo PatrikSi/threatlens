@@ -259,6 +259,8 @@ export interface OperationsHealthHistorySample {
   stale_execution_queues: string[]
   backlog_pending_count: number
   backlog_stale_count: number
+  backlogs?: OperationsBacklogSnapshot[]
+  runtime_metrics?: Record<string, number | null>
   critical_issue_count: number
   warning_issue_count: number
   issue_codes: string[]

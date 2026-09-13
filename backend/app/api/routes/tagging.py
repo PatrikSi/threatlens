@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import logging
-import re
+import time
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, literal, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -33,7 +33,8 @@ from app.schemas.tagging import (
     TaggingSettingsResponse,
     TaggingSettingsUpdate,
 )
-from app.services.algorithm_tags import evaluate_tagging_rule_match, normalize_tag_name
+from app.services.algorithm_tags import eligible_tagging_rule_fields, evaluate_tagging_rule_match, normalize_tag_name
+from app.services.bounded_regex import ERROR_MESSAGES, MAX_REGEX_TEXT_CHARS, validate_regex
 from app.services.audit import record_audit
 from app.services.data_access_policy import (
     DataAccessContext,
@@ -47,6 +48,7 @@ from app.services.tagging_config import (
     tagging_rule_response_from_model,
     tagging_settings_response_from_model,
 )
+from app.services.tagging_recovery import tagging_recovery_summary
 from app.tasks.feed_tasks import reapply_recent_item_tags
 from app.tasks.feed_tasks import (
     claim_tagging_reapply_dispatch,
@@ -56,6 +58,11 @@ from app.tasks.feed_tasks import (
 
 router = APIRouter(prefix="/tagging", tags=["tagging"])
 logger = logging.getLogger(__name__)
+
+PREVIEW_TITLE_CHARS = 500
+PREVIEW_FEED_NAME_CHARS = 255
+PREVIEW_TAG_CHARS = 64
+PREVIEW_TAGS_PER_ITEM = 25
 
 
 @router.get("/settings", response_model=TaggingSettingsBundleResponse)
@@ -68,6 +75,7 @@ def get_tagging_settings_bundle(
     rules = list_tagging_rules(db)
     return TaggingSettingsBundleResponse(
         settings=tagging_settings_response_from_model(settings),
+        tagging_recovery=tagging_recovery_summary(db, data_access),
         rules=_visible_tagging_rule_responses(
             db,
             rules=rules,
@@ -335,14 +343,12 @@ def _validate_rule_payload(
         )
 
     if payload.match_type == "regex":
-        try:
-            flags = 0 if payload.case_sensitive else re.IGNORECASE
-            re.compile(payload.pattern, flags)
-        except re.error as exc:
+        error = validate_regex(payload.pattern, payload.case_sensitive)
+        if error:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=f"Invalid regex: {exc}",
-            ) from exc
+                detail=ERROR_MESSAGES[error],
+            )
 
     return normalized_tag_name
 
@@ -456,11 +462,20 @@ def _build_rule_preview_response(
     feed_access_filter = handling_label_access_predicate(
         Feed.handling_label_id, data_access
     )
-    rows = db.execute(
+    candidate_count = int(db.scalar(select(func.count(Item.id)).join(Feed).where(feed_access_filter)) or 0)
+    selected_fields = set(payload.applies_to)
+    query = (
         select(
-            Item,
-            Feed.name.label("feed_name"),
-            Article.text.label("article_text"),
+            Item.id, Item.feed_id,
+            func.substr(Item.title, 1, (MAX_REGEX_TEXT_CHARS if "title" in selected_fields
+                                       else PREVIEW_TITLE_CHARS) + 1).label("title"),
+            Item.first_seen_at,
+            (func.substr(Item.summary, 1, MAX_REGEX_TEXT_CHARS + 1)
+             if "summary" in selected_fields else literal(None)).label("summary"),
+            func.substr(Feed.name, 1, (MAX_REGEX_TEXT_CHARS if "feed_name" in selected_fields
+                                      else PREVIEW_FEED_NAME_CHARS) + 1).label("feed_name"),
+            (func.substr(Article.text, 1, MAX_REGEX_TEXT_CHARS + 1)
+             if "article_text" in selected_fields else literal(None)).label("article_text"),
             ItemClassification.primary_category.label("primary_category"),
             ItemClassification.secondary_categories.label("secondary_categories"),
             ItemClassification.confidence.label("confidence"),
@@ -469,51 +484,70 @@ def _build_rule_preview_response(
         .outerjoin(Article, Article.item_id == Item.id)
         .outerjoin(ItemClassification, ItemClassification.item_id == Item.id)
         .where(feed_access_filter)
-        .order_by(Item.first_seen_at.desc())
-    ).all()
-
-    matched: list[tuple[object, list[str]]] = []
-    matched_item_ids: list[uuid.UUID] = []
-    total = 0
-    for row in rows:
-        matched_sections = evaluate_tagging_rule_match(
-            rule=payload,
-            title=row.Item.title,
-            summary=row.Item.summary,
-            article_text=row.article_text,
-            feed_name=row.feed_name,
-            feed_id=row.Item.feed_id,
-            primary_category=row.primary_category or "",
-            secondary_categories=row.secondary_categories or [],
-            classification_confidence=row.confidence,
-        )
-        if not matched_sections:
-            continue
-
-        total += 1
-        if len(matched) >= payload.limit:
-            continue
-        matched.append((row, matched_sections))
-        matched_item_ids.append(row.Item.id)
-
-    current_tags_by_item = _load_tags_for_items(
-        db, matched_item_ids, data_access=data_access
+        .order_by(Item.first_seen_at.desc(), Item.id.desc())
+        .limit(200)
     )
+    matched: list[TaggingRulePreviewItem] = []
+    total = scanned = 0
+    errors: list[str] = []
+    deadline = time.monotonic() + 3.0
+    rows = db.execute(query, execution_options={"yield_per": 1})
+    try:
+        for row in rows:
+            if time.monotonic() >= deadline:
+                break
+            scanned += 1
+            eligible_fields = eligible_tagging_rule_fields(
+                rule=payload, feed_id=row.feed_id, primary_category=row.primary_category or "",
+                secondary_categories=row.secondary_categories or [],
+                classification_confidence=row.confidence,
+            )
+            if not eligible_fields:
+                continue
+            # Contains previews must not silently match a truncated field either.
+            if any(len(getattr(row, field) or "") > MAX_REGEX_TEXT_CHARS for field in eligible_fields):
+                errors.append("input_too_large")
+                break
+            matched_sections = evaluate_tagging_rule_match(
+                rule=payload, title=row.title, summary=row.summary,
+                article_text=row.article_text, feed_name=row.feed_name,
+                feed_id=row.feed_id, primary_category=row.primary_category or "",
+                secondary_categories=row.secondary_categories or [],
+                classification_confidence=row.confidence, errors=errors,
+            )
+            if errors:
+                break
+            if matched_sections:
+                total += 1
+                if len(matched) < payload.limit:
+                    # Retain only bounded response metadata, never publisher bodies.
+                    matched.append(TaggingRulePreviewItem(
+                        id=row.id, title=_preview_display_text(row.title, PREVIEW_TITLE_CHARS),
+                        feed_name=_preview_display_text(row.feed_name, PREVIEW_FEED_NAME_CHARS),
+                        classification=row.primary_category, first_seen_at=row.first_seen_at,
+                        current_tags=[], matched_sections=matched_sections,
+                    ))
+    finally:
+        rows.close()
+
+    current_tags_by_item, truncated_tag_items = _load_tags_for_items(
+        db, [item.id for item in matched], data_access=data_access
+    )
+    for item in matched:
+        item.current_tags = current_tags_by_item.get(item.id, [])
+        item.current_tags_truncated = item.id in truncated_tag_items
     return TaggingRulePreviewResponse(
         total=total,
-        items=[
-            TaggingRulePreviewItem(
-                id=row.Item.id,
-                title=row.Item.title,
-                feed_name=row.feed_name,
-                classification=row.primary_category,
-                first_seen_at=row.Item.first_seen_at,
-                current_tags=current_tags_by_item.get(row.Item.id, []),
-                matched_sections=matched_sections,
-            )
-            for row, matched_sections in matched
-        ],
+        scanned_items=scanned,
+        candidate_items=candidate_count,
+        complete=scanned == candidate_count and not errors,
+        warnings=[ERROR_MESSAGES[code] for code in dict.fromkeys(errors)],
+        items=matched,
     )
+
+
+def _preview_display_text(value: str, limit: int) -> str:
+    return value[:limit] + "…" if len(value) > limit else value
 
 
 def _load_tags_for_items(
@@ -521,13 +555,20 @@ def _load_tags_for_items(
     item_ids: list[uuid.UUID],
     *,
     data_access: DataAccessContext,
-) -> dict[uuid.UUID, list[str]]:
+) -> tuple[dict[uuid.UUID, list[str]], set[uuid.UUID]]:
     if not item_ids:
-        return {}
+        return {}, set()
 
     tags_by_item: dict[uuid.UUID, list[str]] = {item_id: [] for item_id in item_ids}
-    rows = db.execute(
-        select(ItemTag.item_id, Tag.name)
+    truncated_items: set[uuid.UUID] = set()
+    # Bound both row count and characters in SQL before allocating tag strings.
+    # One sentinel row per item discloses omitted tags without fetching them.
+    ranked_tags = (
+        select(
+            ItemTag.item_id,
+            func.substr(Tag.name, 1, PREVIEW_TAG_CHARS + 1).label("name"),
+            func.row_number().over(partition_by=ItemTag.item_id, order_by=Tag.name).label("position"),
+        )
         .join(Tag, Tag.id == ItemTag.tag_id)
         .join(Item, Item.id == ItemTag.item_id)
         .join(Feed, Feed.id == Item.feed_id)
@@ -535,8 +576,13 @@ def _load_tags_for_items(
             ItemTag.item_id.in_(item_ids),
             handling_label_access_predicate(Feed.handling_label_id, data_access),
         )
-        .order_by(Tag.name.asc())
-    ).all()
-    for item_id, tag_name in rows:
-        tags_by_item[item_id].append(tag_name)
-    return tags_by_item
+        .subquery()
+    )
+    rows = db.execute(select(ranked_tags).where(ranked_tags.c.position <= PREVIEW_TAGS_PER_ITEM + 1)
+                      .order_by(ranked_tags.c.item_id, ranked_tags.c.position))
+    for item_id, tag_name, position in rows:
+        if position > PREVIEW_TAGS_PER_ITEM or len(tag_name) > PREVIEW_TAG_CHARS:
+            truncated_items.add(item_id)
+        if position <= PREVIEW_TAGS_PER_ITEM:
+            tags_by_item[item_id].append(_preview_display_text(tag_name, PREVIEW_TAG_CHARS))
+    return tags_by_item, truncated_items

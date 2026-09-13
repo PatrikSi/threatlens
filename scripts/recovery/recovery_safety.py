@@ -19,8 +19,10 @@ MAX_COMPOSE_CONFIG_BYTES = 16 * 1024 * 1024
 COPY_CHUNK_BYTES = 1024 * 1024
 SUPPORTED_APP_SERVICES = (
     "api",
+    "migrate",
     "worker",
     "worker-ai",
+    "worker-exports",
     "worker-maintenance",
     "worker-notifications",
     "beat",
@@ -197,6 +199,20 @@ def _command_validate_target(_args: argparse.Namespace) -> None:
     database_password = _required_environment_value(
         db_environment, "POSTGRES_PASSWORD", "db"
     )
+    role_keys = (
+        "POSTGRES_RUNTIME_USER", "POSTGRES_RUNTIME_PASSWORD",
+        "POSTGRES_MIGRATION_USER", "POSTGRES_MIGRATION_PASSWORD",
+    )
+    split_roles = any(db_environment.get(key) for key in role_keys)
+    runtime_user, runtime_password = database_user, database_password
+    migration_user, migration_password = database_user, database_password
+    if split_roles:
+        values = [_required_environment_value(db_environment, key, "db") for key in role_keys]
+        runtime_user, runtime_password, migration_user, migration_password = values
+        if len({database_user, runtime_user, migration_user}) != 3:
+            _fail("Runtime, migration, and recovery database roles must be distinct")
+        if "migrate" not in document["services"]:
+            _fail("Split database roles require the recognized migrate service")
     redis_password = _required_environment_value(
         redis_environment, "REDIS_PASSWORD", "redis"
     )
@@ -221,29 +237,34 @@ def _command_validate_target(_args: argparse.Namespace) -> None:
                 f"Compose service {service_name!r} is an unrecognized backend data accessor; "
                 "recovery cannot prove that it will be stopped"
             )
-        if not has_database_url or not has_redis_url:
+        if not has_database_url or (not has_redis_url and service_name != "migrate"):
             _fail(
                 f"Compose service {service_name!r} must declare both DATABASE_URL and REDIS_URL"
             )
         service_networks = _networks(service)
         if not service_networks.intersection(_networks(db_service)):
             _fail(f"Compose service {service_name!r} does not share a network with db")
-        if not service_networks.intersection(_networks(redis_service)):
+        if has_redis_url and not service_networks.intersection(_networks(redis_service)):
             _fail(
                 f"Compose service {service_name!r} does not share a network with redis"
             )
         _validate_database_url(
             _required_environment_value(environment, "DATABASE_URL", service_name),
-            expected_user=database_user,
-            expected_password=database_password,
+            expected_user=migration_user if service_name == "migrate" else runtime_user,
+            expected_password=migration_password if service_name == "migrate" else runtime_password,
             expected_database=database,
             service_name=service_name,
         )
-        _validate_redis_url(
-            _required_environment_value(environment, "REDIS_URL", service_name),
-            expected_password=redis_password,
-            service_name=service_name,
-        )
+        if has_redis_url:
+            _validate_redis_url(
+                _required_environment_value(environment, "REDIS_URL", service_name),
+                expected_password=redis_password,
+                service_name=service_name,
+            )
+        if split_roles and any(environment.get(key) for key in (
+            "POSTGRES_PASSWORD", "POSTGRES_MIGRATION_PASSWORD", "MIGRATION_DATABASE_URL",
+        )):
+            _fail(f"Compose service {service_name!r} exposes an administrative database credential")
         checked_services.append(service_name)
 
     if "api" not in checked_services:
@@ -260,6 +281,9 @@ def _command_validate_target(_args: argparse.Namespace) -> None:
         "redis_image": redis_service.get("image"),
         "redis_networks": sorted(_networks(redis_service)),
     }
+    if split_roles:
+        fingerprint_document["runtime_user"] = runtime_user
+        fingerprint_document["migration_user"] = migration_user
     fingerprint = hashlib.sha256(
         json.dumps(fingerprint_document, separators=(",", ":"), sort_keys=True).encode(
             "utf-8"
@@ -349,7 +373,11 @@ def _command_validate_runtime(args: argparse.Namespace) -> None:
     redis_rendered = _environment(_service(document, "redis"), service_name="redis")
     db_runtime = _inspect_environment(by_service["db"], service_name="db")
     redis_runtime = _inspect_environment(by_service["redis"], service_name="redis")
-    for key in ("POSTGRES_DB", "POSTGRES_USER", "POSTGRES_PASSWORD"):
+    for key in (
+        "POSTGRES_DB", "POSTGRES_USER", "POSTGRES_PASSWORD",
+        "POSTGRES_RUNTIME_USER", "POSTGRES_RUNTIME_PASSWORD",
+        "POSTGRES_MIGRATION_USER", "POSTGRES_MIGRATION_PASSWORD",
+    ):
         if db_runtime.get(key) != db_rendered.get(key):
             _fail(
                 f"Running db container {key} differs from rendered Compose configuration"
@@ -526,16 +554,75 @@ def _command_sha256(args: argparse.Namespace) -> None:
     print(_sha256_regular(Path(args.path), label="file"))
 
 
+def _container_identity(value: object) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        _fail("Deployment container identity must be an object")
+
+    def field(document: dict, key: str, *, allow_empty: bool = False) -> str:
+        result = document.get(key)
+        if (
+            not isinstance(result, str)
+            or (not result and not allow_empty)
+            or any(character in result for character in "\r\0")
+        ):
+            _fail(f"Deployment container identity has an invalid {key} field")
+        return result
+
+    identity: dict[str, Any] = {
+        key: field(value, key) for key in ("Id", "Image", "Name")
+    }
+    if "Mounts" not in value:
+        _fail("Deployment container identity has no Mounts field")
+    mounts = value["Mounts"]
+    if mounts is None:
+        mounts = []
+    if not isinstance(mounts, list):
+        _fail("Deployment container mounts must be an array")
+    normalized = []
+    for mount in mounts:
+        if not isinstance(mount, dict):
+            _fail("Deployment container mount must be an object")
+        mount_type = field(mount, "Type")
+        source = (
+            "" if mount_type == "tmpfs" and "Source" not in mount
+            else field(mount, "Source", allow_empty=mount_type == "tmpfs")
+        )
+        normalized.append({
+            "Type": mount_type,
+            "Name": field(mount, "Name") if mount_type == "volume" else "",
+            "Source": source,
+            "Destination": field(mount, "Destination"),
+        })
+    # Docker can return the same mount set in a different order on each inspect.
+    # Keep every binding field, using structured encoding for paths containing
+    # delimiters, and sort without discarding duplicate entries.
+    identity["Mounts"] = sorted(
+        normalized, key=lambda mount: json.dumps(mount, sort_keys=True)
+    )
+    return identity
+
+
 def _command_identity(args: argparse.Namespace) -> None:
     raw = sys.stdin.buffer.read(MAX_COMPOSE_CONFIG_BYTES + 1)
     if len(raw) > MAX_COMPOSE_CONFIG_BYTES:
         _fail("Deployment identity input exceeds the safety limit")
+    try:
+        document = json.loads(raw.decode("utf-8", errors="strict"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        _fail("Deployment identity input must be valid UTF-8 JSON")
+    if not isinstance(document, dict) or set(document) != {"database", "redis"}:
+        _fail("Deployment identity must contain database and redis objects")
+    inspected = json.dumps(
+        {service: _container_identity(document[service]) for service in ("database", "redis")},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
     values = (
         args.project,
         args.database,
         args.target_config_sha256,
         args.archive_sha256,
-        raw.decode("utf-8", errors="strict"),
+        inspected,
     )
     if any(
         not value or any(character in value for character in "\r\0") for value in values

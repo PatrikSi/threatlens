@@ -6,13 +6,13 @@ import {
   type RefObject,
   type SetStateAction,
 } from 'react'
+import { Link } from 'react-router-dom'
 
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { SettingsPageHeader } from '../components/SettingsPageHeader'
 import { AISettings, AITaskRunResponse } from '../types/api'
 import { ActivityTab } from './AiSettingsActivityTab'
 import { ConfigurationTab } from './AiSettingsConfigurationTab'
-import { OverviewTab } from './AiSettingsOverviewTab'
 import { StatusPill, TabButton } from './aiSettingsSupport'
 import {
   cancelActionLabel,
@@ -29,7 +29,6 @@ export type AiSettingsNotice = {
   message: string
 }
 
-export type AiOverviewTabProps = ComponentProps<typeof OverviewTab>
 export type AiActivityTabProps = ComponentProps<typeof ActivityTab>
 export type AiConfigurationTabProps = ComponentProps<typeof ConfigurationTab>
 
@@ -38,7 +37,6 @@ type AiSettingsPageViewProps = {
   setActiveTab: Dispatch<SetStateAction<AiTab>>
   notice: AiSettingsNotice | null
   settings: AISettings | undefined
-  overviewProps: AiOverviewTabProps
   activityProps: AiActivityTabProps
   configurationProps: AiConfigurationTabProps
   activityTabRef: RefObject<HTMLElement | null>
@@ -53,7 +51,7 @@ type AiSettingsPageViewProps = {
 }
 
 const AI_TABS: Array<{ value: AiTab; label: string }> = [
-  { value: 'overview', label: 'Overview' },
+  { value: 'overview', label: 'Statistics' },
   { value: 'activity', label: 'Jobs' },
   { value: 'configuration', label: 'Configuration' },
 ]
@@ -88,7 +86,7 @@ function AiSettingsHeader({ settings }: { settings: AISettings | undefined }) {
     <SettingsPageHeader
       scope="Organization"
       title="AI automation"
-      description="Monitor AI health and jobs, and manage the provider configuration used across this organization."
+      description="Monitor AI health and jobs, and manage the providers and feature assignments used across this organization."
       badges={(
         <>
           <StatusPill tone={settings?.ai_enabled ? 'info' : 'neutral'} label={settings?.ai_enabled ? 'Enabled' : 'Disabled'} />
@@ -177,11 +175,11 @@ function AiSettingsNavigation({
         </nav>
         <dl className="grid gap-2 rounded border border-cyan/20 bg-cyan/10 px-3 py-2 text-xs sm:grid-cols-2 xl:mt-3 xl:grid-cols-1 dark:border-cyan-800/40 dark:bg-cyan-950/40">
           <div>
-            <dt className="font-semibold">Current model</dt>
+            <dt className="font-semibold">Legacy model</dt>
             <dd className="mt-0.5 text-cyan-800 dark:text-cyan-200">{settings?.model || 'Not configured'}</dd>
           </div>
           <div>
-            <dt className="font-semibold">Endpoint</dt>
+            <dt className="font-semibold">Legacy endpoint</dt>
             <dd className="mt-0.5 break-all text-cyan-800 dark:text-cyan-200">{settings?.base_url || 'Not configured'}</dd>
           </div>
         </dl>
@@ -192,10 +190,14 @@ function AiSettingsNavigation({
 
 function AiSettingsTabContent(props: AiSettingsPageViewProps) {
   return (
-    <section className="space-y-3">
+    <section className="min-w-0 space-y-3">
       {props.activeTab === 'overview' && (
         <section id={getAiTabPanelId('overview')} role="tabpanel" aria-labelledby={getAiTabButtonId('overview')}>
-          <OverviewTab {...props.overviewProps} />
+          <div className="tl-surface rounded-xl p-4">
+            <h2 className="font-display text-lg">AI statistics moved</h2>
+            <p className="mt-2 text-sm">Usage, provider performance, reliability and coverage are now together on the Statistics page.</p>
+            <Link className="mt-3 inline-flex rounded border px-3 py-2 font-semibold underline" to="/stats?section=ai">Open AI statistics</Link>
+          </div>
         </section>
       )}
       {props.activeTab === 'activity' && (

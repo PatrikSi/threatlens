@@ -6,7 +6,7 @@ from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass, replace
 
-from sqlalchemy import and_, exists, false, func, literal, or_, select, true
+from sqlalchemy import and_, exists, false, func, literal, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, aliased
 
@@ -48,18 +48,25 @@ def taint_integration_delivery_metrics_for_feed(
     labels = select(
         IntegrationDeliveryMetricCohort.id,
         literal(handling_label_id),
-    ).where(IntegrationDeliveryMetricCohort.id.in_(cohort_ids))
+    ).where(
+        IntegrationDeliveryMetricCohort.id.in_(cohort_ids), _retained_cohort_predicate()
+    )
     statement = insert(IntegrationDeliveryMetricCohortTaintLabel).from_select(
         ["cohort_id", "label_id"],
         labels,
     )
-    result = db.execute(statement.on_conflict_do_nothing())
+    inserted = (
+        statement.on_conflict_do_nothing()
+        .returning(IntegrationDeliveryMetricCohortTaintLabel.cohort_id)
+        .cte("inserted_taints")
+    )
+    inserted_count = int(db.scalar(select(func.count()).select_from(inserted)) or 0)
     db.execute(
         insert(IntegrationDeliveryMetricCohortLabel)
         .from_select(["cohort_id", "label_id"], labels)
         .on_conflict_do_nothing()
     )
-    return int(result.rowcount or 0)
+    return inserted_count
 
 
 def integration_metric_policy_cohort_key(
@@ -80,13 +87,21 @@ def integration_metric_policy_cohort_key(
     return hashlib.sha256(canonical.encode("ascii")).hexdigest()
 
 
+def _retained_cohort_predicate():
+    return IntegrationDeliveryMetricCohort.metric_id.in_(
+        select(IntegrationDeliveryMetric.id).where(
+            IntegrationDeliveryMetric.retention_pruning_started_at.is_(None),
+        )
+    )
+
+
 def integration_metric_cohort_data_access_predicate(
     data_access: DataAccessContext,
 ):
     if not data_access.principal_eligible:
         return false()
     if not data_access.enforced:
-        return true()
+        return _retained_cohort_predicate()
     captured_label = aliased(IntegrationDeliveryMetricCohortCapturedLabel)
     captured_handling = aliased(HandlingLabel)
     taint_label = aliased(IntegrationDeliveryMetricCohortTaintLabel)
@@ -128,6 +143,7 @@ def integration_metric_cohort_data_access_predicate(
         ),
     )
     return and_(
+        _retained_cohort_predicate(),
         any_captured,
         incomplete_is_quarantined,
         ~inaccessible_captured,
@@ -168,6 +184,7 @@ def integration_metric_would_deny_summary(
                 == IntegrationDeliveryMetricCohort.metric_id,
             )
             .where(
+                IntegrationDeliveryMetric.retention_pruning_started_at.is_(None),
                 IntegrationDeliveryMetric.connector_type == connector_type,
                 denied,
             )
@@ -196,6 +213,7 @@ def integration_metric_would_deny_summary(
                 HandlingLabel.id == IntegrationDeliveryMetricCohortLabel.label_id,
             )
             .where(
+                IntegrationDeliveryMetric.retention_pruning_started_at.is_(None),
                 IntegrationDeliveryMetric.connector_type == connector_type,
                 denied,
                 or_(
@@ -232,6 +250,16 @@ def integration_metric_cohort_integrity(
     taints = _labels_by_cohort(db, IntegrationDeliveryMetricCohortTaintLabel)
     effective = _labels_by_cohort(db, IntegrationDeliveryMetricCohortLabel)
     feeds = _feeds_by_cohort(db)
+    # Visibility only moves toward hidden. Recheck after the separate label
+    # reads so a concurrent committed claim cannot look like broken provenance.
+    retained_ids = set(
+        db.scalars(
+            select(IntegrationDeliveryMetricCohort.id).where(
+                _retained_cohort_predicate()
+            )
+        )
+    )
+    cohorts = [cohort for cohort in cohorts if cohort.id in retained_ids]
     invalid_identity_count = 0
     missing_captured_labels_count = 0
     label_parity_mismatch_count = 0
@@ -288,6 +316,7 @@ def integration_metric_cohort_integrity(
             .select_from(IntegrationDeliveryMetric)
             .outerjoin(totals, totals.c.metric_id == IntegrationDeliveryMetric.id)
             .where(
+                IntegrationDeliveryMetric.retention_pruning_started_at.is_(None),
                 or_(
                     IntegrationDeliveryMetric.succeeded_count
                     != func.coalesce(totals.c.succeeded_count, 0),
@@ -301,7 +330,7 @@ def integration_metric_cohort_integrity(
                     != func.coalesce(totals.c.duration_total_ms, 0),
                     IntegrationDeliveryMetric.duration_max_ms
                     != func.coalesce(totals.c.duration_max_ms, 0),
-                )
+                ),
             )
         )
         or 0

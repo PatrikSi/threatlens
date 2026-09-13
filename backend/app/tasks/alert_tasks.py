@@ -17,6 +17,7 @@ from app.services.alert_evaluation import (
     reserve_recoverable_alert_evaluations,
 )
 from app.services.alert_maintenance import maintain_alert_history
+from app.services.alert_triage import escalate_overdue_alerts
 from app.tasks.celery_app import celery_app
 from app.tasks.integration_tasks import enqueue_integration_event_routing
 from app.tasks.task_session import db_session
@@ -146,6 +147,8 @@ def process_alert_evaluation(request_id: str):
 )
 def dispatch_pending_alert_evaluations():
     with db_session() as db:
+        escalated = escalate_overdue_alerts(db)
+        db.commit()
         reservation = reserve_recoverable_alert_evaluations(db)
         db.commit()
 
@@ -179,6 +182,7 @@ def dispatch_pending_alert_evaluations():
     return {
         "status": "ok",
         "scanned": len(reservation.request_ids),
+        "escalated": escalated,
         "queued": len(queued),
         "enqueue_failed": bool(failed),
     }

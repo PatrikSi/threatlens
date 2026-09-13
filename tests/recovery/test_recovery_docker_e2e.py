@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import os
+import json
 import secrets
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -12,7 +14,8 @@ from pathlib import Path
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 RECOVERY = REPOSITORY_ROOT / "scripts" / "recovery" / "threatlens-recovery.sh"
 COMPOSE_FILE = REPOSITORY_ROOT / "tests" / "recovery" / "docker-compose.e2e.yml"
-PROJECT = "threatlens-recovery-e2e"
+ENTERPRISE_FIXTURE = REPOSITORY_ROOT / "tests" / "recovery" / "enterprise_fixture.py"
+PROJECT = f"threatlens-recovery-e2e-{secrets.token_hex(6)}"
 
 
 @unittest.skipUnless(
@@ -35,6 +38,8 @@ class RecoveryDockerEndToEndTests(unittest.TestCase):
             "RECOVERY_E2E_ENCRYPTION_KEY": encryption_key,
             "RECOVERY_E2E_JWT_SECRET": secrets.token_urlsafe(48),
             "RECOVERY_E2E_POSTGRES_PASSWORD": secrets.token_hex(24),
+            "RECOVERY_E2E_RUNTIME_PASSWORD": secrets.token_hex(24),
+            "RECOVERY_E2E_MIGRATION_PASSWORD": secrets.token_hex(24),
             "RECOVERY_E2E_REDIS_PASSWORD": secrets.token_hex(24),
         }
         self.environment.update(values)
@@ -43,7 +48,6 @@ class RecoveryDockerEndToEndTests(unittest.TestCase):
             encoding="utf-8",
         )
         self.env_file.chmod(0o600)
-        self._compose("down", "--volumes", "--remove-orphans", check=False)
 
     def tearDown(self) -> None:
         self._compose("down", "--volumes", "--remove-orphans", check=False)
@@ -125,11 +129,200 @@ class RecoveryDockerEndToEndTests(unittest.TestCase):
         )
         return result.stdout.strip()
 
+    def _assert_failed_restore_recovers_role_fences(self, backup: str) -> None:
+        original_oid = self._psql("SELECT oid FROM pg_database WHERE datname = 'threatlens';")
+        hook = self.root / "fail-after-fence.sh"
+        real_hook = REPOSITORY_ROOT / "scripts/recovery/post_restore_quarantine.sh"
+        hook.write_text(
+            '#!/bin/sh\nif [ "$1" = apply ]; then exit 42; fi\n'
+            f'exec {shlex.quote(str(real_hook))} "$@"\n', encoding="utf-8",
+        )
+        hook.chmod(0o700)
+        confirmation = self._recovery(
+            "restore", "--backup", backup, "--show-confirmation",
+            "--quarantine-hook", str(hook),
+        ).stdout.strip()
+        failed = self._recovery(
+            "restore", "--backup", backup, "--confirm", confirmation,
+            "--acknowledge-data-loss", "--safety-backup-dir", str(self.backup_directory / "rollback-safety"),
+            "--quarantine-hook", str(hook), check=False,
+        )
+        self.assertNotEqual(failed.returncode, 0)
+        self.assertIn("E808", failed.stderr)
+        self.assertEqual(self._psql("SELECT oid FROM pg_database WHERE datname = 'threatlens';"), original_oid)
+        self.assertEqual(self._psql("SELECT value FROM recovery_e2e_marker;"), "after-backup")
+        self.assertEqual(self._psql(
+            "SELECT count(*) FROM pg_roles WHERE rolname IN ('threatlens_runtime', 'threatlens_migration') AND rolcanlogin;"
+        ), "2")
+        self.assertEqual(self._psql(
+            "SELECT count(*) FROM pg_roles WHERE rolname LIKE 'tl_recovery_%';"
+        ), "0")
+
+    def test_offline_upgrade_preserves_existing_rows_and_other_database_owners(self) -> None:
+        self._compose("up", "--detach", "--wait", "db", "redis")
+        self._psql(
+            "ALTER DATABASE threatlens OWNER TO postgres; ALTER SCHEMA public OWNER TO postgres;"
+            "CREATE TABLE legacy_marker (value text NOT NULL);"
+            "INSERT INTO legacy_marker VALUES ('retained');"
+        )
+        self._psql("CREATE DATABASE unrelated_synthetic OWNER postgres;")
+        command = [
+            "python3", str(REPOSITORY_ROOT / "scripts/database/upgrade-roles.py"),
+            "--env-file", str(self.env_file), "--file", str(COMPOSE_FILE), "--project-name", PROJECT,
+        ]
+        self._psql("ALTER ROLE threatlens_runtime CREATEROLE;")
+        refused = subprocess.run(command, capture_output=True, text=True, env=self.environment, timeout=120)
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertEqual(self._psql(
+            "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = 'threatlens';"
+        ), "postgres")
+        for key in ("RECOVERY_E2E_RUNTIME_PASSWORD", "RECOVERY_E2E_MIGRATION_PASSWORD"):
+            self.assertNotIn(self.environment[key], refused.stdout + refused.stderr)
+        self._psql("ALTER ROLE threatlens_runtime NOCREATEROLE;")
+        result = subprocess.run(command, capture_output=True, text=True, env=self.environment, timeout=120)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Application services remain stopped", result.stdout)
+        self.assertEqual(self._psql("SELECT value FROM legacy_marker;"), "retained")
+        self.assertEqual(self._psql(
+            "SELECT pg_get_userbyid(relowner) FROM pg_class WHERE relname = 'legacy_marker';"
+        ), "threatlens_migration")
+        self.assertEqual(self._psql(
+            "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = 'unrelated_synthetic';"
+        ), "postgres")
+        self.assertEqual(self._psql(
+            "SELECT has_table_privilege('threatlens_runtime', 'legacy_marker', 'UPDATE')::text;"
+        ), "true")
+        self._compose("run", "--rm", "--no-deps", "migrate")
+
+    def test_offline_upgrade_preserves_owned_and_standalone_sequences(self) -> None:
+        self._compose("up", "--detach", "--wait", "db", "redis")
+        self._psql(
+            "ALTER DATABASE threatlens OWNER TO postgres; ALTER SCHEMA public OWNER TO postgres;"
+            # Create this sequence before its table to exercise the failing catalog order.
+            "CREATE SEQUENCE legacy_owned_id_seq START 101;"
+            "CREATE TABLE legacy_owned (id bigint PRIMARY KEY DEFAULT nextval('legacy_owned_id_seq'));"
+            "ALTER SEQUENCE legacy_owned_id_seq OWNED BY legacy_owned.id;"
+            "CREATE TABLE legacy_serial (id bigserial PRIMARY KEY);"
+            "CREATE TABLE legacy_identity (id bigint GENERATED ALWAYS AS IDENTITY (START WITH 301) PRIMARY KEY);"
+            "CREATE TABLE legacy_default_identity (id bigint GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY);"
+            "CREATE SEQUENCE legacy_standalone START 401;"
+            "CREATE TABLE legacy_reference (id bigint DEFAULT nextval('legacy_standalone'));"
+            "INSERT INTO legacy_owned DEFAULT VALUES;"
+            "INSERT INTO legacy_serial DEFAULT VALUES;"
+            "INSERT INTO legacy_identity DEFAULT VALUES;"
+            "INSERT INTO legacy_default_identity DEFAULT VALUES;"
+            "INSERT INTO legacy_reference DEFAULT VALUES;"
+            "CREATE SCHEMA unrelated_schema; CREATE TABLE unrelated_schema.marker (id serial);"
+        )
+        self._psql("CREATE DATABASE unrelated_synthetic OWNER postgres;")
+        dependencies = self._psql(
+            "SELECT pg_get_serial_sequence(name, 'id') FROM "
+            "(VALUES ('legacy_owned'), ('legacy_serial'), ('legacy_identity'), ('legacy_default_identity')) "
+            "AS tables(name) ORDER BY name;"
+        )
+        command = [
+            "python3", str(REPOSITORY_ROOT / "scripts/database/upgrade-roles.py"),
+            "--env-file", str(self.env_file), "--file", str(COMPOSE_FILE), "--project-name", PROJECT,
+        ]
+        # A successful cutover must also be safe to repeat after an uncertain result.
+        for attempt in range(2):
+            with self.subTest(attempt=attempt):
+                result = subprocess.run(command, capture_output=True, text=True, env=self.environment, timeout=120)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self._psql(
+                    "SELECT count(*) FROM pg_class AS relation "
+                    "JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace "
+                    "WHERE namespace.nspname = 'public' AND relation.relkind IN ('r', 'S') "
+                    "AND pg_get_userbyid(relation.relowner) = 'threatlens_migration';"
+                ), "10")
+                self.assertEqual(self._psql(
+                    "SELECT pg_get_serial_sequence(name, 'id') FROM "
+                    "(VALUES ('legacy_owned'), ('legacy_serial'), ('legacy_identity'), ('legacy_default_identity')) "
+                    "AS tables(name) ORDER BY name;"
+                ), dependencies)
+                self.assertEqual(self._psql(
+                    "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = 'unrelated_synthetic';"
+                ), "postgres")
+                self.assertEqual(self._psql(
+                    "SELECT count(*) FROM pg_class AS relation "
+                    "JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace "
+                    "WHERE namespace.nspname = 'unrelated_schema' AND relation.relkind IN ('r', 'S') "
+                    "AND pg_get_userbyid(relation.relowner) = 'postgres';"
+                ), "2")
+        self._psql(
+            "SET ROLE threatlens_runtime;"
+            "INSERT INTO legacy_owned DEFAULT VALUES;"
+            "INSERT INTO legacy_serial DEFAULT VALUES;"
+            "INSERT INTO legacy_identity DEFAULT VALUES;"
+            "INSERT INTO legacy_default_identity DEFAULT VALUES;"
+            "INSERT INTO legacy_reference DEFAULT VALUES;"
+        )
+        self.assertEqual(self._psql(
+            "SELECT 'owned', array_agg(id ORDER BY id)::text FROM legacy_owned UNION ALL "
+            "SELECT 'serial', array_agg(id ORDER BY id)::text FROM legacy_serial UNION ALL "
+            "SELECT 'identity', array_agg(id ORDER BY id)::text FROM legacy_identity UNION ALL "
+            "SELECT 'default_identity', array_agg(id ORDER BY id)::text FROM legacy_default_identity UNION ALL "
+            "SELECT 'reference', array_agg(id ORDER BY id)::text FROM legacy_reference;"
+        ), "owned|{101,102}\nserial|{1,2}\nidentity|{301,302}\ndefault_identity|{1,2}\nreference|{401,402}")
+        self.assertEqual(self._psql("SELECT last_value FROM legacy_standalone;"), "402")
+        self.assertEqual(self._psql(
+            "SELECT has_schema_privilege('threatlens_runtime', 'public', 'CREATE')::text;"
+        ), "false")
+
+    def test_split_role_migrations_round_trip_without_runtime_schema_privileges(self) -> None:
+        self._compose("up", "--detach", "--wait", "db", "redis")
+        self._compose("run", "--rm", "--no-deps", "migrate")
+        head = self._psql("SELECT version_num FROM alembic_version;")
+        self._compose("run", "--rm", "--no-deps", "migrate", "alembic", "downgrade", "0090_lifecycle_scan_cursors")
+        self.assertEqual(self._psql("SELECT version_num FROM alembic_version;"), "0090_lifecycle_scan_cursors")
+        self._compose("run", "--rm", "--no-deps", "migrate")
+        self.assertEqual(self._psql("SELECT version_num FROM alembic_version;"), head)
+        self.assertEqual(self._psql(
+            "SELECT has_schema_privilege('threatlens_runtime', 'public', 'CREATE')::text;"
+        ), "false")
+        self.assertEqual(self._psql(
+            "SELECT count(*) FROM pg_class AS c JOIN pg_namespace AS n ON n.oid=c.relnamespace "
+            "WHERE n.nspname='public' AND c.relkind='r' AND pg_get_userbyid(c.relowner)<>'threatlens_migration';"
+        ), "0")
+        self._compose("run", "--rm", "--no-deps", "api", "python", "-m", "app.scripts.seed_admin")
+
     def test_backup_drill_and_destructive_restore_preserve_invariants(self) -> None:
         self._compose("up", "--detach", "--wait", "db", "redis")
-        self._compose("run", "--rm", "--no-deps", "api", "alembic", "upgrade", "head")
+        self._compose("run", "--rm", "--no-deps", "migrate")
+        self._compose("run", "--rm", "--no-deps", "api", "python", "-m", "app.scripts.seed_admin")
+        self.assertEqual(self._psql(
+            "SELECT rolname || '|' || rolsuper::text || '|' || rolcreaterole::text || '|' || rolcreatedb::text "
+            "FROM pg_roles WHERE rolname IN ('threatlens_runtime', 'threatlens_migration') ORDER BY rolname;"
+        ), "threatlens_migration|false|false|false\nthreatlens_runtime|false|false|false")
+        self.assertEqual(self._psql(
+            "SELECT has_schema_privilege('threatlens_runtime', 'public', 'CREATE')::text;"
+        ), "false")
+        denied = self._compose("run", "--rm", "--no-deps", "api", "alembic", "downgrade", "-1", check=False)
+        self.assertNotEqual(denied.returncode, 0)
+        seeded = self._compose("run", "--rm", "--no-deps", "api", "python", "-c", ENTERPRISE_FIXTURE.read_text(), "seed")
+        publication_pins = json.dumps(json.loads(seeded.stdout.strip().splitlines()[-1]))
+        self._compose("run", "--rm", "--no-deps", "api", "python", "-c", """
+from datetime import datetime, timedelta, timezone
+import uuid
+from app.db.session import SessionLocal
+from app.models.audit_log import AuditLog, AuditLogDataAccessFeed
+from app.services.lifecycle_permission_pruning import prune_permission_history_parent
+from app.services.lifecycle_pruning_contracts import PruningContext
+with SessionLocal() as db:
+    cutoff = datetime.now(timezone.utc) - timedelta(days=1)
+    row = AuditLog(action='recovery.partial.retention', resource_type='test_fixture',
+                   metadata_json={}, created_at=cutoff - timedelta(days=1))
+    db.add(row)
+    db.flush()
+    db.add_all(AuditLogDataAccessFeed(audit_log_id=row.id, source_feed_id_snapshot=uuid.uuid4()) for _ in range(2))
+    db.flush()
+    result = prune_permission_history_parent(db, model=AuditLog, parent_id=row.id,
+        context=PruningContext(cutoff, AuditLog.created_at < cutoff), limit=1)
+    assert result.children_pruned == 1
+    db.commit()
+""")
         self._psql(
-            "CREATE TABLE recovery_e2e_marker (value text NOT NULL);"
+            "SET ROLE threatlens_migration; CREATE TABLE recovery_e2e_marker (value text NOT NULL);"
             "INSERT INTO recovery_e2e_marker (value) VALUES ('before-backup');"
             "INSERT INTO feeds (id, name, url, url_digest, enabled) VALUES ("
             "'10000000-0000-0000-0000-000000000001', 'Recovery feed', "
@@ -206,6 +399,7 @@ class RecoveryDockerEndToEndTests(unittest.TestCase):
         )
 
         self._psql("UPDATE recovery_e2e_marker SET value = 'after-backup';")
+        self._assert_failed_restore_recovers_role_fences(backup)
         confirmation = self._recovery(
             "restore",
             "--backup",
@@ -222,8 +416,15 @@ class RecoveryDockerEndToEndTests(unittest.TestCase):
             "--safety-backup-dir",
             str(self.backup_directory / "safety"),
         )
+        self.assertEqual(self._psql(
+            "SELECT count(*) FROM audit_logs AS a JOIN lifecycle_pruning_records AS p "
+            "ON p.dataset='audit_logs' AND p.parent_id=a.id "
+            "WHERE a.action='recovery.partial.retention' "
+            "AND a.retention_pruning_started_at IS NOT NULL AND p.children_pruned=1;"
+        ), "1")
 
         self.assertIn("RESTORE_STATUS=completed_quarantined", restore.stdout)
+        self._compose("run", "--rm", "--no-deps", "api", "python", "-c", ENTERPRISE_FIXTURE.read_text(), "verify", publication_pins)
         self.assertEqual(
             self._psql("SELECT value FROM recovery_e2e_marker;"), "before-backup"
         )
@@ -264,6 +465,16 @@ class RecoveryDockerEndToEndTests(unittest.TestCase):
             "true",
         )
         self.assertEqual(self._psql("SHOW statement_timeout;"), "17s")
+        self.assertEqual(self._psql(
+            "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = 'threatlens';"
+        ), "threatlens_migration")
+        self.assertEqual(self._psql(
+            "SELECT rolcanlogin::text FROM pg_roles WHERE rolname = 'threatlens_migration';"
+        ), "true")
+        self.assertEqual(self._psql(
+            "SELECT has_table_privilege('threatlens_runtime', 'recovery_e2e_marker', 'UPDATE')::text;"
+        ), "true")
+        self._compose("run", "--rm", "--no-deps", "migrate")
         self.assertEqual(
             self._psql(
                 "SELECT has_database_privilege("

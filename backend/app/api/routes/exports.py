@@ -1,12 +1,9 @@
 import logging
-import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from fastapi.responses import FileResponse
 from sqlalchemy import exists, func, select
 from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
-from starlette.types import Receive, Scope, Send
 
 from app.api.deps import (
     AuthenticatedPrincipal,
@@ -56,7 +53,12 @@ from app.services.export_lock import (
     ExportLockUnavailableError,
     acquire_export_lock,
 )
+from app.services.export_transport import DisconnectSafeFileResponse
+from app.services.export_principals import (
+    export_user_id, export_principal_type, require_supported_export_state,
+)
 from app.services.export_query import (
+    ExportTextProjection,
     ExportAuthorizationChangedError,
     ExportSnapshotChangedError,
     assert_export_authorization_unchanged,
@@ -69,24 +71,6 @@ from app.services.export_query import (
 
 router = APIRouter(prefix="/exports", tags=["exports"])
 logger = logging.getLogger(__name__)
-
-
-class DisconnectSafeFileResponse(FileResponse):
-    """Run artifact cleanup even when response streaming is interrupted."""
-
-    async def __call__(
-        self,
-        scope: Scope,
-        receive: Receive,
-        send: Send,
-    ) -> None:
-        background = self.background
-        self.background = None
-        try:
-            await super().__call__(scope, receive, send)
-        finally:
-            if background is not None:
-                await background()
 
 
 FORMAT_CAPABILITIES = (
@@ -153,6 +137,16 @@ FORMAT_CAPABILITIES = (
 )
 
 
+def _export_needs_article_text(payload: ArticleExportRequest) -> bool:
+    if payload.format == "stix":
+        return False
+    if payload.format == "csv":
+        return payload.options.csv_include_article_text
+    if payload.format == "pdf_bundle":
+        return payload.options.pdf_include_article_text
+    return payload.options.include_article_text
+
+
 @router.get("/capabilities", response_model=ArticleExportCapabilitiesResponse)
 def get_export_capabilities(
     db: Session = Depends(get_db),
@@ -212,9 +206,9 @@ def preview_export(
     data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     settings = get_settings()
-    _require_supported_machine_state_options(principal, filters=payload.filters)
+    require_supported_export_state(principal, filters=payload.filters)
     context = build_export_query_context(
-        user_id=_human_user_id(principal),
+        user_id=export_user_id(principal),
         filters=payload.filters,
         data_access=data_access,
     )
@@ -229,10 +223,24 @@ def preview_export(
                 item_ids=item_ids,
                 context=context,
                 include_iocs=True,
+                text_projection=ExportTextProjection(
+                    include_article_text=False, include_summaries=False
+                ),
+                max_payload_bytes=8 * 1024 * 1024,
             )
         )
     except ExportAuthorizationChangedError as exc:
         raise _export_authorization_changed_error() from exc
+    except ExportSnapshotChangedError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="Matching articles changed. Refresh the preview and try again.",
+        ) from exc
+    except ExportSizeLimitError as exc:
+        raise HTTPException(
+            status_code=413,
+            detail="The preview exceeds its memory budget. Narrow the selection.",
+        ) from exc
     return ArticleExportPreviewResponse(
         total_matches=counts.total,
         articles_with_text=counts.with_article_text,
@@ -256,13 +264,13 @@ def download_export(
     data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     settings = get_settings()
-    _require_supported_machine_state_options(
+    require_supported_export_state(
         principal,
         filters=payload.filters,
         include_user_state=payload.options.include_user_state,
     )
     context = build_export_query_context(
-        user_id=_human_user_id(principal),
+        user_id=export_user_id(principal),
         filters=payload.filters,
         data_access=data_access,
     )
@@ -282,7 +290,7 @@ def download_export(
     artifact: ExportArtifact | None = None
     try:
         with acquire_export_lock(
-            principal_type=_principal_type(principal),
+            principal_type=export_principal_type(principal),
             principal_id=principal.id,
             settings=settings,
         ):
@@ -295,6 +303,9 @@ def download_export(
                 item_ids=item_ids,
                 context=context,
                 include_iocs=payload.options.include_iocs,
+                text_projection=ExportTextProjection(
+                    include_article_text=_export_needs_article_text(payload),
+                ),
             )
             artifact = generate_export_artifact(
                 records,
@@ -374,8 +385,8 @@ def download_export(
             )
         record_audit(
             db,
-            actor_user_id=_human_user_id(principal),
-            actor_principal_type=_principal_type(principal),
+            actor_user_id=export_user_id(principal),
+            actor_principal_type=export_principal_type(principal),
             actor_principal_id=principal.id,
             action="exports.download",
             resource_type="article_export",
@@ -463,8 +474,8 @@ def _record_failed_export(
     try:
         record_audit(
             db,
-            actor_user_id=_human_user_id(principal),
-            actor_principal_type=_principal_type(principal),
+            actor_user_id=export_user_id(principal),
+            actor_principal_type=export_principal_type(principal),
             actor_principal_id=principal.id,
             action="exports.download",
             resource_type="article_export",
@@ -481,44 +492,12 @@ def _record_failed_export(
         logger.error(
             "article_export_failure_audit_failed principal_type=%s "
             "principal_id=%s reason=%s error_type=%s",
-            _principal_type(principal),
+            export_principal_type(principal),
             principal.id,
             reason,
             type(exc).__name__,
             exc_info=verbose_logging_enabled(get_settings()),
         )
-
-
-def _human_user_id(principal: AuthenticatedPrincipal) -> uuid.UUID | None:
-    return principal.id if isinstance(principal, User) else None
-
-
-def _principal_type(principal: AuthenticatedPrincipal) -> str:
-    return "user" if isinstance(principal, User) else "service_account"
-
-
-def _require_supported_machine_state_options(
-    principal: AuthenticatedPrincipal,
-    *,
-    filters,
-    include_user_state: bool = False,
-) -> None:
-    if isinstance(principal, User):
-        return
-    if (
-        filters.is_read is None
-        and filters.is_starred is None
-        and not include_user_state
-    ):
-        return
-    raise ApiHTTPException(
-        status_code=status.HTTP_400_BAD_REQUEST,
-        detail=(
-            "Service accounts do not have personal read, starred, or note state. "
-            "Remove user-state filters and disable user-state export fields."
-        ),
-        error_code="service_account_user_state_unsupported",
-    )
 
 
 def _filter_audit_summary(payload: ArticleExportRequest) -> dict[str, object]:

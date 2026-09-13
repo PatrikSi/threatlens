@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import random
 import time
 import uuid
@@ -13,6 +12,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.ai_limits import MAX_AI_COMPLETION_TOKENS
 from app.core.config import get_settings
 from app.models.ai_daily_brief import AIDailyBrief
 from app.models.ai_task_run import AITaskRun
@@ -25,10 +25,15 @@ from app.schemas.ai import AITestConnectionResponse
 from app.services import ai_normalization as _ai_normalization
 from app.services import ai_prompting as _ai_prompting
 from app.services import ai_provider_client as _ai_provider_client
+from app.services.ai_workflow_recovery import owns_pending_daily_brief
+from app.services.ai_brief_sources import load_brief_sources
+from app.services.ai_enrichment_provenance import enrichment_result_provenance, refresh_verified_provenance
 from app.services.ai_config import ActiveAISettings, load_active_ai_settings
 from app.services.ai_egress_data_policy import (
+    AIEgressPolicyError,
     enforce_ai_egress_data_policy as _enforce_ai_egress_data_policy,
 )
+from app.services.authorization import AuthorizationContext, AuthorizationStateUnavailable, fence_authorization_context
 from app.services.ai_ops import (
     AI_PROVIDER_CLAIM_DAILY_BRIEF,
     AI_PROVIDER_CLAIM_ITEM_ENRICHMENT,
@@ -117,6 +122,7 @@ class AIItemEnrichmentResult:
     input_text_chars: int
     prompt_char_count: int | None = None
     response_char_count: int | None = None
+    error: str | None = None
 
 
 @dataclass(frozen=True)
@@ -129,6 +135,7 @@ class AIDailyBriefGenerationResult:
     prompt_char_count: int | None = None
     response_char_count: int | None = None
     integration_event_id: uuid.UUID | None = None
+    error: str | None = None
 
 
 def is_stale_daily_brief_pending(brief: AIDailyBrief, *, now: datetime) -> bool:
@@ -144,57 +151,14 @@ def is_stale_daily_brief_pending(brief: AIDailyBrief, *, now: datetime) -> bool:
 
 
 def test_ai_connection(
-    db: Session, *, task_run_id: uuid.UUID | None = None
+    db: Session, *, task_run_id: uuid.UUID | None = None,
+    active_settings: ActiveAISettings | None = None,
+    request_authorization: AuthorizationContext,
 ) -> AITestConnectionResponse:
-    active = load_active_ai_settings(db)
-    if not active.ai_enabled:
-        raise AIIntegrationError("AI features are disabled")
-    if not active.ai_configured:
-        raise AIIntegrationError(
-            "Configure the AI base URL and model before testing the connection"
-        )
+    from app.services.ai_connection_workflow import run_connection_test
 
-    try:
-        completion = _request_json_with_usage(
-            db,
-            active,
-            feature_type=FEATURE_CONNECTION_TEST,
-            task_run_id=task_run_id,
-            provider_operation_scope="connection_test",
-            messages=[
-                {
-                    "role": "system",
-                    "content": "Return only JSON. Do not include markdown code fences.",
-                },
-                {
-                    "role": "user",
-                    "content": json.dumps(
-                        {
-                            "task": "connection_test",
-                            "instructions": 'Return {"ok": true, "message": "ready"}.',
-                        }
-                    ),
-                },
-            ],
-        )
-    except AIIntegrationError as exc:
-        return AITestConnectionResponse(
-            success=False,
-            latency_ms=None,
-            provider="openai_compatible",
-            model=active.model,
-            error=str(exc),
-        )
-
-    return AITestConnectionResponse(
-        success=bool(completion.payload.get("ok") is True),
-        latency_ms=completion.latency_ms,
-        provider="openai_compatible",
-        model=completion.model,
-        error=None
-        if completion.payload.get("ok") is True
-        else "Unexpected response from AI endpoint",
-    )
+    return run_connection_test(db, request_json=_request_json_with_usage, task_run_id=task_run_id,
+        active_settings=active_settings, request_authorization=request_authorization)
 
 
 def generate_item_ai_enrichment(
@@ -210,13 +174,14 @@ def run_item_ai_enrichment(
     force: bool = False,
     task_run_id: uuid.UUID | None = None,
 ) -> AIItemEnrichmentResult:
-    active = load_active_ai_settings(db)
+    active = load_active_ai_settings(db, feature_type=FEATURE_ITEM_ENRICHMENT, task_run_id=task_run_id)
     if not active.ai_enabled or not active.ai_configured:
         return AIItemEnrichmentResult(
             enrichment=None,
-            status="skipped",
-            reason="ai_not_configured" if active.ai_enabled else "ai_disabled",
+            status="error" if active.configuration_error and active.ai_enabled else "skipped",
+            reason=(active.configuration_error_code or "ai_not_configured") if active.ai_enabled else "ai_disabled",
             input_text_chars=0,
+            error=active.configuration_error if active.ai_enabled else None,
         )
     if not active.summary_enabled and not active.relevance_enabled:
         return AIItemEnrichmentResult(
@@ -263,10 +228,20 @@ def run_item_ai_enrichment(
 
     if enrichment is not None and enrichment.source_hash == source_hash:
         if enrichment.status == "ready" and not force:
+            stop_reason = _record_task_run_stop_observed(
+                db, task_run_id=task_run_id, stage="before_cached_provenance_refresh", lock=True,
+            )
+            if stop_reason is None:
+                provenance = enrichment_result_provenance(
+                    active=active, item=item, article=article, classification=classification,
+                    feed_name=feed.name if feed is not None else "", tag_names=tag_names,
+                    source_hash=source_hash, generated_at=enrichment.generated_at or enrichment.updated_at,
+                )
+                refresh_verified_provenance(db, enrichment=enrichment, provenance=provenance)
             return AIItemEnrichmentResult(
                 enrichment=enrichment,
                 status="skipped",
-                reason="source_hash_unchanged",
+                reason=stop_reason or "source_hash_unchanged",
                 input_text_chars=len(article.text or ""),
             )
         if enrichment.status == "pending" and not force:
@@ -293,6 +268,11 @@ def run_item_ai_enrichment(
         tag_names=tag_names,
     )
     claim_updated_at = datetime.now(timezone.utc)
+    result_provenance = enrichment_result_provenance(
+        active=active, item=item, article=article, classification=classification,
+        feed_name=feed.name if feed is not None else "", tag_names=tag_names,
+        source_hash=source_hash, generated_at=claim_updated_at,
+    )
     stop_reason = _prepare_provider_claim(
         db,
         task_run_id=task_run_id,
@@ -367,7 +347,7 @@ def run_item_ai_enrichment(
                 status="error",
                 error=str(exc),
                 generated_at=generated_at,
-                updated_at=generated_at,
+                updated_at=claim_updated_at,
             )
         )
         enrichment = _load_item_enrichment(db, item_id=item_id)
@@ -437,6 +417,7 @@ def run_item_ai_enrichment(
         )
         .values(
             status="ready",
+            result_provenance_json=result_provenance,
             summary_text=summary_text,
             relevance_score=relevance_score,
             relevance_label=relevance_label,
@@ -449,7 +430,7 @@ def run_item_ai_enrichment(
             latency_ms=completion.latency_ms,
             error=None,
             generated_at=generated_at,
-            updated_at=generated_at,
+            updated_at=claim_updated_at,
         )
     )
     enrichment = _load_item_enrichment(db, item_id=item_id)
@@ -518,7 +499,7 @@ def run_daily_brief_generation(
     task_run_id: uuid.UUID | None = None,
     emit_notification: bool = True,
 ) -> AIDailyBriefGenerationResult:
-    active = load_active_ai_settings(db)
+    active = load_active_ai_settings(db, feature_type=FEATURE_DAILY_BRIEF, task_run_id=task_run_id)
     if (
         not active.ai_enabled
         or not active.ai_configured
@@ -535,10 +516,11 @@ def run_daily_brief_generation(
         if not active.ai_configured:
             return AIDailyBriefGenerationResult(
                 brief=None,
-                status="skipped",
-                reason="ai_not_configured",
+                status="error" if active.configuration_error else "skipped",
+                reason=active.configuration_error_code or "ai_not_configured",
                 items_considered=0,
                 items_selected=0,
+                error=active.configuration_error,
             )
         return AIDailyBriefGenerationResult(
             brief=None,
@@ -589,6 +571,7 @@ def run_daily_brief_generation(
         and existing.status == "pending"
         and not force
         and not is_stale_daily_brief_pending(existing, now=now)
+        and not owns_pending_daily_brief(db, task_run_id=task_run_id, brief=existing)
     ):
         return AIDailyBriefGenerationResult(
             brief=existing,
@@ -621,36 +604,11 @@ def run_daily_brief_generation(
             items_selected=0,
         )
 
-    source_audit_limit = max(
-        active.daily_brief_max_items,
-        int(get_settings().ai_daily_brief_source_audit_limit or 0),
+    selection = load_brief_sources(
+        db, active=active, window_start=window_start, window_end=window_end,
+        total_items=int(total_items), audit_limit=int(get_settings().ai_daily_brief_source_audit_limit or 0),
     )
-    source_audit_limit = max(1, min(int(total_items), source_audit_limit))
-    item_rows_all = db.execute(
-        select(
-            Item.id,
-            Item.title,
-            Item.summary,
-            Item.url,
-            Item.published_at,
-            Item.first_seen_at,
-            Feed.name.label("feed_name"),
-            ItemClassification.primary_category.label("primary_category"),
-            ItemAIEnrichment.summary_text.label("ai_summary"),
-            ItemAIEnrichment.relevance_score.label("relevance_score"),
-            ItemAIEnrichment.relevance_label.label("relevance_label"),
-        )
-        .join(Feed, Feed.id == Item.feed_id)
-        .outerjoin(ItemClassification, ItemClassification.item_id == Item.id)
-        .outerjoin(ItemAIEnrichment, ItemAIEnrichment.item_id == Item.id)
-        .where(item_window_at >= window_start, item_window_at <= window_end)
-        .order_by(
-            ItemAIEnrichment.relevance_score.desc().nullslast(), item_window_at.desc()
-        )
-        .limit(source_audit_limit)
-        .with_for_update(read=True, of=(Item, Feed))
-    ).all()
-    item_rows = item_rows_all[: active.daily_brief_max_items]
+    item_rows_all, item_rows = selection.audit_rows, selection.selected_rows
     if not item_rows:
         return AIDailyBriefGenerationResult(
             brief=existing
@@ -694,6 +652,7 @@ def run_daily_brief_generation(
     brief.provider = active.provider_type
     brief.model = active.model
     brief.updated_at = claim_updated_at
+    brief.evidence_warnings_json = selection.warnings
     db.add(brief)
     messages = _build_daily_brief_messages(
         active,
@@ -788,7 +747,7 @@ def run_daily_brief_generation(
                 status="error",
                 error=str(exc),
                 generated_at=generated_at,
-                updated_at=generated_at,
+                updated_at=claim_updated_at,
             )
         )
         brief = _load_daily_brief(db, brief_id=brief_id)
@@ -859,7 +818,7 @@ def run_daily_brief_generation(
             latency_ms=completion.latency_ms,
             error=None,
             generated_at=generated_at,
-            updated_at=generated_at,
+            updated_at=claim_updated_at,
         )
     )
     brief = _load_daily_brief(db, brief_id=brief_id)
@@ -910,7 +869,11 @@ def _record_task_run_stop_observed(
     if lock:
         statement = statement.with_for_update()
     run = db.scalar(statement.execution_options(populate_existing=True))
-    stop_reason = ai_task_run_stop_reason(run)
+    from app.services.ai_execution_ownership import ai_execution_stop_reason
+    execution_stop = ai_execution_stop_reason(db, run) if run is not None else None
+    if execution_stop == "superseded_delivery":
+        return execution_stop
+    stop_reason = ai_task_run_stop_reason(run) or execution_stop
     if stop_reason is None:
         return None
     _record_task_run_stop_event(
@@ -963,7 +926,11 @@ def _prepare_provider_claim(
         .with_for_update()
         .execution_options(populate_existing=True)
     )
-    stop_reason = ai_task_run_stop_reason(run)
+    from app.services.ai_execution_ownership import ai_execution_stop_reason
+    execution_stop = ai_execution_stop_reason(db, run) if run is not None else None
+    if execution_stop == "superseded_delivery":
+        return execution_stop
+    stop_reason = ai_task_run_stop_reason(run) or execution_stop
     if stop_reason is not None:
         _record_task_run_stop_event(
             db,
@@ -1044,12 +1011,24 @@ def _request_json_with_usage(
     max_provider_attempts: int | None = None,
     execution_checkpoint: Callable[[], None] | None = None,
     execution_commit: Callable[[], None] | None = None,
+    request_authorization: AuthorizationContext | None = None,
 ) -> AICompletionResult:
     if feature_type == FEATURE_REPORT and provider_operation_scope is None:
         raise AIIntegrationError(
             "Report provider calls require a durable operation scope.",
             retryable=False,
         )
+    def enforce_provider_authorization(db: Session, **kwargs):
+        if request_authorization is not None:
+            try:
+                fence_authorization_context(db, request_authorization)
+            except AuthorizationStateUnavailable as exc:
+                raise AIEgressPolicyError(
+                    "Your permissions changed before the connection test. Refresh your session and retry.",
+                    retryable=False,
+                ) from exc
+        return _enforce_ai_egress_data_policy(db, **kwargs)
+
     return run_ai_json_request(
         db,
         active,
@@ -1065,8 +1044,7 @@ def _request_json_with_usage(
         max_provider_attempts=max_provider_attempts,
         execution_checkpoint=execution_checkpoint,
         execution_commit=execution_commit,
-        enforce_egress_data_policy=_enforce_ai_egress_data_policy,
-        report_feature_type=FEATURE_REPORT,
+        enforce_egress_data_policy=enforce_provider_authorization,
         call_ai_json=_call_ai_json,
         record_task_run_stop_observed=_record_task_run_stop_observed,
         record_usage_event=_record_usage_event,
@@ -1149,10 +1127,14 @@ def _next_retry_max_completion_tokens(
     if feature_type == FEATURE_REPORT:
         if maximum is None or maximum <= current:
             return current
-        return min(maximum, max(current + 256, int(current * 1.5)))
-    if feature_type == FEATURE_DAILY_BRIEF:
-        return min(8192, max(current, current + 512, int(current * 1.5)))
-    return min(2048, max(current + 256, int(current * 1.5)))
+        ceiling = min(MAX_AI_COMPLETION_TOKENS, maximum)
+        return max(current, min(ceiling, max(current + 256, int(current * 1.5))))
+    increment = 512 if feature_type == FEATURE_DAILY_BRIEF else 256
+    ceiling = min(MAX_AI_COMPLETION_TOKENS, maximum) if maximum is not None else MAX_AI_COMPLETION_TOKENS
+    return max(
+        current,
+        min(ceiling, max(current + increment, int(current * 1.5))),
+    )
 
 
 def _call_ai_json(

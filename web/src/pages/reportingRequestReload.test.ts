@@ -21,6 +21,19 @@ afterEach(() => {
 })
 
 describe('reporting request reload persistence', () => {
+  it('reuses recovered report keys on HTTP and fails safely when fresh cryptography is unavailable', async () => {
+    const originalCrypto = crypto
+    vi.stubGlobal('crypto', { getRandomValues: crypto.getRandomValues.bind(crypto) })
+    const module = await import('./reportingRequestCoordinator')
+    const key = await module.beginPendingReportingRequest('http-report')
+    expect(key).toMatch(/^[\da-f]{8}-[\da-f]{4}-4[\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}$/)
+    vi.stubGlobal('crypto', undefined)
+    await expect(module.beginPendingReportingRequest('http-report')).resolves.toBe(key)
+    await expect(module.beginPendingReportingRequest('new-report')).rejects.toThrow('Secure random generation is unavailable')
+    vi.stubGlobal('crypto', originalCrypto)
+    await expect(module.beginPendingReportingRequest('new-report')).resolves.not.toBe(key)
+  })
+
   it('recovers an unresolved key in the same tab without storing the request body', async () => {
     const firstModule = await import('./reportingRequestCoordinator')
     const scope = firstModule.reportingRequestScope(

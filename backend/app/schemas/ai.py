@@ -1,10 +1,18 @@
+from app.schemas.ai_provider_capabilities import AIProviderCapabilityFields
+from app.schemas.ai_provider_admission import AIProviderAdmissionFields
+import math
 import uuid
 from datetime import date, datetime
 from typing import Literal
-from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.core.ai_endpoints import matches_ai_key_origin, validate_chat_completion_endpoint
+from app.core.ai_limits import (
+    AI_CONTEXT_PROTOCOL_OVERHEAD_TOKENS,
+    MAX_AI_COMPLETION_TOKENS,
+    MIN_AI_CONTEXT_INPUT_TOKENS,
+)
 from app.core.config import get_settings
 from app.services.url_utils import is_fetchable_url, normalize_url
 
@@ -18,7 +26,6 @@ AITaskType = Literal[
 ]
 AITriggerSource = Literal["auto", "manual", "scheduled"]
 AITaskStatus = Literal["queued", "running", "ready", "error", "skipped"]
-_SHARED_AI_API_KEY_ALLOWED_HOSTS = frozenset({"api.openai.com"})
 
 
 def _sanitize_required_public_url(value: object) -> str:
@@ -56,12 +63,12 @@ def _normalize_string_list(values: object) -> list[str]:
     return normalized
 
 
-class AISettingsUpdate(BaseModel):
+class AISettingsUpdate(AIProviderAdmissionFields, AIProviderCapabilityFields):
     provider_type: AIProviderType = "openai_compatible"
     base_url: str | None = Field(default=None, max_length=4000)
     model: str | None = Field(default=None, max_length=255)
-    temperature: float = Field(default=0.2, ge=0.0, le=2.0)
-    max_completion_tokens: int = Field(default=5000, ge=128, le=8192)
+    temperature: float | None = Field(default=0.2, ge=0.0, le=2.0)
+    max_completion_tokens: int = Field(default=5000, ge=128, le=MAX_AI_COMPLETION_TOKENS)
     request_timeout_seconds: int = Field(default=300, ge=5, le=300)
     request_max_retries: int = Field(default=3, ge=0, le=5)
     summary_enabled: bool = True
@@ -75,7 +82,7 @@ class AISettingsUpdate(BaseModel):
     daily_brief_schedule_hour_utc: int = Field(default=9, ge=0, le=23)
     daily_brief_schedule_minute_utc: int = Field(default=0, ge=0, le=59)
     report_context_window_tokens: int = Field(default=8192, ge=2048, le=1_000_000)
-    report_reserved_output_tokens: int = Field(default=1200, ge=256, le=65_536)
+    report_reserved_output_tokens: int = Field(default=1200, ge=256, le=MAX_AI_COMPLETION_TOKENS)
     report_source_token_cap: int = Field(default=700, ge=128, le=32_768)
     report_max_sources: int = Field(default=100, ge=1, le=1000)
     report_max_model_calls: int = Field(default=20, ge=2, le=200)
@@ -138,29 +145,15 @@ class AISettingsUpdate(BaseModel):
         if not base_url:
             return None
 
-        try:
-            parsed = urlsplit(base_url)
-        except ValueError as exc:
-            raise ValueError("base_url must be a valid URL") from exc
-        try:
-            port = parsed.port
-        except ValueError as exc:
-            raise ValueError("base_url must be a valid URL") from exc
-
+        parsed = validate_chat_completion_endpoint(base_url)
         settings = get_settings()
         allow_private_network = bool(settings.allow_private_network_ai)
-        if parsed.scheme.lower() not in {"http", "https"}:
-            raise ValueError("base_url must use http or https")
-        if settings.ai_api_key:
-            hostname = (parsed.hostname or "").lower().rstrip(".")
-            if (
-                parsed.scheme.lower() != "https"
-                or hostname not in _SHARED_AI_API_KEY_ALLOWED_HOSTS
-                or port not in (None, 443)
-            ):
-                raise ValueError(
-                    "base_url must target https://api.openai.com when the server AI_API_KEY is configured"
-                )
+        if settings.ai_api_key and not matches_ai_key_origin(base_url, settings.ai_api_key_base_url):
+            raise ValueError(
+                f"base_url must target the same HTTPS origin as {settings.ai_api_key_base_url} "
+                "when the server AI_API_KEY is configured. Set AI_API_KEY_BASE_URL on the server "
+                "to trust a different provider, or use a named provider with its own API key."
+            )
         if parsed.scheme.lower() != "https" and not allow_private_network:
             raise ValueError(
                 "base_url must use https unless ALLOW_PRIVATE_NETWORK_AI is enabled"
@@ -172,14 +165,6 @@ class AISettingsUpdate(BaseModel):
         ):
             raise ValueError(
                 "base_url must use https for publicly routable hosts; plain http is only allowed for private-network AI endpoints"
-            )
-        if parsed.username or parsed.password:
-            raise ValueError("base_url must not include embedded credentials")
-        if parsed.query or parsed.fragment:
-            raise ValueError("base_url must not include query parameters or fragments")
-        if "{{" in parsed.scheme or "{{" in parsed.netloc:
-            raise ValueError(
-                "base_url must not contain templates in the scheme or host"
             )
         if not is_fetchable_url(base_url, allow_private_network=allow_private_network):
             raise ValueError("base_url is not allowed for outbound fetch")
@@ -195,35 +180,38 @@ class AISettingsUpdate(BaseModel):
 
     @model_validator(mode="after")
     def _validate_report_context_budget(self):
-        reserved = self.report_reserved_output_tokens
-        safety = (
-            self.report_context_window_tokens
-            * self.report_context_safety_percent
-            // 100
+        safety = math.ceil(
+            self.report_context_window_tokens * self.report_context_safety_percent / 100
         )
-        if reserved + safety + 512 >= self.report_context_window_tokens:
+        usable_input = (
+            self.report_context_window_tokens
+            - self.report_reserved_output_tokens
+            - safety
+            - AI_CONTEXT_PROTOCOL_OVERHEAD_TOKENS
+        )
+        if usable_input < MIN_AI_CONTEXT_INPUT_TOKENS:
             raise ValueError(
-                "report context window must leave at least 512 tokens after the output reserve and safety margin"
+                "report context window must leave at least 512 tokens for input after "
+                "the report completion budget, safety margin, and protocol reserve"
             )
-        if (
-            self.report_source_token_cap
-            >= self.report_context_window_tokens - reserved - safety
-        ):
+        if self.report_source_token_cap >= usable_input:
             raise ValueError(
                 "report source token cap must fit inside the usable report context budget"
             )
         return self
 
 
-class AISettingsResponse(BaseModel):
+class AISettingsResponse(AIProviderAdmissionFields, AIProviderCapabilityFields):
     id: uuid.UUID
     ai_enabled: bool
     ai_configured: bool
+    provider_routing_supported: bool = True
+    effective_feature_configured: dict[str, bool] = Field(default_factory=dict)
     api_key_configured: bool
     provider_type: AIProviderType
     base_url: str | None
     model: str | None
-    temperature: float
+    temperature: float | None
     max_completion_tokens: int
     request_timeout_seconds: int
     request_max_retries: int
@@ -273,6 +261,10 @@ class AIPromptPreview(BaseModel):
 class AIPromptPreviews(BaseModel):
     item_enrichment: AIPromptPreview
     daily_brief: AIPromptPreview
+
+
+class AIProviderTestConnectionRequest(BaseModel):
+    version: int = Field(ge=1)
 
 
 class AITestConnectionResponse(BaseModel):
@@ -336,6 +328,7 @@ class AIDailyBriefResponse(BaseModel):
     brief_text: str | None
     key_points: list[str]
     recommended_actions: list[str]
+    evidence_warnings: list[str] = Field(default_factory=list)
     item_count: int
     items: list[AIDailyBriefItemResponse]
     model: str | None
@@ -510,6 +503,8 @@ class AITimeSeriesPointResponse(BaseModel):
     total_tokens: int
     average_latency_ms: float
     p95_latency_ms: float
+    latency_samples: int = 0
+    known_usage_requests: int = 0
     daily_brief_successes: int
     daily_brief_failures: int
     daily_brief_skips: int
@@ -602,6 +597,10 @@ class AICacheStatsResponse(BaseModel):
 
 
 class AIOpsOverviewResponse(BaseModel):
+    since: datetime | None = None
+    until: datetime | None = None
+    bucket_unit: Literal["day"] = "day"
+    bucket_timezone: Literal["UTC"] = "UTC"
     kpis: AIOverviewKpiResponse
     live: AILiveStatusResponse
     per_model: list[AIOverviewPerModelResponse]

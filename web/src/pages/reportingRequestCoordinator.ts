@@ -1,3 +1,4 @@
+import { createSecureRequestId } from '../utils/secureRandomId'
 import {
   acquireReportingRequestStorage,
   clearReportingRequestStorage,
@@ -77,7 +78,7 @@ export async function beginPendingReportingRequestLease(
   if (!request) {
     const stored = acquireReportingRequestStorage(
       scope,
-      createIdempotencyKey,
+      createSecureRequestId,
       () => requireCurrentCoordinationGeneration(startingGeneration),
     )
     requireCurrentCoordinationGeneration(startingGeneration)
@@ -232,16 +233,4 @@ function requireCurrentCoordinationGeneration(startingGeneration: number): void 
       'Authentication changed before the reporting request was prepared. Retry the action after signing in.',
     )
   }
-}
-
-
-function createIdempotencyKey(): string {
-  if (typeof globalThis.crypto?.randomUUID === 'function') {
-    return globalThis.crypto.randomUUID()
-  }
-  if (typeof globalThis.crypto?.getRandomValues === 'function') {
-    const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16))
-    return Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('')
-  }
-  return `${Date.now()}-${Math.random().toString(16).slice(2)}`
 }

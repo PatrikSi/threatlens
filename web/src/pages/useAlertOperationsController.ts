@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { ApiError, apiFetch } from '../api/client'
@@ -16,6 +17,8 @@ const OPERATIONS_REFRESH_MS = 30_000
 
 export function useAlertOperationsController(active: boolean) {
   const queryClient = useQueryClient()
+  const [params] = useSearchParams()
+  const metricsTeamId = params.get('team_id') ?? ''
   const [stateFilter, setStateFilter] = useState<AlertOperationsStateFilter>('failures')
   const [page, setPage] = useState(1)
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -41,7 +44,7 @@ export function useAlertOperationsController(active: boolean) {
     retry: retryOperationsQuery,
   })
   const metricsQuery = useQuery({
-    queryKey: ['alerts', 'operations', 'metrics'],
+    queryKey: ['alerts', 'operations', 'metrics', metricsTeamId],
     queryFn: () => {
       const until = new Date()
       const since = new Date(until.getTime() - 30 * 24 * 60 * 60 * 1000)
@@ -50,6 +53,7 @@ export function useAlertOperationsController(active: boolean) {
         until: until.toISOString(),
         limit: '1000',
       })
+      if (metricsTeamId) params.set('team_id', metricsTeamId)
       return apiFetch<AlertOccurrenceMetricListResponse>(`/alerts/occurrences/metrics?${params.toString()}`)
     },
     enabled: active,
@@ -134,6 +138,7 @@ export function useAlertOperationsController(active: boolean) {
   }
 
   return {
+    metricsTeamId,
     activityQuery,
     activityPage,
     changeStateFilter,

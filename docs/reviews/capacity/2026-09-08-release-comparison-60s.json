@@ -1,0 +1,257 @@
+{
+  "baseline_revision": "062787155ebb27cc073bf50403840d32f0697672",
+  "candidate_revision": "5f1209267ebda642b0814e29d6636ab623f26c8a",
+  "compatible": true,
+  "conclusive": true,
+  "insufficient_required_samples": [],
+  "metrics": [
+    {
+      "baseline_p95_ms": 683.745,
+      "candidate_p95_ms": 308.45,
+      "change_percent": -54.888,
+      "name": "ai_connection",
+      "regressed": false,
+      "status": "compared"
+    },
+    {
+      "baseline_p95_ms": 683.745,
+      "candidate_p95_ms": 308.45,
+      "change_percent": -54.888,
+      "name": "ai_connection:succeeded",
+      "regressed": false,
+      "status": "compared"
+    },
+    {
+      "baseline_p95_ms": 100.488,
+      "candidate_p95_ms": 101.875,
+      "change_percent": 1.38,
+      "name": "deadline:dns",
+      "regressed": false,
+      "status": "compared"
+    },
+    {
+      "baseline_p95_ms": 103.212,
+      "candidate_p95_ms": 102.857,
+      "change_percent": -0.344,
+      "name": "deadline:headers",
+      "regressed": false,
+      "status": "compared"
+    },
+    {
+      "baseline_p95_ms": 660.646,
+      "candidate_p95_ms": 487.625,
+      "change_percent": -26.19,
+      "name": "export",
+      "regressed": false,
+      "status": "compared"
+    },
+    {
+      "minimum_samples": 20,
+      "name": "export:policy_conflict",
+      "status": "insufficient_samples"
+    },
+    {
+      "baseline_p95_ms": 585.089,
+      "candidate_p95_ms": 370.958,
+      "change_percent": -36.598,
+      "name": "export:succeeded",
+      "regressed": false,
+      "status": "compared"
+    },
+    {
+      "baseline_p95_ms": 230.694,
+      "candidate_p95_ms": 118.493,
+      "change_percent": -48.636,
+      "name": "governance",
+      "regressed": false,
+      "status": "compared"
+    },
+    {
+      "baseline_p95_ms": 2404.679,
+      "candidate_p95_ms": 2484.142,
+      "change_percent": 3.305,
+      "name": "queue_wait:classify_item",
+      "regressed": false,
+      "status": "compared"
+    },
+    {
+      "minimum_samples": 20,
+      "name": "queue_wait:dispatch_items_missing_iocs",
+      "status": "insufficient_samples"
+    },
+    {
+      "baseline_p95_ms": 2223.036,
+      "candidate_p95_ms": 1675.474,
+      "change_percent": -24.631,
+      "name": "queue_wait:extract_item_iocs",
+      "regressed": false,
+      "status": "compared"
+    },
+    {
+      "baseline_p95_ms": 2907.074,
+      "candidate_p95_ms": 2670.263,
+      "change_percent": -8.146,
+      "name": "queue_wait:fetch_article",
+      "regressed": false,
+      "status": "compared"
+    },
+    {
+      "minimum_samples": 20,
+      "name": "queue_wait:fetch_feed",
+      "status": "insufficient_samples"
+    },
+    {
+      "baseline_p95_ms": 2092.12,
+      "candidate_p95_ms": 1533.689,
+      "change_percent": -26.692,
+      "name": "queue_wait:process_alert_evaluation",
+      "regressed": false,
+      "status": "compared"
+    },
+    {
+      "baseline_p95_ms": 2378.67,
+      "candidate_p95_ms": 2246.771,
+      "change_percent": -5.545,
+      "name": "queue_wait:route_integration_event",
+      "regressed": false,
+      "status": "compared"
+    },
+    {
+      "baseline_p95_ms": 479.075,
+      "candidate_p95_ms": 344.49,
+      "change_percent": -28.093,
+      "name": "task:classify_item",
+      "regressed": false,
+      "status": "compared"
+    },
+    {
+      "minimum_samples": 20,
+      "name": "task:dispatch_items_missing_iocs",
+      "status": "insufficient_samples"
+    },
+    {
+      "baseline_p95_ms": 116.613,
+      "candidate_p95_ms": 57.696,
+      "change_percent": -50.524,
+      "name": "task:extract_item_iocs",
+      "regressed": false,
+      "status": "compared"
+    },
+    {
+      "baseline_p95_ms": 413.155,
+      "candidate_p95_ms": 302.21,
+      "change_percent": -26.853,
+      "name": "task:fetch_article",
+      "regressed": false,
+      "status": "compared"
+    },
+    {
+      "minimum_samples": 20,
+      "name": "task:fetch_feed",
+      "status": "insufficient_samples"
+    },
+    {
+      "baseline_p95_ms": 124.608,
+      "candidate_p95_ms": 65.589,
+      "change_percent": -47.364,
+      "name": "task:process_alert_evaluation",
+      "regressed": false,
+      "status": "compared"
+    },
+    {
+      "baseline_p95_ms": 147.827,
+      "candidate_p95_ms": 51.845,
+      "change_percent": -64.929,
+      "name": "task:route_integration_event",
+      "regressed": false,
+      "status": "compared"
+    },
+    {
+      "absolute_change": -1093632,
+      "baseline": 41721856,
+      "candidate": 40628224,
+      "change_percent": -2.621,
+      "name": "memory.process_rss_increase_bytes",
+      "regressed": false,
+      "status": "single_run_observation"
+    },
+    {
+      "absolute_change": -1146880,
+      "baseline": 303316992,
+      "candidate": 302170112,
+      "change_percent": -0.378,
+      "name": "memory.process_rss_peak_bytes",
+      "regressed": false,
+      "status": "single_run_observation"
+    },
+    {
+      "absolute_change": -1073152,
+      "baseline": 330878976,
+      "candidate": 329805824,
+      "change_percent": -0.324,
+      "name": "watchdog.owned_process_tree_rss_peak_bytes",
+      "regressed": false,
+      "status": "single_run_observation"
+    },
+    {
+      "absolute_change": -3.0599999999999996,
+      "baseline": 10.283,
+      "candidate": 7.223,
+      "change_percent": -29.758,
+      "name": "queue.recovery_ms",
+      "regressed": false,
+      "status": "single_run_observation"
+    },
+    {
+      "absolute_change": -2,
+      "baseline": 20,
+      "candidate": 18,
+      "change_percent": -10.0,
+      "name": "queue.depth_peak",
+      "regressed": false,
+      "status": "single_run_observation"
+    },
+    {
+      "absolute_change": -685.8679999999999,
+      "baseline": 3513.565,
+      "candidate": 2827.697,
+      "change_percent": -19.521,
+      "name": "queue.oldest_pending_age_peak_ms",
+      "regressed": false,
+      "status": "single_run_observation"
+    },
+    {
+      "absolute_change": -18.986999999999995,
+      "baseline": 161.268,
+      "candidate": 142.281,
+      "change_percent": -11.774,
+      "name": "database.sampled_lock_waiting_query_age_peak_ms",
+      "regressed": false,
+      "status": "single_run_observation"
+    }
+  ],
+  "outcomes": {
+    "baseline": {
+      "ai_succeeded": 31,
+      "deadline_dns_observed": 6,
+      "deadline_headers_observed": 6,
+      "exports_policy_conflict": 2,
+      "exports_succeeded": 29,
+      "governance_succeeded": 30,
+      "ingestion_recovered": 1,
+      "ioc_repair_dispatches": 12
+    },
+    "candidate": {
+      "ai_succeeded": 31,
+      "deadline_dns_observed": 6,
+      "deadline_headers_observed": 6,
+      "exports_policy_conflict": 1,
+      "exports_succeeded": 30,
+      "governance_succeeded": 30,
+      "ingestion_recovered": 1,
+      "ioc_repair_dispatches": 12
+    }
+  },
+  "regression_threshold_percent": 20,
+  "regressions": []
+}

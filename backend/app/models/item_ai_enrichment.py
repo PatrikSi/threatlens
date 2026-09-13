@@ -17,6 +17,7 @@ class ItemAIEnrichment(Base):
     )
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending", server_default="pending")
     source_hash: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    result_provenance_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     summary_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     relevance_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     relevance_label: Mapped[str | None] = mapped_column(String(16), nullable=True)

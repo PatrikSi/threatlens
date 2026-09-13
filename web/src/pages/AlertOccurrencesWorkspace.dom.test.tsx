@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { MemoryRouter } from 'react-router-dom'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -212,12 +213,12 @@ function renderWorkspace() {
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
-  act(() => root?.render(<AlertOccurrencesWorkspace />))
+  act(() => root?.render(<MemoryRouter><AlertOccurrencesWorkspace /></MemoryRouter>))
   return container
 }
 
 function rerenderWorkspace() {
-  act(() => root?.render(<AlertOccurrencesWorkspace />))
+  act(() => root?.render(<MemoryRouter><AlertOccurrencesWorkspace /></MemoryRouter>))
 }
 
 function resetRenderedWorkspace() {

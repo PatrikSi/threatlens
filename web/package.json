@@ -1,7 +1,7 @@
 {
   "name": "threatlens-web",
   "private": true,
-  "version": "1.10.0",
+  "version": "2.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 3000",
@@ -11,18 +11,28 @@
     "test": "vitest run",
     "test:dist": "node scripts/smoke_production_bundle.mjs",
     "test:watch": "vitest",
-    "preview": "vite preview --host 0.0.0.0 --port 3000"
+    "preview": "vite preview --host 0.0.0.0 --port 3000",
+    "test:browser": "tsc -p tsconfig.browser.json && playwright test",
+    "test:browser:server": "tsc -p tsconfig.browser.json && playwright test --config playwright.server.config.ts"
   },
   "dependencies": {
     "@noble/hashes": "^2.0.1",
     "@tanstack/react-query": "^5.85.5",
     "lucide-react": "^1.37.0",
+    "parse-entities": "4.0.2",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
-    "react-router-dom": "7.18.2"
+    "react-markdown": "10.1.0",
+    "react-router-dom": "7.18.2",
+    "remark-gfm": "4.0.1",
+    "tabbable": "6.3.0"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "1.63.0",
+    "@types/hast": "3.0.5",
+    "@types/node": "22.20.1",
     "@types/react": "^19.1.10",
     "@types/react-dom": "^19.1.7",
     "@vitejs/plugin-react": "^5.0.2",
@@ -38,6 +48,6 @@
     "typescript": "^5.9.2",
     "typescript-eslint": "^8.65.0",
     "vite": "^7.1.3",
-    "vitest": "^3.2.4"
+    "vitest": "4.1.11"
   }
 }

@@ -58,6 +58,7 @@ from app.services.resource_versions import next_resource_version, resource_versi
 
 
 MAX_CATCH_UP_RUNS = 4
+SCHEDULE_DISPATCH_GRACE = timedelta(minutes=5)
 PERMANENT_SCHEDULE_FAILURE_ATTEMPTS = 3
 
 
@@ -66,6 +67,13 @@ class ScheduleFailure:
     code: str
     message: str
     quarantine: bool = False
+
+
+@dataclass(frozen=True)
+class ScheduleDispatchCandidate:
+    schedule_id: uuid.UUID
+    resource_version: datetime
+    due_at: datetime
 
 
 def create_report_schedule(
@@ -100,6 +108,8 @@ def apply_schedule_payload(
     schedule.custom_instructions = payload.custom_instructions
     schedule.delivery_enabled = payload.delivery_enabled
     schedule.delivery_mode = payload.delivery_mode
+    if payload.review_required is not None:
+        schedule.review_required = payload.review_required
     schedule.skip_empty = payload.skip_empty
     schedule.missed_run_policy = payload.missed_run_policy
     schedule.next_run_at = (
@@ -131,6 +141,7 @@ def report_schedule_response(schedule: ReportSchedule) -> ReportScheduleResponse
         custom_instructions=schedule.custom_instructions,
         delivery_enabled=schedule.delivery_enabled,
         delivery_mode=schedule.delivery_mode,
+        review_required=schedule.review_required,
         skip_empty=schedule.skip_empty,
         missed_run_policy=schedule.missed_run_policy,
         next_run_at=schedule.next_run_at,
@@ -208,24 +219,24 @@ def list_due_schedule_ids(
     now: datetime,
     limit: int = 50,
 ) -> list[uuid.UUID]:
-    return list(
-        db.scalars(
-            select(ReportSchedule.id)
-            .where(
-                ReportSchedule.enabled.is_(True),
-                ReportSchedule.next_run_at.is_not(None),
-                ReportSchedule.next_run_at <= _as_utc(now),
-                or_(
-                    ReportSchedule.retry_at.is_(None),
-                    ReportSchedule.retry_at <= _as_utc(now),
-                ),
-            )
-            .order_by(
-                func.coalesce(ReportSchedule.retry_at, ReportSchedule.next_run_at).asc()
-            )
-            .limit(limit)
-        ).all()
-    )
+    return [candidate.schedule_id for candidate in list_due_schedule_candidates(db, now=now, limit=limit)]
+
+
+def list_due_schedule_candidates(
+    db: Session, *, now: datetime, limit: int = 50,
+) -> list[ScheduleDispatchCandidate]:
+    rows = db.execute(
+        select(ReportSchedule.id, ReportSchedule.updated_at, ReportSchedule.next_run_at)
+        .where(
+            ReportSchedule.enabled.is_(True),
+            ReportSchedule.next_run_at.is_not(None),
+            ReportSchedule.next_run_at <= _as_utc(now),
+            or_(ReportSchedule.retry_at.is_(None), ReportSchedule.retry_at <= _as_utc(now)),
+        )
+        .order_by(func.coalesce(ReportSchedule.retry_at, ReportSchedule.next_run_at).asc())
+        .limit(limit)
+    ).all()
+    return [ScheduleDispatchCandidate(row.id, row.updated_at, row.next_run_at) for row in rows]
 
 
 def reserve_schedule_runs(
@@ -237,18 +248,25 @@ def reserve_schedule_runs(
     generation_key_override: str | None = None,
     request_idempotency_key_hash: str | None = None,
     request_fingerprint: str | None = None,
+    expected_version: datetime | None = None,
 ) -> list[Report]:
     if generation_key_override is not None and not force:
         raise ValueError("A schedule generation-key override requires a forced run.")
     schedule = db.scalar(
-        select(ReportSchedule).where(ReportSchedule.id == schedule_id).with_for_update()
+        select(ReportSchedule)
+        .where(ReportSchedule.id == schedule_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if schedule is None:
+        return []
+    if expected_version is not None and _as_utc(schedule.updated_at) != _as_utc(expected_version):
         return []
     if not force and (
         not schedule.enabled
         or schedule.next_run_at is None
         or schedule.next_run_at > _as_utc(now)
+        or (schedule.retry_at is not None and _as_utc(schedule.retry_at) > _as_utc(now))
     ):
         return []
     if schedule.owner_user_id is None:
@@ -269,16 +287,7 @@ def reserve_schedule_runs(
         )
         return []
 
-    due_times = [_as_utc(now) if force else _as_utc(schedule.next_run_at)]
-    if not force and schedule.missed_run_policy == "all":
-        cursor = next_schedule_run(schedule, after=due_times[0])
-        while cursor <= _as_utc(now) and len(due_times) < MAX_CATCH_UP_RUNS:
-            due_times.append(cursor)
-            cursor = next_schedule_run(schedule, after=cursor)
-    elif not force and schedule.missed_run_policy == "skip":
-        due_times = []
-    elif not force and schedule.missed_run_policy == "latest":
-        due_times = [_as_utc(now)]
+    due_times = _schedule_due_times(schedule, now=_as_utc(now), force=force)
 
     reports: list[Report] = []
     for due_at in due_times:
@@ -303,6 +312,35 @@ def reserve_schedule_runs(
     schedule.updated_at = next_resource_version(schedule.updated_at)
     db.add(schedule)
     return reports
+
+
+def _schedule_due_times(
+    schedule: ReportSchedule, *, now: datetime, force: bool,
+) -> list[datetime]:
+    if force:
+        return [now]
+    due_at = _as_utc(schedule.next_run_at)
+    if schedule.missed_run_policy == "all":
+        due_times = [due_at]
+        cursor = next_schedule_run(schedule, after=due_at)
+        while cursor <= now and len(due_times) < MAX_CATCH_UP_RUNS:
+            due_times.append(cursor)
+            cursor = next_schedule_run(schedule, after=cursor)
+        return due_times
+    # A failed reservation is already an attempted tick. Honor its backoff and
+    # retry budget even when it outlives the grace for previously unstarted work.
+    if schedule.retry_at is not None:
+        return [due_at]
+    lookback = timedelta(days=8 if schedule.cadence == "weekly" else 35)
+    latest = next_schedule_run(schedule, after=now - lookback)
+    cursor = next_schedule_run(schedule, after=latest)
+    while cursor <= now:
+        latest = cursor
+        cursor = next_schedule_run(schedule, after=cursor)
+    latest = max(due_at, latest)
+    if schedule.missed_run_policy == "skip" and now - latest > SCHEDULE_DISPATCH_GRACE:
+        return []
+    return [latest]
 
 
 def _create_one_scheduled_report(
@@ -344,7 +382,7 @@ def _create_one_scheduled_report(
         period_start=period_start,
         period_end=period_end,
     )
-    active = load_active_ai_settings(db)
+    active = load_active_ai_settings(db, feature_type="report")
     ensure_reporting_available(active)
     owner = db.get(User, schedule.owner_user_id)
     if owner is None:
@@ -389,6 +427,7 @@ def _create_one_scheduled_report(
                 generation_key=generation_key,
                 request_idempotency_key_hash=request_idempotency_key_hash,
                 request_fingerprint=request_fingerprint,
+                review_required=schedule.review_required,
             )
     except IntegrityError as exc:
         if _integrity_constraint_name(exc) in {
@@ -469,6 +508,8 @@ def record_schedule_failure(
     schedule_id: uuid.UUID,
     now: datetime,
     error: Exception,
+    expected_version: datetime | None = None,
+    expected_next_run_at: datetime | None = None,
 ) -> ReportSchedule | None:
     schedule = db.scalar(
         select(ReportSchedule)
@@ -477,6 +518,13 @@ def record_schedule_failure(
         .execution_options(populate_existing=True)
     )
     if schedule is None:
+        return None
+    if expected_version is not None and _as_utc(schedule.updated_at) != _as_utc(expected_version):
+        return None
+    if expected_next_run_at is not None and (
+        schedule.next_run_at is None
+        or _as_utc(schedule.next_run_at) != _as_utc(expected_next_run_at)
+    ):
         return None
 
     failure = classify_schedule_failure(error)

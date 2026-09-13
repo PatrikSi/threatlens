@@ -1,6 +1,8 @@
 import { type Dispatch, type SetStateAction } from 'react'
 
 import { AISettings, AIOpsOverviewResponse } from '../types/api'
+import { AiProviderUsagePanel } from './AiProviderUsagePanel'
+import { AiStatisticsTrends } from './AiStatisticsTrends'
 import {
   EmptyInline,
   LiveTaskCard,
@@ -10,7 +12,6 @@ import {
   Panel,
   StatCard,
   StatusPill,
-  TimeSeriesBars,
 } from './aiSettingsSupport'
 import {
   formatAgeSeconds,
@@ -21,7 +22,6 @@ import {
 
 export function OverviewTab({
   settings,
-  readiness,
   overview,
   isLoading,
   isError,
@@ -31,7 +31,6 @@ export function OverviewTab({
   onRefresh,
 }: {
   settings: AISettings | undefined
-  readiness: string | null
   overview: AIOpsOverviewResponse | undefined
   isLoading: boolean
   isError: boolean
@@ -45,7 +44,7 @@ export function OverviewTab({
   }
 
   if (isError && !overview) {
-    return <Panel title="Overview">{errorMessage}</Panel>
+    return <Panel title="AI analytics"><p role="alert">{errorMessage}</p><button type="button" onClick={onRefresh} className="mt-3 rounded border px-3 py-2">Retry AI statistics</button></Panel>
   }
 
   if (!overview) {
@@ -54,10 +53,16 @@ export function OverviewTab({
 
   return (
     <div className="space-y-3">
+      {isError && <p role="alert" className="rounded border border-amber-500 p-3 text-sm">{errorMessage} Showing previously loaded statistics. <button type="button" className="underline" onClick={onRefresh}>Retry refresh</button></p>}
+      <p className="text-xs text-slate dark:text-slate-300">
+        Request and token metrics use the selected window. Coverage, relevance, queue and retained-history
+        totals describe the current accessible dataset; they do not use ingestion feed filters.
+        Token totals include recorded usage only; cost is unavailable without provider pricing.
+      </p>
       <Panel title="Current window">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <MiniStat label="Model" value={settings?.model || 'Not configured'} />
+            <MiniStat label="Legacy model" value={settings ? settings.model || 'Not configured' : 'Unknown'} />
             <MiniStat label="Requests" value={overview.kpis.total_requests.toLocaleString()} />
             <MiniStat label="Success rate" value={`${overview.kpis.success_rate_pct.toFixed(1)}%`} />
             <MiniStat label="Queued" value={overview.live.queued_count} />
@@ -89,17 +94,21 @@ export function OverviewTab({
         </div>
       </Panel>
 
+      <AiStatisticsTrends key={days} overview={overview} />
+
       <OverviewSection
         title="Health"
-        description="Use this section to confirm the endpoint is configured, the queue is moving, and problems are visible quickly."
+        description="Review saved provider assignments, queue progress and recorded failures."
       >
         <div className="grid gap-3 xl:grid-cols-2">
-          <Panel title="AI status" subtitle={readiness ?? 'Loading runtime state...'}>
+          <Panel title="AI status" subtitle="Saved configuration and recorded request outcomes.">
             <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
-              <Metric label="Configured" value={settings?.ai_configured ? 'Yes' : 'No'} />
-              <Metric label="API key in environment" value={settings?.api_key_configured ? 'Yes' : 'No (optional)'} />
-              <Metric label="Model" value={settings?.model || 'Not configured'} />
-              <Metric label="Retry attempts" value={settings?.request_max_retries ?? 0} />
+              <Metric label="Configured feature routes" value={settings?.effective_feature_configured
+                ? `${Object.values(settings.effective_feature_configured).filter(Boolean).length} of 3` : 'Unknown'} />
+              <Metric label="Legacy provider configured" value={settings ? settings.ai_configured ? 'Yes' : 'No' : 'Unknown'} />
+              <Metric label="API key in environment" value={settings ? settings.api_key_configured ? 'Yes' : 'No (optional)' : 'Unknown'} />
+              <Metric label="Legacy model" value={settings ? settings.model || 'Not configured' : 'Unknown'} />
+              <Metric label="Legacy retry attempts" value={settings?.request_max_retries ?? 'Unknown'} />
               <Metric label="Last success" value={overview.endpoint_health.last_success_at ? formatTimestamp(overview.endpoint_health.last_success_at) : 'Never'} />
               <Metric label="Failure rate" value={`${overview.endpoint_health.rolling_failure_rate_pct.toFixed(1)}%`} />
               <Metric label="Median latency" value={`${overview.endpoint_health.median_latency_ms.toFixed(1)} ms`} />
@@ -141,31 +150,23 @@ export function OverviewTab({
 
       <OverviewSection
         title="Usage"
-        description="Volume, token cost, and model performance for the selected time window."
+        description="Volume, recorded token usage, and model performance for the selected time window."
       >
         <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           <StatCard label="Requests" value={overview.kpis.total_requests.toLocaleString()} />
           <StatCard label="Success rate" value={`${overview.kpis.success_rate_pct.toFixed(1)}%`} />
           <StatCard label="Total tokens" value={overview.kpis.total_tokens.toLocaleString()} />
-          <StatCard label="Average latency" value={`${overview.kpis.average_latency_ms.toFixed(1)} ms`} />
-          <StatCard label="P95 latency" value={`${overview.kpis.p95_latency_ms.toFixed(1)} ms`} />
+          <StatCard label="Successful-request average latency" value={`${overview.kpis.average_latency_ms.toFixed(1)} ms`} />
+          <StatCard label="Successful-request P95 latency" value={`${overview.kpis.p95_latency_ms.toFixed(1)} ms`} />
           <StatCard
             label="Last success"
             value={overview.kpis.last_successful_run_at ? formatTimestamp(overview.kpis.last_successful_run_at) : 'Never'}
           />
         </section>
 
-        <div className="grid gap-3 xl:grid-cols-2">
-          <Panel title="Requests and failures over time" subtitle="Recent request volume and failure pressure across the selected window.">
-            <TimeSeriesBars
-              points={overview.time_series}
-              valueKey="requests"
-              accentClass="bg-cyan"
-              secondaryKey="failures"
-              secondaryClass="bg-red-400/80"
-            />
-          </Panel>
+        <AiProviderUsagePanel key={days} days={days} />
 
+        <div className="grid gap-3 xl:grid-cols-2">
           <Panel title="Per-model usage" subtitle="Requests, success rate, latency, and token footprint by model.">
             <div className="space-y-2 sm:hidden" aria-label="Per-model AI usage records">
               {overview.per_model.map((row) => (
@@ -217,14 +218,8 @@ export function OverviewTab({
             </div>
             {!overview.per_model.length && <EmptyInline>No model usage has been recorded yet.</EmptyInline>}
           </Panel>
-        </div>
 
-        <div className="grid gap-3 xl:grid-cols-2">
-          <Panel title="Token usage over time" subtitle="Total tokens by day.">
-            <TimeSeriesBars points={overview.time_series} valueKey="total_tokens" accentClass="bg-emerald-500" />
-          </Panel>
-
-          <Panel title="Token efficiency" subtitle="Average AI cost profile across successful requests.">
+          <Panel title="Token efficiency" subtitle="Average token usage across requests with reported usage.">
             <div className="grid gap-3 sm:grid-cols-2">
               <MiniStat label="Average prompt tokens" value={overview.token_efficiency.average_prompt_tokens.toFixed(1)} />
               <MiniStat label="Average completion tokens" value={overview.token_efficiency.average_completion_tokens.toFixed(1)} />

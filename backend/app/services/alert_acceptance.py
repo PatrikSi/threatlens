@@ -4,7 +4,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from sqlalchemy import delete, select
+from sqlalchemy import and_, or_, delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -14,6 +14,7 @@ from app.models.alert_interest import AlertInterest
 from app.models.item import Item
 from app.models.item_classification import ItemClassification
 from app.models.user import User
+from app.models.team import Team
 from app.services.alert_evaluation_history import record_alert_evaluation_activity
 from app.services.alert_matching import build_item_haystack, match_alert_keywords
 
@@ -356,8 +357,14 @@ def snapshot_accepted_alert_matches(
     degraded_owners: list[dict] = []
     rule_predicates = [
         AlertInterest.enabled.is_(True),
-        User.is_active.is_(True),
-        User.is_approved.is_(True),
+        or_(
+            and_(
+                AlertInterest.team_id.is_(None),
+                User.is_active.is_(True),
+                User.is_approved.is_(True),
+            ),
+            and_(AlertInterest.team_id.is_not(None), Team.active.is_(True)),
+        ),
     ]
     if request.respect_rule_cutover:
         rule_predicates.extend(
@@ -368,7 +375,8 @@ def snapshot_accepted_alert_matches(
         )
     rule_snapshot = db.scalars(
         select(AlertInterest)
-        .join(User, User.id == AlertInterest.user_id)
+        .outerjoin(User, User.id == AlertInterest.user_id)
+        .outerjoin(Team, Team.id == AlertInterest.team_id)
         .where(*rule_predicates)
         .order_by(AlertInterest.user_id.asc(), AlertInterest.id.asc())
         .execution_options(yield_per=ALERT_ACCEPTANCE_RULE_PAGE_SIZE)
@@ -384,6 +392,9 @@ def snapshot_accepted_alert_matches(
                 request_id=request.id,
                 alert_interest_id=rule.id,
                 owner_user_id=rule.user_id,
+                team_id=rule.team_id,
+                due_after_minutes=rule.due_after_minutes,
+                escalation_after_minutes=rule.escalation_after_minutes,
                 rule_revision=rule.revision,
                 alert_name_snapshot=rule.name[:255],
                 alert_category_snapshot=rule.category[:64],

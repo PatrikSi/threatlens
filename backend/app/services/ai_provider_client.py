@@ -4,16 +4,24 @@ import json
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Literal
-from urllib.parse import urlsplit, urlunsplit
+from typing import Any, Literal, cast
+from urllib.parse import urlsplit
 
 import httpx
 
+from app.core.ai_endpoints import chat_completion_url
+from app.core.ai_limits import MAX_AI_COMPLETION_TOKENS
 from app.core.config import get_settings
+from app.core.logging_config import redact_log_text
 from app.services.ai_config import ActiveAISettings, is_shared_ai_base_url_allowed
 from app.services.ai_normalization import coerce_optional_int, normalize_optional_text
+from app.services.ai_output_storage import diagnostic_storage_text, optional_storage_text
+from app.services.ai_provider_protocol import build_provider_request_payload
 from app.services.ai_provider_exchange import sanitize_provider_exchange
 from app.services.safe_fetch import SafeFetchError
+from app.services.bounded_response import ResponseBodyTooLarge, read_bounded_response
+from app.services.outbound_deadline import OutboundDNSDeadlineExceeded, outbound_deadline
+from app.services.ai_failure_categories import http_failure_category, transport_failure_category
 
 
 AIProviderIOOutcome = Literal["not_sent", "response_received", "ambiguous"]
@@ -35,8 +43,13 @@ class AIIntegrationError(ValueError):
         retry_hint: str | None = None,
         retryable: bool = False,
         provider_io_outcome: AIProviderIOOutcome = AI_PROVIDER_IO_AMBIGUOUS,
+        prompt_tokens: int | None = None,
+        completion_tokens: int | None = None,
+        total_tokens: int | None = None,
+        latency_ms: int | None = None,
+        failure_category: str | None = None,
     ):
-        super().__init__(message)
+        super().__init__(diagnostic_storage_text(message, limit=20_000))
         self.request_url = request_url
         self.request_payload = request_payload
         self.response_body = response_body
@@ -45,6 +58,22 @@ class AIIntegrationError(ValueError):
         self.retry_hint = retry_hint
         self.retryable = retryable
         self.provider_io_outcome = provider_io_outcome
+        self.failure_category = failure_category
+        # Failed generations (including reasoning-only truncation) can still
+        # consume billable tokens. Invalid optional telemetry must not turn a
+        # received response into an ambiguous transport failure.
+        usage = response_json.get("usage") if isinstance(response_json, dict) else None
+        usage = usage if isinstance(usage, dict) else {}
+        self.prompt_tokens = coerce_optional_int(
+            prompt_tokens if prompt_tokens is not None else usage.get("prompt_tokens")
+        )
+        self.completion_tokens = coerce_optional_int(
+            completion_tokens if completion_tokens is not None else usage.get("completion_tokens")
+        )
+        self.total_tokens = coerce_optional_int(
+            total_tokens if total_tokens is not None else usage.get("total_tokens")
+        )
+        self.latency_ms = coerce_optional_int(latency_ms)
         self.attempt_count = 1
 
     def debug_payload(self) -> dict[str, object]:
@@ -96,9 +125,9 @@ def call_ai_json(
             retryable=False,
             provider_io_outcome=AI_PROVIDER_IO_NOT_SENT,
         )
-    if not is_shared_ai_base_url_allowed(active.base_url, api_key=active.api_key):
+    if getattr(active, "configuration_error", None):
         raise AIIntegrationError(
-            "AI base URL is not allowed when the server AI_API_KEY is configured",
+            active.configuration_error,
             retryable=False,
             provider_io_outcome=AI_PROVIDER_IO_NOT_SENT,
         )
@@ -108,15 +137,35 @@ def call_ai_json(
             retryable=False,
             provider_io_outcome=AI_PROVIDER_IO_NOT_SENT,
         )
+    try:
+        request_url = build_chat_completion_url(active.base_url)
+    except ValueError as exc:
+        raise AIIntegrationError(
+            str(exc), retryable=False, provider_io_outcome=AI_PROVIDER_IO_NOT_SENT,
+        ) from exc
+    if getattr(active, "provider_id", None) is not None:
+        from app.services.ai_provider_selection import provider_origin
 
-    request_url = build_chat_completion_url(active.base_url)
-    request_payload = {
-        "model": active.model,
-        "messages": messages,
-        "temperature": active.temperature,
-        "max_tokens": max_completion_tokens if max_completion_tokens is not None else active.max_completion_tokens,
-        "stream": False,
-    }
+        if provider_origin(active.base_url) != active.credential_origin:
+            raise AIIntegrationError(
+                "AI provider credentials do not match the selected destination. Reload AI settings.",
+                retryable=False,
+                provider_io_outcome=AI_PROVIDER_IO_NOT_SENT,
+            )
+    elif not is_shared_ai_base_url_allowed(active.base_url, api_key=active.api_key):
+        raise AIIntegrationError(
+            "AI base URL does not match the server AI_API_KEY_BASE_URL credential destination. Reload AI settings.",
+            retryable=False,
+            provider_io_outcome=AI_PROVIDER_IO_NOT_SENT,
+        )
+    requested_tokens = max_completion_tokens if max_completion_tokens is not None else active.max_completion_tokens
+    if type(requested_tokens) is not int or not 128 <= requested_tokens <= MAX_AI_COMPLETION_TOKENS:
+        raise AIIntegrationError(
+            f"AI completion tokens must be a whole number between 128 and {MAX_AI_COMPLETION_TOKENS:,}. Review AI settings.",
+            retryable=False,
+            provider_io_outcome=AI_PROVIDER_IO_NOT_SENT,
+        )
+    request_payload = build_provider_request_payload(active, messages, requested_tokens)
     headers = {"Content-Type": "application/json"}
     if active.api_key:
         headers["Authorization"] = f"Bearer {active.api_key}"
@@ -129,21 +178,45 @@ def call_ai_json(
         write=active.request_timeout_seconds,
         pool=active.request_timeout_seconds,
     )
+    transport_options = {}
+    if urlsplit(active.base_url).scheme == "http":
+        transport_options["private_network_only"] = True
     try:
-        with client_factory(
+        with outbound_deadline(active.request_timeout_seconds), client_factory(
             timeout=timeout,
             headers={"User-Agent": runtime_settings.fetch_user_agent},
             allow_private_network=runtime_settings.allow_private_network_ai,
+            **transport_options,
         ) as client:
-            response = client.post(request_url, headers=headers, json=request_payload)
-            response.raise_for_status()
+            with client.stream("POST", request_url, headers=headers, json=request_payload) as streamed:
+                body = read_bounded_response(streamed, runtime_settings.ai_response_max_bytes)
+                # The capped body is already decoded. Preserve JSON charset handling
+                # without applying Content-Encoding a second time.
+                response_headers = dict(streamed.headers)
+                response_headers.pop("content-encoding", None)
+                response = httpx.Response(
+                    streamed.status_code, headers=response_headers, content=body,
+                    request=streamed.request,
+                )
+                response.raise_for_status()
+    except ResponseBodyTooLarge as exc:
+        raise AIIntegrationError(
+            "AI response exceeds configured byte cap",
+            failure_category="response_too_large",
+            request_url=request_url,
+            request_payload=request_payload,
+            status_code=streamed.status_code,
+            latency_ms=int((time.perf_counter() - started_at) * 1000),
+            retryable=False,
+            provider_io_outcome=AI_PROVIDER_IO_RESPONSE_RECEIVED,
+        ) from exc
     except httpx.HTTPStatusError as exc:
-        response_body = exc.response.text
+        response_body = _redact_response_text(exc.response.text, active.api_key)
         try:
-            response_json: object | None = exc.response.json()
-        except ValueError:
+            response_json: object | None = _redact_response_value(exc.response.json(), active.api_key)
+        except (ValueError, RecursionError):
             response_json = None
-        provider_error_message = extract_provider_error_message(response_json)
+        provider_error_message = _safe_provider_error(response_json, active.api_key)
         raise AIIntegrationError(
             provider_error_message or f"AI request failed: {exc}",
             request_url=request_url,
@@ -151,12 +224,13 @@ def call_ai_json(
             response_body=response_body,
             response_json=response_json,
             status_code=exc.response.status_code,
-            retryable=False
-            if looks_like_provider_auth_error(provider_error_message)
-            else ai_status_code_is_retryable(exc.response.status_code),
+            retryable=ai_status_code_is_retryable(exc.response.status_code),
+            failure_category=http_failure_category(exc.response.status_code),
             provider_io_outcome=AI_PROVIDER_IO_RESPONSE_RECEIVED,
+            latency_ms=int((time.perf_counter() - started_at) * 1000),
         ) from exc
     except (
+        OutboundDNSDeadlineExceeded,
         httpx.ConnectError,
         httpx.ConnectTimeout,
         httpx.PoolTimeout,
@@ -166,6 +240,8 @@ def call_ai_json(
     ) as exc:
         raise AIIntegrationError(
             f"AI request failed: {exc}",
+            failure_category=transport_failure_category(exc),
+            latency_ms=int((time.perf_counter() - started_at) * 1000),
             request_url=request_url,
             request_payload=request_payload,
             retryable=True,
@@ -174,6 +250,8 @@ def call_ai_json(
     except (httpx.HTTPError, ValueError) as exc:
         raise AIIntegrationError(
             f"AI request outcome is unknown: {exc}",
+            failure_category=transport_failure_category(exc),
+            latency_ms=int((time.perf_counter() - started_at) * 1000),
             request_url=request_url,
             request_payload=request_payload,
             retryable=False,
@@ -181,20 +259,22 @@ def call_ai_json(
         ) from exc
 
     latency_ms = int((time.perf_counter() - started_at) * 1000)
-    response_body = response.text
+    response_body = _redact_response_text(response.text, active.api_key)
     try:
-        payload = response.json()
-    except ValueError as exc:
+        payload = _redact_response_value(response.json(), active.api_key)
+    except (ValueError, RecursionError) as exc:
         raise AIIntegrationError(
             "AI endpoint returned non-JSON output",
+            failure_category="invalid_json",
             request_url=request_url,
             request_payload=request_payload,
             response_body=response_body,
             status_code=response.status_code,
+            latency_ms=latency_ms,
             retryable=True,
             provider_io_outcome=AI_PROVIDER_IO_RESPONSE_RECEIVED,
         ) from exc
-    provider_error_message = extract_provider_error_message(payload)
+    provider_error_message = _safe_provider_error(payload, active.api_key)
     if provider_error_message:
         raise AIIntegrationError(
             provider_error_message,
@@ -203,64 +283,93 @@ def call_ai_json(
             response_body=response_body,
             response_json=payload,
             status_code=response.status_code,
+            latency_ms=latency_ms,
             retryable=not looks_like_provider_auth_error(provider_error_message),
+            failure_category="provider_response_error",
             provider_io_outcome=AI_PROVIDER_IO_RESPONSE_RECEIVED,
         )
 
     try:
         choice = payload["choices"][0]
         message = choice["message"]
+        if not isinstance(message, dict):
+            raise TypeError("The provider message must be an object")
     except (KeyError, IndexError, TypeError) as exc:
         raise AIIntegrationError(
             "AI endpoint returned an unexpected response shape",
+            failure_category="invalid_output",
             request_url=request_url,
             request_payload=request_payload,
             response_body=response_body,
             response_json=payload,
             status_code=response.status_code,
+            latency_ms=latency_ms,
             retryable=True,
             provider_io_outcome=AI_PROVIDER_IO_RESPONSE_RECEIVED,
         ) from exc
 
     finish_reason = choice.get("finish_reason") if isinstance(choice, dict) else None
+    refusal = message.get("refusal")
+    if finish_reason == "content_filter" or (
+        isinstance(refusal, str) and bool(refusal.strip())
+    ):
+        raise AIIntegrationError(
+            "AI provider declined the response under its content policy. "
+            "Review the input and provider settings before retrying.",
+            request_url=request_url,
+            request_payload=request_payload,
+            response_body=response_body,
+            response_json=payload,
+            status_code=response.status_code,
+            latency_ms=latency_ms,
+            failure_category="provider_refusal",
+            retry_hint="provider_content_filter" if finish_reason == "content_filter" else "provider_refusal",
+            retryable=False,
+            provider_io_outcome=AI_PROVIDER_IO_RESPONSE_RECEIVED,
+        )
+    if finish_reason == "length":
+        raise AIIntegrationError(
+            "AI response was truncated by max_tokens before returning valid JSON. "
+            f"The request allowed {requested_tokens:,} completion tokens. "
+            "For reports, increase Initial report completion tokens and ensure the Model Context Window "
+            "has room for both input and output. For other features, increase Default completion tokens. "
+            "Stay within the selected model's limits; reasoning can also consume its token budget.",
+            request_url=request_url,
+            request_payload=request_payload,
+            response_body=response_body,
+            response_json=payload,
+            status_code=response.status_code,
+            latency_ms=latency_ms,
+            failure_category="truncated_output",
+            retry_hint="expand_completion_budget",
+            retryable=True,
+            provider_io_outcome=AI_PROVIDER_IO_RESPONSE_RECEIVED,
+        )
     try:
         content = extract_message_content(message.get("content"))
+        parsed = parse_ai_json_content(content)
     except AIIntegrationError as exc:
         raise AIIntegrationError(
             str(exc),
+            failure_category="invalid_json",
             request_url=request_url,
             request_payload=request_payload,
             response_body=response_body,
             response_json=payload,
             status_code=response.status_code,
+            latency_ms=latency_ms,
             retryable=True,
             provider_io_outcome=AI_PROVIDER_IO_RESPONSE_RECEIVED,
         ) from exc
-    try:
-        parsed = parse_ai_json_content(content)
-    except AIIntegrationError as exc:
-        message_text = str(exc)
-        retry_hint = None
-        if finish_reason == "length":
-            message_text = "AI response was truncated by max_tokens before returning valid JSON"
-            retry_hint = "expand_completion_budget"
-        raise AIIntegrationError(
-            message_text,
-            request_url=request_url,
-            request_payload=request_payload,
-            response_body=response_body,
-            response_json=payload,
-            status_code=response.status_code,
-            retry_hint=retry_hint,
-            retryable=True,
-            provider_io_outcome=AI_PROVIDER_IO_RESPONSE_RECEIVED,
-        ) from exc
-    usage = payload.get("usage") or {}
+    parsed = cast(dict[str, object], _redact_response_value(parsed, active.api_key))
+    usage_value = payload.get("usage")
+    usage = usage_value if isinstance(usage_value, dict) else {}
+    reported_model = payload.get("model")
     prompt_char_count = sum(len(entry.get("content") or "") for entry in messages)
     return AICompletionResult(
         payload=parsed,
         provider=active.provider_type,
-        model=payload.get("model") or active.model,
+        model=optional_storage_text(reported_model, limit=255) or active.model,
         latency_ms=latency_ms,
         prompt_tokens=coerce_optional_int(usage.get("prompt_tokens")),
         completion_tokens=coerce_optional_int(usage.get("completion_tokens")),
@@ -272,25 +381,49 @@ def call_ai_json(
         response_body=response_body,
         response_json=payload,
         status_code=response.status_code,
-        finish_reason=finish_reason if isinstance(finish_reason, str) else None,
+        finish_reason=optional_storage_text(finish_reason, limit=255),
     )
 
 
 def build_chat_completion_url(base_url: str) -> str:
-    cleaned = base_url.rstrip("/")
-    if cleaned.endswith("/chat/completions"):
-        return cleaned
-    try:
-        parsed = urlsplit(cleaned)
-    except ValueError:
-        return f"{cleaned}/chat/completions"
-    if parsed.scheme and parsed.netloc and parsed.path in {"", "/"}:
-        return urlunsplit((parsed.scheme, parsed.netloc, "/v1/chat/completions", "", ""))
-    return f"{cleaned}/chat/completions"
+    return chat_completion_url(base_url)
 
 
 def ai_status_code_is_retryable(status_code: int) -> bool:
     return status_code in {408, 409, 425, 429} or 500 <= status_code <= 599
+
+
+def _redact_response_text(value: str, api_key: str | None) -> str:
+    if not api_key:
+        return value
+    return value.replace(json.dumps(api_key)[1:-1], "[redacted]").replace(api_key, "[redacted]")
+
+
+def _redact_response_value(value: object, api_key: str | None, depth: int = 0) -> object:
+    """Provider replies can echo headers in any field, including diagnostic keys."""
+    if not api_key:
+        return value
+    if depth > 32:
+        return "[nested provider field omitted]"
+    if isinstance(value, str):
+        return value.replace(api_key, "[redacted]")
+    if isinstance(value, dict):
+        return {
+            str(key).replace(api_key, "[redacted]"): _redact_response_value(entry, api_key, depth + 1)
+            for key, entry in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_response_value(entry, api_key, depth + 1) for entry in value]
+    return value
+
+
+def _safe_provider_error(payload: object | None, api_key: str | None) -> str | None:
+    message = extract_provider_error_message(payload)
+    if not message:
+        return None
+    if api_key:
+        message = message.replace(api_key, "[redacted]")
+    return redact_log_text(message, max_chars=1000)
 
 
 def extract_provider_error_message(payload: object | None) -> str | None:
@@ -347,6 +480,8 @@ def parse_ai_json_content(content: str) -> dict[str, object]:
     candidate = strip_code_fence_wrapper(content.strip())
     try:
         parsed = json.loads(candidate)
+    except RecursionError as exc:
+        raise AIIntegrationError("AI response JSON exceeds the supported nesting limit") from exc
     except ValueError as exc:
         recovered = extract_first_json_object(candidate)
         if recovered is None:
@@ -405,7 +540,7 @@ def extract_first_json_object(candidate: str) -> dict[str, object] | None:
             continue
         try:
             parsed = json.loads(candidate[start : index + 1])
-        except ValueError:
+        except (ValueError, RecursionError):
             return None
         if not isinstance(parsed, dict):
             return None
@@ -425,7 +560,7 @@ def repair_unclosed_json_object(candidate: str) -> dict[str, object] | None:
     repaired = candidate + ("}" * depth)
     try:
         parsed = json.loads(repaired)
-    except ValueError:
+    except (ValueError, RecursionError):
         return None
     if not isinstance(parsed, dict):
         return None

@@ -34,6 +34,7 @@ export type TrustedWorkspaceModuleId =
   | 'primary.dashboard'
   | 'primary.alerts'
   | 'primary.investigations'
+  | 'primary.teams'
   | 'primary.feeds'
   | 'primary.stats'
   | 'primary.export'
@@ -64,6 +65,7 @@ export interface TrustedWorkspaceModule {
   parentId: TrustedWorkspaceModuleId | null
   icon: LucideIcon
   requiredPermissions: readonly string[]
+  alternateAccess?: ReadonlyArray<{ requiredPermissions: readonly string[]; roles: readonly WorkspaceRole[]; featureDependency: WorkspaceFeatureKey | null }>
   featureDependency: WorkspaceFeatureKey | null
   serverFeatureFlag: string | null
   defaultVisibleRoles: readonly WorkspaceRole[]
@@ -134,6 +136,12 @@ export const TRUSTED_WORKSPACE_MODULES: readonly TrustedWorkspaceModule[] = [
     defaultMobilePriority: 20, mobileBehavior: 'primary',
   }),
   moduleDefinition({
+    id: 'primary.teams', label: 'Teams', route: '/teams', icon: Users,
+    requiredPermissions: ['read:teams'], featureDependency: null, serverFeatureFlag: null,
+    defaultVisibleRoles: ALL_ROLES, defaultOptional: true, defaultOrder: 25,
+    defaultMobilePriority: 25, mobileBehavior: 'secondary',
+  }),
+  moduleDefinition({
     id: 'primary.feeds', label: 'Feeds', route: '/feeds', icon: Rss,
     requiredPermissions: ['read:feeds'], featureDependency: null, serverFeatureFlag: null,
     defaultVisibleRoles: ALL_ROLES, defaultOptional: true, defaultOrder: 30,
@@ -142,6 +150,7 @@ export const TRUSTED_WORKSPACE_MODULES: readonly TrustedWorkspaceModule[] = [
   moduleDefinition({
     id: 'primary.stats', label: 'Stats', route: '/stats', icon: ChartNoAxesCombined,
     requiredPermissions: ['read:stats'], featureDependency: null, serverFeatureFlag: null,
+    alternateAccess: [{ requiredPermissions: ['read:ai'], roles: ['admin'], featureDependency: 'ai_enabled' }],
     defaultVisibleRoles: ALL_ROLES, defaultOptional: true, defaultOrder: 40,
     defaultMobilePriority: 40, mobileBehavior: 'secondary',
   }),

@@ -6,9 +6,11 @@
 
 - `db`: PostgreSQL 16 (`5432`)
 - `redis`: Redis 7 (`6379`)
+- `migrate`: one-shot Alembic schema upgrade using the migration database role
 - `api`: FastAPI (internal only on `8000`)
 - `worker`: Celery worker for ingestion and processing queues
-- `worker-ai`: isolated Celery worker for AI enrichment, daily briefs, and report generation; it consumes both `ai` and the rolling-upgrade-safe `ai-reports-v2` report queue
+- `worker-ai`: isolated Celery worker for AI enrichment, daily briefs, and report generation; it consumes `ai`, the legacy `ai-reports-v2` queue, and the editorial-capable `ai-reports-v3` queue
+- `worker-exports`: isolated Celery worker for background export generation; it consumes only `exports-v1`, with one execution slot by default
 - `worker-maintenance`: isolated Celery worker for scheduler heartbeats, outbox recovery, fixed housekeeping, and policy-driven lifecycle tasks; it consumes both `maintenance` and the versioned `lifecycle-v1` queue
 - `worker-notifications`: isolated Celery worker for integration event routing and outbound deliveries
 - `beat`: Celery beat scheduler
@@ -28,9 +30,9 @@
 | Variable | Default | Purpose |
 |---|---:|---|
 | `APP_ENV` (`app_env`) | `development` | Environment mode, drives production validation rules. |
-| `DATABASE_URL` (`database_url`) | `postgresql+psycopg://postgres:postgres@db:5432/threatlens` | SQLAlchemy database URL. This code default is development-only; production rejects the default `postgres:postgres` credential pair. The bundled compose stack and generated env use the `threatlens` database role instead. |
+| `DATABASE_URL` (`database_url`) | `postgresql+psycopg://postgres:postgres@db:5432/threatlens` | SQLAlchemy database URL. This code default is development-only; production rejects the default `postgres:postgres` credential pair. The bundled Compose stack and generated env use the limited runtime role (`threatlens_runtime` by default) for application services. |
 | `REDIS_URL` (`redis_url`) | `redis://redis:6379/0` | Celery broker/result backend and worker coordination. This code default is development-only; production requires a password-bearing Redis URL. |
-| `POSTGRES_PASSWORD` (`postgres_password`) | _(empty)_ | Postgres service password used by the bundled compose stack. Production requires an explicit non-default value. |
+| `POSTGRES_PASSWORD` (`postgres_password`) | _(empty)_ | Recovery administrator password for the bundled database service; never forwarded to runtime services. Explicit runtime DATABASE_URL credentials are validated separately. |
 | `REDIS_PASSWORD` (`redis_password`) | _(empty)_ | Redis service password used by the bundled compose stack. Production requires an explicit non-default value. |
 | `JWT_SECRET` (`jwt_secret`) | _(empty)_ | JWT signing key. In non-production, missing or placeholder values fall back to a deterministic development-only secret derived from the local runtime settings; production requires an explicit strong value. |
 | `APP_DATA_ENCRYPTION_KEY` (`app_data_encryption_key`) | _(empty)_ | Dedicated secret used for encrypting stored webhook/request secrets and previews at rest. Keep distinct from `JWT_SECRET`. In non-production, missing or placeholder values fall back to a deterministic development-only key derived from the local runtime settings unless `REQUIRE_EXPLICIT_DATA_ENCRYPTION_KEY=true`; production requires an explicit strong value. |
@@ -42,7 +44,9 @@
 | `ALLOW_SELF_REGISTRATION` (`allow_self_registration`) | `false` | Enables/disables `/auth/register`. |
 | `DEFAULT_API_TOKEN_EXPIRY_DAYS` (`default_api_token_expiry_days`) | `90` | Default token lifetime if not supplied. |
 | `AI_ENABLED` (`ai_enabled`) | `false` | Enables AI routes, nav visibility, enrichment, and daily-brief features. |
-| `AI_API_KEY` (`ai_api_key`) | _(empty)_ | Optional bearer key for the configured AI endpoint. May remain blank for local unauthenticated OpenAI-compatible endpoints. |
+| `AI_API_KEY` (`ai_api_key`) | _(empty)_ | Optional bearer key for the legacy AI settings, sent only to the HTTPS origin configured by `AI_API_KEY_BASE_URL`. Existing legacy endpoints with another origin continue without this key. Named providers use their own encrypted keys and never inherit this value. See [provider setup](../pages/ai.md#set-up-named-providers). |
+| `AI_API_KEY_BASE_URL` (`ai_api_key_base_url`) | `https://api.openai.com` | Destination binding for the legacy `AI_API_KEY`: the endpoint must match its HTTPS scheme, host, and effective port (omitted port means 443). URL paths do not restrict credential use. For Gemini, set this to `https://generativelanguage.googleapis.com` and enter the compatible API base and model separately in AI settings. |
+| `AI_RESPONSE_MAX_BYTES` (`ai_response_max_bytes`) | `2000000` | Cap on encoded and decoded provider response bytes, including errors; 1,024–16,000,000. See [outbound budgets](outbound-request-budgets.md). |
 | `PUBLIC_APP_URL` (`public_app_url`) | _(empty)_ | Optional public browser URL, without credentials/query/fragment, used to make report integration links absolute. |
 | `EXPOSE_API_DOCS_IN_PRODUCTION` (`expose_api_docs_in_production`) | `false` | Keeps `/docs` and `/redoc` disabled by default in production. |
 | `EXPOSE_OPENAPI_SCHEMA_IN_PRODUCTION` (`expose_openapi_schema_in_production`) | `true` | Keeps the machine-readable OpenAPI contract available at `/openapi.json` by default. Set to `false` if the schema is distributed only as a checked-in artifact. |
@@ -51,9 +55,11 @@
 | `FETCH_USER_AGENT` (`fetch_user_agent`) | `ThreatLensBot/1.0 (+https://localhost)` | User-Agent for feed/article HTTP requests. |
 | `FEED_CONNECT_TIMEOUT_SECONDS` (`feed_connect_timeout_seconds`) | `5` | Feed HTTP connect timeout. |
 | `FEED_READ_TIMEOUT_SECONDS` (`feed_read_timeout_seconds`) | `15` | Feed HTTP read timeout. |
+| `FEED_TOTAL_TIMEOUT_SECONDS` (`feed_total_timeout_seconds`) | `60` | Total feed HTTP deadline across DNS, connection, headers, redirects, and body; greater than zero and at most 300 seconds. |
 | `FEED_MAX_BYTES` (`feed_max_bytes`) | `2000000` | Max feed response size before rejection. |
 | `ARTICLE_CONNECT_TIMEOUT_SECONDS` (`article_connect_timeout_seconds`) | `5` | Article HTTP connect timeout. |
 | `ARTICLE_READ_TIMEOUT_SECONDS` (`article_read_timeout_seconds`) | `20` | Article HTTP read timeout. |
+| `ARTICLE_TOTAL_TIMEOUT_SECONDS` (`article_total_timeout_seconds`) | `90` | Total article HTTP deadline including fallback attempts and domain-slot waits; greater than zero and at most 300 seconds. |
 | `ARTICLE_MAX_BYTES` (`article_max_bytes`) | `4000000` | Max article response size before rejection. |
 | `ALLOW_PRIVATE_NETWORK_FETCH` (`allow_private_network_fetch`) | `false` | Allows feed and article fetches to private-network or internal-only hosts when explicitly enabled. |
 | `ALLOW_PRIVATE_NETWORK_AI` (`allow_private_network_ai`) | `false` | Allows AI requests to private-network or internal-only hosts when explicitly enabled. Publicly routable AI endpoints must still use `https`. |
@@ -84,6 +90,21 @@
 | `DATABASE_CONNECT_TIMEOUT_SECONDS` (`database_connect_timeout_seconds`) | `5` | PostgreSQL connection establishment timeout. |
 | `DATABASE_STATEMENT_TIMEOUT_MS` (`database_statement_timeout_ms`) | `30000` | PostgreSQL statement timeout applied to application connections. |
 | `DATABASE_POOL_TIMEOUT_SECONDS` (`database_pool_timeout_seconds`) | `10` | Maximum wait for an available pooled database connection. |
+| `DATABASE_POOL_SIZE` (`database_pool_size`) | `2` | Maximum persistent main-pool connections per process; Compose API overrides to 8 and export workers to 4. Limited AI calls additionally use one dedicated admission connection per executing process; include it in the [connection inventory](../pages/runtime-budgets.md#database-connection-inventory). |
+| `DATABASE_MAX_OVERFLOW` (`database_max_overflow`) | `0` | Extra connections beyond the pool; Compose API permits 2. Never set unlimited overflow. |
+| `DATABASE_LOCK_TIMEOUT_MS` (`database_lock_timeout_ms`) | `5000` | Maximum wait for each database lock acquisition; does not expire already-held authorization fences. |
+| `DATABASE_OPERATION_TIMEOUT_SECONDS` (`database_operation_timeout_seconds`) | `30` | Shared SQL deadline for bounded repair and lifecycle operations. External transfers retain their own deadlines. |
+| `PROCESSING_DISPATCH_MAX_IN_FLIGHT` (`processing_dispatch_max_in_flight`) | `200` | Global admission ceiling for unfinished processing publications. |
+| `PROCESSING_DISPATCH_BATCH_SIZE` (`processing_dispatch_batch_size`) | `50` | Maximum repair publications admitted per dispatch sweep. |
+| `PROCESSING_DISPATCH_PER_FEED` (`processing_dispatch_per_feed`) | `5` | Per-feed admission allowance for fair processing repair. |
+| `PROCESSING_CLAIM_LEASE_SECONDS` (`processing_claim_lease_seconds`) | `300` | Lease duration for processing ownership and crash recovery. |
+| `PROCESSING_MAX_ATTEMPTS` (`processing_max_attempts`) | `5` | Maximum automatic attempts before operator attention is required. |
+| `PROCESSING_RECOVERY_MAX_ITEMS` (`processing_recovery_max_items`) | `100` | Maximum explicitly selected item stages in a recovery request. |
+| `PROCESSING_RECOVERY_MAX_RETAINED` (`processing_recovery_max_retained`) | `1000` | Admission ceiling for retained recovery runs, including active and terminal runs. |
+| `PROCESSING_RECOVERY_RETENTION_SECONDS` (`processing_recovery_retention_seconds`) | `604800` | Lifetime of terminal recovery run details and idempotency receipts; cleanup is bounded per sweep. |
+| `CLASSIFICATION_FRESHNESS_SECONDS` (`classification_freshness_seconds`) | `600` | Queue-age objective for the current classification source version. |
+| `TAGGING_FRESHNESS_SECONDS` (`tagging_freshness_seconds`) | `900` | Queue-age objective for incomplete automatic tagging. |
+| `EXPORT_FRESHNESS_SECONDS` (`export_freshness_seconds`) | `600` | Queue-age objective for accepted export jobs waiting to start. |
 | `API_TOKEN_LAST_USED_UPDATE_INTERVAL_SECONDS` (`api_token_last_used_update_interval_seconds`) | `300` | Minimum interval between `last_used_at` writes per API token. |
 | `OIDC_TRANSACTION_COOKIE_NAME` (`oidc_transaction_cookie_name`) | `threatlens_oidc_transaction` | HttpOnly cookie used for the short-lived OIDC state, nonce, and PKCE transaction. |
 | `OIDC_TRANSACTION_TTL_SECONDS` (`oidc_transaction_ttl_seconds`) | `600` | Maximum age of an OIDC sign-in, account-link, or explicit reauthentication transaction. Transactions are fenced to the provider configuration revision and, for account-bound flows, the exact opaque session and account security generation. |
@@ -92,6 +113,7 @@
 | `OIDC_METADATA_CACHE_SECONDS` (`oidc_metadata_cache_seconds`) | `300` | In-process cache lifetime for validated provider discovery metadata. |
 | `OIDC_CONNECT_TIMEOUT_SECONDS` (`oidc_connect_timeout_seconds`) | `5` | Connect timeout for discovery, token, JWKS, and UserInfo requests. |
 | `OIDC_READ_TIMEOUT_SECONDS` (`oidc_read_timeout_seconds`) | `10` | Read/write timeout for OIDC provider requests. |
+| `OIDC_TOTAL_TIMEOUT_SECONDS` (`oidc_total_timeout_seconds`) | `30` | Total deadline for each discovery, token, JWKS, or UserInfo HTTP exchange including DNS and redirects; greater than zero and at most 300 seconds. |
 | `OIDC_MAX_RESPONSE_BYTES` (`oidc_max_response_bytes`) | `1000000` | Maximum accepted response size for each OIDC provider endpoint. |
 | `CORS_ORIGINS` (`cors_origins`) | `http://localhost:3000,http://127.0.0.1:3000` | Allowed browser origins. Supports CSV parsing. |
 | `TRUSTED_PROXY_CIDRS` (`trusted_proxy_cidrs`) | _(empty)_ | Trusted proxy CIDRs permitted to append `X-Forwarded-For`. Leave empty unless the API is behind a reverse proxy whose container or network CIDR you explicitly control; broad Docker bridge or private-network ranges let sibling containers spoof client IPs. |
@@ -138,7 +160,7 @@
 | `REPORT_DISPATCH_RETRY_MAX_BACKOFF_SECONDS` (`report_dispatch_retry_max_backoff_seconds`) | `900` | Maximum report queue publication retry delay. |
 | `ALERT_MATCHES_KEYWORD_CAP` (`alert_matches_keyword_cap`) | `512` | Upper bound on distinct keywords considered in alert matching. |
 | `STATS_TOP_DOMAINS_LIMIT` (`stats_top_domains_limit`) | `10` | Number of top domains returned in stats overview. |
-| `RUN_MIGRATIONS_ON_STARTUP` (`run_migrations_on_startup`) | `false` | Controls automatic migration execution in `start-api.sh`; the default compose overrides this to `true` for the API container. |
+| `RUN_MIGRATIONS_ON_STARTUP` (`run_migrations_on_startup`) | `false` | Legacy startup migration switch; false in bundled Compose, which uses the separate migration role and one-shot `migrate` service. |
 | `SEED_ADMIN_ON_STARTUP` (`seed_admin_on_startup`) | `false` | Controls automatic admin seeding in `start-api.sh`; the default compose passes this through to the API container and keeps it disabled on worker/beat. |
 | `SEED_ADMIN_FORCE_ROLE` (`seed_admin_force_role`) | `false` | Forces existing admin email user role to `admin` during seeding. |
 | `SEED_ADMIN_REACTIVATE_EXISTING` (`seed_admin_reactivate_existing`) | `false` | Reactivates existing admin email user during seeding. |
@@ -194,6 +216,14 @@
 | `EXPORT_PREVIEW_LIMIT` (`export_preview_limit`) | `25` | Maximum representative rows returned by article export preview. Must not exceed `EXPORT_MAX_ITEMS`. |
 | `EXPORT_MAX_UNCOMPRESSED_BYTES` (`export_max_uncompressed_bytes`) | `250000000` | Maximum generated bytes accounted before compression and maximum final artifact size. |
 | `EXPORT_LOCK_TTL_SECONDS` (`export_lock_ttl_seconds`) | `900` | Redis-backed per-user export lock lifetime and abandoned-lock recovery interval. Active exports renew the lock every third of this interval. |
+| `EXPORT_JOB_TIMEOUT_SECONDS` (`export_job_timeout_seconds`) | `3600` | Background generation deadline per attempt; the worker hard limit adds 60 seconds for shutdown. |
+| `EXPORT_TRANSFER_TIMEOUT_SECONDS` (`export_transfer_timeout_seconds`) | `300` | Absolute response-streaming lifetime for prepared synchronous/background exports, including client backpressure. Expiry terminates the transfer and releases its authorization fences and scratch file. |
+| `EXPORT_JOB_LEASE_SECONDS` (`export_job_lease_seconds`) | `120` | Renewable durable claim lease; expired claims are repaired by maintenance. |
+| `EXPORT_JOB_RETENTION_SECONDS` (`export_job_retention_seconds`) | `86400` | Time from acceptance to expiry, including queue wait. |
+| `EXPORT_JOB_MAX_ATTEMPTS` (`export_job_max_attempts`) | `3` | Maximum interrupted/retryable generation attempts. |
+| `EXPORT_JOB_MAX_ACTIVE_PER_PRINCIPAL` (`export_job_max_active_per_principal`) | `2` | Maximum queued/running jobs for each human or service account. |
+| `EXPORT_JOB_MAX_RETAINED` (`export_job_max_retained`) | `1000` | Global job admission cap, including terminal tombstones. |
+| `EXPORT_JOB_MAX_RESERVED_BYTES` (`export_job_max_reserved_bytes`) | `4000000000` | Global conservative reservation for encrypted artifacts and bounded metadata; see [background exports](background-exports.md). |
 
 Retention environment values seed the complete fixed lifecycle catalog atomically
 on its first access after upgrade. After the catalog marker is written, change
@@ -223,24 +253,25 @@ Outside production:
 ## Compose Notes
 
 - `docker-compose.yml` can read a real `.env` file or pasteable YAML environment mappings generated by `./bootstrap.sh --print-compose-env`.
-- For a local first run, `./bootstrap.sh` generates `.env` with fresh random secrets, HTTP-friendly local settings, and one-time admin seeding enabled.
-- For Portainer, run `./bootstrap.sh --print-compose-env`, then replace the `x-db-environment`, `x-redis-environment`, and `x-backend-environment` blocks at the top of the compose file with the generated YAML mapping before deploying.
-- If Postgres logs `Role "threatlens" does not exist`, the `postgres_data` volume was initialized before the matching `.env` values were present. For a disposable local install, run `docker compose down -v` and start again.
+- For a new local installation, `./bootstrap.sh` generates `.env` with fresh random secrets, HTTP-friendly local settings, and one-time admin seeding enabled. Existing database volumes require the [explicit database role cutover](../pages/database-privileges.md#existing-installations-explicit-offline-cutover) when upgrading from a single database role.
+- For a new Portainer installation, run `./bootstrap.sh --print-compose-env`, then replace the `x-db-environment`, `x-redis-environment`, `x-migration-environment`, and `x-backend-environment` blocks at the top of the compose file with the generated YAML mappings before deploying. Preserve existing credentials and encryption keys when updating a deployed stack.
+- If `docker compose stop` or `down` reports `POSTGRES_RUNTIME_PASSWORD must be set`, Compose has failed configuration interpolation before executing the command. Add `POSTGRES_RUNTIME_USER`, `POSTGRES_RUNTIME_PASSWORD`, `POSTGRES_MIGRATION_USER`, and `POSTGRES_MIGRATION_PASSWORD` through the [existing-installation cutover](../pages/database-privileges.md#existing-installations-explicit-offline-cutover) while the original database container remains available. Keep its initialized `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB`; do not regenerate the whole `.env` or drop volumes to clear this error. Changing environment variables alone does not create roles in an existing volume. Use the same Compose project and environment options throughout, including both Compose files for source builds.
 
 - The default ThreatLens application images point at GitHub Container Registry:
-  - `ghcr.io/patriksi/threatlens-backend:${THREATLENS_IMAGE_TAG:-latest}` for `api`, `worker`, `worker-ai`, `worker-maintenance`, `worker-notifications`, and `beat`
+  - `ghcr.io/patriksi/threatlens-backend:${THREATLENS_IMAGE_TAG:-latest}` for `migrate`, `api`, `worker`, `worker-ai`, `worker-exports`, `worker-maintenance`, `worker-notifications`, and `beat`
   - `ghcr.io/patriksi/threatlens-web:${THREATLENS_IMAGE_TAG:-latest}` for `web`
 - The default compose file pulls fresh ThreatLens application images during `docker compose up`. Source builds require the explicit override: `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build`.
 - Both custom Dockerfiles live under `docker/`, retaining `backend/` and `web/` as their build contexts and using the `.dockerignore` in each context. `./docker/build.sh` builds both images without a runtime `.env`; pass `backend` or `web` to build individually. See [Development Image Builds](../../docker/README.md).
 - The source-build override uses `threatlens-backend:${THREATLENS_DEV_IMAGE_TAG:-dev}` for every backend service and `threatlens-web:${THREATLENS_DEV_IMAGE_TAG:-dev}` for the frontend. `THREATLENS_IMAGE_TAG` selects published images only. Export `THREATLENS_DEV_IMAGE_TAG` when using a custom tag with the helper and Compose together; the helper reads exported variables, while Compose also reads `.env`.
 - `THREATLENS_IMAGE_TAG` defaults to `latest`, which tracks the newest default published image. Set it to an immutable release tag such as `1.0.0` or `v1.0.0`, or to a `sha-<commit>` tag, when you need a pinned deployment.
-- `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `DATABASE_URL`, and `REDIS_URL` are required by compose interpolation unless the generated YAML mapping is pasted into the compose file, so missing values fail the stack instead of silently falling back to weak defaults.
-- `docker-compose.yml` runs migrations on API startup by default and can seed the admin account from the API container when `SEED_ADMIN_ON_STARTUP=true`.
+- `POSTGRES_PASSWORD`, `POSTGRES_RUNTIME_PASSWORD`, `POSTGRES_MIGRATION_PASSWORD`, `REDIS_PASSWORD`, `JWT_SECRET`, `APP_DATA_ENCRYPTION_KEY`, and `ADMIN_PASSWORD` are required by Compose interpolation unless the generated YAML mappings supply their values directly. `DATABASE_URL`, `MIGRATION_DATABASE_URL`, and `REDIS_URL` are optional connection overrides; Compose derives their defaults from the corresponding role and service settings. Runtime and migration role names default to `threatlens_runtime` and `threatlens_migration`.
+- The one-shot `migrate` service runs `alembic upgrade head` with the migration role. The API starts only after it succeeds and uses limited runtime credentials, with `RUN_MIGRATIONS_ON_STARTUP=false`. Check the migration service's exit status if API startup is blocked.
 - On first boot, either set `SEED_ADMIN_ON_STARTUP=true` for the API service or run `docker compose exec api python -m app.scripts.seed_admin` after migrations, then keep `SEED_ADMIN_ON_STARTUP=false` and `SEED_ADMIN_RESET_PASSWORD_ON_STARTUP=false` for steady state.
-- All workers and `beat` depend on healthy `api`, plus healthy DB/Redis, so they start only after schema startup work completes.
+- All workers and `beat` depend on healthy `api`, plus healthy DB/Redis, so they start only after the migration service succeeds and the API is ready.
 - `beat` runs as a dedicated scheduler service so periodic jobs do not multiply with worker replicas.
-- `worker` consumes `default`, `ingest`, and `processing`; `worker-ai` consumes `ai` and `ai-reports-v2`; `worker-maintenance` consumes `maintenance` and `lifecycle-v1`; `worker-notifications` consumes only `notifications`. The versioned queues keep new report and lifecycle task contracts away from workers that predate them. Both maintenance queues are required by readiness and Operations queue-execution checks.
-- Compose worker concurrency defaults to `4`, `1`, `1`, and `4` respectively. Override these with `WORKER_CONCURRENCY`, `AI_WORKER_CONCURRENCY`, `MAINTENANCE_WORKER_CONCURRENCY`, and `NOTIFICATION_WORKER_CONCURRENCY`. Keep AI concurrency at `1` for a memory-constrained local provider unless provider capacity has been measured.
+- `worker` consumes `default`, `ingest`, and `processing`; `worker-ai` consumes `ai`, `ai-reports-v2`, and `ai-reports-v3`; `worker-maintenance` consumes `maintenance` and `lifecycle-v1`; `worker-notifications` consumes only `notifications`. The versioned queues keep new report and lifecycle task contracts away from workers that predate them. Both maintenance queues are required by readiness and Operations queue-execution checks.
+- `worker-exports` consumes only `exports-v1`; readiness and Operations check its consumer and execution canary. Generation cannot occupy the ordinary worker's slots. A busy export worker can delay its canary; Operations also shows its active/reserved work.
+- Compose concurrency defaults to `4` ordinary, `1` AI, `1` export, `1` maintenance, and `4` notification slots. Override with `WORKER_CONCURRENCY`, `AI_WORKER_CONCURRENCY`, `EXPORT_WORKER_CONCURRENCY`, `MAINTENANCE_WORKER_CONCURRENCY`, and `NOTIFICATION_WORKER_CONCURRENCY`. Keep AI/export concurrency at `1` on a memory-constrained host until capacity is measured. A separate process pool reserves task slots, not dedicated host CPU, memory, or database capacity.
 - The API is not published on a host port by default; use the web service at `http://localhost:3000/api/v1/*` or place the stack behind your own reverse proxy.
 - The published OpenAPI schema is exposed through the web proxy at `http://localhost:3000/api/openapi.json`.
 - The same compose injects secure defaults for `APP_ENV`, `AUTH_COOKIE_SECURE`, `AUTH_REQUIRE_CSRF`, and `REQUIRE_EXPLICIT_DATA_ENCRYPTION_KEY=true`. It intentionally lets Docker allocate project-scoped networks so multiple stacks do not collide. Set `TRUSTED_PROXY_CIDRS` only when you need the API to trust `X-Forwarded-For` from exact reverse-proxy hops you control.
@@ -267,7 +298,7 @@ this order:
    ```bash
    docker compose stop beat api
    docker compose stop -t 300 worker-maintenance
-   docker compose stop worker worker-ai worker-notifications
+   docker compose stop worker worker-ai worker-exports worker-notifications
    ```
 
    Stop any custom or replicated worker that consumes `maintenance` as well.
@@ -276,11 +307,11 @@ this order:
    fixed policy-independent housekeeping without the retired retention deletions.
 
 3. Confirm that no old API, Beat, or worker process remains, then start the new API
-   by itself so migrations finish before any upgraded worker can execute lifecycle
-   tasks:
+   and its dependencies. Compose runs the one-shot migration service first, so
+   migrations finish before any upgraded worker can execute lifecycle tasks:
 
    ```bash
-   docker compose ps api beat worker worker-ai worker-maintenance worker-notifications
+   docker compose ps api beat worker worker-ai worker-exports worker-maintenance worker-notifications
    docker compose up -d --wait api
    ```
 
@@ -288,7 +319,7 @@ this order:
    active queue inventory must include both `maintenance` and `lifecycle-v1`:
 
    ```bash
-   docker compose up -d --wait worker worker-ai worker-maintenance worker-notifications
+   docker compose up -d --wait worker worker-ai worker-exports worker-maintenance worker-notifications
    docker compose exec worker-maintenance sh -lc 'celery -A app.tasks.celery_app.celery_app inspect active_queues -d "maintenance@$HOSTNAME"'
    ```
 
@@ -334,8 +365,8 @@ Verbose mode does not log request or response bodies, cookies, authorization or 
 Apply logging changes by recreating the backend processes:
 
 ```bash
-docker compose up -d --force-recreate api worker worker-ai worker-maintenance worker-notifications beat
-docker compose logs -f api worker worker-ai worker-maintenance worker-notifications beat
+docker compose up -d --force-recreate api worker worker-ai worker-exports worker-maintenance worker-notifications beat
+docker compose logs -f api worker worker-ai worker-exports worker-maintenance worker-notifications beat
 ```
 
 ## Frontend Runtime Values (`web/src/api/client.ts`)

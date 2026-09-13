@@ -1,7 +1,7 @@
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
@@ -9,10 +9,12 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import (
     get_data_access_context,
+    get_authorization_context,
     require_permission_roles,
     require_permissions,
 )
 from app.api.routes.alert_operations import router as alert_operations_router
+from app.api.routes.alert_triage import router as alert_triage_router
 from app.core.api_errors import ApiHTTPException
 from app.core.config import get_settings
 from app.core.rbac import ROLE_ADMIN
@@ -52,6 +54,14 @@ from app.services.alert_match_queries import (
     list_matches_for_alerts,
 )
 from app.services.alert_matching import normalize_alert_keywords
+from app.services.authorization import AuthorizationContext
+from app.services.alert_team_access import (
+    alert_scope_predicate,
+    get_alert_rule_for_update,
+    lock_team_rule_creation_slot,
+    require_team_rule_version,
+    update_rule_deadlines,
+)
 from app.services.alert_occurrences import (
     ALERT_OCCURRENCE_SEVERITIES,
     ALERT_OCCURRENCE_STATES,
@@ -168,14 +178,28 @@ def _parse_category_csv(raw_value: str | None) -> list[str]:
 @router.get("", response_model=list[AlertInterestResponse])
 def list_alert_interests(
     include_disabled: bool = Query(default=True),
+    team_id: uuid.UUID | None = None,
+    queue_scope: Literal["all", "personal", "team"] = "all",
     db: Session = Depends(get_db),
     user: User = Depends(require_permissions(SCOPE_READ_ALERTS)),
 ):
-    query = select(AlertInterest).where(AlertInterest.user_id == user.id)
+    query = select(AlertInterest).where(
+        alert_scope_predicate(AlertInterest.user_id, AlertInterest.team_id, user.id)
+    )
+    if team_id is not None:
+        query = query.where(AlertInterest.team_id == team_id)
+    if queue_scope == "personal":
+        query = query.where(AlertInterest.team_id.is_(None))
+    elif queue_scope == "team":
+        query = query.where(AlertInterest.team_id.is_not(None))
     if not include_disabled:
         query = query.where(AlertInterest.enabled.is_(True))
 
-    rows = db.scalars(query.order_by(AlertInterest.created_at.desc())).all()
+    rows = db.scalars(
+        query.order_by(AlertInterest.created_at.desc(), AlertInterest.id.desc()).limit(
+            1000
+        )
+    ).all()
     return list(rows)
 
 
@@ -186,9 +210,15 @@ def create_alert_interest(
     payload: AlertInterestCreate,
     db: Session = Depends(get_db),
     user: User = Depends(require_permissions(SCOPE_WRITE_ALERTS)),
+    authorization: AuthorizationContext | None = Depends(get_authorization_context),
 ):
     try:
-        lock_alert_rule_creation_slot(db, owner_user_id=user.id)
+        if payload.team_id is None:
+            lock_alert_rule_creation_slot(db, owner_user_id=user.id)
+        else:
+            lock_team_rule_creation_slot(
+                db, user=user, authorization=authorization, team_id=payload.team_id
+            )
     except (AlertRuleQuotaExceededError, AlertRuleOwnerUnavailableError) as exc:
         db.rollback()
         raise ApiHTTPException(
@@ -199,7 +229,10 @@ def create_alert_interest(
         ) from exc
     now = datetime.now(timezone.utc)
     alert = AlertInterest(
-        user_id=user.id,
+        user_id=user.id if payload.team_id is None else None,
+        team_id=payload.team_id,
+        due_after_minutes=payload.due_after_minutes,
+        escalation_after_minutes=payload.escalation_after_minutes,
         name=_normalize_name(payload.name),
         category=_normalize_category(payload.category),
         keywords=_normalize_keywords(payload.keywords),
@@ -279,7 +312,9 @@ def list_alert_matches(
     selected_alert_ids = _parse_uuid_csv(alert_ids, "Invalid alert id in alert_ids")
     selected_categories = _parse_category_csv(categories)
 
-    alerts_query = select(AlertInterest).where(AlertInterest.user_id == user.id)
+    alerts_query = select(AlertInterest).where(
+        alert_scope_predicate(AlertInterest.user_id, AlertInterest.team_id, user.id)
+    )
     if not include_disabled:
         alerts_query = alerts_query.where(AlertInterest.enabled.is_(True))
     if selected_alert_ids:
@@ -321,6 +356,12 @@ def get_alert_occurrences(
     alert_interest_id: uuid.UUID | None = None,
     suppressed: bool | None = None,
     snoozed: bool | None = None,
+    team_id: uuid.UUID | None = None,
+    queue_scope: Literal["all", "personal", "team"] = "all",
+    assignee_user_id: uuid.UUID | None = None,
+    unassigned: bool = False,
+    overdue: bool = False,
+    escalated: bool = False,
     since: datetime | None = None,
     until: datetime | None = None,
     page: AlertPage = 1,
@@ -360,6 +401,12 @@ def get_alert_occurrences(
         alert_interest_id=alert_interest_id,
         suppressed=suppressed,
         snoozed=snoozed,
+        team_id=team_id,
+        queue_scope=queue_scope,
+        assignee_user_id=assignee_user_id,
+        unassigned=unassigned,
+        overdue=overdue,
+        escalated=escalated,
         since=since,
         until=until,
         page=page,
@@ -485,6 +532,7 @@ def bulk_acknowledge_alert_occurrences(
     payload: AlertOccurrenceBulkUpdate,
     db: Session = Depends(get_db),
     user: User = Depends(require_permissions(SCOPE_WRITE_ALERTS, SCOPE_READ_ITEMS)),
+    authorization: AuthorizationContext | None = Depends(get_authorization_context),
     data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     if payload.disposition is not None:
@@ -500,6 +548,7 @@ def bulk_acknowledge_alert_occurrences(
         payload=payload,
         target_state="acknowledged",
         audit_action="alerts.occurrences.bulk_acknowledge",
+        authorization=authorization,
     )
 
 
@@ -511,6 +560,7 @@ def bulk_close_alert_occurrences(
     payload: AlertOccurrenceBulkUpdate,
     db: Session = Depends(get_db),
     user: User = Depends(require_permissions(SCOPE_WRITE_ALERTS, SCOPE_READ_ITEMS)),
+    authorization: AuthorizationContext | None = Depends(get_authorization_context),
     data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     if payload.disposition is None:
@@ -526,10 +576,12 @@ def bulk_close_alert_occurrences(
         payload=payload,
         target_state="closed",
         audit_action="alerts.occurrences.bulk_close",
+        authorization=authorization,
     )
 
 
 router.include_router(alert_operations_router)
+router.include_router(alert_triage_router)
 
 
 @router.get(
@@ -593,6 +645,7 @@ def patch_alert_occurrence_lifecycle(
     payload: AlertOccurrenceLifecycleUpdate,
     db: Session = Depends(get_db),
     user: User = Depends(require_permissions(SCOPE_WRITE_ALERTS, SCOPE_READ_ITEMS)),
+    authorization: AuthorizationContext | None = Depends(get_authorization_context),
     data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     try:
@@ -602,6 +655,7 @@ def patch_alert_occurrence_lifecycle(
             occurrence_id=occurrence_id,
             data_access=data_access,
             expected_version=payload.expected_version,
+            authorization=authorization,
             target_state=payload.state,
             disposition=payload.disposition,
         )
@@ -633,6 +687,7 @@ def patch_alert_occurrence_snooze(
     payload: AlertOccurrenceSnoozeUpdate,
     db: Session = Depends(get_db),
     user: User = Depends(require_permissions(SCOPE_WRITE_ALERTS, SCOPE_READ_ITEMS)),
+    authorization: AuthorizationContext | None = Depends(get_authorization_context),
     data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     try:
@@ -642,6 +697,7 @@ def patch_alert_occurrence_snooze(
             occurrence_id=occurrence_id,
             data_access=data_access,
             expected_version=payload.expected_version,
+            authorization=authorization,
             snoozed_until=payload.snoozed_until,
             reason=payload.reason,
         )
@@ -669,21 +725,13 @@ def update_alert_interest(
     payload: AlertInterestUpdate,
     db: Session = Depends(get_db),
     user: User = Depends(require_permissions(SCOPE_WRITE_ALERTS)),
+    authorization: AuthorizationContext | None = Depends(get_authorization_context),
 ):
-    alert = db.scalar(
-        select(AlertInterest)
-        .where(
-            AlertInterest.id == alert_id,
-            AlertInterest.user_id == user.id,
-        )
-        .with_for_update()
-        .execution_options(populate_existing=True)
+    alert = get_alert_rule_for_update(
+        db, user=user, authorization=authorization, rule_id=alert_id
     )
-    if alert is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Alert interest not found"
-        )
     expected_row_version = _expected_alert_row_version(payload)
+    require_team_rule_version(alert, expected_row_version)
     if expected_row_version is not None and expected_row_version != alert.row_version:
         _raise_alert_revision_conflict(alert)
 
@@ -767,6 +815,11 @@ def update_alert_interest(
         changed_fields.add("enabled")
         if payload.enabled:
             revision_changed = True
+    sla_changes = update_rule_deadlines(alert, payload)
+    if sla_changes:
+        changed_fields.update(sla_changes)
+        rule_mutated = True
+        revision_changed = True
     if revision_changed:
         alert.revision = max(1, int(alert.revision or 1)) + 1
         changed_fields.add("revision")
@@ -822,24 +875,16 @@ def delete_alert_interest(
     expected_row_version: int | None = Query(default=None, ge=1),
     db: Session = Depends(get_db),
     user: User = Depends(require_permissions(SCOPE_WRITE_ALERTS)),
+    authorization: AuthorizationContext | None = Depends(get_authorization_context),
 ):
-    alert = db.scalar(
-        select(AlertInterest)
-        .where(
-            AlertInterest.id == alert_id,
-            AlertInterest.user_id == user.id,
-        )
-        .with_for_update()
-        .execution_options(populate_existing=True)
+    alert = get_alert_rule_for_update(
+        db, user=user, authorization=authorization, rule_id=alert_id
     )
-    if alert is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Alert interest not found"
-        )
     expected_version = _coalesce_expected_alert_row_version(
         expected_revision,
         expected_row_version,
     )
+    require_team_rule_version(alert, expected_version)
     if expected_version is not None and expected_version != alert.row_version:
         _raise_alert_revision_conflict(alert)
 
@@ -870,6 +915,7 @@ def _bulk_mutate_occurrences(
     payload: AlertOccurrenceBulkUpdate,
     target_state: str,
     audit_action: str,
+    authorization: AuthorizationContext | None = None,
 ):
     try:
         occurrences = bulk_update_alert_occurrence_lifecycle(
@@ -880,6 +926,7 @@ def _bulk_mutate_occurrences(
                 (entry.occurrence_id, entry.expected_version) for entry in payload.items
             ],
             target_state=target_state,
+            authorization=authorization,
             disposition=payload.disposition,
         )
         record_audit(

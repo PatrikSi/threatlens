@@ -138,6 +138,7 @@ def test_workspace_registry_and_defaults_preserve_current_navigation(
         "primary.dashboard",
         "primary.alerts",
         "primary.investigations",
+        "primary.teams",
         "primary.feeds",
         "primary.stats",
         "primary.export",
@@ -670,6 +671,7 @@ def test_workspace_registry_matches_frontend_routes_and_panel_ids():
         "primary.dashboard": "/",
         "primary.alerts": "/alerts",
         "primary.investigations": "/investigations",
+        "primary.teams": "/teams",
         "primary.feeds": "/feeds",
         "primary.stats": "/stats",
         "primary.export": "/export",
@@ -1160,3 +1162,234 @@ def test_effective_workspace_fails_closed_after_repeated_revision_churn(
         )
     assert exc_info.value.code == "workspace_snapshot_unavailable"
     assert exc_info.value.status_code == 503
+
+
+def test_workspace_enforcement_preserves_preferences_and_legacy_policy_writes(
+    workspace_client, auth_headers
+):
+    headers = auth_headers["admin"]
+    policy = workspace_client.get(
+        "/v1/workspace/role-policies/admin", headers=headers
+    ).json()
+    response = workspace_client.put(
+        "/v1/workspace/preferences",
+        headers=headers,
+        json={
+            "expected_revision": 0,
+            "landing_module_id": "primary.dashboard",
+            "modules": [{"module_id": "primary.stats", "visible": False}],
+            "dashboard_panel_ids": ["notes"],
+        },
+    )
+    assert response.status_code == 200, response.text
+    payload = {
+        **_role_policy_payload(policy),
+        "landing_module_id": "primary.stats",
+        "landing_mode": "enforced",
+        "dashboard_mode": "enforced",
+        "dashboard_panel_ids": ["rss"],
+    }
+    updated = workspace_client.put(
+        "/v1/workspace/role-policies/admin", headers=headers, json=payload
+    )
+    assert updated.status_code == 200, updated.text
+    effective = workspace_client.get("/v1/workspace/effective", headers=headers).json()
+    assert effective["landing_module_id"] == "primary.stats"
+    assert effective["dashboard_panel_ids"] == ["rss"]
+    stats = next(
+        module for module in effective["modules"] if module["id"] == "primary.stats"
+    )
+    assert stats["visible"] is True
+    assert stats["optional"] is False
+    # An older editor may change navigation without knowing about enforcement.
+    legacy = workspace_client.put(
+        "/v1/workspace/role-policies/admin",
+        headers=headers,
+        json=_role_policy_payload(updated.json()),
+    )
+    assert legacy.status_code == 200
+    assert legacy.json()["dashboard_mode"] == "enforced"
+    assert legacy.json()["landing_mode"] == "enforced"
+    released = workspace_client.put(
+        "/v1/workspace/role-policies/admin",
+        headers=headers,
+        json={
+            **_role_policy_payload(legacy.json()),
+            "landing_mode": "default",
+            "dashboard_mode": "default",
+        },
+    )
+    assert released.status_code == 200
+    effective = workspace_client.get("/v1/workspace/effective", headers=headers).json()
+    assert effective["landing_module_id"] == "primary.dashboard"
+    assert effective["dashboard_panel_ids"] == ["notes"]
+    assert (
+        next(
+            module for module in effective["modules"] if module["id"] == "primary.stats"
+        )["visible"]
+        is False
+    )
+
+
+def test_workspace_template_is_sanitized_immutable_and_permission_filtered(
+    workspace_client,
+    auth_headers,
+    db_session,
+    seed_users,
+):
+    from app.schemas.view import SavedViewQueryPayload
+
+    headers = auth_headers["admin"]
+    template = SavedViewQueryPayload.model_validate(
+        {
+            "windows": [
+                {
+                    "snap": "free",
+                    "rect": {"x": 0, "y": 0, "width": 600, "height": 500},
+                    "id": "private-id",
+                    "type": "rss",
+                    "title": "Organization feed",
+                    "scratch_note": "Private note",
+                    "rss_filters": {
+                        "selected_feed_ids": ["private-feed"],
+                        "q": "ransomware",
+                        "page": 8,
+                    },
+                },
+                {
+                    "snap": "free",
+                    "rect": {"x": 0, "y": 0, "width": 600, "height": 500},
+                    "id": "private-alerts",
+                    "type": "alerts",
+                    "title": "Organization alerts",
+                    "alert_filters": {
+                        "selected_alert_ids": ["private-alert"],
+                        "page": 3,
+                    },
+                },
+                {
+                    "snap": "free",
+                    "rect": {"x": 0, "y": 0, "width": 600, "height": 500},
+                    "id": "private-brief",
+                    "type": "daily_brief",
+                    "title": "Brief",
+                    "selected_daily_brief_id": "private-brief-record",
+                },
+            ],
+            "rss_filters": {"selected_feed_ids": ["private-feed"]},
+            "alert_filters": {"selected_alert_ids": ["private-alert"]},
+        }
+    ).model_dump(mode="json")
+    policy = workspace_client.get(
+        "/v1/workspace/role-policies/admin", headers=headers
+    ).json()
+    response = workspace_client.put(
+        "/v1/workspace/role-policies/admin",
+        headers=headers,
+        json={
+            **_role_policy_payload(policy),
+            "dashboard_mode": "enforced",
+            "dashboard_view_json": template,
+        },
+    )
+    assert response.status_code == 200, response.text
+    sanitized = response.json()["dashboard_view_json"]
+    assert sanitized["rss_filters"]["selected_feed_ids"] == []
+    assert sanitized["alert_filters"]["selected_alert_ids"] == []
+    assert [window["id"] for window in sanitized["windows"]] == [
+        "organization-panel-1",
+        "organization-panel-2",
+        "organization-panel-3",
+    ]
+    assert all(
+        window["scratch_note"] == "" and window["selected_daily_brief_id"] is None
+        for window in sanitized["windows"]
+    )
+    assert sanitized["windows"][0]["rss_filters"]["q"] == "ransomware"
+    assert sanitized["windows"][0]["rss_filters"]["page"] == 1
+    assert sanitized["windows"][1]["alert_filters"]["selected_alert_ids"] == []
+    template["windows"][0]["title"] = "Changed source view"
+    legacy = workspace_client.put(
+        "/v1/workspace/role-policies/admin",
+        headers=headers,
+        json=_role_policy_payload(response.json()),
+    )
+    assert (
+        legacy.json()["dashboard_view_json"]["windows"][0]["title"]
+        == "Organization feed"
+    )
+    user = db_session.get(User, seed_users["admin"].id)
+    authorization = authorization_context_for_user(db_session, user)
+    effective = effective_workspace(
+        db_session,
+        user=user,
+        authorization=authorization,
+        feature_flags={"ai_daily_brief_enabled": False},
+    )
+    assert effective.dashboard_view_json is not None
+    assert [window.type for window in effective.dashboard_view_json.windows] == [
+        "rss",
+        "alerts",
+    ]
+    scoped_headers = _workspace_token(db_session, user.id, [SCOPE_READ_WORKSPACE])
+    scoped = workspace_client.get("/v1/workspace/effective", headers=scoped_headers)
+    assert scoped.status_code == 200
+    assert scoped.json()["dashboard_view_json"] is None
+
+
+@pytest.mark.parametrize(
+    "template",
+    [
+        {"windows": [{"id": str(index), "type": "rss"} for index in range(13)]},
+        {"windows": [{"id": "unsafe", "type": "rss", "title": "unsafe\u0000title"}]},
+        {
+            "windows": [
+                {"id": "large", "type": "rss", "rss_filters": {"q": "x" * 70_000}}
+            ]
+        },
+    ],
+)
+def test_workspace_template_rejects_unsafe_or_oversized_snapshots(
+    workspace_client, auth_headers, template
+):
+    for window in template["windows"]:
+        window["snap"] = "free"
+        window["rect"] = {"x": 0, "y": 0, "width": 600, "height": 500}
+    headers = auth_headers["admin"]
+    policy = workspace_client.get(
+        "/v1/workspace/role-policies/admin", headers=headers
+    ).json()
+    response = workspace_client.put(
+        "/v1/workspace/role-policies/admin",
+        headers=headers,
+        json={**_role_policy_payload(policy), "dashboard_view_json": template},
+    )
+    assert response.status_code == 422, response.text
+
+
+def test_ai_only_stats_navigation_preserves_endpoint_and_policy_boundaries(
+    workspace_client, db_session, seed_users, auth_headers, monkeypatch,
+):
+    from app.core.token_scopes import SCOPE_READ_AI
+
+    monkeypatch.setattr(workspace_routes, "runtime_workspace_feature_flags", lambda _db: {"ai_enabled": True})
+    admin = seed_users["admin"]
+    headers = _workspace_token(db_session, admin.id, [SCOPE_READ_WORKSPACE, SCOPE_READ_AI])
+    response = workspace_client.get("/v1/workspace/effective", headers=headers)
+    assert response.status_code == 200
+    stats = next(module for module in response.json()["modules"] if module["id"] == "primary.stats")
+    assert stats["visible"] is True
+    assert stats["missing_permissions"] == []
+    authorization = authorization_context_for_user(db_session, admin, credential_scopes=[SCOPE_READ_WORKSPACE, SCOPE_READ_AI])
+    disabled = effective_workspace(db_session, user=admin, authorization=authorization, feature_flags={"ai_enabled": False})
+    assert next(module for module in disabled.modules if module.id == "primary.stats").visible is False
+    analyst = seed_users["analyst"]
+    analyst_headers = _workspace_token(db_session, analyst.id, [SCOPE_READ_WORKSPACE, SCOPE_READ_AI])
+    analyst_result = workspace_client.get("/v1/workspace/effective", headers=analyst_headers)
+    assert next(module for module in analyst_result.json()["modules"] if module["id"] == "primary.stats")["visible"] is False
+    policy = workspace_client.get("/v1/workspace/role-policies/admin", headers=auth_headers["admin"]).json()
+    updated = workspace_client.put("/v1/workspace/role-policies/admin", headers=auth_headers["admin"],
+        json=_role_policy_payload(policy, module_changes={"primary.stats": {"visible": False}}))
+    assert updated.status_code == 200
+    hidden = workspace_client.get("/v1/workspace/effective", headers=headers)
+    assert next(module for module in hidden.json()["modules"] if module["id"] == "primary.stats")["visible"] is False

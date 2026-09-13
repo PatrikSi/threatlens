@@ -14,6 +14,7 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query'
+import { captureSessionLease } from '../api/sessionLifecycle'
 import { ApiError, apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
 import { useCurrentUser } from '../hooks/useCurrentUser'
@@ -34,6 +35,7 @@ import {
 import { MOBILE_DASHBOARD_PAGE_SIZE } from './dashboardPanelPresentation'
 import {
   buildSavedViewPreview,
+  canUpdateDashboardSavedView,
   buildDashboardSavedViewState,
   createDefaultAlertWindowFilters,
   createDefaultRssWindowFilters,
@@ -64,10 +66,14 @@ import { useDashboardItemActions } from './useDashboardItemActions'
 import { useDashboardWindowActions } from './useDashboardWindowActions'
 import { useDashboardWindowFilters } from './useDashboardWindowFilters'
 import { useDashboardWorkspacePersistence } from './useDashboardWorkspacePersistence'
+import { useEnforcedDashboardLayout } from './useEnforcedDashboardLayout'
 import { useWorkspace } from '../workspace/useWorkspace'
 import { hasRequiredPermissions } from '../workspace/workspaceModel'
 
+type SavedViewBaseline = Pick<SavedView, 'revision' | 'can_edit' | 'team_id'>
+
 type DashboardEditSessionSnapshot = {
+  savedViewBaseline: SavedViewBaseline | null
   activeSavedViewId: string | null
   savedViewName: string
   state: DashboardSavedViewState
@@ -93,6 +99,7 @@ export function useDashboardPageController() {
 
   const [savedViewName, setSavedViewName] = useState('')
   const [activeSavedViewId, setActiveSavedViewId] = useState<string | null>(null)
+  const [savedViewBaseline, setSavedViewBaseline] = useState<SavedViewBaseline | null>(null)
   const [pendingViewDelete, setPendingViewDelete] = useState<DashboardSavedViewPreview | null>(null)
   const [pendingSavedViewLoad, setPendingSavedViewLoad] = useState<{ id: string; name: string } | null>(null)
   const [showManageViewsModal, setShowManageViewsModal] = useState(false)
@@ -102,7 +109,9 @@ export function useDashboardPageController() {
   const [mobileDashboardViewsOpen, setMobileDashboardViewsOpen] = useState(false)
   const [mobileActiveWindowId, setMobileActiveWindowId] = useState<string | null>(null)
   const [mobileWindowControlsOpenById, setMobileWindowControlsOpenById] = useState<Record<string, boolean>>({})
-  const [isEditMode, setIsEditMode] = useState(false)
+  const [personalEditMode, setIsEditMode] = useState(false)
+  const layoutEnforced = workspace.effective?.dashboard_mode === 'enforced'
+  const isEditMode = personalEditMode && !layoutEnforced
   const [viewSaveError, setViewSaveError] = useState('')
   const [viewDeleteError, setViewDeleteError] = useState('')
 
@@ -136,7 +145,11 @@ export function useDashboardPageController() {
   } = useArticlePreview()
   const [isPhoneLayout, setIsPhoneLayout] = useState<boolean>(typeof window !== 'undefined' ? window.innerWidth < 640 : false)
 
-  const [windows, setWindows] = useState<DashboardWindow[]>(() => [createWindowLayout('rss', 1, 1380, 760, 'full')])
+  const [personalWindows, setPersonalWindows] = useState<DashboardWindow[]>(() => [createWindowLayout('rss', 1, 1380, 760, 'full')])
+  const { windows, setWindows } = useEnforcedDashboardLayout({
+    policy: workspace.effective, personalWindows, setPersonalWindows, rootRef,
+    defaultPanelIds: workspace.model.dashboardPanelIds,
+  })
   const [windowSeenAt, setWindowSeenAt] = useState<Record<string, string>>({})
   const [rssLastOpenedAt, setRssLastOpenedAt] = useState('')
   const [isWideLayout, setIsWideLayout] = useState<boolean>(typeof window !== 'undefined' ? window.innerWidth >= 1024 : true)
@@ -155,7 +168,7 @@ export function useDashboardPageController() {
   const aiSummaryEnabled = Boolean(aiFeatures?.ai_summary_enabled)
   const aiRelevanceEnabled = Boolean(aiFeatures?.ai_relevance_enabled)
   const aiDailyBriefEnabled = Boolean(aiFeatures?.ai_daily_brief_enabled)
-  const hasProtectedEditSession = isEditMode && editSessionSnapshot !== null
+  const hasProtectedEditSession = personalEditMode && editSessionSnapshot !== null
 
   const {
     isItemActionPending,
@@ -188,9 +201,10 @@ export function useDashboardPageController() {
       : 'You have unsaved dashboard note drafts. Leave without saving?',
   )
 
-  useDashboardWorkspacePersistence({
+  const dashboardReady = useDashboardWorkspacePersistence({
     aiDailyBriefEnabled,
     defaultPanelIds: workspace.model.dashboardPanelIds,
+    defaultTemplate: workspace.effective?.dashboard_mode === 'enforced' ? null : workspace.effective?.dashboard_view_json,
     expandedItemIdsByWindowId,
     isWideLayout,
     rootRef,
@@ -204,10 +218,10 @@ export function useDashboardPageController() {
     setNoteDraftsByItemId,
     setRssLastOpenedAt,
     setWindowSeenAt,
-    setWindows,
+    setWindows: setPersonalWindows,
     userId: meQuery.data?.id ?? null,
     windowSeenAt,
-    windows,
+    windows: personalWindows,
     workspaceDefaultsSettled: workspaceDefaultsReady || (!workspace.isLoading && workspace.isDegraded),
   })
 
@@ -349,6 +363,7 @@ export function useDashboardPageController() {
     onSuccess: (view) => {
       setSavedViewName('')
       setActiveSavedViewId(view.id)
+      setSavedViewBaseline(view)
       setEditSessionSnapshot(null)
       setIsEditMode(false)
       setShowAddWindowMenu(false)
@@ -363,11 +378,12 @@ export function useDashboardPageController() {
 
   const deleteView = useMutation({
     mutationKey: ['dashboard-saved-views', 'delete'],
-    mutationFn: (viewId: string) =>
-      apiFetch(`/views/${viewId}`, {
+    mutationFn: (view: DashboardSavedViewPreview) =>
+      apiFetch(`/views/${view.id}${view.revision === undefined ? '' : `?expected_revision=${view.revision}`}`, {
         method: 'DELETE',
       }),
-    onSuccess: (_data, deletedViewId) => {
+    onSuccess: (_data, deletedView) => {
+      const deletedViewId = deletedView.id
       setActiveSavedViewId((current) => (current === deletedViewId ? null : current))
       setEditSessionSnapshot((current) => {
         if (!current || current.activeSavedViewId !== deletedViewId) {
@@ -376,6 +392,7 @@ export function useDashboardPageController() {
         return {
           ...current,
           activeSavedViewId: null,
+          savedViewBaseline: null,
         }
       })
       setPendingSavedViewLoad((current) => (current?.id === deletedViewId ? null : current))
@@ -389,21 +406,21 @@ export function useDashboardPageController() {
   })
 
   const onConfirmDeleteView = () => {
-    if (!pendingViewDelete) {
+    if (!pendingViewDelete || pendingViewDelete.can_delete === false) {
       return
     }
 
-    const viewId = pendingViewDelete.id
     setViewDeleteError('')
-    deleteView.mutate(viewId)
+    deleteView.mutate(pendingViewDelete)
   }
 
   const updateExistingView = useMutation({
     mutationKey: ['dashboard-saved-views', 'update'],
-    mutationFn: (payload: { viewId: string; name?: string; query?: DashboardSavedViewState }) =>
+    mutationFn: (payload: { viewId: string; expectedRevision?: number; name?: string; query?: DashboardSavedViewState }) =>
       apiFetch<SavedView>(`/views/${payload.viewId}`, {
         method: 'PATCH',
         body: JSON.stringify({
+          ...(payload.expectedRevision !== undefined ? { expected_revision: payload.expectedRevision } : {}),
           ...(payload.name !== undefined ? { name: payload.name } : {}),
           ...(payload.query !== undefined ? { query_json: payload.query } : {}),
         }),
@@ -413,6 +430,7 @@ export function useDashboardPageController() {
     },
     onSuccess: (view) => {
       setActiveSavedViewId(view.id)
+      setSavedViewBaseline(view)
       setEditSessionSnapshot(null)
       setIsEditMode(false)
       setShowAddWindowMenu(false)
@@ -445,7 +463,8 @@ export function useDashboardPageController() {
     )
   }
 
-  const applyDashboardSavedViewState = (state: DashboardSavedViewState, nextActiveSavedViewId: string | null) => {
+  const applyDashboardSavedViewState = (state: DashboardSavedViewState, nextActiveSavedViewId: string | null, baseline: SavedViewBaseline | null = null) => {
+    if (layoutEnforced) return
     const nextDashboardTimeRange =
       state.rss_filters.time_range !== 'all' ||
       state.rss_filters.custom_since_date ||
@@ -469,6 +488,7 @@ export function useDashboardPageController() {
     setExpandedItemIdsByWindowId({})
     setWindows(state.windows)
     setActiveSavedViewId(nextActiveSavedViewId)
+    setSavedViewBaseline(baseline)
   }
 
   const rssWindowQueries = useQueries({
@@ -650,7 +670,7 @@ export function useDashboardPageController() {
       })
       return changed ? next : current
     })
-  }, [alertQueriesByWindowId, rssQueriesByWindowId])
+  }, [alertQueriesByWindowId, rssQueriesByWindowId, setWindows])
 
   useEffect(() => {
     const rssWindowIds = new Set(rssWindows.map((windowLayout) => windowLayout.id))
@@ -870,6 +890,7 @@ export function useDashboardPageController() {
     setWindowSnap,
     startWindowDrag,
     startWindowResize,
+    handleWindowGeometryKey,
     toggleMobileWindowControls,
     toggleWindowControls,
     updateWindowScratchNote,
@@ -902,11 +923,14 @@ export function useDashboardPageController() {
     })
   }
 
+  const canUpdateActiveView = canUpdateDashboardSavedView(activeSavedViewId, savedViewBaseline, viewsQuery.data)
+
   const updateActiveView = () => {
-    if (!activeSavedViewId) return
+    if (!activeSavedViewId || !canUpdateActiveView || layoutEnforced) return
 
     updateExistingView.mutate({
       viewId: activeSavedViewId,
+      expectedRevision: savedViewBaseline?.revision,
       query: captureCurrentDashboardViewState(),
     })
   }
@@ -915,6 +939,7 @@ export function useDashboardPageController() {
 
   const clearActiveSavedViewSelection = () => {
     setActiveSavedViewId(null)
+    setSavedViewBaseline(null)
     setShowSaveAsNew(false)
     setViewSaveError('')
     if (!isEditMode) {
@@ -923,6 +948,7 @@ export function useDashboardPageController() {
   }
 
   const applySavedView = (view: SavedView) => {
+    if (layoutEnforced) return
     const { width, height } = getWindowContainerDimensions(rootRef.current)
     const parsed = parseDashboardSavedView(view.query_json, width, height)
     setPendingSavedViewLoad(null)
@@ -931,10 +957,11 @@ export function useDashboardPageController() {
     setShowAddWindowMenu(false)
     setShowSaveAsNew(false)
     setViewSaveError('')
-    applyDashboardSavedViewState(parsed, view.id)
+    applyDashboardSavedViewState(parsed, view.id, view)
   }
 
   const requestSavedViewLoad = (viewId: string) => {
+    if (layoutEnforced) return
     const selected = findSavedViewById(viewId)
     if (!selected) {
       return
@@ -982,6 +1009,7 @@ export function useDashboardPageController() {
   }
 
   const importViewsFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const lease = captureSessionLease()
     const file = event.target.files?.[0]
     if (!file) {
       return
@@ -999,6 +1027,7 @@ export function useDashboardPageController() {
 
     try {
       const text = await file.text()
+      lease.assertCurrent()
       const parsed = JSON.parse(text) as unknown
       const entries = parseImportedSavedViews(parsed)
       if (!entries.length) {
@@ -1008,12 +1037,15 @@ export function useDashboardPageController() {
       const importedNames: string[] = []
       for (const entry of entries) {
         try {
+          lease.assertCurrent()
           await apiFetch('/views', {
             method: 'POST',
             body: JSON.stringify(entry),
           })
+          lease.assertCurrent()
           importedNames.push(entry.name)
         } catch (error) {
+          if (lease.signal.aborted) return
           if (importedNames.length) {
             setImportViewsResult(formatSavedViewImportResult(importedNames, true))
             await queryClient.invalidateQueries({ queryKey: ['views'] })
@@ -1026,6 +1058,7 @@ export function useDashboardPageController() {
       setImportViewsResult(formatSavedViewImportResult(importedNames))
       await queryClient.invalidateQueries({ queryKey: ['views'] })
     } catch (error) {
+      if (lease.signal.aborted) return
       setImportViewsError(resolveApiErrorMessage(error, 'Saved dashboard views could not be imported'))
     } finally {
       setIsImportingViews(false)
@@ -1085,6 +1118,7 @@ export function useDashboardPageController() {
     [containerDimensions.height, containerDimensions.width, viewsQuery.data],
   )
   return {
+    layoutEnforced, savedViewBaseline, canUpdateActiveView,
     activeSavedViewId, addWindow, addWindowActionRefs, addWindowMenuId, addWindowMenuRef,
     addWindowTriggerRef,
     adjustArticlePreviewWidth, aiDailyBriefEnabled, aiRelevanceEnabled, aiSummaryEnabled, alertInterestsQuery,
@@ -1092,7 +1126,7 @@ export function useDashboardPageController() {
     articlePreviewFrameState, articlePreviewWidth, articleRetryFeedbackByItemId, availableAlertCategories, bringWindowToFront,
     canAddWindow: windows.length < MAX_DASHBOARD_WINDOWS, canManage, captureCurrentDashboardViewState,
     clearActiveSavedViewSelection, closeAddWindowMenu, closeArticlePreview,
-    closeRenameWindow, confirmDiscardUnsavedDashboardChanges, containerDimensions, dailyBriefHistoryQuery, dailyBriefWindowCount,
+    closeRenameWindow, confirmDiscardUnsavedDashboardChanges, containerDimensions, dashboardReady, dailyBriefHistoryQuery, dailyBriefWindowCount,
     dashboardCustomSinceDate, dashboardCustomUntilDate, dashboardRollingDays, dashboardTimeFilter, dashboardTimeRange,
     deleteView, detailQueriesByWindowId, editSessionSnapshot, expandedItemIdsByWindowId, exportAllViews,
     feedsQuery, globalSearchState, handleAddWindowMenuKeyDown, handleAddWindowTriggerKeyDown, handleOpenArticlePreview,
@@ -1109,7 +1143,7 @@ export function useDashboardPageController() {
     setMobileActiveWindowId, setMobileDashboardViewsOpen, setNoteDraftsByItemId, setOpenWindowMenuId, setPendingSavedViewLoad,
     setPendingViewDelete, setRenameWindowDraft, setSavedViewName, setShowManageViewsModal, setShowSaveAsNew,
     setViewDeleteError, setViewSaveError, setWindowSnap, showAddWindowMenu, showManageViewsModal,
-    showSaveAsNew, startArticlePreviewResize, startWindowDrag, startWindowResize, tagsQuery,
+    showSaveAsNew, startArticlePreviewResize, startWindowDrag, startWindowResize, handleWindowGeometryKey, tagsQuery,
     toggleMobileWindowControls, toggleWindowControls, updateActiveView, updateDashboardCustomSinceDate, updateDashboardCustomUntilDate,
     updateDashboardRollingDaysValue, updateDashboardTimeRange, updateExistingView, updateNote, updateRead,
     updateStar, updateWindowAlertFilters, updateWindowCustomTimeDate, updateWindowDailyBriefSelection, updateWindowRollingDays,

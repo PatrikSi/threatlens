@@ -3,8 +3,10 @@ import { useQuery } from '@tanstack/react-query'
 
 import { apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
-import type { AITaskRunDetailResponse, AITaskRunListResponse } from '../types/api'
+import { accessibleQueryData } from '../api/queryData'
+import type { AITaskRunDetailResponse } from '../types/api'
 import type { ActivityTabProps } from './AiActivityTypes'
+import { useAiChildRunPage } from './useAiChildRunPage'
 import { AI_RUN_PAGE_SIZE, findLatestProviderExchangeEvent } from './aiSettingsUtils'
 
 type RunStateInput = Pick<
@@ -19,14 +21,9 @@ export function useAiActivityRunState({
   selectedRunId,
   runDetailQuery,
 }: RunStateInput) {
-  const selectedRun = runDetailQuery.data?.run
-  const [articlePreviewLimit, setArticlePreviewLimit] = useState(8)
+  const selectedRun = accessibleQueryData(runDetailQuery)?.run
   const [inspectedRunId, setInspectedRunId] = useState<string | null>(null)
   const history = useRunHistoryMetrics(runPage, runsQuery)
-
-  useEffect(() => {
-    setArticlePreviewLimit(8)
-  }, [selectedRunId])
 
   useEffect(() => {
     const runOffset = runPage * AI_RUN_PAGE_SIZE
@@ -42,60 +39,44 @@ export function useAiActivityRunState({
     enabled: Boolean(inspectedRunId),
     staleTime: 5000,
   })
+  const inspectedDetail = accessibleQueryData(inspectedRunDetailQuery)
   const inspectedProviderEvent = useMemo(
-    () => findLatestProviderExchangeEvent(inspectedRunDetailQuery.data?.events ?? []),
-    [inspectedRunDetailQuery.data?.events],
+    () => findLatestProviderExchangeEvent(inspectedDetail?.events ?? []),
+    [inspectedDetail?.events],
   )
 
-  const childRunsQuery = useQuery({
-    queryKey: ['ai', 'ops', 'child-runs', selectedRunId, articlePreviewLimit],
-    queryFn: ({ signal }) =>
-      apiFetch<AITaskRunListResponse>(
-        `/ai/ops/runs?parent_run_id=${selectedRunId}&limit=${articlePreviewLimit}`,
-        { signal },
-      ),
-    enabled: Boolean(selectedRunId && selectedRun?.task_type === 'reprocess'),
-    refetchInterval:
-      selectedRun && (selectedRun.status === 'queued' || selectedRun.status === 'running') ? 10000 : false,
-    staleTime: 5000,
-  })
-
-  const showMoreChildRuns = () => {
-    setArticlePreviewLimit((current) => Math.min(childRunsQuery.data?.total ?? current, current + 20))
-  }
+  const childRunPage = useAiChildRunPage(selectedRunId, selectedRun)
 
   return {
     selectedRun,
     history,
-    articlePreviewLimit,
-    setArticlePreviewLimit,
     inspectedRunId,
     setInspectedRunId,
-    inspectedRun: inspectedRunDetailQuery.data?.run ?? null,
+    inspectedRun: inspectedDetail?.run ?? null,
     inspectedProviderEvent,
     inspectedRunDetailQuery,
     inspectedRunErrorMessage: inspectedRunDetailQuery.isError
       ? resolveApiErrorMessage(inspectedRunDetailQuery.error, 'Inspected AI run details could not be loaded')
       : '',
-    childRunsQuery,
-    showMoreChildRuns,
+    childRunPage,
   }
 }
 
 function useRunHistoryMetrics(runPage: number, runsQuery: ActivityTabProps['runsQuery']) {
+  const data = accessibleQueryData(runsQuery)
   return useMemo(
     () =>
       buildRunHistoryMetrics({
         runPage,
-        runTotal: runsQuery.data?.total ?? 0,
-        dataOffset: runsQuery.data?.offset,
-        runCount: runsQuery.data?.items.length ?? 0,
-        hasData: Boolean(runsQuery.data),
+        runTotal: data?.total ?? 0,
+        dataOffset: data?.offset,
+        runCount: data?.items.length ?? 0,
+        hasData: Boolean(data),
         isFetching: runsQuery.isFetching,
         isLoading: runsQuery.isLoading,
         isPlaceholderData: runsQuery.isPlaceholderData,
       }),
-    [runPage, runsQuery.data, runsQuery.isFetching, runsQuery.isLoading, runsQuery.isPlaceholderData],
+    [runPage, data, runsQuery.isFetching, runsQuery.isLoading, runsQuery.isPlaceholderData],
   )
 }
 

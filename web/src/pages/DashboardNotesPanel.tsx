@@ -20,10 +20,11 @@ export function DashboardNotesPanel({
                     className="tl-dashboard-notes-editor mt-2 h-full min-h-[180px] w-full flex-1 rounded border border-slate/20 bg-white px-3 py-2 text-sm leading-6 dark:border-cyan-900/40 dark:bg-[#072019]"
                     placeholder="Use this space for quick notes, pivots, and hypotheses..."
                     value={windowLayout.scratch_note}
+                    readOnly={controller.layoutEnforced}
                     onChange={(event) => updateWindowScratchNote(windowLayout.id, event.target.value)}
                     aria-label={`${windowLayout.title} scratch notes`}
                   />
-                  <p className="mt-2 text-xs text-slate dark:text-slate-300">Saved in this panel and in saved views.</p>
+                  <p className="mt-2 text-xs text-slate dark:text-slate-300">{controller.layoutEnforced ? 'Scratch notes are read-only in the organization arrangement. Article and investigation notes remain available.' : 'Saved in this panel and in saved views.'}</p>
                 </div>
 
   )

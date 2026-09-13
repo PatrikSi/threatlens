@@ -1,27 +1,41 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 
+import { useSearchParams } from 'react-router-dom'
+import { alertsViewFromParams, type AlertsView } from './alertUrlState'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { AlertOperationsWorkspace } from './AlertOperationsWorkspace'
 import { AlertOccurrencesWorkspace } from './AlertOccurrencesWorkspace'
 import { AlertDeleteDialog, AlertEditorPanel, ConfiguredAlertsPanel } from './AlertsPagePanels'
+import { AlertTriageDraftContext } from './alertTriageDraftContext'
 import { useAlertsPageController } from './useAlertsPageController'
 
-type AlertsView = 'rules' | 'occurrences' | 'operations'
-
 export function AlertsPage() {
-  const controller = useAlertsPageController()
+  const [triageDirty, setTriageDirty] = useState(false)
+  return <AlertTriageDraftContext.Provider value={setTriageDirty}><AlertsPageContent triageDirty={triageDirty} /></AlertTriageDraftContext.Provider>
+}
+
+function AlertsPageContent({ triageDirty }: { triageDirty: boolean }) {
+  const controller = useAlertsPageController(triageDirty)
   const currentUserQuery = useCurrentUser()
   const isAdmin =
     !currentUserQuery.isError && currentUserQuery.data?.role === 'admin'
-  const [activeView, setActiveView] = useState<AlertsView>('rules')
-  const [occurrencesVisited, setOccurrencesVisited] = useState(false)
-  const [operationsVisited, setOperationsVisited] = useState(false)
+  const [viewParams, setViewParams] = useSearchParams()
+  const activeView = alertsViewFromParams(viewParams)
+  const setActiveView = (view: AlertsView) => setViewParams((current) => {
+    const next = new URLSearchParams(current); next.set('view', view); return next
+  }, { preventScrollReset: true })
+  const [occurrencesVisited, setOccurrencesVisited] = useState(activeView === 'occurrences')
+  const [operationsVisited, setOperationsVisited] = useState(activeView === 'operations')
   const tabRefs = useRef<Partial<Record<AlertsView, HTMLButtonElement | null>>>({})
   const views: AlertsView[] = isAdmin ? ['rules', 'occurrences', 'operations'] : ['rules', 'occurrences']
 
   useEffect(() => {
-    if (!isAdmin && activeView === 'operations') setActiveView('rules')
-  }, [activeView, isAdmin])
+    if (!currentUserQuery.isLoading && !isAdmin && activeView === 'operations') {
+      setViewParams((current) => { const next = new URLSearchParams(current); next.set('view', 'rules'); return next }, { replace: true })
+    }
+    if (activeView === 'occurrences') setOccurrencesVisited(true)
+    if (activeView === 'operations') setOperationsVisited(true)
+  }, [activeView, currentUserQuery.isLoading, isAdmin, setViewParams])
 
   const activateView = (view: AlertsView) => {
     if (view === 'occurrences') setOccurrencesVisited(true)

@@ -7,6 +7,7 @@ from app.models.article import Article
 from app.models.item import Item
 from app.services.article_preview import (
     ARTICLE_PREVIEW_CSP,
+    article_preview_response_headers,
     resolve_article_preview_url,
     sanitize_article_preview_html,
 )
@@ -64,6 +65,24 @@ def test_article_preview_csp_keeps_scripts_forms_and_nested_frames_disabled():
     assert "allow-scripts" not in ARTICLE_PREVIEW_CSP
 
 
+def test_preview_blocks_external_resources_until_explicitly_enabled():
+    for enabled in (False, True):
+        headers = article_preview_response_headers(external_resources=enabled)
+        directives = dict(entry.strip().split(" ", 1) for entry in headers["Content-Security-Policy"].split(";") if entry.strip())
+        for name in ("img-src", "style-src", "font-src", "media-src"):
+            assert ("https:" in directives[name]) is enabled
+            assert ("http:" in directives[name]) is enabled
+        assert directives["script-src"] == "'none'"
+        assert directives["connect-src"] == "'none'"
+        assert headers["Cache-Control"] == "no-store"
+
+
+def test_preview_removes_speculative_connections_but_preserves_opt_in_styles():
+    markup = '<link rel="dns-prefetch" href="//tracker.example"><link rel="preconnect" href="https://tracker.example"><link rel="stylesheet" href="https://publisher.example/style.css">'
+    document = BeautifulSoup(sanitize_article_preview_html(markup, final_url="https://publisher.example/story"), "html.parser")
+    assert [link.get("rel") for link in document.find_all("link")] == [["stylesheet"]]
+
+
 @pytest.mark.parametrize(
     ("srcset", "expected"),
     [
@@ -114,3 +133,49 @@ def test_article_preview_handles_empty_srcset_candidates(srcset, expected):
 )
 def test_resolve_article_preview_url_prefers_successful_article_final_url(article, expected):
     assert resolve_article_preview_url(_item(), article) == expected
+
+
+@pytest.mark.parametrize("mode", ["html", "compressed_oversize", "deadline"])
+def test_preview_fetch_uses_decoded_cap_and_total_deadline(monkeypatch, mode):
+    import gzip
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+
+    import httpx
+
+    from app.core.config import Settings
+    from app.services import article_preview, outbound_deadline as deadline_module
+
+    clock = [0.0]
+    monkeypatch.setattr(deadline_module, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+
+    class PreviewStream(httpx.SyncByteStream):
+        closed = False
+
+        def __iter__(self):
+            if mode == "compressed_oversize":
+                yield gzip.compress(b"x" * 20_000)
+            else:
+                yield b"<html><body>Preview"
+                if mode == "deadline":
+                    clock[0] = 2.0
+                yield b"</body></html>"
+
+        def close(self):
+            self.closed = True
+
+    stream = PreviewStream()
+    response = httpx.Response(200, request=httpx.Request("GET", "https://example.com/canonical"), headers={
+        "content-type": "text/html", **({"content-encoding": "gzip"} if mode == "compressed_oversize" else {}),
+    }, stream=stream)
+    monkeypatch.setattr(article_preview, "build_safe_http_client", lambda **_kwargs: nullcontext(object()))
+    monkeypatch.setattr(article_preview, "safe_stream_with_redirects", lambda *_args, **_kwargs: response)
+    settings = Settings(_env_file=None, article_max_bytes=10_000, article_total_timeout_seconds=1)
+    if mode == "html":
+        document = article_preview.fetch_article_preview_document(_item(), None, settings=settings)
+        assert "Preview" in document.html
+    else:
+        with pytest.raises(article_preview.ArticlePreviewFetchError) as raised:
+            article_preview.fetch_article_preview_document(_item(), None, settings=settings)
+        assert raised.value.status_code == (413 if mode == "compressed_oversize" else 502)
+    assert stream.closed

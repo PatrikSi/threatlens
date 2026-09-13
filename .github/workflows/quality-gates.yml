@@ -102,6 +102,22 @@ jobs:
           --cov-report=json:coverage.json
           --cov-fail-under=79
 
+      - name: Run isolated concurrent capacity smoke
+        timeout-minutes: 3
+        run: >-
+          env -u THREATLENS_TEST_DATABASE_URL -u THREATLENS_TEST_REDIS_URL
+          timeout 2m python backend/scripts/run_capacity_baseline.py
+          --profile smoke --output backend/capacity-smoke.json
+
+      - name: Upload capacity smoke measurements
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: capacity-smoke
+          path: backend/capacity-smoke.json
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Enforce critical backend coverage floors
         run: python scripts/check_coverage.py backend/coverage.json
 
@@ -109,6 +125,11 @@ jobs:
         run: |
           python backend/scripts/generate_api_reference.py
           git diff --exit-code -- docs/reference/api.md docs/reference/openapi.json
+
+      - name: Verify browser preview fixture matches backend policy
+        run: |
+          python web/browser/generate_preview_fixture.py
+          git diff --exit-code -- web/browser/preview-response.json
 
       - name: Verify runtime lockfile
         run: |
@@ -159,6 +180,59 @@ jobs:
         working-directory: web
         run: timeout 5m npm run audit
 
+  browsers:
+    name: Browser workflows (${{ matrix.browser }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+
+      - name: Install browser and server dependencies
+        run: |
+          timeout 10m python -m pip install -r backend/requirements-dev.txt
+          cd web
+          timeout 10m npm ci
+          timeout 5m npx playwright install --with-deps ${{ matrix.browser }}
+
+      - name: Run isolated interaction workflows
+        working-directory: web
+        run: timeout 5m npm run test:browser -- --project=${{ matrix.browser }}
+
+      - name: Run real-server auth and accessibility workflows
+        run: timeout 10m python web/browser/server/run.py --project=${{ matrix.browser }}
+
+      - name: Run real-server AI provider and statistics workflows
+        run: timeout 5m python web/browser/server/run.py --project=${{ matrix.browser }} --ai-providers --grep 'real AI provider settings|real statistics combines'
+
+      - name: Retain browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-evidence-${{ matrix.browser }}
+          path: |
+            web/test-results/
+            web/browser-server*.log
+          retention-days: 7
+
   migrations:
     name: PostgreSQL migration round trip
     runs-on: ubuntu-latest
@@ -207,8 +281,12 @@ jobs:
         run: |
           timeout 5m python -m alembic upgrade 0042_user_source
           python scripts/upgrade_compatibility_fixture.py seed
+          timeout 5m python -m alembic upgrade 0100_ai_evidence_provenance
+          python scripts/enterprise_upgrade_fixture.py seed
           timeout 5m python -m alembic upgrade head
           python scripts/upgrade_compatibility_fixture.py verify
+          python scripts/enterprise_upgrade_fixture.py verify
+          python scripts/enterprise_upgrade_fixture.py verify-guards
           python -m alembic current | grep -F '(head)'
           python -m alembic check
           timeout 5m python -m alembic downgrade base
@@ -309,27 +387,31 @@ jobs:
         uses: github/codeql-action/analyze@v4
 
   container-smoke:
-    name: Container smoke and image scan
+    name: Container smoke and image scan (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
     env:
       THREATLENS_DEV_IMAGE_TAG: dev
+      THREATLENS_SMOKE_ARCH: ${{ matrix.arch }}
+      THREATLENS_SMOKE_PLATFORM: linux/${{ matrix.arch }}
     # Direct push/PR runs have no input (`null`); only a reusable caller's
     # explicit false disables this job.
-    if: >-
-      ${{
-        toJSON(inputs.run_container_smoke) != 'false' &&
-        needs.backend.result == 'success' &&
-        needs.frontend.result == 'success' &&
-        needs.migrations.result == 'success'
-      }}
-    needs:
-      - backend
-      - frontend
-      - migrations
+    # These isolated builds consume no test-job artifacts. Run them independently
+    # so a test failure does not hide deployment failures in the same candidate.
+    if: ${{ toJSON(inputs.run_container_smoke) != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 50
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+
+      - name: Set up ARM64 emulation
+        if: matrix.arch == 'arm64'
+        uses: docker/setup-qemu-action@v4
+        with:
+          platforms: arm64
 
       - name: Generate isolated Compose environment
         env:
@@ -340,16 +422,76 @@ jobs:
       - name: Validate Compose configuration
         run: timeout 1m docker compose -f docker-compose.yml -f docker-compose.build.yml config --quiet
 
+      - name: Prepare restrictive frontend build context
+        run: |
+          restricted_context="$(mktemp -d "${RUNNER_TEMP}/threatlens-web-smoke.XXXXXX")"
+          (
+            umask 077
+            git archive --format=tar HEAD web docker/web.Dockerfile |
+              tar --no-same-permissions -xf - -C "$restricted_context"
+          )
+          python3 - "$restricted_context" <<'PY'
+          import json
+          import os
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          root = Path(sys.argv[1])
+          for relative in (
+              "web/nginx/nginx.conf",
+              "web/nginx/default.conf.template",
+              "web/public/theme-init.js",
+              "web/compliance/LICENSE",
+          ):
+              assert root.joinpath(relative).stat().st_mode & 0o077 == 0, relative
+          override = root / "build-context.json"
+          service_names = subprocess.check_output([
+              "docker", "compose", "-f", "docker-compose.yml", "-f",
+              "docker-compose.build.yml", "config", "--services",
+          ], text=True).splitlines()
+          # Qualify every application process on the target architecture while
+          # PostgreSQL and Redis remain native infrastructure on the runner.
+          services = {
+              name: {"platform": os.environ["THREATLENS_SMOKE_PLATFORM"]}
+              for name in service_names if name not in {"db", "redis"}
+          }
+          if os.environ["THREATLENS_SMOKE_ARCH"] == "arm64":
+              # Match exact-image publication's QEMU startup allowance. Native
+              # smoke retains the normal deployment health-check budgets.
+              for name, service in services.items():
+                  if name.startswith("worker") or name == "beat":
+                      service["healthcheck"] = {
+                          "interval": "90s", "timeout": "180s",
+                          "retries": 2, "start_period": "120s",
+                      }
+          services["web"]["build"] = {
+              "context": str(root / "web"),
+              "dockerfile": str(root / "docker/web.Dockerfile"),
+          }
+          override.write_text(json.dumps({"services": services}))
+          with open(os.environ["GITHUB_ENV"], "a") as output:
+              output.write(f"THREATLENS_WEB_SMOKE_OVERRIDE={override}\n")
+          PY
+
       - name: Build and start stack
         env:
           BUILD_DATE: 1970-01-01T00:00:00Z
           VCS_REF: ${{ github.sha }}
         run: |
-          THREATLENS_BUILD_VERSION="$(cat VERSION)" timeout 30m docker compose -f docker-compose.yml -f docker-compose.build.yml build --pull
-          THREATLENS_BUILD_VERSION="$(cat VERSION)" timeout 5m docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --no-build --wait --wait-timeout 180
+          THREATLENS_BUILD_VERSION="$(cat VERSION)" timeout 30m docker compose -f docker-compose.yml -f docker-compose.build.yml -f "$THREATLENS_WEB_SMOKE_OVERRIDE" build --pull
+          start_timeout=5m
+          wait_timeout=180
+          if [[ "$THREATLENS_SMOKE_ARCH" == arm64 ]]; then
+            start_timeout=10m
+            wait_timeout=480
+          fi
+          THREATLENS_BUILD_VERSION="$(cat VERSION)" timeout "$start_timeout" docker compose -f docker-compose.yml -f docker-compose.build.yml -f "$THREATLENS_WEB_SMOKE_OVERRIDE" up -d --no-build --wait --wait-timeout "$wait_timeout"
 
       - name: Verify running stack
         run: |
+          test "$(docker image inspect threatlens-backend:dev --format '{{.Architecture}}')" = "$THREATLENS_SMOKE_ARCH"
+          test "$(docker image inspect threatlens-web:dev --format '{{.Architecture}}')" = "$THREATLENS_SMOKE_ARCH"
           readiness_url="http://localhost:3000/api/v1/health"
           for attempt in {1..24}; do
             if readiness="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 10 "$readiness_url" 2>&1)"; then
@@ -363,9 +505,29 @@ jobs:
             fi
             sleep 5
           done
-          test "$(curl --fail --silent --show-error --connect-timeout 5 --max-time 10 http://localhost:3000/api/openapi.json | jq -r '.info.version')" = "$(cat VERSION)"
+          test "$(curl --fail --silent --show-error --connect-timeout 5 --max-time 60 http://localhost:3000/api/openapi.json | jq -r '.info.version')" = "$(cat VERSION)"
+          curl --fail --silent --show-error --connect-timeout 5 --max-time 10 http://localhost:3000/theme-init.js | cmp web/public/theme-init.js -
+          # Expand the user lookup inside the container's shell.
+          # shellcheck disable=SC2016
+          timeout 1m docker compose exec -T web sh -ec 'test "$(id -u)" != 0; test -r /usr/share/doc/threatlens/LICENSE; test -r /usr/share/doc/threatlens/licenses/MIT.txt'
           timeout 1m docker compose exec -T api python -m alembic current | grep -F '(head)'
           docker compose ps
+
+      - name: Verify access logs omit sensitive query values
+        run: >-
+          timeout 1m python3 scripts/verify_access_log_privacy.py
+          --base-url http://localhost:3000
+          --container "$(docker compose ps -q web)"
+          --container "$(docker compose ps -q api)"
+
+      - name: Verify checked-in dependency and legal artifacts
+        if: matrix.arch == 'amd64'
+        run: >-
+          timeout 3m python3 scripts/verify_image_dependency_artifacts.py
+          --backend-image threatlens-backend:dev --web-image threatlens-web:dev
+
+      - name: Verify bounded editorial uploads through the proxy
+        run: timeout 1m python3 scripts/verify_report_upload_proxy.py --base-url http://localhost:3000
 
       - name: Scan backend image
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0

@@ -109,7 +109,7 @@ function OperationsMetrics({ controller }: { controller: AlertOperationsControll
     )
   }
   const entries = [
-    ['Your occurrences (30 days)', controller.metrics.total],
+    [controller.metricsTeamId ? 'Team occurrences (30 days)' : 'Your occurrences (30 days)', controller.metrics.total],
     ['Open', controller.metrics.open],
     ['Critical', controller.metrics.critical],
     ['Suppressed', controller.metrics.suppressed],

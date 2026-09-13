@@ -117,11 +117,21 @@ content-derived AI task runs and usage require governed envelopes.
 - `first_seen_at: timestamptz`
 - `dedupe_key: text` (unique)
 - `content_hash: string(64)`
+- `classification_required_version: bigint` (default `1`)
+- `classification_completed_version: bigint` (default `0`; between `0` and the required revision)
+- `tagging_pending: boolean` (default `false`)
+- `tagging_retry_at: timestamptz?`
+- `tagging_attempts: integer` (between `0` and `5`)
+- `tagging_error_code: string(32)?`
 - `status: string(32)` (default `new`)
 - `last_error: text?`
 - `updated_at: timestamptz`
 
 Indexes include feed/source/canonical/domain/published/first_seen/status/content hash, feed-time composites, PostgreSQL trigram text-search helpers, and partial unique `(feed_id, source_guid)` when GUID exists.
+
+Migration `0089_tagging_recovery` adds independent tagging recovery state and a
+partial pending-work index. Incomplete evaluation preserves existing automatic
+tags; retrying tags does not acknowledge pending classification work.
 
 ### `Article`
 
@@ -246,7 +256,8 @@ Primary key on `item_id`:
 ### `AlertInterest`
 
 - `id: UUID` (PK)
-- `user_id: UUID` (FK users)
+- `user_id: UUID?` (FK users; exclusive with `team_id`)
+- `team_id: UUID?` (FK teams; immutable owner)
 - `name: string(255)`
 - `category: string(64)`
 - `keywords: JSON string[]`
@@ -257,10 +268,25 @@ Primary key on `item_id`:
 - `durable_since: timestamptz?`
 - `suppression_until: timestamptz?`
 - `suppression_reason: string(500)?`
+- `due_after_minutes: int?` (defaults for new team occurrences)
+- `escalation_after_minutes: int?` (delay after the due time)
 - `created_at: timestamptz`
 - `updated_at: timestamptz`
 
 ### Alerting V2
+
+Team-owned alert matches, occurrences and retained metrics have nullable
+`user_id`/`team_id` ownership with an exclusive-owner constraint. Occurrences add
+`assignee_user_id`, `due_at`, `escalation_after_minutes` and `escalated_at`; claim,
+assignment and deadline changes use the occurrence's optimistic version and
+activity history. Shared rows survive creator deletion. Retained metric
+uniqueness includes team identity.
+
+`Team` stores a stable unique key, name, description, member group, optional
+manager group, active flag, revision, optional creator and timestamps. Membership
+is evaluated against current eligible `IAMGroupMembership` records, including
+OIDC assertion expiry. Saved views add an exclusive team/personal owner and a
+revision; investigations use team group authority when `team_id` is present.
 
 `AlertEvaluationRequest` is the durable, idempotent intent to evaluate one item
 content hash. It records live, reconciliation, backfill, and replay provenance;
@@ -393,6 +419,46 @@ evidence, and note changes.
 - `daily_brief_schedule_minute_utc: int`
 - company profile fields and prompt template/instruction fields
 
+### `AIProviderConfiguration`
+
+Table: `ai_provider_configurations` (migration `0095`).
+
+- `id: UUID` (PK; stable across edits)
+- `name: string(120)`; `normalized_name: string(360)` (unique, case-folded)
+- `provider_type: string(32)` (`openai_compatible`)
+- `base_url: text`; `model: string(255)`
+- `temperature: float`; `max_completion_tokens: int`
+- `request_timeout_seconds: int`; `request_max_retries: int`
+- `enabled: bool`
+- `api_key_encrypted: text?` (independent encrypted credential; never returned)
+- `version: int` (at least one; optimistic write and queued-work baseline)
+- `created_at: timestamptz`; `updated_at: timestamptz`
+
+### `AIProviderRouting`
+
+Table: `ai_provider_routing`, with exactly one permitted `singleton_key` value, `1`.
+
+- `singleton_key: int` (PK); `version: int` (at least one)
+- `default_provider_id: UUID?`
+- `item_enrichment_provider_id: UUID?`
+- `daily_brief_provider_id: UUID?`
+- `report_provider_id: UUID?`
+
+All four selections reference `AIProviderConfiguration.id` with delete restricted.
+A null feature selection inherits the default; a null default uses legacy AI
+settings. Provider creation alone does not change routing.
+
+### `AIProviderRetiredID`
+
+Table: `ai_provider_retired_ids`.
+
+- `id: UUID` (PK; permanently retired provider identifier)
+- `retired_at: timestamptz`
+
+Deletion writes this row atomically with removing the provider. It retains no
+credential or configuration and prevents old queued work from resolving a reused
+identifier to a different endpoint, independently of task-history retention.
+
 ### `AIDailyBrief`
 
 - `id: UUID` (PK)
@@ -423,6 +489,11 @@ evidence, and note changes.
 - `daily_brief_id: UUID?`
 - `parent_run_id: UUID?`
 - progress counters, token accounting, prompt/response sizing, metadata, timestamps
+
+New AI work records `metadata_json.provider_selection` with provider ID, version
+and model, without a credential. Children inherit their parent's selection.
+Tasks predating this field continue through legacy settings. A named selection
+that changes before I/O fails explicitly rather than switching destinations.
 
 ### `TaggingSettings`
 
@@ -461,6 +532,34 @@ evidence, and note changes.
 
 Report schedules use idempotent generation keys. Reports retain source, prompt, and company/global context snapshots so retries do not depend on later item or template changes. Provider credentials, model selection, and context guardrails are revalidated from current AI settings when work executes.
 
+The library projects `ReportListItem` fields, with bounded errors, and uses the
+`(created_at, id)` index for descending keyset navigation. A GIN index on
+`to_tsvector('simple'::regconfig, title)` supports title words and phrases.
+`ReportLibraryPage` adds opaque current/next positions and a creation cutoff;
+it carries no authorization grant or long-lived database snapshot.
+
+### Background Export Models
+
+- `ExportJob` belongs to a human or service-account principal. Its unique
+  `(principal_type, principal_id, idempotency_key)` identifies an accepted
+  request, with a canonical request hash rejecting mismatched retries.
+- Request filters/options, the accepting credential/permission snapshot, and
+  selected source lineage are encrypted with the application data key.
+  Large request/source columns are deferred until needed. Status, progress,
+  attempts, dispatch/backoff timestamps, lease token/expiry, retention expiry,
+  and reserved bytes support durable repair and bounded admission.
+- `ExportJobChunk` has a `(job_id, position)` primary key and cascading job
+  foreign key. Each row stores an encrypted artifact chunk of at most 256 KiB
+  decoded bytes, with a separate database ciphertext-size constraint. Partial
+  chunks are never exposed as a ready artifact.
+- Principal IDs intentionally span two owner tables; maintenance deletes jobs
+  whose corresponding principal was removed. There is no public cross-owner
+  lookup. Current credentials, handling policy, and source visibility are
+  checked before generation, publication, status details, and download.
+
+Migration `0087_async_exports` creates both tables. See [background exports](background-exports.md)
+for the state machine, reservation accounting, cleanup, and credential expiry.
+
 ### Data Lifecycle Models
 
 - `LifecyclePolicy` has one row per code-owned target key. It stores enablement,
@@ -476,6 +575,11 @@ Report schedules use idempotent generation keys. Reports retain source, prompt, 
   scheduled trigger, idempotency, one-active-run exclusion, lease/heartbeat,
   cancellation, monotonic aggregate counters, byte count, backlog, sanitized
   failure, and immutable terminal timestamps and evidence.
+- `LifecycleScanCursor` stores one `(last_timestamp, last_id)` anchor per internal
+  dataset. Both anchor fields are set or cleared together. Cursor changes commit
+  with their deletion batch and survive run and policy changes; reaching the end
+  resets the cursor so later runs revisit earlier protected records. Migration
+  `0090_lifecycle_scan_cursors` adds the table.
 
 Target keys are constrained in both application schemas and PostgreSQL; clients
 cannot supply a database table or query. Scheduled target/tick and manual

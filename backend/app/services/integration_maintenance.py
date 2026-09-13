@@ -4,7 +4,7 @@ import uuid
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import String, cast, delete, exists, func, or_, select, text
+from sqlalchemy import String, and_, cast, delete, exists, func, or_, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session, aliased
 
@@ -46,6 +46,12 @@ from app.services.data_access_runtime import (
 )
 from app.services.integration_metric_data_policy import (
     integration_metric_policy_cohort_key,
+)
+from app.services.lifecycle_pruning import lock_history_dependants
+from app.services.lifecycle_pruning_contracts import PruningContext
+from app.services.lifecycle_scanning import (
+    LifecycleScanStats,
+    lifecycle_candidate_window,
 )
 from app.services.lifecycle_dependencies import (
     lifecycle_parent_scan_limit,
@@ -290,6 +296,7 @@ def rollup_terminal_integration_deliveries(
         excluded = statement.excluded
         statement = statement.on_conflict_do_update(
             constraint="uq_integration_delivery_metrics_bucket_dimension",
+            where=IntegrationDeliveryMetric.retention_pruning_started_at.is_(None),
             set_={
                 "succeeded_count": IntegrationDeliveryMetric.succeeded_count
                 + excluded.succeeded_count,
@@ -310,9 +317,8 @@ def rollup_terminal_integration_deliveries(
         )
         metric_id = db.scalar(statement.returning(IntegrationDeliveryMetric.id))
         if metric_id is None:
-            raise RuntimeError(
-                "Integration delivery metric rollup did not return a base row."
-            )
+            # This expired bucket is already hidden and draining its provenance.
+            continue
         metric_ids[(bucket_start, integration_id, connector_type, event_type)] = (
             metric_id
         )
@@ -322,6 +328,8 @@ def rollup_terminal_integration_deliveries(
         key=lambda value: (*_metric_key_sort(value[0][0]), value[0][1]),
     ):
         metric_key, policy_cohort_key = cohort_identity
+        if metric_key not in metric_ids:
+            continue
         provenance = cohort_metadata[cohort_identity]
         captured_label_ids = provenance.captured_label_ids
         taint_label_ids = provenance.taint_label_ids
@@ -500,8 +508,7 @@ def _legacy_notification_delivery_retention_predicates(
             ~exists(
                 select(matching_label.label_id).where(
                     matching_label.envelope_id == event_envelope.id,
-                    matching_label.label_id
-                    == source_without_label.handling_label_id,
+                    matching_label.label_id == source_without_label.handling_label_id,
                 )
             ),
         )
@@ -586,6 +593,7 @@ def prune_integration_delivery_history(
     prune_metrics: bool = True,
     prune_orphans: bool = True,
     max_dependent_rows: int | None = None,
+    scan_stats: LifecycleScanStats | None = None,
     commit: bool = True,
 ) -> dict[str, int | bool]:
     current_time = now or datetime.now(timezone.utc)
@@ -623,27 +631,22 @@ def prune_integration_delivery_history(
     terminal_at = _terminal_delivery_timestamp()
     lock_data_policy_revision_for_derivation(db)
 
-    eligible_delivery_ids = (
-        list(
-            db.scalars(
-                select(IntegrationDelivery.id)
-                .where(
-                    *_integration_delivery_retention_predicates(
-                        cutoff=delivery_cutoff
-                    )
-                )
-                .order_by(terminal_at.asc())
-                .limit(
-                    lifecycle_parent_scan_limit(effective_batch_size)
-                    if max_dependent_rows is not None
-                    else effective_batch_size
-                )
-                .with_for_update(skip_locked=True)
-            ).all()
+    delivery_window = None
+    if prune_deliveries:
+        delivery_window = lifecycle_candidate_window(
+            db,
+            select(IntegrationDelivery.id).where(
+                *_integration_delivery_retention_predicates(cutoff=delivery_cutoff)
+            ),
+            model=IntegrationDelivery,
+            timestamp=terminal_at,
+            limit=lifecycle_parent_scan_limit(effective_batch_size)
+            if max_dependent_rows is not None
+            else effective_batch_size,
+            durable=max_dependent_rows is not None,
+            stats=scan_stats,
         )
-        if prune_deliveries
-        else []
-    )
+    eligible_delivery_ids = delivery_window.ids if delivery_window is not None else []
     dependent_rows_budgeted = 0
     oversized_parents_skipped = 0
     dependent_budget_exhausted = False
@@ -654,7 +657,9 @@ def prune_integration_delivery_history(
             candidate_ids=eligible_delivery_ids,
             max_dependent_rows=max_dependent_rows,
             max_parent_records=effective_batch_size,
+            pruning=PruningContext(delivery_cutoff, and_(*_integration_delivery_retention_predicates(cutoff=delivery_cutoff))),
         )
+        delivery_window.advance(selection)
         eligible_delivery_ids = selection.ids
         dependent_rows_budgeted += selection.dependent_rows
         oversized_parents_skipped += selection.oversized_count
@@ -664,27 +669,14 @@ def prune_integration_delivery_history(
     deleted_delivery_ids: list[uuid.UUID] = []
     data_access_envelopes_deleted = 0
     if eligible_delivery_ids:
-        retry_child = aliased(IntegrationDelivery)
-        linked_webhook = aliased(NotificationWebhookDelivery)
-        db.execute(
-            select(retry_child.id)
-            .where(retry_child.source_delivery_id.in_(eligible_delivery_ids))
-            .order_by(retry_child.id)
-            .with_for_update()
-        ).close()
-        db.execute(
-            select(linked_webhook.id)
-            .where(linked_webhook.integration_delivery_id.in_(eligible_delivery_ids))
-            .order_by(linked_webhook.id)
-            .with_for_update()
-        ).close()
+        eligible_delivery_ids = lock_history_dependants(
+            db, model=IntegrationDelivery, parent_ids=eligible_delivery_ids,
+        )
         revalidated_delivery_ids = list(
             db.scalars(
                 select(IntegrationDelivery.id).where(
                     IntegrationDelivery.id.in_(eligible_delivery_ids),
-                    *_integration_delivery_retention_predicates(
-                        cutoff=delivery_cutoff
-                    ),
+                    *_integration_delivery_retention_predicates(cutoff=delivery_cutoff),
                 )
             ).all()
         )
@@ -703,9 +695,7 @@ def prune_integration_delivery_history(
                 delete(IntegrationDelivery)
                 .where(
                     IntegrationDelivery.id.in_(revalidated_delivery_ids),
-                    *_integration_delivery_retention_predicates(
-                        cutoff=delivery_cutoff
-                    ),
+                    *_integration_delivery_retention_predicates(cutoff=delivery_cutoff),
                 )
                 .returning(IntegrationDelivery.id)
                 .execution_options(synchronize_session=False)
@@ -720,26 +710,22 @@ def prune_integration_delivery_history(
     )
     legacy_webhook_deleted = 0
     if legacy_batch_size:
-        legacy_delivery_ids = list(
-            db.scalars(
-                select(NotificationWebhookDelivery.id)
-                .where(
-                    *_legacy_notification_delivery_retention_predicates(
-                        cutoff=delivery_cutoff
-                    )
+        legacy_window = lifecycle_candidate_window(
+            db,
+            select(NotificationWebhookDelivery.id).where(
+                *_legacy_notification_delivery_retention_predicates(
+                    cutoff=delivery_cutoff
                 )
-                .order_by(
-                    NotificationWebhookDelivery.attempted_at.asc(),
-                    NotificationWebhookDelivery.id.asc(),
-                )
-                .limit(
-                    lifecycle_parent_scan_limit(legacy_batch_size)
-                    if max_dependent_rows is not None
-                    else legacy_batch_size
-                )
-                .with_for_update(skip_locked=True)
-            ).all()
+            ),
+            model=NotificationWebhookDelivery,
+            timestamp=NotificationWebhookDelivery.attempted_at,
+            limit=lifecycle_parent_scan_limit(legacy_batch_size)
+            if max_dependent_rows is not None
+            else legacy_batch_size,
+            durable=max_dependent_rows is not None,
+            stats=scan_stats,
         )
+        legacy_delivery_ids = legacy_window.ids
         if legacy_delivery_ids:
             if max_dependent_rows is not None:
                 remaining_budget = max(
@@ -751,17 +737,16 @@ def prune_integration_delivery_history(
                         db,
                         model=NotificationWebhookDelivery,
                         candidate_ids=legacy_delivery_ids,
-                        max_dependent_rows=remaining_budget,
+                        max_dependent_rows=max_dependent_rows,
+                        available_dependent_rows=remaining_budget,
                         max_parent_records=legacy_batch_size,
                     )
+                    legacy_window.advance(legacy_selection)
                     legacy_delivery_ids = legacy_selection.ids
                     dependent_rows_budgeted += legacy_selection.dependent_rows
-                    oversized_parents_skipped += (
-                        legacy_selection.oversized_count
-                    )
+                    oversized_parents_skipped += legacy_selection.oversized_count
                     dependent_budget_exhausted = (
-                        dependent_budget_exhausted
-                        or legacy_selection.budget_exhausted
+                        dependent_budget_exhausted or legacy_selection.budget_exhausted
                     )
                 else:
                     legacy_delivery_ids = []
@@ -770,9 +755,7 @@ def prune_integration_delivery_history(
             legacy_retry_child = aliased(NotificationWebhookDelivery)
             db.execute(
                 select(legacy_retry_child.id)
-                .where(
-                    legacy_retry_child.source_delivery_id.in_(legacy_delivery_ids)
-                )
+                .where(legacy_retry_child.source_delivery_id.in_(legacy_delivery_ids))
                 .order_by(legacy_retry_child.id)
                 .with_for_update()
             ).close()
@@ -804,31 +787,28 @@ def prune_integration_delivery_history(
                 max_dependent_rows=envelope_budget,
             )
 
-    event_ids = (
-        list(
-            db.scalars(
-                select(IntegrationEvent.id)
-                .where(
-                    IntegrationEvent.routing_state.in_(["routed", "dead_letter"]),
-                    IntegrationEvent.created_at < event_cutoff,
-                    ~exists(
-                        select(IntegrationDelivery.id).where(
-                            IntegrationDelivery.event_id == IntegrationEvent.id
-                        )
-                    ),
-                )
-                .order_by(IntegrationEvent.created_at.asc())
-                .limit(
-                    lifecycle_parent_scan_limit(effective_batch_size)
-                    if max_dependent_rows is not None
-                    else effective_batch_size
-                )
-                .with_for_update(skip_locked=True)
-            ).all()
+    event_window = None
+    if prune_events:
+        event_window = lifecycle_candidate_window(
+            db,
+            select(IntegrationEvent.id).where(
+                IntegrationEvent.routing_state.in_(["routed", "dead_letter"]),
+                IntegrationEvent.created_at < event_cutoff,
+                ~exists(
+                    select(IntegrationDelivery.id).where(
+                        IntegrationDelivery.event_id == IntegrationEvent.id
+                    )
+                ),
+            ),
+            model=IntegrationEvent,
+            timestamp=IntegrationEvent.created_at,
+            limit=lifecycle_parent_scan_limit(effective_batch_size)
+            if max_dependent_rows is not None
+            else effective_batch_size,
+            durable=max_dependent_rows is not None,
+            stats=scan_stats,
         )
-        if prune_events
-        else []
-    )
+    event_ids = event_window.ids if event_window is not None else []
     if event_ids and max_dependent_rows is not None:
         event_selection = select_with_dependent_budget(
             db,
@@ -837,6 +817,7 @@ def prune_integration_delivery_history(
             max_dependent_rows=max_dependent_rows,
             max_parent_records=effective_batch_size,
         )
+        event_window.advance(event_selection)
         event_ids = event_selection.ids
         dependent_rows_budgeted += event_selection.dependent_rows
         oversized_parents_skipped += event_selection.oversized_count
@@ -866,23 +847,22 @@ def prune_integration_delivery_history(
                     max_dependent_rows=envelope_budget,
                 )
 
-    metric_ids = (
-        list(
-            db.scalars(
-                select(IntegrationDeliveryMetric.id)
-                .where(IntegrationDeliveryMetric.bucket_start < metrics_cutoff)
-                .order_by(IntegrationDeliveryMetric.bucket_start.asc())
-                .limit(
-                    lifecycle_parent_scan_limit(effective_batch_size)
-                    if max_dependent_rows is not None
-                    else effective_batch_size
-                )
-                .with_for_update(skip_locked=True)
-            ).all()
+    metric_window = None
+    if prune_metrics:
+        metric_window = lifecycle_candidate_window(
+            db,
+            select(IntegrationDeliveryMetric.id).where(
+                IntegrationDeliveryMetric.bucket_start < metrics_cutoff
+            ),
+            model=IntegrationDeliveryMetric,
+            timestamp=IntegrationDeliveryMetric.bucket_start,
+            limit=lifecycle_parent_scan_limit(effective_batch_size)
+            if max_dependent_rows is not None
+            else effective_batch_size,
+            durable=max_dependent_rows is not None,
+            stats=scan_stats,
         )
-        if prune_metrics
-        else []
-    )
+    metric_ids = metric_window.ids if metric_window is not None else []
     if metric_ids and max_dependent_rows is not None:
         db.execute(
             select(IntegrationDeliveryMetricCohort.id)
@@ -899,13 +879,16 @@ def prune_integration_delivery_history(
             candidate_ids=metric_ids,
             max_dependent_rows=max_dependent_rows,
             max_parent_records=effective_batch_size,
+            pruning=PruningContext(metrics_cutoff, IntegrationDeliveryMetric.bucket_start < metrics_cutoff),
         )
+        metric_window.advance(metric_selection)
         metric_ids = metric_selection.ids
         dependent_rows_budgeted += metric_selection.dependent_rows
         oversized_parents_skipped += metric_selection.oversized_count
         dependent_budget_exhausted = (
             dependent_budget_exhausted or metric_selection.budget_exhausted
         )
+    metric_ids = lock_history_dependants(db, model=IntegrationDeliveryMetric, parent_ids=metric_ids)
     metrics_deleted = 0
     if metric_ids:
         metric_result = db.execute(

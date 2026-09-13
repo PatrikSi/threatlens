@@ -12,6 +12,7 @@ import {
   suppressLegacyRecoveryHealth,
 } from './operationsHealthPresentation'
 import { OperationsStatusChip } from './OperationsStatus'
+import { OperationsCapacityTrends } from './OperationsCapacityTrends'
 
 export function OperationsHealthTrends({
   history,
@@ -158,6 +159,7 @@ export function OperationsHealthTrends({
           </section>
 
           <div className="mt-3 grid gap-3 xl:grid-cols-2">
+            <OperationsCapacityTrends history={displayHistory} />
             <AccessibleTimeSeries
               title="Worker capacity and load"
               description="Responding workers, observed execution capacity, active tasks, and reserved tasks"

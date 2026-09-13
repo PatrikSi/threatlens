@@ -151,6 +151,7 @@ def daily_brief_response_from_model(
         recommended_actions=normalize_string_list(
             list(brief.recommended_actions_json or [])
         ),
+        evidence_warnings=list(brief.evidence_warnings_json or []),
         item_count=int(brief.item_count or 0),
         items=items,
         model=brief.model,

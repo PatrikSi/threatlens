@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act } from 'react'
+import { act, type ReactNode } from 'react'
+import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -11,6 +12,8 @@ import type {
   WorkspaceUserPreferenceResponse,
   WorkspaceUserPreferenceWriteRequest,
 } from '../types/workspace'
+import { resolveWorkspaceModel } from '../workspace/workspaceModel'
+import { WorkspaceSettingsPage } from './WorkspaceSettingsPage'
 import { TRUSTED_WORKSPACE_MODULES } from '../workspace/moduleRegistry'
 import type { WorkspaceContextValue } from '../workspace/workspaceContext'
 
@@ -50,9 +53,6 @@ vi.mock('../hooks/useCurrentUser', () => ({
   }),
 }))
 
-vi.mock('../hooks/useUnsavedChangesWarning', () => ({
-  useUnsavedChangesWarning: vi.fn(),
-}))
 
 vi.mock('../workspace/useWorkspace', () => ({
   useWorkspace: () => controllerMocks.workspace,
@@ -76,6 +76,7 @@ let root: Root | null = null
 let container: HTMLDivElement | null = null
 let queryClient: QueryClient | null = null
 let latestController: WorkspaceSettingsController | null = null
+let router: ReturnType<typeof createMemoryRouter>
 
 beforeEach(() => {
   controllerMocks.currentUserAccess = {
@@ -348,13 +349,17 @@ describe('useWorkspaceSettingsController', () => {
   })
 })
 
-function renderController() {
+function renderController(element: ReactNode = <ControllerProbe />) {
   queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
+  router = createMemoryRouter([
+    { path: '/workspace', element },
+    { path: '/elsewhere', element: <p>Elsewhere</p> },
+  ], { initialEntries: ['/workspace'] })
   rerenderController()
 }
 
@@ -362,7 +367,7 @@ function rerenderController() {
   act(() => {
     root?.render(
       <QueryClientProvider client={queryClient!}>
-        <ControllerProbe />
+        <RouterProvider router={router} />
       </QueryClientProvider>,
     )
   })
@@ -371,12 +376,15 @@ function rerenderController() {
 function ControllerProbe() {
   latestController = useWorkspaceSettingsController()
   return (
-    <p>
+    <>
+      {latestController.discardDialog}
+      <p>
       {latestController.hasUnsavedChanges ? 'dirty' : 'clean'}:
       {latestController.selectedPolicy?.revision ?? 'no-policy'}:
       {latestController.roleDraft ? 'role-ready' : 'no-role'}:
       {latestController.personalDraft ? 'personal-ready' : 'no-personal'}
-    </p>
+      </p>
+    </>
   )
 }
 
@@ -400,7 +408,10 @@ function workspaceValue(
   userPreferences = preferences(),
 ): WorkspaceContextValue {
   return {
-    model: { warnings: [] } as unknown as WorkspaceContextValue['model'],
+    model: resolveWorkspaceModel(effective, undefined, {
+      role: 'admin', permissions: ['*:*'], accountEligible: true,
+      features: { ai_enabled: true, ai_configured: true, ai_summary_enabled: true, ai_relevance_enabled: true, ai_daily_brief_enabled: true },
+    }),
     userContext: {
       role: 'admin',
       permissions: ['write:workspace'],
@@ -506,3 +517,34 @@ function apiConflict(message: string): Error {
     retryable: false,
   })
 }
+
+
+describe('WorkspaceSettingsPage navigation with real draft guards', () => {
+  it.each(['personal', 'role-defaults'])('offers cancel and discard for a dirty %s draft', async (scope) => {
+    renderController(<WorkspaceSettingsPage />)
+    await act(async () => {
+      await vi.waitFor(() => expect(container?.querySelector('#personal-navigation-panel select')).not.toBeNull())
+    })
+    if (scope === 'role-defaults') {
+      const tab = container!.querySelector<HTMLButtonElement>('#role-defaults-navigation-tab')!
+      act(() => tab.click())
+      await act(async () => {
+        await vi.waitFor(() => expect(container?.querySelector('#role-defaults-navigation-panel select')).not.toBeNull())
+      })
+    }
+    const panel = container!.querySelector(`#${scope === 'personal' ? 'personal' : 'role-defaults'}-navigation-panel`)!
+    const select = Array.from(panel.querySelectorAll('label')).find((label) => label.textContent?.includes(scope === 'personal' ? 'Start page' : 'Default start page'))!.querySelector('select')!
+    act(() => { select.value = 'primary.alerts'; select.dispatchEvent(new Event('change', { bubbles: true })) })
+    await act(async () => { await router.navigate('/elsewhere') })
+    expect(router.state.location.pathname).toBe('/workspace')
+    const dialogButton = (label: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')).find((button) => button.textContent === label)!
+    expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain('unsaved workspace changes')
+    act(() => dialogButton('Cancel').click())
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull()
+    expect(select.value).toBe('primary.alerts')
+    expect(router.state.location.pathname).toBe('/workspace')
+    await act(async () => { await router.navigate('/elsewhere') })
+    await act(async () => dialogButton('Discard changes').click())
+    expect(router.state.location.pathname).toBe('/elsewhere')
+  })
+})

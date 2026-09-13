@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { MemoryRouter } from 'react-router-dom'
 
 import { act } from 'react'
 import { createRoot, Root } from 'react-dom/client'
@@ -7,6 +8,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const aiSettingsPageDomMocks = vi.hoisted(() => ({
+  savePending: false,
+  includeNamedProvider: false,
   currentUser: {
     data: {
       id: 'admin-1',
@@ -37,6 +40,7 @@ const aiSettingsPageDomMocks = vi.hoisted(() => ({
     ai_enabled: true,
     ai_configured: true,
     api_key_configured: true,
+    effective_feature_configured: undefined as { item_enrichment: boolean; daily_brief: boolean; report: boolean } | undefined,
     provider_type: 'openai_compatible',
     base_url: 'https://api.example.com/v1',
     model: 'gpt-threat',
@@ -44,6 +48,9 @@ const aiSettingsPageDomMocks = vi.hoisted(() => ({
     max_completion_tokens: 4000,
     request_timeout_seconds: 120,
     request_max_retries: 2,
+    report_reserved_output_tokens: 1200,
+    report_context_window_tokens: 8192,
+    report_context_safety_percent: 15,
     summary_enabled: true,
     relevance_enabled: true,
     daily_brief_enabled: true,
@@ -227,6 +234,22 @@ function aiMutationResult(mutate: ReturnType<typeof vi.fn>) {
   }
 }
 
+function namedProviderQueryData(key: string) {
+  if (!aiSettingsPageDomMocks.includeNamedProvider) return undefined
+  const provider = {
+    ...aiSettingsPageDomMocks.settingsData,
+    id: 'provider-1', name: 'Large report model', enabled: true,
+    max_completion_tokens: 131072, version: 1, credential_error: null,
+  }
+  if (key === 'ai:providers::0') return { items: [provider], total: 1, offset: 0, limit: 25 }
+  if (key === 'ai:providers:detail:provider-1') return provider
+  if (key.startsWith('ai:provider-routing:names:')) return [provider]
+  if (key === 'ai:provider-routing') return {
+    version: 1, default_provider_id: 'provider-1', item_enrichment_provider_id: null,
+    daily_brief_provider_id: null, report_provider_id: null,
+  }
+}
+
 vi.mock('@tanstack/react-query', () => ({
   keepPreviousData: <T,>(previousData: T) => previousData,
   useQueryClient: () => aiSettingsPageDomMocks.queryClient,
@@ -239,6 +262,9 @@ vi.mock('@tanstack/react-query', () => ({
       error: null,
       data: undefined,
     }
+
+    const providerData = namedProviderQueryData(key)
+    if (providerData) return { ...baseResult, data: providerData }
 
     if (key === 'ai:settings') {
       if (aiSettingsPageDomMocks.settingsError) {
@@ -354,11 +380,12 @@ vi.mock('@tanstack/react-query', () => ({
   },
   useMutation: (options: {
     mutationKey?: unknown
-    onMutate?: (value: string) => void
-    onSuccess?: (result: unknown, value: unknown) => void
+    onMutate?: (value: unknown) => unknown
+    onSuccess?: (result: unknown, value: unknown, context?: unknown) => void
     onSettled?: () => void
   }) => {
     const mutationKey = Array.isArray(options?.mutationKey) ? options.mutationKey.join(':') : String(options?.mutationKey ?? '')
+    if (mutationKey === 'ai:settings:save') return { ...aiMutationResult(vi.fn()), isPending: aiSettingsPageDomMocks.savePending }
     if (mutationKey === 'ai:ops:runs:cancel') {
       return aiMutationResult(
         vi.fn((runId: string) => {
@@ -381,6 +408,7 @@ vi.mock('@tanstack/react-query', () => ({
     if (mutationKey === 'ai:reprocess') {
       return aiMutationResult(
         vi.fn((payload: unknown) => {
+          const submittedScope = options.onMutate?.(payload)
           aiSettingsPageDomMocks.reprocessMutate(payload)
           if (aiSettingsPageDomMocks.completeReprocessMutation) {
             options.onSuccess?.(
@@ -391,6 +419,7 @@ vi.mock('@tanstack/react-query', () => ({
                 celery_task_id: 'task-reprocess-1',
               },
               payload,
+              submittedScope,
             )
           }
         }),
@@ -485,7 +514,7 @@ function renderPage() {
   document.body.appendChild(container)
   root = createRoot(container)
   act(() => {
-    root?.render(<AiSettingsPage />)
+    root?.render(<MemoryRouter><AiSettingsPage /></MemoryRouter>)
   })
   return container
 }
@@ -528,6 +557,10 @@ function clearActiveAiWork() {
 }
 
 afterEach(() => {
+  aiSettingsPageDomMocks.savePending = false;
+  aiSettingsPageDomMocks.includeNamedProvider = false
+  aiSettingsPageDomMocks.settingsData.report_reserved_output_tokens = 1200
+  aiSettingsPageDomMocks.settingsData.report_context_window_tokens = 8192
   act(() => {
     root?.unmount()
   })
@@ -540,6 +573,7 @@ afterEach(() => {
   aiSettingsPageDomMocks.reprocessMutate.mockReset()
   aiSettingsPageDomMocks.completeReprocessMutation = true
   aiSettingsPageDomMocks.settingsData.ai_configured = true
+  aiSettingsPageDomMocks.settingsData.effective_feature_configured = undefined
   aiSettingsPageDomMocks.settingsError = false
   aiSettingsPageDomMocks.liveData = {
     worker_count: 1,
@@ -592,6 +626,109 @@ afterEach(() => {
 })
 
 describe('AiSettingsPage DOM workflows', () => {
+  it('keeps saved report limits visible beside a named provider with a large completion default', () => {
+    aiSettingsPageDomMocks.includeNamedProvider = true
+    const view = renderPage()
+    act(() => getButton('Configuration')?.click())
+    act(() => view.querySelector<HTMLButtonElement>('button[aria-label="Edit provider Large report model"]')!.click())
+    expect(view.querySelector<HTMLInputElement>('input[aria-label="Provider default completion tokens"]')?.value).toBe('131072')
+    const summary = view.querySelector('section[aria-labelledby="saved-report-budgets-title"]')!
+    expect(summary.textContent).toContain('Initial completion1,200 tokens')
+    expect(summary.textContent).toContain('Context window8,192 tokens')
+    expect(summary.textContent).toContain('Safety margin15%')
+    expect(summary.textContent).toContain('Changing a provider default does not change the report budgets')
+    expect(summary.querySelector('[role="status"]')).toBeNull()
+    expect(summary.previousElementSibling?.textContent).toContain('AI feature assignments')
+    act(() => setInputValue(view.querySelector<HTMLInputElement>('input[aria-label="Provider default completion tokens"]')!, '65536'))
+    expect(summary.textContent).toContain('Initial completion1,200 tokens')
+    expect(summary.querySelector('[role="status"]')).toBeNull()
+  })
+
+  it('distinguishes unsaved report edits from saved values and reflects a saved settings refresh', () => {
+    const view = renderPage()
+    act(() => getButton('Configuration')?.click())
+    const summary = view.querySelector('section[aria-labelledby="saved-report-budgets-title"]')!
+    act(() => {
+      setInputValue(view.querySelector<HTMLInputElement>('input[aria-label="Model Context Window"]')!, '262144')
+      setInputValue(view.querySelector<HTMLInputElement>('input[aria-label="Initial report completion tokens"]')!, '32768')
+    })
+    expect(summary.textContent).toContain('1,200 tokens')
+    expect(summary.textContent).toContain('8,192 tokens')
+    expect(summary.textContent).not.toContain('32,768')
+    expect(summary.querySelector('[role="status"]')?.textContent).toContain('Report budget edits are unsaved')
+    // Simulate the server returning the saved values after a configuration refresh.
+    aiSettingsPageDomMocks.settingsData = {
+      ...aiSettingsPageDomMocks.settingsData,
+      report_reserved_output_tokens: 32768,
+      report_context_window_tokens: 262144,
+    }
+    act(() => root!.render(<MemoryRouter><AiSettingsPage /></MemoryRouter>))
+    expect(summary.textContent).toContain('32,768 tokens')
+    expect(summary.textContent).toContain('262,144 tokens')
+    expect(summary.querySelector('[role="status"]')).toBeNull()
+  })
+
+  it('focuses the report controls through its named link after configuration unmounts and remounts', () => {
+    const view = renderPage()
+    for (let visit = 0; visit < 2; visit += 1) {
+      act(() => getButton('Configuration')?.click())
+      const link = view.querySelector<HTMLAnchorElement>('a[href="#ai-report-budget-controls"]')!
+      const controls = view.querySelector<HTMLElement>('#ai-report-budget-controls')!
+      expect(link.textContent).toBe('Review report budget controls')
+      expect(controls.getAttribute('aria-label')).toBe('Report context guardrails')
+      link.focus()
+      act(() => link.click())
+      expect(document.activeElement).toBe(controls)
+      expect(controls.querySelector('input[aria-label="Initial report completion tokens"]')).not.toBeNull()
+      act(() => getButton('Jobs')?.click())
+      expect(controls.isConnected).toBe(false)
+    }
+  })
+
+  it('does not substitute draft defaults when saved settings are unavailable', () => {
+    aiSettingsPageDomMocks.settingsError = true
+    const view = renderPage()
+    act(() => getButton('Configuration')?.click())
+    const summary = view.querySelector('section[aria-labelledby="saved-report-budgets-title"]')!
+    expect(summary.textContent).toContain('Saved report budgets are unavailable until AI settings load')
+    expect(summary.querySelector('dl')).toBeNull()
+  })
+
+  it('explains independent report and default completion budgets with accessible help', () => {
+    const view = renderPage()
+    act(() => getButton('Configuration')?.click())
+    const initial = view.querySelector<HTMLInputElement>('input[aria-label="Initial report completion tokens"]')!
+    const general = view.querySelector<HTMLInputElement>('input[aria-label="Default completion tokens"]')!
+    expect(initial.value).toBe('1200')
+    expect(general.value).toBe('4000')
+    expect(initial.getAttribute('aria-describedby')).toContain('report-help-report_reserved_output_tokens')
+    const reportHelp = view.querySelector('#report-help-report_reserved_output_tokens')?.textContent
+    expect(reportHelp).toContain('every evidence batch and report section')
+    expect(reportHelp).toContain('independent of the provider default')
+    expect(reportHelp).toContain('131,072 tokens')
+    expect(general.getAttribute('aria-describedby')).toContain('legacy-completion-token-help')
+    expect(view.querySelector('#legacy-completion-token-help')?.textContent).toContain('article enrichment and daily briefs')
+    expect(view.textContent).toContain('up to the greater of the report budget or provider default')
+  })
+
+  it('pauses AI configuration fields while their save is pending', () => {
+    aiSettingsPageDomMocks.savePending = true
+    const view = renderPage()
+    act(() => getButton('Configuration')?.click())
+    const fields = Array.from(view.querySelectorAll('fieldset input, fieldset select, fieldset textarea'))
+    expect(fields.length).toBeGreaterThan(5)
+    expect(fields.every((field) => field.matches(':disabled'))).toBe(true)
+    expect(pageText()).toContain('Saving AI settings. Editing resumes')
+    aiSettingsPageDomMocks.savePending = false
+    act(() => root?.render(<MemoryRouter><AiSettingsPage /></MemoryRouter>))
+    expect(view.querySelector('fieldset input')?.matches(':disabled')).toBe(false)
+    const endpoint = view.querySelector<HTMLInputElement>('input[aria-label="Base URL"]')!
+    expect(endpoint.getAttribute('aria-describedby')).toBe('legacy-provider-endpoint-help')
+    expect(view.querySelector('#legacy-provider-endpoint-help')?.textContent).toContain('https://generativelanguage.googleapis.com/v1beta/openai/')
+    expect(view.querySelector('#legacy-provider-endpoint-help')?.textContent).toContain(':generateContent')
+    expect(view.querySelector('#legacy-provider-endpoint-help')?.textContent).toContain('AI_API_KEY_BASE_URL')
+  })
+
   it('keeps select navigation through large viewports and switches to sidebar tabs at extra large', () => {
     const view = renderPage()
     const mobileSection = view.querySelector<HTMLSelectElement>('#mobile-ai-settings-section')
@@ -602,7 +739,7 @@ describe('AiSettingsPage DOM workflows', () => {
 
     expect(mobileSection).not.toBeNull()
     expect(Array.from(mobileSection?.options ?? []).map((option) => option.textContent)).toEqual([
-      'Overview',
+      'Statistics',
       'Jobs',
       'Configuration',
     ])
@@ -645,6 +782,18 @@ describe('AiSettingsPage DOM workflows', () => {
     expect(pageText()).toContain('AI settings could not be loaded.')
     expect(getButton('Queue daily brief')?.hasAttribute('disabled')).toBe(true)
     expect(getButton('Queue reprocess')?.hasAttribute('disabled')).toBe(true)
+  })
+
+  it.each([
+    { item_enrichment: false, daily_brief: true },
+    { item_enrichment: true, daily_brief: false },
+  ])('uses independent provider readiness for article and brief work: %j', (features) => {
+    aiSettingsPageDomMocks.settingsData.effective_feature_configured = { ...features, report: true }
+    renderPage()
+    act(() => getButton('Jobs')?.click())
+    expect(getButton('Queue daily brief')?.hasAttribute('disabled')).toBe(!features.daily_brief)
+    expect(getButton('Queue reprocess')?.hasAttribute('disabled')).toBe(!features.item_enrichment)
+    expect(pageText()).toContain(features.daily_brief ? 'The article enrichment provider is unavailable.' : 'The daily brief provider is unavailable.')
   })
 
   it('blocks saving AI settings when the saved settings failed to load', () => {
@@ -703,16 +852,10 @@ describe('AiSettingsPage DOM workflows', () => {
   it('renders accessible tab and selection controls, then wires the queued-task cancellation dialog', () => {
     const view = renderPage()
 
-    expect(view.querySelector('label[for="ai-overview-window-days"]')?.textContent).toContain('Overview time window')
-    expect(view.querySelector<HTMLSelectElement>('#ai-overview-window-days')?.getAttribute('aria-label')).toBe(
-      'Overview time window',
-    )
-    expect(pageText()).not.toContain('Recent Problems')
-    expect(pageText()).not.toContain('The most common failures across requests and task runs.')
-    expect(pageText()).toContain('Database-backed snapshot of AI task runs.')
-    const overviewColumnHeaders = [...view.querySelectorAll('th')]
-    expect(overviewColumnHeaders).toHaveLength(5)
-    expect(overviewColumnHeaders.every((heading) => heading.getAttribute('scope') === 'col')).toBe(true)
+    expect(view.textContent).toContain('AI statistics moved')
+    expect(view.querySelector('a[href="/stats?section=ai"]')?.textContent).toContain('Open AI statistics')
+    expect(view.querySelector('#ai-overview-window-days')).toBeNull()
+    expect(view.querySelector('table')).toBeNull()
 
     const jobsTab = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.includes('Jobs'))
     expect(jobsTab).not.toBeNull()

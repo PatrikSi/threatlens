@@ -53,6 +53,9 @@ class EncryptedDataInventoryResponse(BaseModel):
     startup_scan: EncryptedDataStartupScan
     feeds: EncryptedDataInventoryCategory
     integration_secrets: EncryptedDataInventoryCategory
+    ai_provider_secrets: EncryptedDataInventoryCategory = Field(
+        default_factory=EncryptedDataInventoryCategory
+    )
     notification_webhooks: EncryptedDataInventoryCategory
     notification_delivery_snapshots: EncryptedDataInventoryCategory
     oidc_client_secrets: EncryptedDataInventoryCategory = Field(

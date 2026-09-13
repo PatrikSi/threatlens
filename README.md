@@ -103,7 +103,7 @@ Generate pasteable Compose environment mappings:
 ./bootstrap.sh --print-compose-env
 ```
 
-Replace the `x-db-environment`, `x-redis-environment`, and `x-backend-environment` blocks at the top of `docker-compose.yml` with the full output before deploying the stack. To choose your own admin identity, run:
+Replace the `x-db-environment`, `x-redis-environment`, `x-migration-environment`, and `x-backend-environment` blocks at the top of `docker-compose.yml` with the full output before deploying the stack. To choose your own admin identity, run:
 
 ```bash
 ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='use-a-long-password' ./bootstrap.sh --print-compose-env
@@ -146,11 +146,20 @@ ThreatLens works without AI.
 
 ## Useful Commands
 
+For the 2.0 upgrade, read the [release notes and compatibility changes](docs/releases/2.0.0.md)
+before replacing an existing installation.
+
+Existing installations using a single database role must first complete the
+[offline database-role cutover](docs/pages/database-privileges.md#existing-installations-explicit-offline-cutover).
+The current Compose configuration requires separate runtime and migration
+credentials; the commands below apply after that cutover. Keep existing database
+credentials, encryption keys and volumes. Back up before applying migrations.
+
 Update to the latest published images:
 
 ```bash
 docker compose pull
-docker compose stop api beat worker worker-ai worker-maintenance worker-notifications
+docker compose stop --timeout 300 api beat worker worker-ai worker-exports worker-maintenance worker-notifications
 docker compose up -d
 ```
 
@@ -158,7 +167,7 @@ Update to a pinned release:
 
 ```bash
 THREATLENS_IMAGE_TAG=1.0.0 docker compose pull
-docker compose stop api beat worker worker-ai worker-maintenance worker-notifications
+docker compose stop --timeout 300 api beat worker worker-ai worker-exports worker-maintenance worker-notifications
 THREATLENS_IMAGE_TAG=1.0.0 docker compose up -d
 ```
 
@@ -168,6 +177,14 @@ interface will report the brief API outage until the matching release starts.
 The first upgrade to database-backed lifecycle policies requires the ordered,
 quiesced [lifecycle queue cutover](docs/reference/configuration.md#lifecycle-queue-cutover)
 so an older maintenance process cannot race the new policies.
+Migration `0086_classification_versions` also requires the stopped-writer
+[classification recovery cutover](docs/reference/pipeline.md#classification-recovery-cutover)
+and scans retained article text once to reconcile historical processing state.
+The [team](docs/pages/teams.md) and [report review](docs/pages/reporting.md)
+migrations also require every API and worker to be replaced together. New report
+jobs use the editorial queue; upgraded AI workers must consume
+`ai,ai-reports-v2,ai-reports-v3`. Existing reports and schedules retain their
+publication policy, while new reports and schedules require review by default.
 
 Check services:
 
@@ -231,7 +248,7 @@ Worker and scheduler:
 ```bash
 cd backend
 ./.venv/bin/celery -A app.tasks.celery_app.celery_app worker --loglevel="${LOG_LEVEL:-INFO}" --queues=default,ingest,processing -n 'worker@%h'
-./.venv/bin/celery -A app.tasks.celery_app.celery_app worker --loglevel="${LOG_LEVEL:-INFO}" --concurrency=1 --queues=ai,ai-reports-v2 -n 'ai@%h'
+./.venv/bin/celery -A app.tasks.celery_app.celery_app worker --loglevel="${LOG_LEVEL:-INFO}" --concurrency=1 --queues=ai,ai-reports-v2,ai-reports-v3 -n 'ai@%h'
 ./.venv/bin/celery -A app.tasks.celery_app.celery_app worker --loglevel="${LOG_LEVEL:-INFO}" --queues=maintenance,lifecycle-v1 -n 'maintenance@%h'
 ./.venv/bin/celery -A app.tasks.celery_app.celery_app worker --loglevel="${LOG_LEVEL:-INFO}" --queues=notifications -n 'notifications@%h'
 ./.venv/bin/python -m app.tasks.beat_watchdog

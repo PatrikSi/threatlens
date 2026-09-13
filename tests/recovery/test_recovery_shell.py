@@ -55,8 +55,15 @@ if [[ "$1" == "inspect" ]]; then
     if [[ -n "${FAKE_ID_CHANGE_AFTER:-}" && "$identity_count" -gt "$FAKE_ID_CHANGE_AFTER" ]]; then
       dynamic_variant="changed-after-confirmation"
     fi
-    printf '%s%s|sha256:stable-image|/%s|volume:stable-data:/var/lib/data;\n' \
-      "$target" "$dynamic_variant" "$target"
+    volume='{"Type":"volume","Name":"stable-data","Source":"/var/lib/docker/volumes/stable-data/_data","Destination":"/var/lib/data"}'
+    bind='{"Type":"bind","Source":"/review/provision.sh","Destination":"/docker-entrypoint-initdb.d/provision.sh"}'
+    if [[ "${FAKE_REVERSE_MOUNTS:-0}" == "1" ]]; then
+      mounts="[$bind,$volume]"
+    else
+      mounts="[$volume,$bind]"
+    fi
+    printf '{"Id":"%s%s","Image":"sha256:stable-image","Name":"/%s","Mounts":%s}\n' \
+      "$target" "$dynamic_variant" "$target" "$mounts"
   else
     runtime_database_url='postgresql+psycopg://threatlens:not-logged@db:5432/threatlens'
     if [[ "${FAKE_RUNTIME_MISMATCH:-0}" == "1" ]]; then
@@ -69,6 +76,7 @@ if [[ "$1" == "inspect" ]]; then
  {"Id":"fake-api-container","Config":{"Labels":{"com.docker.compose.service":"api"},"Env":["DATABASE_URL=${runtime_database_url}","REDIS_URL=redis://:not-logged@redis:6379/0","APP_DATA_ENCRYPTION_KEY=not-logged-encryption-key"]}},
  {"Id":"fake-worker-container","Config":{"Labels":{"com.docker.compose.service":"worker"},"Env":["DATABASE_URL=postgresql+psycopg://threatlens:not-logged@db:5432/threatlens","REDIS_URL=redis://:not-logged@redis:6379/0"]}},
  {"Id":"fake-worker-ai-container","Config":{"Labels":{"com.docker.compose.service":"worker-ai"},"Env":["DATABASE_URL=postgresql+psycopg://threatlens:not-logged@db:5432/threatlens","REDIS_URL=redis://:not-logged@redis:6379/0"]}},
+ {"Id":"fake-worker-exports-container","Config":{"Labels":{"com.docker.compose.service":"worker-exports"},"Env":["DATABASE_URL=postgresql+psycopg://threatlens:not-logged@db:5432/threatlens","REDIS_URL=redis://:not-logged@redis:6379/0"]}},
  {"Id":"fake-worker-maintenance-container","Config":{"Labels":{"com.docker.compose.service":"worker-maintenance"},"Env":["DATABASE_URL=postgresql+psycopg://threatlens:not-logged@db:5432/threatlens","REDIS_URL=redis://:not-logged@redis:6379/0"]}},
  {"Id":"fake-worker-notifications-container","Config":{"Labels":{"com.docker.compose.service":"worker-notifications"},"Env":["DATABASE_URL=postgresql+psycopg://threatlens:not-logged@db:5432/threatlens","REDIS_URL=redis://:not-logged@redis:6379/0"]}},
  {"Id":"fake-beat-container","Config":{"Labels":{"com.docker.compose.service":"beat"},"Env":["DATABASE_URL=postgresql+psycopg://threatlens:not-logged@db:5432/threatlens","REDIS_URL=redis://:not-logged@redis:6379/0"]}}
@@ -147,10 +155,10 @@ case "${1:-}" in
     ;;
   config)
     if [[ " ${*} " == *" --services "* ]]; then
-      printf '%s\n' db redis api worker worker-ai worker-maintenance worker-notifications beat web
+      printf '%s\n' db redis api worker worker-ai worker-exports worker-maintenance worker-notifications beat web
     else
       cat <<'JSON'
-{"services":{"db":{"image":"postgres:16","environment":{"POSTGRES_DB":"threatlens","POSTGRES_USER":"threatlens","POSTGRES_PASSWORD":"not-logged"},"networks":{"backplane":null}},"redis":{"image":"redis:7-alpine","environment":{"REDIS_PASSWORD":"not-logged"},"networks":{"backplane":null}},"api":{"image":"threatlens-backend:test","environment":{"DATABASE_URL":"postgresql+psycopg://threatlens:not-logged@db:5432/threatlens","REDIS_URL":"redis://:not-logged@redis:6379/0","APP_DATA_ENCRYPTION_KEY":"not-logged-encryption-key"},"networks":{"backplane":null}},"worker":{"environment":{"DATABASE_URL":"postgresql+psycopg://threatlens:not-logged@db:5432/threatlens","REDIS_URL":"redis://:not-logged@redis:6379/0"},"networks":{"backplane":null}},"worker-ai":{"environment":{"DATABASE_URL":"postgresql+psycopg://threatlens:not-logged@db:5432/threatlens","REDIS_URL":"redis://:not-logged@redis:6379/0"},"networks":{"backplane":null}},"worker-maintenance":{"environment":{"DATABASE_URL":"postgresql+psycopg://threatlens:not-logged@db:5432/threatlens","REDIS_URL":"redis://:not-logged@redis:6379/0"},"networks":{"backplane":null}},"worker-notifications":{"environment":{"DATABASE_URL":"postgresql+psycopg://threatlens:not-logged@db:5432/threatlens","REDIS_URL":"redis://:not-logged@redis:6379/0"},"networks":{"backplane":null}},"beat":{"environment":{"DATABASE_URL":"postgresql+psycopg://threatlens:not-logged@db:5432/threatlens","REDIS_URL":"redis://:not-logged@redis:6379/0"},"networks":{"backplane":null}}}}
+{"services":{"db":{"image":"postgres:16","environment":{"POSTGRES_DB":"threatlens","POSTGRES_USER":"threatlens","POSTGRES_PASSWORD":"not-logged"},"networks":{"backplane":null}},"redis":{"image":"redis:7-alpine","environment":{"REDIS_PASSWORD":"not-logged"},"networks":{"backplane":null}},"api":{"image":"threatlens-backend:test","environment":{"DATABASE_URL":"postgresql+psycopg://threatlens:not-logged@db:5432/threatlens","REDIS_URL":"redis://:not-logged@redis:6379/0","APP_DATA_ENCRYPTION_KEY":"not-logged-encryption-key"},"networks":{"backplane":null}},"worker":{"environment":{"DATABASE_URL":"postgresql+psycopg://threatlens:not-logged@db:5432/threatlens","REDIS_URL":"redis://:not-logged@redis:6379/0"},"networks":{"backplane":null}},"worker-ai":{"environment":{"DATABASE_URL":"postgresql+psycopg://threatlens:not-logged@db:5432/threatlens","REDIS_URL":"redis://:not-logged@redis:6379/0"},"networks":{"backplane":null}},"worker-maintenance":{"environment":{"DATABASE_URL":"postgresql+psycopg://threatlens:not-logged@db:5432/threatlens","REDIS_URL":"redis://:not-logged@redis:6379/0"},"networks":{"backplane":null}},"worker-notifications":{"environment":{"DATABASE_URL":"postgresql+psycopg://threatlens:not-logged@db:5432/threatlens","REDIS_URL":"redis://:not-logged@redis:6379/0"},"networks":{"backplane":null}},"beat":{"environment":{"DATABASE_URL":"postgresql+psycopg://threatlens:not-logged@db:5432/threatlens","REDIS_URL":"redis://:not-logged@redis:6379/0"},"networks":{"backplane":null}},"worker-exports":{"environment":{"DATABASE_URL":"postgresql+psycopg://threatlens:not-logged@db:5432/threatlens","REDIS_URL":"redis://:not-logged@redis:6379/0"},"networks":{"backplane":null}}}}
 JSON
     fi
     exit 0
@@ -706,6 +714,19 @@ class RecoveryShellTests(unittest.TestCase):
         command_log = self.docker_log.read_text(encoding="utf-8")
         self.assertNotIn("THREATLENS_RECOVERY_PASSWORD=", command_log)
         self.assertNotIn("not-logged", command_log)
+
+    def test_restore_confirmation_survives_inspection_mount_reordering(self) -> None:
+        backup = self._create_backup()
+        hook, hook_log = self._create_hook()
+        confirmation = self._restore_confirmation(backup)
+        result = self._run(
+            "restore", "--backup", str(backup), "--confirm", confirmation,
+            "--acknowledge-data-loss", "--quarantine-hook", str(hook),
+            "--safety-backup-dir", str(self.root / "safety"),
+            FAKE_HOOK_LOG=str(hook_log), FAKE_REVERSE_MOUNTS="1",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(hook_log.read_text(encoding="utf-8").splitlines()[-2:], ["apply", "verify"])
 
     def test_restore_confirmation_expires_when_live_target_identity_changes(
         self,

@@ -1,9 +1,14 @@
+from app.models.ai_provider_budget import AIProviderBudgetState, AIProviderBudgetReservation
+from app.models.team import Team
+from app.models.lifecycle_pruning import LifecyclePruningRecord
 from app.models.ai_daily_brief import AIDailyBrief
 from app.models.ai_daily_brief_source_item import AIDailyBriefSourceItem
 from app.models.ai_provider_attempt_receipt import AIProviderAttemptReceipt
+from app.models.ai_provider import AIProviderConfiguration, AIProviderRetiredID, AIProviderRouting
 from app.models.ai_settings import AISettings
 from app.models.ai_task_event import AITaskEvent
 from app.models.ai_task_run import AITaskRun
+from app.models.ai_workflow import AIReportStageArtifact, AIReprocessMember, AIWorkflowDispatch
 from app.models.ai_usage_event import AIUsageEvent
 from app.models.alert_interest import AlertInterest
 from app.models.alert_backfill_preview import AlertBackfillPreview
@@ -41,6 +46,10 @@ from app.models.data_policy import (
     HandlingLabel,
 )
 from app.models.feed import Feed
+from app.models.export_job import ExportJob, ExportJobChunk
+from app.models.processing_work import (
+    ProcessingDispatchState, ProcessingWork, ProcessingRecoveryRun, ProcessingRecoveryItem,
+)
 from app.models.governance_operation_receipt import GovernanceOperationReceipt
 from app.models.ioc import IOC, ItemIOC
 from app.models.integration import (
@@ -76,6 +85,7 @@ from app.models.item import Item
 from app.models.item_ai_enrichment import ItemAIEnrichment
 from app.models.item_classification import ItemClassification
 from app.models.item_state import ItemState
+from app.models.lifecycle_scan import LifecycleScanCursor
 from app.models.lifecycle import (
     LifecycleCatalogState,
     LifecyclePolicy,
@@ -118,12 +128,27 @@ from app.models.user import User
 from app.models.workspace import WorkspaceRolePolicy, WorkspaceUserPreference
 
 __all__ = [
+    "Team",
+    "AIProviderBudgetState",
+    "AIProviderBudgetReservation",
+    "ProcessingDispatchState",
+    "ProcessingWork",
+    "ProcessingRecoveryRun",
+    "ProcessingRecoveryItem",
+    "ExportJob",
+    "ExportJobChunk",
     "AIDailyBrief",
     "AIDailyBriefSourceItem",
     "AIProviderAttemptReceipt",
+    "AIProviderConfiguration",
+    "AIProviderRouting",
+    "AIProviderRetiredID",
     "AISettings",
     "AITaskEvent",
     "AITaskRun",
+    "AIReportStageArtifact",
+    "AIReprocessMember",
+    "AIWorkflowDispatch",
     "AIUsageEvent",
     "ApiToken",
     "AccessReviewApplyReceipt",
@@ -187,6 +212,8 @@ __all__ = [
     "LifecyclePolicy",
     "LifecyclePreview",
     "LifecycleRun",
+    "LifecycleScanCursor",
+    "LifecyclePruningRecord",
     "MFALoginChallenge",
     "NotificationWebhook",
     "NotificationWebhookDelivery",

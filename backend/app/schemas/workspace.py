@@ -11,15 +11,23 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+from app.schemas.view import SavedViewQueryPayload
 
 
 WorkspaceRole = Literal["admin", "analyst", "viewer"]
 WorkspaceSection = Literal["primary", "settings"]
 WorkspaceMobileBehavior = Literal["primary", "secondary"]
+WorkspacePolicyMode = Literal["default", "enforced"]
 
 
 class StrictWorkspaceModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+class WorkspaceModuleAlternateAccess(StrictWorkspaceModel):
+    required_permissions: list[str]
+    roles: list[WorkspaceRole]
+    feature_flag: str | None = None
 
 
 class WorkspaceModuleDefinitionResponse(StrictWorkspaceModel):
@@ -30,6 +38,7 @@ class WorkspaceModuleDefinitionResponse(StrictWorkspaceModel):
     parent_id: str | None = None
     required_permission: str | None = None
     required_permissions: list[str] = Field(default_factory=list)
+    alternate_access: list[WorkspaceModuleAlternateAccess] = Field(default_factory=list)
     feature_flag: str | None = None
     default_optional: bool
     default_order: int = Field(ge=0)
@@ -71,6 +80,16 @@ class WorkspaceRolePolicyWriteRequest(StrictWorkspaceModel):
     )
     modules: list[WorkspaceModulePolicy] = Field(min_length=1, max_length=128)
     dashboard_panel_ids: list[str] = Field(max_length=32)
+    landing_mode: WorkspacePolicyMode | None = None
+    dashboard_mode: WorkspacePolicyMode | None = None
+    dashboard_view_json: SavedViewQueryPayload | None = None
+
+    @field_validator("dashboard_view_json")
+    @classmethod
+    def sanitize_dashboard_template(cls, value: SavedViewQueryPayload | None):
+        from app.schemas.workspace_template import sanitize_dashboard_template
+
+        return sanitize_dashboard_template(value)
 
     @field_validator("landing_module_id", mode="before")
     @classmethod
@@ -103,6 +122,9 @@ class WorkspaceRolePolicyResponse(StrictWorkspaceModel):
     landing_module_id: str
     modules: list[WorkspaceModulePolicy]
     dashboard_panel_ids: list[str]
+    landing_mode: WorkspacePolicyMode = "default"
+    dashboard_mode: WorkspacePolicyMode = "default"
+    dashboard_view_json: SavedViewQueryPayload | None = None
     revision: int = Field(ge=1)
     updated_by_user_id: uuid.UUID | None
     created_at: datetime
@@ -219,6 +241,9 @@ class WorkspaceEffectiveResponse(StrictWorkspaceModel):
     preference_revision: int = Field(ge=0)
     landing_module_id: str | None
     dashboard_panel_ids: list[str]
+    landing_mode: WorkspacePolicyMode = "default"
+    dashboard_mode: WorkspacePolicyMode = "default"
+    dashboard_view_json: SavedViewQueryPayload | None = None
     dashboard_panels: list[WorkspaceEffectiveDashboardPanelResponse] = Field(
         default_factory=list
     )

@@ -70,7 +70,7 @@ export function AccessibleTimeSeries({
           Numeric observations are unavailable for this trend and range.
         </p>
       ) : (
-        <div className="mt-3 min-w-0 overflow-x-auto">
+        <div className="mt-3 min-w-0 overflow-x-auto" tabIndex={0} role="group" aria-label={`${title} chart`}>
           <svg
             viewBox={`0 0 ${chartWidth} ${chartHeight}`}
             role="img"
@@ -139,7 +139,7 @@ export function AccessibleTimeSeries({
       </div>
       <details className="mt-2 text-xs">
         <summary className="min-h-11 cursor-pointer py-2 font-semibold text-cyan md:min-h-0 md:py-1">View exact data</summary>
-        <div className="mt-2 max-h-72 overflow-auto">
+        <div className="mt-2 max-h-72 overflow-auto" tabIndex={0} role="group" aria-label={`${title} exact data`}>
           <table className="w-full min-w-[36rem] text-left">
             <thead className="sticky top-0 bg-white dark:bg-[#041612]">
               <tr className="border-b border-slate/20 dark:border-white/10">

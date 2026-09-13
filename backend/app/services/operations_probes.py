@@ -10,7 +10,6 @@ from alembic.script import ScriptDirectory
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.api.routes import health as health_routes
 from app.core.config import Settings
 from app.schemas.operations import (
     OperationsApplicationInfo,
@@ -19,11 +18,14 @@ from app.schemas.operations import (
     OperationsStorageIndicator,
     OperationsWorkerTopologyResponse,
 )
+from app.services import component_health
 from app.services.encrypted_data_inventory import (
     get_operations_encrypted_data_inventory,
 )
 from app.services.operations_common import issue, safe_db_probe, safe_probe
 from app.services.operations_redaction import safe_reason, safe_revision, safe_string_list
+from app.services.queue_execution_canaries import required_worker_queues
+from app.services.operations_runtime import collect_runtime_capacity
 from app.version import get_app_version
 
 
@@ -38,7 +40,7 @@ def collect_component_checks(
     issues: list[OperationsIssue],
     worker_topology: OperationsWorkerTopologyResponse | None = None,
 ) -> tuple[bool, list[OperationsComponentCheck]]:
-    database_ok = health_routes._database_health_ok(db)
+    database_ok = component_health.database_health_ok(db)
     components = [_database_component(database_ok, checked_at)]
     if not database_ok:
         issues.append(
@@ -69,6 +71,9 @@ def collect_component_checks(
             ),
         ]
     )
+    components.append(collect_runtime_capacity(
+        db, checked_at=checked_at, database_ok=database_ok, issues=issues
+    ))
     return database_ok, components
 
 
@@ -228,7 +233,7 @@ def _redis_component(
     checked_at: datetime,
     issues: list[OperationsIssue],
 ) -> OperationsComponentCheck:
-    redis_ok = safe_probe("redis", lambda: health_routes._redis_health_ok(settings), False)
+    redis_ok = safe_probe("redis", lambda: component_health.redis_health_ok(settings), False)
     if not redis_ok:
         issues.append(
             issue(
@@ -254,12 +259,12 @@ def _worker_component(
     checked_at: datetime,
     issues: list[OperationsIssue],
 ) -> OperationsComponentCheck:
-    required = health_routes._required_worker_queues(settings)
+    required = required_worker_queues(settings)
     fallback = (False, {}, {"required": required, "covered": [], "missing": required})
     worker_ok, worker_count, queues = safe_probe(
         "workers",
         lambda: _normalize_worker_snapshot(
-            health_routes._worker_health_snapshot(settings)
+            component_health.worker_health_snapshot(settings)
         ),
         (False, 0, fallback[2]),
     )
@@ -434,7 +439,7 @@ def _beat_component(
 ) -> OperationsComponentCheck:
     snapshot = safe_probe(
         "beat",
-        lambda: _validate_beat_snapshot(health_routes._beat_health_snapshot(settings)),
+        lambda: _validate_beat_snapshot(component_health.beat_health_snapshot(settings)),
         None,
     )
     if snapshot is None:

@@ -78,6 +78,14 @@ router = APIRouter(prefix="/notifications", tags=["notifications"])
 logger = logging.getLogger(__name__)
 
 
+def _can_read_webhook_secrets(request: Request, user: User) -> bool:
+    token_scopes = getattr(request.state, "token_scopes", None)
+    return user.role in {ROLE_ADMIN, ROLE_ANALYST} and (
+        token_scopes is None
+        or has_required_scope(set(token_scopes), SCOPE_WRITE_NOTIFICATIONS)
+    )
+
+
 @router.get("/template-variables", response_model=list[NotificationTemplateVariable])
 def get_notification_template_variables(
     _user: User = Depends(require_token_scopes(SCOPE_READ_NOTIFICATIONS)),
@@ -130,11 +138,7 @@ def list_notification_webhooks(
         .where(NotificationWebhook.user_id == user.id)
         .order_by(NotificationWebhook.created_at.asc())
     ).all()
-    token_scopes = getattr(request.state, "token_scopes", None)
-    can_read_secrets = user.role in {ROLE_ADMIN, ROLE_ANALYST} and (
-        token_scopes is None
-        or has_required_scope(set(token_scopes), SCOPE_WRITE_NOTIFICATIONS)
-    )
+    can_read_secrets = _can_read_webhook_secrets(request, user)
     accessible_feed_ids = _accessible_feed_ids(db, data_access=data_access)
     return [
         notification_webhook_response_from_model(
@@ -286,6 +290,7 @@ def delete_notification_webhook(
 )
 def list_notification_webhook_deliveries(
     webhook_id: uuid.UUID,
+    request: Request,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=10, ge=1, le=100),
     db: Session = Depends(get_db),
@@ -320,7 +325,9 @@ def list_notification_webhook_deliveries(
     ).all()
     response = NotificationWebhookDeliveryListResponse(
         deliveries=[
-            notification_webhook_delivery_response_from_model(delivery)
+            notification_webhook_delivery_response_from_model(
+                delivery, redact_secrets=not _can_read_webhook_secrets(request, user)
+            )
             for delivery in deliveries
         ],
         total=total,
@@ -494,7 +501,9 @@ def retry_notification_webhook_delivery_route(
             authorization=authorization,
             data_access=data_access,
         )
-    response = notification_webhook_delivery_response_from_model(final_delivery)
+    response = notification_webhook_delivery_response_from_model(
+        final_delivery, redact_secrets=not _can_read_webhook_secrets(request, user)
+    )
     if retry_warning is not None:
         response.warnings.append(retry_warning)
     return response

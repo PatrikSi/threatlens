@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import HTTPException, Request, Response, status
 from sqlalchemy import select
@@ -40,6 +40,7 @@ from app.services.data_access_policy import (
     DataPolicyError,
     fence_data_access_context,
 )
+from app.services.report_markdown import ReportRenderingLimitError
 from app.services.report_availability import (
     ReportingUnavailableError,
     ensure_reporting_available,
@@ -79,7 +80,7 @@ RESOURCE_PRECONDITION_RESPONSES = {
 
 
 def active_reporting_settings(db: Session):
-    active = load_active_ai_settings(db)
+    active = load_active_ai_settings(db, feature_type="report")
     try:
         ensure_reporting_available(active)
     except ReportingUnavailableError as exc:
@@ -185,18 +186,24 @@ def render_report_download(
 ) -> Response:
     detail = report_detail_response(db, report=report)
     filename = f"threatlens-report-{report.id}"
-    if format == "pdf":
-        content = render_report_pdf(detail)
-        media_type = "application/pdf"
-        extension = "pdf"
-    elif format == "html":
-        content = render_report_html(detail).encode("utf-8")
-        media_type = "text/html; charset=utf-8"
-        extension = "html"
-    else:
-        content = render_report_markdown(detail).encode("utf-8")
-        media_type = "text/markdown; charset=utf-8"
-        extension = "md"
+    try:
+        if format == "pdf":
+            content = render_report_pdf(detail)
+            media_type = "application/pdf"
+            extension = "pdf"
+        elif format == "html":
+            content = render_report_html(detail).encode("utf-8")
+            media_type = "text/html; charset=utf-8"
+            extension = "html"
+        else:
+            content = render_report_markdown(detail).encode("utf-8")
+            media_type = "text/markdown; charset=utf-8"
+            extension = "md"
+    except ReportRenderingLimitError as exc:
+        raise HTTPException(
+            status_code=413,
+            detail="Report exceeds the HTML/PDF export limits. Download Markdown or reduce the report size.",
+        ) from exc
     return Response(
         content=content,
         media_type=media_type,
@@ -265,3 +272,22 @@ def require_report_owner_or_admin(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You can only retry or delete reports that you generated.",
         )
+
+
+def normalize_report_creation_range(
+    created_from: datetime | None,
+    created_before: datetime | None,
+) -> tuple[datetime | None, datetime | None]:
+    """Normalize report library bounds to inclusive/exclusive UTC timestamps."""
+    def as_utc(value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        return value.replace(tzinfo=value.tzinfo or timezone.utc).astimezone(timezone.utc)
+
+    lower, upper = as_utc(created_from), as_utc(created_before)
+    if lower is not None and upper is not None and lower >= upper:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="created_before must be later than created_from",
+        )
+    return lower, upper

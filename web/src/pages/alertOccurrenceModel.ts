@@ -42,6 +42,12 @@ export const ALERT_CLOSURE_DISPOSITIONS: ReadonlyArray<{
 export type AlertBooleanFilter = 'any' | 'yes' | 'no'
 
 export interface AlertOccurrenceFilters {
+  teamId?: string
+  queueScope?: 'all' | 'personal' | 'team'
+  assigneeUserId?: string
+  unassigned?: boolean
+  overdue?: boolean
+  escalated?: boolean
   lifecycleStates: AlertOccurrenceState[]
   severities: AlertSeverity[]
   ruleId: string
@@ -52,6 +58,7 @@ export interface AlertOccurrenceFilters {
 }
 
 export const DEFAULT_ALERT_OCCURRENCE_FILTERS: AlertOccurrenceFilters = {
+  teamId: '', queueScope: 'all', assigneeUserId: '', unassigned: false, overdue: false, escalated: false,
   lifecycleStates: [],
   severities: [],
   ruleId: '',
@@ -98,6 +105,12 @@ export function buildAlertOccurrencesPath(
   filters.lifecycleStates.forEach((state) => params.append('lifecycle_states', state))
   filters.severities.forEach((severity) => params.append('severities', severity))
   if (filters.ruleId) params.set('alert_interest_id', filters.ruleId)
+  if (filters.teamId) params.set('team_id', filters.teamId)
+  if (filters.queueScope && filters.queueScope !== 'all') params.set('queue_scope', filters.queueScope)
+  if (filters.assigneeUserId) params.set('assignee_user_id', filters.assigneeUserId)
+  if (filters.unassigned) params.set('unassigned', 'true')
+  if (filters.overdue) params.set('overdue', 'true')
+  if (filters.escalated) params.set('escalated', 'true')
   if (filters.suppressed !== 'any') params.set('suppressed', String(filters.suppressed === 'yes'))
   if (filters.snoozed !== 'any') params.set('snoozed', String(filters.snoozed === 'yes'))
   appendIsoDateTime(params, 'since', filters.since)
@@ -191,7 +204,10 @@ export function alertOccurrencePageCount(total: number, pageSize: number): numbe
 }
 
 export function alertOccurrenceActiveFilterCount(filters: AlertOccurrenceFilters): number {
-  return filters.lifecycleStates.length
+  return Number(Boolean(filters.teamId) || (Boolean(filters.queueScope) && filters.queueScope !== 'all'))
+    + Number(Boolean(filters.assigneeUserId || filters.unassigned))
+    + Number(Boolean(filters.overdue)) + Number(Boolean(filters.escalated))
+    + filters.lifecycleStates.length
     + filters.severities.length
     + Number(Boolean(filters.ruleId))
     + Number(filters.suppressed !== 'any')

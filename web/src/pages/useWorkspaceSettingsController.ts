@@ -8,6 +8,8 @@ import {
 } from 'react'
 
 import { resolveApiErrorMessage } from '../api/errors'
+import { apiFetch } from '../api/client'
+import type { SavedView } from '../types/api'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import type {
@@ -90,6 +92,10 @@ export function useWorkspaceSettingsController() {
     staleTime: 30_000,
   })
   const selectedPolicy = rolePoliciesQuery.data?.find((policy) => policy.role === selectedRole)
+  const templateViewsQuery = useQuery({
+    queryKey: ['views'], queryFn: ({ signal }) => apiFetch<SavedView[]>('/views', { signal }),
+    enabled: canManagePolicies && hasRequiredPermissions(permissions, ['read:views']), staleTime: 60_000,
+  })
   const { draft: roleDraft, baseline: roleBaseline } = useMemo(
     () => resolveRoleEditor(canManagePolicies ? roleEdit : null, selectedRole, selectedPolicy),
     [canManagePolicies, roleEdit, selectedPolicy, selectedRole],
@@ -229,7 +235,7 @@ export function useWorkspaceSettingsController() {
     personalDraft &&
     personalDraftIsDirty(personalBaseline.effective, personalBaseline.preferences, personalDraft),
   )
-  useUnsavedChangesWarning(
+  const confirmDiscardChanges = useUnsavedChangesWarning(
     roleDirty || personalDirty,
     'You have unsaved workspace changes. Leave without saving?',
   )
@@ -405,8 +411,10 @@ export function useWorkspaceSettingsController() {
     roleReloadPending
 
   return {
+    discardDialog: confirmDiscardChanges.discardDialog,
     canReadPolicies,
     canManagePolicies,
+    templateViewsQuery,
     meQuery,
     personalDraft,
     personalDirty,

@@ -99,6 +99,27 @@ by this runbook.
 
 ## Diagnose system health
 
+The **Processing** view provides a scoped list of incomplete pipeline work and
+targeted, resumable recovery runs. See [Processing recovery](processing.md) for
+selection, permissions, retry, and cancellation semantics.
+
+The **Trends** view includes **Freshness and runtime pressure**. Its selector
+compares pending classification, tagging, and export obligations; database
+connections and lock waiters; oldest database waits and transactions; container
+memory utilization; and recent timeout/deadline events. Each view uses comparable
+units and provides exact values through **View exact data**. The latest returned
+freshness sample also lists each workflow's recorded warning threshold.
+
+Database pressure covers the current database and runtime role. Memory utilization
+describes the container collecting that sample, not every worker or the whole
+deployment. Deadline points represent overlapping 15-minute bucket totals and must
+not be summed across observations. Counters are best effort. Missing metrics,
+unknown container limits, and historical samples collected before this
+instrumentation remain unavailable; the chart does not substitute zero or draw
+through missing collection periods. A recorded workflow with no pending work has
+zero pending age. These observations complement workload benchmarks and host
+monitoring; they are not a release capacity certification.
+
 The System health workspace separates current evidence, retained trends, and
 operator activity so that one green check cannot mask an unrelated failure. Live
 health refreshes every 30 seconds and organizes PostgreSQL, Redis, scheduler,
@@ -129,6 +150,15 @@ name in Redis. The UI derives safe, copyable `docker compose ps` and bounded
 `docker compose logs --since 15m --tail 200` commands from the affected service
 names. It never executes those commands from the browser.
 
+Beat uses a bounded producer check for these probes. With the supported singleton
+Beat service, a queue with eight waiting messages receives no additional canaries
+until work drains. The check includes Redis priority lists and configured key
+prefixes. Message expiration alone cannot bound a queue while its consumers are
+stopped. A broker inspection failure skips the probe and advances its schedule;
+the next interval retries without leaving a permanent admission claim. Execution
+evidence therefore becomes stale during a backlog or broker outage, and recovers
+when a fresh probe actually completes.
+
 The Trends view retains one server-recorded sample every five minutes and refreshes
 at that collection cadence; **Refresh** remains available for an immediate read.
 Select 1 hour, 6 hours, 24 hours, 7 days, or 30 days to compare worker capacity and load,
@@ -150,6 +180,13 @@ evidence, the retained 24-hour health history, and up to 25 recent operation
 records. It excludes credentials, task arguments, request
 bodies, article content, and raw Celery payloads. Access to live topology, history,
 and diagnostics uses the same `read:operations` permission as the workspace.
+
+Proxy request diagnostics retain status, timing, upstream status and a correlated
+request reference while excluding query strings and referrers. HTTP error prose
+is disabled because nginx includes the original request line there; startup and
+process errors remain on stderr. See the
+[proxy logging contract and live checks](../../web/nginx/README.md) when
+investigating oversized uploads or unavailable upstreams.
 
 ## Prerequisites
 
@@ -181,12 +218,14 @@ encryption environments with the rendered Compose model. A custom service must
 not be added to a destructive recovery topology until the adapter and tests have
 explicitly learned how to identify, stop, and verify it.
 
-The bundled adapter also requires one PostgreSQL role to be both the container
-administrator and application role. Separate least-privileged application and
-administrative roles are intentionally unsupported and refused. Supporting that
-topology requires a dedicated adapter with independently tested ownership,
-fencing, rollback, and evidence credentials; do not broaden privileges or rewrite
-URLs to bypass the refusal.
+The bundled adapter supports the historical single-role deployment and the
+three-role deployment described in [Database privileges and upgrades](database-privileges.md).
+Runtime application credentials cannot administer the database. The migration
+service owns schema changes; the database container retains the administrator
+used for recovery. Restore fences runtime and migration logins, restores schema
+ownership to the migration role, reinstalls runtime/default grants, and proves a
+fresh runtime connection before removing the rollback database. Custom role or
+schema topologies still require their own reviewed recovery adapter.
 
 The POSTGRES_USER and POSTGRES_DB values rendered into the **db** service must
 match the role and database that initialized the existing PostgreSQL volume.
@@ -311,7 +350,7 @@ Verify after creation, after transfer, and before every drill or restore:
       verify \
       --backup /srv/threatlens-backups/threatlens-postgresql-20260827T120000Z-1a2b3c4d
 
-For a release-specific gate, add --expected-app-version 1.10.0.
+For a release-specific gate, add --expected-app-version 2.0.0.
 
 Verification rejects malformed or unsupported manifests, partial directories,
 path traversal, symlinks, non-regular files, missing archives, size differences,
@@ -430,6 +469,16 @@ production target before the hook runs, so historical archives use the current
 quarantine schema contract instead of brittle direct-schema branches. Exit zero
 is accepted only after the phase is complete.
 
+Completed publications keep their original approval and evidence pins, including
+the delivery intent captured in that revision. Quarantine suppresses their
+outbound work through disabled integrations and subscriptions and terminal
+events and deliveries; retaining historical delivery intent does not resume a
+send. Other reports have delivery requests cleared, and active generation is
+interrupted. A review or approval made stale by that change must return to draft
+and be reviewed again. Published reports remain readable and exportable without
+rewriting their approval history. Resuming any delivery remains an explicit
+operator action after recovery validation.
+
 Override the default only with a reviewed hook using --quarantine-hook
 /absolute/path/to/hook or THREATLENS_POST_RESTORE_HOOK. Symlink hooks are
 rejected. Run the default or replacement preflight directly during change review
@@ -460,8 +509,12 @@ confirmation for the currently running database and Redis containers:
     printf '%s\n' "$confirmation"
 
 The text includes the project, database, full archive SHA-256, and a deployment
-identity derived from stable live database/Redis container, image, and volume
-identities. Restarting or replacing either container invalidates it. Review the
+identity derived from live database/Redis container IDs, images, names, mount
+types, volume names, host sources and destinations. Docker's mount enumeration
+order does not affect this identity. Replacing a container or changing a bound
+field or validated configuration invalidates the confirmation. Obtain fresh
+confirmation after updating the recovery scripts; finish or reconcile an active
+operation with the script version that started it before upgrading. Review the
 text, then provide it with the independent data-loss acknowledgement:
 
     ./scripts/recovery/threatlens-recovery.sh \
@@ -497,7 +550,7 @@ The restore sequence is:
 3. create a mandatory fresh online safety backup;
 4. stop api, all workers, beat, and web, then prove they are stopped;
 5. arm rollback before any mutation, create a short-lived random recovery role,
-   set the application role NOLOGIN, disallow database connections, terminate
+   set runtime and migration roles NOLOGIN, disallow database connections, terminate
    existing clients, rename the original database, and create a target that only
    the recovery role can access;
 6. restore transactionally, preserving the original database locale, tablespace,
@@ -506,7 +559,7 @@ The restore sequence is:
 7. run hook preflight, apply, and verify; require Redis AOF persistence, temporarily
    set `appendfsync` to `always`, clear Redis database 0, and restore its previous
    append-fsync policy before durably journaling the clear;
-8. reassign restored objects, copy the original database ACL and database/role
+8. reassign restored objects to the schema owner, restore runtime grants, copy the original database ACL and database/role
    settings, restore the application login/connectivity state, remove the
    temporary role, and prove a fresh application-role connection plus final
    catalog invariants while the original rollback database still exists; only

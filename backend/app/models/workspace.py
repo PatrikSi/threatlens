@@ -37,6 +37,7 @@ class WorkspaceRolePolicy(Base):
             name="ck_workspace_role_policies_dashboard_panels_array",
         ),
         CheckConstraint("revision >= 1", name="ck_workspace_role_policies_revision"),
+        CheckConstraint("landing_mode IN ('default', 'enforced') AND dashboard_mode IN ('default', 'enforced')", name="ck_workspace_role_policies_modes"),
     )
 
     role: Mapped[str] = mapped_column(String(32), primary_key=True)
@@ -47,6 +48,9 @@ class WorkspaceRolePolicy(Base):
         server_default=text("'{}'::jsonb"),
     )
     landing_module_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    landing_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="default", server_default="default")
+    dashboard_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="default", server_default="default")
+    dashboard_view_json: Mapped[dict | None] = mapped_column(_JSON, nullable=True)
     dashboard_panel_ids_json: Mapped[list[str]] = mapped_column(
         _JSON,
         nullable=False,

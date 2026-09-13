@@ -1,8 +1,8 @@
+import logging
 import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from types import ModuleType
 from urllib.parse import urljoin, urlsplit
 
 import httpx
@@ -10,6 +10,15 @@ from sqlalchemy import select
 
 from app.models.article import Article
 from app.models.item import Item
+from app.services import extraction, safe_fetch, url_utils
+from app.services.article_recovery import lock_article_feed
+from app.services.bounded_response import read_bounded_response
+from app.services.classification_recovery import require_item_classification
+from app.services.outbound_deadline import outbound_deadline
+from app.tasks import feed_task_coordination, feed_task_runtime, feed_task_storage
+from app.tasks.feed_task_dependencies import ArticleFetchDependencies
+
+logger = logging.getLogger(__name__)
 
 
 ARTICLE_FETCH_MAX_RETRIES = 3
@@ -28,9 +37,15 @@ class ArticleFetchResult:
         return self.error is None
 
 
-def run_fetch_article(task, item_id: str, force: bool = False, *, runtime: ModuleType):
-    r = runtime
-    with r.db_session() as db:
+def run_fetch_article(
+    task,
+    item_id: str,
+    force: bool = False,
+    *,
+    dependencies: ArticleFetchDependencies,
+    source_access_fenced: bool = False,
+):
+    with dependencies.db_session() as db:
         parsed_item_id = _parse_uuid(item_id)
         if parsed_item_id is None:
             return {
@@ -39,22 +54,40 @@ def run_fetch_article(task, item_id: str, force: bool = False, *, runtime: Modul
                 "item_id": item_id,
             }
 
+        feed = None
+        if not force and not source_access_fenced:
+            # Initial-ingestion messages may already be queued when the feed is
+            # disabled. Feed precedes Item in the shared source lock order.
+            feed = lock_article_feed(db, parsed_item_id)
+            if feed is None or not feed.enabled:
+                return {
+                    "status": "skipped",
+                    "reason": "not_found" if feed is None else "feed_disabled",
+                    "item_id": item_id,
+                }
         item, skip_result = _load_claimed_item(db, parsed_item_id, item_id)
         if skip_result is not None:
             return skip_result
-        cached_result = _cached_article_result(db, item, item_id, force, runtime=r)
+        if feed is not None and item.feed_id != feed.feed_id:
+            return {"status": "skipped", "reason": "source_changed", "item_id": item_id}
+        cached_result = _cached_article_result(
+            db, item, item_id, force, dependencies=dependencies
+        )
         if cached_result is not None:
             return cached_result
 
-        candidate_urls = _candidate_urls(item, runtime=r)
+        candidate_urls = _candidate_urls(item)
         if not candidate_urls:
-            return _record_missing_url(db, item, item_id, runtime=r)
+            return _record_missing_url(db, item, item_id, dependencies=dependencies)
 
         started_at = time.perf_counter()
-        result = _fetch_candidates(task, item_id, candidate_urls, runtime=r)
+        with outbound_deadline(dependencies.settings.article_total_timeout_seconds):
+            result = _fetch_candidates(
+                task, item_id, candidate_urls, dependencies=dependencies
+            )
         fetch_ms = int((time.perf_counter() - started_at) * 1000)
         if not result.succeeded:
-            r._store_article_error(
+            feed_task_storage.store_article_error(
                 db,
                 item,
                 final_url=result.final_url,
@@ -63,12 +96,12 @@ def run_fetch_article(task, item_id: str, force: bool = False, *, runtime: Modul
                 fetch_ms=fetch_ms,
                 error=result.error or "article_fetch_failed",
             )
-            r._enqueue_classification_task(item_id)
-            return r._article_fetch_error_result(item, item_id)
+            dependencies.enqueue_classification(item_id)
+            return feed_task_storage.article_fetch_error_result(item, item_id)
 
-        _store_article_success(db, item, result, fetch_ms, runtime=r)
+        _store_article_success(db, item, result, fetch_ms, dependencies=dependencies)
 
-    r._enqueue_classification_task(item_id)
+    dependencies.enqueue_classification(item_id)
     return {"status": "ok", "item_id": item_id}
 
 
@@ -96,7 +129,7 @@ def _load_claimed_item(db, parsed_item_id: uuid.UUID, item_id: str):
 
 
 def _cached_article_result(
-    db, item: Item, item_id: str, force: bool, *, runtime: ModuleType
+    db, item: Item, item_id: str, force: bool, *, dependencies: ArticleFetchDependencies
 ):
     existing_article = db.scalar(select(Article).where(Article.item_id == item.id))
     if (
@@ -113,26 +146,28 @@ def _cached_article_result(
         return None
     if not existing_article.text:
         return None
-    runtime._enqueue_classification_task(item_id)
+    dependencies.enqueue_classification(item_id)
     reason = (
         "already_fetched" if not existing_article.error else "degraded_article_cached"
     )
     return {"status": "skipped", "reason": reason, "item_id": item_id}
 
 
-def _candidate_urls(item: Item, *, runtime: ModuleType) -> list[str]:
+def _candidate_urls(item: Item) -> list[str]:
     candidates: list[str] = []
     for candidate in (item.canonical_url, item.url):
         if not candidate:
             continue
-        normalized = runtime.normalize_url(candidate)
+        normalized = url_utils.normalize_url(candidate)
         if normalized and normalized not in candidates:
             candidates.append(normalized)
     return candidates
 
 
-def _record_missing_url(db, item: Item, item_id: str, *, runtime: ModuleType):
-    runtime._store_article_error(
+def _record_missing_url(
+    db, item: Item, item_id: str, *, dependencies: ArticleFetchDependencies
+):
+    feed_task_storage.store_article_error(
         db,
         item,
         final_url="",
@@ -141,34 +176,38 @@ def _record_missing_url(db, item: Item, item_id: str, *, runtime: ModuleType):
         fetch_ms=0,
         error="missing_article_url",
     )
-    runtime._enqueue_classification_task(item_id)
-    return runtime._article_fetch_error_result(item, item_id)
+    dependencies.enqueue_classification(item_id)
+    return feed_task_storage.article_fetch_error_result(item, item_id)
 
 
 def _fetch_candidates(
-    task, item_id: str, candidate_urls: list[str], *, runtime: ModuleType
+    task,
+    item_id: str,
+    candidate_urls: list[str],
+    *,
+    dependencies: ArticleFetchDependencies,
 ) -> ArticleFetchResult:
-    r = runtime
     last_result = ArticleFetchResult(
         candidate_urls[0], 0, None, error="article_fetch_failed"
     )
     for index, target_url in enumerate(candidate_urls):
         has_fallback = index + 1 < len(candidate_urls)
-        if not r.is_fetchable_url(
-            target_url, allow_private_network=r.settings.allow_private_network_fetch
+        if not url_utils.is_fetchable_url(
+            target_url,
+            allow_private_network=dependencies.settings.allow_private_network_fetch,
         ):
             last_result = ArticleFetchResult(
                 target_url, 0, None, error="unsafe_article_url"
             )
             continue
         try:
-            result = _fetch_candidate(target_url, runtime=r)
+            result = _fetch_candidate(target_url, dependencies=dependencies)
         except (
             httpx.HTTPError,
             TimeoutError,
-            r.SafeFetchError,
-            r.RedirectError,
-            r.CoordinationUnavailableError,
+            safe_fetch.SafeFetchError,
+            safe_fetch.RedirectError,
+            feed_task_coordination.CoordinationUnavailableError,
         ) as exc:
             last_result = _retryable_failure(
                 task,
@@ -178,20 +217,19 @@ def _fetch_candidates(
                 has_fallback,
                 candidate_urls,
                 index,
-                runtime=r,
             )
             if has_fallback:
                 continue
             return last_result
-        except r.ResponseTooLargeError as exc:
+        except feed_task_runtime.ResponseTooLargeError as exc:
             last_result = ArticleFetchResult(
                 target_url, 0, None, error="response_too_large"
             )
-            r.logger.error(
+            logger.error(
                 "article_fetch_too_large item_id=%s target_url=%s error_type=%s",
                 item_id,
                 target_url,
-                r._exception_type_name(exc),
+                feed_task_runtime.exception_type_name(exc),
             )
             if has_fallback:
                 _log_fallback(
@@ -200,7 +238,6 @@ def _fetch_candidates(
                     candidate_urls[index + 1],
                     last_result.error,
                     exc,
-                    runtime=r,
                 )
                 continue
             return last_result
@@ -209,7 +246,7 @@ def _fetch_candidates(
             return result
         last_result = result
         if has_fallback:
-            r.logger.info(
+            logger.info(
                 "article_fetch_fallback item_id=%s from_url=%s to_url=%s reason=%s",
                 item_id,
                 target_url,
@@ -221,41 +258,45 @@ def _fetch_candidates(
     return last_result
 
 
-def _fetch_candidate(target_url: str, *, runtime: ModuleType) -> ArticleFetchResult:
-    r = runtime
+def _fetch_candidate(
+    target_url: str, *, dependencies: ArticleFetchDependencies
+) -> ArticleFetchResult:
     timeout = httpx.Timeout(
-        connect=r.settings.article_connect_timeout_seconds,
-        read=r.settings.article_read_timeout_seconds,
-        write=r.settings.article_read_timeout_seconds,
-        pool=r.settings.article_connect_timeout_seconds,
+        connect=dependencies.settings.article_connect_timeout_seconds,
+        read=dependencies.settings.article_read_timeout_seconds,
+        write=dependencies.settings.article_read_timeout_seconds,
+        pool=dependencies.settings.article_connect_timeout_seconds,
     )
-    with r.build_safe_http_client(
-        timeout=timeout,
-        headers={"User-Agent": r.settings.fetch_user_agent},
-        allow_private_network=r.settings.allow_private_network_fetch,
-    ) as client:
-        response = r.safe_stream_with_redirects(
+    with (
+        outbound_deadline(dependencies.settings.article_total_timeout_seconds),
+        safe_fetch.build_safe_http_client(
+            timeout=timeout,
+            headers={"User-Agent": dependencies.settings.fetch_user_agent},
+            allow_private_network=dependencies.settings.allow_private_network_fetch,
+        ) as client,
+    ):
+        response = safe_fetch.safe_stream_with_redirects(
             client,
             "GET",
             target_url,
-            allow_private_network=r.settings.allow_private_network_fetch,
-            max_redirects=r.settings.outbound_max_redirects,
-            request_context=lambda request_url: r.domain_slot(
+            allow_private_network=dependencies.settings.allow_private_network_fetch,
+            max_redirects=dependencies.settings.outbound_max_redirects,
+            request_context=lambda request_url: feed_task_coordination.domain_slot(
                 urlsplit(request_url).hostname or "unknown"
             ),
         )
-        lease = r.safe_fetch_request_guard(response)
+        lease = safe_fetch.safe_fetch_request_guard(response)
         try:
-            r.ensure_lease_owned(lease)
+            feed_task_coordination.ensure_lease_owned(lease)
             status_code = response.status_code
             content_type = response.headers.get("content-type")
-            final_url = r.normalize_url(str(response.url)) or ""
+            final_url = url_utils.normalize_url(str(response.url)) or ""
             body = _read_capped_body(
                 response,
-                r.settings.article_max_bytes,
-                r.ResponseTooLargeError,
+                dependencies.settings.article_max_bytes,
+                feed_task_runtime.ResponseTooLargeError,
                 lease=lease,
-                runtime=r,
+                dependencies=dependencies,
             )
         finally:
             response.close()
@@ -271,18 +312,15 @@ def _read_capped_body(
     too_large_error: type[Exception],
     *,
     lease=None,
-    runtime: ModuleType | None = None,
+    dependencies: ArticleFetchDependencies | None = None,
 ) -> bytes:
-    chunks: list[bytes] = []
-    body_size = 0
-    for chunk in response.iter_bytes():
-        if runtime is not None:
-            runtime.ensure_lease_owned(lease)
-        body_size += len(chunk)
-        if body_size > max_bytes:
-            raise too_large_error("response body exceeds configured cap")
-        chunks.append(chunk)
-    return b"".join(chunks)
+    def check():
+        if dependencies is not None:
+            feed_task_coordination.ensure_lease_owned(lease)
+
+    return read_bounded_response(
+        response, max_bytes, check=check, too_large_error=too_large_error
+    )
 
 
 def _response_error(status_code: int, content_type: str | None) -> str | None:
@@ -301,30 +339,31 @@ def _retryable_failure(
     has_fallback: bool,
     candidate_urls: list[str],
     index: int,
-    *,
-    runtime: ModuleType,
 ) -> ArticleFetchResult:
-    r = runtime
-    error_code = r._safe_article_fetch_error_code(exc)
+    error_code = feed_task_runtime.safe_article_fetch_error_code(exc)
     if has_fallback:
         _log_fallback(
-            item_id, target_url, candidate_urls[index + 1], error_code, exc, runtime=r
+            item_id,
+            target_url,
+            candidate_urls[index + 1],
+            error_code,
+            exc,
         )
         return ArticleFetchResult(target_url, 0, None, error=error_code)
     if int(getattr(task.request, "retries", 0) or 0) >= ARTICLE_FETCH_MAX_RETRIES:
-        r.logger.error(
+        logger.error(
             "article_fetch_failed item_id=%s error_code=%s error_type=%s",
             item_id,
             error_code,
-            r._exception_type_name(exc),
+            feed_task_runtime.exception_type_name(exc),
         )
         return ArticleFetchResult(target_url, 0, None, error=error_code)
-    r.logger.warning(
+    logger.warning(
         "article_fetch_retrying item_id=%s retries=%s error_code=%s error_type=%s",
         item_id,
         task.request.retries,
         error_code,
-        r._exception_type_name(exc),
+        feed_task_runtime.exception_type_name(exc),
     )
     raise task.retry(
         exc=exc,
@@ -334,21 +373,15 @@ def _retryable_failure(
 
 
 def _log_fallback(
-    item_id: str,
-    from_url: str,
-    to_url: str,
-    error_code: str,
-    exc: Exception,
-    *,
-    runtime: ModuleType,
+    item_id: str, from_url: str, to_url: str, error_code: str, exc: Exception
 ) -> None:
-    runtime.logger.info(
+    logger.info(
         "article_fetch_fallback item_id=%s from_url=%s to_url=%s error_code=%s error_type=%s",
         item_id,
         from_url,
         to_url,
         error_code,
-        runtime._exception_type_name(exc),
+        feed_task_runtime.exception_type_name(exc),
     )
 
 
@@ -358,29 +391,32 @@ def _store_article_success(
     result: ArticleFetchResult,
     fetch_ms: int,
     *,
-    runtime: ModuleType,
+    dependencies: ArticleFetchDependencies,
 ) -> None:
-    r = runtime
     html = result.body.decode("utf-8", errors="ignore")
-    canonical = r.extract_canonical_url(html)
+    canonical = extraction.extract_canonical_url(html)
     if canonical:
-        canonical = r.normalize_url(urljoin(result.final_url, canonical))
-    extracted = r.extract_readable_text(html)
+        canonical = url_utils.normalize_url(urljoin(result.final_url, canonical))
+    extracted = extraction.extract_readable_text(html)
 
     article = db.scalar(select(Article).where(Article.item_id == item.id))
     if article is None:
         article = Article(
             item_id=item.id, final_url=result.final_url, http_status=result.http_status
         )
+    previous_text = article.text
     _apply_extracted_article(article, result, extracted, fetch_ms)
 
-    if canonical and r.is_fetchable_url(
-        canonical, allow_private_network=r.settings.allow_private_network_fetch
+    if canonical and url_utils.is_fetchable_url(
+        canonical,
+        allow_private_network=dependencies.settings.allow_private_network_fetch,
     ):
         item.canonical_url = canonical
-    item.url_domain = r.extract_url_domain(item.canonical_url or item.url)
-    _apply_item_fetch_state(article, item, runtime=r)
+    item.url_domain = url_utils.extract_url_domain(item.canonical_url or item.url)
+    _apply_item_fetch_state(article, item)
     _finalize_article_content_outcome(article)
+    if article.text != previous_text:
+        require_item_classification(item)
     db.add(article)
     db.add(item)
     db.commit()
@@ -402,15 +438,13 @@ def _apply_extracted_article(
     article.error = extracted.get("error")
 
 
-def _apply_item_fetch_state(
-    article: Article, item: Item, *, runtime: ModuleType
-) -> None:
+def _apply_item_fetch_state(article: Article, item: Item) -> None:
     if _has_usable_article_text(article):
         item.status = "content_fetched"
         item.ioc_extraction_state = None
         item.last_error = None
         return
-    if runtime._apply_article_summary_fallback(
+    if feed_task_storage.apply_article_summary_fallback(
         article, item, str(article.error or "no_extractor_succeeded")
     ):
         article.error = str(article.error or "no_extractor_succeeded")

@@ -167,6 +167,64 @@ def test_due_schedule_query_excludes_backed_off_failures(db_session):
 
 
 @pytest.mark.parametrize(
+    ("policy", "lateness", "missed_weeks", "force", "expected_offsets"),
+    [
+        ("skip", 0, 0, False, [0]),
+        ("skip", 59, 0, False, [0]),
+        ("skip", 300, 0, False, [0]),
+        ("skip", 301, 0, False, []),
+        ("skip", 60, 3, False, [0]),
+        ("skip", 3600, 3, False, []),
+        ("latest", 3600, 3, False, [0]),
+        ("all", 3600, 3, False, [-3, -2, -1, 0]),
+        ("all", 3600, 6, False, [-6, -5, -4, -3]),
+        ("skip", 3600, 3, True, [None]),
+    ],
+)
+def test_schedule_missed_run_policies_preserve_normal_ticks(
+    db_session, seed_users, monkeypatch, policy, lateness, missed_weeks, force, expected_offsets,
+):
+    due_at = datetime(2026, 9, 7, 9, tzinfo=timezone.utc)
+    now = due_at + timedelta(seconds=lateness)
+    schedule = _persist_schedule(db_session, next_run_at=due_at - timedelta(weeks=missed_weeks))
+    schedule.owner_user_id = seed_users["admin"].id
+    schedule.missed_run_policy = policy
+    db_session.commit()
+    reserved = []
+    monkeypatch.setattr(
+        "app.services.report_schedules._create_one_scheduled_report",
+        lambda _db, **kwargs: reserved.append(kwargs["due_at"]),
+    )
+
+    reserve_schedule_runs(db_session, schedule_id=schedule.id, now=now, force=force)
+
+    assert reserved == [now if offset is None else due_at + timedelta(weeks=offset) for offset in expected_offsets]
+    assert schedule.next_run_at == due_at + timedelta(weeks=1)
+    assert schedule.last_run_at == (now if reserved else None)
+
+
+def test_skip_policy_retries_an_attempted_tick_after_grace(db_session, seed_users, monkeypatch):
+    due_at = datetime(2026, 9, 7, 9, tzinfo=timezone.utc)
+    now = due_at + timedelta(minutes=10)
+    schedule = _persist_schedule(db_session, next_run_at=due_at)
+    schedule.owner_user_id = seed_users["admin"].id
+    schedule.missed_run_policy = "skip"
+    schedule.retry_at = now
+    schedule.failure_state = "retrying"
+    db_session.commit()
+    reserved = []
+    monkeypatch.setattr(
+        "app.services.report_schedules._create_one_scheduled_report",
+        lambda _db, **kwargs: reserved.append(kwargs["due_at"]),
+    )
+
+    reserve_schedule_runs(db_session, schedule_id=schedule.id, now=now)
+
+    assert reserved == [due_at]
+    assert schedule.retry_at is None
+
+
+@pytest.mark.parametrize(
     ("total_matches", "omitted_sources", "error_code", "coverage_percent"),
     [
         (0, 0, "no_sources", 100.0),
@@ -217,9 +275,14 @@ def test_skipped_scheduled_report_persists_complete_coverage(
         model="test-model",
         global_instructions=None,
     )
+
+    def load_reporting_settings(_db, *, feature_type):
+        assert feature_type == "report"
+        return active
+
     monkeypatch.setattr(
         "app.services.report_schedules.load_active_ai_settings",
-        lambda _db: active,
+        load_reporting_settings,
     )
     monkeypatch.setattr(
         "app.services.report_schedules.build_report_source_plan",
@@ -243,6 +306,7 @@ def test_skipped_scheduled_report_persists_complete_coverage(
     assert report.excluded_source_count == omitted_sources
     assert report.metrics_json == {"matched": total_matches}
     assert report.coverage_json == {
+        "evidence_contract_version": 1,
         "total_matches": total_matches,
         "included_sources": 0,
         "omitted_sources": omitted_sources,

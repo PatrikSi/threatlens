@@ -46,6 +46,7 @@ class ExportAIInsight:
     model: str | None
     generated_at: datetime | None
     error: str | None
+    source_current: bool = False
 
 
 @dataclass(frozen=True)
@@ -60,6 +61,7 @@ class ExportArticleContent:
     language: str | None
     word_count: int | None
     error: str | None
+    text_available: bool = False
 
 
 @dataclass(frozen=True)

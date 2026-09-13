@@ -2,6 +2,8 @@ import ipaddress
 import socket
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+from app.services.outbound_deadline import deadline_getaddrinfo
+
 TRACKING_PARAMS = {
     "fbclid",
     "gclid",
@@ -48,8 +50,8 @@ def _is_tracking_param(key: str) -> bool:
     return lowered.startswith("utm_") or lowered in TRACKING_PARAMS
 
 
-def _is_sensitive_query_param(key: str) -> bool:
-    lowered = key.lower().replace("-", "_")
+def is_sensitive_query_param(key: str) -> bool:
+    lowered = key.strip().lower().replace("-", "_")
     if lowered in SENSITIVE_QUERY_PARAMS:
         return True
     return any(
@@ -103,7 +105,9 @@ def _build_netloc(
 def _is_ip_allowed(ip: ipaddress._BaseAddress, allow_private_network: bool) -> bool:
     if allow_private_network:
         return True
-    return not (
+    # Shared address space (100.64.0.0/10), for example, is neither private
+    # nor global. Only global unicast addresses are safe by default.
+    return ip.is_global and not (
         ip.is_private
         or ip.is_loopback
         or ip.is_link_local
@@ -143,7 +147,7 @@ def normalize_url(url: str | None) -> str:
     query_pairs = [
         (k, v)
         for k, v in parse_qsl(parts.query, keep_blank_values=True)
-        if not _is_tracking_param(k) and not _is_sensitive_query_param(k)
+        if not _is_tracking_param(k) and not is_sensitive_query_param(k)
     ]
     query_pairs.sort(key=lambda kv: (kv[0], kv[1]))
     query = urlencode(query_pairs, doseq=True)
@@ -216,7 +220,7 @@ def redact_feed_url(url: str | None) -> str:
             path = "/"
 
     query_pairs = [
-        (key, "REDACTED" if _is_sensitive_query_param(key) else value)
+        (key, "REDACTED" if is_sensitive_query_param(key) else value)
         for key, value in parse_qsl(parts.query, keep_blank_values=True)
     ]
     query = urlencode(query_pairs, doseq=True)
@@ -246,13 +250,10 @@ def is_fetchable_url(url: str | None, allow_private_network: bool = False) -> bo
     if any(hostname.endswith(suffix) for suffix in BLOCKED_HOSTNAME_SUFFIXES):
         return allow_private_network
 
-    if not allow_private_network and "." not in hostname:
-        return False
-
     try:
         ip = ipaddress.ip_address(hostname)
     except ValueError:
-        return True
+        return allow_private_network or "." in hostname
 
     return _is_ip_allowed(ip, allow_private_network)
 
@@ -263,7 +264,7 @@ def resolve_hostname_ips(hostname: str) -> set[ipaddress._BaseAddress]:
         return set()
 
     try:
-        infos = socket.getaddrinfo(normalized, None, type=socket.SOCK_STREAM)
+        infos = deadline_getaddrinfo(normalized)
     except socket.gaierror:
         return set()
     except OSError:

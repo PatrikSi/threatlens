@@ -405,7 +405,6 @@ def test_provider_call_holds_policy_and_receipt_fences_until_settlement(
             execution_checkpoint=None,
             execution_commit=None,
             enforce_egress_data_policy=enforce_ai_egress_data_policy,
-            report_feature_type="report",
             call_ai_json=provider_call,
             record_task_run_stop_observed=lambda *_args, **_kwargs: None,
             record_usage_event=lambda *_args, **_kwargs: None,

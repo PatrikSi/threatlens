@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 import uuid
 from dataclasses import dataclass
@@ -12,6 +13,9 @@ from sqlalchemy.orm import Session
 from app.models.tag import ItemTag, Tag
 from app.services.tagging_config import ActiveTaggingSettings, list_enabled_tagging_rules, load_active_tagging_settings
 from app.services.classification import CLASSIFICATION_CATEGORIES
+from app.services.bounded_regex import RegexRule, evaluate_regex_batch
+
+logger = logging.getLogger(__name__)
 
 TAGGING_RULES_VERSION = "tagging_v2"
 ALGORITHM_TAG_NAMES = {name.lower() for name in CLASSIFICATION_CATEGORIES}
@@ -46,6 +50,14 @@ class TagCandidate:
     rules_version: str = TAGGING_RULES_VERSION
 
 
+class TaggingEvaluationIncomplete(Exception):
+    """No tag snapshot may be settled when one eligible rule is unresolved."""
+
+    def __init__(self, errors: list[str]):
+        self.errors = tuple(sorted(set(errors)))
+        super().__init__(",".join(self.errors))
+
+
 def normalize_algorithm_tag_names(primary_category: str, secondary_categories: list[str] | None) -> list[str]:
     desired: set[str] = set()
     for raw in [primary_category, *(secondary_categories or [])]:
@@ -76,6 +88,7 @@ def sync_item_algorithm_tags(
 ) -> list[str]:
     runtime_settings = load_active_tagging_settings(db)
     custom_rules = list_enabled_tagging_rules(db)
+    errors: list[str] = []
     candidates = build_tag_candidates(
         primary_category=primary_category,
         secondary_categories=secondary_categories,
@@ -90,7 +103,12 @@ def sync_item_algorithm_tags(
         feedback_adjustments=feedback_adjustments,
         active_settings=runtime_settings,
         custom_rules=custom_rules,
+        errors=errors,
     )
+    if errors:
+        # An unavailable evaluator is not a negative match. Preserve the entire
+        # previous snapshot until the worker records and retries incomplete work.
+        raise TaggingEvaluationIncomplete(errors)
     effective_min_confidence = runtime_settings.min_auto_tag_confidence if runtime_settings else min_auto_tag_confidence
     desired = [candidate for candidate in candidates if candidate.confidence >= effective_min_confidence]
     desired_by_name = {candidate.name: candidate for candidate in desired}
@@ -180,6 +198,7 @@ def build_tag_candidates(
     feedback_adjustments: dict[str, float] | None,
     active_settings: ActiveTaggingSettings | None = None,
     custom_rules: list[_TaggingRuleLike] | None = None,
+    errors: list[str] | None = None,
 ) -> list[TagCandidate]:
     feedback_adjustments = feedback_adjustments or {}
     candidates: dict[str, TagCandidate] = {}
@@ -220,18 +239,15 @@ def build_tag_candidates(
         secondary_confidence = max(0.45, float(classification_confidence or 0.5) * 0.78)
         add_candidate(normalized, secondary_confidence)
 
-    for rule in custom_rules or []:
-        matched_sections = evaluate_tagging_rule_match(
-            rule=rule,
-            title=title,
-            summary=summary,
-            article_text=article_text,
-            feed_name=feed_name,
-            feed_id=feed_id,
-            primary_category=primary_category,
-            secondary_categories=secondary_categories,
-            classification_confidence=classification_confidence,
-        )
+    rules = custom_rules or []
+    matches = evaluate_tagging_rules(
+        rules=rules, title=title, summary=summary, article_text=article_text,
+        feed_name=feed_name, feed_id=feed_id, primary_category=primary_category,
+        secondary_categories=secondary_categories,
+        classification_confidence=classification_confidence,
+        errors=errors,
+    )
+    for rule, matched_sections in zip(rules, matches, strict=True):
         if not matched_sections:
             continue
 
@@ -246,13 +262,9 @@ def build_tag_candidates(
     return sorted(candidates.values(), key=lambda candidate: (-candidate.confidence, candidate.name))
 
 
-def evaluate_tagging_rule_match(
+def eligible_tagging_rule_fields(
     *,
     rule: _TaggingRuleLike,
-    title: str,
-    summary: str | None,
-    article_text: str | None,
-    feed_name: str | None,
     feed_id: uuid.UUID | None,
     primary_category: str,
     secondary_categories: list[str] | None,
@@ -303,37 +315,49 @@ def evaluate_tagging_rule_match(
     if not applies_to or not pattern:
         return []
 
-    case_sensitive = bool(getattr(rule, "case_sensitive", False))
-    match_type = getattr(rule, "match_type", "contains")
-    texts = {
-        "title": title or "",
-        "summary": summary or "",
-        "article_text": article_text or "",
-        "feed_name": feed_name or "",
-    }
+    return applies_to
 
-    matched_sections: list[str] = []
-    if match_type == "contains":
-        needle = pattern if case_sensitive else pattern.lower()
-        for field_name in applies_to:
-            haystack = texts.get(field_name, "")
-            comparison = haystack if case_sensitive else haystack.lower()
-            if needle and needle in comparison:
-                matched_sections.append(field_name)
-        return matched_sections
 
-    flags = 0 if case_sensitive else re.IGNORECASE
-    try:
-        compiled = re.compile(pattern, flags)
-    except re.error:
-        return []
+def evaluate_tagging_rule_match(*, rule: _TaggingRuleLike, errors: list[str] | None = None, **context) -> list[str]:
+    return evaluate_tagging_rules(rules=[rule], errors=errors, **context)[0]
 
-    for field_name in applies_to:
-        haystack = texts.get(field_name, "")
-        if haystack and compiled.search(haystack):
-            matched_sections.append(field_name)
 
-    return matched_sections
+def evaluate_tagging_rules(
+    *, rules: list[_TaggingRuleLike], title: str, summary: str | None,
+    article_text: str | None, feed_name: str | None, feed_id: uuid.UUID | None,
+    primary_category: str, secondary_categories: list[str] | None,
+    classification_confidence: float | None, errors: list[str] | None = None,
+) -> list[list[str]]:
+    texts = {"title": title or "", "summary": summary or "",
+             "article_text": article_text or "", "feed_name": feed_name or ""}
+    matches: list[list[str]] = [[] for _ in rules]
+    regex_rules: list[RegexRule] = []
+    regex_indexes: list[int] = []
+    for index, rule in enumerate(rules):
+        fields = eligible_tagging_rule_fields(
+            rule=rule, feed_id=feed_id, primary_category=primary_category,
+            secondary_categories=secondary_categories,
+            classification_confidence=classification_confidence,
+        )
+        if not fields:
+            continue
+        pattern = rule.pattern.strip()
+        if rule.match_type == "contains":
+            needle = pattern if rule.case_sensitive else pattern.lower()
+            matches[index] = [field for field in fields if needle in (
+                texts.get(field, "") if rule.case_sensitive else texts.get(field, "").lower()
+            )]
+        else:
+            regex_indexes.append(index)
+            regex_rules.append(RegexRule(pattern, rule.case_sensitive, fields))
+    for index, result in zip(regex_indexes, evaluate_regex_batch(regex_rules, texts), strict=True):
+        matches[index] = result.sections
+        if result.error:
+            if errors is not None:
+                errors.append(result.error)
+            logger.warning("tagging_rule_evaluation_failed rule_id=%s error_code=%s",
+                           getattr(rules[index], "id", None), result.error)
+    return matches
 
 
 def normalize_tag_name(raw: str | None) -> str:

@@ -207,7 +207,7 @@ class RecoveryManifestTests(unittest.TestCase):
             "--backup",
             str(backup),
             "--expected-app-version",
-            "2.0.0",
+            f"{APPLICATION_VERSION}-mismatch",
         )
 
         self.assertEqual(result.returncode, 4)

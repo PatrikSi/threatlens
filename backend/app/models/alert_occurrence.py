@@ -22,6 +22,16 @@ from app.db.base import Base
 class AlertOccurrence(Base):
     __tablename__ = "alert_occurrences"
     __table_args__ = (
+        Index(
+            "ix_alert_occurrences_team_state_due",
+            "team_id",
+            "lifecycle_state",
+            "due_at",
+        ),
+        CheckConstraint(
+            "(owner_user_id IS NOT NULL AND team_id IS NULL) OR (owner_user_id IS NULL AND team_id IS NOT NULL)",
+            name="ck_alert_occurrences_owner",
+        ),
         UniqueConstraint(
             "rule_id_snapshot",
             "rule_revision",
@@ -101,12 +111,19 @@ class AlertOccurrence(Base):
     rule_id_snapshot: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True), nullable=False
     )
-    owner_user_id: Mapped[uuid.UUID] = mapped_column(
+    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
         index=True,
     )
+    team_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("teams.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+
     item_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey("items.id", ondelete="SET NULL"),
@@ -181,6 +198,20 @@ class AlertOccurrence(Base):
         onupdate=func.now(),
     )
 
+    assignee_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    due_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    escalation_after_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    escalated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     @property
     def is_suppressed(self) -> bool:
         return self.suppressed_at is not None
@@ -229,13 +260,19 @@ class AlertOccurrenceActivity(Base):
 class AlertOccurrenceMetric(Base):
     __tablename__ = "alert_occurrence_metrics"
     __table_args__ = (
+        CheckConstraint(
+            "(owner_user_id IS NOT NULL AND team_id IS NULL) OR (owner_user_id IS NULL AND team_id IS NOT NULL)",
+            name="ck_alert_occurrence_metrics_owner",
+        ),
         UniqueConstraint(
             "bucket_start",
             "owner_user_id",
+            "team_id",
             "severity",
             "lifecycle_state",
             "suppressed",
             name="uq_alert_occurrence_metrics_bucket_dimensions",
+            postgresql_nulls_not_distinct=True,
         ),
         Index(
             "ix_alert_occurrence_metrics_owner_bucket", "owner_user_id", "bucket_start"
@@ -260,9 +297,16 @@ class AlertOccurrenceMetric(Base):
     bucket_start: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
-    owner_user_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )
+    team_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("teams.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+
     severity: Mapped[str] = mapped_column(String(16), nullable=False)
     lifecycle_state: Mapped[str] = mapped_column(String(16), nullable=False)
     suppressed: Mapped[bool] = mapped_column(
@@ -270,6 +314,9 @@ class AlertOccurrenceMetric(Base):
     )
     occurrence_count: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
+    )
+    retention_pruning_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

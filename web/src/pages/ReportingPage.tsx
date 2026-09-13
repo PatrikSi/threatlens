@@ -1,11 +1,12 @@
 import { resolveApiErrorMessage } from '../api/errors'
+import { accessibleQueryData } from '../api/queryData'
 import { ReportBuilder } from './ReportBuilder'
 import { ReportDetailView } from './ReportDetailView'
 import { ReportLibrary } from './ReportLibrary'
 import { ReportSchedulesPanel } from './ReportSchedulesPanel'
 import { ReportTemplatesPanel } from './ReportTemplatesPanel'
 import { ReportingActionFeedback } from './ReportingActionFeedback'
-import { type ReportingTab, useReportingController } from './useReportingController'
+import { type ReportingController, type ReportingTab, useReportingController } from './useReportingController'
 
 const TABS: Array<{ id: ReportingTab; label: string }> = [
   { id: 'reports', label: 'Reports' },
@@ -15,12 +16,17 @@ const TABS: Array<{ id: ReportingTab; label: string }> = [
 
 export function ReportingPage() {
   const controller = useReportingController()
+  return <>{controller.builderDraft.discardDialog}<ReportingContent controller={controller} /></>
+}
+
+function ReportingContent({ controller }: { controller: ReportingController }) {
   const visibleTabs = controller.isAdmin ? TABS : TABS.filter((tab) => tab.id !== 'schedules')
+  const report = accessibleQueryData(controller.reportDetailQuery)
 
   if (controller.reportDetailQuery.isLoading) {
     return <PageStatus message="Loading intelligence report..." />
   }
-  if (controller.reportDetailQuery.data) {
+  if (report) {
     return (
       <div className="space-y-3 sm:space-y-4">
         <ReportingActionFeedback feedback={controller.feedback} />
@@ -35,7 +41,7 @@ export function ReportingPage() {
         )}
         <ReportDetailView
           controller={controller}
-          report={controller.reportDetailQuery.data}
+          report={report}
         />
       </div>
     )

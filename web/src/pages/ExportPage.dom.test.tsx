@@ -22,6 +22,7 @@ vi.mock('../api/client', () => ({
 
 import { ExportPage } from './ExportPage'
 import { triggerBrowserDownload } from './exportPageModel'
+import { invalidateSession } from '../api/sessionLifecycle'
 
 const CAPABILITIES = {
   formats: [
@@ -95,6 +96,14 @@ const PREVIEW = {
   ],
 }
 
+const BACKGROUND_JOB = {
+  id: '00000000-0000-4000-8000-000000000011', format: 'csv', status: 'queued',
+  created_at: '2026-09-08T08:00:00Z', expires_at: '2026-09-09T08:00:00Z',
+  started_at: null, completed_at: null, attempts: 0, completed_items: 0,
+  item_count: null, file_size: null, filename: null, error_code: null,
+  message: null, download_available: false,
+}
+
 let queryClient: QueryClient | null = null
 let root: Root | null = null
 let container: HTMLDivElement | null = null
@@ -140,6 +149,9 @@ beforeEach(() => {
     }
     if (path === '/exports/preview') {
       return Promise.resolve(PREVIEW)
+    }
+    if (path.startsWith('/exports/jobs?')) {
+      return Promise.resolve({ items: [], has_more: false })
     }
     return Promise.reject(new Error(`Unexpected API path: ${path}`))
   })
@@ -303,6 +315,125 @@ describe('ExportPage', () => {
         contentType: 'text/csv',
       })
       await Promise.resolve()
+    })
+    expect(exportPageDomMocks.anchorClick).not.toHaveBeenCalled()
+  })
+
+  it('accepts a durable background job and restores it when the page remounts', async () => {
+    let accepted = false
+    const fallback = exportPageDomMocks.apiFetch.getMockImplementation()!
+    exportPageDomMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
+      if (path === '/exports/jobs') {
+        accepted = true
+        const request = JSON.parse(String(options?.body))
+        expect(request.idempotency_key).toMatch(/^[0-9a-f-]{36}$/)
+        expect(request.format).toBe('csv')
+        return Promise.resolve(BACKGROUND_JOB)
+      }
+      if (path.startsWith('/exports/jobs?')) return Promise.resolve({ items: accepted ? [BACKGROUND_JOB] : [], has_more: false })
+      return fallback(path, options)
+    })
+    const view = renderPage()
+    await waitForPreview(view)
+    await act(async () => {
+      Array.from(view.querySelectorAll('button')).find((button) => button.textContent === 'Generate in background')?.click()
+      await vi.waitFor(() => expect(view.textContent).toContain('Background export accepted'))
+    })
+    expect(exportPageDomMocks.apiDownload).not.toHaveBeenCalled()
+    await act(async () => { root?.unmount(); root = null })
+    queryClient?.clear()
+    view.remove()
+    const restored = renderPage()
+    await waitForPreview(restored)
+    await act(async () => { await vi.waitFor(() => expect(restored.textContent).toContain('Waiting for a worker')) })
+    expect(restored.textContent).toContain('Cancel export')
+  })
+
+  it('retries an ambiguous background acceptance with the same idempotency key', async () => {
+    vi.stubGlobal('crypto', { getRandomValues: crypto.getRandomValues.bind(crypto) })
+    const requests: Record<string, unknown>[] = []
+    const fallback = exportPageDomMocks.apiFetch.getMockImplementation()!
+    exportPageDomMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
+      if (path === '/exports/jobs') {
+        requests.push(JSON.parse(String(options?.body)))
+        return requests.length === 1 ? Promise.reject(new Error('Connection lost after acceptance')) : Promise.resolve(BACKGROUND_JOB)
+      }
+      return fallback(path, options)
+    })
+    const view = renderPage()
+    await waitForPreview(view)
+    const queue = Array.from(view.querySelectorAll('button')).find((button) => button.textContent === 'Generate in background')!
+    await act(async () => {
+      queue.click()
+      await vi.waitFor(() => expect(view.textContent).toContain('Connection lost after acceptance'))
+    })
+    await act(async () => {
+      queue.click()
+      await vi.waitFor(() => expect(requests).toHaveLength(2))
+    })
+    expect(requests[1]).toEqual(requests[0])
+  })
+
+  it('shows a recoverable preparation error without sending an export', async () => {
+    const originalCrypto = crypto
+    vi.stubGlobal('crypto', undefined)
+    const view = renderPage()
+    await waitForPreview(view)
+    const queue = [...view.querySelectorAll('button')].find((entry) => entry.textContent === 'Generate in background')!
+    act(() => queue.click())
+    expect(view.textContent).toContain('Secure random generation is unavailable')
+    expect(view.textContent).toContain('No request was sent')
+    expect(exportPageDomMocks.apiFetch.mock.calls.filter(([path]) => path === '/exports/jobs')).toHaveLength(0)
+    const fallback = exportPageDomMocks.apiFetch.getMockImplementation()!
+    exportPageDomMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => path === '/exports/jobs'
+      ? Promise.resolve(BACKGROUND_JOB) : fallback(path, options))
+    vi.stubGlobal('crypto', originalCrypto)
+    await act(async () => {
+      queue.click()
+      await vi.waitFor(() => expect(view.textContent).toContain('Background export accepted'))
+    })
+    expect(view.textContent).not.toContain('Secure random generation is unavailable')
+  })
+
+  it('downloads a ready background artifact only on request and can delete it', async () => {
+    const ready = { ...BACKGROUND_JOB, status: 'ready', filename: 'saved-export.csv', file_size: 1024, download_available: true }
+    let deleted = false
+    const fallback = exportPageDomMocks.apiFetch.getMockImplementation()!
+    exportPageDomMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
+      if (path.startsWith('/exports/jobs?')) return Promise.resolve({ items: [{ ...ready, ...(deleted ? { status: 'cancelled', filename: null, download_available: false } : {}) }], has_more: false })
+      if (path.endsWith('/cancel')) { deleted = true; return Promise.resolve({ ...ready, status: 'cancelled' }) }
+      return fallback(path, options)
+    })
+    const view = renderPage()
+    await waitForPreview(view)
+    expect(exportPageDomMocks.apiDownload).not.toHaveBeenCalled()
+    await act(async () => {
+      Array.from(view.querySelectorAll('button')).find((button) => button.textContent === 'Download export')?.click()
+      await vi.waitFor(() => expect(exportPageDomMocks.anchorClick).toHaveBeenCalledTimes(1))
+    })
+    expect(exportPageDomMocks.apiDownload.mock.calls[0]?.[0]).toBe(`/exports/jobs/${BACKGROUND_JOB.id}/download`)
+    await act(async () => {
+      Array.from(view.querySelectorAll('button')).find((button) => button.textContent === 'Delete export')?.click()
+      await vi.waitFor(() => expect(view.textContent).toContain('cancelled'))
+    })
+    expect(Array.from(view.querySelectorAll('button')).some((button) => button.textContent === 'Download export')).toBe(false)
+  })
+
+  it('does not download a background artifact returned after a session change', async () => {
+    const fallback = exportPageDomMocks.apiFetch.getMockImplementation()!
+    exportPageDomMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => path.startsWith('/exports/jobs?')
+      ? Promise.resolve({ items: [{ ...BACKGROUND_JOB, status: 'ready', download_available: true }], has_more: false })
+      : fallback(path, options))
+    let finish!: (value: unknown) => void
+    exportPageDomMocks.apiDownload.mockImplementation(() => new Promise((resolve) => { finish = resolve }))
+    const view = renderPage()
+    await waitForPreview(view)
+    await act(async () => {
+      Array.from(view.querySelectorAll('button')).find((button) => button.textContent === 'Download export')?.click()
+      await vi.waitFor(() => expect(finish).toBeDefined())
+      invalidateSession()
+      finish({ blob: new Blob(['private export']), filename: 'private.csv', contentType: 'text/csv' })
+      await vi.waitFor(() => expect(view.textContent).toContain('session changed'))
     })
     expect(exportPageDomMocks.anchorClick).not.toHaveBeenCalled()
   })

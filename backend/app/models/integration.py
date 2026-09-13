@@ -331,6 +331,9 @@ class IntegrationDeliveryMetric(Base):
     attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     duration_total_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     duration_max_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    retention_pruning_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

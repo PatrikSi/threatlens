@@ -175,7 +175,7 @@ export function useInvestigationDetail(investigationId: string) {
       !currentUserQuery.isError &&
       hasRequiredPermissions(
         currentUserQuery.data.access?.permissions ?? [],
-        ['write:investigations'],
+        detail?.team_id ? ['write:investigations', 'write:teams'] : ['write:investigations'],
       ),
   )
   const access = detail

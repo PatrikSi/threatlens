@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint, Uuid, func
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint, Uuid, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -10,6 +10,8 @@ from app.db.base import Base
 class Report(Base):
     __tablename__ = "reports"
     __table_args__ = (
+        CheckConstraint("publication_status IN ('draft', 'review', 'approved', 'published')", name="ck_reports_publication_status"),
+        CheckConstraint("editorial_version >= 1", name="ck_reports_editorial_version"),
         UniqueConstraint(
             "owner_user_id",
             "request_idempotency_key",
@@ -83,6 +85,23 @@ class Report(Base):
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     delivery_requested: Mapped[bool] = mapped_column(nullable=False, default=False, server_default="false")
     delivery_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="summary", server_default="summary")
+    review_required: Mapped[bool] = mapped_column(nullable=False, default=True, server_default="true")
+    publication_status: Mapped[str] = mapped_column(String(16), nullable=False, default="draft", server_default="draft", index=True)
+    editorial_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    editorial_contract_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    last_edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_edited_by_user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    review_revision_hash: Mapped[str | None] = mapped_column(String(64))
+    approved_revision_hash: Mapped[str | None] = mapped_column(String(64))
+    published_revision_hash: Mapped[str | None] = mapped_column(String(64))
+    review_submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    review_submitted_by_user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    approved_by_user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    approval_self_review: Mapped[bool] = mapped_column(nullable=False, default=False, server_default="false")
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    published_by_user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    editorial_note: Mapped[str | None] = mapped_column(Text)
     queued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
@@ -96,3 +115,7 @@ Index(
     "ix_reports_observed_at",
     func.coalesce(Report.generated_at, Report.created_at).label("observed_at"),
 )
+
+Index("ix_reports_created_id", Report.created_at, Report.id)
+Index("ix_reports_title_search", func.to_tsvector(text("'simple'::regconfig"), Report.title),
+      postgresql_using="gin")

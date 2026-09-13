@@ -5,6 +5,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy.orm import Session
+from sqlalchemy import select
 
 from app.api.deps import (
     get_authorization_context,
@@ -22,6 +23,7 @@ from app.core.token_scopes import (
 )
 from app.db.session import get_db
 from app.models.user import User
+from app.models.investigation import Investigation
 from app.schemas.investigation import (
     InvestigationActivityListResponse,
     InvestigationCreate,
@@ -40,11 +42,13 @@ from app.schemas.investigation import (
     InvestigationUpdate,
 )
 from app.services.audit import record_audit
+from app.services.authorization import AuthorizationContext
 from app.services.data_access_policy import DataAccessContext
 from app.services.investigation_evidence_candidates import (
     authorize_evidence_candidate_search,
     list_evidence_candidates,
 )
+from app.services.investigation_membership import assert_current_investigation_write
 from app.services.investigations import (
     InvestigationConflictError,
     InvestigationNotFoundError,
@@ -79,10 +83,43 @@ EVIDENCE_SOURCE_READ_SCOPES = {
     "report": (SCOPE_READ_REPORTS,),
     "alert_occurrence": (SCOPE_READ_ALERTS, SCOPE_READ_ITEMS),
 }
-require_investigation_write = require_permissions(
+_require_investigation_permission = require_permissions(
     SCOPE_WRITE_INVESTIGATIONS,
     denial_detail="Investigation changes require write access to investigations.",
 )
+
+
+def _require_team_write_scope(request: Request) -> None:
+    authorization = get_authorization_context(request)
+    if authorization is None or not authorization.has("write:teams"):
+        raise ApiHTTPException(
+            status_code=403,
+            error_code="team_write_permission_required",
+            detail="Changing team investigations requires write:teams as well as write:investigations.",
+        )
+
+
+def require_investigation_write(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(_require_investigation_permission),
+) -> User:
+    identity = request.path_params.get("investigation_id")
+    if identity is not None:
+        try:
+            investigation_id = uuid.UUID(str(identity))
+        except ValueError:
+            return user  # The route's UUID validator returns the normal 422.
+        if (
+            db.scalar(
+                select(Investigation.team_id).where(
+                    Investigation.id == investigation_id
+                )
+            )
+            is not None
+        ):
+            _require_team_write_scope(request)
+    return user
 
 
 InvestigationPage = Annotated[
@@ -93,6 +130,7 @@ InvestigationPage = Annotated[
 
 @router.get("", response_model=InvestigationListResponse)
 def get_investigations(
+    team_id: uuid.UUID | None = Query(default=None),
     q: str | None = Query(default=None, max_length=255),
     statuses: list[str] = Query(default=[]),
     severities: list[str] = Query(default=[]),
@@ -127,6 +165,7 @@ def get_investigations(
         include_archived=include_archived,
         page=page,
         page_size=page_size,
+        team_id=team_id,
     )
 
 
@@ -135,11 +174,14 @@ def get_investigations(
 )
 def post_investigation(
     payload: InvestigationCreate,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(require_investigation_write),
     data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     try:
+        if payload.team_id is not None:
+            _require_team_write_scope(request)
         investigation = create_investigation(
             db,
             user=user,
@@ -148,6 +190,7 @@ def post_investigation(
             severity=payload.severity,
             visibility=payload.visibility,
             assignee_user_id=payload.assignee_user_id,
+            team_id=payload.team_id,
         )
         record_audit(
             db,
@@ -162,6 +205,7 @@ def post_investigation(
         )
         return _commit_investigation_detail(
             db,
+            authorization=get_authorization_context(request),
             investigation_id=investigation.id,
             user=user,
             data_access=data_access,
@@ -208,6 +252,7 @@ def get_investigation(
 
 @router.patch("/{investigation_id}", response_model=InvestigationDetailResponse)
 def patch_investigation(
+    request: Request,
     investigation_id: uuid.UUID,
     payload: InvestigationUpdate,
     db: Session = Depends(get_db),
@@ -238,6 +283,7 @@ def patch_investigation(
             )
         return _commit_investigation_detail(
             db,
+            authorization=get_authorization_context(request),
             investigation_id=investigation.id,
             user=user,
             data_access=data_access,
@@ -248,6 +294,7 @@ def patch_investigation(
 
 @router.post("/{investigation_id}/members", response_model=InvestigationDetailResponse)
 def post_investigation_member(
+    request: Request,
     investigation_id: uuid.UUID,
     payload: InvestigationMemberAdd,
     db: Session = Depends(get_db),
@@ -274,6 +321,7 @@ def post_investigation_member(
         )
         return _commit_investigation_detail(
             db,
+            authorization=get_authorization_context(request),
             investigation_id=investigation_id,
             user=user,
             data_access=data_access,
@@ -287,6 +335,7 @@ def post_investigation_member(
     response_model=InvestigationDetailResponse,
 )
 def patch_investigation_member(
+    request: Request,
     investigation_id: uuid.UUID,
     member_user_id: uuid.UUID,
     payload: InvestigationMemberUpdate,
@@ -315,6 +364,7 @@ def patch_investigation_member(
             )
         return _commit_investigation_detail(
             db,
+            authorization=get_authorization_context(request),
             investigation_id=investigation_id,
             user=user,
             data_access=data_access,
@@ -328,6 +378,7 @@ def patch_investigation_member(
     response_model=InvestigationDetailResponse,
 )
 def delete_investigation_member(
+    request: Request,
     investigation_id: uuid.UUID,
     member_user_id: uuid.UUID,
     expected_version: int = Query(ge=1),
@@ -354,6 +405,7 @@ def delete_investigation_member(
         )
         return _commit_investigation_detail(
             db,
+            authorization=get_authorization_context(request),
             investigation_id=investigation_id,
             user=user,
             data_access=data_access,
@@ -471,6 +523,7 @@ def post_investigation_evidence(
         )
         return _commit_investigation_detail(
             db,
+            authorization=get_authorization_context(request),
             investigation_id=investigation_id,
             user=user,
             data_access=data_access,
@@ -484,6 +537,7 @@ def post_investigation_evidence(
     response_model=InvestigationDetailResponse,
 )
 def delete_investigation_evidence(
+    request: Request,
     investigation_id: uuid.UUID,
     evidence_id: uuid.UUID,
     expected_version: int = Query(ge=1),
@@ -510,6 +564,7 @@ def delete_investigation_evidence(
         )
         return _commit_investigation_detail(
             db,
+            authorization=get_authorization_context(request),
             investigation_id=investigation_id,
             user=user,
             data_access=data_access,
@@ -545,6 +600,7 @@ def get_investigation_notes(
 
 @router.post("/{investigation_id}/notes", response_model=InvestigationDetailResponse)
 def post_investigation_note(
+    request: Request,
     investigation_id: uuid.UUID,
     payload: InvestigationNoteCreate,
     db: Session = Depends(get_db),
@@ -570,6 +626,7 @@ def post_investigation_note(
         )
         return _commit_investigation_detail(
             db,
+            authorization=get_authorization_context(request),
             investigation_id=investigation_id,
             user=user,
             data_access=data_access,
@@ -582,6 +639,7 @@ def post_investigation_note(
     "/{investigation_id}/notes/{note_id}", response_model=InvestigationDetailResponse
 )
 def patch_investigation_note(
+    request: Request,
     investigation_id: uuid.UUID,
     note_id: uuid.UUID,
     payload: InvestigationNoteUpdate,
@@ -611,6 +669,7 @@ def patch_investigation_note(
             )
         return _commit_investigation_detail(
             db,
+            authorization=get_authorization_context(request),
             investigation_id=investigation_id,
             user=user,
             data_access=data_access,
@@ -623,6 +682,7 @@ def patch_investigation_note(
     "/{investigation_id}/notes/{note_id}", response_model=InvestigationDetailResponse
 )
 def delete_investigation_note(
+    request: Request,
     investigation_id: uuid.UUID,
     note_id: uuid.UUID,
     expected_note_version: int = Query(ge=1),
@@ -651,6 +711,7 @@ def delete_investigation_note(
         )
         return _commit_investigation_detail(
             db,
+            authorization=get_authorization_context(request),
             investigation_id=investigation_id,
             user=user,
             data_access=data_access,
@@ -686,6 +747,7 @@ def get_investigation_activity(
 def _commit_investigation_detail(
     db: Session,
     *,
+    authorization: AuthorizationContext | None,
     investigation_id: uuid.UUID,
     user: User,
     data_access: DataAccessContext,
@@ -695,6 +757,9 @@ def _commit_investigation_detail(
         investigation_id=investigation_id,
         user=user,
         data_access=data_access,
+    )
+    assert_current_investigation_write(
+        db, user=user, authorization=authorization, team_id=response.team_id
     )
     db.commit()
     return response

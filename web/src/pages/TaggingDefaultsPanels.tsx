@@ -1,7 +1,9 @@
+import { Link } from 'react-router-dom'
 import { resolveApiErrorMessage } from '../api/errors'
 import { SettingsPageHeader, SettingsReadOnlyNotice } from '../components/SettingsPageHeader'
 import { BUILTIN_CATEGORIES, formatTaggingCategory } from './taggingSettingsModel'
 import { TaggingSettingsController } from './useTaggingSettingsController'
+import { hasRequiredPermissions } from '../workspace/workspaceModel'
 
 type TaggingPanelProps = {
   controller: TaggingSettingsController
@@ -23,6 +25,7 @@ export function TaggingPageHeader({ controller }: TaggingPanelProps) {
           </div>
         )}
       </SettingsPageHeader>
+      <TaggingRecoveryStatus controller={controller} />
 
       {notice && (
         <p
@@ -39,6 +42,35 @@ export function TaggingPageHeader({ controller }: TaggingPanelProps) {
         </p>
       )}
     </>
+  )
+}
+
+function TaggingRecoveryStatus({ controller }: TaggingPanelProps) {
+  const recovery = controller.bundleQuery.data?.tagging_recovery
+  if (!recovery?.pending) return null
+
+  return (
+    <section aria-label="Incomplete tagging" className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+      <p role="status">
+        Tagging is incomplete for {recovery.pending} accessible items: {recovery.retrying} awaiting automatic retry,
+        {' '}{recovery.needs_attention} need attention.
+      </p>
+      <p className="mt-2">Previous automatic tags are retained until evaluation completes and may be out of date.</p>
+      {recovery.errors.length > 0 && (
+        <ul className="mt-2 list-disc pl-5">
+          {recovery.errors.map((error) => <li key={error.code}>{error.message} ({error.count} items)</li>)}
+        </ul>
+      )}
+      <p className="mt-2">
+        Correct the reported rule, source, or worker issue, then queue retagging for the affected time window.
+        Items that need attention are included when they fall within that window and its limit.
+      </p>
+      {hasRequiredPermissions(controller.currentUserQuery.data?.access?.permissions ?? [], ['read:operations', 'read:items']) && (
+        <Link className="mt-2 inline-flex min-h-11 items-center font-semibold underline" to="/settings/operations?view=processing&work_stage=tagging">
+          Inspect incomplete tagging and select individual items for recovery
+        </Link>
+      )}
+    </section>
   )
 }
 

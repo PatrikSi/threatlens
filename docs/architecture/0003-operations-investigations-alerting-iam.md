@@ -29,6 +29,10 @@ restored from a disaster-recovery archive.
 
 - The admin Operations workspace reports component health, queue progress,
   database/schema state, encryption readability, and recovery history.
+- Readiness routes and Operations diagnostics share dependency probes in
+  `app.services.component_health`. The service returns typed database, Redis,
+  worker-queue, and scheduler results; HTTP access checks and response disclosure
+  remain in the route layer. Operations does not import route implementations.
 - Database backups and restores are host-operated commands. The running web
   process never replaces its own database and never exposes a raw database dump.
 - Backups use PostgreSQL custom-format dumps plus a versioned manifest containing

@@ -48,6 +48,23 @@ describe('alert page model', () => {
     )
   })
 
+  it('decodes adjacent named and numeric entities in one pass', () => {
+    expect(formatAlertPreviewSummary('&AMP;&lt;&gt;&quot;&apos;&#39;&#65;&#x1F600;&NBSP;end')).toBe(
+      '&<>"\'\'A😀 end',
+    )
+  })
+
+  it('preserves one level of escaping in nested entities', () => {
+    expect(formatAlertPreviewSummary('<p>&amp;lt;script&amp;gt; &amp;quot; &#38;lt; &#x26;#65;</p>')).toBe(
+      '&lt;script&gt; &quot; &lt; &#65;',
+    )
+  })
+
+  it('keeps unsupported, malformed and out-of-range entities as readable text', () => {
+    const text = '&unknown; &amp &#xZZ; &#-1; &#1114112; &#x110000;'
+    expect(formatAlertPreviewSummary(text)).toBe(text)
+  })
+
   it('validates suppression as a future paired timestamp and reason', () => {
     const now = new Date('2026-08-27T12:00:00Z')
     expect(getAlertSuppressionValidationError(false, '', '', now)).toBeNull()

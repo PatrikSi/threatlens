@@ -1,8 +1,10 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
+import { captureSessionLease } from '../api/sessionLifecycle'
 import { ApiError, apiFetch } from '../api/client'
 import { useCurrentUser } from '../hooks/useCurrentUser'
+import { rebaseSavedDraft } from '../hooks/rebaseSavedDraft'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import {
   EncryptedDataInventoryResponse,
@@ -124,6 +126,8 @@ export function useFeedsPageController() {
   const [feedStatusPollUntil, setFeedStatusPollUntil] = useState(() => Date.now() + FEED_STATUS_BOOTSTRAP_POLL_MS)
   const [detectedMetadata, setDetectedMetadata] = useState<DetectedFeedMetadata | null>(null)
   const [editingFeedId, setEditingFeedId] = useState<string | null>(null)
+  const editingFeedIdRef = useRef(editingFeedId)
+  editingFeedIdRef.current = editingFeedId
   const [feedEditDraft, setFeedEditDraft] = useState<FeedEditDraft | null>(null)
   const [mobileAddFeedOpen, setMobileAddFeedOpen] = useState(false)
   const [mobileBulkActionsOpen, setMobileBulkActionsOpen] = useState(false)
@@ -228,30 +232,30 @@ export function useFeedsPageController() {
   })
 
   const createFeed = useMutation({
-    mutationFn: () =>
+    mutationFn: (submitted: Parameters<typeof isNewFeedFormDirty>[0]) =>
       apiFetch<Feed>('/feeds', {
         method: 'POST',
         body: JSON.stringify({
-          name: name.trim() || null,
-          url,
-          description: description.trim() || null,
-          site_url: siteUrl.trim() || null,
-          language: language.trim() || null,
-          fetch_mode: fetchMode,
-          fetch_interval_seconds: fetchMode === 'interval' ? interval : null,
-          schedule_cron: fetchMode === 'schedule' ? scheduleCron.trim() : null,
+          name: submitted.name.trim() || null,
+          url: submitted.url,
+          description: submitted.description.trim() || null,
+          site_url: submitted.siteUrl.trim() || null,
+          language: submitted.language.trim() || null,
+          fetch_mode: submitted.fetchMode,
+          fetch_interval_seconds: submitted.fetchMode === 'interval' ? submitted.interval : null,
+          schedule_cron: submitted.fetchMode === 'schedule' ? submitted.scheduleCron.trim() : null,
           enabled: true,
         }),
       }),
-    onSuccess: () => {
-      setName('')
-      setUrl('')
-      setDescription('')
-      setSiteUrl('')
-      setLanguage('')
-      setFetchMode('interval')
-      setInterval(1800)
-      setScheduleCron('0 * * * *')
+    onSuccess: (_saved, submitted) => {
+      setName((current) => current === submitted.name ? '' : current)
+      setUrl((current) => current === submitted.url ? '' : current)
+      setDescription((current) => current === submitted.description ? '' : current)
+      setSiteUrl((current) => current === submitted.siteUrl ? '' : current)
+      setLanguage((current) => current === submitted.language ? '' : current)
+      setFetchMode((current) => current === submitted.fetchMode ? 'interval' : current)
+      setInterval((current) => current === submitted.interval ? 1800 : current)
+      setScheduleCron((current) => current === submitted.scheduleCron ? '0 * * * *' : current)
       setDetectedMetadata(null)
       void queryClient.invalidateQueries({ queryKey: ['feeds'] })
     },
@@ -273,15 +277,17 @@ export function useFeedsPageController() {
         method: 'PATCH',
         body: JSON.stringify(buildFeedUpdatePayload(feed, draft)),
       }),
-    onSuccess: (updatedFeed) => {
+    onSuccess: (updatedFeed, variables) => {
       setManagementNotice('Feed updated.')
       queryClient.setQueryData<Feed[]>(['feeds'], (current) =>
         current?.map((feed) => (feed.id === updatedFeed.id ? updatedFeed : feed)) ?? current,
       )
-      setFeedEditDraft(feedToEditDraft(updatedFeed))
+      if (editingFeedIdRef.current === variables.feed.id) {
+        setFeedEditDraft((current) => current ? rebaseSavedDraft(variables.draft, current, feedToEditDraft(updatedFeed)) : current)
+      }
       setFeedDrafts((previous) => ({
         ...previous,
-        [updatedFeed.id]: feedToScheduleDraft(updatedFeed),
+        [updatedFeed.id]: rebaseSavedDraft(feedToScheduleDraft(variables.feed), previous[updatedFeed.id] ?? feedToScheduleDraft(variables.feed), feedToScheduleDraft(updatedFeed)),
       }))
       setFeedSaveState((previous) => ({
         ...previous,
@@ -313,9 +319,13 @@ export function useFeedsPageController() {
   const bulkRefreshFeeds = useMutation({
     mutationKey: ['feeds', 'bulk-refresh'],
     mutationFn: async (feeds: Feed[]) => {
-      const settled = await mapSettledWithConcurrency(feeds, BULK_FEED_REQUEST_CONCURRENCY, (feed) =>
-        apiFetch(`/feeds/${feed.id}/refresh`, { method: 'POST' }),
+      const lease = captureSessionLease()
+      const settled = await mapSettledWithConcurrency(feeds, BULK_FEED_REQUEST_CONCURRENCY, (feed) => {
+        lease.assertCurrent()
+        return apiFetch(`/feeds/${feed.id}/refresh`, { method: 'POST' })
+      },
       )
+      lease.assertCurrent()
       return summarizeBulkResults(feeds, settled)
     },
     onSuccess: (result) => {
@@ -331,15 +341,19 @@ export function useFeedsPageController() {
   const bulkSetEnabled = useMutation({
     mutationKey: ['feeds', 'bulk-set-enabled'],
     mutationFn: async (payload: { feeds: Feed[]; enabled: boolean }) => {
+      const lease = captureSessionLease()
       const settled = await mapSettledWithConcurrency(
         payload.feeds,
         BULK_FEED_REQUEST_CONCURRENCY,
-        (feed) =>
-          apiFetch<Feed>(`/feeds/${feed.id}`, {
+        (feed) => {
+          lease.assertCurrent()
+          return apiFetch<Feed>(`/feeds/${feed.id}`, {
             method: 'PATCH',
             body: JSON.stringify({ enabled: payload.enabled }),
-          }),
+          })
+        },
       )
+      lease.assertCurrent()
       return { enabled: payload.enabled, ...summarizeBulkResults(payload.feeds, settled) }
     },
     onSuccess: (result) => {
@@ -352,9 +366,13 @@ export function useFeedsPageController() {
   const bulkDeleteFeeds = useMutation({
     mutationKey: ['feeds', 'bulk-delete'],
     mutationFn: async (feeds: Feed[]) => {
-      const settled = await mapSettledWithConcurrency(feeds, BULK_FEED_REQUEST_CONCURRENCY, (feed) =>
-        apiFetch<void>(`/feeds/${feed.id}`, { method: 'DELETE' }),
+      const lease = captureSessionLease()
+      const settled = await mapSettledWithConcurrency(feeds, BULK_FEED_REQUEST_CONCURRENCY, (feed) => {
+        lease.assertCurrent()
+        return apiFetch<void>(`/feeds/${feed.id}`, { method: 'DELETE' })
+      },
       )
+      lease.assertCurrent()
       return summarizeBulkResults(feeds, settled)
     },
   })
@@ -562,7 +580,7 @@ export function useFeedsPageController() {
 
   const onSubmit = (event: FormEvent) => {
     event.preventDefault()
-    createFeed.mutate()
+    createFeed.mutate({ name, url, description, siteUrl, language, fetchMode, interval, scheduleCron })
   }
 
   const onDetectMetadata = () => {
@@ -612,6 +630,7 @@ export function useFeedsPageController() {
   }
 
   const onImportFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const lease = captureSessionLease()
     const file = event.target.files?.[0]
     if (!file) return
 
@@ -629,6 +648,7 @@ export function useFeedsPageController() {
 
     try {
       const text = await file.text()
+      lease.assertCurrent()
       const parsed = JSON.parse(text) as unknown
       const entries = parseImportEntries(parsed)
       const duplicateUrls = findDuplicateUrls(entries)
@@ -638,6 +658,7 @@ export function useFeedsPageController() {
         setImportWarning(`Duplicate feed URLs in import file: ${duplicateUrls.join(', ')}`)
       }
     } catch (error) {
+      if (lease.signal.aborted) return
       setImportData(null)
       setImportFilename('')
       setImportError((error as Error).message)
@@ -647,6 +668,7 @@ export function useFeedsPageController() {
   }
 
   const persistFeedSchedule = async (feedId: string, draft: FeedScheduleDraft) => {
+    const lease = captureSessionLease()
     const feed = (feedsQuery.data ?? []).find((entry) => entry.id === feedId)
     if (!feed) return
 
@@ -684,9 +706,11 @@ export function useFeedsPageController() {
         method: 'PATCH',
         body: JSON.stringify(body),
       })
+      lease.assertCurrent()
       setFeedSaveState((previous) => ({ ...previous, [feedId]: { status: 'saved' } }))
       await queryClient.invalidateQueries({ queryKey: ['feeds'] })
     } catch (error) {
+      if (lease.signal.aborted) return
       setFeedSaveState((previous) => ({
         ...previous,
         [feedId]: { status: 'error', message: resolveMutationError(error, 'Feed schedule could not be updated') },

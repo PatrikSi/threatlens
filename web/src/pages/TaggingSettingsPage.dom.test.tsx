@@ -75,6 +75,7 @@ const taggingPageDomMocks = vi.hoisted(() => ({
   previewRuleMutate: vi.fn(),
   reapplyMutate: vi.fn(),
   feedsError: false,
+  previewTagsTruncated: false,
 }))
 
 const routerMocks = vi.hoisted(() => ({
@@ -131,7 +132,7 @@ vi.mock('@tanstack/react-query', () => ({
       data: undefined,
     }
   },
-  useMutation: (options: { mutationKey?: unknown; onSuccess?: (result: unknown) => void }) => {
+  useMutation: (options: { mutationKey?: unknown; onSuccess?: (result: unknown, variables?: unknown) => void }) => {
     const mutationKey = Array.isArray(options?.mutationKey) ? options.mutationKey.join(':') : String(options?.mutationKey ?? '')
     if (mutationKey === 'tagging:rules:preview') {
       return taggingMutationResult(
@@ -156,10 +157,11 @@ vi.mock('@tanstack/react-query', () => ({
                 updated_at: '2026-04-21T09:00:00Z',
                 matched_sections: ['title'],
                 current_tags: ['existing-tag'],
+                current_tags_truncated: taggingPageDomMocks.previewTagsTruncated,
                 classification: 'vulnerability',
               },
             ],
-          })
+          }, payload)
         }),
       )
     }
@@ -232,6 +234,7 @@ afterEach(() => {
   container = null
   document.body.innerHTML = ''
   taggingPageDomMocks.previewRuleMutate.mockReset()
+  taggingPageDomMocks.previewTagsTruncated = false
   taggingPageDomMocks.deleteRuleMutate.mockReset()
   taggingPageDomMocks.reapplyMutate.mockReset()
   taggingPageDomMocks.saveSettingsMutate.mockReset()
@@ -365,7 +368,9 @@ describe('TaggingSettingsPage DOM workflows', () => {
       previewButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    expect(taggingPageDomMocks.previewRuleMutate).toHaveBeenCalledWith({
+    expect(taggingPageDomMocks.previewRuleMutate).toHaveBeenCalledWith(expect.objectContaining({
+      ruleId: 'rule-1',
+      draft: {
       name: 'VPN disclosures',
       tag_name: 'vpn',
       enabled: true,
@@ -376,8 +381,9 @@ describe('TaggingSettingsPage DOM workflows', () => {
       required_categories: [],
       feed_scope: 'all',
       feed_ids: [],
-      min_classification_confidence: null,
-    })
+      min_classification_confidence: '',
+      },
+    }))
   })
 
   it('protects unsaved rule changes before opening the delete confirmation', () => {
@@ -433,7 +439,7 @@ describe('TaggingSettingsPage DOM workflows', () => {
       confirmDeleteButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    expect(taggingPageDomMocks.deleteRuleMutate).toHaveBeenCalledWith('rule-1')
+    expect(taggingPageDomMocks.deleteRuleMutate).toHaveBeenCalledWith(expect.objectContaining({ ruleId: 'rule-1' }))
   })
 
   it('requires an explicit confirmation before queueing a full retagging pass', () => {
@@ -474,6 +480,7 @@ describe('TaggingSettingsPage DOM workflows', () => {
   })
 
   it('announces tagging save, preview, and reapply feedback through a polite live region', () => {
+    taggingPageDomMocks.previewTagsTruncated = true
     const view = renderPage()
 
     const saveDefaultsButton = Array.from(view.querySelectorAll('button')).find((button) =>
@@ -509,6 +516,7 @@ describe('TaggingSettingsPage DOM workflows', () => {
 
     notice = view.querySelector('[role="status"][aria-live="polite"][aria-atomic="true"]')
     expect(notice?.textContent).toContain('Preview loaded.')
+    expect(view.textContent).toContain('Current tags are abbreviated or limited to the first 25.')
 
     const queueButton = Array.from(view.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Queue retagging'),

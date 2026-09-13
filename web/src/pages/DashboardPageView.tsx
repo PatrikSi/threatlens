@@ -6,6 +6,8 @@ import type { DashboardPageController } from './useDashboardPageController'
 export function DashboardPageView({ controller }: { controller: DashboardPageController }) {
   return (
     <div className="w-full">
+      {!controller.dashboardReady && <p role="status" className="mx-3 my-3 text-sm text-slate dark:text-slate-300">Loading dashboard configuration. Editing becomes available when your layout is ready.</p>}
+      <fieldset disabled={!controller.dashboardReady} className="min-w-0">
       <DashboardToolbar controller={controller} />
       {controller.workspaceDefaultsDegraded && (
         <div
@@ -17,6 +19,7 @@ export function DashboardPageView({ controller }: { controller: DashboardPageCon
       )}
       <DashboardWorkspace controller={controller} />
       <DashboardDialogs controller={controller} />
+      </fieldset>
     </div>
   )
 }

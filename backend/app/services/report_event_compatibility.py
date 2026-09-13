@@ -8,6 +8,10 @@ from sqlalchemy.orm import Session
 from app.models.integration import IntegrationEvent
 from app.models.report import Report
 from app.models.user import User
+from app.services.report_publication import (
+    ReportPublicationError,
+    validate_event_publication,
+)
 from app.services.integration_connectors.base import (
     IntegrationEventCompatibilityError,
     IntegrationEventContextError,
@@ -37,6 +41,7 @@ def report_ready_event_owner_id(
                 "report_ready event owner does not match its immutable actor"
             )
         _require_owner(db, owner_user_id, require_eligible=require_eligible)
+        _require_publication(db, report_id=report_id, event=event)
         return owner_user_id
 
     if event.schema_version != 1:
@@ -49,6 +54,7 @@ def report_ready_event_owner_id(
             "Legacy report_ready event is missing its immutable actor owner"
         )
 
+    _require_owner(db, owner_user_id, require_eligible=require_eligible)
     persisted_report = db.scalar(
         select(Report).where(Report.id == report_id).with_for_update(read=True)
     )
@@ -60,7 +66,9 @@ def report_ready_event_owner_id(
         raise IntegrationEventContextError(
             "Legacy report_ready event actor does not match its source report owner"
         )
-    _require_owner(db, owner_user_id, require_eligible=require_eligible)
+    _require_publication(
+        db, report_id=report_id, event=event, locked_report=persisted_report
+    )
 
     enriched_payload = dict(payload)
     enriched_payload["owner_user_id"] = str(owner_user_id)
@@ -98,7 +106,30 @@ def validate_report_ready_delivery_owner(
         raise IntegrationEventContextError(
             "report_ready delivery owner does not match its source event"
         )
+    if delivery_payload.get("publication") != event.payload_json.get("publication"):
+        raise IntegrationEventContextError(
+            "The report delivery does not match its publication revision."
+        )
     return owner_user_id
+
+
+def _require_publication(
+    db: Session,
+    *,
+    report_id: uuid.UUID,
+    event: IntegrationEvent,
+    locked_report: Report | None = None,
+) -> None:
+    try:
+        validate_event_publication(
+            db,
+            report_id=report_id,
+            payload=event.payload_json,
+            schema_version=event.schema_version,
+            locked_report=locked_report,
+        )
+    except ReportPublicationError as exc:
+        raise IntegrationEventContextError(str(exc)) from exc
 
 
 def _require_owner(

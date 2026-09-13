@@ -682,6 +682,7 @@ def test_reconciliation_records_successful_queue_publication(
         "scanned": 1,
         "queued": 1,
         "enqueue_failed": False,
+        "escalated": 0,
     }
     request = db_session.get(AlertEvaluationRequest, intent.request_id)
     assert request.dispatch_published_at is not None

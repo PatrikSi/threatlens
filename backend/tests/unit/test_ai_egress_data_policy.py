@@ -362,7 +362,7 @@ def test_succeeded_receipt_redelivery_does_not_regress_audit_io_truth(
         nonlocal provider_calls
         provider_calls += 1
         return AICompletionResult(
-            payload={"ok": True},
+            payload={"brief_text": "Synthetic briefing for the receipt replay test."},
             provider="openai_compatible",
             model="test-model",
             latency_ms=1,
@@ -537,7 +537,6 @@ def _run_daily_brief_provider_request(
         execution_checkpoint=None,
         execution_commit=None,
         enforce_egress_data_policy=enforce_ai_egress_data_policy,
-        report_feature_type="report",
         call_ai_json=provider,
         record_task_run_stop_observed=lambda *_args, **_kwargs: None,
         record_usage_event=lambda *_args, **_kwargs: None,
