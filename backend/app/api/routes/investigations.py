@@ -42,11 +42,13 @@ from app.schemas.investigation import (
     InvestigationUpdate,
 )
 from app.services.audit import record_audit
+from app.services.authorization import AuthorizationContext
 from app.services.data_access_policy import DataAccessContext
 from app.services.investigation_evidence_candidates import (
     authorize_evidence_candidate_search,
     list_evidence_candidates,
 )
+from app.services.investigation_membership import assert_current_investigation_write
 from app.services.investigations import (
     InvestigationConflictError,
     InvestigationNotFoundError,
@@ -203,6 +205,7 @@ def post_investigation(
         )
         return _commit_investigation_detail(
             db,
+            authorization=get_authorization_context(request),
             investigation_id=investigation.id,
             user=user,
             data_access=data_access,
@@ -249,6 +252,7 @@ def get_investigation(
 
 @router.patch("/{investigation_id}", response_model=InvestigationDetailResponse)
 def patch_investigation(
+    request: Request,
     investigation_id: uuid.UUID,
     payload: InvestigationUpdate,
     db: Session = Depends(get_db),
@@ -279,6 +283,7 @@ def patch_investigation(
             )
         return _commit_investigation_detail(
             db,
+            authorization=get_authorization_context(request),
             investigation_id=investigation.id,
             user=user,
             data_access=data_access,
@@ -289,6 +294,7 @@ def patch_investigation(
 
 @router.post("/{investigation_id}/members", response_model=InvestigationDetailResponse)
 def post_investigation_member(
+    request: Request,
     investigation_id: uuid.UUID,
     payload: InvestigationMemberAdd,
     db: Session = Depends(get_db),
@@ -315,6 +321,7 @@ def post_investigation_member(
         )
         return _commit_investigation_detail(
             db,
+            authorization=get_authorization_context(request),
             investigation_id=investigation_id,
             user=user,
             data_access=data_access,
@@ -328,6 +335,7 @@ def post_investigation_member(
     response_model=InvestigationDetailResponse,
 )
 def patch_investigation_member(
+    request: Request,
     investigation_id: uuid.UUID,
     member_user_id: uuid.UUID,
     payload: InvestigationMemberUpdate,
@@ -356,6 +364,7 @@ def patch_investigation_member(
             )
         return _commit_investigation_detail(
             db,
+            authorization=get_authorization_context(request),
             investigation_id=investigation_id,
             user=user,
             data_access=data_access,
@@ -369,6 +378,7 @@ def patch_investigation_member(
     response_model=InvestigationDetailResponse,
 )
 def delete_investigation_member(
+    request: Request,
     investigation_id: uuid.UUID,
     member_user_id: uuid.UUID,
     expected_version: int = Query(ge=1),
@@ -395,6 +405,7 @@ def delete_investigation_member(
         )
         return _commit_investigation_detail(
             db,
+            authorization=get_authorization_context(request),
             investigation_id=investigation_id,
             user=user,
             data_access=data_access,
@@ -512,6 +523,7 @@ def post_investigation_evidence(
         )
         return _commit_investigation_detail(
             db,
+            authorization=get_authorization_context(request),
             investigation_id=investigation_id,
             user=user,
             data_access=data_access,
@@ -525,6 +537,7 @@ def post_investigation_evidence(
     response_model=InvestigationDetailResponse,
 )
 def delete_investigation_evidence(
+    request: Request,
     investigation_id: uuid.UUID,
     evidence_id: uuid.UUID,
     expected_version: int = Query(ge=1),
@@ -551,6 +564,7 @@ def delete_investigation_evidence(
         )
         return _commit_investigation_detail(
             db,
+            authorization=get_authorization_context(request),
             investigation_id=investigation_id,
             user=user,
             data_access=data_access,
@@ -586,6 +600,7 @@ def get_investigation_notes(
 
 @router.post("/{investigation_id}/notes", response_model=InvestigationDetailResponse)
 def post_investigation_note(
+    request: Request,
     investigation_id: uuid.UUID,
     payload: InvestigationNoteCreate,
     db: Session = Depends(get_db),
@@ -611,6 +626,7 @@ def post_investigation_note(
         )
         return _commit_investigation_detail(
             db,
+            authorization=get_authorization_context(request),
             investigation_id=investigation_id,
             user=user,
             data_access=data_access,
@@ -623,6 +639,7 @@ def post_investigation_note(
     "/{investigation_id}/notes/{note_id}", response_model=InvestigationDetailResponse
 )
 def patch_investigation_note(
+    request: Request,
     investigation_id: uuid.UUID,
     note_id: uuid.UUID,
     payload: InvestigationNoteUpdate,
@@ -652,6 +669,7 @@ def patch_investigation_note(
             )
         return _commit_investigation_detail(
             db,
+            authorization=get_authorization_context(request),
             investigation_id=investigation_id,
             user=user,
             data_access=data_access,
@@ -664,6 +682,7 @@ def patch_investigation_note(
     "/{investigation_id}/notes/{note_id}", response_model=InvestigationDetailResponse
 )
 def delete_investigation_note(
+    request: Request,
     investigation_id: uuid.UUID,
     note_id: uuid.UUID,
     expected_note_version: int = Query(ge=1),
@@ -692,6 +711,7 @@ def delete_investigation_note(
         )
         return _commit_investigation_detail(
             db,
+            authorization=get_authorization_context(request),
             investigation_id=investigation_id,
             user=user,
             data_access=data_access,
@@ -727,6 +747,7 @@ def get_investigation_activity(
 def _commit_investigation_detail(
     db: Session,
     *,
+    authorization: AuthorizationContext | None,
     investigation_id: uuid.UUID,
     user: User,
     data_access: DataAccessContext,
@@ -736,6 +757,9 @@ def _commit_investigation_detail(
         investigation_id=investigation_id,
         user=user,
         data_access=data_access,
+    )
+    assert_current_investigation_write(
+        db, user=user, authorization=authorization, team_id=response.team_id
     )
     db.commit()
     return response
