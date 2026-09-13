@@ -24,7 +24,9 @@ export function AiStatisticsTrends({ overview }: { overview: AIOpsOverviewRespon
       <p className="mt-1 text-sm text-slate dark:text-white/70">Daily UTC buckets for the selected request window. The first and last days can be partial; retained, accessible events only.</p>
       {overview.since && overview.until && <p className="mt-1 text-xs text-slate dark:text-slate-300">{utcTimestamp(overview.since)} to {utcTimestamp(overview.until)} (end exclusive).</p>}
     </header>
-    {!hasRequests || !selected ? <p role="status" className="rounded-xl border border-dashed border-slate/25 p-6 text-sm dark:border-white/20">No provider requests recorded in this window. Trends will appear as AI requests are recorded.</p> : <>
+    {!hasRequests || !selected ? <p role="status" className="rounded-xl border border-dashed border-slate/25 p-6 text-sm dark:border-white/20">
+      No provider requests recorded in this window. Trends will appear as AI requests are recorded.
+    </p> : <>
       <div className="min-w-0 rounded-lg border border-slate/20 p-3 dark:border-cyan-900/40">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <label htmlFor={`${id}-date`} className="text-sm font-semibold">Trend date</label>
@@ -35,7 +37,10 @@ export function AiStatisticsTrends({ overview }: { overview: AIOpsOverviewRespon
           aria-describedby={`${id}-help`} disabled={points.length === 1}
           onChange={(event) => onSelect(Number(event.target.value))} className="mt-2 h-8 w-full accent-cyan" />
         <p id={`${id}-help`} className="text-xs text-slate dark:text-slate-300">Hover a graph, drag the slider, or use its arrow keys to inspect the same date in every chart.</p>
-        <p className="mt-1 text-xs text-slate dark:text-slate-300">{selected.requests.toLocaleString()} recorded requests · {usageCompleteness(selected)} · {selected.latency_samples == null ? 'Latency sample count unavailable' : `${selected.latency_samples.toLocaleString()} latency measurements`}</p>
+        <p className="mt-1 text-xs text-slate dark:text-slate-300">
+          {selected.requests.toLocaleString()} recorded requests · {usageCompleteness(selected)} ·{' '}
+          {selected.latency_samples == null ? 'Latency sample count unavailable' : `${selected.latency_samples.toLocaleString()} latency measurements`}
+        </p>
       </div>
       <div className="grid min-w-0 gap-3 xl:grid-cols-2">
         <AiTrendChart title="Request outcomes" description="Successful and failed requests share the same count axis." unit="requests"
@@ -46,7 +51,10 @@ export function AiStatisticsTrends({ overview }: { overview: AIOpsOverviewRespon
           series={[series('tokens', 'Recorded tokens', 3, recordedTokens)]} />
         <AiTrendChart title="Request latency" description="Average and P95 of measured requests, including failures. Gaps mean no measurements." unit="ms"
           dates={dates} selectedIndex={selectedIndex} onSelect={onSelect} emptyLabel="No latency measurements available in this window."
-          series={[series('average', 'Average', 2, (point) => measuredLatency(point, 'average_latency_ms')), series('p95', 'P95', 4, (point) => measuredLatency(point, 'p95_latency_ms'), true)]} />
+          series={[
+            series('average', 'Average', 2, (point) => measuredLatency(point, 'average_latency_ms')),
+            series('p95', 'P95', 4, (point) => measuredLatency(point, 'p95_latency_ms'), true),
+          ]} />
         <AiTrendChart title="Success rate" description="Successful requests as a percentage of recorded requests. No requests means no rate." unit="%"
           dates={dates} selectedIndex={selectedIndex} onSelect={onSelect} emptyLabel="No request outcomes available."
           series={[series('success-rate', 'Success rate', 1, successRate)]} />
@@ -56,7 +64,10 @@ export function AiStatisticsTrends({ overview }: { overview: AIOpsOverviewRespon
         <div role="region" aria-label="AI trend data" tabIndex={0} className="mt-2 max-h-80 overflow-auto">
           <table className="min-w-[900px] w-full text-left text-sm">
             <caption className="sr-only">Daily AI request trends in UTC. Unavailable values are not zero.</caption>
-            <thead className="sticky top-0 bg-white dark:bg-[#041612]"><tr>{['Date (UTC)', 'Successful', 'Failed', 'Success rate', 'Recorded tokens', 'Unreported usage', 'Latency samples', 'Average latency', 'P95 latency'].map((label) => <th key={label} scope="col" className="p-2">{label}</th>)}</tr></thead>
+            <thead className="sticky top-0 bg-white dark:bg-[#041612]"><tr>
+              {['Date (UTC)', 'Successful', 'Failed', 'Success rate', 'Recorded tokens', 'Unreported usage', 'Latency samples', 'Average latency', 'P95 latency']
+                .map((label) => <th key={label} scope="col" className="p-2">{label}</th>)}
+            </tr></thead>
             <tbody>{points.map((point) => <tr key={point.bucket} className="border-t border-slate/15 dark:border-white/10">
               <th scope="row" className="whitespace-nowrap p-2 font-medium">{trendDate(point.bucket, true)}</th>
               <td className="p-2">{(point.requests - point.failures).toLocaleString()}</td><td className="p-2">{point.failures.toLocaleString()}</td>

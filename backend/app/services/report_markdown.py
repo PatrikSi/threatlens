@@ -136,7 +136,7 @@ def inline_markup(node: SyntaxTreeNode, sources: dict, *, pdf: bool = False, cit
         tag = "link" if pdf else "a"
         if pdf:
             return f'<link href="{escape(href, quote=True)}" color="#0f766e"><u>{inner}</u></link>'
-        return f'<{tag} href="{escape(href, quote=True)}">{inner}</{tag}>' 
+        return f'<{tag} href="{escape(href, quote=True)}">{inner}</{tag}>'
     return inner
 
 

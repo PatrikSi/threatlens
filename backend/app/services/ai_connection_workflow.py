@@ -84,4 +84,3 @@ def run_connection_test(
         if completion.payload.get("ok") is True
         else "Unexpected response from AI endpoint",
     )
-

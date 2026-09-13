@@ -79,5 +79,3 @@ def _provider_failure_retry_plan(
         retry_delay_seconds=retry_delay_seconds,
         payload=payload,
     )
-
-
