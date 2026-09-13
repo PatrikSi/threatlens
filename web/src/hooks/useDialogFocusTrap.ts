@@ -114,6 +114,11 @@ export function useDialogFocusTrap({
 }: UseDialogFocusTrapArgs) {
   const dismissDisabledRef = useRef(dismissDisabled)
   const onCloseRef = useRef(onClose)
+  const initialFocusTargetRef = useRef(initialFocusRef)
+
+  useEffect(() => {
+    initialFocusTargetRef.current = initialFocusRef
+  }, [initialFocusRef])
 
   useEffect(() => {
     dismissDisabledRef.current = dismissDisabled
@@ -136,7 +141,7 @@ export function useDialogFocusTrap({
       const focusTarget = resolveDialogInitialFocusTarget({
         dialog: dialogRef.current,
         closeButton: closeButtonRef.current,
-        initialFocus: initialFocusRef?.current ?? null,
+        initialFocus: initialFocusTargetRef.current?.current ?? null,
         dismissDisabled: dismissDisabledRef.current,
       })
       focusTarget?.focus()
@@ -168,5 +173,7 @@ export function useDialogFocusTrap({
       window.cancelAnimationFrame(frame)
       layer.release()
     }
-  }, [closeButtonRef, dialogRef, initialFocusRef, open])
+    // Pending/error changes can change the initial-focus ref. Keep this layer's
+    // original return target until it actually closes.
+  }, [closeButtonRef, dialogRef, open])
 }

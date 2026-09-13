@@ -3,13 +3,45 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { DialogSurface } from '../components/ConfirmDialog'
+import { ConfirmDialog, DialogSurface } from '../components/ConfirmDialog'
 import { registerDialogLayer } from './dialogStack'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 afterEach(() => { document.body.innerHTML = ''; document.body.style.overflow = '' })
 
 describe('dialog stack', () => {
+  it('keeps the opener and nested dialog order through confirmation pending and failure transitions', () => {
+    const opener = document.createElement('button')
+    opener.textContent = 'Recover selected work'
+    const container = document.createElement('div')
+    document.body.append(opener, container)
+    const root = createRoot(container)
+    const close = vi.fn()
+    const verificationClose = vi.fn()
+    const render = (open: boolean, pending: boolean, verification = false) => act(() => root.render(<>
+      <ConfirmDialog open={open} title="Recover work?" confirmLabel="Recover" isConfirming={pending} onConfirm={() => undefined} onCancel={close} />
+      <DialogSurface open={verification} title="Session verification unavailable" dismissDisabled onClose={verificationClose} />
+    </>))
+    try {
+      opener.focus()
+      render(true, false)
+      document.querySelector<HTMLButtonElement>('[role=alertdialog] button')!.focus()
+      render(true, true, true)
+      render(true, false, true)
+      act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })))
+      expect(close).not.toHaveBeenCalled()
+      expect(verificationClose).not.toHaveBeenCalled()
+      expect(document.querySelector('[role=alertdialog]')!.closest('[inert]')).not.toBeNull()
+      expect(document.querySelector('[role=dialog]')!.closest('[inert]')).toBeNull()
+      render(true, false)
+      render(false, false)
+      expect(document.activeElement).toBe(opener)
+      expect(opener.hasAttribute('inert')).toBe(false)
+    } finally {
+      act(() => root.unmount())
+    }
+  })
+
   it.each(['parent-first', 'child-first'])('restores the baseline after %s removal', (order) => {
     document.body.innerHTML = '<main aria-hidden="false"><button>Open</button></main><aside inert aria-hidden="true"></aside><div id="outer"><button>Nested</button></div><div id="inner"></div>'
     const main = document.querySelector('main')!
