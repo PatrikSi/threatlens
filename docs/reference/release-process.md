@@ -151,7 +151,7 @@ That sequence intentionally refreshes the checked-in backend runtime lockfile, b
 
 The four generated `*-package-legal/` trees preserve upstream legal files byte-for-byte. Repository diff hygiene therefore excludes those trees from whitespace-style and conflict-marker heuristics while continuing to check first-party compliance files, dependency manifests, package inventories, metadata, and source code.
 
-The backend image installs its Python application dependency layer from the checked-in `backend/requirements-lock.txt` file, and the frontend image resolves its application dependency layer from `web/package-lock.json`. The Dockerfiles and compose base images are pinned to explicit version tags, and the repository Dockerfiles do not install additional live apt packages during backend or frontend builds. ThreatLens still does not claim full byte-for-byte rebuild reproducibility, because rebuilds continue to depend on external registries serving those base image tags and lockfile-resolved application packages.
+The backend image installs its Python application dependency layer from the checked-in `backend/requirements-lock.txt` file, and the frontend image resolves its application dependency layer from `web/package-lock.json`. The Dockerfiles and Compose base images use explicit version tags. The backend installs font packages from apt, and the web image applies selected Alpine package upgrades during builds. ThreatLens does not claim byte-for-byte rebuild reproducibility: builds depend on external registries, OS package repositories, and lockfile-resolved application packages. Regenerate and review the packaged OS inventories for the actual release images.
 
 ## Files to Review Before Release
 
