@@ -531,7 +531,10 @@ def _build_coverage_stats(
     )
     last_ai_run_at = db.scalar(
         select(AITaskRun.finished_at)
-        .where(_run_access_predicate(data_access))
+        .where(
+            AITaskRun.finished_at.is_not(None),
+            _run_access_predicate(data_access),
+        )
         .order_by(AITaskRun.finished_at.desc())
         .limit(1)
     )
