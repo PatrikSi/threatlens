@@ -193,10 +193,14 @@ def prune_oversized_parent(
             .order_by(*keys)
             .limit(remaining)
             .with_for_update(skip_locked=True)
+            .cte("pruning_child_rows")
+            .prefix_with("MATERIALIZED")
         )
+        # Evaluate the locked LIMIT once. A nested-loop rescan can otherwise
+        # skip rows already deleted by this statement and select replacements.
         result = db.execute(
             delete(child)
-            .where(tuple_(*keys).in_(child_ids))
+            .where(tuple_(*keys).in_(select(child_ids)))
             .execution_options(synchronize_session=False)
         )
         pruned += int(result.rowcount or 0)
