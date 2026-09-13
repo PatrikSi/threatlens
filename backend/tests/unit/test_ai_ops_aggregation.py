@@ -36,14 +36,16 @@ def test_database_p95_matches_existing_nearest_rank_and_even_ties(db_session, co
     db_session.add_all(
         [
             AIUsageEvent(
-                feature_type="summary", success=True, latency_ms=value, created_at=NOW
+                feature_type="summary", success=True, latency_ms=value,
+                created_at=NOW - timedelta(microseconds=1),
             )
             for value in values + [None]
         ]
     )
     db_session.add(
         AIUsageEvent(
-            feature_type="summary", success=False, latency_ms=9999, created_at=NOW
+            feature_type="summary", success=False, latency_ms=9999,
+            created_at=NOW - timedelta(microseconds=1),
         )
     )
     db_session.flush()
@@ -55,6 +57,7 @@ def test_database_p95_matches_existing_nearest_rank_and_even_ties(db_session, co
     points = ai_ops_metrics._build_time_series(db_session, since=SINCE, now=NOW)
     assert len(points) == 3
     assert points[-1].p95_latency_ms == _percentile(values + [9999], 0.95)
+    assert points[-1].latency_samples == count + 1
     assert points[0].requests == points[0].p95_latency_ms == 0
 
 
@@ -110,6 +113,10 @@ def test_overview_preserves_utc_buckets_nulls_failures_and_daily_brief_counts(
     )
 
     assert overview.kpis.total_requests == 5
+    assert overview.since == SINCE
+    assert overview.until == NOW
+    assert overview.bucket_unit == "day"
+    assert overview.bucket_timezone == "UTC"
     assert overview.kpis.success_rate_pct == 60
     assert overview.kpis.total_tokens == 65
     assert overview.kpis.average_latency_ms == 20
@@ -131,6 +138,8 @@ def test_overview_preserves_utc_buckets_nulls_failures_and_daily_brief_counts(
     ]
     assert overview.time_series[1].average_latency_ms == 350
     assert overview.time_series[1].p95_latency_ms == 1000
+    assert overview.time_series[1].latency_samples == 3
+    assert overview.time_series[1].known_usage_requests == 3
     assert overview.time_series[1].daily_brief_successes == 1
     assert overview.time_series[1].daily_brief_failures == 1
     assert overview.time_series[1].daily_brief_skips == 1
@@ -139,6 +148,89 @@ def test_overview_preserves_utc_buckets_nulls_failures_and_daily_brief_counts(
     assert overview.endpoint_health.timeout_failures == 1
     assert overview.endpoint_health.last_auth_error == "403 FORBIDDEN"
     assert overview.endpoint_health.last_provider_error == "Provider TIMEOUT"
+
+
+def test_time_series_distinguishes_missing_measurements_from_recorded_zero(db_session):
+    db_session.add_all([
+        AIUsageEvent(
+            feature_type="summary", success=True, created_at=SINCE,
+            latency_ms=0, total_tokens=0,
+        ),
+        AIUsageEvent(
+            feature_type="summary", success=True,
+            created_at=SINCE + timedelta(days=1),
+        ),
+        AIUsageEvent(
+            feature_type="report", success=False,
+            created_at=NOW - timedelta(minutes=1), latency_ms=300,
+        ),
+        AIUsageEvent(
+            feature_type="report", success=True,
+            created_at=NOW - timedelta(minutes=1), latency_ms=100, total_tokens=50,
+        ),
+    ])
+    db_session.flush()
+
+    first, middle, last = ai_ops_metrics._build_time_series(
+        db_session, since=SINCE, now=NOW
+    )
+
+    assert first.requests == first.latency_samples == first.known_usage_requests == 1
+    assert first.average_latency_ms == first.p95_latency_ms == first.total_tokens == 0
+    assert middle.requests == 1
+    assert middle.latency_samples == middle.known_usage_requests == 0
+    assert last.requests == last.latency_samples == 2
+    assert last.failures == last.known_usage_requests == 1
+    assert last.average_latency_ms == 200
+    assert last.p95_latency_ms == 300
+    assert last.total_tokens == 50
+
+
+def test_overview_excludes_future_and_exact_upper_boundary_events(db_session, monkeypatch):
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return NOW
+
+    monkeypatch.setattr(ai_ops_metrics, "datetime", FixedDatetime)
+    db_session.add(AIUsageEvent(
+        feature_type="summary", success=True, created_at=SINCE,
+        model="included", latency_ms=20, total_tokens=10,
+        prompt_tokens=6, completion_tokens=4,
+    ))
+    for timestamp in (SINCE - timedelta(microseconds=1), NOW, NOW + timedelta(days=10)):
+        db_session.add(AIUsageEvent(
+            feature_type="report", success=False, created_at=timestamp,
+            model="excluded", latency_ms=9999, total_tokens=9999,
+            prompt_tokens=9999, completion_tokens=9999,
+            failure_category="read_timeout", error="outside-window",
+        ))
+        db_session.add(AITaskRun(
+            task_type="daily_brief", trigger_source="manual", status="error",
+            created_at=timestamp,
+        ))
+    db_session.flush()
+
+    result = ai_ops_metrics.build_ai_ops_overview(
+        db_session, days=2, live_status_loader=_live
+    )
+
+    assert result.kpis.total_requests == 1
+    assert result.kpis.total_tokens == 10
+    assert result.kpis.average_latency_ms == result.kpis.p95_latency_ms == 20
+    assert [row.model for row in result.per_model] == ["included"]
+    assert result.token_efficiency.average_total_tokens == 10
+    assert result.token_efficiency.average_prompt_tokens == 6
+    assert result.token_efficiency.average_completion_tokens == 4
+    assert result.endpoint_health.last_provider_error is None
+    assert result.endpoint_health.timeout_failures == 0
+    assert [point.bucket for point in result.time_series] == [
+        "2026-09-06", "2026-09-07", "2026-09-08",
+    ]
+    assert sum(point.requests for point in result.time_series) == 1
+    assert sum(point.latency_samples for point in result.time_series) == 1
+    assert sum(point.known_usage_requests for point in result.time_series) == 1
+    assert sum(point.daily_brief_failures for point in result.time_series) == 0
 
 
 def test_overview_materializes_groups_instead_of_event_or_run_history(db_session):
@@ -223,4 +315,5 @@ def test_empty_overview_keeps_zero_metrics_and_no_expensive_feature(db_session):
     assert result.token_efficiency.top_expensive_feature is None
     assert result.token_efficiency.average_total_tokens == 0
     assert len(result.time_series) == 2
+    assert all(point.latency_samples == point.known_usage_requests == 0 for point in result.time_series)
     assert result.per_model == []

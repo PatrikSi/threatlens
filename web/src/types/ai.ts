@@ -361,6 +361,8 @@ export interface AITimeSeriesPointResponse {
   total_tokens: number
   average_latency_ms: number
   p95_latency_ms: number
+  latency_samples?: number
+  known_usage_requests?: number
   daily_brief_successes: number
   daily_brief_failures: number
   daily_brief_skips: number
@@ -453,6 +455,10 @@ export interface AICacheStatsResponse {
 }
 
 export interface AIOpsOverviewResponse {
+  since?: string | null
+  until?: string | null
+  bucket_unit?: 'day'
+  bucket_timezone?: 'UTC'
   kpis: AIOverviewKpiResponse
   live: AILiveStatusResponse
   per_model: AIOverviewPerModelResponse[]
