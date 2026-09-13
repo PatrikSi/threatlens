@@ -1,0 +1,300 @@
+{
+  "baseline_revision": "dafe832dc7ce74ac142117e78e9b902a1f20dbca",
+  "candidate_revision": "09485b41ae5b6daaa7edda52adc76bec9b3cb1d9",
+  "compatible": true,
+  "conclusive": true,
+  "insufficient_required_samples": [],
+  "metrics": [
+    {
+      "baseline_p95_ms": 391.945,
+      "candidate_p95_ms": 276.42,
+      "change_percent": -29.475,
+      "name": "ai_connection",
+      "regressed": false,
+      "status": "compared"
+    },
+    {
+      "baseline_p95_ms": 391.945,
+      "candidate_p95_ms": 276.42,
+      "change_percent": -29.475,
+      "name": "ai_connection:succeeded",
+      "regressed": false,
+      "status": "compared"
+    },
+    {
+      "minimum_samples": 20,
+      "name": "async_export",
+      "status": "insufficient_samples"
+    },
+    {
+      "minimum_samples": 20,
+      "name": "async_export:policy_conflict",
+      "status": "insufficient_samples"
+    },
+    {
+      "minimum_samples": 20,
+      "name": "async_export:succeeded",
+      "status": "insufficient_samples"
+    },
+    {
+      "baseline_p95_ms": 100.967,
+      "candidate_p95_ms": 103.112,
+      "change_percent": 2.124,
+      "name": "deadline:dns",
+      "regressed": false,
+      "status": "compared"
+    },
+    {
+      "baseline_p95_ms": 101.866,
+      "candidate_p95_ms": 103.182,
+      "change_percent": 1.292,
+      "name": "deadline:headers",
+      "regressed": false,
+      "status": "compared"
+    },
+    {
+      "baseline_p95_ms": 530.925,
+      "candidate_p95_ms": 495.299,
+      "change_percent": -6.71,
+      "name": "export",
+      "regressed": false,
+      "status": "compared"
+    },
+    {
+      "minimum_samples": 20,
+      "name": "export:policy_conflict",
+      "status": "insufficient_samples"
+    },
+    {
+      "baseline_p95_ms": 441.589,
+      "candidate_p95_ms": 433.668,
+      "change_percent": -1.794,
+      "name": "export:succeeded",
+      "regressed": false,
+      "status": "compared"
+    },
+    {
+      "baseline_p95_ms": 168.823,
+      "candidate_p95_ms": 96.898,
+      "change_percent": -42.604,
+      "name": "governance",
+      "regressed": false,
+      "status": "compared"
+    },
+    {
+      "baseline_p95_ms": 1990.844,
+      "candidate_p95_ms": 1934.263,
+      "change_percent": -2.842,
+      "name": "queue_wait:classify_item",
+      "regressed": false,
+      "status": "compared"
+    },
+    {
+      "baseline_p95_ms": 240.011,
+      "candidate_p95_ms": 259.83,
+      "change_percent": 8.258,
+      "name": "queue_wait:dispatch_processing_work",
+      "regressed": false,
+      "status": "compared"
+    },
+    {
+      "baseline_p95_ms": 2392.521,
+      "candidate_p95_ms": 1795.188,
+      "change_percent": -24.967,
+      "name": "queue_wait:execute_processing_work",
+      "regressed": false,
+      "status": "compared"
+    },
+    {
+      "baseline_p95_ms": 2049.884,
+      "candidate_p95_ms": 1589.783,
+      "change_percent": -22.445,
+      "name": "queue_wait:extract_item_iocs",
+      "regressed": false,
+      "status": "compared"
+    },
+    {
+      "baseline_p95_ms": 2214.308,
+      "candidate_p95_ms": 2109.107,
+      "change_percent": -4.751,
+      "name": "queue_wait:fetch_article",
+      "regressed": false,
+      "status": "compared"
+    },
+    {
+      "baseline_p95_ms": 551.093,
+      "candidate_p95_ms": 523.97,
+      "change_percent": -4.922,
+      "name": "queue_wait:fetch_feed",
+      "regressed": false,
+      "status": "compared"
+    },
+    {
+      "baseline_p95_ms": 1881.704,
+      "candidate_p95_ms": 1544.819,
+      "change_percent": -17.903,
+      "name": "queue_wait:process_alert_evaluation",
+      "regressed": false,
+      "status": "compared"
+    },
+    {
+      "baseline_p95_ms": 1904.631,
+      "candidate_p95_ms": 1810.917,
+      "change_percent": -4.92,
+      "name": "queue_wait:route_integration_event",
+      "regressed": false,
+      "status": "compared"
+    },
+    {
+      "baseline_p95_ms": 302.113,
+      "candidate_p95_ms": 186.74,
+      "change_percent": -38.189,
+      "name": "task:classify_item",
+      "regressed": false,
+      "status": "compared"
+    },
+    {
+      "baseline_p95_ms": 430.234,
+      "candidate_p95_ms": 373.647,
+      "change_percent": -13.153,
+      "name": "task:dispatch_processing_work",
+      "regressed": false,
+      "status": "compared"
+    },
+    {
+      "baseline_p95_ms": 155.88,
+      "candidate_p95_ms": 82.12,
+      "change_percent": -47.318,
+      "name": "task:execute_processing_work",
+      "regressed": false,
+      "status": "compared"
+    },
+    {
+      "baseline_p95_ms": 53.763,
+      "candidate_p95_ms": 31.508,
+      "change_percent": -41.395,
+      "name": "task:extract_item_iocs",
+      "regressed": false,
+      "status": "compared"
+    },
+    {
+      "baseline_p95_ms": 287.174,
+      "candidate_p95_ms": 279.366,
+      "change_percent": -2.719,
+      "name": "task:fetch_article",
+      "regressed": false,
+      "status": "compared"
+    },
+    {
+      "baseline_p95_ms": 986.634,
+      "candidate_p95_ms": 1010.06,
+      "change_percent": 2.374,
+      "name": "task:fetch_feed",
+      "regressed": false,
+      "status": "compared"
+    },
+    {
+      "baseline_p95_ms": 67.476,
+      "candidate_p95_ms": 41.822,
+      "change_percent": -38.019,
+      "name": "task:process_alert_evaluation",
+      "regressed": false,
+      "status": "compared"
+    },
+    {
+      "baseline_p95_ms": 57.671,
+      "candidate_p95_ms": 31.628,
+      "change_percent": -45.158,
+      "name": "task:route_integration_event",
+      "regressed": false,
+      "status": "compared"
+    },
+    {
+      "absolute_change": 8081408,
+      "baseline": 66945024,
+      "candidate": 75026432,
+      "change_percent": 12.072,
+      "name": "memory.process_rss_increase_bytes",
+      "regressed": false,
+      "status": "single_run_observation"
+    },
+    {
+      "absolute_change": 6426624,
+      "baseline": 340987904,
+      "candidate": 347414528,
+      "change_percent": 1.885,
+      "name": "memory.process_rss_peak_bytes",
+      "regressed": false,
+      "status": "single_run_observation"
+    },
+    {
+      "absolute_change": 6365184,
+      "baseline": 368533504,
+      "candidate": 374898688,
+      "change_percent": 1.727,
+      "name": "watchdog.owned_process_tree_rss_peak_bytes",
+      "regressed": false,
+      "status": "single_run_observation"
+    },
+    {
+      "absolute_change": 0.025000000000000355,
+      "baseline": 11.978,
+      "candidate": 12.003,
+      "change_percent": 0.209,
+      "name": "queue.recovery_ms",
+      "regressed": false,
+      "status": "single_run_observation"
+    },
+    {
+      "absolute_change": 1,
+      "baseline": 25,
+      "candidate": 26,
+      "change_percent": 4.0,
+      "name": "queue.depth_peak",
+      "regressed": false,
+      "status": "single_run_observation"
+    },
+    {
+      "absolute_change": -2206.3630000000003,
+      "baseline": 5327.439,
+      "candidate": 3121.076,
+      "change_percent": -41.415,
+      "name": "queue.oldest_pending_age_peak_ms",
+      "regressed": false,
+      "status": "single_run_observation"
+    },
+    {
+      "absolute_change": -133.626,
+      "baseline": 259.536,
+      "candidate": 125.91,
+      "change_percent": -51.486,
+      "name": "database.sampled_lock_waiting_query_age_peak_ms",
+      "regressed": false,
+      "status": "single_run_observation"
+    }
+  ],
+  "outcomes": {
+    "baseline": {
+      "ai_succeeded": 301,
+      "deadline_dns_observed": 6,
+      "deadline_headers_observed": 6,
+      "exports_policy_conflict": 12,
+      "exports_succeeded": 289,
+      "governance_succeeded": 300,
+      "ingestion_recovered": 1,
+      "processing_repair_dispatches": 120
+    },
+    "candidate": {
+      "ai_succeeded": 301,
+      "deadline_dns_observed": 6,
+      "deadline_headers_observed": 6,
+      "exports_policy_conflict": 6,
+      "exports_succeeded": 295,
+      "governance_succeeded": 300,
+      "ingestion_recovered": 1,
+      "processing_repair_dispatches": 120
+    }
+  },
+  "regression_threshold_percent": 20,
+  "regressions": []
+}
