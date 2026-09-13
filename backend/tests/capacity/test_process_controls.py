@@ -189,8 +189,16 @@ runner.execute_bounded = substitute
 sys.argv = ['capacity', '--output', {str(tmp_path / 'output.json')!r}]
 runner.main()
 """
+    # This fixture substitutes its own child and owns no database or Redis.
+    # The real CLI deliberately refuses inherited external fixture services.
+    supervisor_env = {
+        name: value for name, value in os.environ.items()
+        if name not in {"THREATLENS_TEST_DATABASE_URL", "THREATLENS_TEST_REDIS_URL"}
+    }
     sibling = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], start_new_session=True)
-    supervisor = subprocess.Popen([sys.executable, "-c", code], cwd=tmp_path, start_new_session=True)
+    supervisor = subprocess.Popen(
+        [sys.executable, "-c", code], cwd=tmp_path, env=supervisor_env, start_new_session=True
+    )
     try:
         until = time.monotonic() + 10
         while not child_file.exists() and time.monotonic() < until:
