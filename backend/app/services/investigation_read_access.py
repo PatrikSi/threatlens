@@ -8,12 +8,11 @@ from sqlalchemy.orm import Session
 
 from app.models.investigation import Investigation, InvestigationMember
 from app.models.user import User
-from app.models.team import Team
 from app.services.authorization import (
     authorization_context_for_user,
     fence_authorization_context,
 )
-from app.services.team_access import team_access_predicate
+from app.services.team_access import lock_team_for_current_access, team_access_predicate
 from app.services.data_access_envelopes import (
     DATA_ACCESS_RESOURCE_INVESTIGATION,
     data_access_envelope_predicate,
@@ -242,11 +241,7 @@ def lock_investigation_team(
 ) -> bool:
     """Caller holds IAM/actor fences; team precedes the investigation row."""
     return (
-        db.scalar(
-            select(Team.id)
-            .where(Team.id == team_id, team_access_predicate(Team.id, user_id))
-            .with_for_update(read=True, of=Team)
-        )
+        lock_team_for_current_access(db, team_id=team_id, user_id=user_id)
         is not None
     )
 
