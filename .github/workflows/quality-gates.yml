@@ -398,17 +398,9 @@ jobs:
       THREATLENS_SMOKE_PLATFORM: linux/${{ matrix.arch }}
     # Direct push/PR runs have no input (`null`); only a reusable caller's
     # explicit false disables this job.
-    if: >-
-      ${{
-        toJSON(inputs.run_container_smoke) != 'false' &&
-        needs.backend.result == 'success' &&
-        needs.frontend.result == 'success' &&
-        needs.migrations.result == 'success'
-      }}
-    needs:
-      - backend
-      - frontend
-      - migrations
+    # These isolated builds consume no test-job artifacts. Run them independently
+    # so a test failure does not hide deployment failures in the same candidate.
+    if: ${{ toJSON(inputs.run_container_smoke) != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 50
     steps:
