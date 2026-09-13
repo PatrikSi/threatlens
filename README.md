@@ -146,11 +146,17 @@ ThreatLens works without AI.
 
 ## Useful Commands
 
+Existing installations using a single database role must first complete the
+[offline database-role cutover](docs/pages/database-privileges.md#existing-installations-explicit-offline-cutover).
+The current Compose configuration requires separate runtime and migration
+credentials; the commands below apply after that cutover. Keep existing database
+credentials, encryption keys and volumes. Back up before applying migrations.
+
 Update to the latest published images:
 
 ```bash
 docker compose pull
-docker compose stop api beat worker worker-ai worker-maintenance worker-notifications
+docker compose stop --timeout 300 api beat worker worker-ai worker-exports worker-maintenance worker-notifications
 docker compose up -d
 ```
 
@@ -158,7 +164,7 @@ Update to a pinned release:
 
 ```bash
 THREATLENS_IMAGE_TAG=1.0.0 docker compose pull
-docker compose stop api beat worker worker-ai worker-maintenance worker-notifications
+docker compose stop --timeout 300 api beat worker worker-ai worker-exports worker-maintenance worker-notifications
 THREATLENS_IMAGE_TAG=1.0.0 docker compose up -d
 ```
 
@@ -171,6 +177,11 @@ so an older maintenance process cannot race the new policies.
 Migration `0086_classification_versions` also requires the stopped-writer
 [classification recovery cutover](docs/reference/pipeline.md#classification-recovery-cutover)
 and scans retained article text once to reconcile historical processing state.
+The [team](docs/pages/teams.md) and [report review](docs/pages/reporting.md)
+migrations also require every API and worker to be replaced together. New report
+jobs use the editorial queue; upgraded AI workers must consume
+`ai,ai-reports-v2,ai-reports-v3`. Existing reports and schedules retain their
+publication policy, while new reports and schedules require review by default.
 
 Check services:
 
