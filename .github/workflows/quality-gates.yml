@@ -464,6 +464,15 @@ jobs:
               name: {"platform": os.environ["THREATLENS_SMOKE_PLATFORM"]}
               for name in service_names if name not in {"db", "redis"}
           }
+          if os.environ["THREATLENS_SMOKE_ARCH"] == "arm64":
+              # Match exact-image publication's QEMU startup allowance. Native
+              # smoke retains the normal deployment health-check budgets.
+              for name, service in services.items():
+                  if name.startswith("worker") or name == "beat":
+                      service["healthcheck"] = {
+                          "interval": "90s", "timeout": "180s",
+                          "retries": 2, "start_period": "120s",
+                      }
           services["web"]["build"] = {
               "context": str(root / "web"),
               "dockerfile": str(root / "docker/web.Dockerfile"),
@@ -479,7 +488,13 @@ jobs:
           VCS_REF: ${{ github.sha }}
         run: |
           THREATLENS_BUILD_VERSION="$(cat VERSION)" timeout 30m docker compose -f docker-compose.yml -f docker-compose.build.yml -f "$THREATLENS_WEB_SMOKE_OVERRIDE" build --pull
-          THREATLENS_BUILD_VERSION="$(cat VERSION)" timeout 5m docker compose -f docker-compose.yml -f docker-compose.build.yml -f "$THREATLENS_WEB_SMOKE_OVERRIDE" up -d --no-build --wait --wait-timeout 180
+          start_timeout=5m
+          wait_timeout=180
+          if [[ "$THREATLENS_SMOKE_ARCH" == arm64 ]]; then
+            start_timeout=10m
+            wait_timeout=480
+          fi
+          THREATLENS_BUILD_VERSION="$(cat VERSION)" timeout "$start_timeout" docker compose -f docker-compose.yml -f docker-compose.build.yml -f "$THREATLENS_WEB_SMOKE_OVERRIDE" up -d --no-build --wait --wait-timeout "$wait_timeout"
 
       - name: Verify running stack
         run: |
@@ -498,7 +513,7 @@ jobs:
             fi
             sleep 5
           done
-          test "$(curl --fail --silent --show-error --connect-timeout 5 --max-time 10 http://localhost:3000/api/openapi.json | jq -r '.info.version')" = "$(cat VERSION)"
+          test "$(curl --fail --silent --show-error --connect-timeout 5 --max-time 60 http://localhost:3000/api/openapi.json | jq -r '.info.version')" = "$(cat VERSION)"
           curl --fail --silent --show-error --connect-timeout 5 --max-time 10 http://localhost:3000/theme-init.js | cmp web/public/theme-init.js -
           # Expand the user lookup inside the container's shell.
           # shellcheck disable=SC2016
