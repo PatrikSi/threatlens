@@ -11,6 +11,10 @@ Before publishing a public tag, image, or source release:
 3. Verify that the OpenAPI contract anchor in `docs/reference/openapi.json` (`info.x-threatlens-contract-sha256`) is the one expected for the release. The tag workflow copies it into the generated GitHub release notes.
 4. Verify that bundled license texts and package legal inventories still match the shipped runtime stack and assets.
 5. Refresh the image build-context mirrors under `backend/compliance/` and `web/compliance/`.
+   Verify the checked-in inventories and legal files against the built native
+   image pair with `python3 scripts/verify_image_dependency_artifacts.py
+   --backend-image IMAGE --web-image IMAGE`. The reference OS inventory is
+   qualified on amd64; each image also ships its own platform's inventory.
 6. For capacity-sensitive changes, run the manual **Capacity release comparison**
    workflow against two committed refs with the same measurement contract, or
    run both refs sequentially on the target host. Keep the result artifacts and
@@ -50,6 +54,14 @@ Public release tags must use `vX.Y.Z` and must match the checked-in `VERSION` va
 ## Container Image Publishing
 
 `.github/workflows/publish-images.yml` publishes multi-architecture Linux images to GitHub Container Registry on pushes to `main`, tags matching `v*.*.*`, and manual workflow runs. It first pushes untagged per-platform digests, scans every digest, and smoke-tests the exact backend/web pair for both supported architectures (using QEMU for arm64 on hosted runners). A single promotion job assembles those same digests into multi-architecture manifests and assigns public tags only after all checks pass.
+
+The pre-merge quality workflow also builds, scans and starts both amd64 and
+arm64 application stacks. ARM64 uses QEMU on the disposable CI runner; shared
+local hosts do not need emulation installed. The amd64 check compares all
+checked-in runtime/OS inventories and bundled legal files with the actual image
+pair, so dependency additions cannot silently leave release notices stale.
+These source-build checks supplement the publication workflow's exact-digest
+checks; they do not replace them.
 
 Published images:
 

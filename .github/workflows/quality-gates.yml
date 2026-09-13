@@ -513,6 +513,12 @@ jobs:
           --container "$(docker compose ps -q web)"
           --container "$(docker compose ps -q api)"
 
+      - name: Verify checked-in dependency and legal artifacts
+        if: matrix.arch == 'amd64'
+        run: >-
+          timeout 3m python3 scripts/verify_image_dependency_artifacts.py
+          --backend-image threatlens-backend:dev --web-image threatlens-web:dev
+
       - name: Verify bounded editorial uploads through the proxy
         run: timeout 1m python3 scripts/verify_report_upload_proxy.py --base-url http://localhost:3000
 
