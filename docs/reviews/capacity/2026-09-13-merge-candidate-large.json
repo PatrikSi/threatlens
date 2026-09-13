@@ -1,0 +1,367 @@
+{
+  "ai_connection_runs_by_status": {
+    "error": 4,
+    "ready": 37
+  },
+  "ai_receipts_by_state": {
+    "succeeded": 37,
+    "voided": 4
+  },
+  "ai_usage_rows_by_success": {
+    "true": 37
+  },
+  "budget_violations": {},
+  "budgets": {
+    "ai_connection_p95_ms": 10000,
+    "export_p95_ms": 30000,
+    "governance_p95_ms": 10000,
+    "process_rss_increase_bytes": 805306368,
+    "queue_recovery_ms": 240000,
+    "sampled_lock_waiting_query_age_peak_ms": 10000
+  },
+  "comparison_fingerprint": "c6285e982a0c156abe1e7a0adab230d6e23e7de8fb5e1464077e1b392fcefad0",
+  "comparison_identity": {
+    "budgets": {
+      "ai_connection_p95_ms": 10000,
+      "export_p95_ms": 30000,
+      "governance_p95_ms": 10000,
+      "process_rss_increase_bytes": 805306368,
+      "queue_recovery_ms": 240000,
+      "sampled_lock_waiting_query_age_peak_ms": 10000
+    },
+    "contract": "threatlens-capacity-v2",
+    "environment": {
+      "celery_heartbeat_seconds": 0.2,
+      "celery_pool": "threads",
+      "database_max_overflow": 0,
+      "database_pool_size": 16,
+      "postgres_version": "16.14 (Debian 16.14-1.pgdg13+1)",
+      "redis_version": "7.4.9"
+    },
+    "hardware": {
+      "affinity": [
+        0
+      ],
+      "cgroup_constraints": {
+        "cpu.max": [],
+        "memory.max": []
+      },
+      "cpu_model": "AMD EPYC-Rome Processor",
+      "logical_cpus": 4,
+      "memory_total_bytes": 16770076672
+    },
+    "limits": {
+      "container_cpus": 0.5,
+      "cpu_count": 1,
+      "max_rss_bytes": 1073741824,
+      "nice": 10,
+      "postgres_memory_mib": 512,
+      "redis_memory_mib": 128,
+      "wall_timeout_seconds": 240
+    },
+    "platform": "Linux-6.8.0-137-generic-x86_64-with-glibc2.39",
+    "python": "3.12.3",
+    "target_id": "patrik-local-shared-20260913",
+    "workload": {
+      "article_bytes": 65536,
+      "article_repair_grace_seconds": 2,
+      "completion_contract": "article-current-classification-ioc-tagging-v1",
+      "disjoint_export_contract": "two-principals-two-source-partitions-v1",
+      "feeds": 8,
+      "items_per_feed": 20,
+      "operations": 40,
+      "processing_repair_interval_seconds": 5,
+      "provider_delay_seconds": 0.15,
+      "repair_contract": "all-stages-completed-retained-catalog-v1",
+      "seed_items": 2000,
+      "shared_logical_process_pool": 16,
+      "worker_concurrency": 4
+    }
+  },
+  "cpu_count": 4,
+  "database": {
+    "lock_wait_samples": 64,
+    "sampled_lock_waiting_query_age_peak_ms": 1944.597,
+    "waiting_sessions_peak": 1
+  },
+  "disjoint_exports": {
+    "after_load": [
+      {
+        "bytes": 66438780,
+        "items": 1000,
+        "status": "ready"
+      },
+      {
+        "bytes": 66438780,
+        "items": 1000,
+        "status": "ready"
+      }
+    ],
+    "during_load": [
+      {
+        "status": "policy_conflict"
+      },
+      {
+        "status": "policy_conflict"
+      }
+    ],
+    "scope": "two concurrent domain workers; disjoint source IDs asserted"
+  },
+  "elapsed_seconds": 95.398,
+  "environment": {
+    "celery_heartbeat_seconds": 0.2,
+    "celery_pool": "threads",
+    "database_max_overflow": 0,
+    "database_pool_size": 16,
+    "postgres_version": "16.14 (Debian 16.14-1.pgdg13+1)",
+    "redis_version": "7.4.9"
+  },
+  "git_revision": "75ea7ba72881aa63127cbcf21dffde3c75117dd2",
+  "latencies": {
+    "ai_connection": {
+      "count": 41,
+      "max_ms": 830.953,
+      "p50_ms": 312.824,
+      "p95_ms": 690.834
+    },
+    "ai_connection:policy_conflict": {
+      "count": 4,
+      "max_ms": 180.703,
+      "p50_ms": 141.072,
+      "p95_ms": 180.703
+    },
+    "ai_connection:succeeded": {
+      "count": 37,
+      "max_ms": 830.953,
+      "p50_ms": 320.588,
+      "p95_ms": 817.636
+    },
+    "async_export": {
+      "count": 4,
+      "max_ms": 12452.777,
+      "p50_ms": 1115.011,
+      "p95_ms": 12452.777
+    },
+    "async_export:policy_conflict": {
+      "count": 2,
+      "max_ms": 1115.011,
+      "p50_ms": 594.41,
+      "p95_ms": 1115.011
+    },
+    "async_export:succeeded": {
+      "count": 2,
+      "max_ms": 12452.777,
+      "p50_ms": 12361.11,
+      "p95_ms": 12452.777
+    },
+    "deadline:dns": {
+      "count": 6,
+      "max_ms": 100.695,
+      "p50_ms": 100.384,
+      "p95_ms": 100.695
+    },
+    "deadline:headers": {
+      "count": 6,
+      "max_ms": 101.45,
+      "p50_ms": 101.259,
+      "p95_ms": 101.45
+    },
+    "export": {
+      "count": 41,
+      "max_ms": 2836.25,
+      "p50_ms": 1566.177,
+      "p95_ms": 2574.316
+    },
+    "export:policy_conflict": {
+      "count": 15,
+      "max_ms": 2192.555,
+      "p50_ms": 295.952,
+      "p95_ms": 2192.555
+    },
+    "export:succeeded": {
+      "count": 26,
+      "max_ms": 2836.25,
+      "p50_ms": 1702.625,
+      "p95_ms": 2686.892
+    },
+    "governance": {
+      "count": 40,
+      "max_ms": 2073.91,
+      "p50_ms": 22.977,
+      "p95_ms": 598.445
+    },
+    "queue_wait:classify_item": {
+      "count": 200,
+      "max_ms": 29201.017,
+      "p50_ms": 24900.262,
+      "p95_ms": 28417.711
+    },
+    "queue_wait:dispatch_processing_work": {
+      "count": 1,
+      "max_ms": 50.152,
+      "p50_ms": 50.152,
+      "p95_ms": 50.152
+    },
+    "queue_wait:execute_processing_work": {
+      "count": 6,
+      "max_ms": 132.918,
+      "p50_ms": 83.942,
+      "p95_ms": 132.918
+    },
+    "queue_wait:extract_item_iocs": {
+      "count": 200,
+      "max_ms": 26707.733,
+      "p50_ms": 15790.336,
+      "p95_ms": 20360.962
+    },
+    "queue_wait:fetch_article": {
+      "count": 200,
+      "max_ms": 29265.972,
+      "p50_ms": 17778.409,
+      "p95_ms": 27809.276
+    },
+    "queue_wait:fetch_feed": {
+      "count": 8,
+      "max_ms": 6876.339,
+      "p50_ms": 814.605,
+      "p95_ms": 6876.339
+    },
+    "queue_wait:process_alert_evaluation": {
+      "count": 200,
+      "max_ms": 26727.584,
+      "p50_ms": 15790.267,
+      "p95_ms": 20363.103
+    },
+    "queue_wait:route_integration_event": {
+      "count": 200,
+      "max_ms": 27630.757,
+      "p50_ms": 16343.303,
+      "p95_ms": 26494.036
+    },
+    "task:classify_item": {
+      "count": 200,
+      "max_ms": 568.82,
+      "p50_ms": 187.193,
+      "p95_ms": 347.317
+    },
+    "task:dispatch_processing_work": {
+      "count": 1,
+      "max_ms": 164.857,
+      "p50_ms": 164.857,
+      "p95_ms": 164.857
+    },
+    "task:execute_processing_work": {
+      "count": 6,
+      "max_ms": 39.352,
+      "p50_ms": 31.341,
+      "p95_ms": 39.352
+    },
+    "task:extract_item_iocs": {
+      "count": 200,
+      "max_ms": 35.698,
+      "p50_ms": 15.83,
+      "p95_ms": 26.525
+    },
+    "task:fetch_article": {
+      "count": 200,
+      "max_ms": 690.568,
+      "p50_ms": 215.11,
+      "p95_ms": 564.226
+    },
+    "task:fetch_feed": {
+      "count": 8,
+      "max_ms": 6202.454,
+      "p50_ms": 2229.433,
+      "p95_ms": 6202.454
+    },
+    "task:process_alert_evaluation": {
+      "count": 200,
+      "max_ms": 61.241,
+      "p50_ms": 18.82,
+      "p95_ms": 35.849
+    },
+    "task:route_integration_event": {
+      "count": 200,
+      "max_ms": 407.581,
+      "p50_ms": 26.194,
+      "p95_ms": 59.608
+    }
+  },
+  "memory": {
+    "process_rss_increase_bytes": 151158784,
+    "process_rss_peak_bytes": 423419904,
+    "process_rss_start_bytes": 272261120
+  },
+  "outcomes": {
+    "ai_policy_conflict": 4,
+    "ai_succeeded": 37,
+    "deadline_dns_observed": 6,
+    "deadline_headers_observed": 6,
+    "exports_policy_conflict": 15,
+    "exports_succeeded": 26,
+    "governance_succeeded": 40,
+    "ingestion_recovered": 1,
+    "processing_repair_dispatches": 1
+  },
+  "platform": "Linux-6.8.0-137-generic-x86_64-with-glibc2.39",
+  "policy_mode": "enforced",
+  "profile": "large",
+  "python": "3.12.3",
+  "queue": {
+    "depth_peak": 390,
+    "expected_ingested_articles": 200,
+    "feed_batches": 1,
+    "oldest_pending_age_peak_ms": 29079.918,
+    "outage_backlog": 8,
+    "recovery_ms": 71987.577,
+    "recovery_scope": "consumer_outage_and_startup"
+  },
+  "recorded_at": "2026-09-13T07:42:14.109230+00:00",
+  "run_id": "3377d6e0713e4ef09528b083237e82bc",
+  "sampler": {
+    "errors": [],
+    "interval_ms": 20,
+    "samples": 1634
+  },
+  "schema_version": 2,
+  "source_dirty": false,
+  "status": "passed",
+  "task_errors": [],
+  "watchdog": {
+    "elapsed_seconds": 115.653,
+    "failure": null,
+    "limits": {
+      "container_cpus": 0.5,
+      "cpu_count": 1,
+      "max_rss_bytes": 1073741824,
+      "nice": 10,
+      "postgres_memory_mib": 512,
+      "redis_memory_mib": 128,
+      "wall_timeout_seconds": 240
+    },
+    "memory_scope": "sum of owned process RSS; shared pages counted per process; excludes Docker services",
+    "owned_process_count_peak": 2,
+    "owned_process_tree_rss_peak_bytes": 450961408,
+    "sample_interval_ms": 100
+  },
+  "workload": {
+    "article_bytes": 65536,
+    "article_repair_grace_seconds": 2,
+    "completion_contract": "article-current-classification-ioc-tagging-v1",
+    "disjoint_export_contract": "two-principals-two-source-partitions-v1",
+    "feeds": 8,
+    "items_per_feed": 20,
+    "operations": 40,
+    "processing_repair_interval_seconds": 5,
+    "provider_delay_seconds": 0.15,
+    "repair_contract": "all-stages-completed-retained-catalog-v1",
+    "seed_items": 2000,
+    "shared_logical_process_pool": 16,
+    "worker_concurrency": 4
+  },
+  "workload_completed": {
+    "ai": 40,
+    "exports": 40,
+    "governance": 40
+  }
+}

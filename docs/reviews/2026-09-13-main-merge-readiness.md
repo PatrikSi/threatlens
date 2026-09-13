@@ -1,5 +1,9 @@
 # Main merge-readiness review — 2026-09-13
 
+This is the original pre-remediation assessment. See the
+[remediation and validation record](2026-09-13-merge-remediation.md) for fixes and
+the prepared 2.0.0 candidate.
+
 **Verdict: do not merge yet. Recommend version 2.0.0 after the four blocking
 findings below are resolved and the release candidate passes CI.**
 
