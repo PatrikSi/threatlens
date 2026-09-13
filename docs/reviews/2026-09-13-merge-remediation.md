@@ -27,8 +27,9 @@ require scans and smoke checks of the exact promoted image digests.
 | Alert previews | Entity decoding processes the original text once, preserving nested escaping. | Three new tests cover adjacent, nested, unsupported and invalid entities; all eight alert-model tests and frontend lint pass. The original display defect did not execute HTML. |
 | AI statistics coverage | The enabled-provider CI step includes the real statistics authorization/accessibility case in each browser. | Earlier CI skipped this case because its title did not match the provider-settings filter. The local enabled-provider suite already exercised it; future CI includes all 18 real-server cases per engine. |
 | Retention transaction budgets | Materialize the bounded, locked child selection before deletion in both history and permission-history pruning. | Full CI reproduced a call deleting 25 expired receipts with a budget of seven. A valid PostgreSQL nested-loop plan re-evaluated the limited selection. Regressions exercise that plan and composite-key children while preserving eligibility and lock safeguards. |
+| Recovery target identity | Canonicalize structured container and mount identity before hashing the restore confirmation. | Repeated Docker inspections returned two mount orders for one unchanged container, causing an intermittent pre-restore refusal. Keep container/image and every mount identity field bound while ignoring array ordering. |
 | Release artifacts | Frontend runtime inventories and legal notices match the qualified image. | 114 package records and 114 legal-file hashes were verified. A new image-artifact gate checks both native images and rejects deliberately stale reference data. |
-| Pre-merge platform coverage | CI builds, scans and starts amd64 and arm64 application stacks; PostgreSQL and Redis remain native CI infrastructure. | ARM64 uses the existing QEMU action and publication's emulated worker-health budgets. Actionlint passes. Native smoke retains normal deployment health budgets. |
+| Pre-merge platform coverage | CI independently builds, scans and starts amd64 and arm64 application stacks alongside application tests; PostgreSQL and Redis remain native CI infrastructure. | ARM64 uses the existing QEMU action and publication's emulated worker-health budgets. Actionlint passes. Native smoke retains normal deployment health budgets. Every quality job and the exact-image publication gates remain required. |
 
 Commits use `Patrik <patrik@local>` and imperative messages. Core fixes are
 `ad55f53`, `54f1b23`, `1957013`, `b43e436`, `46496aa`, `0c63f75` and `09485b4`.
@@ -98,6 +99,18 @@ all 39 affected history/pruning tests pass after the correction. Coverage is
 history pruning. An independent scan and forced-plan PostgreSQL probes found
 no additional affected deletion/claim query; other paths already materialize
 their locked selection or use bounded nonlocking selections.
+
+The remote backend job at `0edfefa` then passed **3,222 tests** with two opt-in
+skips, **85.97% coverage**, capacity smoke, critical coverage floors, generated
+contracts, lockfile verification and dependency audit. That run exposed the
+intermittent recovery confirmation mismatch: Docker returned two mount orders
+for an unchanged container across 40 inspections. The canonical identity fix
+is committed in `d7884b6`. Its complete ordinary recovery suite passed 98 tests
+with four opt-in skips, and all four disposable Docker recovery tests passed
+in 191.2 seconds. A follow-up Docker probe observed three mount orders but one
+stable corrected identity; actual target-change regressions still reject stale
+confirmations. Independent review confirmed the existing binding fields and
+pre-mutation checks remain intact.
 
 Local native image IDs:
 
