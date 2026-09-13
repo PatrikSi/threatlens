@@ -26,6 +26,7 @@ require scans and smoke checks of the exact promoted image digests.
 | Test lifecycle | Provider statistics tests follow current navigation. Real-server routing tests await the exact successful PUT before independent persistence checks. Recovery version-mismatch fixtures stay distinct from the application release. | The original WebKit trace showed its GET beginning before the PUT finished. Corrected workflows pass across all three engines. Fresh CI identified the version fixture's collision with 2.0.0. |
 | Alert previews | Entity decoding processes the original text once, preserving nested escaping. | Three new tests cover adjacent, nested, unsupported and invalid entities; all eight alert-model tests and frontend lint pass. The original display defect did not execute HTML. |
 | AI statistics coverage | The enabled-provider CI step includes the real statistics authorization/accessibility case in each browser. | Earlier CI skipped this case because its title did not match the provider-settings filter. The local enabled-provider suite already exercised it; future CI includes all 18 real-server cases per engine. |
+| Retention transaction budgets | Materialize the bounded, locked child selection before deletion in both history and permission-history pruning. | Full CI reproduced a call deleting 25 expired receipts with a budget of seven. A valid PostgreSQL nested-loop plan re-evaluated the limited selection. Regressions exercise that plan and composite-key children while preserving eligibility and lock safeguards. |
 | Release artifacts | Frontend runtime inventories and legal notices match the qualified image. | 114 package records and 114 legal-file hashes were verified. A new image-artifact gate checks both native images and rejects deliberately stale reference data. |
 | Pre-merge platform coverage | CI builds, scans and starts amd64 and arm64 application stacks; PostgreSQL and Redis remain native CI infrastructure. | ARM64 uses the existing QEMU action and publication's emulated worker-health budgets. Actionlint passes. Native smoke retains normal deployment health budgets. |
 
@@ -80,6 +81,23 @@ four opt-in skips). The [CodeQL triage record](2026-09-13-codeql-triage.md)
 assesses all 24 findings from that commit and links the subsequent display fix.
 The final workflow must also cover the added statistics cases and both image
 architectures; earlier green jobs do not substitute for final-commit results.
+
+At `8289d8b`, the complete remote run passed 1,170 frontend tests and 120 browser
+executions without retries, all four disposable recovery drills, ordinary
+recovery tests, migrations and both CodeQL jobs. Its backend run passed 3,219
+tests with two opt-in skips and one retention-budget failure. That failure was
+reproduced with the production helper and an alternative valid PostgreSQL query
+plan, leading to the materialized-selection correction above. Image jobs were
+correctly withheld after the backend failure; this run alone is not merge
+qualification.
+
+The retention correction is committed in `b1a3ae5`. Both deterministic
+regressions fail on the old implementation (25 deleted instead of seven), and
+all 39 affected history/pruning tests pass after the correction. Coverage is
+94% for history maintenance, 93% for permission-history pruning and 96% for
+history pruning. An independent scan and forced-plan PostgreSQL probes found
+no additional affected deletion/claim query; other paths already materialize
+their locked selection or use bounded nonlocking selections.
 
 Local native image IDs:
 
