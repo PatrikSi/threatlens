@@ -123,6 +123,12 @@ For HTTPS or internet-facing deployments, review `.env.example` before first sta
 The generated mapping includes explicit internal `DATABASE_URL` and `REDIS_URL` values so Portainer does not need separate stack variables.
 For `.env`-based deployments, set `THREATLENS_WEB_PORT` if port `3000` is already in use and `THREATLENS_IMAGE_TAG` if you want a pinned release; for paste-only Portainer deployments, edit the `web.ports` entry or image tags in the compose file.
 
+When upgrading an existing Portainer stack, merge the current Compose settings
+into its saved definition before redeploying. Pulling images alone does not
+update that definition. In particular, the 2.0 web image requires writable nginx
+paths; see the [web startup permission fix](docs/pages/runtime-budgets.md#web-startup-permission-denied-after-an-upgrade).
+Keep the existing credentials, encryption keys and persistent volumes.
+
 ## AI
 
 AI is disabled by default.

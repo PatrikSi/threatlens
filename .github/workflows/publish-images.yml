@@ -251,6 +251,12 @@ jobs:
           timeout 10m docker compose -f docker-compose.yml -f "$RUNNER_TEMP/release-images.yml" pull
           timeout 10m docker compose -f docker-compose.yml -f "$RUNNER_TEMP/release-images.yml" up -d --wait --wait-timeout 480
 
+      - name: Verify legacy and hardened web image startup
+        run: >-
+          timeout 4m python3 scripts/verify_web_image_startup.py
+          --image "${REGISTRY}/${IMAGE_NAMESPACE}/threatlens-web@$(cat image-digests/web-${{ matrix.platform-slug }}.txt)"
+          --platform ${{ matrix.platform }}
+
       - name: Verify running stack
         run: |
           readiness_url="http://localhost:3000/api/v1/health"

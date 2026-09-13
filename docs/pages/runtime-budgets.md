@@ -47,6 +47,55 @@ stored durably in the database. Beat's disposable schedule file now lives under
 write only bounded nginx temporary files and its generated configuration.
 PostgreSQL and Redis retain their persistent named data volumes.
 
+## Web startup permission denied after an upgrade
+
+The originally published 2.0.0 web image contains an inherited root-owned
+`/etc/nginx/conf.d/default.conf` that its non-root `nginx` user (UID/GID 101)
+cannot overwrite during startup. Older saved Compose or Portainer definitions
+can expose this image defect as a restart loop with `Permission denied`.
+The bundled Compose settings avoid the conflict by mounting a writable tmpfs
+over that directory. They also provide temporary storage for nginx while
+keeping the root filesystem read-only. Pulling an image alone does not update
+the stack definition.
+
+Merge these settings into the existing `web` service, keeping its image, ports,
+environment, networks and resource limits:
+
+```yaml
+services:
+  web:
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m,mode=1777
+      - /etc/nginx/conf.d:rw,noexec,nosuid,size=1m,uid=101,gid=101,mode=0755
+```
+
+Keep the image's non-root user. Replace older tmpfs entries for these paths and
+remove conflicting bind mounts or volumes covering `/tmp`,
+`/etc/nginx/conf.d` or its generated `default.conf`. Preserve the existing
+database credentials, encryption keys and PostgreSQL/Redis data volumes.
+
+For Compose, save the updated definition and recreate only the web service:
+
+```bash
+docker compose up -d --no-deps --force-recreate web
+docker compose logs --tail=100 web
+docker compose ps web
+```
+
+For Portainer, edit the existing stack definition, or update the repository
+definition it tracks, and redeploy that same stack with the corrected settings.
+Check the web container's logs and status: it should remain running without the
+permission error, and the existing web URL should load.
+
+This web startup repair preserves the database and requires no schema changes.
+Installations upgrading from 1.x must separately follow the
+[2.0 upgrade requirements](../releases/2.0.0.md#upgrade-from-1x), including the
+database-role cutover and coordinated API/worker upgrade.
+
 ## Database connection inventory
 
 `DATABASE_POOL_SIZE=2` and `DATABASE_MAX_OVERFLOW=0` apply per process. The API
