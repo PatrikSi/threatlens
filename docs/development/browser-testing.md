@@ -35,9 +35,10 @@ through versioned writes, editor reopening and page reload.
 
 CI has an independent job for each browser. It runs both suites and retains
 traces from failures, axe reports, and the disposable server log for seven days.
-Each browser also runs the real provider-settings scenario with `--ai-providers`.
-This scenario starts no AI worker and sends no external model requests. Its
-traces use `test-results/real-server-ai-providers` and its server log uses
+Each browser also runs the real provider-settings and AI statistics scenarios
+with `--ai-providers`, including independent statistics permissions and
+accessibility. These scenarios start no AI worker and send no external model requests. Their
+traces use `test-results/real-server-ai-providers` and their server log uses
 `browser-server-ai-providers.log`, preserving the authentication suite's evidence.
 From `web/`, use `npx playwright show-trace test-results/<suite>/<failed-test>/trace.zip`
 to inspect a failure. Evidence contains synthetic test identities and cookies;
@@ -63,7 +64,7 @@ python web/browser/server/run.py
 # Select one browser or scenario:
 python web/browser/server/run.py --project firefox --grep 'real OIDC'
 # Enable AI only in the disposable server and exercise provider settings:
-python web/browser/server/run.py --ai-providers --grep 'real AI provider settings'
+python web/browser/server/run.py --ai-providers --grep 'real AI provider settings|real statistics combines'
 ```
 
 Use the backend virtual-environment interpreter when dependencies are installed
