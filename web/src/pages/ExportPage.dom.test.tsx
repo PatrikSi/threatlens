@@ -350,6 +350,7 @@ describe('ExportPage', () => {
   })
 
   it('retries an ambiguous background acceptance with the same idempotency key', async () => {
+    vi.stubGlobal('crypto', { getRandomValues: crypto.getRandomValues.bind(crypto) })
     const requests: Record<string, unknown>[] = []
     const fallback = exportPageDomMocks.apiFetch.getMockImplementation()!
     exportPageDomMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
@@ -371,6 +372,27 @@ describe('ExportPage', () => {
       await vi.waitFor(() => expect(requests).toHaveLength(2))
     })
     expect(requests[1]).toEqual(requests[0])
+  })
+
+  it('shows a recoverable preparation error without sending an export', async () => {
+    const originalCrypto = crypto
+    vi.stubGlobal('crypto', undefined)
+    const view = renderPage()
+    await waitForPreview(view)
+    const queue = [...view.querySelectorAll('button')].find((entry) => entry.textContent === 'Generate in background')!
+    act(() => queue.click())
+    expect(view.textContent).toContain('Secure random generation is unavailable')
+    expect(view.textContent).toContain('No request was sent')
+    expect(exportPageDomMocks.apiFetch.mock.calls.filter(([path]) => path === '/exports/jobs')).toHaveLength(0)
+    const fallback = exportPageDomMocks.apiFetch.getMockImplementation()!
+    exportPageDomMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => path === '/exports/jobs'
+      ? Promise.resolve(BACKGROUND_JOB) : fallback(path, options))
+    vi.stubGlobal('crypto', originalCrypto)
+    await act(async () => {
+      queue.click()
+      await vi.waitFor(() => expect(view.textContent).toContain('Background export accepted'))
+    })
+    expect(view.textContent).not.toContain('Secure random generation is unavailable')
   })
 
   it('downloads a ready background artifact only on request and can delete it', async () => {

@@ -14,15 +14,25 @@ export const feed = {
 }
 
 type ApiState = { sessionStatus: number; identity: typeof user; writes: string[] }
-export const test = base.extend<{ api: ApiState }>({
-  api: [async ({ page }, use) => {
+const developmentOrigin = 'http://127.0.0.1:4173'
+export const test = base.extend<{ api: ApiState; appOrigin: string }>({
+  appOrigin: [developmentOrigin, { option: true }],
+  api: [async ({ page, appOrigin }, use) => {
     await page.clock.install()
     const state: ApiState = { sessionStatus: 200, identity: { ...user }, writes: [] }
     const unexpected: string[] = []
     await page.route('**/*', async (route) => {
       const url = new URL(route.request().url())
-      if (url.origin === 'http://127.0.0.1:4173' && !url.pathname.startsWith('/api/')) return route.continue()
-      if (url.origin !== 'http://127.0.0.1:4173') {
+      if (url.origin === appOrigin && !url.pathname.startsWith('/api/')) {
+        if (appOrigin === developmentOrigin) return route.continue()
+        // Serve the real app at a non-localhost HTTP origin without DNS or a live API.
+        const response = await route.fetch({
+          url: `${developmentOrigin}${url.pathname}${url.search}`,
+          headers: { ...route.request().headers(), host: new URL(developmentOrigin).host },
+        })
+        return route.fulfill({ response })
+      }
+      if (url.origin !== appOrigin) {
         unexpected.push(url.toString())
         return route.abort()
       }

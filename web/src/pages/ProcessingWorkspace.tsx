@@ -67,7 +67,7 @@ function ProcessingRecoveryDialogs({ controller }: { controller: ProcessingWorks
           <p>{resolveApiErrorMessage(createRun.error, 'Recovery acceptance could not be confirmed.')}</p>
           <p>{processingConflict(createRun.error) || processingAccessError(createRun.error)
             ? 'Close this review and refresh the worklist before selecting current eligible records again.'
-            : 'Retrying here reuses the same request key. If you close this review, check your recovery runs before starting another request.'}</p>
+            : 'Retrying here or reopening this unchanged review reuses the same request key. Before changing the selection or leaving this page, check your recovery runs for accepted work.'}</p>
         </div>}
       </ConfirmDialog>
       <ConfirmDialog open={Boolean(cancelReview)} title="Cancel remaining recovery work?" confirmLabel="Cancel remaining work"

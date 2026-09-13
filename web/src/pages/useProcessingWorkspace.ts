@@ -7,6 +7,7 @@ import { resolveApiErrorMessage } from '../api/errors'
 import { captureSessionLease } from '../api/sessionLifecycle'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import type { ProcessingPage, ProcessingRecoveryRequest, ProcessingRun, ProcessingWork } from '../types/processing'
+import { createSecureRequestId } from '../utils/secureRandomId'
 import { hasRequiredPermissions } from '../workspace/workspaceModel'
 import { processingAccessError, processingConflict, processingScope, processingWorkKey, processingWorkPath } from './processingModel'
 
@@ -23,6 +24,8 @@ export function useProcessingWorkspace() {
   const [review, setReview] = useState<Review | null>(null)
   const [cancelReview, setCancelReview] = useState<ProcessingRun | null>(null)
   const [notice, setNotice] = useState('')
+  const [preparationError, setPreparationError] = useState('')
+  const recoveryRequest = useRef<{ serialized: string; request: ProcessingRecoveryRequest } | null>(null)
   const mounted = useRef(true)
   const location = params.toString()
   const previousLocation = useRef(location)
@@ -35,6 +38,7 @@ export function useProcessingWorkspace() {
     setSelection({ scope: '', rows: [] })
     setReview(null)
     setCancelReview(null)
+    setPreparationError('')
   }, [location])
   const permissions = user.data?.access?.permissions ?? []
   const canRead = hasRequiredPermissions(permissions, ['read:operations', 'read:items'])
@@ -81,6 +85,7 @@ export function useProcessingWorkspace() {
     },
     onSuccess: async ({ run, lease }, submitted) => {
       lease.assertCurrent()
+      if (recoveryRequest.current?.request === submitted.request) recoveryRequest.current = null
       await rememberRun(run)
       lease.assertCurrent()
       if (!mounted.current || current.current.location !== submitted.location) return
@@ -91,8 +96,11 @@ export function useProcessingWorkspace() {
       next.set('work_run', run.id)
       current.current.setParams(next)
     },
-    onError: (error) => {
-      if (processingConflict(error) || processingAccessError(error)) void client.invalidateQueries({ queryKey: ['processing'] })
+    onError: (error, submitted) => {
+      if (processingConflict(error) || processingAccessError(error)) {
+        if (recoveryRequest.current?.request === submitted.request) recoveryRequest.current = null
+        void client.invalidateQueries({ queryKey: ['processing'] })
+      }
     },
   })
   const cancelRun = useMutation({
@@ -133,11 +141,13 @@ export function useProcessingWorkspace() {
     createRun.reset()
     cancelRun.reset()
     setNotice('')
+    setPreparationError('')
     setParams(next)
   }
   const error = cancelRun.isError ? resolveApiErrorMessage(cancelRun.error, 'Recovery cancellation could not be recorded. Refresh the run before retrying.') : ''
   return {
-    scope, rows, selected, staleSelection, workQuery, runsQuery, runQuery, user, canRead, canWrite, busy, notice, error,
+    scope, rows, selected, staleSelection, workQuery, runsQuery, runQuery, user, canRead, canWrite, busy, notice,
+    error: preparationError || error,
     review: review?.location === location && canRead && !processingAccessError(workQuery.error) ? review : null,
     cancelReview: cancelReview?.id === scope.run && canRead && !processingAccessError(runQuery.error) ? cancelReview : null,
     createRun, cancelRun, changeScope,
@@ -151,10 +161,19 @@ export function useProcessingWorkspace() {
     openReview: () => {
       if (!canWrite || busy || !selected.length || staleSelection || workQuery.isError) return
       createRun.reset()
-      setReview({ rows: selected, scope: workPath, location, request: {
-        idempotency_key: crypto.randomUUID(),
-        items: selected.map(({ item_id, stage, revision }) => ({ item_id, stage, revision })),
-      } })
+      setPreparationError('')
+      try {
+        const items = selected.map(({ item_id, stage, revision }) => ({ item_id, stage, revision }))
+          .sort((left, right) => `${left.item_id}:${left.stage}`.localeCompare(`${right.item_id}:${right.stage}`))
+        const serialized = JSON.stringify(items)
+        // Closing and reopening a review must not duplicate ambiguously accepted work.
+        if (recoveryRequest.current?.serialized !== serialized) {
+          recoveryRequest.current = { serialized, request: { idempotency_key: createSecureRequestId(), items } }
+        }
+        setReview({ rows: selected, scope: workPath, location, request: recoveryRequest.current.request })
+      } catch (error) {
+        setPreparationError(resolveApiErrorMessage(error, 'Recovery could not be prepared. Your selection has been kept and no request was sent.'))
+      }
     },
     closeReview: () => { if (!createRun.isPending) setReview(null) },
     openCancel: (run: ProcessingRun) => { cancelRun.reset(); setCancelReview(run) },
