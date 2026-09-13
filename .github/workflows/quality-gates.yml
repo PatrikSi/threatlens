@@ -387,9 +387,15 @@ jobs:
         uses: github/codeql-action/analyze@v4
 
   container-smoke:
-    name: Container smoke and image scan
+    name: Container smoke and image scan (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
     env:
       THREATLENS_DEV_IMAGE_TAG: dev
+      THREATLENS_SMOKE_ARCH: ${{ matrix.arch }}
+      THREATLENS_SMOKE_PLATFORM: linux/${{ matrix.arch }}
     # Direct push/PR runs have no input (`null`); only a reusable caller's
     # explicit false disables this job.
     if: >-
@@ -408,6 +414,12 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+
+      - name: Set up ARM64 emulation
+        if: matrix.arch == 'arm64'
+        uses: docker/setup-qemu-action@v4
+        with:
+          platforms: arm64
 
       - name: Generate isolated Compose environment
         env:
@@ -429,6 +441,7 @@ jobs:
           python3 - "$restricted_context" <<'PY'
           import json
           import os
+          import subprocess
           import sys
           from pathlib import Path
 
@@ -441,10 +454,21 @@ jobs:
           ):
               assert root.joinpath(relative).stat().st_mode & 0o077 == 0, relative
           override = root / "build-context.json"
-          override.write_text(json.dumps({"services": {"web": {"build": {
+          service_names = subprocess.check_output([
+              "docker", "compose", "-f", "docker-compose.yml", "-f",
+              "docker-compose.build.yml", "config", "--services",
+          ], text=True).splitlines()
+          # Qualify every application process on the target architecture while
+          # PostgreSQL and Redis remain native infrastructure on the runner.
+          services = {
+              name: {"platform": os.environ["THREATLENS_SMOKE_PLATFORM"]}
+              for name in service_names if name not in {"db", "redis"}
+          }
+          services["web"]["build"] = {
               "context": str(root / "web"),
               "dockerfile": str(root / "docker/web.Dockerfile"),
-          }}}}))
+          }
+          override.write_text(json.dumps({"services": services}))
           with open(os.environ["GITHUB_ENV"], "a") as output:
               output.write(f"THREATLENS_WEB_SMOKE_OVERRIDE={override}\n")
           PY
@@ -455,10 +479,12 @@ jobs:
           VCS_REF: ${{ github.sha }}
         run: |
           THREATLENS_BUILD_VERSION="$(cat VERSION)" timeout 30m docker compose -f docker-compose.yml -f docker-compose.build.yml -f "$THREATLENS_WEB_SMOKE_OVERRIDE" build --pull
-          THREATLENS_BUILD_VERSION="$(cat VERSION)" timeout 5m docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --no-build --wait --wait-timeout 180
+          THREATLENS_BUILD_VERSION="$(cat VERSION)" timeout 5m docker compose -f docker-compose.yml -f docker-compose.build.yml -f "$THREATLENS_WEB_SMOKE_OVERRIDE" up -d --no-build --wait --wait-timeout 180
 
       - name: Verify running stack
         run: |
+          test "$(docker image inspect threatlens-backend:dev --format '{{.Architecture}}')" = "$THREATLENS_SMOKE_ARCH"
+          test "$(docker image inspect threatlens-web:dev --format '{{.Architecture}}')" = "$THREATLENS_SMOKE_ARCH"
           readiness_url="http://localhost:3000/api/v1/health"
           for attempt in {1..24}; do
             if readiness="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 10 "$readiness_url" 2>&1)"; then
@@ -474,6 +500,8 @@ jobs:
           done
           test "$(curl --fail --silent --show-error --connect-timeout 5 --max-time 10 http://localhost:3000/api/openapi.json | jq -r '.info.version')" = "$(cat VERSION)"
           curl --fail --silent --show-error --connect-timeout 5 --max-time 10 http://localhost:3000/theme-init.js | cmp web/public/theme-init.js -
+          # Expand the user lookup inside the container's shell.
+          # shellcheck disable=SC2016
           timeout 1m docker compose exec -T web sh -ec 'test "$(id -u)" != 0; test -r /usr/share/doc/threatlens/LICENSE; test -r /usr/share/doc/threatlens/licenses/MIT.txt'
           timeout 1m docker compose exec -T api python -m alembic current | grep -F '(head)'
           docker compose ps
