@@ -220,8 +220,8 @@ jobs:
       - name: Run real-server auth and accessibility workflows
         run: timeout 10m python web/browser/server/run.py --project=${{ matrix.browser }}
 
-      - name: Run real-server AI provider configuration workflow
-        run: timeout 5m python web/browser/server/run.py --project=${{ matrix.browser }} --ai-providers --grep 'real AI provider settings'
+      - name: Run real-server AI provider and statistics workflows
+        run: timeout 5m python web/browser/server/run.py --project=${{ matrix.browser }} --ai-providers --grep 'real AI provider settings|real statistics combines'
 
       - name: Retain browser evidence
         if: always()
