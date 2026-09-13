@@ -146,6 +146,9 @@ ThreatLens works without AI.
 
 ## Useful Commands
 
+For the 2.0 upgrade, read the [release notes and compatibility changes](docs/releases/2.0.0.md)
+before replacing an existing installation.
+
 Existing installations using a single database role must first complete the
 [offline database-role cutover](docs/pages/database-privileges.md#existing-installations-explicit-offline-cutover).
 The current Compose configuration requires separate runtime and migration
