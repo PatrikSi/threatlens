@@ -123,11 +123,14 @@ For HTTPS or internet-facing deployments, review `.env.example` before first sta
 The generated mapping includes explicit internal `DATABASE_URL` and `REDIS_URL` values so Portainer does not need separate stack variables.
 For `.env`-based deployments, set `THREATLENS_WEB_PORT` if port `3000` is already in use and `THREATLENS_IMAGE_TAG` if you want a pinned release; for paste-only Portainer deployments, edit the `web.ports` entry or image tags in the compose file.
 
-When upgrading an existing Portainer stack, merge the current Compose settings
-into its saved definition before redeploying. Pulling images alone does not
-update that definition. In particular, the 2.0 web image requires writable nginx
-paths; see the [web startup permission fix](docs/pages/runtime-budgets.md#web-startup-permission-denied-after-an-upgrade).
-Keep the existing credentials, encryption keys and persistent volumes.
+The 2.0.1 web image fixes the nginx startup permission error inside the container
+and supports existing writable-root stack definitions without adding mounts.
+In Portainer, update any old image pin, pull the corrected image and recreate
+the web container; see the [web startup repair](docs/pages/runtime-budgets.md#web-startup-permission-denied-after-an-upgrade)
+for the published image channels and commands. Read-only deployments retain
+their writable tmpfs paths. Preserve existing credentials, encryption keys and
+persistent volumes. A complete upgrade from 1.x still requires the
+[2.0 upgrade procedure](docs/releases/2.0.0.md#upgrade-from-1x).
 
 ## AI
 

@@ -49,14 +49,48 @@ PostgreSQL and Redis retain their persistent named data volumes.
 
 ## Web startup permission denied after an upgrade
 
+Upgrade the web container to the **2.0.1 build**, which removes the inherited
+root-owned `default.conf` from the image. It supports older writable-root
+Compose and Portainer definitions without adding mounts, while continuing to
+run as non-root `nginx` (UID/GID 101). Keep the writable tmpfs paths below when
+using a read-only root filesystem.
+
+After the 2.0.1 image publishing workflow succeeds, pull the corrected `latest`
+image and recreate only the web service:
+
+```bash
+THREATLENS_IMAGE_TAG=latest docker compose pull web
+THREATLENS_IMAGE_TAG=latest docker compose up -d --no-deps --force-recreate web
+docker compose logs --tail=100 web
+docker compose ps web
+```
+
+These commands use the bundled `THREATLENS_IMAGE_TAG` variable. Update any
+persistent image pin in the existing environment or stack definition too, so
+the next deployment retains the fix. If `web.image` contains a literal old tag
+or digest, change that reference before running the commands. Main-branch
+publishing promotes `latest`, `main` and `sha-<commit>`; a numeric `2.0.1` image
+tag is available only after a formal version-tag release. Use the published
+`sha-<commit>` reference when a fixed deployment pin is required.
+
+In Portainer, update an old image pin in the existing stack definition or its
+tracked repository. Pull the corrected image and recreate the web container
+(or redeploy the same stack with image re-pulling enabled). Pulling alone does
+not replace a running container or change a saved image pin. Preserve existing
+credentials, encryption keys and PostgreSQL/Redis data volumes. Check the web
+container's logs and status: it should remain running without the permission
+error, and the existing web URL should load.
+
+### Workaround for the original 2.0.0 image and read-only deployments
+
 The originally published 2.0.0 web image contains an inherited root-owned
 `/etc/nginx/conf.d/default.conf` that its non-root `nginx` user (UID/GID 101)
 cannot overwrite during startup. Older saved Compose or Portainer definitions
 can expose this image defect as a restart loop with `Permission denied`.
-The bundled Compose settings avoid the conflict by mounting a writable tmpfs
-over that directory. They also provide temporary storage for nginx while
-keeping the root filesystem read-only. Pulling an image alone does not update
-the stack definition.
+If remaining pinned to that image, the bundled Compose settings below avoid
+the conflict by mounting a writable tmpfs over that directory. These mounts
+also provide the writable paths required by the bundled read-only runtime,
+including with the corrected image.
 
 Merge these settings into the existing `web` service, keeping its image, ports,
 environment, networks and resource limits:
@@ -86,10 +120,9 @@ docker compose logs --tail=100 web
 docker compose ps web
 ```
 
-For Portainer, edit the existing stack definition, or update the repository
-definition it tracks, and redeploy that same stack with the corrected settings.
-Check the web container's logs and status: it should remain running without the
-permission error, and the existing web URL should load.
+For Portainer, save these settings in the existing stack definition or its
+tracked repository and redeploy that same stack. Pulling images alone does not
+update its saved configuration.
 
 This web startup repair preserves the database and requires no schema changes.
 Installations upgrading from 1.x must separately follow the
