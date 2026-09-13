@@ -159,11 +159,15 @@ def _delete_rows(db: Session, model: type, predicate, limit: int) -> int:
         .order_by(*keys)
         .limit(limit)
         .with_for_update(skip_locked=True)
+        .cte("pruning_child_rows")
+        .prefix_with("MATERIALIZED")
     )
+    # Reusing one locked selection prevents nested-loop plans from replacing
+    # deleted rows and exceeding the dependent-row budget within this statement.
     identity = keys[0] if len(keys) == 1 else tuple_(*keys)
     result = db.execute(
         delete(model)
-        .where(identity.in_(selected))
+        .where(identity.in_(select(selected)))
         .execution_options(synchronize_session=False)
     )
     return int(result.rowcount or 0)
