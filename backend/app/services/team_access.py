@@ -90,6 +90,36 @@ def assert_current_team_access(
         )
 
 
+def lock_team_for_current_access(
+    db: Session,
+    *,
+    team_id: uuid.UUID,
+    user_id: uuid.UUID,
+    manage: bool = False,
+    for_update: bool = False,
+) -> Team | None:
+    """Lock an accessible team, then recheck membership after any row wait.
+
+    Callers already hold IAM/actor fences and must lock their resource after
+    the team. Those locks cannot prevent clock-based OIDC assertion expiry.
+    Resource access must be checked again after subsequent resource waits.
+    """
+    team = db.scalar(
+        select(Team)
+        .where(
+            Team.id == team_id,
+            team_access_predicate(Team.id, user_id, manage=manage),
+        )
+        .with_for_update(read=not for_update, of=Team)
+        .execution_options(populate_existing=True)
+    )
+    if team is None or not db.scalar(
+        select(team_access_predicate(team_id, user_id, manage=manage))
+    ):
+        return None
+    return team
+
+
 def require_team_access(
     db: Session,
     *,
@@ -124,22 +154,17 @@ def require_team_access(
             error_code="team_actor_unavailable",
             detail="Your account access changed. Sign in again and retry.",
         )
-    row = db.scalar(
-        select(Team)
-        .where(
-            Team.id == team_id,
-            team_access_predicate(Team.id, user.id, manage=manage),
-        )
-        .with_for_update(read=not for_update, of=Team)
-        .execution_options(populate_existing=True)
+    row = lock_team_for_current_access(
+        db,
+        team_id=team_id,
+        user_id=user.id,
+        manage=manage,
+        for_update=for_update,
     )
-    # A time-limited OIDC assertion may expire while the row lock is waiting.
-    # Re-evaluate in a fresh statement after acquiring the team fence.
     if row is None:
         raise ApiHTTPException(
             status_code=404,
             error_code="team_not_found",
             detail="Team not found or current group membership does not permit this action.",
         )
-    assert_current_team_access(db, team_id=row.id, user_id=user.id, manage=manage)
     return row
