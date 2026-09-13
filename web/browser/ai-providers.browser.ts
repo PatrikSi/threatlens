@@ -164,7 +164,7 @@ test('keeps provider drafts across AI tabs and confirms navigation before discar
   await page.getByRole('tab', { name: 'Configuration', exact: true }).click()
   await page.getByRole('button', { name: 'Add provider', exact: true }).click()
   await page.getByLabel('Provider name', { exact: true }).fill('Unsaved local model')
-  await page.getByRole('tab', { name: 'Overview', exact: true }).click()
+  await page.getByRole('tab', { name: 'Statistics', exact: true }).click()
   await page.getByRole('tab', { name: 'Configuration', exact: true }).click()
   await expect(page.getByLabel('Provider name', { exact: true })).toHaveValue('Unsaved local model')
   await page.getByRole('link', { name: 'Feeds', exact: true }).first().click()
