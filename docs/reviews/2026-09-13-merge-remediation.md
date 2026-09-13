@@ -24,6 +24,8 @@ require scans and smoke checks of the exact promoted image digests.
 | Investigation write expiry | All ten mutation routes preserve the accepted credential's permission cap and recheck current write grants and team membership before commit. The checkpoint adds no locks. | Fourteen regressions include real HTTP requests waiting on team, investigation and note rows while either required write permission expires. Failures roll back; valid and restricted-credential controls are included. |
 | Dialog lifecycle | One dialog layer remains registered through pending/error changes to its initial-focus reference. | Focus returns to the opener after failed submission; nested session verification retains correct stack order. |
 | Test lifecycle | Provider statistics tests follow current navigation. Real-server routing tests await the exact successful PUT before independent persistence checks. Recovery version-mismatch fixtures stay distinct from the application release. | The original WebKit trace showed its GET beginning before the PUT finished. Corrected workflows pass across all three engines. Fresh CI identified the version fixture's collision with 2.0.0. |
+| Alert previews | Entity decoding processes the original text once, preserving nested escaping. | Three new tests cover adjacent, nested, unsupported and invalid entities; all eight alert-model tests and frontend lint pass. The original display defect did not execute HTML. |
+| AI statistics coverage | The enabled-provider CI step includes the real statistics authorization/accessibility case in each browser. | Earlier CI skipped this case because its title did not match the provider-settings filter. The local enabled-provider suite already exercised it; future CI includes all 18 real-server cases per engine. |
 | Release artifacts | Frontend runtime inventories and legal notices match the qualified image. | 114 package records and 114 legal-file hashes were verified. A new image-artifact gate checks both native images and rejects deliberately stale reference data. |
 | Pre-merge platform coverage | CI builds, scans and starts amd64 and arm64 application stacks; PostgreSQL and Redis remain native CI infrastructure. | ARM64 uses the existing QEMU action and publication's emulated worker-health budgets. Actionlint passes. Native smoke retains normal deployment health budgets. |
 
@@ -69,6 +71,15 @@ artifact and CI corrections follow in separate commits.
   inventories and bundled legal files match the refreshed references; a
   deliberately stale reference is rejected. Generated API/preview artifacts,
   source-size, Ruff, compilation, Actionlint and aggregate diff hygiene passed.
+
+The first remote run at `f81f21f` passed all three browser jobs (117 executed
+cases), frontend tests/build/audit, migrations and both CodeQL analysis jobs.
+Its recovery failure exposed the release-number collision described above;
+after correction the complete ordinary recovery suite passed again (91 tests,
+four opt-in skips). The [CodeQL triage record](2026-09-13-codeql-triage.md)
+assesses all 24 findings from that commit and links the subsequent display fix.
+The final workflow must also cover the added statistics cases and both image
+architectures; earlier green jobs do not substitute for final-commit results.
 
 Local native image IDs:
 
