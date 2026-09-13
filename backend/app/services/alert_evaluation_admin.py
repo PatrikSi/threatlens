@@ -31,6 +31,7 @@ from app.services.data_access_policy import (
     DataAccessContext,
     handling_label_access_predicate,
 )
+from app.services.team_access import team_access_predicate
 
 
 ALERT_EVALUATION_STATES = frozenset(
@@ -74,13 +75,14 @@ class AlertEvaluationActivityPage:
 class AlertOccurrenceMetricPoint:
     id: uuid.UUID
     bucket_start: datetime
-    owner_user_id: uuid.UUID
+    owner_user_id: uuid.UUID | None
     severity: str
     lifecycle_state: str
     suppressed: bool
     occurrence_count: int
     created_at: datetime
     updated_at: datetime
+    team_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -294,10 +296,12 @@ def list_alert_occurrence_metrics(
     lifecycle_states: list[str],
     suppressed: bool | None,
     limit: int,
+    team_id: uuid.UUID | None = None,
 ) -> AlertOccurrenceMetricPage:
     window_start, window_end = _utc_day_window(since, until)
     predicates = [
-        AlertOccurrenceMetric.owner_user_id == owner_user_id,
+        AlertOccurrenceMetric.retention_pruning_started_at.is_(None),
+        _metric_owner_predicate(AlertOccurrenceMetric, owner_user_id, team_id),
         AlertOccurrenceMetric.bucket_start >= window_start,
         AlertOccurrenceMetric.bucket_start < window_end,
     ]
@@ -352,7 +356,7 @@ def list_alert_occurrence_metrics(
     )
     bucket = func.date_trunc("day", AlertOccurrence.created_at, "UTC")
     live_predicates = [
-        AlertOccurrence.owner_user_id == owner_user_id,
+        _metric_owner_predicate(AlertOccurrence, owner_user_id, team_id),
         AlertOccurrence.metrics_aggregated_at.is_(None),
         AlertOccurrence.created_at >= window_start,
         AlertOccurrence.created_at < window_end,
@@ -427,21 +431,28 @@ def list_alert_occurrence_metrics(
         )
         items.append(
             AlertOccurrenceMetricPoint(
-                _metric_projection_id(owner_user_id, key),
+                _metric_projection_id(team_id or owner_user_id, key),
                 bucket_start,
-                owner_user_id,
+                None if team_id is not None else owner_user_id,
                 row.severity,
                 row.lifecycle_state,
                 row.suppressed,
                 int(row.occurrence_count),
                 row.created_at,
                 row.updated_at,
+                team_id=team_id,
             )
         )
     return AlertOccurrenceMetricPage(
         items,
         truncated=len(rows) > bounded_limit,
     )
+
+
+def _metric_owner_predicate(model, user_id: uuid.UUID, team_id: uuid.UUID | None):
+    if team_id is None:
+        return model.owner_user_id == user_id
+    return and_(model.team_id == team_id, team_access_predicate(model.team_id, user_id))
 
 
 def _metric_projection_id(

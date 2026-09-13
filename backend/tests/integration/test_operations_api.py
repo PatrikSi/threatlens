@@ -39,11 +39,11 @@ OPERATIONS_PATHS = (
 @pytest.fixture()
 def healthy_operations_probes(monkeypatch):
     now = datetime.now(timezone.utc).replace(microsecond=0)
-    monkeypatch.setattr(operations_probes.health_routes, "_database_health_ok", lambda _db: True)
-    monkeypatch.setattr(operations_probes.health_routes, "_redis_health_ok", lambda _settings: True)
+    monkeypatch.setattr(operations_probes.component_health, "database_health_ok", lambda _db: True)
+    monkeypatch.setattr(operations_probes.component_health, "redis_health_ok", lambda _settings: True)
 
     def worker_snapshot(settings):
-        required = operations_probes.health_routes._required_worker_queues(settings)
+        required = operations_probes.required_worker_queues(settings)
         return (
             True,
             {"worker@test-host": "pong"},
@@ -55,10 +55,10 @@ def healthy_operations_probes(monkeypatch):
             },
         )
 
-    monkeypatch.setattr(operations_probes.health_routes, "_worker_health_snapshot", worker_snapshot)
+    monkeypatch.setattr(operations_probes.component_health, "worker_health_snapshot", worker_snapshot)
     monkeypatch.setattr(
-        operations_probes.health_routes,
-        "_beat_health_snapshot",
+        operations_probes.component_health,
+        "beat_health_snapshot",
         lambda _settings: BeatHealthSnapshot(
             scheduler=BeatHeartbeatSnapshot(True, now.isoformat(), 1, "healthy"),
             worker_round_trip=BeatHeartbeatSnapshot(True, now.isoformat(), 1, "healthy"),
@@ -446,6 +446,7 @@ def _healthy_worker_topology(now: datetime) -> OperationsWorkerTopologyResponse:
     queue_metadata = {
         "ingest": ("Feed ingestion", "worker"),
         "processing": ("Item processing", "worker"),
+        "exports-v1": ("Background exports", "worker-exports"),
         "notifications": ("Notifications", "worker-notifications"),
         "maintenance": ("Maintenance", "worker-maintenance"),
         "lifecycle-v1": ("Data lifecycle", "worker-maintenance"),

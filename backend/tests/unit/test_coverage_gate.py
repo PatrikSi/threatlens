@@ -4,6 +4,8 @@ import importlib.util
 import json
 from pathlib import Path
 
+import pytest
+
 
 _SCRIPT_PATH = Path(__file__).resolve().parents[3] / "scripts" / "check_coverage.py"
 _SPEC = importlib.util.spec_from_file_location("check_coverage", _SCRIPT_PATH)
@@ -84,9 +86,72 @@ def test_coverage_gate_reports_ai_request_runtime_regression(tmp_path, capsys):
     assert "app/services/ai_request_runtime.py" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize(
+    "module",
+    [
+        "app/db/budgets.py",
+        "app/services/data_access_retention.py",
+        "app/services/lifecycle_dependencies.py",
+        "app/services/lifecycle_execution.py",
+        "app/services/lifecycle_permission_pruning.py",
+        "app/services/lifecycle_pruning.py",
+        "app/services/lifecycle_targets.py",
+        "app/services/processing_access.py",
+        "app/services/processing_dispatch.py",
+        "app/services/processing_queries.py",
+        "app/services/processing_recovery.py",
+        "app/services/processing_worker.py",
+        "app/tasks/lifecycle_tasks.py",
+        "app/tasks/processing_tasks.py",
+    ],
+)
+def test_coverage_gate_rejects_hardening_branch_regressions(
+    tmp_path, capsys, module
+):
+    coverage_path = tmp_path / "coverage.json"
+    _write_coverage(coverage_path)
+    payload = json.loads(coverage_path.read_text(encoding="utf-8"))
+    # Full line coverage must not hide uncovered branches in critical modules.
+    payload["files"][module]["summary"] = {
+        **_summary(100, 100),
+        "covered_branches": 0,
+        "missing_branches": 100,
+        "num_branches": 100,
+    }
+    coverage_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert check_coverage.main(coverage_path) == 1
+    assert f"{module} coverage 50.00% is below" in capsys.readouterr().err
+
+
+def test_coverage_gate_rejects_missing_database_budget_module(tmp_path, capsys):
+    coverage_path = tmp_path / "coverage.json"
+    _write_coverage(coverage_path)
+    payload = json.loads(coverage_path.read_text(encoding="utf-8"))
+    module = "app/db/budgets.py"
+    del payload["files"][module]
+    coverage_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert check_coverage.main(coverage_path) == 1
+    assert f"critical module {module} is missing from coverage" in capsys.readouterr().err
+
+
 def test_coverage_gate_rejects_invalid_document(tmp_path, capsys):
     coverage_path = tmp_path / "coverage.json"
     coverage_path.write_text("{}", encoding="utf-8")
 
     assert check_coverage.main(coverage_path) == 2
     assert "could not read" in capsys.readouterr().err
+
+
+def test_coverage_gate_includes_extracted_schedule_dispatcher(tmp_path, capsys):
+    coverage_path = tmp_path / "coverage.json"
+    _write_coverage(coverage_path)
+    payload = json.loads(coverage_path.read_text(encoding="utf-8"))
+    module = "app/tasks/report_schedule_tasks.py"
+    payload["files"][module] = {"summary": _summary(65, 100)}
+    coverage_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert check_coverage.main(coverage_path) == 1
+    assert f"{module} coverage 65.00% is below 66.00%" in capsys.readouterr().err
+    assert module in check_coverage._reporting_paths(payload["files"])

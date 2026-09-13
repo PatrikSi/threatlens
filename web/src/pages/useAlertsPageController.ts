@@ -1,7 +1,10 @@
 import { FormEvent, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { apiFetch } from '../api/client'
+import { accessibleQueryData } from '../api/queryData'
+import { validateAlertDeadlineMinutes } from './alertTeamTriageModel'
 import { resolveApiErrorMessage } from '../api/errors'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { AlertInterest, AlertMatchListResponse, AlertSeverity } from '../types/api'
@@ -17,6 +20,9 @@ import {
 } from './alertPageModel'
 
 type AlertWritePayload = {
+  teamId?: string
+  dueAfterMinutes?: string
+  escalationAfterMinutes?: string
   id?: string
   expectedRevision?: number
   expectedRowVersion?: number
@@ -33,8 +39,23 @@ type AlertRevisionConflict = {
   currentRowVersion: number | null
 }
 
-export function useAlertsPageController() {
+export function useAlertsPageController(triageDirty = false) {
   const queryClient = useQueryClient()
+  const [scopeParams, setScopeParams] = useSearchParams()
+  const teamId = scopeParams.get('team_id') ?? ''
+  const queueScope = scopeParams.get('queue_scope') ?? 'all'
+  const listScope = teamId ? `team:${teamId}` : queueScope === 'personal' || queueScope === 'team' ? queueScope : 'all'
+  const setListScope = (value: string) => setScopeParams((current) => {
+    const next = new URLSearchParams(current)
+    next.delete('team_id'); next.delete('queue_scope'); next.delete('alert_interest_id'); next.delete('occurrence'); next.delete('page')
+    if (value.startsWith('team:')) { next.set('team_id', value.slice(5)); next.set('queue_scope', 'team') }
+    else if (value === 'personal' || value === 'team') next.set('queue_scope', value)
+    return next
+  }, { preventScrollReset: true })
+  const [draftTeamId, setDraftTeamId] = useState(teamId)
+  const [dueAfterMinutes, setDueAfterMinutes] = useState('')
+  const [escalationAfterMinutes, setEscalationAfterMinutes] = useState('')
+  const [editingBaseline, setEditingBaseline] = useState<AlertInterest | null>(null)
   const [editingAlertId, setEditingAlertId] = useState<string | null>(null)
   const [name, setName] = useState('')
   const [category, setCategory] = useState<string>(ALERT_CATEGORIES[0].value)
@@ -59,14 +80,26 @@ export function useAlertsPageController() {
   const saveDisabledReason = revisionConflict
     ? 'Reload the latest rule before saving this draft.'
     : (getAlertSaveDisabledReason(name, parsedKeywords) ??
-      getAlertSuppressionValidationError(suppressionEnabled, suppressionUntil, suppressionReason))
-  const alertsQuery = useQuery({
-    queryKey: ['alerts', showDisabled],
-    queryFn: () => apiFetch<AlertInterest[]>(`/alerts?include_disabled=${showDisabled}`),
+      getAlertSuppressionValidationError(suppressionEnabled, suppressionUntil, suppressionReason) ??
+      (draftTeamId ? validateAlertDeadlineMinutes(dueAfterMinutes, escalationAfterMinutes) : null))
+  const alertsResult = useQuery({
+    queryKey: ['alerts', showDisabled, listScope],
+    queryFn: () => {
+      const params = new URLSearchParams({ include_disabled: String(showDisabled) })
+      if (teamId) params.set('team_id', teamId)
+      else if (queueScope === 'personal' || queueScope === 'team') params.set('queue_scope', queueScope)
+      return apiFetch<AlertInterest[]>(`/alerts?${params}`)
+    },
   })
+  const alertsQuery = { ...alertsResult, data: accessibleQueryData(alertsResult) }
   const deleteConflictAlertsQuery = useQuery({
-    queryKey: ['alerts', 'delete-conflict-all'],
-    queryFn: () => apiFetch<AlertInterest[]>('/alerts?include_disabled=true'),
+    queryKey: ['alerts', 'delete-conflict-all', pendingDeleteAlert?.team_id],
+    queryFn: () => {
+      const params = new URLSearchParams({ include_disabled: 'true' })
+      if (pendingDeleteAlert?.team_id) params.set('team_id', pendingDeleteAlert.team_id)
+      else params.set('queue_scope', 'personal')
+      return apiFetch<AlertInterest[]>(`/alerts?${params}`)
+    },
     enabled: false,
   })
   const previewQuery = useQuery({
@@ -87,6 +120,10 @@ export function useAlertsPageController() {
 
   const resetDraft = () => {
     setEditingAlertId(null)
+    setEditingBaseline(null)
+    setDraftTeamId(teamId)
+    setDueAfterMinutes('')
+    setEscalationAfterMinutes('')
     setEditingAlertRevision(null)
     setEditingAlertRowVersion(null)
     setName('')
@@ -220,21 +257,13 @@ export function useAlertsPageController() {
     () => groupAlertsByCategory(alertsQuery.data ?? []),
     [alertsQuery.data],
   )
-  const editingAlert = useMemo(
-    () => (alertsQuery.data ?? []).find((alert) => alert.id === editingAlertId) ?? null,
-    [alertsQuery.data, editingAlertId],
-  )
-  const editingSuppressionEnabled = Boolean(editingAlert?.suppression_until)
-  const hasUnsavedAlertDraftChanges =
-    name !== (editingAlert?.name ?? '') ||
-    category !== (editingAlert?.category ?? ALERT_CATEGORIES[0].value) ||
-    keywordsText !== (editingAlert?.keywords.join(', ') ?? '') ||
-    severity !== (editingAlert?.severity ?? 'medium') ||
-    suppressionEnabled !== editingSuppressionEnabled ||
-    suppressionUntil !== alertSuppressionInputValue(editingAlert?.suppression_until) ||
-    suppressionReason !== (editingAlert?.suppression_reason ?? '')
+  const editingAlert = editingBaseline
+  const hasUnsavedAlertDraftChanges = alertDraftChanged(editingAlert, {
+    name, category, keywordsText, severity, suppressionEnabled, suppressionUntil, suppressionReason,
+    draftTeamId, dueAfterMinutes, escalationAfterMinutes,
+  }, teamId)
   const confirmDiscardUnsavedAlertChanges = useUnsavedChangesWarning(
-    hasUnsavedAlertDraftChanges,
+    hasUnsavedAlertDraftChanges || triageDirty,
     'Discard unsaved alert changes?',
   )
 
@@ -256,6 +285,7 @@ export function useAlertsPageController() {
     }
     saveAlert.mutate({
       id: editingAlertId ?? undefined,
+      ...(draftTeamId ? { teamId: draftTeamId, dueAfterMinutes, escalationAfterMinutes } : {}),
       expectedRevision: editingAlertRevision ?? undefined,
       expectedRowVersion: editingAlertRowVersion ?? undefined,
       name: name.trim(),
@@ -269,6 +299,10 @@ export function useAlertsPageController() {
   const loadAlertDraft = (alert: AlertInterest) => {
     saveAlert.reset()
     setEditingAlertId(alert.id)
+    setEditingBaseline(alert)
+    setDraftTeamId(alert.team_id ?? '')
+    setDueAfterMinutes(alert.due_after_minutes?.toString() ?? '')
+    setEscalationAfterMinutes(alert.escalation_after_minutes?.toString() ?? '')
     setEditingAlertRevision(alert.revision ?? 1)
     setEditingAlertRowVersion(alert.row_version ?? null)
     setName(alert.name)
@@ -337,7 +371,7 @@ export function useAlertsPageController() {
   }
 
   return {
-    alertsQuery,
+    alertsQuery, listScope, setListScope, draftTeamId, setDraftTeamId, dueAfterMinutes, setDueAfterMinutes, escalationAfterMinutes, setEscalationAfterMinutes,
     category,
     cancelPendingDeleteAlert,
     confirmDeleteAlert,
@@ -392,6 +426,9 @@ function saveAlertRequest(payload: AlertWritePayload): Promise<AlertInterest> {
     severity: payload.severity,
     suppression_until: payload.suppressionUntil,
     suppression_reason: payload.suppressionReason,
+    ...(payload.id ? {} : { team_id: payload.teamId || null }),
+    ...(payload.dueAfterMinutes !== undefined ? { due_after_minutes: payload.dueAfterMinutes === '' ? null : Number(payload.dueAfterMinutes) } : {}),
+    ...(payload.escalationAfterMinutes !== undefined ? { escalation_after_minutes: payload.escalationAfterMinutes === '' ? null : Number(payload.escalationAfterMinutes) } : {}),
     ...(payload.id && payload.expectedRowVersion
       ? { expected_row_version: payload.expectedRowVersion }
       : payload.id && payload.expectedRevision
@@ -453,3 +490,23 @@ function alertDeletePath(alert: AlertInterest): string {
 }
 
 export type AlertsPageController = ReturnType<typeof useAlertsPageController>
+
+
+type AlertEditorDraft = {
+  name: string; category: string; keywordsText: string; severity: AlertSeverity;
+  suppressionEnabled: boolean; suppressionUntil: string; suppressionReason: string;
+  draftTeamId: string; dueAfterMinutes: string; escalationAfterMinutes: string;
+}
+
+function alertDraftChanged(baseline: AlertInterest | null, draft: AlertEditorDraft, defaultTeamId: string) {
+  return draft.name !== (baseline?.name ?? '') ||
+    draft.category !== (baseline?.category ?? ALERT_CATEGORIES[0].value) ||
+    draft.keywordsText !== (baseline?.keywords.join(', ') ?? '') ||
+    draft.severity !== (baseline?.severity ?? 'medium') ||
+    draft.suppressionEnabled !== Boolean(baseline?.suppression_until) ||
+    draft.suppressionUntil !== alertSuppressionInputValue(baseline?.suppression_until) ||
+    draft.suppressionReason !== (baseline?.suppression_reason ?? '') ||
+    draft.draftTeamId !== (baseline ? baseline.team_id ?? '' : defaultTeamId) ||
+    draft.dueAfterMinutes !== (baseline?.due_after_minutes?.toString() ?? '') ||
+    draft.escalationAfterMinutes !== (baseline?.escalation_after_minutes?.toString() ?? '')
+}

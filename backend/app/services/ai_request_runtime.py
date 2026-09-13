@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import hashlib
-import json
 import logging
 import time
 import uuid
@@ -10,6 +8,11 @@ from dataclasses import dataclass, replace
 
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
+from app.services.ai_provider_selection import lock_selected_provider
+from app.services.ai_provider_budgets import call_with_provider_budget
+from app.services.ai_request_retry import _provider_attempt_limit, _provider_failure_retry_plan
+from app.services.ai_failure_categories import provider_usage_identity
+from app.services.ai_workflow_dispatch import AIWorkflowDeferred
 
 from app.services.ai_config import ActiveAISettings
 from app.services.ai_egress_data_policy import (
@@ -17,7 +20,11 @@ from app.services.ai_egress_data_policy import (
     AIEgressPolicyError,
     mark_ai_egress_provider_io_state,
 )
+from app.services.ai_request_identity import ai_request_fingerprint as _ai_request_fingerprint
 from app.services.ai_ops import record_ai_task_event
+from app.services.ai_provider_protocol import provider_output_ceiling, validate_provider_request
+from app.services.ai_output_validation import normalize_completion_metadata, validate_feature_completion
+from app.services.report_grounding import report_stage_input
 from app.services.ai_provider_attempts import (
     AIProviderAttemptReservation,
     AIProviderAttemptStateError,
@@ -70,13 +77,6 @@ class _AuthorizationCallbacks:
     sleep: Callable[[float], None]
 
 
-@dataclass(frozen=True, slots=True)
-class _ProviderFailureRetryPlan:
-    next_max_tokens: int
-    should_retry: bool
-    retry_delay_seconds: float | None
-    payload: dict[str, object]
-
 
 def run_ai_json_request(
     db: Session,
@@ -95,7 +95,6 @@ def run_ai_json_request(
     execution_checkpoint: Callable[[], None] | None,
     execution_commit: Callable[[], None] | None,
     enforce_egress_data_policy: Callable[..., object],
-    report_feature_type: str,
     call_ai_json: Callable[..., AICompletionResult],
     record_task_run_stop_observed: Callable[..., str | None],
     record_usage_event: Callable[..., None],
@@ -110,7 +109,19 @@ def run_ai_json_request(
         max_provider_attempts=max_provider_attempts,
     )
     last_error: AIIntegrationError | None = None
-    request_max_tokens = max_completion_tokens or active.max_completion_tokens
+    request_max_tokens = active.max_completion_tokens if max_completion_tokens is None else max_completion_tokens
+    validate_provider_request(active, messages, request_max_tokens)
+    provider_ceiling = provider_output_ceiling(active, messages)
+    max_retry_completion_tokens = min(max_retry_completion_tokens or provider_ceiling, provider_ceiling)
+    operation_fingerprint = _ai_request_fingerprint(active=active, feature_type=feature_type,
+        messages=messages, item_id=item_id, daily_brief_id=daily_brief_id, report_id=report_id,
+        requested_max_tokens=request_max_tokens)
+    report_stage = feature_type == "report" and report_stage_input(messages) is not None
+    cached = _replay_report_stage(db, active=active, report_stage=report_stage, task_run_id=task_run_id,
+        report_id=report_id, operation_scope=provider_operation_scope, fingerprint=operation_fingerprint,
+        checkpoint=execution_checkpoint, commit=execution_commit, enforce=enforce_egress_data_policy)
+    if cached is not None:
+        return cached
     provider_attempts = 0
     authorization_refreshes = 0
     authorization_callbacks = _AuthorizationCallbacks(
@@ -124,19 +135,9 @@ def run_ai_json_request(
 
     attempt = 1
     while attempt <= max_attempts:
-        if execution_checkpoint is not None:
-            execution_checkpoint()
-        stop_reason = record_task_run_stop_observed(
-            db,
-            task_run_id=task_run_id,
-            stage=(
-                "before_provider_retry" if attempt > 1 else "before_provider_attempt"
-            ),
-        )
-        if stop_reason is not None:
-            _commit_ai_progress(db, execution_commit)
-            raise AITaskRunStoppedError(stop_reason)
-        _commit_ai_progress(db, execution_commit)
+        _check_provider_attempt_stage(db, task_run_id=task_run_id, attempt=attempt,
+            checkpoint=execution_checkpoint, commit=execution_commit,
+            observe_stop=record_task_run_stop_observed)
 
         call_kwargs: dict[str, object] = {"messages": messages}
         if request_max_tokens != active.max_completion_tokens:
@@ -202,7 +203,23 @@ def run_ai_json_request(
         authorization_refreshes = 0
         provider_attempts = attempt
         try:
-            completion = call_ai_json(active, **call_kwargs)
+            lock_selected_provider(db, active)
+            completion = call_with_provider_budget(db, active, call=call_ai_json,
+                messages=messages, requested_tokens=request_max_tokens, call_kwargs=call_kwargs)
+            completion = normalize_completion_metadata(active, completion)
+            validate_feature_completion(active, feature_type=feature_type, completion=completion, messages=messages)
+        except AIWorkflowDeferred as deferred:
+            _void_final_provider_reservation(db, execution_commit=execution_commit,
+                prior_authorization=authorization, final_authorization=None, reservation=reservation,
+                request_fingerprint=request_fingerprint, provider_attempts=provider_attempts - 1,
+                attempt=attempt, task_run_id=task_run_id, event_type="provider_admission_deferred",
+                message=str(deferred))
+            _record_deferred_usage(db, record=record_usage_event, feature_type=feature_type, success=False,
+                provider=active.provider_type, model=active.model, **provider_usage_identity(active),
+                item_id=item_id, daily_brief_id=daily_brief_id, report_id=report_id, task_run_id=task_run_id,
+                prompt_tokens=0, completion_tokens=0, total_tokens=0,
+                error=str(deferred), failure_category=deferred.reason, provider_io_outcome="not_sent")
+            raise
         except AIIntegrationError as exc:
             checkpoint_error = _capture_checkpoint_error(execution_checkpoint)
             last_error = exc
@@ -217,6 +234,8 @@ def run_ai_json_request(
                     feature_type=feature_type,
                     task_run_id=task_run_id,
                     message=str(exc),
+                    failure_category=exc.failure_category,
+                    latency_ms=exc.latency_ms,
                     record_usage_event=record_usage_event,
                     active=active,
                     item_id=item_id,
@@ -228,7 +247,6 @@ def run_ai_json_request(
             try:
                 retry_plan = _provider_failure_retry_plan(
                     feature_type=feature_type,
-                    report_feature_type=report_feature_type,
                     error=exc,
                     attempt=attempt,
                     max_attempts=max_attempts,
@@ -322,6 +340,13 @@ def run_ai_json_request(
                     report_id=report_id,
                     task_run_id=task_run_id,
                     error=str(exc),
+                    **provider_usage_identity(active),
+                    failure_category=exc.failure_category,
+                    provider_io_outcome=exc.provider_io_outcome,
+                    prompt_tokens=exc.prompt_tokens,
+                    completion_tokens=exc.completion_tokens,
+                    total_tokens=exc.total_tokens,
+                    latency_ms=exc.latency_ms,
                 )
                 _commit_ai_progress(db, execution_commit)
             except Exception as settlement_exc:
@@ -422,6 +447,8 @@ def run_ai_json_request(
                 db,
                 feature_type=feature_type,
                 success=True,
+                **provider_usage_identity(active),
+                provider_io_outcome="response_received",
                 provider=completion.provider,
                 model=completion.model,
                 item_id=item_id,
@@ -433,6 +460,9 @@ def run_ai_json_request(
                 total_tokens=completion.total_tokens,
                 latency_ms=completion.latency_ms,
             )
+            _store_report_stage(db, report_stage=report_stage, task_run_id=task_run_id,
+                report_id=report_id, operation_scope=provider_operation_scope, fingerprint=operation_fingerprint,
+                completion=replace(completion, attempt_count=provider_attempts))
             _commit_ai_progress(db, execution_commit)
         except Exception as settlement_exc:
             _rollback_quietly(db)
@@ -448,75 +478,6 @@ def run_ai_json_request(
         )
     last_error.attempt_count = max_attempts
     raise last_error
-
-
-def _provider_attempt_limit(
-    *,
-    active: ActiveAISettings,
-    max_provider_attempts: int | None,
-) -> int:
-    configured_limit = max(1, int(active.request_max_retries) + 1)
-    if max_provider_attempts is None:
-        return configured_limit
-    if max_provider_attempts < 1:
-        error = AIIntegrationError(
-            "AI provider attempt budget is exhausted",
-            retryable=False,
-            provider_io_outcome=AI_PROVIDER_IO_NOT_SENT,
-        )
-        error.attempt_count = 0
-        raise error
-    return min(configured_limit, max_provider_attempts)
-
-
-def _provider_failure_retry_plan(
-    *,
-    feature_type: str,
-    report_feature_type: str,
-    error: AIIntegrationError,
-    attempt: int,
-    max_attempts: int,
-    request_max_tokens: int,
-    max_retry_completion_tokens: int | None,
-    next_retry_max_completion_tokens: Callable[..., int],
-    ai_error_is_retryable: Callable[[AIIntegrationError], bool],
-    provider_retry_delay_seconds: Callable[..., float],
-) -> _ProviderFailureRetryPlan:
-    next_max_tokens = next_retry_max_completion_tokens(
-        feature_type=feature_type,
-        current=request_max_tokens,
-        error=error,
-        maximum=max_retry_completion_tokens,
-    )
-    report_truncation_has_headroom = not (
-        feature_type == report_feature_type
-        and error.retry_hint == "expand_completion_budget"
-        and next_max_tokens <= request_max_tokens
-    )
-    should_retry = (
-        attempt < max_attempts
-        and ai_error_is_retryable(error)
-        and report_truncation_has_headroom
-    )
-    retry_delay_seconds = (
-        provider_retry_delay_seconds(attempt=attempt) if should_retry else None
-    )
-    payload = {
-        **error.debug_payload(),
-        "attempt": attempt,
-        "max_attempts": max_attempts,
-        "requested_max_tokens": request_max_tokens,
-    }
-    if next_max_tokens != request_max_tokens:
-        payload["next_max_tokens"] = next_max_tokens
-    if retry_delay_seconds is not None:
-        payload["retry_delay_seconds"] = round(retry_delay_seconds, 3)
-    return _ProviderFailureRetryPlan(
-        next_max_tokens=next_max_tokens,
-        should_retry=should_retry,
-        retry_delay_seconds=retry_delay_seconds,
-        payload=payload,
-    )
 
 
 def _authorize_and_reserve_provider_attempt(
@@ -907,39 +868,6 @@ def _authorization_snapshot_matches(
     )
 
 
-def _ai_request_fingerprint(
-    *,
-    active: ActiveAISettings,
-    feature_type: str,
-    messages: list[dict[str, str]],
-    item_id: uuid.UUID | None,
-    daily_brief_id: uuid.UUID | None,
-    report_id: uuid.UUID | None,
-    requested_max_tokens: int,
-) -> str:
-    serialized = json.dumps(
-        {
-            "feature_type": feature_type,
-            "messages": messages,
-            "item_id": str(item_id) if item_id is not None else None,
-            "daily_brief_id": (
-                str(daily_brief_id) if daily_brief_id is not None else None
-            ),
-            "report_id": str(report_id) if report_id is not None else None,
-            "provider_type": active.provider_type,
-            "base_url": getattr(active, "base_url", None),
-            "model": active.model,
-            "temperature": getattr(active, "temperature", None),
-            "max_tokens": max(1, int(requested_max_tokens)),
-            "stream": False,
-        },
-        ensure_ascii=True,
-        separators=(",", ":"),
-        sort_keys=True,
-    )
-    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
-
-
 def _next_authorization_refresh_or_raise(
     *,
     active: ActiveAISettings,
@@ -982,6 +910,8 @@ def _settle_ambiguous_attempt_or_leave_reserved(
     feature_type: str,
     task_run_id: uuid.UUID | None,
     message: str,
+    failure_category: str = "ambiguous_internal",
+    latency_ms: int | None = None,
     record_usage_event: Callable[..., None],
     active: ActiveAISettings,
     item_id: uuid.UUID | None,
@@ -1037,6 +967,10 @@ def _settle_ambiguous_attempt_or_leave_reserved(
             report_id=report_id,
             task_run_id=task_run_id,
             error=message,
+            **provider_usage_identity(active),
+            failure_category=failure_category,
+            provider_io_outcome="ambiguous",
+            latency_ms=latency_ms,
         )
         _commit_ai_progress(db, execution_commit)
     except Exception:
@@ -1183,3 +1117,53 @@ __all__ = [
     "AITaskRunStoppedError",
     "run_ai_json_request",
 ]
+
+
+def _check_provider_attempt_stage(db, *, task_run_id, attempt, checkpoint, commit, observe_stop) -> None:
+    if checkpoint is not None:
+        checkpoint()
+    reason = observe_stop(db, task_run_id=task_run_id,
+        stage="before_provider_retry" if attempt > 1 else "before_provider_attempt")
+    _commit_ai_progress(db, commit)
+    if reason is not None:
+        raise AITaskRunStoppedError(reason)
+
+
+def _replay_report_stage(db, *, active, report_stage, task_run_id, report_id, operation_scope,
+                         fingerprint, checkpoint, commit, enforce) -> AICompletionResult | None:
+    if not report_stage or task_run_id is None:
+        return None
+    from app.services.ai_report_stage_artifacts import has_report_stage_completion, load_report_stage_completion
+
+    if not has_report_stage_completion(db, task_run_id=task_run_id, operation_scope=operation_scope):
+        return None
+    if checkpoint is not None:
+        checkpoint()
+    authorization = enforce(db, feature_type="report", item_id=None, daily_brief_id=None,
+        report_id=report_id, request_fingerprint=fingerprint)
+    cached = load_report_stage_completion(db, task_run_id=task_run_id, report_id=report_id,
+        operation_scope=operation_scope, request_fingerprint=fingerprint)
+    lock_selected_provider(db, active)
+    mark_ai_egress_provider_io_state(db, authorization=authorization, state="not_sent", attempt_count=0)
+    _commit_ai_progress(db, commit)
+    return cached
+
+
+def _store_report_stage(db, *, report_stage, task_run_id, report_id, operation_scope,
+                        fingerprint, completion) -> None:
+    if report_stage and task_run_id is not None:
+        from app.services.ai_report_stage_artifacts import store_report_stage_completion
+
+        store_report_stage_completion(db, task_run_id=task_run_id, report_id=report_id,
+            operation_scope=operation_scope, request_fingerprint=fingerprint, completion=completion)
+
+
+def _record_deferred_usage(db: Session, *, record: Callable[..., None], **values) -> None:
+    # The receipt is durably void before this optional telemetry transaction.
+    # A failed usage insert must never block a definitely unsent request replay.
+    try:
+        record(db, **values)
+        db.commit()
+    except Exception as error:
+        _rollback_quietly(db)
+        logger.warning("ai_provider_deferral_usage_unavailable error_type=%s", type(error).__name__)

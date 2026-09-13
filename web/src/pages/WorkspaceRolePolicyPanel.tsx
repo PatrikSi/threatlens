@@ -16,6 +16,7 @@ import {
   workspaceNavigationGroupPresentation,
 } from '../workspace/modulePresentation'
 import { isWorkspaceModuleRoleAllowed } from '../workspace/workspaceModel'
+import { WorkspaceEnforcementControls } from './WorkspaceEnforcementControls'
 import type { WorkspaceSettingsController } from './useWorkspaceSettingsController'
 import {
   reorderRolePolicyModule,
@@ -107,6 +108,7 @@ export function WorkspaceRolePolicyPanel({ controller }: { controller: Workspace
             </div>
           </details>
           <RolePolicyControls controller={controller} />
+          <WorkspaceEnforcementControls controller={controller} />
           <RolePolicyPreview controller={controller} />
 
           {controller.roleValidation && (

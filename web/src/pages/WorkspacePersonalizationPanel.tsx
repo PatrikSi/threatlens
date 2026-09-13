@@ -470,7 +470,7 @@ function PersonalLandingControl({ controller }: { controller: WorkspaceSettingsC
       <select
         className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 font-normal dark:border-cyan-900/40 dark:bg-[#072019]"
         value={draft.landingModuleId ?? ''}
-        disabled={controller.personalMutationPending}
+        disabled={controller.personalMutationPending || controller.workspace.effective?.landing_mode === 'enforced'}
         onChange={(event) => controller.setPersonalDraft((current) => current ? {
           ...current,
           landingModuleId: event.target.value || null,
@@ -496,7 +496,9 @@ function PersonalLandingControl({ controller }: { controller: WorkspaceSettingsC
         })}
       </select>
       <span className="mt-1 block text-xs font-normal text-slate dark:text-slate-400">
-        Used after sign-in and whenever ThreatLens opens the workspace start route. Available Settings pages can be selected independently of the top navigation.
+        {controller.workspace.effective?.landing_mode === 'enforced'
+          ? 'The organization enforces this start page. Your personal choice remains saved for when enforcement is removed.'
+          : 'Used after sign-in and whenever ThreatLens opens the workspace start route. Available Settings pages can be selected independently of the top navigation.'}
       </span>
     </label>
   )
@@ -504,9 +506,11 @@ function PersonalLandingControl({ controller }: { controller: WorkspaceSettingsC
 
 function PersonalDashboardControls({ controller }: { controller: WorkspaceSettingsController }) {
   const draft = controller.personalDraft!
+  const enforced = controller.workspace.effective?.dashboard_mode === 'enforced'
   return (
-    <fieldset disabled={controller.personalMutationPending}>
+    <fieldset disabled={controller.personalMutationPending || enforced}>
       <legend className="text-sm font-semibold">Initial dashboard panels</legend>
+      {enforced && <p className="mt-1 text-sm">The organization enforces your dashboard arrangement. Your personal choices remain stored for use when enforcement is removed.</p>}
       <p className="mt-1 text-xs text-slate dark:text-slate-400">
         These panels seed a new or reset local dashboard. Existing saved layouts are not replaced.
       </p>

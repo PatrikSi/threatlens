@@ -163,6 +163,7 @@ def summary_response(
 ) -> InvestigationSummaryResponse:
     return InvestigationSummaryResponse(
         id=investigation.id,
+        team_id=investigation.team_id,
         title=investigation.title,
         description=investigation.description,
         status=investigation.status,

@@ -6,6 +6,7 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import select
+from sqlalchemy.orm import load_only
 
 from app.core.config import get_settings
 from app.models.ai_task_run import AITaskRun
@@ -23,6 +24,7 @@ from app.services.ai_ops import (
 from app.services.ai_ops_common import AI_TASK_TYPE_REPORT
 from app.services import report_dispatch
 from app.services.report_generation import generate_report
+from app.services.ai_workflow_dispatch import AIWorkflowDeferred
 from app.services.report_execution import (
     ReportGenerationLeaseLostError,
     ReportGenerationLeaseUnavailableError,
@@ -33,17 +35,13 @@ from app.services.report_execution import (
     renew_report_generation,
 )
 from app.services.report_notifications import REPORT_READY_EVENT_TYPE
-from app.services.report_schedules import list_due_schedule_ids, reserve_schedule_runs
-from app.services.report_schedules import record_schedule_failure
 from app.services.report_task_lineage import find_report_request_task_run
-from app.services.report_availability import (
-    ReportingUnavailableError,
-    ensure_reporting_available,
-)
-from app.services.ai_config import load_active_ai_settings
 from app.tasks.celery_app import QUEUE_AI_REPORTS, celery_app
+from app.core.worker_queues import QUEUE_AI_REPORTS_EDITORIAL
+from app.services.report_queue import report_retry_queue, report_worker_queue
 from app.tasks.integration_tasks import enqueue_integration_event_routing
 from app.tasks.task_session import db_session
+from app.tasks.report_schedule_tasks import dispatch_due_report_schedules
 
 
 logger = logging.getLogger(__name__)
@@ -78,6 +76,8 @@ def create_report_task_run(
         metadata={
             "report_id": str(report.id),
             "report_request_origin": originating_request,
+            "report_stage_protocol": 1,
+            "report_editorial_contract_version": report.editorial_contract_version,
             "source_count": report.included_source_count,
             "estimated_input_tokens": report.estimated_input_tokens,
             "estimated_batches": report.generation_batches,
@@ -97,6 +97,10 @@ def enqueue_report_task(*, report_id: uuid.UUID, task_run_id: uuid.UUID) -> str 
     now = datetime.now(timezone.utc)
     try:
         with db_session() as db:
+            report = db.get(Report, report_id)
+            if report is None:
+                return None
+            publication_queue = report_worker_queue(report)
             task_run_id = report_dispatch.supersede_legacy_report_dispatch(
                 db,
                 report_id=report_id,
@@ -132,7 +136,7 @@ def enqueue_report_task(*, report_id: uuid.UUID, task_run_id: uuid.UUID) -> str 
     try:
         generate_intelligence_report.apply_async(
             args=[str(report_id), str(task_run_id)],
-            queue=QUEUE_AI_REPORTS,
+            queue=publication_queue,
             task_id=task_id,
         )
     except Exception:
@@ -314,26 +318,46 @@ def generate_intelligence_report(
             ),
             kwargs={},
             max_retries=None,
-            queue=QUEUE_AI_REPORTS,
+            queue=report_retry_queue(self),
         )
 
     generation_fence = _required_generation_fence(claim)
     if claim.status == "interrupted":
-        return _settle_interrupted_generation_task(
-            self,
-            report_id=parsed_report_id,
-            run_id=parsed_run_id,
-            worker_name=worker_name,
-            lease_token=lease_token,
-            generation_fence=generation_fence,
-            infrastructure_retry_count=infrastructure_retry_count,
-        )
+        from app.services.ai_report_recovery import prepare_owned_report_resume
+        try:
+            with db_session() as db:
+                resumable = prepare_owned_report_resume(db, run_id=parsed_run_id,
+                    report_id=parsed_report_id, lease_token=lease_token,
+                    generation_fence=generation_fence, lease_seconds=settings.report_generation_lease_seconds)
+        except Exception as exc:
+            return _retry_or_settle_report_infrastructure(self, report_id=parsed_report_id,
+                run_id=parsed_run_id, worker_name=worker_name, lease_token=lease_token,
+                generation_fence=generation_fence, infrastructure_retry_count=infrastructure_retry_count,
+                phase="verifying interrupted report recovery", exc=exc)
+        if not resumable:
+            return _settle_interrupted_generation_task(
+                self, report_id=parsed_report_id, run_id=parsed_run_id,
+                worker_name=worker_name, lease_token=lease_token,
+                generation_fence=generation_fence, infrastructure_retry_count=infrastructure_retry_count,
+            )
 
+    return _execute_claimed_report(
+        self, report_id=parsed_report_id, run_id=parsed_run_id, worker_name=worker_name,
+        lease_token=lease_token, generation_fence=generation_fence,
+        infrastructure_retry_count=infrastructure_retry_count,
+    )
+
+
+def _execute_claimed_report(
+    task, *, report_id: uuid.UUID, run_id: uuid.UUID, worker_name: str | None,
+    lease_token: str, generation_fence: int, infrastructure_retry_count: int,
+):
+    """Execute and settle report stages under the already acquired generation lease."""
     with db_session() as db:
 
         def execution_checkpoint() -> None:
             _heartbeat_report_generation(
-                report_id=parsed_report_id,
+                report_id=report_id,
                 lease_token=lease_token,
                 generation_fence=generation_fence,
             )
@@ -342,7 +366,7 @@ def generate_intelligence_report(
             try:
                 owned = fence_report_generation(
                     db,
-                    report_id=parsed_report_id,
+                    report_id=report_id,
                     lease_token=lease_token,
                     generation_fence=generation_fence,
                     lease_seconds=settings.report_generation_lease_seconds,
@@ -364,28 +388,28 @@ def generate_intelligence_report(
         try:
             result = generate_report(
                 db,
-                report_id=parsed_report_id,
-                task_run_id=parsed_run_id,
+                report_id=report_id,
+                task_run_id=run_id,
                 execution_checkpoint=execution_checkpoint,
                 execution_commit=execution_commit,
             )
         except ReportGenerationLeaseLostError:
             logger.warning(
                 "report_generation_ownership_lost report_id=%s task_run_id=%s",
-                parsed_report_id,
-                parsed_run_id,
+                report_id,
+                run_id,
             )
             return {"status": "skipped", "reason": "ownership_lost"}
         except ReportGenerationLeaseUnavailableError as exc:
             logger.warning(
                 "report_generation_ownership_unverified report_id=%s task_run_id=%s",
-                parsed_report_id,
-                parsed_run_id,
+                report_id,
+                run_id,
             )
             return _retry_or_settle_report_infrastructure(
-                self,
-                report_id=parsed_report_id,
-                run_id=parsed_run_id,
+                task,
+                report_id=report_id,
+                run_id=run_id,
                 worker_name=worker_name,
                 lease_token=lease_token,
                 generation_fence=generation_fence,
@@ -393,12 +417,19 @@ def generate_intelligence_report(
                 phase="verifying report generation ownership",
                 exc=exc,
             )
+        except AIWorkflowDeferred as exc:
+            from app.services.ai_report_workflow import defer_report_workflow
+            return defer_report_workflow(
+                db, report_id=report_id, run_id=run_id,
+                lease_token=lease_token, generation_fence=generation_fence,
+                reason=exc.reason, retry_after_seconds=exc.retry_after_seconds,
+            )
         except Exception as exc:
             return _settle_failed_generation(
-                self,
+                task,
                 db=db,
-                report_id=parsed_report_id,
-                run_id=parsed_run_id,
+                report_id=report_id,
+                run_id=run_id,
                 worker_name=worker_name,
                 lease_token=lease_token,
                 generation_fence=generation_fence,
@@ -408,28 +439,28 @@ def generate_intelligence_report(
 
         finish_ai_task_run(
             db,
-            run_id=parsed_run_id,
+            run_id=run_id,
             status=AI_STATUS_READY,
             worker_name=worker_name,
-            model=db.get(Report, parsed_report_id).model
-            if db.get(Report, parsed_report_id)
+            model=db.get(Report, report_id).model
+            if db.get(Report, report_id)
             else None,
             prompt_tokens=result.prompt_tokens,
             completion_tokens=result.completion_tokens,
             total_tokens=result.total_tokens,
             metadata_updates={"model_calls": result.model_calls},
-            report_id=parsed_report_id,
+            report_id=report_id,
         )
         event_id = db.scalar(
             select(IntegrationEvent.id).where(
                 IntegrationEvent.event_type == REPORT_READY_EVENT_TYPE,
                 IntegrationEvent.source_type == "report",
-                IntegrationEvent.source_id == str(parsed_report_id),
+                IntegrationEvent.source_id == str(report_id),
             )
         )
         if not release_report_generation(
             db,
-            report_id=parsed_report_id,
+            report_id=report_id,
             lease_token=lease_token,
             generation_fence=generation_fence,
         ):
@@ -440,9 +471,9 @@ def generate_intelligence_report(
         except Exception as exc:
             db.rollback()
             return _retry_or_settle_report_infrastructure(
-                self,
-                report_id=parsed_report_id,
-                run_id=parsed_run_id,
+                task,
+                report_id=report_id,
+                run_id=run_id,
                 worker_name=worker_name,
                 lease_token=lease_token,
                 generation_fence=generation_fence,
@@ -455,7 +486,7 @@ def generate_intelligence_report(
     )
     return {
         "status": "ready",
-        "report_id": str(parsed_report_id),
+        "report_id": str(report_id),
         "model_calls": result.model_calls,
         "notification_enqueue_failed": not notification_enqueued,
     }
@@ -707,7 +738,7 @@ def _retry_or_settle_report_infrastructure(
             headers=retry_headers,
             kwargs={},
             max_retries=None,
-            queue=QUEUE_AI_REPORTS,
+            queue=report_retry_queue(task),
         ) from exc
 
     logger.error(
@@ -996,120 +1027,48 @@ def _busy_report_retry_delay(lease_expires_at: datetime | None) -> int:
     return max(5, min(60, remaining // 2 or 1))
 
 
-@celery_app.task(name="app.tasks.feed_tasks.dispatch_due_report_schedules")
-def dispatch_due_report_schedules():
-    now = datetime.now(timezone.utc)
-    queued = 0
-    failures = 0
-    with db_session() as db:
-        try:
-            ensure_reporting_available(load_active_ai_settings(db))
-        except ReportingUnavailableError as exc:
-            logger.info("scheduled_report_dispatch_deferred reason=%s", exc.code)
-            return {
-                "status": "deferred",
-                "reason": exc.code,
-                "queued": 0,
-                "failures": 0,
-            }
-        schedule_ids = list_due_schedule_ids(db, now=now)
-    for schedule_id in schedule_ids:
-        try:
-            with db_session() as db:
-                reports = reserve_schedule_runs(db, schedule_id=schedule_id, now=now)
-                queue_entries = []
-                for report in reports:
-                    if report.status != "queued":
-                        continue
-                    run = create_report_task_run(
-                        db,
-                        report=report,
-                        actor_user_id=report.owner_user_id,
-                        trigger_source="scheduled",
-                        originating_request=True,
-                    )
-                    queue_entries.append((report.id, run.id))
-                db.commit()
-        except Exception as exc:
-            failures += 1
-            logger.exception(
-                "scheduled_report_reservation_failed schedule_id=%s", schedule_id
-            )
-            try:
-                with db_session() as failure_db:
-                    record_schedule_failure(
-                        failure_db,
-                        schedule_id=schedule_id,
-                        now=now,
-                        error=exc,
-                    )
-                    failure_db.commit()
-            except Exception:
-                logger.exception(
-                    "scheduled_report_failure_state_update_failed schedule_id=%s",
-                    schedule_id,
-                )
-            continue
-        for report_id, run_id in queue_entries:
-            enqueue_report_task(report_id=report_id, task_run_id=run_id)
-            queued += 1
-    return {
-        "status": "ok" if failures == 0 else "partial",
-        "queued": queued,
-        "failures": failures,
-    }
-
-
 @celery_app.task(name="app.tasks.feed_tasks.dispatch_pending_report_tasks")
 def dispatch_pending_report_tasks():
     now = datetime.now(timezone.utc)
     with db_session() as db:
         entries = report_dispatch.list_due_report_dispatches(db, now=now)
         queued_reports_exist = report_dispatch.has_queued_report_dispatches(db)
+        queues_by_report = {
+            report.id: report_worker_queue(report)
+            for report in db.scalars(select(Report).options(load_only(Report.id, Report.editorial_contract_version)).where(Report.id.in_([entry[0] for entry in entries])))
+        }
     if not queued_reports_exist:
         return {"status": "ok", "dispatched": 0, "deferred": 0}
 
-    queue_available = report_dispatch.report_queue_subscription_available()
-    if queue_available is False:
-        with db_session() as db:
-            changed = report_dispatch.set_report_dispatch_waiting_state(
-                db, waiting=True
-            )
-            db.commit()
-        if changed:
-            logger.error(
-                "report_dispatch_queue_has_no_consumer queue=%s affected_reports=%d",
-                QUEUE_AI_REPORTS,
-                changed,
-            )
-        return {
-            "status": "partial",
-            "dispatched": 0,
-            "deferred": len(entries),
-        }
-    if queue_available is True:
-        with db_session() as db:
-            resumed = report_dispatch.set_report_dispatch_waiting_state(
-                db, waiting=False
-            )
-            db.commit()
-        if resumed:
-            logger.info(
-                "report_dispatch_queue_consumer_restored queue=%s affected_reports=%d",
-                QUEUE_AI_REPORTS,
-                resumed,
-            )
+    availability = {}
+    for queue in (QUEUE_AI_REPORTS, QUEUE_AI_REPORTS_EDITORIAL):
+        queue_available = report_dispatch.report_queue_subscription_available(queue)
+        availability[queue] = queue_available
+        if queue_available is not None:
+            with db_session() as db:
+                changed = report_dispatch.set_report_dispatch_waiting_state(
+                    db, waiting=not queue_available, queue_name=queue,
+                )
+                db.commit()
+            if changed:
+                logger.log(logging.INFO if queue_available else logging.ERROR,
+                    "report_dispatch_queue_consumer_state queue=%s available=%s affected_reports=%d",
+                    queue, queue_available, changed)
 
     dispatched = 0
     deferred = 0
     for report_id, run_id in entries:
+        queue = queues_by_report.get(report_id, QUEUE_AI_REPORTS_EDITORIAL)
+        if availability.get(queue) is False:
+            deferred += 1
+            continue
         task_id = enqueue_report_task(report_id=report_id, task_run_id=run_id)
         if task_id:
             dispatched += 1
         else:
             deferred += 1
     return {
-        "status": "ok" if deferred == 0 else "partial",
+        "status": "ok" if deferred == 0 and False not in availability.values() else "partial",
         "dispatched": dispatched,
         "deferred": deferred,
     }

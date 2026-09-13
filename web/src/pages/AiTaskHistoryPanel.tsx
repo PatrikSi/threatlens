@@ -1,6 +1,7 @@
 import type { Dispatch, SetStateAction } from 'react'
 
 import { resolveApiErrorMessage } from '../api/errors'
+import { accessibleQueryData } from '../api/queryData'
 import type { AITaskRunResponse } from '../types/api'
 import { AiRunMobileList } from './AiRunMobileCard'
 import type { RunFilters, TaskRunListQuery } from './AiActivityTypes'
@@ -34,6 +35,7 @@ type TaskHistoryPanelProps = {
 
 export function TaskHistoryPanel(props: TaskHistoryPanelProps) {
   const { runsQuery, selectedRunId, onSelectRun, onInspectRun, history } = props
+  const data = accessibleQueryData(runsQuery)
 
   return (
     <OverviewSection
@@ -55,7 +57,7 @@ export function TaskHistoryPanel(props: TaskHistoryPanelProps) {
         )}
 
         <AiRunMobileList
-          runList={runsQuery.data}
+          runList={data}
           selectedRunId={selectedRunId}
           isLoading={history.isLoading}
           isRefreshing={history.isRefreshing}
@@ -65,7 +67,7 @@ export function TaskHistoryPanel(props: TaskHistoryPanelProps) {
         />
 
         <TaskHistoryTable
-          runs={runsQuery.data?.items ?? []}
+          runs={data?.items ?? []}
           selectedRunId={selectedRunId}
           isPageLoading={history.isPageLoading}
           isBusy={history.isLoading || history.isRefreshing || history.isPageLoading}

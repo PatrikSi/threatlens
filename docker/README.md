@@ -15,7 +15,7 @@ works as `./build.sh web` from this directory or by absolute path elsewhere.
 
 | Dockerfile | Build context | Default image | Compose services |
 | --- | --- | --- | --- |
-| [backend.Dockerfile](backend.Dockerfile) | `backend/` | `threatlens-backend:dev` | `api`, `worker`, `worker-ai`, `worker-maintenance`, `worker-notifications`, `beat` |
+| [backend.Dockerfile](backend.Dockerfile) | `backend/` | `threatlens-backend:dev` | `migrate`, `api`, `worker`, `worker-ai`, `worker-exports`, `worker-maintenance`, `worker-notifications`, `beat` |
 | [web.Dockerfile](web.Dockerfile) | `web/` | `threatlens-web:dev` | `web` |
 
 PostgreSQL and Redis use upstream images. Each build context retains its own
@@ -30,7 +30,10 @@ docker image inspect threatlens-backend:dev threatlens-web:dev \
 
 ## Run the development stack
 
-For a new checkout, generate the runtime configuration with `./bootstrap.sh`.
+For a new installation, generate the runtime configuration with `./bootstrap.sh`.
+For an existing database volume that predates separate runtime and migration
+roles, first follow the [database role cutover](../docs/pages/database-privileges.md#existing-installations-explicit-offline-cutover).
+Keep the existing database credentials and encryption keys.
 After building both images, start them with the source-build override:
 
 ```bash
@@ -63,13 +66,26 @@ After backend changes, rebuild the shared image and recreate all its services:
 ```bash
 ./docker/build.sh backend
 docker compose -f docker-compose.yml -f docker-compose.build.yml \
-  stop api beat worker worker-ai worker-maintenance worker-notifications
+  stop api beat worker worker-ai worker-exports worker-maintenance worker-notifications
 docker compose -f docker-compose.yml -f docker-compose.build.yml \
   up -d --no-build --pull never
 ```
 
-The API runs migrations before workers start. For the first upgrade to lifecycle
-policies, follow the ordered [lifecycle queue cutover](../docs/reference/configuration.md#lifecycle-queue-cutover).
+The one-shot `migrate` service applies migrations using the migration role. The
+API waits for it to succeed, and workers wait for API readiness. Bundled Compose
+keeps `RUN_MIGRATIONS_ON_STARTUP=false`; the API uses limited runtime credentials.
+For the first upgrade to lifecycle policies, follow the ordered
+[lifecycle queue cutover](../docs/reference/configuration.md#lifecycle-queue-cutover).
+
+If even `docker compose stop` or `down` reports
+`POSTGRES_RUNTIME_PASSWORD must be set`, Compose is rejecting incomplete
+configuration before executing the command. Add the runtime and migration role
+settings through the [existing-installation cutover](../docs/pages/database-privileges.md#existing-installations-explicit-offline-cutover)
+while the original database container remains available. Preserve its
+`POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB`; do not regenerate the
+whole `.env` or remove volumes to clear this error. Include both Compose files
+in the cutover script's `--file` options and subsequent Compose commands when
+using source-built images.
 
 ## Build options and metadata
 

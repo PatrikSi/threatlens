@@ -20,6 +20,7 @@ class AIDailyBrief(Base):
     brief_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     key_points_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     recommended_actions_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    evidence_warnings_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list, server_default="[]")
     top_item_ids_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     item_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     provider: Mapped[str | None] = mapped_column(String(64), nullable=True)

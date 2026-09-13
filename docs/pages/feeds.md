@@ -22,6 +22,11 @@ Actions:
 - Detect metadata (`POST /feeds/metadata`)
 - Submit new feed (`POST /feeds`)
 
+Edits made while a feed save is pending remain in the draft. The accepted server
+response updates fields that still match the submitted values, and later edits
+keep navigation protection active. Switching records prevents an earlier save
+from replacing the newly selected editor.
+
 ## Feed Inventory
 
 ### Controls
@@ -51,6 +56,18 @@ Actions:
 - Last fetch timestamp
 - Last success timestamp
 - Last error text
+
+`invalid_feed_content` means the publisher returned a non-feed document or text
+that cannot be stored safely, such as NUL characters or invalid Unicode character
+references. The poll records a failure and uses the normal retry backoff; existing
+articles remain available, and a later valid response clears the failure. Metadata
+detection returns an explanatory error for the same condition. Check the feed URL
+and publisher response before manually refreshing again.
+
+Unsupported cache validators are ignored so they cannot prevent subsequent polls.
+A successful response replaces the stored ETag and Last-Modified values, including
+clearing validators the publisher no longer supplies. An oversized optional
+language value is omitted.
 
 ## Import / Export
 

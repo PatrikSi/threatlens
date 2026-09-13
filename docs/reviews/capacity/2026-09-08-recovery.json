@@ -1,0 +1,152 @@
+{
+  "budget_violations": {},
+  "budgets": {
+    "broker_restart_ms": 30000,
+    "worker_recovery_ms": 90000
+  },
+  "comparison_fingerprint": "59f325afe15d848c78f456fb08987f3698ace0876e6738b06cc91e6d3d7de9db",
+  "comparison_identity": {
+    "budgets": {
+      "broker_restart_ms": 30000,
+      "worker_recovery_ms": 90000
+    },
+    "contract": "threatlens-capacity-v2",
+    "environment": {
+      "celery_pool": "prefork",
+      "postgres_version": "16.14 (Debian 16.14-1.pgdg13+1)",
+      "redis_version": "7.4.9"
+    },
+    "hardware": {
+      "affinity": [
+        0
+      ],
+      "cgroup_constraints": {
+        "cpu.max": [],
+        "memory.max": []
+      },
+      "cpu_model": "AMD EPYC-Rome Processor",
+      "logical_cpus": 4,
+      "memory_total_bytes": 16770076672
+    },
+    "limits": {
+      "container_cpus": 0.5,
+      "cpu_count": 1,
+      "max_rss_bytes": 1073741824,
+      "nice": 10,
+      "postgres_memory_mib": 512,
+      "redis_memory_mib": 128,
+      "wall_timeout_seconds": 240
+    },
+    "platform": "Linux-6.8.0-137-generic-x86_64-with-glibc2.39",
+    "python": "3.12.3",
+    "target_id": "current-host-lab",
+    "workload": {
+      "article_bytes": 8192,
+      "article_repair_eligibility_seconds": 0,
+      "faults": [
+        "redis_sigkill_before_consumer",
+        "prefork_task_child_sigkill_during_article"
+      ],
+      "feeds": 1,
+      "ioc_repair_interval_seconds": 5,
+      "items_per_feed": 1,
+      "provider_delay_seconds": 0.1,
+      "redis_persistence": "aof_appendfsync_always",
+      "seed_items": 0,
+      "worker_concurrency": 1,
+      "worker_pool": "prefork"
+    }
+  },
+  "database": {
+    "lock_wait_samples": 0,
+    "sampled_lock_waiting_query_age_peak_ms": 0.0,
+    "waiting_sessions_peak": 0
+  },
+  "elapsed_seconds": 10.278,
+  "environment": {
+    "celery_pool": "prefork",
+    "postgres_version": "16.14 (Debian 16.14-1.pgdg13+1)",
+    "redis_version": "7.4.9"
+  },
+  "faults": {
+    "accepted_messages_before_crash": 1,
+    "accepted_messages_survived": true,
+    "articles": 3,
+    "broker_restart_ms": 633.962,
+    "durable_article_repair_dispatched": true,
+    "items": 3,
+    "killed_process_role": "prefork_task_child",
+    "producer_restart_required": false,
+    "task_redeliveries": 1,
+    "unused_result_subscriptions": 0,
+    "worker_recovery_ms": 6472.768
+  },
+  "git_revision": "d2528be2714b9cefd069841c930af07d77c49a2e",
+  "latencies": {
+    "queue_wait:all": {
+      "count": 23,
+      "max_ms": 5466.004,
+      "p50_ms": 642.771,
+      "p95_ms": 5183.687
+    }
+  },
+  "memory": {
+    "process_rss_increase_bytes": 12914688,
+    "process_rss_peak_bytes": 270594048,
+    "process_rss_start_bytes": 257679360
+  },
+  "outcomes": {
+    "ingestion_recovered": 1
+  },
+  "platform": "Linux-6.8.0-137-generic-x86_64-with-glibc2.39",
+  "profile": "recovery",
+  "python": "3.12.3",
+  "queue": {
+    "depth_peak": 10,
+    "oldest_pending_age_peak_ms": 0
+  },
+  "recorded_at": "2026-09-08T09:04:53.018473+00:00",
+  "run_id": "799dcdaafb104450a87a3332c7d8373c",
+  "sampler": {
+    "errors": [],
+    "interval_ms": 20,
+    "samples": 360
+  },
+  "schema_version": 2,
+  "source_dirty": false,
+  "status": "passed",
+  "task_errors": [],
+  "watchdog": {
+    "elapsed_seconds": 31.072,
+    "failure": null,
+    "limits": {
+      "container_cpus": 0.5,
+      "cpu_count": 1,
+      "max_rss_bytes": 1073741824,
+      "nice": 10,
+      "postgres_memory_mib": 512,
+      "redis_memory_mib": 128,
+      "wall_timeout_seconds": 240
+    },
+    "memory_scope": "sum of owned process RSS; shared pages counted per process; excludes Docker services",
+    "owned_process_count_peak": 3,
+    "owned_process_tree_rss_peak_bytes": 638328832,
+    "sample_interval_ms": 100
+  },
+  "workload": {
+    "article_bytes": 8192,
+    "article_repair_eligibility_seconds": 0,
+    "faults": [
+      "redis_sigkill_before_consumer",
+      "prefork_task_child_sigkill_during_article"
+    ],
+    "feeds": 1,
+    "ioc_repair_interval_seconds": 5,
+    "items_per_feed": 1,
+    "provider_delay_seconds": 0.1,
+    "redis_persistence": "aof_appendfsync_always",
+    "seed_items": 0,
+    "worker_concurrency": 1,
+    "worker_pool": "prefork"
+  }
+}

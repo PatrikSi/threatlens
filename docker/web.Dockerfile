@@ -5,7 +5,7 @@ COPY package.json package-lock.json ./
 RUN test -f package-lock.json && npm ci
 
 COPY . .
-ARG APP_VERSION=1.10.0
+ARG APP_VERSION=2.0.0
 ARG VITE_API_BASE_URL=/api/v1
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL} \
     VITE_APP_VERSION=${APP_VERSION}
@@ -43,7 +43,7 @@ RUN npm run build
 FROM nginx:1.31.3-alpine
 RUN apk upgrade --no-cache libcrypto3 libssl3 libexpat libuuid
 ARG BUILD_DATE=unknown
-ARG APP_VERSION=1.10.0
+ARG APP_VERSION=2.0.0
 ARG VCS_REF=unknown
 ENV THREATLENS_CSP_CONNECT_SRC="'self'" \
     THREATLENS_CSP_FRAME_SRC="'self'" \
@@ -64,7 +64,16 @@ COPY --from=build /tmp/frontend-docs/frontend-runtime-package-metadata.json /usr
 COPY --from=build /tmp/frontend-docs/frontend-runtime-package-legal /usr/share/doc/threatlens/frontend-runtime-package-legal
 COPY package-lock.json /usr/share/doc/threatlens/frontend-package-lock.json
 COPY nginx/default.conf.template /etc/nginx/templates/default.conf.template
+COPY nginx/nginx.conf /etc/nginx/nginx.conf
 COPY --from=build /app/dist /usr/share/nginx/html
+# Run unprivileged with an immutable root filesystem. Only rendered config and
+# nginx's bounded temporary files are writable at deployment time.
+RUN mkdir -p /etc/nginx/conf.d \
+    && chown nginx:nginx /etc/nginx/conf.d \
+    && chmod 0644 /etc/nginx/nginx.conf /etc/nginx/templates/default.conf.template \
+    && chmod -R a+rX /usr/share/nginx/html /usr/share/doc/threatlens
+USER nginx
+HEALTHCHECK --interval=15s --timeout=3s --retries=3 CMD wget -q -O /dev/null http://127.0.0.1:3000/ || exit 1
 LABEL org.opencontainers.image.title="ThreatLens Web" \
       org.opencontainers.image.description="ThreatLens React/nginx frontend image" \
       org.opencontainers.image.licenses="Apache-2.0" \

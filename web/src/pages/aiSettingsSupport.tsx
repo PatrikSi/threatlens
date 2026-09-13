@@ -6,9 +6,7 @@ import {
 import {
   AIAuditEntryResponse,
   AILiveTaskResponse,
-  AIOpsOverviewResponse,
 } from '../types/api'
-import { formatDateOnly } from '../utils/datetime'
 import { formatTaskTypeLabel, formatTimestamp } from './aiSettingsUtils'
 
 export function Panel({
@@ -148,44 +146,6 @@ export function ProgressBar({ value, max, className = '' }: { value: number; max
   return (
     <div className={`h-2 rounded-full bg-slate-200 dark:bg-[#072019] ${className}`}>
       <div className="h-2 rounded-full bg-cyan" style={{ width: `${pct}%` }} />
-    </div>
-  )
-}
-
-export function TimeSeriesBars({
-  points,
-  valueKey,
-  accentClass,
-  secondaryKey,
-  secondaryClass,
-}: {
-  points: AIOpsOverviewResponse['time_series']
-  valueKey: 'requests' | 'total_tokens'
-  accentClass: string
-  secondaryKey?: 'failures'
-  secondaryClass?: string
-}) {
-  const maxPrimary = Math.max(...points.map((point) => Number(point[valueKey]) || 0), 1)
-  const maxSecondary = secondaryKey ? Math.max(...points.map((point) => Number(point[secondaryKey]) || 0), 1) : 1
-
-  return (
-    <div className="space-y-2">
-      <div className="flex h-28 items-end gap-1">
-        {points.map((point) => {
-          const primaryHeight = `${Math.max(4, ((Number(point[valueKey]) || 0) / maxPrimary) * 100)}%`
-          const secondaryHeight = secondaryKey ? `${Math.max(0, ((Number(point[secondaryKey]) || 0) / maxSecondary) * 38)}%` : '0%'
-          return (
-            <div key={String(point.bucket)} className="flex min-w-0 flex-1 flex-col justify-end gap-1">
-              {secondaryKey && secondaryClass && <div className={`rounded-t ${secondaryClass}`} style={{ height: secondaryHeight }} />}
-              <div className={`rounded-t ${accentClass}`} style={{ height: primaryHeight }} />
-            </div>
-          )
-        })}
-      </div>
-      <div className="flex justify-between gap-2 text-[11px] text-slate dark:text-white/55">
-        <span>{points[0]?.bucket ? formatDateOnly(String(points[0].bucket)) : ''}</span>
-        <span>{points[points.length - 1]?.bucket ? formatDateOnly(String(points[points.length - 1].bucket)) : ''}</span>
-      </div>
     </div>
   )
 }

@@ -11,6 +11,16 @@ Before publishing a public tag, image, or source release:
 3. Verify that the OpenAPI contract anchor in `docs/reference/openapi.json` (`info.x-threatlens-contract-sha256`) is the one expected for the release. The tag workflow copies it into the generated GitHub release notes.
 4. Verify that bundled license texts and package legal inventories still match the shipped runtime stack and assets.
 5. Refresh the image build-context mirrors under `backend/compliance/` and `web/compliance/`.
+   Verify the checked-in inventories and legal files against the built native
+   image pair with `python3 scripts/verify_image_dependency_artifacts.py
+   --backend-image IMAGE --web-image IMAGE`. The reference OS inventory is
+   qualified on amd64; each image also ships its own platform's inventory.
+6. For capacity-sensitive changes, run the manual **Capacity release comparison**
+   workflow against two committed refs with the same measurement contract, or
+   run both refs sequentially on the target host. Keep the result artifacts and
+   review outcome counts, queue/deadline/lock observations, and memory alongside
+   latency. Insufficient successful samples are inconclusive. See the
+   [capacity runbook](capacity-baseline.md#release-trend-workflow).
 
 ## Version Metadata
 
@@ -44,6 +54,14 @@ Public release tags must use `vX.Y.Z` and must match the checked-in `VERSION` va
 ## Container Image Publishing
 
 `.github/workflows/publish-images.yml` publishes multi-architecture Linux images to GitHub Container Registry on pushes to `main`, tags matching `v*.*.*`, and manual workflow runs. It first pushes untagged per-platform digests, scans every digest, and smoke-tests the exact backend/web pair for both supported architectures (using QEMU for arm64 on hosted runners). A single promotion job assembles those same digests into multi-architecture manifests and assigns public tags only after all checks pass.
+
+The pre-merge quality workflow also builds, scans and starts both amd64 and
+arm64 application stacks. ARM64 uses QEMU on the disposable CI runner; shared
+local hosts do not need emulation installed. The amd64 check compares all
+checked-in runtime/OS inventories and bundled legal files with the actual image
+pair, so dependency additions cannot silently leave release notices stale.
+These source-build checks supplement the publication workflow's exact-digest
+checks; they do not replace them.
 
 Published images:
 
@@ -145,7 +163,7 @@ That sequence intentionally refreshes the checked-in backend runtime lockfile, b
 
 The four generated `*-package-legal/` trees preserve upstream legal files byte-for-byte. Repository diff hygiene therefore excludes those trees from whitespace-style and conflict-marker heuristics while continuing to check first-party compliance files, dependency manifests, package inventories, metadata, and source code.
 
-The backend image installs its Python application dependency layer from the checked-in `backend/requirements-lock.txt` file, and the frontend image resolves its application dependency layer from `web/package-lock.json`. The Dockerfiles and compose base images are pinned to explicit version tags, and the repository Dockerfiles do not install additional live apt packages during backend or frontend builds. ThreatLens still does not claim full byte-for-byte rebuild reproducibility, because rebuilds continue to depend on external registries serving those base image tags and lockfile-resolved application packages.
+The backend image installs its Python application dependency layer from the checked-in `backend/requirements-lock.txt` file, and the frontend image resolves its application dependency layer from `web/package-lock.json`. The Dockerfiles and Compose base images use explicit version tags. The backend installs font packages and upgrades inherited PCRE2 from apt, enforcing Debian's `10.42-1+deb12u1` security update or newer; the web image applies selected Alpine package upgrades during builds. Refresh base images and package installation layers for security rebuilds (`--pull --no-cache`), then scan the actual image: refreshing apt indexes alone does not upgrade inherited packages. ThreatLens does not claim byte-for-byte rebuild reproducibility: builds depend on external registries, OS package repositories, and lockfile-resolved application packages. Regenerate and review the packaged OS inventories for the actual release images. Both release platform digests must pass the existing fixable HIGH/CRITICAL vulnerability gate.
 
 ## Files to Review Before Release
 

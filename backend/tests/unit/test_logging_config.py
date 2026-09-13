@@ -3,6 +3,8 @@ import logging
 from contextvars import copy_context
 from types import SimpleNamespace
 
+import pytest
+
 from app.core import logging_config
 from app.core.logging_config import (
     ThreatLensJsonFormatter,
@@ -78,6 +80,58 @@ def test_json_formatter_emits_machine_parseable_context():
     assert payload["request_id"] == "request-456"
     assert payload["status"] == 503
     assert payload["duration_ms"] == 42.5
+
+
+@pytest.mark.parametrize("formatter_type", [ThreatLensTextFormatter, ThreatLensJsonFormatter])
+def test_access_log_omits_query_values_without_mutating_record(formatter_type):
+    target = "/v1/oidc/callback?code=private-code&state=private-state&q=private-search"
+    record = _record('%s - "%s %s HTTP/%s" %d', "127.0.0.1:1234", "GET", target, "1.1", 200)
+    record.name = "uvicorn.access"
+
+    rendered = formatter_type(max_chars=20_000).format(record)
+
+    assert "/v1/oidc/callback" in rendered
+    assert "private-" not in rendered
+    assert record.args[2] == target
+
+
+@pytest.mark.parametrize("formatter_type", [ThreatLensTextFormatter, ThreatLensJsonFormatter])
+def test_context_is_redacted_and_bounded_in_both_formats(formatter_type):
+    record = _record("request_complete")
+    record.path = "/unknown/token=private-value " + "x" * 20_000
+
+    rendered = formatter_type(max_chars=20_000).format(record)
+
+    assert "private-value" not in rendered
+    assert "[REDACTED]" in rendered
+    assert "truncated" in rendered
+    assert len(rendered) < 1_000
+
+
+def test_quoted_credentials_and_basic_authorization_are_fully_redacted():
+    rendered = redact_log_text(
+        "password='first second; third' secret=\"one \\\"two\\\" three\" "
+        "Authorization: Basic dXNlcjpwYXNzd29yZA=="
+    )
+
+    for private in ("first", "second", "third", "one", "two", "three", "dXNlcjpwYXNzd29yZA"):
+        assert private not in rendered
+
+
+def test_text_log_controls_cannot_forge_new_records():
+    record = _record("untrusted\r\nlevel=INFO forged\x1b[2J\u2028line")
+    record.path = "/unknown\nforged-context"
+    try:
+        raise ValueError("payload\nforged-exception")
+    except ValueError as exc:
+        record.exc_info = (type(exc), exc, exc.__traceback__)
+
+    rendered = ThreatLensTextFormatter(max_chars=20_000).format(record)
+
+    assert len(rendered.splitlines()) == 1
+    assert "\x1b" not in rendered
+    assert "ValueError" in rendered
+    assert "forged-exception" in rendered
 
 
 def test_log_context_updates_cross_copied_sync_worker_contexts():

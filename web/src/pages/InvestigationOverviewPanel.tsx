@@ -1,4 +1,8 @@
-import { FormEvent } from 'react'
+import { FormEvent, useDeferredValue, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { apiFetch } from '../api/client'
+import { resolveApiErrorMessage } from '../api/errors'
+import type { TeamMemberPage } from '../types/teams'
 
 import type { InvestigationSeverity } from '../types/investigations'
 import { formatDateTime } from '../utils/datetime'
@@ -11,9 +15,16 @@ export function InvestigationOverviewPanel({
   controller: InvestigationDetailController
 }) {
   const detail = controller.detailQuery.data
+  const [assigneeSearch, setAssigneeSearch] = useState('')
+  const deferredAssigneeSearch = useDeferredValue(assigneeSearch)
+  const teamMembers = useQuery({
+    queryKey: ['teams', detail?.team_id, 'assignment-members', deferredAssigneeSearch],
+    queryFn: () => apiFetch<TeamMemberPage>(`/teams/${detail!.team_id}/members?page_size=100&q=${encodeURIComponent(deferredAssigneeSearch)}`),
+    enabled: Boolean(detail?.team_id && controller.access?.canWrite && detail.current_user_role === 'owner'),
+  })
   if (!detail || !controller.access) return null
   const draft = controller.overviewDraft
-  const assignableMembers = detail.members.filter(
+  const assignableMembers = detail.team_id ? (teamMembers.isError ? [] : teamMembers.data?.items.map(member => ({ user_id: member.id, email: member.email, role: member.is_manager ? 'owner' : 'editor' })) ?? []) : detail.members.filter(
     (member) => member.role === 'owner' || member.role === 'editor',
   )
 
@@ -54,7 +65,7 @@ export function InvestigationOverviewPanel({
         </div>
       </div>
 
-      {controller.access.canWrite ? (
+      {controller.access.canWrite && (!detail.team_id || detail.current_user_role === 'owner') ? (
         <form className="mt-4 grid min-w-0 gap-3 lg:grid-cols-2" onSubmit={submit}>
           <div className="lg:col-span-2">
             <label htmlFor="investigation-title" className="text-sm font-semibold">
@@ -159,15 +170,19 @@ export function InvestigationOverviewPanel({
               }
             >
               <option value="">Unassigned</option>
+              {draft.assigneeUserId && !assignableMembers.some(member => member.user_id === draft.assigneeUserId) && <option value={draft.assigneeUserId}>{detail.assignee_email ?? 'Current assignee'}</option>}
               {assignableMembers.map((member) => (
                 <option key={member.user_id} value={member.user_id}>
                   {member.email} ({member.role})
                 </option>
               ))}
             </select>
+            {detail.team_id && <label className="mt-2 block text-sm">Find a team assignee by email<input className="mt-1 w-full rounded border border-slate/30 bg-white p-2 dark:bg-[#072019]" maxLength={255} value={assigneeSearch} onChange={event => setAssigneeSearch(event.target.value)} /></label>}
             <p className="mt-1 text-xs text-slate dark:text-slate-400">
-              Only owners and editors can be assigned.
+              {detail.team_id ? 'Assignments require current team membership and investigation write permission.' : 'Only owners and editors can be assigned.'}
             </p>
+            {teamMembers.isError && <p role="alert" className="mt-2 text-sm">{resolveApiErrorMessage(teamMembers.error, 'Unable to load team assignees.')} <button type="button" onClick={() => void teamMembers.refetch()}>Retry assignees</button></p>}
+            {teamMembers.data && teamMembers.data.total > 100 && <p className="mt-2 text-sm">Showing the first 100 matches. Search by email to find another team member.</p>}
           </div>
           <div className="grid grid-cols-2 gap-2 lg:col-span-2 sm:flex">
             <button

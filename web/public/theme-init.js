@@ -1,9 +1,9 @@
 (function () {
-  var stored = null;
+  var stored;
 
   try {
     stored = window.localStorage.getItem('threatlens.theme');
-  } catch (_error) {
+  } catch {
     stored = null;
   }
 

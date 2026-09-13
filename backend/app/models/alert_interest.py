@@ -22,6 +22,22 @@ class AlertInterest(Base):
     __tablename__ = "alert_interests"
 
     __table_args__ = (
+        CheckConstraint(
+            "due_after_minutes BETWEEN 1 AND 525600",
+            name="ck_alert_interests_due_minutes",
+        ),
+        CheckConstraint(
+            "escalation_after_minutes BETWEEN 0 AND 525600",
+            name="ck_alert_interests_escalation_minutes",
+        ),
+        CheckConstraint(
+            "escalation_after_minutes IS NULL OR due_after_minutes IS NOT NULL",
+            name="ck_alert_interests_escalation_due",
+        ),
+        CheckConstraint(
+            "(user_id IS NOT NULL AND team_id IS NULL) OR (user_id IS NULL AND team_id IS NOT NULL)",
+            name="ck_alert_interests_owner",
+        ),
         Index("ix_alert_interests_user_id", "user_id"),
         Index("ix_alert_interests_user_id_category", "user_id", "category"),
         Index("ix_alert_interests_user_id_enabled", "user_id", "enabled"),
@@ -42,9 +58,16 @@ class AlertInterest(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )
+    team_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("teams.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     category: Mapped[str] = mapped_column(String(64), nullable=False)
     keywords: Mapped[list[str]] = mapped_column(JSON, nullable=False)
@@ -76,3 +99,6 @@ class AlertInterest(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+
+    due_after_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    escalation_after_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)

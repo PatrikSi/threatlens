@@ -64,6 +64,8 @@ export type ActivityTabProps = {
   reprocessValidation: AIReprocessScopeValidation
   reprocessQueueDisabled: boolean
   queueWorkBlockedReason: string | null
+  dailyBriefProviderBlockedReason?: string | null
+  itemProviderBlockedReason?: string | null
   onQueueReprocess: () => void
   itemSearchLoading: boolean
   itemSearchError: string

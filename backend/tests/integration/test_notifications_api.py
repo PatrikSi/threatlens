@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
@@ -40,6 +41,74 @@ def _issue_notification_api_token(db_session, user: User, *, scopes: list[str]) 
     )
     db_session.commit()
     return token_value
+
+
+@pytest.mark.parametrize(
+    ("role", "scope", "restricted"),
+    [
+        ("admin", "read:notifications", True),
+        ("analyst", "read:notifications", True),
+        ("analyst", "write:notifications", False),
+        ("viewer", "read:notifications", True),
+        ("viewer", "write:notifications", True),
+    ],
+)
+def test_delivery_history_uses_configuration_secret_permissions(
+    client, db_session, seed_users, role, scope, restricted,
+):
+    owner = seed_users[role]
+    webhook = build_notification_webhook(
+        owner.id,
+        NotificationWebhookWrite(name="History secrets", url_template="https://hooks.example.com/canary-path"),
+    )
+    db_session.add(webhook)
+    db_session.flush()
+    delivery = NotificationWebhookDelivery(
+        webhook_id=webhook.id,
+        user_id=owner.id,
+        event_type_snapshot="rss_item_new",
+        delivery_kind="live",
+        delivery_state="failed",
+        attempt_count=1,
+        success=False,
+        status_code=503,
+        rendered_url="https://hooks.example.com/canary-path?api_key=canary-url-query",
+        rendered_method="POST",
+        rendered_headers_json=[{"key": "X-Custom", "value": "canary-header"}],
+        rendered_query_params_json=[
+            {"key": key, "value": f"canary-{key}"}
+            for key in ("api_key", "apikey", "key", "sig", "pass", "channel")
+        ],
+        rendered_body="canary-request-body",
+        response_body_preview="canary-response-body",
+        error="Failed to deliver to https://hooks.example.com/canary-path",
+    )
+    db_session.add(delivery)
+    db_session.commit()
+    token = _issue_notification_api_token(db_session, owner, scopes=[scope])
+    headers = {"Authorization": f"Bearer {token}"}
+
+    response = client.get(f"/notifications/webhooks/{webhook.id}/deliveries", headers=headers)
+
+    assert response.status_code == 200
+    result = response.json()["deliveries"][0]
+    assert result["status_code"] == 503
+    assert result["attempt_count"] == 1
+    assert "canary-request-body" not in response.text
+    assert "canary-response-body" not in response.text
+    query = {field["key"]: field["value"] for field in result["rendered_query_params"]}
+    for key in ("api_key", "apikey", "key", "sig", "pass"):
+        assert query[key] == "REDACTED"
+    if restricted:
+        assert "canary-" not in response.text
+        assert result["rendered_url"] == "REDACTED"
+        assert result["rendered_headers"][0]["value"] == "REDACTED"
+        assert query["channel"] == "REDACTED"
+    else:
+        assert "canary-path" in result["rendered_url"]
+        assert "canary-url-query" not in result["rendered_url"]
+        assert result["rendered_headers"][0]["value"] == "canary-header"
+        assert query["channel"] == "canary-channel"
 
 
 def test_admin_can_create_notification_webhooks_by_default(client: TestClient, auth_headers):

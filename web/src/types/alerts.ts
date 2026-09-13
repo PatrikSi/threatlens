@@ -2,7 +2,10 @@ import type { ItemListEntry } from './items'
 
 export interface AlertInterest {
   id: string
-  user_id: string
+  user_id: string | null
+  team_id?: string | null
+  due_after_minutes?: number | null
+  escalation_after_minutes?: number | null
   name: string
   category: string
   keywords: string[]
@@ -31,7 +34,12 @@ export interface AlertOccurrence {
   id: string
   alert_interest_id: string | null
   rule_id_snapshot: string
-  owner_user_id: string
+  owner_user_id: string | null
+  team_id?: string | null
+  assignee_user_id?: string | null
+  due_at?: string | null
+  escalation_after_minutes?: number | null
+  escalated_at?: string | null
   item_id: string | null
   item_id_snapshot: string
   integration_event_id: string | null
@@ -196,7 +204,8 @@ export interface AlertEvaluationReplayResponse {
 export interface AlertOccurrenceMetric {
   id: string
   bucket_start: string
-  owner_user_id: string
+  owner_user_id: string | null
+  team_id?: string | null
   severity: AlertSeverity
   lifecycle_state: AlertOccurrenceState
   suppressed: boolean

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.services.ai_provider_protocol import provider_report_context_window, provider_report_safety_percent
 
 import logging
 import time
@@ -32,6 +33,7 @@ from app.api.resource_preconditions import (
 )
 from app.api.routes.report_route_helpers import (
     active_reporting_settings as _active_reporting_settings,
+    normalize_report_creation_range,
     REPORT_PREVIEW_LIMIT,
     RESOURCE_PRECONDITION_RESPONSES,
     get_accessible_report as _get_accessible_report,
@@ -60,6 +62,9 @@ from app.api.routes.report_request_idempotency import (
     retry_request_identity,
     schedule_run_request_identity,
 )
+from app.api.routes.report_library import router as report_library_router
+from app.api.routes.report_editorial import router as report_editorial_router
+from app.api.routes.report_documents import router as report_documents_router
 from app.core.token_scopes import SCOPE_READ_REPORTS
 from app.db.session import get_db
 from app.models.feed import Feed
@@ -74,7 +79,6 @@ from app.schemas.exports import ExportOptionEntry
 from app.schemas.reports import (
     ReportCapabilitiesResponse,
     ReportCreateRequest,
-    ReportDetailResponse,
     ReportListItem,
     ReportPreviewRequest,
     ReportPreviewResponse,
@@ -117,8 +121,6 @@ from app.services.report_storage import (
     ReportStorageError,
     create_report_from_plan,
     delete_report,
-    report_detail_response,
-    report_list_item,
     reset_report_for_retry,
 )
 from app.services.report_templates import (
@@ -132,10 +134,13 @@ from app.services.report_templates import (
     update_report_template,
 )
 from app.services.report_task_lineage import ReportTaskLineageError
+from app.services.report_read_models import report_list_columns
 from app.tasks.report_tasks import create_report_task_run, enqueue_report_task
 
-
 router = APIRouter(prefix="/reports", tags=["reports"])
+router.include_router(report_library_router)
+router.include_router(report_editorial_router)
+router.include_router(report_documents_router)
 logger = logging.getLogger(__name__)
 
 
@@ -145,7 +150,7 @@ def get_report_capabilities(
     _user: User = Depends(require_permissions(SCOPE_READ_REPORTS)),
     data_access: DataAccessContext = Depends(get_data_access_context),
 ):
-    active = load_active_ai_settings(db)
+    active = load_active_ai_settings(db, feature_type="report")
     feed_access = handling_label_access_predicate(
         Feed.handling_label_id,
         data_access,
@@ -182,11 +187,11 @@ def get_report_capabilities(
         classifications=[value for value in classifications if value],
         max_sources=active.report_max_sources,
         preview_limit=REPORT_PREVIEW_LIMIT,
-        context_window_tokens=active.report_context_window_tokens,
+        context_window_tokens=provider_report_context_window(active),
         reserved_output_tokens=active.report_reserved_output_tokens,
         source_token_cap=active.report_source_token_cap,
         max_model_calls=active.report_max_model_calls,
-        safety_percent=active.report_context_safety_percent,
+        safety_percent=provider_report_safety_percent(active),
     )
 
 
@@ -489,19 +494,30 @@ def remove_template(
 @router.get("", response_model=list[ReportListItem])
 def list_reports(
     report_status: str | None = Query(default=None, alias="status"),
+    created_from: datetime | None = Query(
+        default=None, description="Inclusive report creation time; timestamps without an offset use UTC."
+    ),
+    created_before: datetime | None = Query(
+        default=None, description="Exclusive report creation time; timestamps without an offset use UTC."
+    ),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
     _user: User = Depends(require_permissions(SCOPE_READ_REPORTS)),
     data_access: DataAccessContext = Depends(get_data_access_context),
 ):
-    query = select(Report).where(
+    created_from, created_before = normalize_report_creation_range(created_from, created_before)
+    query = select(*report_list_columns()).where(
         data_access_envelope_predicate(
             DATA_ACCESS_RESOURCE_REPORT,
             Report.id,
             data_access,
         )
     )
+    if created_from is not None:
+        query = query.where(Report.created_at >= created_from)
+    if created_before is not None:
+        query = query.where(Report.created_at < created_before)
     if report_status:
         if report_status not in {"queued", "running", "ready", "error", "skipped"}:
             raise HTTPException(
@@ -509,10 +525,10 @@ def list_reports(
                 detail="Invalid report status filter",
             )
         query = query.where(Report.status == report_status)
-    reports = db.scalars(
-        query.order_by(Report.created_at.desc()).offset(offset).limit(limit)
+    reports = db.execute(
+        query.order_by(Report.created_at.desc(), Report.id.desc()).offset(offset).limit(limit)
     ).all()
-    return [report_list_item(report) for report in reports]
+    return [ReportListItem.model_validate(report._mapping) for report in reports]
 
 
 @router.post(
@@ -668,25 +684,6 @@ def create_report(
     run_id = run.id
     task_id = enqueue_report_task(report_id=report_id, task_run_id=run_id)
     return _queue_response(report, run, celery_task_id=task_id)
-
-
-@router.get("/{report_id:uuid}", response_model=ReportDetailResponse)
-def get_report(
-    report_id: uuid.UUID,
-    db: Session = Depends(get_db),
-    _user: User = Depends(require_permissions(SCOPE_READ_REPORTS)),
-    data_access: DataAccessContext = Depends(get_data_access_context),
-):
-    report = _get_accessible_report(
-        db,
-        report_id=report_id,
-        data_access=data_access,
-    )
-    if report is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Report not found"
-        )
-    return report_detail_response(db, report=report)
 
 
 @router.get("/{report_id:uuid}/download")
@@ -858,6 +855,7 @@ def remove_report(
         db,
         report_id=report_id,
         data_access=data_access,
+        for_update=True,
     )
     if report is None:
         raise HTTPException(

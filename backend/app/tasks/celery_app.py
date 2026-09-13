@@ -3,10 +3,22 @@ import time
 
 from celery import Celery
 from celery.schedules import crontab
-from celery.signals import setup_logging, task_postrun, task_prerun
+from celery.signals import setup_logging, task_postrun, task_prerun, worker_process_init
 from kombu import Queue
 
 from app.core.config import get_settings
+from app.core.worker_queues import (
+    QUEUE_AI,
+    QUEUE_AI_REPORTS,
+    QUEUE_AI_REPORTS_EDITORIAL,
+    QUEUE_DEFAULT,
+    QUEUE_EXPORTS,
+    QUEUE_INGEST,
+    QUEUE_LIFECYCLE,
+    QUEUE_MAINTENANCE,
+    QUEUE_NOTIFICATIONS,
+    QUEUE_PROCESSING,
+)
 from app.core.logging_config import (
     configure_logging,
     log_configuration_summary,
@@ -19,6 +31,15 @@ settings = get_settings()
 logger = logging.getLogger("threatlens.worker")
 _TASK_CONTEXT_TOKEN_ATTRIBUTE = "_threatlens_log_context_token"
 _TASK_STARTED_AT_ATTRIBUTE = "_threatlens_task_started_at"
+
+
+@worker_process_init.connect
+def reset_inherited_database_pool(**_kwargs) -> None:
+    from app.db.session import engine
+
+    # A prefork child must never reuse a socket opened by its parent. Closing
+    # parent-owned sockets here would disrupt the parent's active transaction.
+    engine.dispose(close=False)
 
 
 @setup_logging.connect
@@ -107,16 +128,11 @@ def _task_queue(request) -> str | None:
     return str(queue) if queue else None
 
 
-QUEUE_DEFAULT = "default"
-QUEUE_INGEST = "ingest"
-QUEUE_PROCESSING = "processing"
-QUEUE_NOTIFICATIONS = "notifications"
-QUEUE_AI = "ai"
-QUEUE_AI_REPORTS = "ai-reports-v2"
-QUEUE_MAINTENANCE = "maintenance"
-QUEUE_LIFECYCLE = "lifecycle-v1"
-
 TASK_ROUTES = {
+    "app.tasks.processing_tasks.execute_processing_work": {"queue": QUEUE_PROCESSING},
+    "app.tasks.processing_tasks.dispatch_processing_work": {"queue": QUEUE_MAINTENANCE},
+    "app.tasks.export_tasks.generate_export_job": {"queue": QUEUE_EXPORTS},
+    "app.tasks.export_tasks.dispatch_export_jobs": {"queue": QUEUE_MAINTENANCE},
     "app.tasks.feed_tasks.fetch_feed": {"queue": QUEUE_INGEST},
     "app.tasks.feed_tasks.backfill_feed_metadata": {"queue": QUEUE_INGEST},
     "app.tasks.feed_tasks.dispatch_due_feeds": {"queue": QUEUE_MAINTENANCE},
@@ -130,6 +146,7 @@ TASK_ROUTES = {
     "app.tasks.feed_tasks.dispatch_items_missing_iocs": {"queue": QUEUE_PROCESSING},
     "app.tasks.feed_tasks.extract_item_iocs": {"queue": QUEUE_PROCESSING},
     "app.tasks.feed_tasks.reapply_recent_item_tags": {"queue": QUEUE_PROCESSING},
+    "app.tasks.feed_tasks.repair_pending_item_tags": {"queue": QUEUE_PROCESSING},
     "app.tasks.feed_tasks.dispatch_new_item_notification_webhooks": {
         "queue": QUEUE_NOTIFICATIONS
     },
@@ -181,7 +198,7 @@ TASK_ROUTES = {
     "app.tasks.feed_tasks.dispatch_daily_ai_brief_generation": {"queue": QUEUE_AI},
     "app.tasks.feed_tasks.backfill_daily_ai_briefs": {"queue": QUEUE_AI},
     "app.tasks.feed_tasks.reprocess_recent_ai_items": {"queue": QUEUE_AI},
-    "app.tasks.feed_tasks.generate_intelligence_report": {"queue": QUEUE_AI_REPORTS},
+    "app.tasks.feed_tasks.generate_intelligence_report": {"queue": QUEUE_AI_REPORTS_EDITORIAL},
     "app.tasks.feed_tasks.dispatch_due_report_schedules": {"queue": QUEUE_MAINTENANCE},
     "app.tasks.feed_tasks.dispatch_pending_report_tasks": {"queue": QUEUE_MAINTENANCE},
     "app.tasks.feed_tasks.reconcile_ai_task_runs": {"queue": QUEUE_MAINTENANCE},
@@ -196,6 +213,7 @@ TASK_ROUTES = {
     "app.tasks.lifecycle_tasks.run_lifecycle_housekeeping": {
         "queue": QUEUE_LIFECYCLE
     },
+    "app.tasks.ai_workflow_tasks.dispatch_pending_ai_workflows": {"queue": QUEUE_MAINTENANCE},
     "app.tasks.alert_tasks.process_alert_evaluation": {"queue": QUEUE_PROCESSING},
     "app.tasks.alert_tasks.dispatch_pending_alert_evaluations": {
         "queue": QUEUE_MAINTENANCE
@@ -211,7 +229,10 @@ celery_app = Celery(
     broker=settings.redis_url,
     backend=settings.redis_url,
     include=[
+        "app.tasks.export_tasks",
+        "app.tasks.processing_tasks",
         "app.tasks.feed_tasks",
+        "app.tasks.ai_workflow_tasks",
         "app.tasks.history_maintenance_tasks",
         "app.tasks.alert_tasks",
         "app.tasks.system_health_tasks",
@@ -220,19 +241,26 @@ celery_app = Celery(
 )
 
 celery_app.conf.update(
+    # Completion and progress live in application rows. Avoid unused Redis
+    # result subscriptions, including their reconnect/finalizer failure path.
+    task_ignore_result=True,
+    task_store_errors_even_if_ignored=False,
     task_serializer="json",
     accept_content=["json"],
     result_serializer="json",
     timezone="UTC",
+    beat_scheduler="app.tasks.bounded_beat:BoundedCanaryScheduler",
     enable_utc=True,
     task_default_queue=QUEUE_DEFAULT,
     task_queues=(
         Queue(QUEUE_DEFAULT),
         Queue(QUEUE_INGEST),
         Queue(QUEUE_PROCESSING),
+        Queue(QUEUE_EXPORTS),
         Queue(QUEUE_NOTIFICATIONS),
         Queue(QUEUE_AI),
         Queue(QUEUE_AI_REPORTS),
+        Queue(QUEUE_AI_REPORTS_EDITORIAL),
         Queue(QUEUE_MAINTENANCE),
         Queue(QUEUE_LIFECYCLE),
     ),
@@ -246,21 +274,17 @@ celery_app.conf.update(
     },
     visibility_timeout=settings.celery_visibility_timeout_seconds,
     beat_schedule={
+        "dispatch-export-jobs": {
+            "task": "app.tasks.export_tasks.dispatch_export_jobs",
+            "schedule": 30.0,
+        },
         "dispatch-due-feeds": {
             "task": "app.tasks.feed_tasks.dispatch_due_feeds",
             "schedule": 60.0,
         },
-        "dispatch-unclassified-items": {
-            "task": "app.tasks.feed_tasks.dispatch_unclassified_items",
-            "schedule": 300.0,
-        },
-        "dispatch-items-missing-articles": {
-            "task": "app.tasks.feed_tasks.dispatch_items_missing_articles",
-            "schedule": 300.0,
-        },
-        "dispatch-items-missing-iocs": {
-            "task": "app.tasks.feed_tasks.dispatch_items_missing_iocs",
-            "schedule": 300.0,
+        "dispatch-processing-work": {
+            "task": "app.tasks.processing_tasks.dispatch_processing_work",
+            "schedule": 30.0,
         },
         "dispatch-items-missing-ai-enrichment": {
             "task": "app.tasks.feed_tasks.dispatch_items_missing_ai_enrichment",
@@ -310,6 +334,10 @@ celery_app.conf.update(
             "task": "app.tasks.feed_tasks.dispatch_pending_report_tasks",
             "schedule": 30.0,
         },
+        "dispatch-pending-ai-workflows": {
+            "task": "app.tasks.ai_workflow_tasks.dispatch_pending_ai_workflows",
+            "schedule": 30.0,
+        },
         "reconcile-ai-task-runs": {
             "task": "app.tasks.feed_tasks.reconcile_ai_task_runs",
             "schedule": 300.0,
@@ -341,10 +369,11 @@ celery_app.conf.update(
                 QUEUE_DEFAULT,
                 QUEUE_INGEST,
                 QUEUE_PROCESSING,
+                QUEUE_EXPORTS,
                 QUEUE_NOTIFICATIONS,
                 QUEUE_MAINTENANCE,
                 QUEUE_LIFECYCLE,
-                *((QUEUE_AI, QUEUE_AI_REPORTS) if settings.ai_enabled else ()),
+                *((QUEUE_AI, QUEUE_AI_REPORTS, QUEUE_AI_REPORTS_EDITORIAL) if settings.ai_enabled else ()),
             )
         },
     },

@@ -244,3 +244,12 @@ def test_item_article_preview_route_returns_sandboxed_html_response(
     assert "script-src 'none'" in response.headers["content-security-policy"]
     assert "allow-scripts" not in response.headers["content-security-policy"]
     assert "Rendered source" in response.text
+    assert "img-src data:" in response.headers["content-security-policy"]
+
+    opted_in = client.get(
+        f"/items/{item.id}/article-preview?external_resources=true",
+        headers=auth_headers["viewer"],
+    )
+    assert opted_in.status_code == 200
+    assert "img-src http: https: data:" in opted_in.headers["content-security-policy"]
+    assert "script-src 'none'" in opted_in.headers["content-security-policy"]

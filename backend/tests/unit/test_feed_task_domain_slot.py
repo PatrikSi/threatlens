@@ -1,3 +1,5 @@
+from app.services import safe_fetch as _owner_safe_fetch
+from app.tasks import feed_task_coordination as _owner_feed_task_coordination
 import time
 from contextlib import contextmanager
 from types import SimpleNamespace
@@ -56,8 +58,8 @@ class _SetFailsRedis:
 def test_domain_slot_raises_when_redis_unavailable(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(feed_task_coordination, "redis_client", _UnavailableRedis())
 
-    with pytest.raises(feed_tasks.CoordinationUnavailableError, match="domain slot unavailable"):
-        with feed_tasks.domain_slot("example.com"):
+    with pytest.raises(_owner_feed_task_coordination.CoordinationUnavailableError, match="domain slot unavailable"):
+        with _owner_feed_task_coordination.domain_slot("example.com"):
             pass
 
 
@@ -66,10 +68,10 @@ def test_domain_slot_still_times_out_under_sustained_contention(monkeypatch: pyt
     monkeypatch.setattr(feed_task_coordination.time, "sleep", lambda _seconds: None)
 
     with pytest.raises(
-        feed_tasks.CoordinationUnavailableError,
+        _owner_feed_task_coordination.CoordinationUnavailableError,
         match="domain slot timeout",
     ):
-        with feed_tasks.domain_slot("example.com", max_wait_seconds=0.01):
+        with _owner_feed_task_coordination.domain_slot("example.com", max_wait_seconds=0.01):
             pass
 
 
@@ -77,8 +79,8 @@ def test_domain_slot_raises_when_lease_write_fails(monkeypatch: pytest.MonkeyPat
     redis_client = _SetFailsRedis()
     monkeypatch.setattr(feed_task_coordination, "redis_client", redis_client)
 
-    with pytest.raises(feed_tasks.CoordinationUnavailableError, match="domain slot unavailable"):
-        with feed_tasks.domain_slot("example.com"):
+    with pytest.raises(_owner_feed_task_coordination.CoordinationUnavailableError, match="domain slot unavailable"):
+        with _owner_feed_task_coordination.domain_slot("example.com"):
             pass
 
     assert redis_client.values == {}
@@ -87,8 +89,8 @@ def test_domain_slot_raises_when_lease_write_fails(monkeypatch: pytest.MonkeyPat
 def test_feed_lock_allows_best_effort_progress_when_redis_is_unavailable(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(feed_task_coordination, "redis_client", _UnavailableRedis())
 
-    with pytest.raises(feed_tasks.CoordinationUnavailableError, match="feed lock unavailable"):
-        with feed_tasks.feed_lock("feed-1") as acquired:
+    with pytest.raises(_owner_feed_task_coordination.CoordinationUnavailableError, match="feed lock unavailable"):
+        with _owner_feed_task_coordination.feed_lock("feed-1") as acquired:
             assert acquired is True
 
 
@@ -119,7 +121,7 @@ def test_article_stream_aborts_when_domain_lease_is_replaced(
         extensions: dict[str, object] = {}
         guard_context = None
 
-        def iter_bytes(self):
+        def iter_raw(self):
             yield b"<html>"
             yield b"article</html>"
 
@@ -148,21 +150,21 @@ def test_article_stream_aborts_when_domain_lease_is_replaced(
         }
         return response
 
-    monkeypatch.setattr(feed_tasks, "domain_slot", domain_slot)
-    monkeypatch.setattr(feed_tasks, "ensure_lease_owned", ensure_owned)
+    monkeypatch.setattr(_owner_feed_task_coordination, 'domain_slot', domain_slot)
+    monkeypatch.setattr(_owner_feed_task_coordination, 'ensure_lease_owned', ensure_owned)
     monkeypatch.setattr(
-        feed_tasks,
-        "build_safe_http_client",
+        _owner_safe_fetch,
+        'build_safe_http_client',
         lambda *args, **kwargs: Client(),
     )
     monkeypatch.setattr(
-        feed_tasks,
-        "safe_stream_with_redirects",
+        _owner_safe_fetch,
+        'safe_stream_with_redirects',
         safe_stream_with_guard,
     )
 
     with pytest.raises(LeaseOwnershipLostError):
-        _fetch_candidate("https://example.com/article", runtime=feed_tasks)
+        _fetch_candidate("https://example.com/article", dependencies=feed_tasks._article_fetch_dependencies())
 
     assert response.closed is True
 
@@ -240,7 +242,7 @@ def test_lease_scripts_are_atomic_with_real_redis(
     heartbeat_key = f"{feed_key}:heartbeat"
 
     try:
-        with feed_tasks.feed_lock("lua-test", ttl_seconds=5) as lease:
+        with _owner_feed_task_coordination.feed_lock("lua-test", ttl_seconds=5) as lease:
             assert redis_client.get(feed_key) == lease.token
             assert redis_client.get(heartbeat_key).startswith(f"{lease.token}|")
 

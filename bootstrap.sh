@@ -95,12 +95,16 @@ PY
 postgres_db="${POSTGRES_DB:-threatlens}"
 postgres_user="${POSTGRES_USER:-threatlens}"
 postgres_password="$(random_value 40)"
+postgres_runtime_user="${POSTGRES_RUNTIME_USER:-threatlens_runtime}"
+postgres_runtime_password="$(random_value 40)"
+postgres_migration_user="${POSTGRES_MIGRATION_USER:-threatlens_migration}"
+postgres_migration_password="$(random_value 40)"
 redis_password="$(random_value 40)"
 jwt_secret="$(random_value 64)"
 app_data_encryption_key="$(random_value 64)"
 admin_email="${ADMIN_EMAIL:-admin@example.com}"
 admin_password="${ADMIN_PASSWORD:-$(random_value 24)}"
-database_url="postgresql+psycopg://${postgres_user}:${postgres_password}@db:5432/${postgres_db}"
+database_url="postgresql+psycopg://${postgres_runtime_user}:${postgres_runtime_password}@db:5432/${postgres_db}"
 redis_url="redis://:${redis_password}@redis:6379/0"
 compose_project_name="${COMPOSE_PROJECT_NAME:-$(basename "$PWD" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]//g')}"
 if [ -z "$compose_project_name" ]; then
@@ -113,6 +117,10 @@ render_env_file_block() {
 POSTGRES_DB=$postgres_db
 POSTGRES_USER=$postgres_user
 POSTGRES_PASSWORD=$postgres_password
+POSTGRES_RUNTIME_USER=$postgres_runtime_user
+POSTGRES_RUNTIME_PASSWORD=$postgres_runtime_password
+POSTGRES_MIGRATION_USER=$postgres_migration_user
+POSTGRES_MIGRATION_PASSWORD=$postgres_migration_password
 REDIS_PASSWORD=$redis_password
 DATABASE_URL=
 REDIS_URL=
@@ -134,11 +142,12 @@ AUTH_REQUIRE_CSRF=true
 AUTH_COOKIE_NAME=threatlens_session
 AUTH_CSRF_COOKIE_NAME=threatlens_csrf
 AUTH_CSRF_HEADER_NAME=x-csrf-token
-RUN_MIGRATIONS_ON_STARTUP=true
+RUN_MIGRATIONS_ON_STARTUP=false
 ALLOW_SELF_REGISTRATION=false
 ALLOW_LEGACY_UNSCOPED_TOKENS=false
 AI_ENABLED=false
 AI_API_KEY=
+AI_API_KEY_BASE_URL=https://api.openai.com
 ALLOW_PRIVATE_NETWORK_FETCH=false
 ALLOW_PRIVATE_NETWORK_AI=false
 ALLOW_PRIVATE_NETWORK_WEBHOOKS=false
@@ -175,6 +184,10 @@ EOF
   render_yaml_entry "POSTGRES_DB" "$postgres_db"
   render_yaml_entry "POSTGRES_USER" "$postgres_user"
   render_yaml_entry "POSTGRES_PASSWORD" "$postgres_password"
+  render_yaml_entry "POSTGRES_RUNTIME_USER" "$postgres_runtime_user"
+  render_yaml_entry "POSTGRES_RUNTIME_PASSWORD" "$postgres_runtime_password"
+  render_yaml_entry "POSTGRES_MIGRATION_USER" "$postgres_migration_user"
+  render_yaml_entry "POSTGRES_MIGRATION_PASSWORD" "$postgres_migration_password"
   cat <<EOF
 
 x-redis-environment: &redis-environment
@@ -182,8 +195,14 @@ EOF
   render_yaml_entry "REDIS_PASSWORD" "$redis_password"
   cat <<EOF
 
+x-migration-environment: &migration-environment
+EOF
+  render_yaml_entry "APP_ENV" "development"
+  render_yaml_entry "DATABASE_URL" "postgresql+psycopg://${postgres_migration_user}:${postgres_migration_password}@db:5432/${postgres_db}"
+  cat <<EOF
+
 x-backend-environment: &backend-environment
-  <<: [*db-environment, *redis-environment]
+  <<: *redis-environment
 EOF
   render_yaml_entry "APP_ENV" "development"
   render_yaml_entry "DATABASE_URL" "$database_url"
@@ -200,6 +219,7 @@ EOF
   render_yaml_entry "DEFAULT_API_TOKEN_EXPIRY_DAYS" "90"
   render_yaml_entry "AI_ENABLED" "false"
   render_yaml_entry "AI_API_KEY" ""
+  render_yaml_entry "AI_API_KEY_BASE_URL" "https://api.openai.com"
   render_yaml_entry "EXPOSE_API_DOCS_IN_PRODUCTION" "false"
   render_yaml_entry "EXPOSE_OPENAPI_SCHEMA_IN_PRODUCTION" "true"
   render_yaml_entry "FEED_MAX_BYTES" "2000000"
@@ -229,7 +249,7 @@ EOF
   render_yaml_entry "AUTH_CSRF_COOKIE_NAME" "threatlens_csrf"
   render_yaml_entry "AUTH_CSRF_HEADER_NAME" "x-csrf-token"
   render_yaml_entry "AUTH_REQUIRE_CSRF" "true"
-  render_yaml_entry "RUN_MIGRATIONS_ON_STARTUP" "true"
+  render_yaml_entry "RUN_MIGRATIONS_ON_STARTUP" "false"
   render_yaml_entry "SEED_ADMIN_ON_STARTUP" "true"
   render_yaml_entry "PROBE_FEED_METADATA_ON_CREATE" "false"
   render_yaml_entry "PROBE_FEED_METADATA_ON_IMPORT" "false"
@@ -288,10 +308,9 @@ EOF
 if command -v docker >/dev/null 2>&1 && docker volume inspect "$postgres_volume_name" >/dev/null 2>&1; then
   cat <<EOF
 
-Warning: Docker volume $postgres_volume_name already exists.
-If this is from a failed first startup and the API logs say the PostgreSQL role
-"threatlens" does not exist, reset the local database volume with:
-  docker compose down -v
-  docker compose up -d
+Docker volume $postgres_volume_name already exists.
+Generated passwords do not change credentials stored in an existing volume.
+Keep the existing administrator password and follow the database role cutover
+instructions in docs/pages/database-privileges.md. Do not delete the volume.
 EOF
 fi

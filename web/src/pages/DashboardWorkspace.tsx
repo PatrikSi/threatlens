@@ -74,6 +74,7 @@ export function DashboardWorkspace({ controller }: { controller: DashboardPageCo
 
       {articlePreview && (
         <ArticlePreviewDrawer
+          key={articlePreview.itemId}
           preview={articlePreview}
           frameState={articlePreviewFrameState}
           width={articlePreviewWidth}
@@ -137,6 +138,7 @@ function DashboardWindowPanel({
       : undefined
   }
   onMouseDown={() => bringWindowToFront(windowLayout.id)}
+  onFocusCapture={() => bringWindowToFront(windowLayout.id)}
 >
   <DashboardPanelHeader
     controller={controller}
@@ -167,9 +169,12 @@ function DashboardWindowPanel({
   {isEditMode && isWideLayout && windowLayout.snap === 'free' && (
     <button
       type="button"
-      className="absolute bottom-1 right-1 h-4 w-4 cursor-se-resize rounded border border-slate/20 bg-white/85 dark:border-cyan-900/40 dark:bg-[#0b2a23]"
+      className="absolute bottom-1 right-1 h-6 w-6 cursor-se-resize rounded border border-slate/20 bg-white/85 dark:border-cyan-900/40 dark:bg-[#0b2a23]"
       aria-label="Resize panel"
+      title="Resize panel with arrow keys. Hold Shift for larger steps."
+      aria-describedby={`panel-geometry-help-${windowLayout.id}`}
       onMouseDown={(event) => startWindowResize(event, windowLayout.id)}
+      onKeyDown={(event) => controller.handleWindowGeometryKey(event, windowLayout.id, 'resize')}
     />
   )}
 </section>
@@ -229,6 +234,19 @@ function DashboardPanelHeader({
           {windowMeta.label}
         </span>
         <h2 className="tl-dashboard-panel-title text-sm font-semibold leading-tight text-ink sm:text-base dark:text-white">{windowLayout.title}</h2>
+        {isEditMode && controller.isWideLayout && windowLayout.snap === 'free' && (
+          <>
+            <button type="button" className="rounded border border-slate/20 px-2 py-1 text-xs dark:border-cyan-900/40"
+              aria-label={`Move ${windowLayout.title} panel`} aria-describedby={`panel-geometry-help-${windowLayout.id}`}
+              onMouseDown={(event) => event.stopPropagation()}
+              onKeyDown={(event) => controller.handleWindowGeometryKey(event, windowLayout.id, 'move')}>
+              Move
+            </button>
+            <span id={`panel-geometry-help-${windowLayout.id}`} className="text-[10px] text-slate dark:text-slate-300">
+              Arrow keys move or resize. Shift uses larger steps.
+            </span>
+          </>
+        )}
       </div>
       <DashboardPanelMetadata
         windowLayout={windowLayout}

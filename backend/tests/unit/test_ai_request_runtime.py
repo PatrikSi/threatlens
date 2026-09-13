@@ -87,7 +87,6 @@ def test_policy_fence_runs_after_progress_commit_before_every_provider_attempt(
         execution_checkpoint=lambda: events.append("checkpoint"),
         execution_commit=lambda: events.append("commit"),
         enforce_egress_data_policy=enforce_egress_data_policy,
-        report_feature_type="report",
         call_ai_json=call_ai_json,
         record_task_run_stop_observed=lambda *_args, **_kwargs: events.append(
             "stop_check"
@@ -170,7 +169,6 @@ def test_policy_failure_never_counts_as_a_provider_attempt(db_session):
             execution_checkpoint=None,
             execution_commit=None,
             enforce_egress_data_policy=enforce_egress_data_policy,
-            report_feature_type="report",
             call_ai_json=call_ai_json,
             record_task_run_stop_observed=lambda *_args, **_kwargs: None,
             record_usage_event=record_usage_event,
@@ -424,12 +422,15 @@ def test_explicit_ambiguous_provider_outcome_is_settled_and_never_retried(
     assert receipt.state == "ambiguous"
     assert receipt.io_outcome == "ambiguous"
     assert receipt.retryable is False
-    assert [event.event_type for event in events] == [
-        "provider_exchange_started",
-        "provider_exchange_settled",
+    # Transaction timestamps can tie; verify the receipt lifecycle without
+    # assuming PostgreSQL returns tied rows in insertion order.
+    assert sorted(event.event_type for event in events) == [
         "provider_exchange_ambiguous",
+        "provider_exchange_settled",
+        "provider_exchange_started",
     ]
-    assert events[-1].payload_json["provider_io_outcome"] == "ambiguous"
+    ambiguous_event = next(event for event in events if event.event_type == "provider_exchange_ambiguous")
+    assert ambiguous_event.payload_json["provider_io_outcome"] == "ambiguous"
     assert len(usage_events) == 1
     assert usage_events[0]["success"] is False
     assert usage_events[0]["error"] == (
@@ -980,6 +981,78 @@ def test_post_provider_checkpoint_error_is_settled_before_propagation(db_session
     assert events[1].payload_json["outcome"] == "succeeded"
 
 
+def test_report_grounding_failure_retries_before_success_receipt(db_session):
+    task_run = _task_run(db_session)
+    usages = []
+    outputs = iter([
+        {"body_markdown": "An unsupported claim.", "citations": ["S1"]},
+        {"body_markdown": "A supported claim. [S1]", "citations": ["S1"]},
+    ])
+
+    def call_provider(_active, **_kwargs):
+        return AICompletionResult(payload=next(outputs), provider="openai_compatible",
+            model="test-model", latency_ms=12, prompt_tokens=20, completion_tokens=30, total_tokens=50)
+
+    messages = [{"role": "user", "content": json.dumps({"section": {"key": "assessment"},
+        "findings": [{"text": "A supported claim.", "citations": ["S1"]}]})}]
+    result = _run_request(db_session, active=_active(retries=1), task_run_id=task_run.id,
+        messages=messages,
+        call_provider=call_provider, record_usage=lambda *_args, **kwargs: usages.append(kwargs))
+    receipts = db_session.scalars(select(AIProviderAttemptReceipt).where(
+        AIProviderAttemptReceipt.task_run_id_snapshot == task_run.id
+    ).order_by(AIProviderAttemptReceipt.attempt_number.asc())).all()
+    assert result.attempt_count == 2
+    assert [row.state for row in receipts] == ["failed", "succeeded"]
+    assert [entry["success"] for entry in usages] == [False, True]
+    assert [entry["total_tokens"] for entry in usages] == [50, 50]
+
+    replayed = _run_request(db_session, active=_active(retries=1), task_run_id=task_run.id,
+        messages=messages, call_provider=lambda *_args, **_kwargs: pytest.fail("Paid request repeated"),
+        record_usage=lambda *_args, **_kwargs: pytest.fail("Usage counted twice"))
+    assert replayed.payload == result.payload
+    assert replayed.attempt_count == 2
+
+
+def test_ambiguous_settlement_preserves_deadline_category_and_provider_attribution(db_session):
+    usages = []
+    active = _active()
+    active.provider_name = "Legacy settings"
+
+    def call_provider(_active, **_kwargs):
+        raise AIIntegrationError("arbitrary text", failure_category="total_deadline",
+            provider_io_outcome="ambiguous", latency_ms=301000)
+
+    with pytest.raises(AIProviderAttemptAmbiguousError):
+        _run_request(db_session, active=active, call_provider=call_provider,
+            record_usage=lambda *_args, **kwargs: usages.append(kwargs))
+    assert len(usages) == 1
+    assert usages[0]["failure_category"] == "total_deadline"
+    assert usages[0]["provider_name"] == "Legacy settings"
+    assert usages[0]["provider_io_outcome"] == "ambiguous"
+    assert usages[0]["latency_ms"] == 301000
+
+
+def test_budget_deferral_usage_failure_cannot_leave_a_reserved_unsent_receipt(db_session, monkeypatch):
+    from app.services.ai_workflow_dispatch import AIWorkflowDeferred
+
+    task_run = _task_run(db_session)
+
+    def denied(*_args, **_kwargs):
+        raise AIWorkflowDeferred("provider_concurrency_budget", 10)
+
+    def broken_usage(*_args, **_kwargs):
+        raise OperationalError("INSERT usage", {}, Exception("synthetic database failure"))
+
+    monkeypatch.setattr("app.services.ai_request_runtime.call_with_provider_budget", denied)
+    with pytest.raises(AIWorkflowDeferred):
+        _run_request(db_session, task_run_id=task_run.id, record_usage=broken_usage)
+    receipt = db_session.scalar(select(AIProviderAttemptReceipt).where(
+        AIProviderAttemptReceipt.task_run_id_snapshot == task_run.id))
+    assert receipt.state == "voided"
+    assert receipt.io_outcome == "not_sent"
+    assert db_session.get(AITaskRun, task_run.id).status == "running"
+
+
 def _run_request(
     db_session,
     *,
@@ -1021,7 +1094,6 @@ def _run_request(
         execution_commit=execution_commit,
         enforce_egress_data_policy=enforce
         or (lambda _db, **lineage: _authorization(lineage["request_fingerprint"])),
-        report_feature_type="report",
         call_ai_json=call_provider or (lambda _active, **_kwargs: _completion()),
         record_task_run_stop_observed=lambda *_args, **_kwargs: None,
         record_usage_event=record_usage or (lambda *_args, **_kwargs: None),
@@ -1107,3 +1179,82 @@ def _report(db_session, *, title: str) -> Report:
     db_session.add(report)
     db_session.commit()
     return report
+
+
+def test_total_provider_deadline_releases_task_and_policy_fences(database_engine):
+    import threading
+    import time
+    from sqlalchemy.orm import Session
+    from app.models.iam import IAMPolicyState
+    from app.services.ai_egress_data_policy import enforce_ai_egress_data_policy
+    from app.services.ai_provider_client import call_ai_json
+    from app.services.safe_fetch import build_safe_http_client
+    from tests.unit.test_ai_provider_client import _active_settings
+    from tests.unit.test_outbound_budgets import _slow_server
+
+    db_session = Session(database_engine)
+    run = _task_run(db_session)
+    report_id = run.report_id
+    try:
+        run_id = run.id
+        active = _active_settings()
+        active.request_max_retries = 3
+        active.request_timeout_seconds = 0.2
+        waiters = []
+        completed = []
+        failures = []
+        provider_calls = 0
+
+        def wait_for_fence(model, key):
+            try:
+                with Session(database_engine) as concurrent:
+                    concurrent.scalar(select(model).where(model.id == key).with_for_update())
+                    completed.append(model)
+                    concurrent.commit()
+            except Exception as exc:
+                failures.append(exc)
+
+        def provider(_active, **kwargs):
+            nonlocal provider_calls
+            provider_calls += 1
+            for model, key in ((AITaskRun, run_id), (IAMPolicyState, 1)):
+                thread = threading.Thread(target=wait_for_fence, args=(model, key), daemon=True)
+                waiters.append(thread)
+                thread.start()
+            time.sleep(0.03)
+            assert completed == []  # Both real database fences remain held during I/O.
+
+            def factory(**options):
+                options["allow_private_network"] = True
+                return build_safe_http_client(**options)
+
+            return call_ai_json(_active, client_factory=factory, **kwargs)
+
+        with _slow_server("headers") as url:
+            active.base_url = url
+            began = time.monotonic()
+            try:
+                with pytest.raises(AIProviderAttemptAmbiguousError):
+                    _run_request(db_session, active=active, task_run_id=run_id,
+                                 enforce=enforce_ai_egress_data_policy, call_provider=provider)
+            finally:
+                db_session.rollback()
+                for thread in waiters:
+                    thread.join(timeout=2)
+            assert time.monotonic() - began < 2
+        assert failures == []
+        assert set(completed) == {AITaskRun, IAMPolicyState}
+        assert provider_calls == 1
+        receipt = db_session.scalar(select(AIProviderAttemptReceipt).where(
+            AIProviderAttemptReceipt.task_run_id_snapshot == run_id,
+        ))
+        assert receipt.state == "ambiguous"
+        assert receipt.retryable is False
+    finally:
+        from sqlalchemy import delete
+        db_session.rollback()
+        db_session.execute(delete(AIProviderAttemptReceipt).where(AIProviderAttemptReceipt.task_run_id_snapshot == run.id))
+        db_session.execute(delete(AITaskRun).where(AITaskRun.id == run.id))
+        db_session.execute(delete(Report).where(Report.id == report_id))
+        db_session.commit()
+        db_session.close()

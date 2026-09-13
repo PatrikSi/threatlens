@@ -4,6 +4,8 @@ import { resolveApiErrorMessage } from '../api/errors'
 import type { AlertOccurrence } from '../types/alerts'
 import { formatDateTime } from '../utils/datetime'
 import { AlertOccurrenceDetail } from './AlertOccurrenceDetail'
+import { AlertTeamQueueFilters } from './AlertTeamQueueFilters'
+import { AlertTeamStatus } from './AlertTeamTriage'
 import { AlertOccurrenceDialogs } from './AlertOccurrenceDialogs'
 import {
   AlertOccurrencePageError,
@@ -65,6 +67,7 @@ export function AlertOccurrencesWorkspace({ active = true }: { active?: boolean 
             >
               {occurrencesQuery.isFetching ? 'Refreshing...' : 'Refresh'}
             </button>
+            <button type="button" className="min-h-10 rounded border border-slate/30 px-3 py-1.5 text-sm font-semibold dark:border-white/15" onClick={() => void controller.copyTriageLink()}>Copy triage link</button>
             {canBackfill && (
               <button
                 type="button"
@@ -77,6 +80,11 @@ export function AlertOccurrencesWorkspace({ active = true }: { active?: boolean 
           </div>
         </div>
 
+        {controller.shareFeedback && <div className="mt-2 text-xs text-slate dark:text-slate-300">
+          <p role="status">{controller.shareFeedback}</p>
+          <input aria-label="Shareable triage link" className="mt-1 w-full rounded border border-slate/30 bg-white p-2 dark:bg-[#072019]" readOnly value={controller.shareUrl} onFocus={(event) => event.target.select()} />
+        </div>}
+        <AlertTeamQueueFilters controller={controller} />
         <OccurrenceStats controller={controller} />
         <OccurrenceFilters controller={controller} activeFilterCount={activeFilterCount} />
 
@@ -641,6 +649,7 @@ function OccurrenceTableRow({
       <td className="px-2 py-2.5 align-top text-xs text-slate dark:text-slate-400">
         <time dateTime={occurrence.created_at}>{formatDateTime(occurrence.created_at)}</time>
         <p className="mt-1">ID {shortIdentifier(occurrence.id)}</p>
+        <AlertTeamStatus occurrence={occurrence} currentUserId={controller.currentUserQuery.data?.id} />
       </td>
       <td className="px-3 py-2.5 text-right align-top">
         <button
@@ -688,6 +697,7 @@ function OccurrenceMobileList({ controller }: { controller: AlertOccurrencesCont
               <AlertOccurrenceStateChip state={occurrence.lifecycle_state} />
               <AlertOccurrenceStateFlags occurrence={occurrence} />
             </div>
+            <AlertTeamStatus occurrence={occurrence} currentUserId={controller.currentUserQuery.data?.id} />
             <div className="mt-2 flex flex-wrap gap-1">
               {occurrence.matched_keywords.slice(0, 3).map((keyword) => (
                 <span key={keyword} className="tl-chip tl-chip-neutral">

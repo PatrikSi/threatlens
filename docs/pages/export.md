@@ -17,6 +17,13 @@ The workspace supports:
 
 The default window is the latest 30 calendar days. Preview counts and rows refresh after a short input debounce. Export remains disabled while the preview is stale, unavailable, empty, invalid, or above the selected format's item limit.
 
+The browser allows five minutes for an export download request. The bundled
+nginx proxy allows 310 seconds while waiting for export response data, including
+artifact preparation before headers. Configure any additional reverse proxy or
+load balancer to allow at least that window. Large exports remain subject to the
+configured item and uncompressed-byte limits; narrow the filters or omit full
+article text if an export cannot complete within the browser budget.
+
 Preview rows show the source, effective publication time, classification, tags, AI relevance, and IOC count. The preview is representative rather than exhaustive; `EXPORT_PREVIEW_LIMIT` controls the number of visible rows while the counters cover the complete matching result.
 
 ## Formats
@@ -71,7 +78,7 @@ The readable bundle is a ZIP with `manifest.json` and one PDF per article under 
 - When enabled, only the requesting user's read state, starred state, and note are exported.
 - Full article text is format-specific and opt-in except for the default JSONL and ThreatLens bundle presets.
 - Export filters, format, item count, size, duration, and outcome are audited. Search text, article contents, and private notes are not written to audit metadata.
-- Artifacts are generated in temporary files, returned as downloads, and removed after the response. ThreatLens does not maintain an export download history or artifact store.
+- Synchronous export artifacts are generated in temporary files and removed after the response. Background jobs retain encrypted artifact chunks for their configured lifetime; download materialization uses temporary files that are removed after the response.
 
 ## Operational Limits
 
@@ -85,10 +92,46 @@ The readable bundle is a ZIP with `manifest.json` and one PDF per article under 
 
 Only one generated export per user can run at a time. Results are loaded in bounded batches and written to disk rather than assembled completely in memory. A changing result set, exhausted size budget, unavailable Redis lock, or competing export produces a clear failure instead of a partial artifact. Narrow filters and retry after the current export finishes.
 
+Database batches contain at most 200 records and an estimated 8 MiB of encoded
+payload, including text, metadata, tags, and IOCs. A single record above that
+budget returns HTTP 413 before its body is loaded; omit article text or narrow
+the selection. Full-text exports preserve the complete selected text. Previews
+fetch text-availability flags without article bodies or summaries and have an
+8 MiB aggregate payload guard. These are payload budgets, not exact process RSS
+limits: Python objects, serialization, database drivers, and PDF rendering add
+overhead. Payload growth between sizing and loading produces HTTP 409 so the
+caller can refresh and retry.
+
+## Background jobs and recovery
+
+Use background exports for generation that may exceed the synchronous request
+deadline. Acceptance is durable before broker publication and idempotent for the
+same principal, request, and idempotency key. Jobs expose progress, cancellation,
+failure reasons, expiry, and a download when ready. Current permissions and the
+accepting credential are checked during generation and download.
+
+Each queued job receives a durable publication reservation. If the broker's
+acknowledgement is lost or consumers pause, periodic repair does not keep adding
+duplicate export messages. After a 30-second grace, a newer execution canary from
+the `exports-v1` queue permits repair. Missing, stale, invalid, or unavailable
+canaries leave accepted work queued. Restore the export worker and Redis rather
+than repeatedly recreating a queued job; existing expiry and cancellation remain
+available. Running-worker crashes are recovered through the independent generation
+lease and attempt budget.
+
+Migration `0101_export_dispatch_progress` adds nullable publication markers without
+expiring or regenerating existing jobs. Restart API and workers on the same release
+after migration so older publishers do not bypass the reservation protocol.
+
 ## API
 
 - `GET /api/v1/exports/capabilities` returns formats, filter options, and deployment limits.
 - `POST /api/v1/exports/preview` validates filters and returns counts plus representative rows.
 - `POST /api/v1/exports` generates and downloads the selected artifact.
+- `POST /api/v1/exports/jobs` accepts a background export.
+- `GET /api/v1/exports/jobs` lists the caller's retained jobs.
+- `GET /api/v1/exports/jobs/{id}` returns progress and result availability.
+- `POST /api/v1/exports/jobs/{id}/cancel` cancels a job.
+- `GET /api/v1/exports/jobs/{id}/download` downloads an available artifact.
 
 The generated [API reference](../reference/api.md#exports) and [OpenAPI document](../reference/openapi.json) define the complete request schemas.

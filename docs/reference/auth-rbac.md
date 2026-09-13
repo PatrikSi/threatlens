@@ -233,6 +233,7 @@ Resource scopes:
 - `read:health`
 - `read:operations`, `write:operations`
 - `read:investigations`, `write:investigations`
+- `read:teams`, `write:teams`
 - `read:iam`, `write:iam`
 - `read:workspace`, `write:workspace_preferences`, `write:workspace`
 - `read:service_accounts`, `write:service_accounts`
@@ -312,11 +313,32 @@ Paths below are relative to the published `/api/v1` base.
 
 ## Practical Trust Notes
 
+Named teams add a current group-membership boundary to shared views,
+investigations and alert queues. `read:teams` exposes accessible team metadata;
+`write:teams` is required in addition to feature write permissions for shared
+mutations. Team creation and group-binding changes use IAM administration.
+Managers can maintain team metadata and manage shared triage assignments and
+deadlines; they cannot grant themselves feature scopes or bypass evidence policy.
+An IAM administrator's metadata access does not confer team content membership.
+See [named team access and delegation](../pages/teams.md).
+
+Report editorial transitions require current report-write authority and evidence
+access. Owner/administrator edit and publication authority is distinct from
+approval by an eligible reviewer. Approval pins the exact content/evidence
+revision. Self-review is permitted and explicitly audited. AI statistics retains
+the same administrator role plus `read:ai` requirement as the AI control plane;
+the separate ingestion section requires `read:stats`.
+
 - Cookie sessions are the primary browser contract. Token scopes only apply when the caller is authenticated via a personal API token.
 - `write:<resource>` implies `read:<resource>` during scope checks.
 - `ALLOW_LEGACY_UNSCOPED_TOKENS=true` weakens token authorization by allowing empty-scope legacy tokens to bypass scope checks. Production settings reject this mode.
 - Notification webhook targets are validated on create, update, test, retry, and delivery. Public targets must use `https`; private-network or internal-only targets require `ALLOW_PRIVATE_NETWORK_WEBHOOKS=true`.
 - Viewer-role access and API tokens without `write:notifications` receive webhook configuration with secret-bearing values redacted. Operator cookie sessions and write-scoped operator tokens retain the existing editable response.
+- Webhook delivery history uses those same secret-read permissions. Restricted
+  credentials can inspect status, timing, and source metadata, while the complete
+  destination URL, configured header/query values, and free-form diagnostics are
+  withheld. Request and response bodies remain withheld for every role, and
+  common credential aliases are redacted in privileged delivery previews.
 - User updates are serialized around the active-admin invariant; concurrent demotions cannot remove the final active, approved admin.
 - Non-admin token revocation is owner-constrained and returns the same not-found response for foreign and nonexistent token IDs.
 - OIDC role synchronization and admin user edits share the same serialized final-admin invariant.

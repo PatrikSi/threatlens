@@ -83,6 +83,9 @@ class FeedTimeSeriesSeries(BaseModel):
 
 class FeedTimeSeriesResponse(WindowedStatsResponse):
     series: list[FeedTimeSeriesSeries]
+    total_feeds: int = 0
+    feed_limit: int = 100
+    truncated: bool = False
 
 
 class ActivityHeatmapDayRow(BaseModel):

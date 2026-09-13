@@ -9,17 +9,19 @@ from bs4 import BeautifulSoup
 from app.core.config import Settings
 from app.models.article import Article
 from app.models.item import Item
+from app.services.bounded_response import ResponseBodyTooLarge, read_bounded_response
+from app.services.outbound_deadline import outbound_deadline
 from app.services.safe_fetch import RedirectError, SafeFetchError, build_safe_http_client, safe_stream_with_redirects
 from app.services.url_utils import is_fetchable_url, normalize_url
 
 
-ARTICLE_PREVIEW_CSP = (
+_ARTICLE_PREVIEW_CSP_TEMPLATE = (
     "default-src 'none'; "
     "base-uri http: https:; "
-    "img-src http: https: data:; "
-    "style-src http: https: 'unsafe-inline'; "
-    "font-src http: https: data:; "
-    "media-src http: https: data:; "
+    "img-src {external}data:; "
+    "style-src {external}'unsafe-inline'; "
+    "font-src {external}data:; "
+    "media-src {external}data:; "
     "script-src 'none'; "
     "connect-src 'none'; "
     "frame-src 'none'; "
@@ -28,13 +30,27 @@ ARTICLE_PREVIEW_CSP = (
     "frame-ancestors 'self'; "
     "sandbox allow-popups allow-popups-to-escape-sandbox"
 )
+ARTICLE_PREVIEW_CSP = _ARTICLE_PREVIEW_CSP_TEMPLATE.format(external="")
 ARTICLE_PREVIEW_RESPONSE_HEADERS = {
     "Cache-Control": "no-store",
     "Content-Security-Policy": ARTICLE_PREVIEW_CSP,
     "Referrer-Policy": "no-referrer",
     "X-Content-Type-Options": "nosniff",
+    "X-DNS-Prefetch-Control": "off",
 }
+
+
+def article_preview_response_headers(*, external_resources: bool = False) -> dict[str, str]:
+    return {
+        **ARTICLE_PREVIEW_RESPONSE_HEADERS,
+        "Content-Security-Policy": _ARTICLE_PREVIEW_CSP_TEMPLATE.format(
+            external="http: https: " if external_resources else ""
+        ),
+    }
+
+
 _BLOCKED_TAGS = {"script", "iframe", "frame", "frameset", "object", "embed", "applet"}
+_SPECULATIVE_LINK_RELATIONS = {"dns-prefetch", "preconnect", "prefetch", "prerender", "modulepreload"}
 _BLOCKED_META_HTTP_EQUIV = {
     "content-security-policy",
     "content-security-policy-report-only",
@@ -99,7 +115,7 @@ def fetch_article_preview_document(
         pool=settings.article_connect_timeout_seconds,
     )
     try:
-        with build_safe_http_client(
+        with outbound_deadline(settings.article_total_timeout_seconds), build_safe_http_client(
             timeout=timeout,
             headers={"User-Agent": settings.fetch_user_agent},
             allow_private_network=settings.allow_private_network_fetch,
@@ -123,21 +139,17 @@ def fetch_article_preview_document(
                 if "text/html" not in (content_type or "").lower():
                     raise ArticlePreviewFetchError("Article preview source is not an HTML page", status_code=415)
 
-                body_chunks: list[bytes] = []
-                body_size = 0
-                for chunk in response.iter_bytes():
-                    body_size += len(chunk)
-                    if body_size > settings.article_max_bytes:
-                        raise ArticlePreviewFetchError("Article preview source exceeds the configured size limit", status_code=413)
-                    body_chunks.append(chunk)
+                body = read_bounded_response(response, settings.article_max_bytes)
             finally:
                 response.close()
+    except ResponseBodyTooLarge as exc:
+        raise ArticlePreviewFetchError("Article preview source exceeds the configured size limit", status_code=413) from exc
     except ArticlePreviewFetchError:
         raise
     except (httpx.HTTPError, TimeoutError, SafeFetchError, RedirectError) as exc:
         raise ArticlePreviewFetchError("Article preview source could not be fetched", status_code=502) from exc
 
-    html = b"".join(body_chunks).decode("utf-8", errors="replace")
+    html = body.decode("utf-8", errors="replace")
     return ArticlePreviewDocument(
         html=sanitize_article_preview_html(html, final_url=final_url),
         source_url=source_url,
@@ -160,6 +172,10 @@ def sanitize_article_preview_html(html: str, *, final_url: str) -> str:
 
     for base in soup.find_all("base"):
         base.decompose()
+
+    for link in soup.find_all("link"):
+        if _SPECULATIVE_LINK_RELATIONS.intersection(link.get("rel", [])):
+            link.decompose()
 
     head = soup.head
     if head is not None:

@@ -1399,3 +1399,35 @@ def test_manual_schedule_run_persists_missing_owner_quarantine(
     assert stored.last_error_code == "owner_missing"
     assert stored.enabled is False
     assert stored.next_run_at is None
+
+
+def test_report_library_filters_and_paging(client, db_session, auth_headers, monkeypatch):
+    _install_report_creation_stubs(monkeypatch)
+    headers = auth_headers["analyst"]
+    report_ids = []
+    for index in range(3):
+        created = client.post("/reports", json=_report_payload(title=f"Report {index}"), headers=headers)
+        assert created.status_code == 202
+        report_id = uuid.UUID(created.json()["report_id"])
+        report_ids.append(report_id)
+        report = db_session.get(Report, report_id)
+        report.created_at = datetime(2026, 9, index + 1, tzinfo=timezone.utc)
+        report.status = "error" if index == 1 else "ready"
+    db_session.commit()
+
+    first = client.get("/reports?limit=2&offset=0", headers=headers)
+    second = client.get("/reports?limit=2&offset=2", headers=headers)
+    assert first.status_code == second.status_code == 200
+    assert [entry["id"] for entry in first.json()] == [str(report_ids[2]), str(report_ids[1])]
+    assert [entry["id"] for entry in second.json()] == [str(report_ids[0])]
+    scoped = client.get("/reports", headers=headers, params={
+        "status": "error", "created_from": "2026-09-02T00:00:00Z", "created_before": "2026-09-03T00:00:00Z",
+    })
+    assert scoped.status_code == 200
+    assert [entry["id"] for entry in scoped.json()] == [str(report_ids[1])]
+    assert client.get("/reports", headers=headers, params={
+        "created_from": "2026-09-02T00:00:00Z", "created_before": "2026-09-02T00:00:00Z",
+    }).status_code == 422
+    assert client.get("/reports", headers=headers, params={
+        "created_from": "2026-09-03T00:00:00", "created_before": "2026-09-02T00:00:00Z",
+    }).status_code == 422

@@ -9,7 +9,9 @@ from sqlalchemy.orm import Session
 
 from app.models.ai_daily_brief import AIDailyBrief
 from app.models.ai_task_run import AITaskRun
+from app.services.ai_execution_ownership import ai_worker_execution
 from app.services.ai_config import load_active_ai_settings
+from app.services.ai_workflow_dispatch import AIWorkflowDeferred, defer_ai_workflow_run
 from app.services.ai_integration import is_stale_daily_brief_pending, run_daily_brief_generation
 from app.services.ai_ops import (
     AI_DAILY_BRIEF_BACKFILL_SCOPE,
@@ -39,6 +41,7 @@ from app.tasks.task_session import db_session
 
 logger = logging.getLogger(__name__)
 DAILY_BRIEF_STALE_RETRY_WINDOW = timedelta(minutes=15)
+DAILY_BRIEF_BACKFILL_REFERENCE_TIME_KEY = "backfill_reference_time"
 
 
 def _exception_type_name(exc: BaseException) -> str:
@@ -54,11 +57,11 @@ def _task_run_claimed_by_current_worker(run: AITaskRun | None, *, celery_task_id
 
 
 def _scheduled_daily_ai_brief_due(db: Session, *, now: datetime) -> tuple[bool, str | None]:
-    active = load_active_ai_settings(db)
+    active = load_active_ai_settings(db, feature_type="daily_brief")
     if not active.ai_enabled:
         return False, "ai_disabled"
     if not active.ai_configured:
-        return False, "ai_not_configured"
+        return False, getattr(active, "configuration_error_code", None) or "ai_not_configured"
     if not active.daily_brief_enabled:
         return False, "daily_brief_disabled"
 
@@ -91,7 +94,7 @@ def _scheduled_daily_ai_brief_due(db: Session, *, now: datetime) -> tuple[bool, 
     )
     if in_flight_run is not None:
         task_run = db.scalar(select(AITaskRun).where(AITaskRun.id == in_flight_run))
-        if task_run is not None and not _is_stale_daily_brief_task_run(task_run, now=now):
+        if task_run is not None and task_run.finished_at is None:
             return False, "already_running"
 
     return True, None
@@ -122,7 +125,9 @@ def reconcile_ai_task_runs():
     name="app.tasks.feed_tasks.dispatch_daily_ai_brief_generation",
     acks_late=True,
     reject_on_worker_lost=True,
+    max_retries=None,
 )
+@ai_worker_execution
 def dispatch_daily_ai_brief_generation(
     self,
     force: bool = False,
@@ -152,20 +157,26 @@ def dispatch_daily_ai_brief_generation(
             with daily_ai_brief_lock() as acquired:
                 if not acquired:
                     if parsed_run_id is not None:
-                        run = db.scalar(select(AITaskRun).where(AITaskRun.id == parsed_run_id))
-                        if run is not None:
-                            finish_ai_task_run(
-                                db,
-                                run_id=run.id,
-                                status=AI_STATUS_SKIPPED,
-                                reason="already_running",
-                                worker_name=getattr(self.request, "hostname", None),
-                                metadata_updates={
-                                    "force": bool(force),
-                                    "lock_observed_at": datetime.now(timezone.utc).isoformat(),
-                                },
+                        run = db.scalar(
+                            select(AITaskRun)
+                            .where(AITaskRun.id == parsed_run_id)
+                            .with_for_update()
+                            .execution_options(populate_existing=True)
+                        )
+                        # The lease owner may not have started its run yet.
+                        # A queued status does not prove this is unrelated work;
+                        # defer this delivery without terminalizing its owner.
+                        if (
+                            run is not None
+                            and run.status == AI_STATUS_QUEUED
+                            and ai_task_run_stop_reason(run) is None
+                            and run.celery_task_id in (
+                                None, getattr(self.request, "id", None)
                             )
+                        ):
+                            defer_ai_workflow_run(db, run_id=run.id, reason="brief_lock_busy", retry_after_seconds=30)
                             db.commit()
+                            return {"status": "queued", "reason": "brief_lock_busy", "run_id": str(run.id)}
                     result = {"status": "skipped", "reason": "already_running"}
                     if parsed_run_id is not None:
                         result["run_id"] = str(parsed_run_id)
@@ -173,14 +184,7 @@ def dispatch_daily_ai_brief_generation(
                 if parsed_run_id:
                     run = db.scalar(select(AITaskRun).where(AITaskRun.id == parsed_run_id))
                     if run is None:
-                        run = queue_ai_task_run(
-                            db,
-                            task_type=AI_TASK_TYPE_DAILY_BRIEF,
-                            trigger_source=AI_TRIGGER_MANUAL if parsed_actor_user_id else AI_TRIGGER_SCHEDULED,
-                            actor_user_id=parsed_actor_user_id,
-                            model=None,
-                            metadata={"force": bool(force), "scheduled": parsed_actor_user_id is None},
-                        )
+                        return {"status": "skipped", "reason": "task_history_unavailable", "run_id": task_run_id}
                 else:
                     run = queue_ai_task_run(
                         db,
@@ -213,7 +217,7 @@ def dispatch_daily_ai_brief_generation(
                         )
                         db.commit()
                     return {"status": "skipped", "reason": stop_reason}
-                active_ai_settings = load_active_ai_settings(db)
+                active_ai_settings = load_active_ai_settings(db, feature_type="daily_brief", task_run_id=run.id)
                 if not active_ai_settings.ai_enabled:
                     finish_ai_task_run(
                         db,
@@ -225,15 +229,18 @@ def dispatch_daily_ai_brief_generation(
                     db.commit()
                     return {"status": "skipped", "reason": "ai_disabled"}
                 if not active_ai_settings.ai_configured:
+                    reason = getattr(active_ai_settings, "configuration_error_code", None) or "ai_not_configured"
+                    status = AI_STATUS_ERROR if reason != "ai_not_configured" else AI_STATUS_SKIPPED
                     finish_ai_task_run(
                         db,
                         run_id=run.id,
-                        status=AI_STATUS_SKIPPED,
-                        reason="ai_not_configured",
+                        status=status,
+                        reason=reason,
+                        error=(getattr(active_ai_settings, "configuration_error", None) or reason) if status == AI_STATUS_ERROR else None,
                         worker_name=getattr(self.request, "hostname", None),
                     )
                     db.commit()
-                    return {"status": "skipped", "reason": "ai_not_configured"}
+                    return {"status": status, "reason": reason}
                 if not active_ai_settings.daily_brief_enabled:
                     finish_ai_task_run(
                         db,
@@ -245,13 +252,15 @@ def dispatch_daily_ai_brief_generation(
                     db.commit()
                     return {"status": "skipped", "reason": "daily_brief_disabled"}
 
-                result = run_daily_brief_generation(db, force=force, task_run_id=run.id)
+                result = run_daily_brief_generation(
+                    db, force=force, task_run_id=run.id, reference_time=run.created_at
+                )
                 finish_ai_task_run(
                     db,
                     run_id=run.id,
                     status=AI_STATUS_READY if result.status == "ready" else AI_STATUS_ERROR if result.status == "error" else AI_STATUS_SKIPPED,
                     reason=result.reason,
-                    error=result.brief.error if result.brief is not None and result.status == "error" else None,
+                    error=(result.brief.error if result.brief is not None else getattr(result, "error", None)) if result.status == "error" else None,
                     worker_name=getattr(self.request, "hostname", None),
                     model=result.brief.model if result.brief is not None else active_ai_settings.model,
                     prompt_tokens=result.brief.prompt_tokens if result.brief is not None else None,
@@ -280,18 +289,18 @@ def dispatch_daily_ai_brief_generation(
                     ),
                     "notification_enqueue_failed": not notification_enqueue_ok,
                 }
+        except AIWorkflowDeferred as exc:
+            if run is not None:
+                defer_ai_workflow_run(db, run_id=run.id, reason=exc.reason, retry_after_seconds=exc.retry_after_seconds)
+                db.commit()
+            return {"status": "queued", "reason": exc.reason}
         except CoordinationUnavailableError as exc:
             logger.warning("daily_brief_coordination_unavailable error_type=%s", _exception_type_name(exc))
-            if run is not None:
-                finish_ai_task_run(
-                    db,
-                    run_id=run.id,
-                    status=AI_STATUS_ERROR,
-                    reason="coordination_unavailable",
-                    error="coordination_unavailable",
-                    worker_name=getattr(self.request, "hostname", None),
-                )
+            deferred_id = run.id if run is not None else parsed_run_id
+            if deferred_id is not None:
+                defer_ai_workflow_run(db, run_id=deferred_id, reason="coordination_unavailable", retry_after_seconds=30)
                 db.commit()
+                return {"status": "queued", "reason": "coordination_unavailable"}
             return {"status": "error", "reason": "coordination_unavailable"}
 
 
@@ -320,6 +329,56 @@ def _daily_brief_backfill_reference_times(days: int, *, now: datetime | None = N
     return references
 
 
+def _daily_brief_backfill_anchor(db: Session, run: AITaskRun) -> datetime:
+    from app.services.ai_execution_ownership import AIExecutionSuperseded
+    run = db.scalar(select(AITaskRun).where(AITaskRun.id == run.id).with_for_update()
+                    .execution_options(populate_existing=True))
+    stop_reason = "task_history_unavailable" if run is None else ai_task_run_stop_reason(run)
+    if stop_reason is not None:
+        raise AIExecutionSuperseded("Brief anchor execution was stopped or superseded.", reason=stop_reason)
+    metadata = dict(run.metadata_json or {})
+
+    def parse_reference(value: object) -> datetime | None:
+        if not isinstance(value, str):
+            return None
+        try:
+            parsed = datetime.fromisoformat(value)
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+
+    anchor = parse_reference(metadata.get(DAILY_BRIEF_BACKFILL_REFERENCE_TIME_KEY))
+    if anchor is None:
+        # Older workers stored the exact reference only on each child. The
+        # first attempted day preserves the original backfill's newest date,
+        # even if its parent waited in the queue across midnight.
+        children = db.scalars(
+            select(AITaskRun)
+            .where(
+                AITaskRun.parent_run_id == run.id,
+                AITaskRun.task_type == AI_TASK_TYPE_DAILY_BRIEF,
+            )
+            .order_by(AITaskRun.created_at.asc(), AITaskRun.id.asc())
+        )
+        for child in children:
+            anchor = parse_reference((child.metadata_json or {}).get("reference_time"))
+            if anchor is not None:
+                break
+    if anchor is None:
+        anchor = run.created_at or run.queued_at or datetime.now(timezone.utc)
+        if anchor.tzinfo is None:
+            anchor = anchor.replace(tzinfo=timezone.utc)
+        anchor = anchor.astimezone(timezone.utc)
+    run.metadata_json = {
+        **metadata,
+        DAILY_BRIEF_BACKFILL_REFERENCE_TIME_KEY: anchor.isoformat(),
+    }
+    db.add(run)
+    return anchor
+
+
 def _daily_brief_backfill_attempts(
     db: Session,
     *,
@@ -340,12 +399,8 @@ def _daily_brief_backfill_attempts(
 
 
 def _daily_brief_backfill_attempt_is_settled(run: AITaskRun) -> bool:
-    if run.finished_at is None or run.status not in {AI_STATUS_READY, AI_STATUS_ERROR, AI_STATUS_SKIPPED}:
-        return False
-    metadata = run.metadata_json or {}
-    if metadata.get(AI_PARENT_PROGRESS_ELIGIBLE_METADATA_KEY) is False:
-        return False
-    return not (run.reason and run.reason.startswith("stale_"))
+    from app.services.ai_brief_recovery import brief_attempt_is_settled
+    return brief_attempt_is_settled(run)
 
 
 def _daily_brief_backfill_attempt_number(attempts: list[AITaskRun]) -> int:
@@ -358,12 +413,47 @@ def _daily_brief_backfill_attempt_number(attempts: list[AITaskRun]) -> int:
     return max([len(attempts), *attempt_numbers], default=0) + 1
 
 
+def _supersede_daily_brief_attempts(
+    db: Session, *, attempts: list[AITaskRun], attempt_number: int,
+    worker_name: str | None, active_model: str | None,
+) -> None:
+    for attempt in attempts:
+        attempt = db.scalar(select(AITaskRun).where(AITaskRun.id == attempt.id).with_for_update()
+                            .execution_options(populate_existing=True))
+        if attempt is None or attempt.finished_at is not None:
+            continue
+        from app.services.ai_execution_ownership import AIExecutionSuperseded, ai_execution_stop_reason
+        stop_reason = ai_execution_stop_reason(db, attempt, lock_parent=True)
+        if stop_reason is not None:
+            raise AIExecutionSuperseded("Brief supersession was stopped or superseded.", reason=stop_reason)
+        attempt.metadata_json = {
+            **dict(attempt.metadata_json or {}),
+            AI_PARENT_PROGRESS_ELIGIBLE_METADATA_KEY: False,
+            "superseded_by_attempt": attempt_number,
+        }
+        db.add(attempt)
+        finish_ai_task_run(
+            db, run_id=attempt.id, status=AI_STATUS_SKIPPED,
+            reason="superseded_by_redelivery",
+            worker_name=attempt.worker_name or worker_name,
+            model=attempt.model or active_model,
+        )
+        db.commit()  # Release child and parent before handling another attempt.
+
+
+def _require_backfill_history(run: AITaskRun | None, requested_id: uuid.UUID | None) -> None:
+    if requested_id is not None and run is None:
+        from app.services.ai_execution_ownership import AIExecutionSuperseded
+        raise AIExecutionSuperseded("Accepted AI task history is unavailable.", reason="task_history_unavailable")
+
+
 @celery_app.task(
     bind=True,
     name="app.tasks.feed_tasks.backfill_daily_ai_briefs",
     acks_late=True,
     reject_on_worker_lost=True,
 )
+@ai_worker_execution
 def backfill_daily_ai_briefs(
     self,
     days: int,
@@ -392,11 +482,7 @@ def backfill_daily_ai_briefs(
                 parsed_actor_user_id = None
 
         run = db.scalar(select(AITaskRun).where(AITaskRun.id == parsed_run_id)) if parsed_run_id else None
-        parent_was_running = bool(
-            run is not None
-            and run.status == AI_STATUS_RUNNING
-            and run.finished_at is None
-        )
+        _require_backfill_history(run, parsed_run_id)
         if run is None:
             run = queue_ai_task_run(
                 db,
@@ -407,6 +493,10 @@ def backfill_daily_ai_briefs(
                 target_count=max(0, effective_days),
             )
 
+        from app.services.ai_execution_ownership import require_ai_execution
+        run = db.scalar(select(AITaskRun).where(AITaskRun.id == run.id).with_for_update()
+                        .execution_options(populate_existing=True))
+        require_ai_execution(run, allow_unassigned=True)
         parent_run_id = run.id
         run.target_count = max(0, effective_days)
         run.metadata_json = {
@@ -459,15 +549,24 @@ def backfill_daily_ai_briefs(
                 db.commit()
             return {"status": "skipped", "reason": stop_reason, "run_id": str(parent_run_id)}
 
-        active_ai_settings = load_active_ai_settings(db)
+        active_ai_settings = load_active_ai_settings(db, feature_type="daily_brief", task_run_id=parent_run_id)
         if not active_ai_settings.ai_enabled:
             finish_ai_task_run(db, run_id=parent_run_id, status=AI_STATUS_SKIPPED, reason="ai_disabled", worker_name=worker_name)
             db.commit()
             return {"status": "skipped", "reason": "ai_disabled", "run_id": str(parent_run_id)}
         if not active_ai_settings.ai_configured:
-            finish_ai_task_run(db, run_id=parent_run_id, status=AI_STATUS_SKIPPED, reason="ai_not_configured", worker_name=worker_name)
+            reason = getattr(active_ai_settings, "configuration_error_code", None) or "ai_not_configured"
+            status = AI_STATUS_ERROR if reason != "ai_not_configured" else AI_STATUS_SKIPPED
+            finish_ai_task_run(
+                db,
+                run_id=parent_run_id,
+                status=status,
+                reason=reason,
+                error=(getattr(active_ai_settings, "configuration_error", None) or reason) if status == AI_STATUS_ERROR else None,
+                worker_name=worker_name,
+            )
             db.commit()
-            return {"status": "skipped", "reason": "ai_not_configured", "run_id": str(parent_run_id)}
+            return {"status": status, "reason": reason, "run_id": str(parent_run_id)}
         if not active_ai_settings.daily_brief_enabled:
             finish_ai_task_run(db, run_id=parent_run_id, status=AI_STATUS_SKIPPED, reason="daily_brief_disabled", worker_name=worker_name)
             db.commit()
@@ -485,6 +584,7 @@ def backfill_daily_ai_briefs(
             return {"status": "error", "reason": "history_limit_too_low", "run_id": str(parent_run_id)}
 
         active_model = active_ai_settings.model
+        backfill_anchor = _daily_brief_backfill_anchor(db, run)
         run.model = active_model
         db.add(run)
         record_ai_task_event(
@@ -498,36 +598,17 @@ def backfill_daily_ai_briefs(
         try:
             with daily_ai_brief_lock() as acquired:
                 if not acquired:
-                    active_parent = db.scalar(select(AITaskRun).where(AITaskRun.id == parent_run_id))
-                    if parent_was_running and active_parent is not None and active_parent.finished_at is None:
-                        active_parent.metadata_json = {
-                            **dict(active_parent.metadata_json or {}),
-                            "duplicate_lock_observed_at": datetime.now(timezone.utc).isoformat(),
-                        }
-                        db.add(active_parent)
-                        record_ai_task_event(
-                            db,
-                            run_id=parent_run_id,
-                            event_type="duplicate_delivery_deferred",
-                            payload={"celery_task_id": celery_task_id, "worker_name": worker_name},
-                        )
-                        db.commit()
-                        return {"status": "skipped", "reason": "already_running", "run_id": str(parent_run_id)}
-                    finish_ai_task_run(
-                        db,
-                        run_id=parent_run_id,
-                        status=AI_STATUS_SKIPPED,
-                        reason="already_running",
-                        worker_name=worker_name,
-                        metadata_updates={"lock_observed_at": datetime.now(timezone.utc).isoformat()},
-                    )
+                    defer_ai_workflow_run(db, run_id=parent_run_id, reason="brief_lock_busy", retry_after_seconds=30)
                     db.commit()
-                    return {"status": "skipped", "reason": "already_running", "run_id": str(parent_run_id)}
+                    return {"status": "queued", "reason": "brief_lock_busy", "run_id": str(parent_run_id)}
 
                 processed_dates: list[str] = []
-                for reference_time in _daily_brief_backfill_reference_times(effective_days):
+                for reference_time in _daily_brief_backfill_reference_times(
+                    effective_days, now=backfill_anchor
+                ):
                     brief_date = reference_time.date().isoformat()
-                    parent_run = db.scalar(select(AITaskRun).where(AITaskRun.id == parent_run_id))
+                    parent_run = db.scalar(select(AITaskRun).where(AITaskRun.id == parent_run_id)
+                                           .execution_options(populate_existing=True))
                     if parent_run is None:
                         return {
                             "status": "error",
@@ -560,26 +641,20 @@ def backfill_daily_ai_briefs(
                         parent_run_id=parent_run_id,
                         brief_date=brief_date,
                     )
-                    if any(_daily_brief_backfill_attempt_is_settled(attempt) for attempt in attempts):
-                        processed_dates.append(brief_date)
-                        continue
+                    from app.services.ai_brief_recovery import reconcile_interrupted_brief_attempts
+                    recovery = reconcile_interrupted_brief_attempts(db, parent=parent_run, attempts=attempts)
+                    if recovery is not None:
+                        db.commit()
+                        if recovery == "ready":
+                            processed_dates.append(brief_date)
+                            continue
+                        return {"status": "error", "reason": "provider_recovery_blocked", "run_id": str(parent_run_id)}
 
                     attempt_number = _daily_brief_backfill_attempt_number(attempts)
-                    for interrupted_attempt in [attempt for attempt in attempts if attempt.finished_at is None]:
-                        interrupted_attempt.metadata_json = {
-                            **dict(interrupted_attempt.metadata_json or {}),
-                            AI_PARENT_PROGRESS_ELIGIBLE_METADATA_KEY: False,
-                            "superseded_by_attempt": attempt_number,
-                        }
-                        db.add(interrupted_attempt)
-                        finish_ai_task_run(
-                            db,
-                            run_id=interrupted_attempt.id,
-                            status=AI_STATUS_SKIPPED,
-                            reason="superseded_by_redelivery",
-                            worker_name=interrupted_attempt.worker_name or worker_name,
-                            model=interrupted_attempt.model or active_model,
-                        )
+                    _supersede_daily_brief_attempts(
+                        db, attempts=attempts, attempt_number=attempt_number,
+                        worker_name=worker_name, active_model=active_model,
+                    )
 
                     child_run = queue_ai_task_run(
                         db,
@@ -615,6 +690,10 @@ def backfill_daily_ai_briefs(
                             task_run_id=child_run_id,
                             emit_notification=False,
                         )
+                    except AIWorkflowDeferred as exc:
+                        defer_ai_workflow_run(db, run_id=parent_run_id, reason=exc.reason, retry_after_seconds=exc.retry_after_seconds)
+                        db.commit()
+                        return {"status": "queued", "reason": exc.reason, "run_id": str(parent_run_id), "processed_dates": processed_dates}
                     except Exception as exc:
                         db.rollback()
                         logger.exception("daily_brief_backfill_day_failed brief_date=%s", reference_time.date().isoformat())
@@ -640,7 +719,7 @@ def backfill_daily_ai_briefs(
                         run_id=child_run_id,
                         status=AI_STATUS_READY if result.status == "ready" else AI_STATUS_ERROR if result.status == "error" else AI_STATUS_SKIPPED,
                         reason=result.reason,
-                        error=result.brief.error if result.brief is not None and result.status == "error" else None,
+                        error=(result.brief.error if result.brief is not None else getattr(result, "error", None)) if result.status == "error" else None,
                         worker_name=worker_name,
                         model=result.brief.model if result.brief is not None else active_model,
                         prompt_tokens=result.brief.prompt_tokens if result.brief is not None else None,
@@ -669,13 +748,6 @@ def backfill_daily_ai_briefs(
                 }
         except CoordinationUnavailableError as exc:
             logger.warning("daily_brief_backfill_coordination_unavailable error_type=%s", _exception_type_name(exc))
-            finish_ai_task_run(
-                db,
-                run_id=parent_run_id,
-                status=AI_STATUS_ERROR,
-                reason="coordination_unavailable",
-                error="coordination_unavailable",
-                worker_name=worker_name,
-            )
+            defer_ai_workflow_run(db, run_id=parent_run_id, reason="coordination_unavailable", retry_after_seconds=30)
             db.commit()
-            return {"status": "error", "reason": "coordination_unavailable", "run_id": str(parent_run_id)}
+            return {"status": "queued", "reason": "coordination_unavailable", "run_id": str(parent_run_id)}

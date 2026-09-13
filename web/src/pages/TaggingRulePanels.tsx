@@ -94,7 +94,7 @@ export function TaggingRuleEditor({ controller }: TaggingPanelProps) {
 
   return (
     <section className="rounded-xl border border-slate/20 bg-white/80 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/90">
-      <fieldset disabled={!controller.canManageTagging} className="m-0 min-w-0 border-0 p-0">
+      <fieldset disabled={!controller.canManageTagging || deleteRule.isPending} className="m-0 min-w-0 border-0 p-0">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="font-display text-lg">{selectedRule ? 'Edit rule' : 'Create rule'}</h2>
@@ -143,7 +143,7 @@ export function TaggingRuleEditor({ controller }: TaggingPanelProps) {
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <button
             className="rounded bg-ink px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]"
-            disabled={saveRule.isPending || Boolean(ruleValidationError) || !controller.canManageTagging}
+            disabled={saveRule.isPending || deleteRule.isPending || Boolean(ruleValidationError) || !controller.canManageTagging}
             onClick={onSaveRule}
           >
             {selectedRule ? 'Save rule' : 'Create rule'}
@@ -158,7 +158,7 @@ export function TaggingRuleEditor({ controller }: TaggingPanelProps) {
           {selectedRule && (
             <button
               className="rounded border border-red-300 px-3 py-2 text-sm font-semibold text-red-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-900/60 dark:text-red-300"
-              disabled={deleteRule.isPending || Boolean(pendingRuleDelete) || !controller.canManageTagging}
+              disabled={saveRule.isPending || deleteRule.isPending || Boolean(pendingRuleDelete) || !controller.canManageTagging}
               onClick={() => onRequestDeleteRule(selectedRule)}
             >
               Delete rule
@@ -412,12 +412,12 @@ export function TaggingRulePreview({ controller }: TaggingPanelProps) {
         <div>
           <h2 className="font-display text-lg">Rule preview</h2>
           <p className="mt-1 text-sm text-slate dark:text-white/75">
-            See how this rule would match the current corpus before you save it.
+            Test this rule against up to 200 recent accessible items before saving.
           </p>
         </div>
         {previewResult && (
           <span className="tl-chip tl-chip-md tl-chip-info">
-            {previewResult.total} current match{previewResult.total === 1 ? '' : 'es'}
+            {previewResult.total} preview match{previewResult.total === 1 ? '' : 'es'}
           </span>
         )}
       </div>
@@ -427,6 +427,15 @@ export function TaggingRulePreview({ controller }: TaggingPanelProps) {
       )}
       {previewResult && (
         <div className="mt-3 space-y-3">
+          {previewResult.complete === false && (
+            <p role="status" className="text-sm text-amber-800 dark:text-amber-200">
+              Preview incomplete: checked {previewResult.scanned_items} of {previewResult.candidate_items} accessible items.
+              Results cover only the scanned items.
+            </p>
+          )}
+          {previewResult.warnings?.map((warning) => (
+            <p key={warning} role="alert" className="text-sm text-red-700 dark:text-red-200">{warning}</p>
+          ))}
           {previewResult.items.length > 0 ? (
             previewResult.items.map((item) => (
               <article
@@ -448,19 +457,24 @@ export function TaggingRulePreview({ controller }: TaggingPanelProps) {
                       matched in {formatTaggingField(section)}
                     </span>
                   ))}
-                  {item.current_tags.map((tagName) => (
+                  {item.current_tags.map((tagName, tagIndex) => (
                     <span
-                      key={`${item.id}-${tagName}`}
+                      key={`${item.id}-${tagIndex}`}
                       className="rounded-full border border-slate/25 bg-slate/10 px-2 py-0.5 text-[11px] text-slate-700 dark:border-white/10 dark:bg-white/5 dark:text-white/70"
                     >
                       current: {tagName}
                     </span>
                   ))}
                 </div>
+                {item.current_tags_truncated && (
+                  <p role="status" className="mt-2 text-xs text-slate dark:text-white/70">
+                    Current tags are abbreviated or limited to the first 25. Open the item to inspect all tags.
+                  </p>
+                )}
               </article>
             ))
           ) : (
-            <p className="text-sm text-slate dark:text-white/70">No current items would match this rule.</p>
+            <p className="text-sm text-slate dark:text-white/70">No matches found in the scanned items.</p>
           )}
           {previewResult.total > previewResult.items.length && (
             <p className="text-xs text-slate dark:text-white/60">

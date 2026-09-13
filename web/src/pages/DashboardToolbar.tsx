@@ -11,7 +11,7 @@ export function DashboardToolbar({ controller }: { controller: DashboardPageCont
     activeSavedViewId, addWindow, addWindowActionRefs, addWindowMenuId, addWindowMenuRef, addWindowTriggerRef,
     aiDailyBriefEnabled, alertWindowCount, applyDashboardSavedViewState, applyGlobalSearch, canAddWindow,
     captureCurrentDashboardViewState, clearActiveSavedViewSelection, closeAddWindowMenu,
-    confirmDiscardUnsavedDashboardChanges, dailyBriefWindowCount, dashboardCustomSinceDate,
+    confirmDiscardUnsavedDashboardChanges, dashboardReady, dailyBriefWindowCount, dashboardCustomSinceDate,
     dashboardCustomUntilDate, dashboardRollingDays, dashboardTimeRange, editSessionSnapshot,
     globalSearchState, handleAddWindowMenuKeyDown, handleAddWindowTriggerKeyDown, hasUnsavedDashboardChanges,
     isEditMode, mobileDashboardViewsOpen, notesWindowCount, openAddWindowMenu,
@@ -26,6 +26,13 @@ export function DashboardToolbar({ controller }: { controller: DashboardPageCont
 
   return (
       <div className="border-b border-slate/20 bg-white/85 px-3 py-1.5 shadow-sm dark:border-cyan-900/40 dark:bg-[#041612]/92">
+        {controller.layoutEnforced && (
+          <p role="status" className="mb-2 rounded border border-amber-500/40 p-2 text-xs">
+            Your organization enforces this dashboard arrangement. Filters remain available.
+            Your personal layout and any open edit draft remain stored separately and return
+            when enforcement is removed.
+          </p>
+        )}
         <div className="grid grid-cols-[minmax(0,1fr)_112px_auto] items-center gap-1.5 sm:hidden">
           <input
             value={globalSearchState.value}
@@ -164,8 +171,9 @@ export function DashboardToolbar({ controller }: { controller: DashboardPageCont
           </div>
           <select
             className="h-8 w-full rounded border border-slate/20 bg-white px-2 text-xs xl:w-auto dark:border-cyan-900/40 dark:bg-[#041612]"
-            value={activeSavedViewId ?? ''}
+            value={controller.layoutEnforced ? '' : activeSavedViewId ?? ''}
             aria-label="Load saved dashboard view"
+            disabled={controller.layoutEnforced}
             onChange={(event) => {
               const change = resolveSavedViewSelectionChange({
                 currentActiveSavedViewId: activeSavedViewId,
@@ -189,7 +197,7 @@ export function DashboardToolbar({ controller }: { controller: DashboardPageCont
               }
             }}
           >
-            <option value="">Load View</option>
+            <option value="">{controller.layoutEnforced ? 'Organization arrangement' : 'Load View'}</option>
             {viewsQuery.data?.map((view) => (
               <option key={view.id} value={view.id}>
                 {view.name}
@@ -207,9 +215,12 @@ export function DashboardToolbar({ controller }: { controller: DashboardPageCont
             <button
               type="button"
               className="h-8 w-full rounded border border-slate/20 px-3 text-xs font-semibold sm:w-auto dark:border-cyan-900/40"
+              disabled={!dashboardReady || controller.layoutEnforced}
               onClick={() => {
+                if (!dashboardReady || controller.layoutEnforced) return
                 setEditSessionSnapshot({
                   activeSavedViewId,
+                  savedViewBaseline: controller.savedViewBaseline,
                   savedViewName,
                   state: captureCurrentDashboardViewState(),
                 })
@@ -301,7 +312,7 @@ export function DashboardToolbar({ controller }: { controller: DashboardPageCont
                   </div>
                 )}
               </div>
-              {activeSavedViewId ? (
+              {activeSavedViewId && controller.canUpdateActiveView ? (
                 <>
                   <span className="hidden items-center rounded border border-cyan/30 bg-cyan/8 px-2.5 text-xs font-semibold text-cyan sm:flex dark:border-cyan-800/40 dark:bg-cyan-950/40 dark:text-cyan-200">
                     Editing &ldquo;{viewsQuery.data?.find((v) => v.id === activeSavedViewId)?.name}&rdquo;
@@ -377,7 +388,7 @@ export function DashboardToolbar({ controller }: { controller: DashboardPageCont
                 disabled={viewSavePending}
                 onClick={() => {
                   if (editSessionSnapshot) {
-                    applyDashboardSavedViewState(editSessionSnapshot.state, editSessionSnapshot.activeSavedViewId)
+                    applyDashboardSavedViewState(editSessionSnapshot.state, editSessionSnapshot.activeSavedViewId, editSessionSnapshot.savedViewBaseline)
                     setSavedViewName(editSessionSnapshot.savedViewName)
                   }
                   setIsEditMode(false)

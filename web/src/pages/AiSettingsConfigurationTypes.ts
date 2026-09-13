@@ -2,6 +2,7 @@ import { type Dispatch, type SetStateAction } from 'react'
 
 import { AIAuditEntryResponse, AISettings, AITestConnectionResponse } from '../types/api'
 import { AISettingsDraft, AISettingsDraftValidation } from './aiSettingsDraft'
+import type { AiProviderConnectionsController } from './useAiProviderConnections'
 
 export type AiConfigurationDraftProps = {
   draft: AISettingsDraft
@@ -10,6 +11,7 @@ export type AiConfigurationDraftProps = {
 }
 
 export type AiSettingsConfigurationTabProps = AiConfigurationDraftProps & {
+  providers: AiProviderConnectionsController
   draftDirty: boolean
   settings: AISettings | undefined
   readiness: string | null

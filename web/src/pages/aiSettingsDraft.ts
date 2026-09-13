@@ -1,6 +1,8 @@
 import { AISettings, AISettingsUpdateRequest } from '../types/api'
+import { createAdmissionDraft, createAdmissionRequest, validateAdmissionDraft, type ProviderAdmissionDraft } from './aiProviderAdmissionDraft'
+import { createCapabilitiesDraft, createCapabilitiesRequest, validateCapabilitiesDraft, type ProviderCapabilitiesDraft } from './aiProviderCapabilitiesDraft'
 
-export type AISettingsDraft = {
+export type AISettingsDraft = ProviderCapabilitiesDraft & ProviderAdmissionDraft & {
   base_url: string
   model: string
   temperature: string
@@ -42,7 +44,11 @@ export type AISettingsDraft = {
 
 export type AISettingsDraftValidation = Partial<Record<keyof AISettingsDraft, string>>
 
+const MAX_COMPLETION_TOKENS = 131072
+
 export const DEFAULT_DRAFT: AISettingsDraft = {
+  ...createCapabilitiesDraft(),
+  ...createAdmissionDraft(),
   base_url: '',
   model: '',
   temperature: '0.2',
@@ -90,14 +96,14 @@ const NUMBER_RULES: Array<{
   integer?: boolean
 }> = [
   { key: 'temperature', label: 'Temperature', min: 0, max: 2 },
-  { key: 'max_completion_tokens', label: 'Max Completion Tokens', min: 128, max: 8192, integer: true },
+  { key: 'max_completion_tokens', label: 'Default Completion Tokens', min: 128, max: MAX_COMPLETION_TOKENS, integer: true },
   { key: 'request_timeout_seconds', label: 'Request Timeout Seconds', min: 5, max: 300, integer: true },
   { key: 'request_max_retries', label: 'Max Retry Attempts', min: 0, max: 5, integer: true },
   { key: 'daily_brief_window_hours', label: 'Daily Brief Window Hours', min: 6, max: 168, integer: true },
   { key: 'daily_brief_max_items', label: 'Daily Brief Max Articles', min: 5, max: 100, integer: true },
   { key: 'daily_brief_history_limit', label: 'Retained Daily Briefings', min: 1, max: 90, integer: true },
   { key: 'report_context_window_tokens', label: 'Report Context Window', min: 2048, max: 1000000, integer: true },
-  { key: 'report_reserved_output_tokens', label: 'Report Output Reserve', min: 256, max: 65536, integer: true },
+  { key: 'report_reserved_output_tokens', label: 'Initial Report Completion Tokens', min: 256, max: MAX_COMPLETION_TOKENS, integer: true },
   { key: 'report_source_token_cap', label: 'Per-source Token Cap', min: 128, max: 32768, integer: true },
   { key: 'report_max_sources', label: 'Report Source Limit', min: 1, max: 1000, integer: true },
   { key: 'report_max_model_calls', label: 'Report Model-call Limit', min: 2, max: 200, integer: true },
@@ -125,7 +131,7 @@ const TEXT_RULES: Array<{
 ]
 
 export function validateAISettingsDraft(draft: AISettingsDraft): AISettingsDraftValidation {
-  const errors: AISettingsDraftValidation = {}
+  const errors: AISettingsDraftValidation = { ...validateCapabilitiesDraft(draft), ...validateAdmissionDraft(draft) }
 
   for (const rule of TEXT_RULES) {
     const value = draft[rule.key]
@@ -143,6 +149,7 @@ export function validateAISettingsDraft(draft: AISettingsDraft): AISettingsDraft
       continue
     }
     const trimmed = value.trim()
+    if (rule.key === 'temperature' && !trimmed) continue
     const parsed = Number(trimmed)
     if (!trimmed || !Number.isFinite(parsed)) {
       errors[rule.key] = `${rule.label} must be a number.`
@@ -192,9 +199,11 @@ export function getFirstAISettingsDraftValidationError(validation: AISettingsDra
 
 export function createDraftFromSettings(settings: AISettings): AISettingsDraft {
   return {
+    ...createCapabilitiesDraft(settings),
+    ...createAdmissionDraft(settings),
     base_url: settings.base_url ?? '',
     model: settings.model ?? '',
-    temperature: String(settings.temperature),
+    temperature: settings.temperature == null ? '' : String(settings.temperature),
     max_completion_tokens: String(settings.max_completion_tokens),
     request_timeout_seconds: String(settings.request_timeout_seconds),
     request_max_retries: String(settings.request_max_retries),
@@ -235,10 +244,12 @@ export function createDraftFromSettings(settings: AISettings): AISettingsDraft {
 export function createRequestFromDraft(draft: AISettingsDraft): AISettingsUpdateRequest {
   const dailyBriefSchedule = parseUtcTimeInput(draft.daily_brief_run_time_utc)
   return {
+    ...createCapabilitiesRequest(draft),
+    ...createAdmissionRequest(draft),
     provider_type: 'openai_compatible',
     base_url: normalizeOptionalText(draft.base_url),
     model: normalizeOptionalText(draft.model),
-    temperature: parseNumberOrDefault(draft.temperature, 0.2),
+    temperature: draft.temperature.trim() ? Number(draft.temperature) : null,
     max_completion_tokens: parseNumberOrDefault(draft.max_completion_tokens, 5000),
     request_timeout_seconds: parseNumberOrDefault(draft.request_timeout_seconds, 300),
     request_max_retries: Math.max(0, parseNumberOrDefault(draft.request_max_retries, 3)),

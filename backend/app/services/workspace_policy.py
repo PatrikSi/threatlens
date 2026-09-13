@@ -213,6 +213,16 @@ def update_role_policy(
         },
     }
     row.landing_module_id = payload.landing_module_id
+    if payload.landing_mode is not None:
+        row.landing_mode = payload.landing_mode
+    if payload.dashboard_mode is not None:
+        row.dashboard_mode = payload.dashboard_mode
+    if "dashboard_view_json" in payload.model_fields_set:
+        row.dashboard_view_json = (
+            payload.dashboard_view_json.model_dump(mode="json")
+            if payload.dashboard_view_json
+            else None
+        )
     row.dashboard_panel_ids_json = [
         *payload.dashboard_panel_ids,
         *unknown_stored_panels,
@@ -256,6 +266,9 @@ def reset_role_policy(
 
     row.modules_json = default_role_modules(normalized_role)
     row.landing_module_id = _DEFAULT_LANDING_MODULE
+    row.landing_mode = "default"
+    row.dashboard_mode = "default"
+    row.dashboard_view_json = None
     row.dashboard_panel_ids_json = list(_DEFAULT_DASHBOARD_PANELS)
     row.revision += 1
     row.updated_by_user_id = actor_user_id
@@ -441,11 +454,22 @@ def effective_workspace(
     preference_by_id = {module.module_id: module for module in preferences.modules}
     resolved: dict[str, WorkspaceEffectiveModuleResponse] = {}
     warnings = [*policy.warnings, *preferences.warnings]
+    forced_landing_ids: set[str] = set()
+    current_landing = (
+        policy.landing_module_id if policy.landing_mode == "enforced" else None
+    )
+    while current_landing and current_landing in WORKSPACE_MODULE_BY_ID:
+        forced_landing_ids.add(current_landing)
+        current_landing = WORKSPACE_MODULE_BY_ID[current_landing].parent_id
 
     for definition in WORKSPACE_MODULES:
         policy_module = policy_by_id[definition.id]
         preference = preference_by_id.get(definition.id)
-        preference_applies = preference is not None and policy_module.optional
+        preference_applies = (
+            preference is not None
+            and policy_module.optional
+            and definition.id not in forced_landing_ids
+        )
         if preference is not None and not policy_module.optional:
             warnings.append(f"ignored_non_optional_preference:{definition.id}")
         missing_permissions = [
@@ -453,7 +477,15 @@ def effective_workspace(
             for permission in definition.required_permissions
             if not authorization.has(permission)
         ]
-        permission_allowed = not missing_permissions
+        alternate_permission_allowed = any(
+            role in alternative.roles
+            and (alternative.feature_flag is None or features.get(alternative.feature_flag, False))
+            and all(authorization.has(permission) for permission in alternative.required_permissions)
+            for alternative in definition.alternate_access
+        )
+        permission_allowed = not missing_permissions or alternate_permission_allowed
+        if alternate_permission_allowed:
+            missing_permissions = []
         feature_available = definition.feature_flag is None or features.get(
             definition.feature_flag, False
         )
@@ -489,7 +521,7 @@ def effective_workspace(
                 and preference_visible
                 and parent_visible
             ),
-            optional=policy_module.optional,
+            optional=policy_module.optional and definition.id not in forced_landing_ids,
             order=(
                 preference.order
                 if preference_applies and preference.order is not None
@@ -509,7 +541,11 @@ def effective_workspace(
         resolved.values(),
         key=lambda module: (module.section, module.order, module.id),
     )
-    preferred_landing = preferences.landing_module_id or policy.landing_module_id
+    preferred_landing = (
+        policy.landing_module_id
+        if policy.landing_mode == "enforced"
+        else preferences.landing_module_id or policy.landing_module_id
+    )
     landing = resolved.get(preferred_landing)
     if landing is None or not landing.visible:
         if preferred_landing:
@@ -526,6 +562,7 @@ def effective_workspace(
     configured_panels = (
         preferences.dashboard_panel_ids
         if preferences.dashboard_panel_ids is not None
+        and policy.dashboard_mode != "enforced"
         else policy.dashboard_panel_ids
     )
     dashboard_panel_details = [
@@ -538,12 +575,36 @@ def effective_workspace(
         if panel_id in WORKSPACE_DASHBOARD_PANEL_BY_ID
     ]
     dashboard_panels = [panel.id for panel in dashboard_panel_details if panel.visible]
+    template = (
+        policy.dashboard_view_json
+        if policy.dashboard_mode == "enforced"
+        or preferences.dashboard_panel_ids is None
+        else None
+    )
+    if template is not None:
+        visible_windows = [
+            window
+            for window in template.windows
+            if _dashboard_panel_resolution(
+                window.type,
+                authorization=authorization,
+                feature_flags=features,
+            ).visible
+        ]
+        template = (
+            template.model_copy(update={"windows": visible_windows})
+            if visible_windows
+            else None
+        )
     return WorkspaceEffectiveResponse(
         role=role,
         policy_revision=policy.revision,
         preference_revision=preferences.revision,
         landing_module_id=landing.id if landing is not None else None,
         dashboard_panel_ids=dashboard_panels,
+        landing_mode=policy.landing_mode,
+        dashboard_mode=policy.dashboard_mode,
+        dashboard_view_json=template,
         dashboard_panels=dashboard_panel_details,
         modules=modules,
         warnings=sorted(set(warnings)),
@@ -565,6 +626,9 @@ def role_policy_response(row: WorkspaceRolePolicy) -> WorkspaceRolePolicyRespons
         landing_module_id=row.landing_module_id,
         modules=modules,
         dashboard_panel_ids=known_panels,
+        landing_mode=row.landing_mode or "default",
+        dashboard_mode=row.dashboard_mode or "default",
+        dashboard_view_json=row.dashboard_view_json,
         revision=row.revision,
         updated_by_user_id=row.updated_by_user_id,
         created_at=row.created_at,

@@ -33,6 +33,7 @@ class ReportSchedule(Base):
     custom_instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
     delivery_enabled: Mapped[bool] = mapped_column(nullable=False, default=False, server_default="false")
     delivery_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="summary", server_default="summary")
+    review_required: Mapped[bool] = mapped_column(nullable=False, default=True, server_default="true")
     skip_empty: Mapped[bool] = mapped_column(nullable=False, default=True, server_default="true")
     missed_run_policy: Mapped[str] = mapped_column(String(16), nullable=False, default="latest", server_default="latest")
     next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)

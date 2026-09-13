@@ -357,6 +357,7 @@ const healthHistory = {
 }
 
 vi.mock('@tanstack/react-query', () => ({
+  useQueryClient: () => ({ invalidateQueries: vi.fn() }),
   useQuery: (options: { queryKey: unknown[]; refetchInterval?: number | false }) => {
     operationsDomMocks.queryOptions.push(options)
     if (options.queryKey[1] === 'overview') {

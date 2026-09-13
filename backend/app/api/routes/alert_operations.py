@@ -68,6 +68,7 @@ AlertPage = Annotated[int, Query(ge=1, le=MAX_ALERT_PAGE)]
 
 @router.get("/metrics", response_model=AlertOccurrenceMetricListResponse)
 def get_alert_occurrence_metrics(
+    team_id: uuid.UUID | None = None,
     since: datetime | None = None,
     until: datetime | None = None,
     severities: list[str] = Query(default=[]),
@@ -108,6 +109,7 @@ def get_alert_occurrence_metrics(
     result = list_alert_occurrence_metrics(
         db,
         owner_user_id=user.id,
+        team_id=team_id,
         data_access=data_access,
         since=normalized_since,
         until=normalized_until,

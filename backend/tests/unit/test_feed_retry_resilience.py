@@ -1,3 +1,6 @@
+from app.services import feed_probe as _owner_feed_probe
+from app.services import safe_fetch as _owner_safe_fetch
+from app.tasks import feed_task_coordination as _owner_feed_task_coordination
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -41,12 +44,12 @@ def test_feed_lock_ownership_loss_skips_without_retry(monkeypatch):
         raise LeaseOwnershipLostError("coordination lease ownership was lost")
         yield  # pragma: no cover
 
-    monkeypatch.setattr(feed_tasks, "feed_lock", lost_feed_lock)
+    monkeypatch.setattr(_owner_feed_task_coordination, 'feed_lock', lost_feed_lock)
 
     result = run_fetch_feed(
         _UnexpectedRetryTask(),
         str(uuid.uuid4()),
-        runtime=feed_tasks,
+        dependencies=feed_tasks._feed_fetch_dependencies(),
     )
 
     assert result["status"] == "skipped"
@@ -80,7 +83,7 @@ def test_coordination_retry_exhaustion_rolls_back_and_takes_fresh_db_claim(
         stale_claim,
         object(),
         coordination=True,
-        runtime=feed_tasks,
+
     )
 
     assert result == {
@@ -120,7 +123,7 @@ def test_outer_coordination_retry_exhaustion_reschedules_without_retry(
         _ExhaustedRetryTask(),
         str(feed.id),
         CoordinationUnavailableError("redis unavailable"),
-        runtime=feed_tasks,
+        dependencies=feed_tasks._feed_fetch_dependencies(),
     )
 
     assert result["reason"] == "coordination_unavailable"
@@ -139,7 +142,7 @@ def test_article_retry_exhaustion_returns_storable_error_without_retry():
         False,
         ["https://example.com/article"],
         0,
-        runtime=feed_tasks,
+
     )
 
     assert result.error == "network_or_rate_limit_error"
@@ -198,29 +201,29 @@ def test_domain_slot_lease_loss_clears_feed_dispatch_claim_with_short_backoff(
         return Response()
 
     monkeypatch.setattr(feed_tasks, "db_session", test_session)
-    monkeypatch.setattr(feed_tasks, "feed_lock", test_feed_lock)
+    monkeypatch.setattr(_owner_feed_task_coordination, 'feed_lock', test_feed_lock)
     monkeypatch.setattr(
-        feed_tasks,
-        "build_safe_http_client",
+        _owner_safe_fetch,
+        'build_safe_http_client',
         lambda **_kwargs: Client(),
     )
     monkeypatch.setattr(
-        feed_tasks,
-        "safe_stream_with_redirects",
+        _owner_safe_fetch,
+        'safe_stream_with_redirects',
         safe_stream,
     )
     monkeypatch.setattr(
-        feed_tasks,
-        "safe_fetch_request_guard",
+        _owner_safe_fetch,
+        'safe_fetch_request_guard',
         lambda _response: domain_lease,
     )
-    monkeypatch.setattr(feed_tasks, "ensure_lease_owned", ensure_owned)
+    monkeypatch.setattr(_owner_feed_task_coordination, 'ensure_lease_owned', ensure_owned)
 
     result = run_fetch_feed(
         _UnexpectedRetryTask(),
         str(feed.id),
         force=True,
-        runtime=feed_tasks,
+        dependencies=feed_tasks._feed_fetch_dependencies(),
     )
 
     assert result == {
@@ -271,9 +274,9 @@ def test_metadata_probe_domain_loss_persists_short_coordination_backoff(
         raise AssertionError("lost domain guard must stop metadata parsing")
 
     monkeypatch.setattr(feed_tasks, "db_session", test_session)
-    monkeypatch.setattr(feed_tasks, "feed_lock", test_feed_lock)
-    monkeypatch.setattr(feed_tasks, "ensure_lease_owned", ensure_owned)
-    monkeypatch.setattr(feed_tasks, "probe_feed_metadata", probe)
+    monkeypatch.setattr(_owner_feed_task_coordination, 'feed_lock', test_feed_lock)
+    monkeypatch.setattr(_owner_feed_task_coordination, 'ensure_lease_owned', ensure_owned)
+    monkeypatch.setattr(_owner_feed_probe, 'probe_feed_metadata', probe)
 
     result = feed_tasks.backfill_feed_metadata.run(str(feed.id))
 
@@ -317,7 +320,7 @@ def test_confirmed_coordination_ownership_loss_rolls_back_without_retry(
         claim,
         object(),
         coordination=True,
-        runtime=feed_tasks,
+
     )
 
     assert result == {

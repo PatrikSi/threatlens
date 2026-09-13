@@ -28,6 +28,7 @@ export function WorkspaceSettingsPage() {
 
   return (
     <div className="space-y-3">
+      {controller.discardDialog}
       <SettingsPageHeader
         scope={controller.canReadPolicies ? 'Personal and organization' : 'Personal'}
         title="Navigation"

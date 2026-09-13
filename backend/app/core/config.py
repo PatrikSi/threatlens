@@ -6,8 +6,10 @@ from functools import lru_cache
 from typing import Annotated
 from urllib.parse import quote, urlsplit, urlunsplit
 
-from pydantic import PrivateAttr, field_validator, model_validator
+from pydantic import Field, PrivateAttr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+from app.core.ai_endpoints import DEFAULT_AI_API_KEY_BASE_URL, validate_ai_key_base_url
 
 _PLACEHOLDER_SECRET_PREFIXES = (
     "replace-with",
@@ -176,8 +178,10 @@ class Settings(BaseSettings):
     allow_legacy_unscoped_tokens: bool = False
     allow_self_registration: bool = False
     default_api_token_expiry_days: int = 90
+    ai_response_max_bytes: int = Field(default=2_000_000, ge=1024, le=16_000_000)
     ai_enabled: bool = False
     ai_api_key: str | None = None
+    ai_api_key_base_url: str = DEFAULT_AI_API_KEY_BASE_URL
     public_app_url: str | None = None
     expose_api_docs_in_production: bool = False
     expose_openapi_schema_in_production: bool = True
@@ -224,9 +228,11 @@ class Settings(BaseSettings):
     fetch_user_agent: str = "ThreatLensBot/1.0 (+https://localhost)"
     feed_connect_timeout_seconds: int = 5
     feed_read_timeout_seconds: int = 15
+    feed_total_timeout_seconds: float = Field(default=60, gt=0, le=300)
     feed_max_bytes: int = 2_000_000
     article_connect_timeout_seconds: int = 5
     article_read_timeout_seconds: int = 20
+    article_total_timeout_seconds: float = Field(default=90, gt=0, le=300)
     article_max_bytes: int = 4_000_000
     allow_private_network_fetch: bool = False
     allow_private_network_ai: bool = False
@@ -244,6 +250,10 @@ class Settings(BaseSettings):
     database_connect_timeout_seconds: int = 5
     database_statement_timeout_ms: int = 30_000
     database_pool_timeout_seconds: int = 10
+    database_pool_size: int = Field(default=2, ge=1, le=100)
+    database_max_overflow: int = Field(default=0, ge=0, le=100)
+    database_lock_timeout_ms: int = Field(default=5_000, ge=1, le=300_000)
+    database_operation_timeout_seconds: float = Field(default=30, gt=0, le=300)
     api_token_last_used_update_interval_seconds: int = 300
     oidc_transaction_cookie_name: str = "threatlens_oidc_transaction"
     oidc_transaction_ttl_seconds: int = 600
@@ -252,6 +262,7 @@ class Settings(BaseSettings):
     oidc_metadata_cache_seconds: int = 300
     oidc_connect_timeout_seconds: float = 5
     oidc_read_timeout_seconds: float = 10
+    oidc_total_timeout_seconds: float = Field(default=30, gt=0, le=300)
     oidc_max_response_bytes: int = 1_000_000
 
     probe_feed_metadata_on_create: bool = False
@@ -259,6 +270,17 @@ class Settings(BaseSettings):
     max_metadata_backfill_tasks_per_request: int = 100
     dispatch_due_feeds_batch_size: int = 500
     dispatch_feed_claim_seconds: int = 900
+    processing_dispatch_max_in_flight: int = Field(default=200, ge=1, le=10_000)
+    processing_dispatch_batch_size: int = Field(default=50, ge=1, le=1_000)
+    processing_dispatch_per_feed: int = Field(default=5, ge=1, le=100)
+    processing_claim_lease_seconds: int = Field(default=300, ge=30, le=3_600)
+    processing_max_attempts: int = Field(default=5, ge=1, le=20)
+    processing_recovery_max_items: int = Field(default=100, ge=1, le=100)
+    processing_recovery_max_retained: int = Field(default=1000, ge=1, le=100_000)
+    processing_recovery_retention_seconds: int = Field(default=604800, ge=3600, le=31_536_000)
+    classification_freshness_seconds: int = Field(default=600, ge=30, le=86_400)
+    tagging_freshness_seconds: int = Field(default=900, ge=30, le=86_400)
+    export_freshness_seconds: int = Field(default=600, ge=30, le=86_400)
     dispatch_items_missing_articles_batch_size: int = 200
     dispatch_items_missing_articles_after_seconds: int = 300
     dispatch_unclassified_items_batch_size: int = 200
@@ -294,6 +316,14 @@ class Settings(BaseSettings):
     export_preview_limit: int = 25
     export_max_uncompressed_bytes: int = 250_000_000
     export_lock_ttl_seconds: int = 900
+    export_transfer_timeout_seconds: int = 300
+    export_job_timeout_seconds: int = 3600
+    export_job_lease_seconds: int = 120
+    export_job_retention_seconds: int = 86_400
+    export_job_max_attempts: int = 3
+    export_job_max_active_per_principal: int = 2
+    export_job_max_retained: int = 1000
+    export_job_max_reserved_bytes: int = 4_000_000_000
 
     log_level: str = "INFO"
     log_level_overrides: Annotated[list[str], NoDecode] = []
@@ -345,6 +375,11 @@ class Settings(BaseSettings):
         "http://localhost:3000",
         "http://127.0.0.1:3000",
     ]
+
+    @field_validator("ai_api_key_base_url")
+    @classmethod
+    def _validate_ai_key_base_url(cls, value: str) -> str:
+        return validate_ai_key_base_url(value)
 
     @field_validator(
         "cors_origins",
@@ -585,6 +620,14 @@ class Settings(BaseSettings):
         "export_preview_limit",
         "export_max_uncompressed_bytes",
         "export_lock_ttl_seconds",
+        "export_transfer_timeout_seconds",
+        "export_job_timeout_seconds",
+        "export_job_lease_seconds",
+        "export_job_retention_seconds",
+        "export_job_max_attempts",
+        "export_job_max_active_per_principal",
+        "export_job_max_retained",
+        "export_job_max_reserved_bytes",
     )
     @classmethod
     def _validate_positive_export_limits(cls, value: int) -> int:
@@ -864,13 +907,15 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "allowed_hosts must list explicit trusted hosts in production"
                 )
-            if _database_url_uses_weak_default(self.database_url):
+            if _database_url_uses_weak_default(self.database_url) or (
+                _looks_like_default_service_password(_url_password(self.database_url))
+            ):
                 raise ValueError(
                     "database_url must use explicit non-default database credentials in production"
                 )
-            if _looks_like_default_service_password(self.postgres_password):
+            if self.postgres_password is not None and _looks_like_default_service_password(self.postgres_password):
                 raise ValueError(
-                    "postgres_password must be explicitly set to a non-default value in production"
+                    "postgres_password must use a non-default value when supplied in production"
                 )
             if _redis_url_is_passwordless_or_default(self.redis_url):
                 raise ValueError(

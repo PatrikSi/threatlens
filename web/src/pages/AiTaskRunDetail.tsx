@@ -4,7 +4,8 @@ import { Link } from 'react-router-dom'
 import { resolveApiErrorMessage } from '../api/errors'
 import type { AIDailyBriefSourceItemResponse, AITaskRunResponse } from '../types/api'
 import { ProviderExchangeModal } from './AiProviderExchangeModal'
-import type { ActivityTabProps, TaskRunListQuery } from './AiActivityTypes'
+import type { ActivityTabProps } from './AiActivityTypes'
+import type { AiChildRunPage } from './useAiChildRunPage'
 import type { AiActivityRunState } from './useAiActivityRunState'
 import { EmptyInline, Metric, OverviewSection, Panel, ProgressBar, StatusPill } from './aiSettingsSupport'
 import {
@@ -93,11 +94,8 @@ function RunDetailContent({
           {selectedRun.task_type === 'reprocess' && (
             <RunArticlesSection
               parentRun={selectedRun}
-              childRunsQuery={runState.childRunsQuery}
-              visibleCount={runState.articlePreviewLimit}
+              childRunPage={runState.childRunPage}
               onInspectRun={runState.setInspectedRunId}
-              onShowMore={runState.showMoreChildRuns}
-              onShowLess={() => runState.setArticlePreviewLimit(8)}
             />
           )}
           <RunEventTimeline events={runDetailQuery.data?.events ?? []} />
@@ -221,81 +219,70 @@ function RunProgress({ run }: { run: AITaskRunResponse }) {
 
 function RunArticlesSection({
   parentRun,
-  childRunsQuery,
-  visibleCount,
+  childRunPage,
   onInspectRun,
-  onShowMore,
-  onShowLess,
 }: {
   parentRun: AITaskRunResponse
-  childRunsQuery: TaskRunListQuery
-  visibleCount: number
+  childRunPage: AiChildRunPage
   onInspectRun: (runId: string) => void
-  onShowMore: () => void
-  onShowLess: () => void
 }) {
-  const childRuns = childRunsQuery.data?.items ?? []
-  const totalChildRuns = childRunsQuery.data?.total ?? 0
-  const canShowMore = totalChildRuns > childRuns.length
-  const canShowLess = visibleCount > 8 && childRuns.length > 8
+  const { query, data, page, visiblePage, goToPage } = childRunPage
+  const childRuns = data?.items ?? []
+  const totalChildRuns = data?.total ?? 0
+  const offset = data?.offset ?? 0
   const isBackfill = isDailyBriefBackfillRun(parentRun)
-  const childRunNounPlural = isBackfill ? 'daily brief runs' : 'article runs'
+  const noun = isBackfill ? 'daily brief runs' : 'article runs'
+  const buttonClass = 'rounded border border-slate/30 px-3 py-2 text-xs font-semibold disabled:opacity-50 dark:border-cyan-900/40'
 
   return (
     <div>
-      <RunArticlesHeader parentRun={parentRun} childRunCount={childRuns.length} totalChildRuns={totalChildRuns} />
-      {childRunsQuery.isLoading && !childRuns.length && (
-        <p className="mt-3 text-sm text-slate dark:text-white/70">Loading {childRunNounPlural}...</p>
+      <RunArticlesHeader parentRun={parentRun} childRunCount={childRuns.length} totalChildRuns={totalChildRuns} offset={offset} />
+      <p role="status" className="mt-2 text-xs text-slate dark:text-white/70">
+        {query.isFetching ? `Loading ${noun} page ${page + 1}...` : data ? `Page ${visiblePage + 1}` : ''}
+      </p>
+      {query.isError && (
+        <div role="alert" className="mt-3 text-sm text-red-600">
+          <p>{resolveApiErrorMessage(query.error, `${noun} could not be loaded`)}</p>
+          {!!childRuns.length && <p>The previous page remains visible.</p>}
+          <button type="button" className={buttonClass} disabled={query.isFetching} onClick={() => { void query.refetch() }}>
+            Retry loading {noun}
+          </button>
+        </div>
       )}
-      {childRunsQuery.isError && (
-        <p className="mt-3 text-sm text-red-600">
-          {resolveApiErrorMessage(childRunsQuery.error, `${childRunNounPlural} could not be loaded`)}
-        </p>
-      )}
-      {!childRunsQuery.isLoading && !childRuns.length && !childRunsQuery.isError && (
-        <EmptyInline>Child {childRunNounPlural} have not been queued yet.</EmptyInline>
+      {!query.isFetching && !childRuns.length && !query.isError && (
+        <EmptyInline>Child {noun} have not been queued yet.</EmptyInline>
       )}
       {!!childRuns.length && (
-        <div className={`mt-3 space-y-2 ${visibleCount > 8 ? 'max-h-96 overflow-y-auto pr-1' : ''}`}>
-          {childRuns.map((run) => (
-            <ChildRun key={run.id} run={run} isBackfill={isBackfill} onInspectRun={onInspectRun} />
-          ))}
+        <div className="mt-3 max-h-96 space-y-2 overflow-y-auto pr-1">
+          {childRuns.map((run) => <ChildRun key={run.id} run={run} isBackfill={isBackfill} onInspectRun={onInspectRun} />)}
         </div>
       )}
-      {(canShowMore || canShowLess) && (
-        <div className="mt-3 flex flex-wrap gap-2">
-          {canShowMore && (
-            <button
-              type="button"
-              className="rounded border border-slate/30 px-3 py-2 text-xs font-semibold dark:border-cyan-900/40"
-              onClick={onShowMore}
-            >
-              Show {Math.min(20, totalChildRuns - childRuns.length)} More
-            </button>
-          )}
-          {canShowLess && (
-            <button
-              type="button"
-              className="rounded border border-slate/30 px-3 py-2 text-xs font-semibold dark:border-cyan-900/40"
-              onClick={onShowLess}
-            >
-              Show Less
-            </button>
-          )}
-        </div>
-      )}
+      <nav aria-label={`Pages of ${noun}`} className="mt-3 flex flex-wrap gap-2">
+        <button type="button" className={buttonClass} disabled={query.isFetching || (page === 0 && visiblePage === 0)} onClick={() => goToPage(0)}>
+          First page
+        </button>
+        <button type="button" className={buttonClass} disabled={query.isFetching || visiblePage === 0} onClick={() => goToPage(visiblePage - 1)}>
+          Previous page
+        </button>
+        <button type="button" className={buttonClass} disabled={query.isFetching || query.isError || offset + childRuns.length >= totalChildRuns} onClick={() => goToPage(visiblePage + 1)}>
+          Next page
+        </button>
+      </nav>
     </div>
   )
 }
+
 
 function RunArticlesHeader({
   parentRun,
   childRunCount,
   totalChildRuns,
+  offset,
 }: {
   parentRun: AITaskRunResponse
   childRunCount: number
   totalChildRuns: number
+  offset: number
 }) {
   const isBackfill = isDailyBriefBackfillRun(parentRun)
   const sectionTitle = isBackfill ? 'Daily Brief Runs' : 'Article Runs'
@@ -303,7 +290,7 @@ function RunArticlesHeader({
   const targetNoun = isBackfill ? 'day' : 'article'
   const targetNounPlural = isBackfill ? 'days' : 'articles'
   const description = totalChildRuns
-    ? `Showing ${childRunCount} of ${totalChildRuns} queued ${childRunNounPlural}${parentRun.target_count ? ` out of ${parentRun.target_count} target ${targetNounPlural}` : ''}.`
+    ? `Showing ${childRunCount ? offset + 1 : 0}–${offset + childRunCount} of ${totalChildRuns} queued ${childRunNounPlural}${parentRun.target_count ? ` out of ${parentRun.target_count} target ${targetNounPlural}` : ''}.`
     : parentRun.target_count
       ? `No child ${childRunNounPlural} are visible yet. Target size: ${parentRun.target_count} ${targetNoun}${parentRun.target_count === 1 ? '' : 's'}.`
       : `No child ${childRunNounPlural} are visible yet.`

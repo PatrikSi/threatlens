@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
+import { useAlertUrlState } from './alertUrlState'
+import { useAlertTeamAccess } from './useAlertTeamAccess'
+import { captureSessionLease } from '../api/sessionLifecycle'
 import { ApiError, apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
+import { accessibleQueryData } from '../api/queryData'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import type {
   AlertBackfillApplyResponse,
@@ -18,7 +22,6 @@ import type {
 } from '../types/alerts'
 import {
   ALERT_OCCURRENCE_ACTIVITY_PAGE_SIZE,
-  DEFAULT_ALERT_OCCURRENCE_FILTERS,
   alertBackfillDraftKey,
   alertBackfillRequest,
   alertOccurrencePageCount,
@@ -68,13 +71,11 @@ type SnoozeMutationInput = {
 export function useAlertOccurrencesController(active = true) {
   const queryClient = useQueryClient()
   const currentUserQuery = useCurrentUser()
-  const [filters, setFilters] = useState<AlertOccurrenceFilters>(DEFAULT_ALERT_OCCURRENCE_FILTERS)
-  const [page, setPageState] = useState(1)
-  const [pageSize, setPageSizeState] = useState(25)
-  const [loadedPageSearch, setLoadedPageSearchState] = useState('')
+  const urlState = useAlertUrlState()
+  const { filters, page, pageSize, loadedPageSearch, selectedOccurrenceId, activityPage, update: updateUrlState } = urlState
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
-  const [selectedOccurrenceId, setSelectedOccurrenceId] = useState<string | null>(null)
-  const [activityPage, setActivityPage] = useState(1)
+  const [shareFeedback, setShareFeedback] = useState<string | null>(null)
+  const setActivityPage = (value: number) => updateUrlState({ activityPage: value }, true)
   const [actionError, setActionError] = useState<string | null>(null)
   const [actionFeedback, setActionFeedback] = useState<string | null>(null)
   const [conflictNotice, setConflictNotice] = useState<string | null>(null)
@@ -86,9 +87,14 @@ export function useAlertOccurrencesController(active = true) {
   const [snoozeReason, setSnoozeReason] = useState('')
   const detailReturnTargetRef = useRef<HTMLButtonElement | null>(null)
 
-  const rulesQuery = useQuery({
-    queryKey: ['alerts', 'occurrences', 'rules'],
-    queryFn: () => apiFetch<AlertInterest[]>('/alerts?include_disabled=true'),
+  const rulesResult = useQuery({
+    queryKey: ['alerts', 'occurrences', 'rules', filters.teamId, filters.queueScope],
+    queryFn: () => {
+      const params = new URLSearchParams({ include_disabled: 'true' })
+      if (filters.teamId) params.set('team_id', filters.teamId)
+      if (filters.queueScope && filters.queueScope !== 'all') params.set('queue_scope', filters.queueScope)
+      return apiFetch<AlertInterest[]>(`/alerts?${params}`)
+    },
     enabled: active,
     staleTime: 30_000,
   })
@@ -97,7 +103,7 @@ export function useAlertOccurrencesController(active = true) {
     [filters, page, pageSize],
   )
   const filterValidationError = validateAlertOccurrenceFilters(filters)
-  const occurrencesQuery = useQuery({
+  const occurrencesResult = useQuery({
     queryKey: ['alerts', 'occurrences', 'list', occurrencePath],
     queryFn: () => apiFetch<AlertOccurrenceListResponse>(occurrencePath),
     placeholderData: (previous) => previous,
@@ -105,14 +111,14 @@ export function useAlertOccurrencesController(active = true) {
     refetchInterval: OCCURRENCE_REFRESH_MS,
     retry: retryOperationalQuery,
   })
-  const detailQuery = useQuery({
+  const detailResult = useQuery({
     queryKey: ['alerts', 'occurrences', 'detail', selectedOccurrenceId],
-    queryFn: () => apiFetch<AlertOccurrence>(`/alerts/occurrences/${selectedOccurrenceId}`),
+    queryFn: () => apiFetch<AlertOccurrence>(`/alerts/occurrences/${encodeURIComponent(selectedOccurrenceId ?? '')}`),
     enabled: active && Boolean(selectedOccurrenceId),
     refetchInterval: OCCURRENCE_REFRESH_MS,
     retry: retryOperationalQuery,
   })
-  const activityQuery = useQuery({
+  const activityResult = useQuery({
     queryKey: ['alerts', 'occurrences', 'activity', selectedOccurrenceId, activityPage],
     queryFn: () => {
       const params = new URLSearchParams({
@@ -120,12 +126,36 @@ export function useAlertOccurrencesController(active = true) {
         page_size: String(ALERT_OCCURRENCE_ACTIVITY_PAGE_SIZE),
       })
       return apiFetch<AlertOccurrenceActivityListResponse>(
-        `/alerts/occurrences/${selectedOccurrenceId}/activity?${params.toString()}`,
+        `/alerts/occurrences/${encodeURIComponent(selectedOccurrenceId ?? '')}/activity?${params.toString()}`,
       )
     },
     enabled: active && Boolean(selectedOccurrenceId),
     retry: retryOperationalQuery,
   })
+  const teamAccess = useAlertTeamAccess(active, detailResult.data?.team_id, detailResult.dataUpdatedAt)
+  const accessLoss = teamAccess.accessLoss
+  useEffect(() => {
+    if (!teamAccess.currentLoss) return
+    void queryClient.invalidateQueries({ queryKey: ['alerts', 'occurrences'] })
+  }, [queryClient, teamAccess.currentLoss])
+  const rulesQuery = { ...rulesResult, data: accessibleQueryData(rulesResult) }
+  const occurrencesQuery = {
+    ...occurrencesResult, data: accessLoss ? undefined : accessibleQueryData(occurrencesResult),
+    error: accessLoss ?? occurrencesResult.error, isError: Boolean(accessLoss) || occurrencesResult.isError,
+    refetch: async () => { if (accessLoss) await teamAccess.refetch(); return occurrencesResult.refetch() },
+  }
+  const detailQuery = {
+    ...detailResult, data: accessLoss ? undefined : accessibleQueryData(detailResult),
+    error: accessLoss ?? detailResult.error, isError: Boolean(accessLoss) || detailResult.isError,
+    refetch: async () => { if (accessLoss) await teamAccess.refetch(); return detailResult.refetch() },
+  }
+  const activityQuery = {
+    ...activityResult, data: accessLoss ? undefined : accessibleQueryData(activityResult),
+    error: accessLoss ?? activityResult.error, isError: Boolean(accessLoss) || activityResult.isError,
+  }
+  const accessWithdrawn = Boolean(accessLoss) || [occurrencesResult, detailResult].some(
+    (query) => query.error instanceof ApiError && [401, 403, 404].includes(query.error.status),
+  )
 
   const applyOccurrenceUpdates = (updates: AlertOccurrence[]) => {
     const byId = new Map(updates.map((occurrence) => [occurrence.id, occurrence]))
@@ -264,33 +294,49 @@ export function useAlertOccurrencesController(active = true) {
   useEffect(() => {
     if (!data || occurrencesQuery.isPlaceholderData) return
     const finalPage = alertOccurrencePageCount(data.total, data.page_size)
-    if (page > finalPage) setPageState(finalPage)
-  }, [data, occurrencesQuery.isPlaceholderData, page])
+    if (page > finalPage) updateUrlState({ page: finalPage }, true)
+  }, [data, occurrencesQuery.isPlaceholderData, page, updateUrlState])
+
+  useEffect(() => {
+    setSelectedIds(new Set())
+    setActionError(null)
+    setActionFeedback(null)
+    setConflictNotice(null)
+    setShareFeedback(null)
+  }, [occurrencePath, selectedOccurrenceId])
+
+  const copyTriageLink = async () => {
+    const lease = captureSessionLease()
+    try {
+      await navigator.clipboard.writeText(urlState.shareUrl)
+      lease.assertCurrent()
+      setShareFeedback('Triage link copied. Recipients need access to the same occurrences and sources.')
+    } catch {
+      if (lease.signal.aborted) return
+      setShareFeedback('Copy is unavailable. Select the triage link below and copy it manually.')
+    }
+  }
 
   const resetCollectionContext = () => {
     setSelectedIds(new Set())
-    setSelectedOccurrenceId(null)
-    setActivityPage(1)
     setActionError(null)
     setActionFeedback(null)
     setConflictNotice(null)
   }
   const updateFilters = (changes: Partial<AlertOccurrenceFilters>) => {
-    setFilters((current) => ({ ...current, ...changes }))
-    setPageState(1)
+    updateUrlState({ filters: { ...filters, ...changes }, page: 1, selectedOccurrenceId: null, activityPage: 1 })
     resetCollectionContext()
   }
   const setPage = (nextPage: number) => {
-    setPageState(Math.max(1, Math.min(nextPage, pageCount)))
+    updateUrlState({ page: Math.max(1, Math.min(nextPage, pageCount)), selectedOccurrenceId: null, activityPage: 1 })
     resetCollectionContext()
   }
   const setPageSize = (nextPageSize: number) => {
-    setPageSizeState(nextPageSize)
-    setPageState(1)
+    updateUrlState({ pageSize: nextPageSize, page: 1, selectedOccurrenceId: null, activityPage: 1 })
     resetCollectionContext()
   }
   const setLoadedPageSearch = (value: string) => {
-    setLoadedPageSearchState(value.slice(0, 255))
+    updateUrlState({ loadedPageSearch: value.slice(0, 255) }, true)
     setSelectedIds(new Set())
   }
   const refreshCollection = () => {
@@ -300,9 +346,7 @@ export function useAlertOccurrencesController(active = true) {
     return occurrencesQuery.refetch()
   }
   const clearFilters = () => {
-    setFilters(DEFAULT_ALERT_OCCURRENCE_FILTERS)
-    setLoadedPageSearchState('')
-    setPageState(1)
+    urlState.reset()
     resetCollectionContext()
   }
   const toggleStateFilter = (state: AlertOccurrenceState) =>
@@ -336,8 +380,7 @@ export function useAlertOccurrencesController(active = true) {
     returnTarget?: HTMLButtonElement | null,
   ) => {
     if (occurrenceId && returnTarget) detailReturnTargetRef.current = returnTarget
-    setSelectedOccurrenceId(occurrenceId)
-    setActivityPage(1)
+    updateUrlState({ selectedOccurrenceId: occurrenceId, activityPage: 1 })
     setActionError(null)
     setConflictNotice(null)
   }
@@ -387,7 +430,7 @@ export function useAlertOccurrencesController(active = true) {
     setCloseTarget({ occurrences: selectedOccurrences, bulk: true, mode: 'close' })
   }
   const confirmClose = () => {
-    if (!closeTarget) return
+    if (!closeTarget || accessWithdrawn) return
     if (closeTarget.bulk) {
       bulkLifecycleMutation.mutate({
         occurrences: closeTarget.occurrences,
@@ -412,7 +455,7 @@ export function useAlertOccurrencesController(active = true) {
     setActionError(null)
   }
   const confirmSnooze = () => {
-    if (!snoozeTarget || snoozeValidationError) return
+    if (!snoozeTarget || snoozeValidationError || accessWithdrawn) return
     snoozeMutation.mutate({
       occurrence: snoozeTarget,
       snoozedUntil: new Date(snoozeUntil).toISOString(),
@@ -433,6 +476,10 @@ export function useAlertOccurrencesController(active = true) {
 
   return {
     acknowledgeSelected,
+    applyOccurrenceUpdates,
+    copyTriageLink,
+    shareFeedback,
+    shareUrl: urlState.shareUrl,
     actionError,
     actionFeedback,
     activityPage,
@@ -447,7 +494,7 @@ export function useAlertOccurrencesController(active = true) {
     closeOccurrenceDetail,
     closeDisposition,
     closeConfirmationDisabled,
-    closeTarget,
+    closeTarget: accessWithdrawn ? null : closeTarget,
     confirmClose,
     confirmSnooze,
     conflictNotice,
@@ -485,7 +532,7 @@ export function useAlertOccurrencesController(active = true) {
     setSnoozeUntil,
     snoozeMutation,
     snoozeReason,
-    snoozeTarget,
+    snoozeTarget: accessWithdrawn ? null : snoozeTarget,
     snoozeUntil,
     snoozeValidationError,
     stats,
@@ -495,7 +542,7 @@ export function useAlertOccurrencesController(active = true) {
     toggleStateFilter,
     updateFilters,
     visibleOccurrences,
-    writeDenied,
+    writeDenied: writeDenied || accessWithdrawn,
   }
 }
 

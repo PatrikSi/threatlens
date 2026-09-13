@@ -264,7 +264,7 @@ def test_production_rejects_unsafe_allowed_hosts(host: str):
             "postgresql+psycopg://postgres:postgres@db:5432/threatlens",
             "database_url",
         ),
-        ("postgres_password", None, "postgres_password"),
+        ("database_url", "postgresql+psycopg://runtime:password@db/app", "database_url"),
         ("postgres_password", "postgres", "postgres_password"),
         ("redis_url", "redis://:redis@redis:6379/0", "redis_url"),
         ("redis_password", None, "redis_password"),
@@ -283,6 +283,11 @@ def test_bootstrap_mutation_flags_default_off():
 
     assert settings.run_migrations_on_startup is False
     assert settings.seed_admin_on_startup is False
+
+
+def test_production_runtime_does_not_require_administrative_database_secret():
+    settings = isolated_settings(**production_settings_kwargs(postgres_password=None))
+    assert settings.postgres_password is None
 
 
 @pytest.mark.parametrize(

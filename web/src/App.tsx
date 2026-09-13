@@ -1,4 +1,3 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
   Link,
   Navigate,
@@ -10,10 +9,11 @@ import {
   isRouteErrorResponse,
   useRouteError,
 } from 'react-router-dom'
-import { Component, Suspense, lazy, useEffect, useMemo, useState } from 'react'
+import { Component, Suspense, lazy, useEffect, useState } from 'react'
 
 import { AppShell } from './components/AppShell'
-import { AuthProvider, useAuth } from './components/AuthContext'
+import { AuthProvider } from './components/AuthContext'
+import { SessionQueryProvider } from './components/SessionQueryProvider'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { ThemeProvider } from './components/ThemeContext'
 import { WorkspaceLandingRedirect } from './components/WorkspaceLandingRedirect'
@@ -64,22 +64,11 @@ const TaggingSettingsPage = lazy(() =>
   import('./pages/TaggingSettingsPage').then((module) => ({ default: module.TaggingSettingsPage })),
 )
 const TokensPage = lazy(() => import('./pages/TokensPage').then((module) => ({ default: module.TokensPage })))
+const TeamsPage = lazy(() => import('./pages/TeamsPage').then((module) => ({ default: module.TeamsPage })))
 const UsersPage = lazy(() => import('./pages/UsersPage').then((module) => ({ default: module.UsersPage })))
 const WorkspaceSettingsPage = lazy(() =>
   import('./pages/WorkspaceSettingsPage').then((module) => ({ default: module.WorkspaceSettingsPage })),
 )
-
-function createQueryClient() {
-  return new QueryClient({
-    defaultOptions: {
-      queries: {
-        staleTime: 30_000,
-        refetchOnWindowFocus: false,
-        retry: 1,
-      },
-    },
-  })
-}
 
 export default function App() {
   const [router] = useState(() => createAppRouter())
@@ -127,6 +116,7 @@ function createAppRouter() {
             )}
           />
           <Route path="start" element={<WorkspaceStartRoute />} />
+          <Route path="teams" element={<WorkspaceModuleRoute moduleId="primary.teams">{suspenseRoute(<TeamsPage />, 'Loading team workspaces...')}</WorkspaceModuleRoute>} />
           <Route
             path="alerts"
             element={<WorkspaceModuleRoute moduleId="primary.alerts">{suspenseRoute(<AlertsPage />, 'Loading alerts...')}</WorkspaceModuleRoute>}
@@ -145,7 +135,7 @@ function createAppRouter() {
           />
           <Route
             path="stats"
-            element={<WorkspaceModuleRoute moduleId="primary.stats">{suspenseRoute(<StatsPage />, 'Loading statistics...')}</WorkspaceModuleRoute>}
+            element={suspenseRoute(<StatsPage />, 'Loading statistics...')}
           />
           <Route
             path="export"
@@ -421,19 +411,5 @@ function AppProviders() {
 }
 
 function SessionScopedProviders() {
-  const { sessionVersion } = useAuth()
-  const queryClient = useMemo(() => createQueryClient(), [])
-
-  useEffect(() => {
-    if (sessionVersion === 0) {
-      return
-    }
-    queryClient.clear()
-  }, [queryClient, sessionVersion])
-
-  return (
-    <QueryClientProvider client={queryClient}>
-      <Outlet />
-    </QueryClientProvider>
-  )
+  return <SessionQueryProvider><Outlet /></SessionQueryProvider>
 }

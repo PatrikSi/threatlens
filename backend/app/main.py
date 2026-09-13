@@ -28,16 +28,21 @@ from app.core.logging_config import (
     verbose_logging_enabled,
 )
 from app.db import session as db_session
+from app.services.export_transport import ExportTransferDeadlineMiddleware
 from app.api.routes import (
     access_reviews,
     action_approvals,
     ai,
+    ai_providers,
+    ai_provider_usage,
     alerts,
     audit,
     auth,
     auth_security,
     data_policies,
     exports,
+    export_jobs,
+    processing,
     feeds,
     health,
     iam,
@@ -51,6 +56,7 @@ from app.api.routes import (
     reports,
     service_accounts,
     stats,
+    teams,
     tagging,
     tags,
     temporary_elevations,
@@ -102,10 +108,13 @@ SAVED_VIEW_QUERY_SCHEMA = "SavedViewQueryPayload"
 SAVED_VIEW_QUERY_INPUT_SCHEMA = "SavedViewQueryPayload-Input"
 SAVED_VIEW_QUERY_OUTPUT_SCHEMA = "SavedViewQueryPayload-Output"
 API_ROUTERS: tuple[APIRouter, ...] = (
+    teams.router,
     auth.router,
     auth_security.router,
     oidc.router,
     exports.router,
+    export_jobs.router,
+    processing.router,
     reports.router,
     feeds.router,
     items.router,
@@ -120,6 +129,8 @@ API_ROUTERS: tuple[APIRouter, ...] = (
     investigations.router,
     notifications.router,
     ai.router,
+    ai_providers.router,
+    ai_provider_usage.router,
     stats.router,
     lifecycle.router,
     operations.router,
@@ -251,6 +262,9 @@ async def request_logging_middleware(request: Request, call_next):
         return response
     finally:
         reset_log_context(context_token)
+
+
+app.add_middleware(ExportTransferDeadlineMiddleware)
 
 
 def _request_log_fields(

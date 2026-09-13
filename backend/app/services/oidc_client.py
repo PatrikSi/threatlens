@@ -19,6 +19,7 @@ from joserfc.jwk import KeySet
 
 from app.core.config import get_settings
 from app.models.oidc import OIDCProvider
+from app.services.bounded_response import ResponseBodyTooLarge, read_bounded_response
 from app.services.oidc_config import (
     OIDCConfigurationError,
     oidc_callback_url,
@@ -32,6 +33,7 @@ from app.services.safe_fetch import (
     safe_stream_with_redirects,
 )
 from app.services.secret_storage import decrypt_text
+from app.services.outbound_deadline import outbound_deadline
 from app.services.url_utils import (
     ensure_runtime_fetchable_url,
     is_fetchable_url,
@@ -404,14 +406,14 @@ def _fetch_json(
         **(headers or {}),
     }
     try:
-        _ensure_oidc_runtime_fetchable_url(
-            url, allow_private_network=settings.allow_private_network_oidc
-        )
-        with build_safe_http_client(
+        with outbound_deadline(settings.oidc_total_timeout_seconds), build_safe_http_client(
             timeout=timeout,
             headers=request_headers,
             allow_private_network=settings.allow_private_network_oidc,
         ) as client:
+            _ensure_oidc_runtime_fetchable_url(
+                url, allow_private_network=settings.allow_private_network_oidc
+            )
             if allow_redirects and method.upper() == "GET":
                 response = safe_stream_with_redirects(
                     client,
@@ -515,14 +517,9 @@ def _exception_chain_contains(
 
 
 def _read_limited_body(response: httpx.Response) -> bytes:
-    max_bytes = get_settings().oidc_max_response_bytes
-    chunks: list[bytes] = []
-    size = 0
-    for chunk in response.iter_bytes():
-        size += len(chunk)
-        if size > max_bytes:
-            raise OIDCProtocolError(
-                "OIDC endpoint response exceeded the configured size limit"
-            )
-        chunks.append(chunk)
-    return b"".join(chunks)
+    try:
+        return read_bounded_response(response, get_settings().oidc_max_response_bytes)
+    except ResponseBodyTooLarge as exc:
+        raise OIDCProtocolError(
+            "OIDC endpoint response exceeded the configured size limit"
+        ) from exc

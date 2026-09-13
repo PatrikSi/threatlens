@@ -1,3 +1,4 @@
+import { createSecureRequestId } from '../utils/secureRandomId'
 import type {
   SavedViewAIRelevanceFilter,
   SavedViewAlertFilters,
@@ -551,7 +552,7 @@ export function parseDashboardWindowCandidate(
   if (!rect) return null
 
   const base = {
-    id: typeof value.id === 'string' && value.id ? value.id : crypto.randomUUID(),
+    id: typeof value.id === 'string' && value.id ? value.id : createSecureRequestId(),
     title: typeof value.title === 'string' && value.title ? value.title : defaultWindowTitle(value.type, index),
     snap: value.snap,
     rect,
@@ -905,6 +906,9 @@ export function buildSavedViewPreview(
     id: view.id,
     name: view.name,
     created_at: view.created_at,
+    revision: view.revision,
+    team_id: view.team_id,
+    can_delete: view.can_delete,
     windows: parsed.windows,
     window_type_counts: counts,
   }
@@ -1075,4 +1079,14 @@ function isWindowSnap(value: unknown): value is DashboardWindowSnap {
     value === 'bottom_left' ||
     value === 'bottom_right'
   )
+}
+
+/** A loaded shared draft keeps its revision, while refreshed capabilities can remove editing. */
+export function canUpdateDashboardSavedView(
+  activeId: string | null,
+  baseline: Pick<SavedView, 'can_edit'> | null,
+  views: SavedView[] | undefined,
+): boolean {
+  return Boolean(activeId) && baseline?.can_edit !== false &&
+    views?.find((view) => view.id === activeId)?.can_edit !== false
 }

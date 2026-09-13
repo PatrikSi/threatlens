@@ -15,6 +15,7 @@ from app.models.item import Item
 from app.models.item_classification import ItemClassification
 from app.models.tag import ItemTag, Tag
 from app.services.ai_config import ActiveAISettings
+from app.services.ai_provider_protocol import provider_capability_snapshot
 from app.services.ai_telemetry_data_policy import (
     capture_ai_usage_event_data_access,
 )
@@ -36,12 +37,22 @@ def record_usage_event(
     total_tokens: int | None = None,
     latency_ms: int | None = None,
     error: str | None = None,
+    provider_id: uuid.UUID | None = None,
+    provider_version: int | None = None,
+    provider_name: str | None = None,
+    failure_category: str | None = None,
+    provider_io_outcome: str | None = None,
 ) -> AIUsageEvent:
     event = AIUsageEvent(
         feature_type=feature_type,
         success=success,
         provider=provider,
         model=model,
+        provider_id=provider_id,
+        provider_version=provider_version,
+        provider_name=provider_name,
+        failure_category=failure_category,
+        provider_io_outcome=provider_io_outcome,
         item_id=item_id,
         daily_brief_id=daily_brief_id,
         report_id=report_id,
@@ -119,6 +130,16 @@ def compute_item_source_hash(
         {
             "settings": {
                 "model": active.model,
+                **provider_capability_snapshot(active),
+                "provider_id": str(active.provider_id) if getattr(active, "provider_id", None) else None,
+                "provider_version": getattr(active, "provider_version", None),
+                "provider_type": active.provider_type,
+                "base_url": active.base_url,
+                "temperature": active.temperature,
+                "max_completion_tokens": active.max_completion_tokens,
+                "item_enrichment_system_prompt": active.item_enrichment_system_prompt,
+                "relevance_medium_threshold": active.relevance_medium_threshold,
+                "relevance_high_threshold": active.relevance_high_threshold,
                 "summary_enabled": active.summary_enabled,
                 "relevance_enabled": active.relevance_enabled,
                 "company_name": active.company_name,
@@ -136,6 +157,8 @@ def compute_item_source_hash(
             "item": {
                 "title": item.title,
                 "summary": item.summary,
+                "url": item.canonical_url or item.url,
+                "published_at": item.published_at.isoformat() if item.published_at else None,
                 "article_text": article.text,
                 "feed_name": feed_name,
                 "classification": {

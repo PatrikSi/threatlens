@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Alerts turn user-owned keyword rules into durable, triageable occurrences while
+Alerts turn personal or team-owned keyword rules into durable, triageable occurrences while
 retaining the original computed-match APIs. Rules can be evaluated against newly
 classified articles, previewed against existing articles, or reconciled through an
 explicit administrator backfill.
@@ -15,9 +15,15 @@ The page has three workspaces:
 - **Operations** is administrator-only and exposes evaluation health, retained
   metrics, dead-letter details, activity, and replay.
 
+The URL retains the active workspace, filters, loaded-page search, page size,
+collection page, selected occurrence, and activity page. Reload and browser
+Back/Forward restore this context. **Copy triage link** shares the current
+occurrence and scope; recipients still need permission to read it. If clipboard
+access is unavailable, a selectable link supports manual copying.
+
 ## Rules
 
-An `AlertInterest` belongs to one user and contains:
+An `AlertInterest` belongs to one user or one named team and contains:
 
 - `name`
 - `category`
@@ -210,3 +216,45 @@ Alerting v2 adds:
 Read paths require `read:alerts`; occurrence evidence also requires `read:items`.
 Mutations require `write:alerts`, and reconciliation plus evaluation operations
 require the administrator role.
+
+## Shared team triage
+
+Use **Queue ownership** to select personal work, all accessible queues, all team
+queues, or one named team. The rule list applies this scope on the server before
+its 1,000-rule response bound; each team has a separate 100-watchlist quota. Team
+choices and assignment rosters expose pagination and retry failed reads.
+
+A watchlist's owner is fixed at creation. Team watchlists can set a due delay for
+new occurrences and an optional escalation delay after that due time. Changes to
+these defaults leave existing occurrence deadlines unchanged. Existing personal
+watchlists and links remain supported.
+
+The occurrence queue includes assignment, overdue and escalated filters. Queue
+ownership, filters, paging and the selected occurrence survive navigation in the
+URL and are included by **Copy triage link**. Links confer no access; recipients
+must have current team membership, API permissions and evidence access.
+
+Members with `write:teams`, `write:alerts` and `read:items` can claim unassigned
+open occurrences and release their own assignments. Team managers can assign an
+eligible teammate, clear assignments, and edit deadlines. The server rechecks
+membership and evidence access on every write. Closed occurrences keep their
+assignment history and cannot receive new assignment or deadline changes.
+
+Assignment and deadline drafts retain the occurrence version loaded when editing
+began. Background refreshes preserve that baseline. A conflict keeps the draft
+visible and offers a deliberate reload before retry; pending writes disable the
+form, and failed team-access verification disables protected actions.
+
+Escalation creates a visible queue marker and activity event for team managers.
+It does not send an external email or webhook notification. The Operations tab's
+30-day occurrence totals use the selected team's scope; without a named team,
+they remain the current user's personal totals. Evaluation-worker diagnostics
+remain system-wide administrator information.
+
+Migration `0103_shared_triage_queues` requires the matching API and evaluation
+workers before team watchlists are created. Stop classification and alert
+producers/workers during the migration and replace all affected workers before
+resuming queues. Old workers assume a personal owner and cannot process team
+rules. The compatibility trigger versions deadline-default changes and rejects
+ownership changes; it does not make old evaluation workers team-aware. See
+[Named team workspaces](teams.md) for group configuration and shared ownership.

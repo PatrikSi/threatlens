@@ -1454,7 +1454,8 @@ def test_refresh_feed_queues_force_fetch(
 
     captured: dict[str, object] = {}
 
-    def _send_task(name: str, args=None, kwargs=None):
+    def _send_task(name: str, args=None, kwargs=None, ignore_result=None):
+        captured["ignore_result"] = ignore_result
         captured["name"] = name
         captured["args"] = args
         captured["kwargs"] = kwargs
@@ -1472,6 +1473,7 @@ def test_refresh_feed_queues_force_fetch(
         "name": "app.tasks.feed_tasks.fetch_feed",
         "args": [str(feed.id)],
         "kwargs": {"force": True},
+        "ignore_result": True,
     }
 
 
@@ -1730,7 +1732,7 @@ def test_health_ready_endpoint_requires_worker_health(
             return {}
 
     monkeypatch.setattr(
-        "app.api.routes.health.redis_client_from_url",
+        "app.services.component_health.redis_client_from_url",
         lambda *_args, **_kwargs: _RedisClient(),
     )
     monkeypatch.setattr(
@@ -1738,7 +1740,7 @@ def test_health_ready_endpoint_requires_worker_health(
         lambda *_args, **_kwargs: _RedisClient(),
     )
     monkeypatch.setattr(
-        "app.api.routes.health.celery_app.control.inspect", lambda timeout: _Inspector()
+        "app.services.component_health.celery_app.control.inspect", lambda timeout: _Inspector()
     )
 
     response = client.get("/health/ready")
@@ -1782,11 +1784,12 @@ def test_health_ready_endpoint_requires_beat_health(
                     {"name": "notifications"},
                     {"name": "maintenance"},
                     {"name": "lifecycle-v1"},
+                    {"name": "exports-v1"},
                 ]
             }
 
     monkeypatch.setattr(
-        "app.api.routes.health.redis_client_from_url",
+        "app.services.component_health.redis_client_from_url",
         lambda *_args, **_kwargs: _RedisClient(),
     )
     monkeypatch.setattr(
@@ -1794,7 +1797,7 @@ def test_health_ready_endpoint_requires_beat_health(
         lambda *_args, **_kwargs: _RedisClient(),
     )
     monkeypatch.setattr(
-        "app.api.routes.health.celery_app.control.inspect", lambda timeout: _Inspector()
+        "app.services.component_health.celery_app.control.inspect", lambda timeout: _Inspector()
     )
 
     response = client.get("/health/ready")
@@ -1834,16 +1837,16 @@ def test_health_ready_details_require_health_scope_for_api_tokens(
         scopes=["read:health"],
         expires_at=datetime.now(timezone.utc) + timedelta(days=1),
     )
-    monkeypatch.setattr("app.api.routes.health._database_health_ok", lambda _db: True)
+    monkeypatch.setattr("app.services.component_health.database_health_ok", lambda _db: True)
     monkeypatch.setattr(
-        "app.api.routes.health._redis_health_ok", lambda _settings: True
+        "app.services.component_health.redis_health_ok", lambda _settings: True
     )
     monkeypatch.setattr(
-        "app.api.routes.health._worker_health_snapshot",
+        "app.services.component_health.worker_health_snapshot",
         lambda _settings: (True, {"worker": "pong"}, {}),
     )
     monkeypatch.setattr(
-        "app.api.routes.health._beat_health_snapshot",
+        "app.services.component_health.beat_health_snapshot",
         lambda _settings: BeatHealthSnapshot(
             scheduler=BeatHeartbeatSnapshot(
                 ok=True,
@@ -1903,7 +1906,7 @@ def test_operational_health_endpoints_require_health_scope(
         expires_at=datetime.now(timezone.utc) + timedelta(days=1),
     )
     monkeypatch.setattr(
-        "app.api.routes.health._worker_health_snapshot",
+        "app.services.component_health.worker_health_snapshot",
         lambda _settings: (True, {"worker": "pong"}, {"missing": []}),
     )
 
@@ -1981,11 +1984,12 @@ def test_health_worker_endpoint_reports_ok(
                     {"name": "notifications"},
                     {"name": "maintenance"},
                     {"name": "lifecycle-v1"},
+                    {"name": "exports-v1"},
                 ]
             }
 
     monkeypatch.setattr(
-        "app.api.routes.health.celery_app.control.inspect",
+        "app.services.component_health.celery_app.control.inspect",
         lambda timeout: _Inspector(),
     )
 
@@ -2004,7 +2008,7 @@ def test_health_worker_endpoint_hides_worker_details_from_public(
             return {"celery@worker-1": {"ok": "pong"}}
 
     monkeypatch.setattr(
-        "app.api.routes.health.celery_app.control.inspect",
+        "app.services.component_health.celery_app.control.inspect",
         lambda timeout: _Inspector(),
     )
 

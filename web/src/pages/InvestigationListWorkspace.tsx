@@ -54,6 +54,7 @@ export function InvestigationListWorkspace({
               Organize evidence, analyst notes, ownership, and lifecycle decisions in one auditable
               workspace.
             </p>
+            {filters.teamId && <p className="mt-2 text-sm">Scoped to a named team. <Link className="font-semibold text-cyan" to={`/teams?team=${filters.teamId}`}>Open team workspace</Link></p>}
           </div>
           {controller.canCreate && (
             <button

@@ -1,7 +1,8 @@
-import { AiConfigurationAudit, AiConfigurationSidebar } from './AiConfigurationSummary'
+import { AiConfigurationAudit, AiConfigurationSidebar, AiReportBudgetSummary } from './AiConfigurationSummary'
 import { AiCompanyContextConfiguration, AiPromptConfiguration } from './AiContextConfiguration'
 import { AiDailyBriefConfiguration, AiFeatureControls, AiReportingConfiguration } from './AiFeatureConfiguration'
 import { AiProviderConfiguration } from './AiProviderConfiguration'
+import { AiProviderConnections } from './AiProviderConnections'
 import { AiSettingsConfigurationTabProps } from './AiSettingsConfigurationTypes'
 
 export function ConfigurationTab(props: AiSettingsConfigurationTabProps) {
@@ -12,7 +13,8 @@ export function ConfigurationTab(props: AiSettingsConfigurationTabProps) {
   }
 
   return (
-    <div className="grid gap-3 xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
+    <fieldset disabled={props.savePending} className="grid min-w-0 gap-3 xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
+      {props.savePending && <p role="status" className="text-sm text-slate dark:text-slate-300 xl:col-span-2">Saving AI settings. Editing resumes when the save completes.</p>}
       <div className="space-y-3">
         {props.isLoading && (
           <div className="rounded-xl border border-slate/20 bg-white/80 p-3 text-sm dark:border-cyan-900/40 dark:bg-[#041612]/90">
@@ -25,6 +27,8 @@ export function ConfigurationTab(props: AiSettingsConfigurationTabProps) {
           </div>
         )}
 
+        <AiProviderConnections controller={props.providers} />
+        <AiReportBudgetSummary settings={props.settings} draft={props.draft} isError={props.isError} />
         <AiProviderConfiguration
           {...draftProps}
           draftDirty={props.draftDirty}
@@ -36,7 +40,9 @@ export function ConfigurationTab(props: AiSettingsConfigurationTabProps) {
         />
         <AiFeatureControls {...draftProps} />
         <AiDailyBriefConfiguration {...draftProps} />
-        <AiReportingConfiguration {...draftProps} />
+        <section id="ai-report-budget-controls" aria-label="Report context guardrails" tabIndex={-1} className="rounded-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
+          <AiReportingConfiguration {...draftProps} />
+        </section>
         <AiCompanyContextConfiguration {...draftProps} />
         <AiPromptConfiguration {...draftProps} />
         <AiConfigurationAudit promptHistory={props.promptHistory} manualActions={props.manualActions} />
@@ -50,6 +56,6 @@ export function ConfigurationTab(props: AiSettingsConfigurationTabProps) {
         saveDisabledReason={props.saveDisabledReason}
         onSave={props.onSave}
       />
-    </div>
+    </fieldset>
   )
 }

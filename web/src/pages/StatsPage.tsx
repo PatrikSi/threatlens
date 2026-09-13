@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { Link, useSearchParams } from 'react-router-dom'
+import { AiStatisticsWorkspace } from './AiStatisticsWorkspace'
+import { PermissionRoute } from '../components/PermissionRoute'
+import { useCurrentUser } from '../hooks/useCurrentUser'
+import { hasRequiredPermissions } from '../workspace/workspaceModel'
 
 import { apiFetch } from '../api/client'
+import { accessibleQueryData } from '../api/queryData'
 import { resolveApiErrorMessage } from '../api/errors'
 import { formatDateOnly, formatDateTime } from '../utils/datetime'
 import {
@@ -25,19 +31,62 @@ const FEED_CHART_COLORS = [
 const FEED_TABLE_PREVIEW_LIMIT = 50
 
 export function StatsPage() {
+  return <PermissionRoute permissions={[]}><StatisticsSections /></PermissionRoute>
+}
+
+function StatisticsSections() {
+  const user = useCurrentUser()
+  const [params, setParams] = useSearchParams()
+  const permissions = user.data?.access?.permissions ?? []
+  const canIngest = hasRequiredPermissions(permissions, ['read:stats'])
+  const canAi = user.data?.role === 'admin' && hasRequiredPermissions(permissions, ['read:ai'])
+  const requested = params.get('section')
+  const section = requested === 'ai' || requested === 'ingestion'
+    ? requested : canIngest || !canAi ? 'ingestion' : 'ai'
+  const allowed = section === 'ai' ? canAi : canIngest
+
+  return <div className="space-y-4">
+    <nav aria-label="Statistics sections" className="flex flex-wrap gap-2">
+      {(['ingestion', 'ai'] as const).map((value) => {
+        const enabled = value === 'ai' ? canAi : canIngest
+        const label = value === 'ai' ? 'AI statistics' : 'Ingestion statistics'
+        return <button key={value} type="button" aria-pressed={section === value} disabled={!enabled}
+          title={enabled ? undefined : value === 'ai' ? 'Requires administrator role and read:ai.' : 'Requires read:stats.'}
+          className={`rounded border px-4 py-2 text-sm font-semibold disabled:opacity-50 ${section === value ? 'bg-ink text-white dark:bg-cyan dark:text-ink' : ''}`}
+          onClick={() => { const next = new URLSearchParams(params); next.set('section', value); setParams(next) }}>
+          {label}{!enabled && <span className="ml-1 text-xs">(access required)</span>}
+        </button>
+      })}
+    </nav>
+    {!allowed ? <section className="tl-surface rounded-xl p-4" role="status">
+      <h1 className="font-display text-xl">Statistics access required</h1>
+      <p className="mt-2 text-sm">{section === 'ai'
+        ? 'AI statistics require the administrator role and read:ai permission.'
+        : 'Ingestion statistics require read:stats permission.'} Choose an available section above.</p>
+    </section> : section === 'ai' ? <>
+      <header><h1 className="font-display text-2xl">AI statistics</h1>
+        <p className="text-sm text-slate dark:text-slate-300">Usage, reliability, evidence coverage and current backlog.{' '}
+          <Link className="underline" to="/settings/ai">Manage AI providers and jobs</Link>
+        </p>
+      </header><AiStatisticsWorkspace />
+    </> : <IngestionStatistics />}
+  </div>
+}
+
+function IngestionStatistics() {
   const [days, setDays] = useState(30)
   const [selectedFeedIds, setSelectedFeedIds] = useState<string[]>([])
   const [showAllFeedRows, setShowAllFeedRows] = useState(false)
   const [mobileFeedFiltersOpen, setMobileFeedFiltersOpen] = useState(false)
 
-  const feedsQuery = useQuery({
+  const feedsResult = useQuery({
     queryKey: ['feeds'],
     queryFn: () => apiFetch<Feed[]>('/feeds'),
   })
 
   const feedIdsParam = useMemo(() => selectedFeedIds.slice().sort().join(','), [selectedFeedIds])
 
-  const statsQuery = useQuery({
+  const statsResult = useQuery({
     queryKey: ['stats', 'overview', days, feedIdsParam],
     queryFn: () => {
       const params = new URLSearchParams()
@@ -49,7 +98,7 @@ export function StatsPage() {
     },
   })
 
-  const feedTimeSeriesQuery = useQuery({
+  const feedTimeSeriesResult = useQuery({
     queryKey: ['stats', 'feed-timeseries', days, feedIdsParam],
     queryFn: () => {
       const params = new URLSearchParams()
@@ -61,7 +110,7 @@ export function StatsPage() {
     },
   })
 
-  const activityHeatmapQuery = useQuery({
+  const activityHeatmapResult = useQuery({
     queryKey: ['stats', 'activity-heatmap', days, feedIdsParam],
     queryFn: () => {
       const params = new URLSearchParams()
@@ -73,7 +122,7 @@ export function StatsPage() {
     },
   })
 
-  const signalRadarQuery = useQuery({
+  const signalRadarResult = useQuery({
     queryKey: ['stats', 'signal-radar', days, feedIdsParam],
     queryFn: () => {
       const params = new URLSearchParams()
@@ -84,6 +133,12 @@ export function StatsPage() {
       return apiFetch<StatsSignalRadarResponse>(`/stats/signal-radar?${params.toString()}`)
     },
   })
+
+  const feedsQuery = { ...feedsResult, data: accessibleQueryData(feedsResult) }
+  const statsQuery = { ...statsResult, data: accessibleQueryData(statsResult) }
+  const feedTimeSeriesQuery = { ...feedTimeSeriesResult, data: accessibleQueryData(feedTimeSeriesResult) }
+  const activityHeatmapQuery = { ...activityHeatmapResult, data: accessibleQueryData(activityHeatmapResult) }
+  const signalRadarQuery = { ...signalRadarResult, data: accessibleQueryData(signalRadarResult) }
 
   const statusTotal = useMemo(
     () => (statsQuery.data?.status_breakdown ?? []).reduce((acc, row) => acc + row.count, 0),

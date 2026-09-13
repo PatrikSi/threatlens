@@ -10,6 +10,11 @@ class ReportingUnavailableError(RuntimeError):
 
 
 def ensure_reporting_available(active: ActiveAISettings) -> None:
+    if getattr(active, "configuration_error", None):
+        raise ReportingUnavailableError(
+            active.configuration_error,
+            code=active.configuration_error_code or "ai_not_configured",
+        )
     if not active.ai_enabled:
         raise ReportingUnavailableError(
             "AI features are disabled by the server administrator.",

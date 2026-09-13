@@ -75,13 +75,16 @@ def dispatch_unclassified_items(
 ) -> dict[str, int]:
     queued = 0
     with db_session_factory() as db:
-        item_ids = db.scalars(
-            select(Item.id)
-            .outerjoin(ItemClassification, ItemClassification.item_id == Item.id)
-            .where(ItemClassification.item_id.is_(None))
-            .order_by(Item.first_seen_at.asc())
-            .limit(settings.dispatch_unclassified_items_batch_size)
-        ).all()
+        limit = max(0, int(settings.dispatch_unclassified_items_batch_size))
+        base = select(Item.id, Item.first_seen_at).order_by(Item.first_seen_at, Item.id).limit(limit)
+        pending = base.where(Item.classification_completed_version < Item.classification_required_version)
+        missing = base.where(~exists().where(ItemClassification.item_id == Item.id))
+        # Keep each candidate set bounded and let pending work use its partial
+        # index. The missing-row branch also repairs removed classification rows.
+        candidates = pending.union(missing).subquery()
+        item_ids = db.scalars(select(candidates.c.id).order_by(
+            candidates.c.first_seen_at, candidates.c.id,
+        ).limit(limit)).all()
 
     for item_id in item_ids:
         if enqueue_classification_task(str(item_id)):

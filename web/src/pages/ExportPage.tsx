@@ -3,6 +3,7 @@ import { ExportFilterPanel } from './ExportFilterPanel'
 import { ExportFormatPanel } from './ExportFormatPanel'
 import { ExportPreviewPanel } from './ExportPreviewPanel'
 import { useExportPageController } from './useExportPageController'
+import { ExportJobsPanel } from './ExportJobsPanel'
 
 export function ExportPage() {
   const controller = useExportPageController()
@@ -68,6 +69,14 @@ export function ExportPage() {
               </div>
               <button
                 type="button"
+                className="min-h-10 w-full shrink-0 rounded border border-ink px-4 py-2 text-sm font-semibold disabled:opacity-50 dark:border-cyan sm:w-auto"
+                disabled={!canExport}
+                onClick={controller.queueBackgroundExport}
+              >
+                {controller.jobs.createMutation.isPending ? 'Queuing background export...' : 'Generate in background'}
+              </button>
+              <button
+                type="button"
                 className="min-h-10 w-full shrink-0 rounded bg-ink px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e] sm:w-auto"
                 disabled={!canExport}
                 aria-describedby={blockingReason ? 'export-blocking-reason' : undefined}
@@ -77,10 +86,12 @@ export function ExportPage() {
               </button>
             </div>
           </section>
+          <p className="text-sm text-slate dark:text-slate-300">Use background generation for large exports or work that may take more than five minutes. Article and byte limits still apply.</p>
 
           <ExportPreviewPanel controller={controller} />
         </>
       )}
+      <ExportJobsPanel controller={controller.jobs} />
     </div>
   )
 }

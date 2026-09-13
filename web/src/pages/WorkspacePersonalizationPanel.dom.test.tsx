@@ -22,6 +22,7 @@ let container: HTMLDivElement | null = null
 const DEFAULT_PERSONAL_TOP_NAVIGATION_IDS = [
   'primary.alerts',
   'primary.investigations',
+  'primary.teams',
   'primary.feeds',
   'primary.stats',
   'primary.export',
@@ -389,7 +390,7 @@ describe('WorkspacePersonalizationPanel', () => {
 
     expect(alertsHandle?.disabled).toBe(true)
     expect(alertsHandle?.draggable).toBe(false)
-    expect(feedsHandle?.getAttribute('aria-label')).toContain('Position 2 of 5')
+    expect(feedsHandle?.getAttribute('aria-label')).toContain('Position 3 of 6')
 
     act(() => feedsEarlier?.click())
     const update = setPersonalDraft.mock.calls[0]?.[0] as
@@ -398,10 +399,10 @@ describe('WorkspacePersonalizationPanel', () => {
     expect(update).toBeTypeOf('function')
     const updated = update!(draft)
     expect(updated.modules.get('primary.feeds')?.order).toBeLessThan(
-      updated.modules.get('primary.investigations')?.order ?? Number.MAX_SAFE_INTEGER,
+      updated.modules.get('primary.teams')?.order ?? Number.MAX_SAFE_INTEGER,
     )
     expect(container.querySelector('[role="status"]')?.textContent).toContain(
-      'position 1 of 5',
+      'position 2 of 6',
     )
   })
 })

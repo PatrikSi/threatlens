@@ -69,6 +69,21 @@ export function DashboardDailyBriefPanel({
                         </p>
                       </div>
 
+                      {!!selectedBrief.evidence_warnings?.length && (
+                        <section aria-label="Briefing evidence notes" className="rounded border border-amber-400/40 bg-amber-50 p-3 text-sm text-slate dark:bg-amber-950/20 dark:text-white/80">
+                          <p className="font-semibold">Evidence notes</p>
+                          <ul className="mt-1 list-disc pl-5">
+                            {selectedBrief.evidence_warnings.map((warning) => <li key={warning}>{warning}</li>)}
+                          </ul>
+                        </section>
+                      )}
+                      {selectedBrief.brief_text?.trim() && (
+                        <section aria-label="Briefing overview" className="tl-daily-brief-section rounded border border-slate/20 bg-white/90 p-2.5 sm:p-3 dark:border-cyan-900/40 dark:bg-[#041612]/92">
+                          <h3 className="text-xs font-semibold text-slate dark:text-slate-300">Briefing overview</h3>
+                          <p className="mt-2 whitespace-pre-wrap break-words text-sm text-slate dark:text-white/75">{selectedBrief.brief_text}</p>
+                        </section>
+                      )}
+
                       {selectedBrief.key_points.length > 0 && (
                         <div className="tl-daily-brief-section rounded border border-slate/20 bg-white/90 p-2.5 sm:p-3 dark:border-cyan-900/40 dark:bg-[#041612]/92">
                           <p className="text-xs font-semibold text-slate dark:text-slate-300">Key points</p>

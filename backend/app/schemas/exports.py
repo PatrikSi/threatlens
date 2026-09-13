@@ -124,6 +124,33 @@ class ArticleExportRequest(ExportSchema):
     options: ArticleExportOptions = Field(default_factory=ArticleExportOptions)
 
 
+class ArticleExportJobRequest(ArticleExportRequest):
+    idempotency_key: uuid.UUID
+
+
+class ArticleExportJobResponse(ExportSchema):
+    id: uuid.UUID
+    format: ExportFormat
+    status: Literal["queued", "running", "ready", "failed", "cancelled", "expired"]
+    created_at: datetime
+    expires_at: datetime
+    started_at: datetime | None
+    completed_at: datetime | None
+    attempts: int
+    completed_items: int
+    item_count: int | None
+    file_size: int | None
+    filename: str | None
+    error_code: str | None
+    message: str | None
+    download_available: bool
+
+
+class ArticleExportJobList(ExportSchema):
+    items: list[ArticleExportJobResponse]
+    has_more: bool
+
+
 class ExportOptionEntry(ExportSchema):
     id: uuid.UUID
     name: str

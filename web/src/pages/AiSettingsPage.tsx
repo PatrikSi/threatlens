@@ -11,9 +11,11 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 
 import { apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
+import { accessibleQueryData } from '../api/queryData'
 import { SettingsPageHeader } from '../components/SettingsPageHeader'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
+import { useAiProviderConnections } from './useAiProviderConnections'
 import {
   AIReprocessQueueRequest,
   resolveAiReprocessQueueState,
@@ -33,7 +35,6 @@ import {
   AiSettingsPageView,
   type AiActivityTabProps,
   type AiConfigurationTabProps,
-  type AiOverviewTabProps,
   type AiSettingsNotice,
   type AiTab,
 } from './AiSettingsPageView'
@@ -62,7 +63,6 @@ import {
   AIDailyBriefBackfillResponse,
   AIDailyBriefSourceItemResponse,
   AILiveStatusResponse,
-  AIOpsOverviewResponse,
   AIReprocessResponse,
   AISettings,
   AISettingsUpdateRequest,
@@ -77,7 +77,7 @@ import {
 
 const AI_QUERY_STALE_MS = 15_000
 const AI_REFERENCE_STALE_MS = 60_000
-const AI_CONNECTION_TEST_TIMEOUT_BUFFER_MS = 15_000
+const AI_CONNECTION_TEST_TIMEOUT_MS = 45_000
 const CONNECTION_TEST_BLOCKING_TASK_TYPES = new Set(['item_enrichment', 'daily_brief', 'reprocess'])
 const DEFAULT_RUN_FILTERS: RunFilters = {
   taskType: '',
@@ -157,6 +157,7 @@ export function AiSettingsPage() {
   const [settledActiveTab, setSettledActiveTab] = useState<AiTab>('overview')
   const activityTabRef = useRef<HTMLElement | null>(null)
   const selectedRunSectionRef = useRef<HTMLDivElement | null>(null)
+  const providerConnections = useAiProviderConnections(Boolean(currentUserQuery.data?.features.ai_enabled) && activeTab === 'configuration')
 
   const setDraft: Dispatch<SetStateAction<AISettingsDraft>> = (value) => {
     setDraftDirty(true)
@@ -172,8 +173,9 @@ export function AiSettingsPage() {
         endTime: reprocessEndTime.trim(),
         feedIds: [...reprocessFeedIds].sort(),
         selectedItemIds: selectedReprocessItems.map((item) => item.id).sort(),
+        itemSearch: reprocessItemSearch.trim(),
       }),
-    [reprocessDays, reprocessEndTime, reprocessFeedIds, reprocessLimit, reprocessStartTime, selectedReprocessItems],
+    [reprocessDays, reprocessEndTime, reprocessFeedIds, reprocessItemSearch, reprocessLimit, reprocessStartTime, selectedReprocessItems],
   )
   const rawReprocessScopeDirty = useMemo(
     () =>
@@ -182,8 +184,9 @@ export function AiSettingsPage() {
       reprocessStartTime.trim() !== '' ||
       reprocessEndTime.trim() !== '' ||
       reprocessFeedIds.length > 0 ||
-      selectedReprocessItems.length > 0,
-    [reprocessDays, reprocessEndTime, reprocessFeedIds, reprocessLimit, reprocessStartTime, selectedReprocessItems],
+      selectedReprocessItems.length > 0 ||
+      reprocessItemSearch.trim() !== '',
+    [reprocessDays, reprocessEndTime, reprocessFeedIds, reprocessItemSearch, reprocessLimit, reprocessStartTime, selectedReprocessItems],
   )
   const reprocessScopeDirty = isReprocessScopeDirty(
     rawReprocessScopeDirty,
@@ -191,6 +194,9 @@ export function AiSettingsPage() {
     reprocessScopeFingerprint,
   )
   const unsavedAiSettingsMessage = useMemo(() => {
+    if (providerConnections.dirty) {
+      return 'You have unsaved AI provider, assignment or settings changes. Leave without saving your work?'
+    }
     if (draftDirty && reprocessScopeDirty) {
       return 'You have unsaved AI settings changes and a reprocess scope in progress. Leave without saving or queueing that work?'
     }
@@ -198,15 +204,14 @@ export function AiSettingsPage() {
       return 'You have unsaved AI settings changes. Leave without saving?'
     }
     return 'You have a reprocess scope in progress. Leave without queueing or clearing it?'
-  }, [draftDirty, reprocessScopeDirty])
+  }, [draftDirty, providerConnections.dirty, reprocessScopeDirty])
   const confirmDiscardUnsavedAiSettingsChanges = useUnsavedChangesWarning(
-    draftDirty || reprocessScopeDirty,
+    draftDirty || providerConnections.dirty || reprocessScopeDirty,
     unsavedAiSettingsMessage,
   )
 
   const queryEnablement = deriveAiQueryEnablement(currentUserQuery.data, activeTab, settledActiveTab)
   const aiEnabled = queryEnablement.aiEnabled
-  const overviewQueriesEnabled = queryEnablement.overview
   const activityQueriesEnabled = queryEnablement.activity
   const configurationQueriesEnabled = queryEnablement.configuration
   const workloadQueriesEnabled = queryEnablement.workload
@@ -234,15 +239,13 @@ export function AiSettingsPage() {
   })
   const settingsReadyToSave = settingsAvailability.readyToSave
   const settingsSaveBlockedReason = settingsAvailability.saveBlockedReason
-  const queueWorkBlockedReason = settingsAvailability.queueWorkBlockedReason
-
-  const overviewQuery = useQuery({
-    queryKey: ['ai', 'ops', 'overview', days],
-    queryFn: ({ signal }) => apiFetch<AIOpsOverviewResponse>(`/ai/ops/overview?days=${days}`, { signal }),
-    enabled: overviewQueriesEnabled,
-    refetchInterval: 10000,
-    staleTime: AI_QUERY_STALE_MS,
-  })
+  const queueWorkBlockedReason = providerConnections.dirty
+    ? 'Save or discard your provider and assignment changes before queueing AI work.'
+    : settingsAvailability.queueWorkBlockedReason
+  const dailyBriefProviderBlockedReason = settingsQuery.data?.effective_feature_configured?.daily_brief === false
+    ? 'The daily brief provider is unavailable. Check its assignment, enabled state and credentials in Configuration.' : null
+  const itemProviderBlockedReason = settingsQuery.data?.effective_feature_configured?.item_enrichment === false
+    ? 'The article enrichment provider is unavailable. Check its assignment, enabled state and credentials in Configuration.' : null
 
   const liveStatusQuery = useQuery({
     queryKey: ['ai', 'ops', 'live'],
@@ -422,6 +425,7 @@ export function AiSettingsPage() {
         body: JSON.stringify(payload),
       }),
     onSuccess: (saved) => {
+      queryClient.setQueryData(['ai', 'settings'], saved)
       setDraftState(createDraftFromSettings(saved))
       setDraftDirty(false)
       setNotice({ tone: 'success', message: 'AI settings saved.' })
@@ -437,13 +441,9 @@ export function AiSettingsPage() {
   const testConnectionMutation = useMutation({
     mutationKey: ['ai', 'settings', 'test-connection'],
     mutationFn: () => {
-      const timeoutMs =
-        typeof settingsQuery.data?.request_timeout_seconds === 'number'
-          ? settingsQuery.data.request_timeout_seconds * 1000 + AI_CONNECTION_TEST_TIMEOUT_BUFFER_MS
-          : undefined
       return apiFetch<AITestConnectionResponse>('/ai/test-connection', {
         method: 'POST',
-        timeoutMs,
+        timeoutMs: AI_CONNECTION_TEST_TIMEOUT_MS,
       })
     },
     onSuccess: (result) => {
@@ -492,8 +492,10 @@ export function AiSettingsPage() {
         method: 'POST',
         body: JSON.stringify(payload),
       }),
-    onSuccess: (result) => {
-      clearReprocessScope()
+    onMutate: () => reprocessScopeFingerprint,
+    onSuccess: (result, _payload, submittedScope) => {
+      if (submittedScope === reprocessScopeFingerprint) clearReprocessScope()
+      else setQueuedReprocessScopeFingerprint(null)
       setNotice({ tone: 'success', message: `Queued AI reprocessing run ${result.run_id ?? result.task_id}.` })
       markAiQueriesStale(queryClient)
     },
@@ -547,20 +549,19 @@ export function AiSettingsPage() {
     if (settingsQuery.data?.model) {
       values.add(settingsQuery.data.model)
     }
-    for (const row of overviewQuery.data?.per_model ?? []) {
-      values.add(row.model)
-    }
     for (const run of runsQuery.data?.items ?? []) {
       if (run.model) {
         values.add(run.model)
       }
     }
     return ['all', ...Array.from(values)]
-  }, [overviewQuery.data?.per_model, runsQuery.data?.items, settingsQuery.data?.model])
+  }, [runsQuery.data?.items, settingsQuery.data?.model])
 
+  const queuedRunsData = accessibleQueryData(queuedRunsQuery)
+  const runningRunsData = accessibleQueryData(runningRunsQuery)
   const activeTopLevelRuns = useMemo(() => {
     const byId = new Map<string, AITaskRunResponse>()
-    for (const run of [...(runningRunsQuery.data?.items ?? []), ...(queuedRunsQuery.data?.items ?? [])]) {
+    for (const run of [...(runningRunsData?.items ?? []), ...(queuedRunsData?.items ?? [])]) {
       if (run.parent_run_id || run.finished_at || (run.status !== 'queued' && run.status !== 'running')) {
         continue
       }
@@ -574,7 +575,7 @@ export function AiSettingsPage() {
       }
       return (parseTimestamp(right.updated_at)?.getTime() ?? 0) - (parseTimestamp(left.updated_at)?.getTime() ?? 0)
     })
-  }, [queuedRunsQuery.data?.items, runningRunsQuery.data?.items])
+  }, [queuedRunsData?.items, runningRunsData?.items])
 
   const connectionTestBlockingRuns = useMemo(
     () => activeTopLevelRuns.filter(isConnectionTestBlockingRun),
@@ -690,7 +691,7 @@ export function AiSettingsPage() {
   }, [reprocessScopeDirty])
 
   function queueDailyBrief() {
-    const blockedReason = queueWorkBlockedReason ?? dailyBriefReprocessValidation
+    const blockedReason = queueWorkBlockedReason ?? dailyBriefProviderBlockedReason ?? dailyBriefReprocessValidation
     if (blockedReason) {
       setNotice({ tone: 'error', message: blockedReason })
       return
@@ -700,8 +701,8 @@ export function AiSettingsPage() {
   }
 
   function queueReprocess() {
-    if (queueWorkBlockedReason) {
-      setNotice({ tone: 'error', message: queueWorkBlockedReason })
+    if (queueWorkBlockedReason || itemProviderBlockedReason) {
+      setNotice({ tone: 'error', message: queueWorkBlockedReason ?? itemProviderBlockedReason! })
       return
     }
     if (!reprocessQueueState.payload) {
@@ -731,22 +732,6 @@ export function AiSettingsPage() {
     testConnectionMutation.mutate()
   }
 
-  function getOverviewProps(): AiOverviewTabProps {
-    return {
-      settings: settingsQuery.data,
-      readiness,
-      overview: overviewQuery.data,
-      isLoading: overviewQuery.isLoading,
-      isError: overviewQuery.isError,
-      errorMessage: overviewQuery.isError
-        ? resolveApiErrorMessage(overviewQuery.error, 'AI analytics could not be loaded')
-        : '',
-      days,
-      setDays,
-      onRefresh: () => invalidateAiQueries(queryClient),
-    }
-  }
-
   function getActivityProps(): AiActivityTabProps {
     return {
       days,
@@ -756,7 +741,7 @@ export function AiSettingsPage() {
       modelOptions,
       onRefresh: () => invalidateAiQueries(queryClient),
       runs: activeTopLevelRuns,
-      live: liveStatusQuery.data,
+      live: accessibleQueryData(liveStatusQuery),
       activeTasksLoading,
       activeTasksRefreshing,
       activeTasksErrorMessage,
@@ -767,6 +752,8 @@ export function AiSettingsPage() {
       dailyBriefDays: dailyBriefReprocessDays,
       setDailyBriefDays: setDailyBriefReprocessDays,
       dailyBriefPending: reprocessDailyBriefMutation.isPending,
+      dailyBriefProviderBlockedReason,
+      itemProviderBlockedReason,
       dailyBriefValidation: dailyBriefReprocessValidation,
       retainedDailyBriefLimit: settingsQuery.data?.daily_brief_history_limit ?? null,
       onQueueDailyBrief: queueDailyBrief,
@@ -813,7 +800,7 @@ export function AiSettingsPage() {
         setSelectedRunId(runId)
       },
       runDetailQuery,
-      briefSources: briefSourcesQuery.data ?? [],
+      briefSources: accessibleQueryData(briefSourcesQuery) ?? [],
       briefSourcesLoading: briefSourcesQuery.isLoading,
       briefSourcesErrorMessage: briefSourcesQuery.isError
         ? resolveApiErrorMessage(briefSourcesQuery.error, 'Daily brief sources could not be loaded')
@@ -824,6 +811,7 @@ export function AiSettingsPage() {
 
   function getConfigurationProps(): AiConfigurationTabProps {
     return {
+      providers: providerConnections,
       draft,
       setDraft,
       draftDirty,
@@ -839,6 +827,7 @@ export function AiSettingsPage() {
         !settingsReadyToSave ||
         !draftDirty ||
         testConnectionMutation.isPending ||
+        providerConnections.busy ||
         Boolean(draftValidationError),
       saveDisabledReason: configurationSaveBlockedReason,
       validation: draftValidation,
@@ -888,7 +877,6 @@ export function AiSettingsPage() {
       setActiveTab={setActiveTab}
       notice={notice}
       settings={settingsQuery.data}
-      overviewProps={getOverviewProps()}
       activityProps={getActivityProps()}
       configurationProps={getConfigurationProps()}
       activityTabRef={activityTabRef}

@@ -1,7 +1,11 @@
 import logging
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
+from starlette.responses import JSONResponse
+from app.schemas.ai_workflow import AIWorkflowDeferredResponse
+from app.services.ai_workflow_dispatch import AIWorkflowDeferred, defer_ai_workflow_run
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
@@ -18,6 +22,8 @@ from app.db.session import get_db
 from app.models.user import User
 from app.models.ai_task_run import AITaskRun
 from app.models.audit_log import AuditLog
+from app.schemas.ai_provider_admission import admission_limit_values
+from app.schemas.ai_provider_capabilities import capability_values
 from app.schemas.ai import (
     AIAuditEntryResponse,
     AIDailyBriefBackfillRequest,
@@ -43,6 +49,7 @@ from app.services.ai_config import (
     get_or_create_ai_settings,
     load_active_ai_settings,
 )
+from app.services.ai_connection_lifecycle import finish_connection_test
 from app.services.ai_integration import (
     AIIntegrationError,
     daily_brief_response_from_model,
@@ -128,7 +135,7 @@ def get_ai_settings_route(
 ):
     _ = admin
     settings = get_or_create_ai_settings(db)
-    return ai_settings_response_from_model(settings)
+    return ai_settings_response_from_model(settings, db=db)
 
 
 @router.put(
@@ -168,36 +175,24 @@ def update_ai_settings_route(
         "relevance_instructions": settings.relevance_instructions,
         "daily_brief_instructions": settings.daily_brief_instructions,
     }
+    report_setting_fields = (
+        "reporting_enabled",
+        "report_context_window_tokens",
+        "report_reserved_output_tokens",
+        "report_source_token_cap",
+        "report_max_sources",
+        "report_max_model_calls",
+        "report_context_safety_percent",
+    )
+    before_values.update({field: getattr(settings, field) for field in report_setting_fields})
+    before_values.update(capability_values(settings))
+    before_values.update(admission_limit_values(settings))
     apply_ai_settings_update(settings, payload)
     db.add(settings)
     after_changed_fields = [
         field_name
-        for field_name in (
-            "base_url",
-            "model",
-            "summary_enabled",
-            "relevance_enabled",
-            "daily_brief_enabled",
-            "auto_enrich_new_items",
-            "daily_brief_window_hours",
-            "daily_brief_max_items",
-            "daily_brief_history_limit",
-            "daily_brief_schedule_hour_utc",
-            "daily_brief_schedule_minute_utc",
-            "temperature",
-            "max_completion_tokens",
-            "request_timeout_seconds",
-            "request_max_retries",
-            "relevance_medium_threshold",
-            "relevance_high_threshold",
-            "item_enrichment_system_prompt",
-            "daily_brief_system_prompt",
-            "global_instructions",
-            "item_summary_instructions",
-            "relevance_instructions",
-            "daily_brief_instructions",
-        )
-        if before_values[field_name] != getattr(payload, field_name)
+        for field_name in before_values
+        if before_values[field_name] != getattr(settings, field_name)
     ]
     record_audit(
         db,
@@ -219,6 +214,9 @@ def update_ai_settings_route(
             "daily_brief_schedule_minute_utc": payload.daily_brief_schedule_minute_utc,
             "request_max_retries": payload.request_max_retries,
             "changed_fields": after_changed_fields,
+            "provider_capabilities": capability_values(settings),
+            "provider_limits": admission_limit_values(settings),
+            "report_settings": {field: getattr(payload, field) for field in report_setting_fields},
             "prompt_hashes": {
                 "item_enrichment_system_prompt": _hash_prompt(
                     payload.item_enrichment_system_prompt
@@ -240,7 +238,7 @@ def update_ai_settings_route(
     prune_daily_brief_history(db, keep_limit=payload.daily_brief_history_limit)
     db.commit()
     db.refresh(settings)
-    return ai_settings_response_from_model(settings)
+    return ai_settings_response_from_model(settings, db=db)
 
 
 @router.post(
@@ -249,10 +247,12 @@ def update_ai_settings_route(
     dependencies=[Depends(require_ai_enabled)],
 )
 def test_ai_connection_route(
+    request: Request,
     db: Session = Depends(get_db),
     admin: User = Depends(get_admin_user),
     _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_AI)),
 ):
+    authorization = require_ai_authorization_context(request)
     settings = get_or_create_ai_settings(db)
     workload = get_ai_connection_test_workload(db)
     if workload.has_active_work:
@@ -279,7 +279,7 @@ def test_ai_connection_route(
     start_ai_task_run(db, run_id=run.id, worker_name="api")
     db.commit()
     try:
-        result = test_ai_connection(db, task_run_id=run.id)
+        result = test_ai_connection(db, task_run_id=run.id, request_authorization=authorization)
     except AIIntegrationError as exc:
         finish_ai_task_run(
             db,
@@ -295,29 +295,7 @@ def test_ai_connection_route(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         ) from exc
 
-    finish_ai_task_run(
-        db,
-        run_id=run.id,
-        status=AI_STATUS_READY if result.success else AI_STATUS_ERROR,
-        reason=None if result.success else "unexpected_response",
-        error=result.error,
-        worker_name="api",
-        model=result.model,
-        latency_ms=result.latency_ms,
-    )
-    record_audit(
-        db,
-        actor_user_id=admin.id,
-        action="ai.connection.test",
-        resource_type="ai_settings",
-        success=result.success,
-        metadata={
-            "model": result.model,
-            "latency_ms": result.latency_ms,
-            "run_id": str(run.id),
-        },
-    )
-    db.commit()
+    finish_connection_test(db, run_id=run.id, result=result, actor_user_id=admin.id)
     return result
 
 
@@ -367,7 +345,7 @@ def get_latest_daily_brief_route(
     _scope_user: User = Depends(require_token_scopes(SCOPE_READ_ITEMS)),
     data_access: DataAccessContext = Depends(get_data_access_context),
 ):
-    active = load_active_ai_settings(db)
+    active = load_active_ai_settings(db, feature_type="daily_brief")
     if not active.ai_configured or not active.daily_brief_enabled:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Daily brief is unavailable"
@@ -394,7 +372,7 @@ def list_daily_briefs_route(
     _scope_user: User = Depends(require_token_scopes(SCOPE_READ_ITEMS)),
     data_access: DataAccessContext = Depends(get_data_access_context),
 ):
-    active = load_active_ai_settings(db)
+    active = load_active_ai_settings(db, feature_type="daily_brief")
     if not active.ai_configured or not active.daily_brief_enabled:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Daily brief is unavailable"
@@ -412,6 +390,7 @@ def list_daily_briefs_route(
 @router.post(
     "/daily-brief/generate",
     response_model=AIDailyBriefResponse,
+    responses={202: {"model": AIWorkflowDeferredResponse, "description": "Accepted; queued until provider capacity is available."}},
     dependencies=[Depends(require_ai_enabled)],
 )
 def generate_daily_brief_route(
@@ -426,7 +405,7 @@ def generate_daily_brief_route(
         trigger_source=AI_TRIGGER_MANUAL,
         actor_user_id=admin.id,
         model=settings.model,
-        metadata={"force": True},
+        metadata={"force": True, "inline_execution": True},
     )
     start_ai_task_run(
         db, run_id=run.id, worker_name="api", metadata_updates={"force": True}
@@ -452,6 +431,11 @@ def generate_daily_brief_route(
                 )
 
             result = run_daily_brief_generation(db, force=True, task_run_id=run.id)
+    except AIWorkflowDeferred as exc:
+        defer_ai_workflow_run(db, run_id=run.id, reason=exc.reason, retry_after_seconds=exc.retry_after_seconds)
+        db.commit()
+        queued = AIWorkflowDeferredResponse(reason=exc.reason, run_id=run.id)
+        return JSONResponse(status_code=202, content=queued.model_dump(mode="json"))
     except CoordinationUnavailableError as exc:
         finish_ai_task_run(
             db,
@@ -780,6 +764,20 @@ def reprocess_ai_for_recent_items_route(
 def _enqueue_task_run_or_fail(
     db: Session, *, run_id: uuid.UUID, task_factory, on_enqueue_failure=None
 ):
+    from app.models.ai_workflow import AIWorkflowDispatch
+    from app.services.ai_workflow_publication import publish_ai_workflow
+    if db.get(AIWorkflowDispatch, run_id) is not None:
+        # Registration committed with acceptance. Broker failure leaves accepted
+        # work queued for the durable dispatcher instead of discarding it.
+        bind = db.get_bind()
+        db.commit()  # Release the request's connection before the short dispatch transactions.
+
+        @contextmanager
+        def publication_session():
+            with Session(bind=bind) as publication_db:
+                yield publication_db
+
+        return publish_ai_workflow(run_id, session_factory=publication_session)
     try:
         return task_factory()
     except Exception as exc:
@@ -1007,16 +1005,17 @@ def cancel_ai_ops_run_route(
     data_access: DataAccessContext = Depends(get_data_access_context),
 ):
     summary = ai_task_run_would_deny_summary(
-        db,
-        data_access=data_access,
-        filters=(AITaskRun.id == run_id,),
-    )
+        db, data_access=data_access, filters=(AITaskRun.id == run_id,))
+    authorization = require_ai_authorization_context(request)
     try:
         run = cancel_ai_task_run_for_data_access(
             db,
             run_id=run_id,
             actor_user_id=admin.id,
             data_access=data_access,
+            authorization_checkpoint=lambda session: refence_ai_context(
+                session, authorization=authorization, data_access=data_access
+            ),
         )
     except ReportTaskLineageError as exc:
         logger.exception("report_task_lineage_invalid run_id=%s", run_id)
@@ -1031,7 +1030,6 @@ def cancel_ai_ops_run_route(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="AI task run not found"
         )
-    authorization = require_ai_authorization_context(request)
     refence_ai_context(db, authorization=authorization, data_access=data_access)
     record_audit(
         db,

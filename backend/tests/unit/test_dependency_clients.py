@@ -34,11 +34,24 @@ def test_postgres_engine_options_include_connection_statement_and_pool_deadlines
     monkeypatch.setattr(session_module.settings, "database_connect_timeout_seconds", 7)
     monkeypatch.setattr(session_module.settings, "database_statement_timeout_ms", 45_000)
     monkeypatch.setattr(session_module.settings, "database_pool_timeout_seconds", 12)
+    monkeypatch.setattr(session_module.settings, "database_pool_size", 3)
+    monkeypatch.setattr(session_module.settings, "database_max_overflow", 1)
+    monkeypatch.setattr(session_module.settings, "database_lock_timeout_ms", 2500)
 
     options = session_module._engine_options("postgresql+psycopg://user:pass@db/threatlens")
 
     assert options["pool_timeout"] == 12
-    assert options["connect_args"] == {"connect_timeout": 7, "options": "-c statement_timeout=45000"}
+    assert options["pool_size"] == 3
+    assert options["max_overflow"] == 1
+    assert options["connect_args"] == {
+        "connect_timeout": 7,
+        "keepalives": 1,
+        "keepalives_idle": 30,
+        "keepalives_interval": 10,
+        "keepalives_count": 3,
+        "tcp_user_timeout": 60_000,
+        "options": "-c statement_timeout=45000 -c lock_timeout=2500",
+    }
 
 
 def test_non_postgres_engine_options_do_not_receive_driver_specific_arguments():

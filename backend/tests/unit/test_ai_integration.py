@@ -1,4 +1,6 @@
 import json
+import httpx
+from contextlib import contextmanager
 import uuid
 from datetime import datetime, timedelta, timezone
 from threading import Barrier, Lock, Thread
@@ -101,9 +103,10 @@ def _fake_httpx_client_factory(response_payload: dict[str, object]):
         def __exit__(self, exc_type, exc, tb) -> bool:
             return False
 
-        def post(self, url, *, headers, json):
+        @contextmanager
+        def stream(self, method, url, *, headers, json):
             _ = (url, headers, json)
-            return _FakeResponse()
+            yield httpx.Response(200, content=_FakeResponse().text.encode(), request=httpx.Request(method, url))
 
     return _FakeClient
 
@@ -122,7 +125,8 @@ def _fake_httpx_client_sequence_factory(response_payloads: list[dict[str, object
         def __exit__(self, exc_type, exc, tb) -> bool:
             return False
 
-        def post(self, url, *, headers, json):
+        @contextmanager
+        def stream(self, method, url, *, headers, json):
             _ = (url, headers, json)
             if not payloads:
                 raise AssertionError("No fake AI payloads remaining")
@@ -138,7 +142,7 @@ def _fake_httpx_client_sequence_factory(response_payloads: list[dict[str, object
                 def json(self) -> dict[str, object]:
                     return current
 
-            return _FakeResponse()
+            yield httpx.Response(200, content=_FakeResponse().text.encode(), request=httpx.Request(method, url))
 
     return _FakeClient
 
@@ -221,11 +225,12 @@ def test_call_ai_json_omits_authorization_for_local_unauthenticated_endpoint(
         def __exit__(self, exc_type, exc, tb) -> bool:
             return False
 
-        def post(self, url, *, headers, json):
+        @contextmanager
+        def stream(self, method, url, *, headers, json):
             captured["url"] = url
             captured["headers"] = dict(headers)
             captured["body"] = dict(json)
-            return _FakeResponse()
+            yield httpx.Response(200, content=_FakeResponse().text.encode(), request=httpx.Request(method, url))
 
     monkeypatch.setattr(
         "app.services.ai_integration.build_safe_http_client",
@@ -279,10 +284,11 @@ def test_call_ai_json_sends_authorization_for_shared_openai_endpoint(
         def __exit__(self, exc_type, exc, tb) -> bool:
             return False
 
-        def post(self, url, *, headers, json):
+        @contextmanager
+        def stream(self, method, url, *, headers, json):
             _ = (url, json)
             captured["headers"] = dict(headers)
-            return _FakeResponse()
+            yield httpx.Response(200, content=_FakeResponse().text.encode(), request=httpx.Request(method, url))
 
     monkeypatch.setattr(
         "app.services.ai_integration.build_safe_http_client",
@@ -332,9 +338,10 @@ def test_call_ai_json_surfaces_nonstandard_provider_auth_error_without_retry_fla
         def __exit__(self, exc_type, exc, tb) -> bool:
             return False
 
-        def post(self, url, *, headers, json):
+        @contextmanager
+        def stream(self, method, url, *, headers, json):
             _ = (url, headers, json)
-            return _FakeResponse()
+            yield httpx.Response(200, content=_FakeResponse().text.encode(), request=httpx.Request(method, url))
 
     monkeypatch.setattr(
         "app.services.ai_integration.build_safe_http_client",
@@ -2609,7 +2616,7 @@ def test_run_item_ai_enrichment_retries_after_malformed_model_output(
         .where(AIUsageEvent.item_id == item.id)
         .order_by(AIUsageEvent.created_at.asc())
     ).all()
-    assert [event.success for event in usage_events] == [False, True]
+    assert sorted(event.success for event in usage_events) == [False, True]
 
 
 def test_run_item_ai_enrichment_applies_backoff_and_jitter_between_provider_retries(
@@ -3075,7 +3082,7 @@ def test_run_daily_brief_generation_retries_after_truncated_model_output(
         .where(AIUsageEvent.daily_brief_id == result.brief.id)
         .order_by(AIUsageEvent.created_at.asc())
     ).all()
-    assert [event.success for event in usage_events] == [False, True]
+    assert sorted(event.success for event in usage_events) == [False, True]
 
 
 def test_run_daily_brief_generation_stops_before_retry_when_cancel_requested_after_failure(

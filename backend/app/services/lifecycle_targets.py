@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import replace
 from datetime import datetime, timezone
 
 from sqlalchemy import and_, delete, exists, func, or_, select, text, update
 from sqlalchemy.orm import Session
+
 
 from app.models.action_approval import ActionApprovalRequest
 from app.models.ai_provider_attempt_receipt import AIProviderAttemptReceipt
@@ -54,6 +55,17 @@ from app.services.integration_maintenance import (
     _legacy_notification_delivery_retention_predicates,
     prune_integration_delivery_history,
 )
+from app.services.lifecycle_contracts import (
+    TargetPreview,
+    TargetBatch,
+    CandidateQuery as _CandidateQuery,
+)
+from app.services.lifecycle_pruning import incremental_pruning_candidates, lock_history_dependants
+from app.services.lifecycle_pruning_contracts import PruningContext
+from app.services.lifecycle_scanning import (
+    LifecycleScanStats,
+    lifecycle_candidate_window,
+)
 from app.services.lifecycle_dependencies import (
     MAX_LIFECYCLE_DEPENDENT_ROWS_PER_BATCH,
     has_lifecycle_dependants,
@@ -69,34 +81,6 @@ DEPENDENCY_PREVIEW_PARENT_LIMIT = 1_000
 _ALERT_RETENTION_DISABLED_DAYS = 365_000
 ARTICLE_BATCH_RECORD_LIMIT = 100
 ARTICLE_BATCH_BYTE_LIMIT = 32 * 1024 * 1024
-
-
-@dataclass(frozen=True)
-class TargetPreview:
-    eligible_count: int
-    protected_count: int = 0
-    protected_counts: dict[str, int] = field(default_factory=dict)
-    oldest_candidate_at: datetime | None = None
-    count_is_lower_bound: bool = False
-    is_partial: bool = False
-    eligible_bytes: int | None = None
-
-
-@dataclass(frozen=True)
-class TargetBatch:
-    evaluated_count: int
-    affected_count: int
-    protected_count: int = 0
-    skipped_count: int = 0
-    details: dict[str, int | str | bool] = field(default_factory=dict)
-    affected_bytes: int | None = None
-
-
-@dataclass(frozen=True)
-class _CandidateQuery:
-    model: type
-    timestamp: object
-    predicate: object
 
 
 def preview_lifecycle_target(
@@ -161,6 +145,31 @@ def execute_lifecycle_target_batch(
     options: dict[str, bool] | None = None,
     now: datetime | None = None,
 ) -> TargetBatch:
+    scan_stats = LifecycleScanStats()
+    result = _execute_lifecycle_target_batch(
+        db,
+        target_key=target_key,
+        cutoff=cutoff,
+        batch_size=batch_size,
+        run_id=run_id,
+        options=options,
+        now=now,
+        scan_stats=scan_stats,
+    )
+    return replace(result, details={**result.details, **scan_stats.details()})
+
+
+def _execute_lifecycle_target_batch(
+    db: Session,
+    *,
+    target_key: str,
+    cutoff: datetime,
+    batch_size: int,
+    run_id: uuid.UUID,
+    scan_stats: LifecycleScanStats,
+    options: dict[str, bool] | None = None,
+    now: datetime | None = None,
+) -> TargetBatch:
     current_time = now or datetime.now(timezone.utc)
     bounded_batch = max(1, min(int(batch_size), 1_000))
     if target_key in {
@@ -185,6 +194,7 @@ def execute_lifecycle_target_batch(
             now=current_time,
             batch_size=bounded_batch,
             max_dependent_rows=MAX_LIFECYCLE_DEPENDENT_ROWS_PER_BATCH,
+            scan_stats=scan_stats,
         )
         return TargetBatch(
             evaluated_count=deleted,
@@ -199,6 +209,7 @@ def execute_lifecycle_target_batch(
             db,
             cutoff=cutoff,
             batch_size=bounded_batch,
+            scan_stats=scan_stats,
         )
     if target_key == "ai_usage_history":
         count = _delete_ai_history_with_envelopes(
@@ -209,6 +220,7 @@ def execute_lifecycle_target_batch(
             bounded_batch,
             resource_type=DATA_ACCESS_RESOURCE_AI_USAGE_EVENT,
             max_dependent_rows=MAX_LIFECYCLE_DEPENDENT_ROWS_PER_BATCH,
+            scan_stats=scan_stats,
         )
         return TargetBatch(count, count)
     if target_key == "inactive_auth_sessions":
@@ -217,7 +229,9 @@ def execute_lifecycle_target_batch(
             db,
             target_key=target_key,
             query=query,
+            cutoff=cutoff,
             batch_size=bounded_batch,
+            scan_stats=scan_stats,
         )
     if (
         target_key.startswith("integration_")
@@ -229,6 +243,7 @@ def execute_lifecycle_target_batch(
             cutoff=cutoff,
             now=current_time,
             batch_size=bounded_batch,
+            scan_stats=scan_stats,
         )
     if target_key in {
         "closed_alert_history",
@@ -241,13 +256,16 @@ def execute_lifecycle_target_batch(
             cutoff=cutoff,
             now=current_time,
             batch_size=bounded_batch,
+            scan_stats=scan_stats,
         )
     query = _candidate_query(target_key, cutoff=cutoff, now=current_time)
     return _delete_generic(
         db,
         target_key=target_key,
         query=query,
+        cutoff=cutoff,
         batch_size=bounded_batch,
+        scan_stats=scan_stats,
     )
 
 
@@ -428,9 +446,7 @@ def _preview_integration_delivery_history(
             NotificationWebhookDelivery.id,
             NotificationWebhookDelivery.attempted_at,
         )
-        .where(
-            *_legacy_notification_delivery_retention_predicates(cutoff=cutoff)
-        )
+        .where(*_legacy_notification_delivery_retention_predicates(cutoff=cutoff))
         .order_by(
             NotificationWebhookDelivery.attempted_at.asc(),
             NotificationWebhookDelivery.id.asc(),
@@ -453,13 +469,9 @@ def _preview_integration_delivery_history(
     )
     bounded_total = len(generic_rows) + len(legacy_rows)
     count_is_lower_bound = (
-        generic_lower_bound
-        or legacy_lower_bound
-        or bounded_total > PREVIEW_COUNT_LIMIT
+        generic_lower_bound or legacy_lower_bound or bounded_total > PREVIEW_COUNT_LIMIT
     )
-    oldest_candidates = [
-        rows[0][1] for rows in (generic_rows, legacy_rows) if rows
-    ]
+    oldest_candidates = [rows[0][1] for rows in (generic_rows, legacy_rows) if rows]
     return TargetPreview(
         eligible_count=min(bounded_total, PREVIEW_COUNT_LIMIT),
         protected_count=generic_oversized + legacy_oversized,
@@ -518,13 +530,9 @@ def _preview_ai_task_history(
     receipt_lower_bound = len(receipt_rows) > PREVIEW_COUNT_LIMIT
     bounded_total = len(task_rows) + len(receipt_rows)
     count_is_lower_bound = (
-        task_lower_bound
-        or receipt_lower_bound
-        or bounded_total > PREVIEW_COUNT_LIMIT
+        task_lower_bound or receipt_lower_bound or bounded_total > PREVIEW_COUNT_LIMIT
     )
-    oldest_candidates = [
-        rows[0][1] for rows in (task_rows, receipt_rows) if rows
-    ]
+    oldest_candidates = [rows[0][1] for rows in (task_rows, receipt_rows) if rows]
     return TargetPreview(
         eligible_count=min(bounded_total, PREVIEW_COUNT_LIMIT),
         protected_count=task_oversized,
@@ -606,10 +614,12 @@ def _partition_preview_rows(
         model=model,
         parent_ids=[row[0] for row in candidate_rows],
     )
-    return (
-        [row for row in candidate_rows if row[0] in eligible_ids],
-        len(oversized_ids),
+    incremental_ids = incremental_pruning_candidates(
+        db, model=model, parent_ids=list(oversized_ids),
+        max_dependent_rows=MAX_LIFECYCLE_DEPENDENT_ROWS_PER_BATCH,
     )
+    return ([row for row in candidate_rows if row[0] in eligible_ids | incremental_ids],
+            len(oversized_ids - incremental_ids))
 
 
 def _delete_generic(
@@ -617,17 +627,20 @@ def _delete_generic(
     *,
     target_key: str,
     query: _CandidateQuery,
+    cutoff: datetime,
     batch_size: int,
+    scan_stats: LifecycleScanStats,
 ) -> TargetBatch:
-    ids = list(
-        db.scalars(
-            select(query.model.id)
-            .where(query.predicate)
-            .order_by(query.timestamp.asc(), query.model.id.asc())
-            .limit(lifecycle_parent_scan_limit(batch_size))
-            .with_for_update(skip_locked=True)
-        ).all()
+    window = lifecycle_candidate_window(
+        db,
+        select(query.model.id).where(query.predicate),
+        model=query.model,
+        timestamp=query.timestamp,
+        limit=lifecycle_parent_scan_limit(batch_size),
+        durable=True,
+        stats=scan_stats,
     )
+    ids = window.ids
     if not ids:
         return TargetBatch(0, 0)
     selection = select_with_dependent_budget(
@@ -635,8 +648,10 @@ def _delete_generic(
         model=query.model,
         candidate_ids=ids,
         max_parent_records=batch_size,
+        pruning=PruningContext(cutoff, query.predicate),
     )
-    ids = selection.ids
+    window.advance(selection)
+    ids = lock_history_dependants(db, model=query.model, parent_ids=selection.ids)
     if not ids:
         return TargetBatch(
             evaluated_count=selection.oversized_count,
@@ -932,6 +947,7 @@ def _delete_ai_task_history(
     *,
     cutoff: datetime,
     batch_size: int,
+    scan_stats: LifecycleScanStats,
 ) -> TargetBatch:
     predicate = and_(
         AITaskRun.finished_at.is_not(None),
@@ -953,6 +969,7 @@ def _delete_ai_task_history(
         resource_type=DATA_ACCESS_RESOURCE_AI_TASK_RUN,
         extra_predicate=predicate,
         max_dependent_rows=MAX_LIFECYCLE_DEPENDENT_ROWS_PER_BATCH,
+        scan_stats=scan_stats,
     )
     remaining = max(0, batch_size - task_count)
     receipt_count = (
@@ -981,6 +998,7 @@ def _prune_integration_target(
     cutoff: datetime,
     now: datetime,
     batch_size: int,
+    scan_stats: LifecycleScanStats,
 ) -> TargetBatch:
     result = prune_integration_delivery_history(
         db,
@@ -995,6 +1013,7 @@ def _prune_integration_target(
         prune_metrics=target_key == "integration_metrics",
         prune_orphans=False,
         max_dependent_rows=MAX_LIFECYCLE_DEPENDENT_ROWS_PER_BATCH,
+        scan_stats=scan_stats,
         commit=False,
     )
     primary_key = {
@@ -1020,6 +1039,7 @@ def _prune_alert_target(
     cutoff: datetime,
     now: datetime,
     batch_size: int,
+    scan_stats: LifecycleScanStats,
 ) -> TargetBatch:
     if target_key == "closed_alert_history":
         return _prune_closed_alert_history(
@@ -1050,6 +1070,7 @@ def _prune_alert_target(
         prune_evaluations=target_key == "alert_evaluation_history",
         prune_metrics=target_key == "alert_metrics",
         max_dependent_rows=MAX_LIFECYCLE_DEPENDENT_ROWS_PER_BATCH,
+        scan_stats=scan_stats,
     )
     primary = {
         "alert_evaluation_history": result.evaluations_deleted,
@@ -1114,8 +1135,7 @@ def _prune_closed_alert_history(
                     candidates.predicate,
                     ~exists(
                         select(AlertOccurrenceActivity.id).where(
-                            AlertOccurrenceActivity.occurrence_id
-                            == AlertOccurrence.id
+                            AlertOccurrenceActivity.occurrence_id == AlertOccurrence.id
                         )
                     ),
                 )

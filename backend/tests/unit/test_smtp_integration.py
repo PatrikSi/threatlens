@@ -1604,7 +1604,7 @@ def test_dispatch_daily_digest_notification_webhooks_emits_durable_event(
     )
     monkeypatch.setattr(
         "app.tasks.notification_tasks.load_active_ai_settings",
-        lambda _db: type(
+        lambda _db, **_kwargs: type(
             "ActiveAISettings",
             (),
             {"ai_enabled": True, "ai_configured": True, "daily_brief_enabled": True},
@@ -1671,7 +1671,7 @@ def test_daily_brief_notification_reconciler_does_not_requeue_routed_event(
     )
     monkeypatch.setattr(
         "app.tasks.notification_tasks.load_active_ai_settings",
-        lambda _db: type(
+        lambda _db, **_kwargs: type(
             "ActiveAISettings",
             (),
             {"ai_enabled": True, "ai_configured": True, "daily_brief_enabled": True},
@@ -1692,7 +1692,7 @@ def test_daily_brief_notification_reconciler_skips_when_ai_is_disabled(
     _use_feed_task_db_session(monkeypatch, db_session)
     monkeypatch.setattr(
         "app.tasks.notification_tasks.load_active_ai_settings",
-        lambda _db: type(
+        lambda _db, **_kwargs: type(
             "ActiveAISettings",
             (),
             {"ai_enabled": False, "ai_configured": False, "daily_brief_enabled": False},

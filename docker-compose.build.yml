@@ -6,15 +6,23 @@ services:
       context: ./backend
       dockerfile: ../docker/backend.Dockerfile
       args:
-        APP_VERSION: ${THREATLENS_BUILD_VERSION:-1.10.0}
+        APP_VERSION: ${THREATLENS_BUILD_VERSION:-2.0.0}
         BUILD_DATE: ${BUILD_DATE:-unknown}
         VCS_REF: ${VCS_REF:-unknown}
+
+  migrate:
+    image: *backend-image
+    pull_policy: never
 
   worker:
     image: *backend-image
     pull_policy: never
 
   worker-ai:
+    image: *backend-image
+    pull_policy: never
+
+  worker-exports:
     image: *backend-image
     pull_policy: never
 
@@ -37,7 +45,7 @@ services:
       context: ./web
       dockerfile: ../docker/web.Dockerfile
       args:
-        APP_VERSION: ${THREATLENS_BUILD_VERSION:-1.10.0}
+        APP_VERSION: ${THREATLENS_BUILD_VERSION:-2.0.0}
         BUILD_DATE: ${BUILD_DATE:-unknown}
         VCS_REF: ${VCS_REF:-unknown}
         VITE_API_BASE_URL: ${WEB_VITE_API_BASE_URL:-/api/v1}

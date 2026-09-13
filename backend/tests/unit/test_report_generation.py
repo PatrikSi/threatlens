@@ -8,8 +8,9 @@ from app.models.report import Report
 from app.models.report_section import ReportSection
 from app.models.report_source_item import ReportSourceItem
 from app.services import report_generation
-from app.services.ai_context_budget import build_context_budget
-from app.services.ai_provider_client import AIIntegrationError
+from app.services.report_evidence_contract import REPORT_EVIDENCE_CONTRACT_VERSION
+from app.services.ai_context_budget import AIContextBudgetError, build_context_budget
+from app.services.ai_provider_client import AICompletionResult, AIIntegrationError
 from app.services.report_prompt_budget import build_evidence_messages, estimate_message_tokens
 from app.services.report_execution import ReportGenerationLeaseLostError
 from app.services.report_storage import reset_report_for_retry
@@ -32,7 +33,7 @@ def test_unexpected_generation_error_moves_report_to_terminal_state(
         prompt_config_json={"objective": "Summarize material threats."},
         sections_config_json=[],
         metrics_json={},
-        coverage_json={},
+        coverage_json={"evidence_contract_version": REPORT_EVIDENCE_CONTRACT_VERSION},
         source_count=1,
         included_source_count=1,
         estimated_input_tokens=10,
@@ -71,7 +72,7 @@ def test_unexpected_generation_error_moves_report_to_terminal_state(
     monkeypatch.setattr(
         report_generation,
         "load_active_ai_settings",
-        lambda _db: SimpleNamespace(
+        lambda _db, **_kwargs: SimpleNamespace(
             ai_enabled=True,
             ai_configured=True,
             reporting_enabled=True,
@@ -269,7 +270,7 @@ def test_lost_execution_lease_does_not_overwrite_report_state(
         prompt_config_json={"objective": "Summarize material threats."},
         sections_config_json=[],
         metrics_json={},
-        coverage_json={},
+        coverage_json={"evidence_contract_version": REPORT_EVIDENCE_CONTRACT_VERSION},
         source_count=1,
         included_source_count=1,
         estimated_input_tokens=10,
@@ -307,7 +308,7 @@ def test_lost_execution_lease_does_not_overwrite_report_state(
     monkeypatch.setattr(
         report_generation,
         "load_active_ai_settings",
-        lambda _db: SimpleNamespace(
+        lambda _db, **_kwargs: SimpleNamespace(
             ai_enabled=True,
             ai_configured=True,
             reporting_enabled=True,
@@ -373,6 +374,176 @@ def test_report_completion_retry_limit_uses_only_unused_context_headroom():
         + budget.protocol_overhead_tokens
         == budget.context_window_tokens
     )
+
+
+@pytest.mark.parametrize(
+    "output_budget, provider_default, context_window, expected_maximum",
+    [
+        (1200, 5000, 8192, 5000),
+        (16_384, 5000, 65_536, 16_384),
+        (65_536, 131_072, 1_000_000, 131_072),
+        (131_072, 262_144, 1_000_000, 131_072),
+    ],
+)
+def test_report_output_budget_is_independent_and_retries_have_a_bounded_ceiling(
+    output_budget, provider_default, context_window, expected_maximum
+):
+    budget = build_context_budget(
+        context_window_tokens=context_window,
+        reserved_output_tokens=output_budget,
+        safety_percent=15,
+    )
+    active = SimpleNamespace(
+        report_reserved_output_tokens=output_budget,
+        max_completion_tokens=provider_default,
+    )
+    limits = report_generation._report_completion_limits(
+        active=active, budget=budget,
+        messages=[{"role": "user", "content": "Summarize the supplied evidence."}],
+    )
+
+    assert limits == (output_budget, expected_maximum)
+
+
+def test_large_report_retry_budget_uses_exact_context_headroom():
+    budget = build_context_budget(
+        context_window_tokens=32_768,
+        reserved_output_tokens=16_384,
+        safety_percent=15,
+    )
+    active = SimpleNamespace(
+        report_reserved_output_tokens=16_384, max_completion_tokens=65_536,
+    )
+    messages = [{"role": "user", "content": "Source evidence. " * 100}]
+    initial, maximum = report_generation._report_completion_limits(
+        active=active, budget=budget, messages=messages,
+    )
+    assert initial == 16_384
+    assert initial < maximum < active.max_completion_tokens
+    assert (
+        estimate_message_tokens(messages) + maximum
+        + budget.safety_margin_tokens + budget.protocol_overhead_tokens
+    ) == budget.context_window_tokens
+
+
+def test_report_output_budget_rejects_messages_without_safe_context_headroom():
+    budget = build_context_budget(
+        context_window_tokens=2048,
+        reserved_output_tokens=256,
+        safety_percent=5,
+    )
+    with pytest.raises(AIContextBudgetError, match="does not fit"):
+        report_generation._report_completion_limits(
+            active=SimpleNamespace(
+                report_reserved_output_tokens=256, max_completion_tokens=5000,
+            ),
+            budget=budget,
+            messages=[{"role": "user", "content": "Evidence " * 1000}],
+        )
+
+
+@pytest.mark.parametrize("output_budget", [0, 255, 131_073])
+def test_report_rejects_invalid_persisted_output_budget(output_budget):
+    budget = build_context_budget(
+        context_window_tokens=1_000_000,
+        reserved_output_tokens=1200,
+        safety_percent=15,
+    )
+    with pytest.raises(AIContextBudgetError, match="between 256 and 131,072"):
+        report_generation._report_completion_limits(
+            active=SimpleNamespace(
+                report_reserved_output_tokens=output_budget, max_completion_tokens=5000,
+            ),
+            budget=budget,
+            messages=[{"role": "user", "content": "Evidence"}],
+        )
+
+
+@pytest.mark.parametrize("empty_evidence", [False, True])
+@pytest.mark.parametrize("output_budget", [1200, 16_384, 65_536])
+def test_evidence_and_section_requests_use_the_configured_report_output_budget(
+    db_session, monkeypatch, output_budget, empty_evidence
+):
+    now = datetime.now(timezone.utc)
+    context_window = 262_144
+    report = Report(
+        id=uuid.uuid4(), title="Output budget report", report_type="custom",
+        status="queued", trigger_source="manual", generation_stage="queued",
+        period_start=now - timedelta(days=1), period_end=now,
+        prompt_config_json={"objective": "Summarize the observed activity."},
+        source_count=1, included_source_count=1,
+        coverage_json={"evidence_contract_version": REPORT_EVIDENCE_CONTRACT_VERSION},
+    )
+    db_session.add(report)
+    db_session.flush()
+    section = ReportSection(
+        report_id=report.id, section_key="executive_summary",
+        title="Executive Summary", position=1, status="pending",
+    )
+    db_session.add_all([
+        section,
+        ReportSourceItem(
+            report_id=report.id, citation_key="S1", included=True, rank=1,
+            title_snapshot="Source", feed_name_snapshot="Feed",
+            url_snapshot="https://example.com/source", first_seen_at_snapshot=now,
+            evidence_text="[S1] Analysts observed suspicious authentication activity.",
+            estimated_tokens=20,
+        ),
+    ])
+    db_session.commit()
+    active = SimpleNamespace(
+        ai_enabled=True, ai_configured=True, reporting_enabled=True,
+        report_context_window_tokens=context_window,
+        report_reserved_output_tokens=output_budget,
+        report_context_safety_percent=15, report_source_token_cap=700,
+        report_max_model_calls=20, max_completion_tokens=5000,
+        provider_type="openai_compatible", model="report-provider-model",
+    )
+    monkeypatch.setattr(
+        report_generation, "load_active_ai_settings", lambda _db, **_kwargs: active,
+    )
+    requests = []
+
+    def complete(_db, selected_provider, **kwargs):
+        assert selected_provider.max_completion_tokens == 5000
+        requests.append(kwargs)
+        payload = (
+            {"findings": [{"text": "Suspicious authentication activity.", "citations": ["S1"],
+                           "evidence_quotes": [{"citation": "S1", "quote": "Analysts observed suspicious authentication activity."}]}]}
+            if kwargs["provider_operation_scope"].startswith("evidence_batch:")
+            else {"body_markdown": "Suspicious authentication activity was observed. [S1]", "citations": ["S1"]}
+        )
+        if empty_evidence and "findings" in payload:
+            payload["findings"] = []
+        return AICompletionResult(
+            payload=payload, provider=active.provider_type, model=active.model,
+            latency_ms=1, prompt_tokens=100, completion_tokens=200, total_tokens=300,
+        )
+
+    monkeypatch.setattr(report_generation, "request_ai_json_with_usage", complete)
+    result = report_generation.generate_report(
+        db_session, report_id=report.id, task_run_id=None,
+    )
+
+    assert result.status == "ready"
+    expected_calls = 1 if empty_evidence else 2
+    assert result.model_calls == expected_calls
+    assert len(requests) == expected_calls
+    assert requests[0]["provider_operation_scope"] == "evidence_batch:1"
+    if not empty_evidence:
+        assert requests[1]["provider_operation_scope"] == f"section:{section.id}"
+    for request in requests:
+        assert request["max_completion_tokens"] == output_budget
+        assert request["max_retry_completion_tokens"] == max(output_budget, 5000)
+        assert request["feature_type"] == "report"
+    assert section.status == "ready"
+    assert section.citations_json == ([] if empty_evidence else ["S1"])
+    grounding = report.coverage_json["grounding"]
+    assert grounding["status"] == ("insufficient_evidence" if empty_evidence else "checked")
+    assert grounding["validated_findings"] == (0 if empty_evidence else 1)
+    if empty_evidence:
+        assert section.body_markdown == report_generation.NO_FINDINGS_BODY
+        assert any("no supported findings" in value for value in report.coverage_json["warnings"])
 
 
 def test_usage_counters_count_provider_attempts():

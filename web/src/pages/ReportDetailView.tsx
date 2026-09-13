@@ -1,7 +1,10 @@
+import { ReportEditorialPanel } from './ReportEditorialPanel'
 import type { ReportDetail } from '../types/api'
 import { Status } from './ReportLibrary'
 import { formatReportDate } from './reportingPageModel'
 import type { ReportingController } from './useReportingController'
+import { ReportMarkdownText } from './ReportMarkdownText'
+import { sanitizeHref } from './dashboardContent'
 
 
 type ReportDownloadFormat = 'markdown' | 'html' | 'pdf'
@@ -36,6 +39,7 @@ export function ReportDetailView({
         canManage={canManage}
       />
 
+      <ReportEditorialPanel key={report.id} report={report} canManage={canManage} canReview={controller.canAuthor} onDirtyChange={controller.setEditorialDirty} discard={controller.builderDraft.confirmDiscard} onRefresh={() => { void controller.reportDetailQuery.refetch() }} />
       {running && (
         <GenerationStatus
           status={report.status}
@@ -43,6 +47,7 @@ export function ReportDetailView({
         />
       )}
       {report.error && <GenerationError report={report} />}
+      <ReportGroundingStatus report={report} />
       {warnings.map((warning) => (
         <p
           key={warning}
@@ -55,6 +60,24 @@ export function ReportDetailView({
       <ReportStats report={report} />
       <ReportContent report={report} />
     </div>
+  )
+}
+
+
+function ReportGroundingStatus({ report }: { report: ReportDetail }) {
+  const value = report.coverage.grounding
+  const grounding = value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown> : undefined
+  if (report.status !== 'ready' || grounding?.version !== 1) return null
+  if (grounding.status === 'human_edited') return <p className="rounded-lg border border-slate/20 px-3 py-2 text-xs">The narrative was edited by a person. Review the retained source evidence; original AI grounding counters no longer describe this revision.</p>
+  const degraded = grounding.status !== 'checked'
+  return (
+    <p className="rounded-lg border border-slate/20 px-3 py-2 text-xs dark:border-white/10">
+      {degraded ? 'Evidence synthesis is incomplete. ' : 'Citation checks completed. '}
+      {String(grounding.validated_findings ?? 0)} findings include quotations matched to supplied excerpts;{' '}
+      {String(grounding.cited_claim_blocks ?? 0)} narrative blocks carry source citations.
+      {' '}These checks confirm source references, not whether every claim follows from its evidence. Review the sources before acting.
+    </p>
   )
 }
 
@@ -293,10 +316,11 @@ function ReportStats({ report }: { report: ReportDetail }) {
 
 function ReportContent({ report }: { report: ReportDetail }) {
   const includedSources = report.sources.filter((source) => source.included)
+  const citationTargets = new Map(includedSources.map((source) => [source.citation_key, `report-${report.id}-source-${source.citation_key}`]))
 
   return (
     <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-      <article className="rounded-lg border border-slate/20 bg-white/90 px-3 py-4 dark:border-cyan-900/40 dark:bg-[#041612]/90 sm:px-5">
+      <article className="min-w-0 rounded-lg border border-slate/20 bg-white/90 px-3 py-4 dark:border-cyan-900/40 dark:bg-[#041612]/90 sm:px-5">
         {report.sections.map((section) => (
           <section
             key={section.key}
@@ -304,7 +328,7 @@ function ReportContent({ report }: { report: ReportDetail }) {
           >
             <h2 className="font-display text-xl">{section.title}</h2>
             {section.body_markdown ? (
-              <ReportMarkdownText value={section.body_markdown} />
+              <ReportMarkdownText value={section.body_markdown} citationTargets={citationTargets} />
             ) : (
               <p className="mt-2 text-sm italic text-slate dark:text-slate-400">
                 This section is {section.status}.
@@ -324,10 +348,12 @@ function ReportContent({ report }: { report: ReportDetail }) {
           {includedSources.map((source) => (
             <a
               key={source.citation_key}
-              href={source.url}
+              id={citationTargets.get(source.citation_key)}
+              href={sanitizeHref(source.url) ?? undefined}
+              tabIndex={0}
               target="_blank"
               rel="noreferrer"
-              className="block px-3 py-2.5 text-sm hover:bg-slate/5 dark:hover:bg-white/[0.03]"
+              className="block px-3 py-2.5 text-sm hover:bg-slate/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] dark:hover:bg-white/[0.03]"
             >
               <span className="text-xs font-bold text-cyan-800 dark:text-cyan-200">
                 [{source.citation_key}]
@@ -342,24 +368,6 @@ function ReportContent({ report }: { report: ReportDetail }) {
           ))}
         </div>
       </aside>
-    </div>
-  )
-}
-
-
-function ReportMarkdownText({ value }: { value: string }) {
-  return (
-    <div className="mt-2 space-y-2 text-sm leading-6 text-slate-800 dark:text-slate-200">
-      {value.split('\n').map((line, index) =>
-        line.trim() ? (
-          <p
-            key={`${index}-${line.slice(0, 20)}`}
-            className={line.startsWith('- ') ? 'pl-3 before:mr-2 before:content-["•"]' : ''}
-          >
-            {line.replace(/^- /, '')}
-          </p>
-        ) : null,
-      )}
     </div>
   )
 }

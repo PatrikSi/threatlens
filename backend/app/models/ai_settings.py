@@ -5,9 +5,11 @@ from sqlalchemy import Boolean, DateTime, Float, Integer, JSON, String, Text, Uu
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.models.ai_provider_capabilities import AIProviderCapabilities
+from app.models.ai_provider_admission import AIProviderAdmissionLimits
 
 
-class AISettings(Base):
+class AISettings(AIProviderAdmissionLimits, AIProviderCapabilities, Base):
     __tablename__ = "ai_settings"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -15,7 +17,7 @@ class AISettings(Base):
     provider_type: Mapped[str] = mapped_column(String(32), nullable=False, default="openai_compatible", server_default="openai_compatible")
     base_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     model: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    temperature: Mapped[float] = mapped_column(Float, nullable=False, default=0.2, server_default="0.2")
+    temperature: Mapped[float | None] = mapped_column(Float().evaluates_none(), nullable=True, default=0.2, server_default="0.2")
     max_completion_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=5000, server_default="5000")
     request_timeout_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=300, server_default="300")
     request_max_retries: Mapped[int] = mapped_column(Integer, nullable=False, default=3, server_default="3")

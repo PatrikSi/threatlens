@@ -3,11 +3,10 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import Session, aliased
 
 from app.core.rbac import ROLE_ADMIN
-from app.core.token_scopes import SCOPE_WRITE_INVESTIGATIONS
 from app.models.investigation import (
     Investigation,
     InvestigationEvidence,
@@ -25,10 +24,10 @@ from app.schemas.investigation import (
     InvestigationMemberResponse,
     InvestigationNoteListResponse,
 )
-from app.services.auth_sessions import lock_user_auth_state, lock_user_auth_states
+from app.services.auth_sessions import lock_user_auth_states
 from app.services.authorization import (
     authorization_context_for_user,
-    lock_iam_policy_for_mutation,
+    fence_authorization_context,
 )
 from app.services.data_access_envelopes import (
     DATA_ACCESS_RESOURCE_INVESTIGATION,
@@ -50,8 +49,24 @@ from app.services.investigation_activity import (
     record_investigation_activity as _record_activity,
 )
 from app.services.investigation_owner_eligibility import (
-    eligible_investigation_owner_ids_query,
-    has_durable_investigation_write_access,
+    eligible_investigation_owner_ids_query as eligible_investigation_owner_ids_query,
+)
+from app.services.investigation_contracts import (
+    OWNER_MEMBER_ROLE,
+    WRITE_MEMBER_ROLES,
+    InvestigationNotFoundError,
+    InvestigationPermissionError,
+    InvestigationActorNotEligibleError as InvestigationActorNotEligibleError,
+    InvestigationReadAuthorizationChangedError,
+    InvestigationConflictError,
+    InvestigationValidationError,
+)
+from app.services.investigation_membership import (
+    require_owner as _require_owner,
+    validate_member_role_for_account as _validate_member_role_for_account,
+    lock_eligible_actor as _lock_eligible_actor,
+    require_individual_membership_management as _require_individual_membership_management,
+    require_another_owner as _require_another_owner,
 )
 from app.services.investigation_collections import (
     list_activity_page,
@@ -63,46 +78,12 @@ from app.services.investigation_collections import (
     summary_response as _summary_response,
 )
 from app.services.investigation_read_access import (
+    investigation_member_role,
+    lock_investigation_team,
     load_composed_investigation_read_access,
     lock_composed_investigation_write_access,
 )
-
-WRITE_MEMBER_ROLES = frozenset({"owner", "editor"})
-OWNER_MEMBER_ROLE = "owner"
-
-
-class InvestigationNotFoundError(LookupError):
-    code = "investigation_not_found"
-
-    def __init__(
-        self, detail: str = "Investigation not found.", *, code: str | None = None
-    ) -> None:
-        super().__init__(detail)
-        self.code = code or self.code
-
-
-class InvestigationPermissionError(PermissionError):
-    pass
-
-
-class InvestigationActorNotEligibleError(InvestigationPermissionError):
-    code = "investigation_actor_not_eligible"
-
-
-class InvestigationReadAuthorizationChangedError(InvestigationPermissionError):
-    code = "investigation_read_authorization_changed"
-
-
-class InvestigationConflictError(RuntimeError):
-    code = "investigation_conflict"
-
-    def __init__(self, detail: str, *, code: str | None = None) -> None:
-        super().__init__(detail)
-        self.code = code or self.code
-
-
-class InvestigationValidationError(ValueError):
-    pass
+from app.services.team_access import team_member_user_ids_query, team_access_predicate
 
 
 def list_investigations(
@@ -117,6 +98,7 @@ def list_investigations(
     include_archived: bool,
     page: int,
     page_size: int,
+    team_id: uuid.UUID | None = None,
 ) -> InvestigationListResponse:
     membership_role = (
         select(InvestigationMember.role)
@@ -139,6 +121,15 @@ def list_investigations(
         .correlate(Investigation)
         .scalar_subquery()
     )
+    team_member_count = (
+        select(func.count(User.id))
+        .where(team_access_predicate(Investigation.team_id, User.id))
+        .correlate(Investigation)
+        .scalar_subquery()
+    )
+    member_count = case(
+        (Investigation.team_id.is_not(None), team_member_count), else_=member_count
+    )
     note_count = (
         select(func.count(InvestigationNote.id))
         .where(
@@ -150,7 +141,11 @@ def list_investigations(
     )
     assignee = aliased(User)
     visibility_filter = or_(
-        Investigation.visibility == "team", membership_role.is_not(None)
+        team_access_predicate(Investigation.team_id, user.id),
+        and_(
+            Investigation.team_id.is_(None),
+            or_(Investigation.visibility == "team", membership_role.is_not(None)),
+        ),
     )
     filters = [
         visibility_filter,
@@ -162,6 +157,8 @@ def list_investigations(
     ]
     if not include_archived:
         filters.append(Investigation.status != "archived")
+    if team_id is not None:
+        filters.append(Investigation.team_id == team_id)
     if statuses:
         filters.append(Investigation.status.in_(statuses))
     if severities:
@@ -180,7 +177,9 @@ def list_investigations(
     base_query = (
         select(
             Investigation,
-            membership_role.label("current_user_role"),
+            investigation_member_role(membership_role, user.id).label(
+                "current_user_role"
+            ),
             evidence_count.label("evidence_count"),
             member_count.label("member_count"),
             note_count.label("note_count"),
@@ -222,6 +221,7 @@ def create_investigation(
     severity: str,
     visibility: str,
     assignee_user_id: uuid.UUID | None,
+    team_id: uuid.UUID | None = None,
 ) -> Investigation:
     normalized_title = _required_text(title, "Investigation title")
     if assignee_user_id is not None and assignee_user_id != user.id:
@@ -229,25 +229,31 @@ def create_investigation(
             "The initial assignee must be the creator. Add another member before assigning the investigation to them."
         )
     locked_actor = _lock_eligible_actor(db, user.id)
-    _validate_member_role_for_account(db, locked_actor, OWNER_MEMBER_ROLE)
+    lock_data_policy_revision_for_derivation(db)
+    if team_id is not None and not lock_investigation_team(db, team_id, user.id):
+        raise InvestigationNotFoundError("Team not found.")
+    if team_id is None:
+        _validate_member_role_for_account(db, locked_actor, OWNER_MEMBER_ROLE)
     investigation = Investigation(
         title=normalized_title,
         description=description.strip(),
         severity=severity,
         visibility=visibility,
+        team_id=team_id,
         assignee_user_id=assignee_user_id,
         created_by_user_id=user.id,
     )
     db.add(investigation)
     db.flush()
-    db.add(
-        InvestigationMember(
-            investigation_id=investigation.id,
-            user_id=user.id,
-            role=OWNER_MEMBER_ROLE,
-            added_by_user_id=user.id,
+    if team_id is None:
+        db.add(
+            InvestigationMember(
+                investigation_id=investigation.id,
+                user_id=user.id,
+                role=OWNER_MEMBER_ROLE,
+                added_by_user_id=user.id,
+            )
         )
-    )
     _record_activity(
         db,
         investigation_id=investigation.id,
@@ -306,7 +312,20 @@ def get_investigation_detail(
         user=user,
         data_access=data_access,
     )
-    members = _list_members(db, investigation_id)
+    members = (
+        _list_members(db, investigation_id) if investigation.team_id is None else []
+    )
+    member_count = len(members)
+    if investigation.team_id is not None:
+        # Named-team membership follows IAM and is paged through /teams/{id}/members.
+        member_count = int(
+            db.scalar(
+                select(func.count()).select_from(
+                    team_member_user_ids_query(investigation.team_id).subquery()
+                )
+            )
+            or 0
+        )
     evidence, evidence_count = list_recent_evidence(db, investigation_id)
     notes, note_count = list_recent_notes(db, investigation_id)
     assignee_email = db.scalar(
@@ -317,7 +336,7 @@ def get_investigation_detail(
             investigation,
             current_user_role=current_role,
             evidence_count=evidence_count,
-            member_count=len(members),
+            member_count=member_count,
             note_count=note_count,
             assignee_email=assignee_email,
         ).model_dump(),
@@ -384,7 +403,7 @@ def update_investigation(
     expected_version: int,
     changes: dict,
 ) -> tuple[Investigation, list[str]]:
-    lock_iam_policy_for_mutation(db)
+    fence_authorization_context(db, authorization_context_for_user(db, user))
     requested_assignee_id = changes.get("assignee_user_id")
     locked_accounts = lock_user_auth_states(
         db,
@@ -403,6 +422,10 @@ def update_investigation(
         data_access=data_access,
     )
     _require_expected_version(investigation, expected_version)
+    if investigation.team_id is not None and member.role != OWNER_MEMBER_ROLE:
+        raise InvestigationPermissionError(
+            "Only a team manager can change investigation settings. Team members can add evidence and notes."
+        )
     if investigation.status == "archived" and changes.get("status") not in {"open"}:
         raise InvestigationConflictError(
             "Archived investigations are read-only. Reopen the investigation before changing it.",
@@ -437,6 +460,17 @@ def update_investigation(
                     InvestigationMember.role.in_(WRITE_MEMBER_ROLES),
                 )
             )
+            if investigation.team_id is not None and db.scalar(
+                select(User.id).where(
+                    User.id == assignee_user_id,
+                    User.id.in_(team_member_user_ids_query(investigation.team_id)),
+                )
+            ):
+                assignee_membership = InvestigationMember(
+                    investigation_id=investigation.id,
+                    user_id=assignee_user_id,
+                    role="editor",
+                )
             if requested_assignee is None or assignee_membership is None:
                 raise InvestigationValidationError(
                     "The assignee must be an owner or editor of this investigation."
@@ -444,6 +478,12 @@ def update_investigation(
             _validate_member_role_for_account(
                 db, requested_assignee, assignee_membership.role
             )
+            if investigation.team_id is not None and not authorization_context_for_user(
+                db, requested_assignee
+            ).has("write:teams"):
+                raise InvestigationValidationError(
+                    "The team assignee needs current write:teams and write:investigations permissions."
+                )
         if investigation.assignee_user_id != assignee_user_id:
             investigation.assignee_user_id = assignee_user_id
             changed_fields.append("assignee_user_id")
@@ -503,7 +543,7 @@ def add_member(
     role: str,
     expected_version: int,
 ) -> InvestigationMember:
-    lock_iam_policy_for_mutation(db)
+    fence_authorization_context(db, authorization_context_for_user(db, user))
     target = lock_user_auth_states(db, [user.id, member_user_id]).get(member_user_id)
     investigation, actor_member = _lock_for_write(
         db,
@@ -512,6 +552,7 @@ def add_member(
         data_access=data_access,
     )
     _require_owner(actor_member)
+    _require_individual_membership_management(investigation)
     _require_expected_version(investigation, expected_version)
     _require_mutable_investigation(investigation, action="managing members")
     if target is None or not target.is_active or not target.is_approved:
@@ -561,7 +602,7 @@ def update_member(
     role: str,
     expected_version: int,
 ) -> tuple[InvestigationMember, bool]:
-    lock_iam_policy_for_mutation(db)
+    fence_authorization_context(db, authorization_context_for_user(db, user))
     target = lock_user_auth_states(db, [user.id, member_user_id]).get(member_user_id)
     investigation, actor_member = _lock_for_write(
         db,
@@ -570,6 +611,7 @@ def update_member(
         data_access=data_access,
     )
     _require_owner(actor_member)
+    _require_individual_membership_management(investigation)
     _require_expected_version(investigation, expected_version)
     _require_mutable_investigation(investigation, action="managing members")
     member = db.scalar(
@@ -634,6 +676,7 @@ def remove_member(
         data_access=data_access,
     )
     _require_owner(actor_member)
+    _require_individual_membership_management(investigation)
     _require_expected_version(investigation, expected_version)
     _require_mutable_investigation(investigation, action="managing members")
     member = db.scalar(
@@ -1076,76 +1119,6 @@ def _lock_for_write(
             "Your investigation membership is read-only."
         )
     return investigation, member
-
-
-def _require_owner(member: InvestigationMember) -> None:
-    if member.role != OWNER_MEMBER_ROLE:
-        raise InvestigationPermissionError(
-            "Only an investigation owner can manage members."
-        )
-
-
-def _validate_member_role_for_account(
-    db: Session, user: User, member_role: str
-) -> None:
-    if member_role == OWNER_MEMBER_ROLE and not has_durable_investigation_write_access(
-        db, user
-    ):
-        raise InvestigationValidationError(
-            "Investigation ownership requires an analyst or administrator account with "
-            "durable built-in access, or a locally managed investigation-write role. "
-            "Expiring identity-provider access can be used for editor membership but "
-            "cannot be the basis for ownership."
-        )
-    if member_role in WRITE_MEMBER_ROLES and (
-        not user.is_active
-        or not user.is_approved
-        or not authorization_context_for_user(db, user).has(SCOPE_WRITE_INVESTIGATIONS)
-    ):
-        raise InvestigationValidationError(
-            "Owner and editor membership requires an analyst or administrator account, "
-            "or an active, approved account with an explicit investigation-write role."
-        )
-
-
-def _lock_membership_account(db: Session, user_id: uuid.UUID) -> User | None:
-    """Serialize membership eligibility with IAM access reductions."""
-    return lock_user_auth_state(db, user_id)
-
-
-def _lock_eligible_actor(db: Session, user_id: uuid.UUID) -> User:
-    lock_iam_policy_for_mutation(db)
-    actor = _lock_membership_account(db, user_id)
-    if (
-        actor is None
-        or not actor.is_active
-        or not actor.is_approved
-        or not authorization_context_for_user(db, actor).has(SCOPE_WRITE_INVESTIGATIONS)
-    ):
-        raise InvestigationActorNotEligibleError(
-            "Your account is no longer active, approved, authorized as an analyst or "
-            "administrator, or granted explicit investigation write access. Sign in "
-            "again before retrying."
-        )
-    return actor
-
-
-def _require_another_owner(
-    db: Session, investigation_id: uuid.UUID, *, excluding_user_id: uuid.UUID
-) -> None:
-    other_owner = db.scalar(
-        eligible_investigation_owner_ids_query(
-            investigation_id,
-            excluding_user_id=excluding_user_id,
-        ).limit(1)
-    )
-    if other_owner is None:
-        raise InvestigationConflictError(
-            "An investigation must retain at least one owner who is active, approved, "
-            "and has investigation write access. "
-            "Promote an eligible member before changing this owner.",
-            code="investigation_owner_required",
-        )
 
 
 def _require_expected_version(

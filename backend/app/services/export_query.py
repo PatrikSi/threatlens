@@ -4,8 +4,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import String, and_, cast, false, func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy import String, and_, case, cast, false, func, literal, or_, select
+from sqlalchemy.orm import Session, defer
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.models.article import Article
@@ -15,7 +15,7 @@ from app.models.item import Item
 from app.models.item_ai_enrichment import ItemAIEnrichment
 from app.models.item_classification import ItemClassification
 from app.models.item_state import ItemState
-from app.models.tag import ItemTag
+from app.models.tag import ItemTag, Tag
 from app.schemas.exports import ArticleExportFilters, ArticleExportPreviewItem
 from app.services.export_models import (
     ExportAIInsight,
@@ -26,15 +26,42 @@ from app.services.export_models import (
     ExportTag,
     ExportUserState,
 )
+from app.services.export_artifacts import ExportSizeLimitError
+from app.services.ai_enrichment_provenance import current_enrichment_predicate
 from app.services.data_access_policy import (
     DataAccessContext,
     current_data_policy_revision,
     handling_label_access_predicate,
 )
-from app.services.item_views import load_tags_for_items
 from app.services.url_utils import normalize_url
 
 EXPORT_RECORD_BATCH_SIZE = 200
+EXPORT_RECORD_BATCH_MAX_BYTES = 8 * 1024 * 1024
+
+
+@dataclass(frozen=True)
+class ExportTextProjection:
+    include_article_text: bool = True
+    include_summaries: bool = True
+    character_limit: int | None = None
+    excluded_item_ids: frozenset[uuid.UUID] = frozenset()
+
+
+def _project_export_text(
+    column, *, projection: ExportTextProjection, article: bool = False
+):
+    if (article and not projection.include_article_text) or (
+        not article and not projection.include_summaries
+    ):
+        return cast(literal(None), String)
+    value = (
+        func.substr(column, 1, projection.character_limit)
+        if projection.character_limit is not None
+        else column
+    )
+    if projection.excluded_item_ids:
+        value = case((Item.id.in_(projection.excluded_item_ids), None), else_=value)
+    return value
 
 
 class ExportSnapshotChangedError(RuntimeError):
@@ -206,25 +233,125 @@ def iter_export_records(
     context: ExportQueryContext,
     include_iocs: bool,
     batch_size: int = EXPORT_RECORD_BATCH_SIZE,
+    text_projection: ExportTextProjection | None = None,
+    max_payload_bytes: int | None = None,
 ) -> Iterator[ExportRecord]:
+    text_projection = text_projection or ExportTextProjection()
+    payload_bytes = 0
     for start in range(0, len(item_ids), batch_size):
         assert_export_authorization_unchanged(db, context=context)
         chunk = list(item_ids[start : start + batch_size])
-        records_by_id = _load_export_record_batch(
-            db,
-            item_ids=chunk,
-            context=context,
-            include_iocs=include_iocs,
+        sizes = dict(
+            db.execute(
+                _base_item_query(
+                    context,
+                    Item.id,
+                    _export_payload_bytes(context, text_projection, include_iocs),
+                ).where(Item.id.in_(chunk))
+            ).all()
         )
-        assert_export_authorization_unchanged(db, context=context)
-        for item_id in chunk:
-            record = records_by_id.get(item_id)
-            if record is None:
-                raise ExportSnapshotChangedError(
-                    f"Export item {item_id} changed while the export was generated"
+        for bounded_chunk in _byte_bounded_export_chunks(chunk, sizes):
+            payload_bytes += sum(sizes[item_id] for item_id in bounded_chunk)
+            if max_payload_bytes is not None and payload_bytes > max_payload_bytes:
+                raise ExportSizeLimitError(
+                    "The selected source payload exceeds the planning byte budget"
                 )
-            yield record
+            records_by_id = _load_export_record_batch(
+                db,
+                item_ids=bounded_chunk,
+                context=context,
+                include_iocs=include_iocs,
+                text_projection=text_projection,
+                expected_sizes=sizes,
+            )
+            assert_export_authorization_unchanged(db, context=context)
+            for item_id in bounded_chunk:
+                record = records_by_id.get(item_id)
+                if record is None:
+                    raise ExportSnapshotChangedError(
+                        f"Export item {item_id} changed while the export was generated"
+                    )
+                yield record
+            # Do not retain the previous batch while materializing the next one.
+            del records_by_id
     assert_export_authorization_unchanged(db, context=context)
+
+
+def _byte_bounded_export_chunks(item_ids, sizes):
+    chunk, used = [], 0
+    for item_id in item_ids:
+        if item_id not in sizes:
+            raise ExportSnapshotChangedError(
+                "Matching articles changed while selecting export payloads"
+            )
+        size = sizes[item_id]
+        if size > EXPORT_RECORD_BATCH_MAX_BYTES:
+            raise ExportSizeLimitError(
+                "A source exceeds the 8 MiB export record budget; omit article text or narrow the selection"
+            )
+        if chunk and used + size > EXPORT_RECORD_BATCH_MAX_BYTES:
+            yield chunk
+            chunk, used = [], 0
+        chunk.append(item_id)
+        used += size
+    if chunk:
+        yield chunk
+
+
+def _export_payload_bytes(
+    context, projection: ExportTextProjection, include_iocs: bool
+):
+    def size(value):
+        return func.octet_length(func.coalesce(cast(value, String), ""))
+
+    fields = (
+        Item.title,
+        Item.source_guid,
+        Item.url,
+        Item.canonical_url,
+        Feed.name,
+        _project_export_text(Item.summary, projection=projection),
+        _project_export_text(Article.text, projection=projection, article=True),
+        Article.final_url,
+        Article.title_extracted,
+        Article.content_type,
+        Article.extraction_method,
+        Article.language,
+        Article.error,
+        _project_export_text(ItemAIEnrichment.summary_text, projection=projection),
+        ItemAIEnrichment.relevance_reasons_json,
+        ItemAIEnrichment.error,
+        ItemClassification.secondary_categories,
+        ItemClassification.scores_json,
+        ItemClassification.matched_terms_json,
+        context.state_subquery.c.note,
+    )
+    tag_bytes = (
+        select(func.coalesce(func.sum(size(Tag.name) + 256), 0))
+        .join(
+            ItemTag,
+            ItemTag.tag_id == Tag.id,
+        )
+        .where(ItemTag.item_id == Item.id)
+        .correlate(Item)
+        .scalar_subquery()
+    )
+    ioc_bytes = (
+        select(func.coalesce(func.sum(size(IOC.value_norm) + 256), 0))
+        .join(
+            ItemIOC,
+            ItemIOC.ioc_id == IOC.id,
+        )
+        .where(ItemIOC.item_id == Item.id)
+        .correlate(Item)
+        .scalar_subquery()
+    )
+    return (
+        2048
+        + sum(size(field) for field in fields)
+        + tag_bytes
+        + (ioc_bytes if include_iocs else 0)
+    )
 
 
 def assert_export_authorization_unchanged(
@@ -259,7 +386,11 @@ def build_preview_items(
             is_starred=record.state.is_starred,
             personal_state_available=personal_state_available,
             has_article_text=bool(
-                record.article and record.article.text and record.article.text.strip()
+                record.article
+                and (
+                    record.article.text_available
+                    or (record.article.text and record.article.text.strip())
+                )
             ),
             ioc_count=len(record.iocs),
         )
@@ -306,6 +437,8 @@ def _load_export_record_batch(
     item_ids: list[uuid.UUID],
     context: ExportQueryContext,
     include_iocs: bool,
+    text_projection: ExportTextProjection,
+    expected_sizes: dict[uuid.UUID, int],
 ) -> dict[uuid.UUID, ExportRecord]:
     if not item_ids:
         return {}
@@ -324,12 +457,55 @@ def _load_export_record_batch(
             ),
             context.state_subquery.c.note,
             context.state_subquery.c.state_updated_at,
-        ).where(Item.id.in_(item_ids))
+            _project_export_text(
+                Article.text, projection=text_projection, article=True
+            ).label("article_text"),
+            _project_export_text(Item.summary, projection=text_projection).label(
+                "publisher_summary"
+            ),
+            _project_export_text(
+                ItemAIEnrichment.summary_text, projection=text_projection
+            ).label("ai_summary"),
+            _article_has_text_clause().label("article_text_available"),
+            current_enrichment_predicate().label("ai_source_current"),
+        )
+        .options(
+            defer(Article.text, raiseload=True),
+            defer(Item.summary, raiseload=True),
+            defer(ItemAIEnrichment.summary_text, raiseload=True),
+            defer(ItemAIEnrichment.result_provenance_json, raiseload=True),
+            defer(Item.last_error, raiseload=True),
+            defer(Item.dedupe_key, raiseload=True),
+        )
+        .where(
+            Item.id.in_(item_ids),
+            _export_batch_size_matches(
+                context,
+                text_projection,
+                include_iocs,
+                item_ids,
+                expected_sizes,
+            ),
+        )
     ).all()
 
-    _, tag_details_by_item = load_tags_for_items(db, item_ids=item_ids)
+    _require_complete_export_batch(item_ids, {row.Item.id for row in rows})
+    tags_by_item = _load_export_tags_for_items(
+        db,
+        item_ids=item_ids,
+        context=context,
+        text_projection=text_projection,
+        expected_sizes=expected_sizes,
+        include_iocs=include_iocs,
+    )
     iocs_by_item = (
-        _load_iocs_for_items(db, item_ids=item_ids, context=context)
+        _load_iocs_for_items(
+            db,
+            item_ids=item_ids,
+            context=context,
+            text_projection=text_projection,
+            expected_sizes=expected_sizes,
+        )
         if include_iocs
         else {}
     )
@@ -347,32 +523,106 @@ def _load_export_record_batch(
             url=normalize_url(item.url),
             canonical_url=normalize_url(item.canonical_url) or None,
             title=item.title,
-            summary=item.summary,
+            summary=row.publisher_summary,
             published_at=item.published_at,
             first_seen_at=item.first_seen_at,
             status=item.status,
             classification=_serialize_classification(classification),
-            ai=_serialize_ai(enrichment),
-            article=_serialize_article(article),
+            ai=_serialize_ai(enrichment, summary=row.ai_summary, source_current=bool(row.ai_source_current)),
+            article=_serialize_article(
+                article,
+                text=row.article_text,
+                text_available=row.article_text_available,
+            ),
             state=ExportUserState(
                 is_read=bool(row.is_read),
                 is_starred=bool(row.is_starred),
                 note=row.note,
                 updated_at=row.state_updated_at,
             ),
-            tags=[
-                ExportTag(
-                    id=detail.id,
-                    name=detail.name,
-                    source=detail.source,
-                    confidence=detail.confidence,
-                    rules_version=detail.rules_version,
-                )
-                for detail in tag_details_by_item.get(item.id, [])
-            ],
+            tags=tags_by_item.get(item.id, []),
             iocs=iocs_by_item.get(item.id, []),
         )
     return records
+
+
+def _export_batch_size_matches(
+    context, projection, include_iocs, item_ids, expected_sizes
+):
+    # Every materializing SELECT repeats this fence in the same statement as its
+    # payload rows. A separate check before the tag/IOC query leaves a growth race.
+    return _export_payload_bytes(context, projection, include_iocs) == case(
+        {item_id: expected_sizes[item_id] for item_id in item_ids},
+        value=Item.id,
+    )
+
+
+def _require_complete_export_batch(item_ids, loaded_ids):
+    if set(item_ids) != loaded_ids:
+        raise ExportSnapshotChangedError(
+            "Matching articles changed while loading export payloads"
+        )
+
+
+def _bounded_export_item_ids(
+    context, projection, include_iocs, item_ids, expected_sizes
+):
+    # Materialize one fence result per source before expanding associations;
+    # otherwise the planner can repeat the size subqueries for every tag/IOC.
+    return (
+        _base_item_query(context, Item.id.label("selected_item_id"))
+        .where(
+            Item.id.in_(item_ids),
+            _export_batch_size_matches(
+                context, projection, include_iocs, item_ids, expected_sizes
+            ),
+        )
+        .cte("bounded_export_items")
+        .prefix_with("MATERIALIZED")
+    )
+
+
+def _load_export_tags_for_items(
+    db: Session,
+    *,
+    item_ids,
+    context,
+    text_projection,
+    expected_sizes,
+    include_iocs,
+) -> dict[uuid.UUID, list[ExportTag]]:
+    bounded = _bounded_export_item_ids(
+        context, text_projection, include_iocs, item_ids, expected_sizes
+    )
+    rows = db.execute(
+        select(
+            bounded.c.selected_item_id,
+            Tag.id.label("tag_id"),
+            Tag.name,
+            ItemTag.source,
+            ItemTag.confidence,
+            ItemTag.rules_version,
+        )
+        .select_from(bounded)
+        .outerjoin(ItemTag, ItemTag.item_id == bounded.c.selected_item_id)
+        .outerjoin(Tag, Tag.id == ItemTag.tag_id)
+        .order_by(Tag.name.asc())
+    ).all()
+    # The outer join retains one marker row even for a source with no tags.
+    _require_complete_export_batch(item_ids, {row.selected_item_id for row in rows})
+    by_item: dict[uuid.UUID, list[ExportTag]] = {item_id: [] for item_id in item_ids}
+    for row in rows:
+        if row.tag_id is not None:
+            by_item[row.selected_item_id].append(
+                ExportTag(
+                    id=row.tag_id,
+                    name=row.name,
+                    source=row.source,
+                    confidence=round(float(row.confidence), 3),
+                    rules_version=row.rules_version,
+                )
+            )
+    return by_item
 
 
 def _load_iocs_for_items(
@@ -380,17 +630,25 @@ def _load_iocs_for_items(
     *,
     item_ids: list[uuid.UUID],
     context: ExportQueryContext,
+    text_projection: ExportTextProjection,
+    expected_sizes: dict[uuid.UUID, int],
 ) -> dict[uuid.UUID, list[ExportIOC]]:
     by_item: dict[uuid.UUID, list[ExportIOC]] = {item_id: [] for item_id in item_ids}
+    bounded = _bounded_export_item_ids(
+        context, text_projection, True, item_ids, expected_sizes
+    )
     rows = db.execute(
-        select(ItemIOC, IOC)
-        .join(IOC, IOC.id == ItemIOC.ioc_id)
-        .where(ItemIOC.item_id.in_(item_ids))
+        select(bounded.c.selected_item_id, ItemIOC, IOC)
+        .select_from(bounded)
+        .outerjoin(ItemIOC, ItemIOC.item_id == bounded.c.selected_item_id)
+        .outerjoin(IOC, IOC.id == ItemIOC.ioc_id)
+        .options(defer(IOC.value_raw, raiseload=True))
         .order_by(ItemIOC.item_id.asc(), IOC.type.asc(), IOC.value_norm.asc())
     ).all()
+    _require_complete_export_batch(item_ids, {row.selected_item_id for row in rows})
+    ioc_ids = {row.IOC.id for row in rows if row.IOC is not None}
     visible_timestamps: dict[uuid.UUID, tuple[datetime | None, datetime | None]] = {}
-    if context.data_access.enforced and rows:
-        ioc_ids = {ioc.id for _link, ioc in rows}
+    if context.data_access.enforced and ioc_ids:
         visible_timestamps = {
             ioc_id: (first_seen_at, last_seen_at)
             for ioc_id, first_seen_at, last_seen_at in db.execute(
@@ -411,7 +669,10 @@ def _load_iocs_for_items(
                 .group_by(ItemIOC.ioc_id)
             ).all()
         }
-    for link, ioc in rows:
+    for row in rows:
+        link, ioc = row.ItemIOC, row.IOC
+        if ioc is None:
+            continue
         first_seen_at, last_seen_at = visible_timestamps.get(
             ioc.id,
             (ioc.first_seen_at, ioc.last_seen_at),
@@ -447,12 +708,14 @@ def _serialize_classification(
     )
 
 
-def _serialize_ai(value: ItemAIEnrichment | None) -> ExportAIInsight | None:
+def _serialize_ai(
+    value: ItemAIEnrichment | None, *, summary: str | None, source_current: bool = False
+) -> ExportAIInsight | None:
     if value is None:
         return None
     return ExportAIInsight(
         status=value.status,
-        summary=value.summary_text,
+        summary=summary,
         relevance_score=float(value.relevance_score)
         if value.relevance_score is not None
         else None,
@@ -462,10 +725,13 @@ def _serialize_ai(value: ItemAIEnrichment | None) -> ExportAIInsight | None:
         model=value.model,
         generated_at=value.generated_at,
         error=value.error,
+        source_current=source_current,
     )
 
 
-def _serialize_article(value: Article | None) -> ExportArticleContent | None:
+def _serialize_article(
+    value: Article | None, *, text: str | None, text_available: bool
+) -> ExportArticleContent | None:
     if value is None:
         return None
     return ExportArticleContent(
@@ -474,7 +740,8 @@ def _serialize_article(value: Article | None) -> ExportArticleContent | None:
         http_status=value.http_status,
         content_type=value.content_type,
         title=value.title_extracted,
-        text=value.text,
+        text=text,
+        text_available=bool(text_available),
         extraction_method=value.extraction_method,
         language=value.language,
         word_count=value.word_count,

@@ -1,9 +1,17 @@
 import type { ArticleExportFilters, ArticleExportOptionEntry, ArticleExportPreviewItem } from './exports'
 
+export type ReportPublicationStatus = 'draft' | 'review' | 'approved' | 'published'
 export type ReportStatus = 'queued' | 'running' | 'ready' | 'error' | 'skipped'
 export type ReportTone = 'analytical' | 'concise' | 'executive' | 'technical'
 export type ReportDetailLevel = 'brief' | 'standard' | 'detailed'
 export type ReportDeliveryMode = 'link' | 'summary' | 'full'
+
+export interface ReportLibraryPage {
+  items: ReportListItem[]
+  current_cursor: string
+  next_cursor: string | null
+  as_of: string
+}
 
 export interface ReportPromptConfig {
   audience: string
@@ -92,6 +100,11 @@ export interface ReportListItem {
   title: string
   report_type: string
   status: ReportStatus
+  publication_status?: ReportPublicationStatus
+  review_required?: boolean
+  editorial_version?: number
+  approved_at?: string | null
+  published_at?: string | null
   trigger_source: 'manual' | 'scheduled' | 'retry'
   generation_stage: string
   period_start: string
@@ -138,6 +151,13 @@ export interface ReportSource {
 }
 
 export interface ReportDetail extends ReportListItem {
+  review_submitted_at?: string | null
+  review_submitted_by_user_id?: string | null
+  approved_by_user_id?: string | null
+  approval_self_review?: boolean
+  published_by_user_id?: string | null
+  editorial_note?: string | null
+  revision_current?: boolean | null
   filters: ArticleExportFilters
   prompt: ReportPromptConfig
   sections_config: ReportSectionConfig[]
@@ -172,6 +192,7 @@ export interface ReportSchedule {
   rolling_days: number
   filters: ArticleExportFilters
   custom_instructions: string | null
+  review_required?: boolean
   delivery_enabled: boolean
   delivery_mode: ReportDeliveryMode
   skip_empty: boolean

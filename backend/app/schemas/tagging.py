@@ -124,9 +124,23 @@ class TaggingRuleResponse(BaseModel):
     updated_at: datetime
 
 
+class TaggingRecoveryError(BaseModel):
+    code: str
+    count: int
+    message: str
+
+
+class TaggingRecoverySummary(BaseModel):
+    pending: int = 0
+    retrying: int = 0
+    needs_attention: int = 0
+    errors: list[TaggingRecoveryError] = Field(default_factory=list)
+
+
 class TaggingSettingsBundleResponse(BaseModel):
     settings: TaggingSettingsResponse
     rules: list[TaggingRuleResponse]
+    tagging_recovery: TaggingRecoverySummary = Field(default_factory=TaggingRecoverySummary)
 
 
 class TaggingRulePreviewItem(BaseModel):
@@ -136,12 +150,17 @@ class TaggingRulePreviewItem(BaseModel):
     classification: str | None
     first_seen_at: datetime
     current_tags: list[str]
+    current_tags_truncated: bool = False
     matched_sections: list[str]
 
 
 class TaggingRulePreviewResponse(BaseModel):
     total: int
     items: list[TaggingRulePreviewItem]
+    scanned_items: int = 0
+    candidate_items: int = 0
+    complete: bool = True
+    warnings: list[str] = Field(default_factory=list)
 
 
 class TaggingRulePreviewRequest(TaggingRuleWrite):

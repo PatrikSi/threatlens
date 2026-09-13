@@ -204,6 +204,7 @@ def test_reconciliation_releases_database_claim_when_publication_fails(
         "scanned": 1,
         "queued": 0,
         "enqueue_failed": True,
+        "escalated": 0,
     }
     request = db_session.get(AlertEvaluationRequest, intent.request_id)
     assert request.state == "pending"

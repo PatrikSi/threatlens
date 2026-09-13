@@ -43,6 +43,7 @@ vi.mock('../hooks/useCurrentUser', () => ({
 vi.mock('react-router-dom', async (importOriginal) => ({
   ...(await importOriginal<typeof import('react-router-dom')>()),
   useNavigate: () => reportingPageMocks.navigate,
+  useBlocker: () => ({ state: 'unblocked', proceed: vi.fn(), reset: vi.fn() }),
   useParams: () => ({ reportId: reportingPageMocks.routeReportId }),
 }))
 
@@ -295,7 +296,7 @@ beforeEach(() => {
   reportingPageMocks.apiFetch.mockImplementation((path: string) => {
     if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
     if (path === '/reports/templates') return Promise.resolve([])
-    if (path === '/reports?limit=100') return Promise.resolve([])
+    if (path.startsWith('/reports/library?')) return Promise.resolve({ items: [], current_cursor: 'first', next_cursor: null, as_of: '2026-09-08T00:00:00Z' })
     if (path === '/reports/report-1') return Promise.resolve(reportDetail())
     return Promise.reject(new Error(`Unexpected API path: ${path}`))
   })
@@ -356,7 +357,7 @@ describe('ReportingPage detail actions', () => {
     reportingPageMocks.apiFetch.mockImplementation((path: string) => {
       if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
       if (path === '/reports/templates') return Promise.resolve([])
-      if (path === '/reports?limit=100') return Promise.resolve([])
+      if (path.startsWith('/reports/library?')) return Promise.resolve({ items: [], current_cursor: 'first', next_cursor: null, as_of: '2026-09-08T00:00:00Z' })
       if (path === '/reports/report-1') return Promise.resolve(reportDetail('error'))
       return Promise.reject(new Error(`Unexpected API path: ${path}`))
     })
@@ -380,7 +381,7 @@ describe('ReportingPage detail actions', () => {
     reportingPageMocks.apiFetch.mockImplementation((path: string) => {
       if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
       if (path === '/reports/templates') return Promise.resolve([REPORT_TEMPLATE])
-      if (path === '/reports?limit=100') return Promise.resolve([])
+      if (path.startsWith('/reports/library?')) return Promise.resolve({ items: [], current_cursor: 'first', next_cursor: null, as_of: '2026-09-08T00:00:00Z' })
       return Promise.reject(new Error(`Unexpected API path: ${path}`))
     })
     const view = renderPage()
@@ -402,7 +403,7 @@ describe('ReportingPage detail actions', () => {
     reportingPageMocks.apiFetch.mockImplementation((path: string) => {
       if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
       if (path === '/reports/templates') return Promise.resolve([])
-      if (path === '/reports?limit=100') return Promise.resolve([])
+      if (path.startsWith('/reports/library?')) return Promise.resolve({ items: [], current_cursor: 'first', next_cursor: null, as_of: '2026-09-08T00:00:00Z' })
       if (path === '/reports/report-1') return Promise.resolve(reportDetail('queued'))
       return Promise.reject(new Error(`Unexpected API path: ${path}`))
     })
@@ -420,7 +421,7 @@ describe('ReportingPage detail actions', () => {
     reportingPageMocks.apiFetch.mockImplementation((path: string) => {
       if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
       if (path === '/reports/templates') return Promise.resolve([])
-      if (path === '/reports?limit=100') return Promise.resolve([])
+      if (path.startsWith('/reports/library?')) return Promise.resolve({ items: [], current_cursor: 'first', next_cursor: null, as_of: '2026-09-08T00:00:00Z' })
       if (path === '/reports/report-1') return Promise.resolve(waitingReport)
       return Promise.reject(new Error(`Unexpected API path: ${path}`))
     })
@@ -486,7 +487,7 @@ describe('ReportingPage detail actions', () => {
     reportingPageMocks.apiFetch.mockImplementation((path: string) => {
       if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
       if (path === '/reports/templates') return Promise.resolve([])
-      if (path === '/reports?limit=100') return Promise.resolve([])
+      if (path.startsWith('/reports/library?')) return Promise.resolve({ items: [], current_cursor: 'first', next_cursor: null, as_of: '2026-09-08T00:00:00Z' })
       if (path === '/reports/report-1') return Promise.resolve(reportDetail())
       if (path === '/reports/report-2') return Promise.resolve(reportDetail('ready', 'report-2'))
       return Promise.reject(new Error(`Unexpected API path: ${path}`))
@@ -543,17 +544,17 @@ describe('ReportingPage detail actions', () => {
     expect(reportingPageMocks.anchorClick).not.toHaveBeenCalled()
   })
 
-  it('retains the loaded report when a status refresh fails', async () => {
+  it.each([401, 403, 404, 503])('handles a loaded report refresh returning HTTP %s according to current access', async (status) => {
     let detailRequests = 0
     reportingPageMocks.apiFetch.mockImplementation((path: string) => {
       if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
       if (path === '/reports/templates') return Promise.resolve([])
-      if (path === '/reports?limit=100') return Promise.resolve([])
+      if (path.startsWith('/reports/library?')) return Promise.resolve({ items: [], current_cursor: 'first', next_cursor: null, as_of: '2026-09-08T00:00:00Z' })
       if (path === '/reports/report-1') {
         detailRequests += 1
         return detailRequests === 1
           ? Promise.resolve(reportDetail())
-          : Promise.reject(new Error('Status endpoint unavailable'))
+          : Promise.reject(new ApiError('Status endpoint unavailable', status, path))
       }
       return Promise.reject(new Error(`Unexpected API path: ${path}`))
     })
@@ -571,8 +572,15 @@ describe('ReportingPage detail actions', () => {
         expect(view.textContent).toContain('Status endpoint unavailable')
       })
     })
-    expect(view.textContent).toContain('Weekly threat landscape')
-    expect(view.textContent).toContain('The last loaded report remains visible')
+    if (status === 503) {
+      expect(view.textContent).toContain('Weekly threat landscape')
+      expect(view.textContent).toContain('The last loaded report remains visible')
+    } else {
+      expect(view.textContent).not.toContain('Weekly threat landscape')
+      expect(view.textContent).not.toContain('The last loaded report remains visible')
+      expect([...view.querySelectorAll('button')].some((entry) => entry.textContent === 'PDF')).toBe(false)
+      expect(button(view, 'Retry')).toBeDefined()
+    }
   })
 
   it('reuses the retry idempotency key after an ambiguous failure', async () => {
@@ -582,7 +590,7 @@ describe('ReportingPage detail actions', () => {
       (path: string, options?: RequestInit) => {
         if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
         if (path === '/reports/templates') return Promise.resolve([])
-        if (path === '/reports?limit=100') return Promise.resolve([])
+        if (path.startsWith('/reports/library?')) return Promise.resolve({ items: [], current_cursor: 'first', next_cursor: null, as_of: '2026-09-08T00:00:00Z' })
         if (path === '/reports/report-1') return Promise.resolve(reportDetail('error'))
         if (path === '/reports/report-1/retry') {
           retryCalls += 1
@@ -632,7 +640,7 @@ describe('ReportingPage detail actions', () => {
       (path: string, options?: RequestInit) => {
         if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
         if (path === '/reports/templates') return Promise.resolve([])
-        if (path === '/reports?limit=100') return Promise.resolve([])
+        if (path.startsWith('/reports/library?')) return Promise.resolve({ items: [], current_cursor: 'first', next_cursor: null, as_of: '2026-09-08T00:00:00Z' })
         if (path === '/reports/report-1') return Promise.resolve(reportDetail('error'))
         if (path === '/reports/report-1/retry') {
           retryCalls += 1
@@ -687,7 +695,7 @@ describe('ReportingPage schedule resilience', () => {
     reportingPageMocks.apiFetch.mockImplementation((path: string) => {
       if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
       if (path === '/reports/templates') return Promise.resolve([REPORT_TEMPLATE])
-      if (path === '/reports?limit=100') return Promise.resolve([])
+      if (path.startsWith('/reports/library?')) return Promise.resolve({ items: [], current_cursor: 'first', next_cursor: null, as_of: '2026-09-08T00:00:00Z' })
       if (path === '/reports/schedules') {
         scheduleRequests += 1
         return scheduleRequests === 1
@@ -720,9 +728,9 @@ describe('ReportingPage schedule resilience', () => {
     reportingPageMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
       if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
       if (path === '/reports/templates') return Promise.resolve([REPORT_TEMPLATE])
-      if (path === '/reports?limit=100') {
+      if (path.startsWith('/reports/library?')) {
         libraryRequests += 1
-        return Promise.resolve([])
+        return Promise.resolve({ items: [], current_cursor: 'first', next_cursor: null, as_of: '2026-09-08T00:00:00Z' })
       }
       if (path === '/reports/schedules') {
         scheduleRequests += 1
@@ -755,7 +763,7 @@ describe('ReportingPage schedule resilience', () => {
     reportingPageMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
       if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
       if (path === '/reports/templates') return Promise.resolve([REPORT_TEMPLATE])
-      if (path === '/reports?limit=100') return Promise.resolve([])
+      if (path.startsWith('/reports/library?')) return Promise.resolve({ items: [], current_cursor: 'first', next_cursor: null, as_of: '2026-09-08T00:00:00Z' })
       if (path === '/reports/schedules') return Promise.resolve([schedule])
       if (path === '/reports/schedules/schedule-1/run' && options?.method === 'POST') {
         runRequests += 1
@@ -808,7 +816,7 @@ describe('ReportingPage schedule resilience', () => {
     reportingPageMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
       if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
       if (path === '/reports/templates') return Promise.resolve([REPORT_TEMPLATE])
-      if (path === '/reports?limit=100') return Promise.resolve([])
+      if (path.startsWith('/reports/library?')) return Promise.resolve({ items: [], current_cursor: 'first', next_cursor: null, as_of: '2026-09-08T00:00:00Z' })
       if (path === '/reports/schedules') {
         scheduleRequests += 1
         return scheduleRequests === 1
@@ -873,7 +881,7 @@ describe('ReportingPage template pending state', () => {
     reportingPageMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
       if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
       if (path === '/reports/templates') return Promise.resolve([REPORT_TEMPLATE, secondTemplate])
-      if (path === '/reports?limit=100') return Promise.resolve([])
+      if (path.startsWith('/reports/library?')) return Promise.resolve({ items: [], current_cursor: 'first', next_cursor: null, as_of: '2026-09-08T00:00:00Z' })
       if (path === '/reports/templates/template-1/clone' && options?.method === 'POST') {
         cloneRequests += 1
         cloneHeaders.push(new Headers(options.headers).get('Idempotency-Key') ?? '')
@@ -914,6 +922,55 @@ describe('ReportingPage template pending state', () => {
 })
 
 describe('ReportingPage resource version refresh', () => {
+  it('persists both editorial review choices and keeps controls locked during each save', async () => {
+    reportingPageMocks.routeReportId = undefined
+    reportingPageMocks.userRole = 'admin'
+    let current = { ...reportSchedule('schedule-1', 'Monday landscape'), review_required: false, resource_version: 'v1' }
+    const writes: Array<{ version: string | null; body: Record<string, unknown> }> = []
+    let finishSave!: () => void
+    reportingPageMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
+      if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
+      if (path === '/reports/templates') return Promise.resolve([REPORT_TEMPLATE])
+      if (path.startsWith('/reports/library?')) return Promise.resolve({ items: [], current_cursor: 'first', next_cursor: null, as_of: '2026-09-08T00:00:00Z' })
+      if (path === '/reports/schedules') return Promise.resolve([current])
+      if (path === '/reports/schedules/schedule-1' && options?.method === 'PUT') {
+        const body = JSON.parse(String(options.body))
+        writes.push({ version: new Headers(options.headers).get('If-Match'), body })
+        return new Promise((resolve) => {
+          finishSave = () => {
+            current = { ...current, ...body, resource_version: `v${writes.length + 1}` }
+            resolve(current)
+          }
+        })
+      }
+      return Promise.reject(new Error(`Unexpected API path: ${path}`))
+    })
+    const view = renderPage()
+    await openReportingTab(view, 'Schedules')
+    for (const reviewRequired of [true, false]) {
+      const row = rowByName(view, 'Monday landscape')
+      act(() => rowButton(row, 'Edit').click())
+      const label = [...row.querySelectorAll('label')].find((entry) => entry.textContent?.includes('Require editorial review before publication'))!
+      const checkbox = label.querySelector('input')!
+      expect(checkbox.checked).toBe(!reviewRequired)
+      act(() => checkbox.click())
+      await act(async () => {
+        row.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+        await vi.waitFor(() => expect(checkbox.matches(':disabled')).toBe(true))
+      })
+      expect(writes.at(-1)?.body.review_required).toBe(reviewRequired)
+      await act(async () => {
+        finishSave()
+        await vi.waitFor(() => expect(row.querySelector('form')).toBeNull())
+      })
+      expect(current.review_required).toBe(reviewRequired)
+    }
+    act(() => rowButton(rowByName(view, 'Monday landscape'), 'Edit').click())
+    const label = [...view.querySelectorAll('form label')].find((entry) => entry.textContent?.includes('Require editorial review before publication'))!
+    expect(label.querySelector('input')!.checked).toBe(false)
+    expect(writes.map(({ version }) => version)).toEqual(['"v1"', '"v2"'])
+  })
+
   it('uses the server version from each successful schedule update', async () => {
     reportingPageMocks.routeReportId = undefined
     reportingPageMocks.userRole = 'admin'
@@ -927,7 +984,7 @@ describe('ReportingPage resource version refresh', () => {
     reportingPageMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
       if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
       if (path === '/reports/templates') return Promise.resolve([REPORT_TEMPLATE])
-      if (path === '/reports?limit=100') return Promise.resolve([])
+      if (path.startsWith('/reports/library?')) return Promise.resolve({ items: [], current_cursor: 'first', next_cursor: null, as_of: '2026-09-08T00:00:00Z' })
       if (path === '/reports/schedules') {
         scheduleListRequests += 1
         return Promise.resolve([current])
@@ -980,7 +1037,7 @@ describe('ReportingPage resource version refresh', () => {
     reportingPageMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
       if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
       if (path === '/reports/templates') return Promise.resolve([REPORT_TEMPLATE])
-      if (path === '/reports?limit=100') return Promise.resolve([])
+      if (path.startsWith('/reports/library?')) return Promise.resolve({ items: [], current_cursor: 'first', next_cursor: null, as_of: '2026-09-08T00:00:00Z' })
       if (path === '/reports/schedules') {
         scheduleListRequests += 1
         return Promise.resolve([current])
@@ -1034,7 +1091,7 @@ describe('ReportingPage resource version refresh', () => {
         templateListRequests += 1
         return Promise.resolve([current])
       }
-      if (path === '/reports?limit=100') return Promise.resolve([])
+      if (path.startsWith('/reports/library?')) return Promise.resolve({ items: [], current_cursor: 'first', next_cursor: null, as_of: '2026-09-08T00:00:00Z' })
       if (path === '/reports/templates/template-1' && options?.method === 'PUT') {
         updateHeaders.push(new Headers(options.headers).get('If-Match') ?? '')
         current = {
@@ -1096,7 +1153,7 @@ describe('ReportingPage resource version refresh', () => {
     reportingPageMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
       if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
       if (path === '/reports/templates') return Promise.resolve([REPORT_TEMPLATE])
-      if (path === '/reports?limit=100') return Promise.resolve([])
+      if (path.startsWith('/reports/library?')) return Promise.resolve({ items: [], current_cursor: 'first', next_cursor: null, as_of: '2026-09-08T00:00:00Z' })
       if (path === '/reports/schedules') return Promise.resolve(deleted ? [] : [schedule])
       if (path === '/reports/schedules/schedule-1' && options?.method === 'DELETE') {
         deleteHeader = new Headers(options.headers).get('If-Match') ?? ''
@@ -1123,7 +1180,7 @@ describe('ReportingPage resource version refresh', () => {
     reportingPageMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
       if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
       if (path === '/reports/templates') return Promise.resolve(deleted ? [] : [template])
-      if (path === '/reports?limit=100') return Promise.resolve([])
+      if (path.startsWith('/reports/library?')) return Promise.resolve({ items: [], current_cursor: 'first', next_cursor: null, as_of: '2026-09-08T00:00:00Z' })
       if (path === '/reports/templates/template-1' && options?.method === 'DELETE') {
         deleteHeader = new Headers(options.headers).get('If-Match') ?? ''
         deleted = true
@@ -1140,3 +1197,82 @@ describe('ReportingPage resource version refresh', () => {
     })
   })
 })
+
+it.each(['resource_version', 'updated_at'] as const)(
+  'keeps a schedule draft with its original %s through a conflict and reloads deliberately',
+  async (versionField) => {
+    reportingPageMocks.routeReportId = undefined
+    reportingPageMocks.userRole = 'admin'
+    const original = {
+      ...reportSchedule('schedule-1', 'Original schedule'),
+      [versionField]: '2026-09-08T09:00:00Z',
+      custom_instructions: 'Original shared instructions',
+    }
+    let current = original
+    const writes: Array<{ header: string | null; body: Record<string, unknown> }> = []
+    let rejectStale!: () => void
+    reportingPageMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
+      if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
+      if (path === '/reports/templates') return Promise.resolve([REPORT_TEMPLATE])
+      if (path.startsWith('/reports/library?')) return Promise.resolve({ items: [], current_cursor: 'first', next_cursor: null, as_of: '2026-09-08T00:00:00Z' })
+      if (path === '/reports/schedules') return Promise.resolve([current])
+      if (path === '/reports/schedules/schedule-1' && options?.method === 'PUT') {
+        const written = { header: new Headers(options.headers).get('If-Match'), body: JSON.parse(String(options.body)) }
+        writes.push(written)
+        if (written.header !== `"${current[versionField]}"`) {
+          return new Promise((_resolve, reject) => {
+            rejectStale = () => reject(new ApiError('The report schedule changed after you loaded it.', 412, path))
+          })
+        }
+        current = { ...current, ...written.body, [versionField]: '2026-09-08T11:00:00Z' }
+        return Promise.resolve(current)
+      }
+      return Promise.reject(new Error(`Unexpected API path: ${path}`))
+    })
+    const view = renderPage()
+    await openReportingTab(view, 'Schedules')
+    act(() => rowButton(rowByName(view, 'Original schedule'), 'Edit').click())
+    const name = view.querySelector('form input') as HTMLInputElement
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(name, 'My draft name')
+      name.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    current = { ...original, [versionField]: '2026-09-08T10:00:00Z', custom_instructions: 'Another administrator updated this' }
+    await act(async () => {
+      await queryClient!.refetchQueries({ queryKey: ['reports', 'schedules'] })
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    })
+    expect((view.querySelector('form textarea') as HTMLTextAreaElement).value).toBe('Original shared instructions')
+    expect(view.textContent).toContain('Your draft keeps its original version')
+    await act(async () => {
+      view.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+      await vi.waitFor(() => expect(writes).toHaveLength(1))
+    })
+    expect(writes[0]).toEqual({
+      header: '"2026-09-08T09:00:00Z"',
+      body: expect.objectContaining({ name: 'My draft name', custom_instructions: 'Original shared instructions' }),
+    })
+    expect(name.matches(':disabled')).toBe(true)
+    await act(async () => {
+      rejectStale()
+      await vi.waitFor(() => expect(view.textContent).toContain('changed after you loaded it'))
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    })
+    expect(name.isConnected).toBe(true)
+    expect(name.matches(':disabled')).toBe(false)
+    expect(name.value).toBe('My draft name')
+    expect((view.querySelector('form textarea') as HTMLTextAreaElement).value).toBe('Original shared instructions')
+
+    act(() => rowButton(rowByName(view, 'Original schedule'), 'Cancel').click())
+    act(() => rowButton(rowByName(view, 'Original schedule'), 'Edit').click())
+    expect((view.querySelector('form textarea') as HTMLTextAreaElement).value).toBe('Another administrator updated this')
+    await act(async () => {
+      view.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+      await vi.waitFor(() => expect(writes).toHaveLength(2))
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    })
+    expect(writes[1].header).toBe('"2026-09-08T10:00:00Z"')
+    expect(writes[1].body.custom_instructions).toBe('Another administrator updated this')
+    expect(view.querySelector('form')).toBeNull()
+  },
+)

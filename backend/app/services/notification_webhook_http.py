@@ -14,6 +14,7 @@ from app.schemas.notification import (
     NotificationWebhookField,
     NotificationWebhookTestResponse,
 )
+from app.services.bounded_response import read_response_prefix
 from app.services.safe_fetch import (
     REDIRECT_STATUS_CODES,
     RedirectError,
@@ -21,6 +22,7 @@ from app.services.safe_fetch import (
     build_safe_http_client,
 )
 from app.services.url_utils import ensure_runtime_fetchable_url
+from app.services.outbound_deadline import outbound_deadline
 
 settings = get_settings()
 MAX_RESPONSE_PREVIEW_CHARS = 4000
@@ -155,25 +157,13 @@ def read_response_preview(
     max_bytes: int = MAX_RESPONSE_PREVIEW_CHARS,
     lease_timeout_seconds: int | None = None,
 ) -> str:
-    preview_chunks: list[bytes] = []
-    remaining = max_bytes
-
-    for chunk in response.iter_bytes():
+    def check_lease() -> None:
         if lease_timeout_seconds is not None:
             _renew_notification_operation_lease(lease_timeout_seconds)
-        if remaining <= 0:
-            break
 
-        if len(chunk) <= remaining:
-            preview_chunks.append(chunk)
-            remaining -= len(chunk)
-            continue
-
-        preview_chunks.append(chunk[:remaining])
-        remaining = 0
-        break
-
-    return b"".join(preview_chunks).decode("utf-8", errors="replace")
+    return read_response_prefix(response, max_bytes, check=check_lease).decode(
+        "utf-8", errors="replace"
+    )
 
 
 def send_rendered_notification_request(
@@ -193,7 +183,7 @@ def send_rendered_notification_request(
 
     try:
         _renew_notification_operation_lease(rendered.timeout_seconds)
-        with build_safe_http_client(
+        with outbound_deadline(rendered.timeout_seconds), build_safe_http_client(
             timeout=timeout,
             headers={"User-Agent": settings.fetch_user_agent},
             allow_private_network=settings.allow_private_network_webhooks,

@@ -8,10 +8,11 @@ from app.models.integration import IntegrationEvent
 from app.models.report import Report
 from app.models.report_section import ReportSection
 from app.services.integration_events import emit_integration_event
+from app.services.report_publication import publication_snapshot, require_report_publication
 
 
 REPORT_READY_EVENT_TYPE = "report_ready"
-REPORT_READY_SCHEMA_VERSION = 2
+REPORT_READY_SCHEMA_VERSION = 3
 REPORT_READY_SNAPSHOT_SCHEMA_VERSION = 1
 REPORT_READY_IDEMPOTENCY_VERSION = 1
 
@@ -21,6 +22,7 @@ def emit_report_ready_event(db: Session, *, report: Report) -> IntegrationEvent:
         raise ValueError(
             "Only a ready report can emit a report-ready integration event."
         )
+    require_report_publication(db, report)
     if report.owner_user_id is None:
         raise ValueError("A report-ready integration event requires an owning user.")
     idempotency_key = f"report:{report.id}:ready:v{REPORT_READY_IDEMPOTENCY_VERSION}"
@@ -78,6 +80,7 @@ def emit_report_ready_event(db: Session, *, report: Report) -> IntegrationEvent:
         "scope_key": f"report:{report.id}:ready",
         "report_url": report_url,
         "delivery_mode": report.delivery_mode,
+        "publication": publication_snapshot(report),
         "daily_brief": {
             "schema_version": REPORT_READY_SNAPSHOT_SCHEMA_VERSION,
             "id": str(report.id),

@@ -50,6 +50,7 @@ def _stabilize_settings_env(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("ALLOW_PRIVATE_NETWORK_FETCH", "false")
     monkeypatch.setenv("AI_ENABLED", "false")
     monkeypatch.setenv("AI_API_KEY", "")
+    monkeypatch.setenv("AI_API_KEY_BASE_URL", "https://api.openai.com")
     get_settings.cache_clear()
     try:
         yield

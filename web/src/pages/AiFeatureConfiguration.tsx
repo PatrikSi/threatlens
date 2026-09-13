@@ -46,15 +46,24 @@ export function AiFeatureControls({ draft, setDraft, validation }: AiConfigurati
 
 export function AiReportingConfiguration({ draft, setDraft, validation }: AiConfigurationDraftProps) {
   const fields: Array<{ key: keyof typeof draft; label: string; note: string }> = [
-    { key: 'report_context_window_tokens', label: 'Model Context Window', note: 'The actual context window supported by the configured model.' },
-    { key: 'report_reserved_output_tokens', label: 'Output Token Reserve', note: 'Held back from every report call for valid structured output.' },
+    {
+      key: 'report_context_window_tokens',
+      label: 'Model Context Window',
+      note: 'The actual context window supported by the provider and model selected for reports.',
+    },
+    {
+      key: 'report_reserved_output_tokens',
+      label: 'Initial report completion tokens',
+      note: 'Initial output allowance for every evidence batch and report section, independent of the provider default. '
+        + 'Reserves the same space in the context window. Choose up to 131,072 tokens within the model output and context limits.',
+    },
     { key: 'report_source_token_cap', label: 'Per-source Token Cap', note: 'Long article text is truncated to this conservative estimate.' },
     { key: 'report_max_sources', label: 'Maximum Sources', note: 'Highest-ranked matching sources frozen into one report.' },
     { key: 'report_max_model_calls', label: 'Maximum Model Calls', note: 'Hard ceiling across evidence batches and report sections.' },
     { key: 'report_context_safety_percent', label: 'Context Safety Margin (%)', note: 'Extra space for tokenizer differences and provider framing.' },
   ]
   return (
-    <Panel title="Report context guardrails" subtitle="Bound each stage so local and smaller-context models receive predictable work.">
+    <Panel title="Report context guardrails" subtitle="Set report input and output budgets for the selected model.">
       <div className="grid gap-3 md:grid-cols-2">
         {fields.map((field) => (
           <Field key={field.key} label={field.label}>
@@ -63,13 +72,23 @@ export function AiReportingConfiguration({ draft, setDraft, validation }: AiConf
               value={String(draft[field.key])}
               onChange={(event) => updateDraft(setDraft, field.key, event.target.value as never)}
               inputMode="numeric"
+              aria-label={field.label}
+              aria-describedby={`report-help-${field.key} report-error-${field.key}`}
               aria-invalid={Boolean(validation[field.key])}
             />
-            <FieldError message={validation[field.key]} />
-            <span className="mt-1 block text-xs text-slate dark:text-white/60">{field.note}</span>
+            <span id={`report-error-${field.key}`}>
+              <FieldError message={validation[field.key]} />
+            </span>
+            <span id={`report-help-${field.key}`} className="mt-1 block text-xs text-slate dark:text-white/60">
+              {field.note}
+            </span>
           </Field>
         ))}
       </div>
+      <p className="mt-3 text-xs text-slate dark:text-white/70">
+        Truncated output can retry with more tokens, up to the greater of the report budget or provider default,
+        within the remaining context and the 131,072-token limit.
+      </p>
     </Panel>
   )
 }

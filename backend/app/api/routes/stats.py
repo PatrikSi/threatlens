@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import Integer, case, cast, func, select
+from sqlalchemy import Integer, and_, case, cast, func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import (
@@ -42,6 +42,8 @@ from app.schemas.stats import (
 )
 
 router = APIRouter(prefix="/stats", tags=["stats"])
+MAX_STATS_FEED_SELECTION = 500
+DEFAULT_TIMESERIES_FEED_LIMIT = 100
 
 
 @dataclass(frozen=True)
@@ -82,6 +84,11 @@ def _parse_feed_ids(feed_ids: str | None) -> list[uuid.UUID]:
         if feed_uuid not in seen:
             parsed.append(feed_uuid)
             seen.add(feed_uuid)
+            if len(parsed) > MAX_STATS_FEED_SELECTION:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail=f"Select at most {MAX_STATS_FEED_SELECTION} feeds for statistics.",
+                )
     return parsed
 
 
@@ -127,7 +134,10 @@ def get_stats_overview(
             func.sum(
                 case(
                     (
-                        Item.first_seen_at >= window.generated_at - timedelta(hours=24),
+                        and_(
+                            Item.first_seen_at >= window.generated_at - timedelta(hours=24),
+                            Item.first_seen_at <= window.generated_at,
+                        ),
                         1,
                     ),
                     else_=0,
@@ -136,7 +146,10 @@ def get_stats_overview(
             func.sum(
                 case(
                     (
-                        Item.first_seen_at >= window.generated_at - timedelta(days=7),
+                        and_(
+                            Item.first_seen_at >= window.generated_at - timedelta(days=7),
+                            Item.first_seen_at <= window.generated_at,
+                        ),
                         1,
                     ),
                     else_=0,
@@ -145,7 +158,10 @@ def get_stats_overview(
             func.sum(
                 case(
                     (
-                        Item.first_seen_at >= window.generated_at - timedelta(days=30),
+                        and_(
+                            Item.first_seen_at >= window.generated_at - timedelta(days=30),
+                            Item.first_seen_at <= window.generated_at,
+                        ),
                         1,
                     ),
                     else_=0,
@@ -193,7 +209,7 @@ def get_stats_overview(
             func.date(timeline_at).label("date_key"), func.count(Item.id).label("count")
         )
         .join(Feed, Feed.id == Item.feed_id)
-        .where(timeline_at >= window.start_at, feed_access_filter, *item_filters)
+        .where(timeline_at.between(window.start_at, window.generated_at), feed_access_filter, *item_filters)
         .group_by(func.date(timeline_at))
         .order_by(func.date(timeline_at).asc())
     )
@@ -209,7 +225,7 @@ def get_stats_overview(
             Feed.id,
             Feed.name,
             func.count(Item.id).label("total_items"),
-            func.sum(case((timeline_at >= window.start_at, 1), else_=0)).label(
+            func.sum(case((timeline_at.between(window.start_at, window.generated_at), 1), else_=0)).label(
                 "items_in_window"
             ),
             func.sum(case((Item.status == "error", 1), else_=0)).label("error_items"),
@@ -252,6 +268,7 @@ def get_stats_overview(
     top_domains = _load_top_domains(
         db,
         window_start=window.start_at,
+        window_end=window.generated_at,
         timeline_at=timeline_at,
         item_filters=item_filters,
         data_access=data_access,
@@ -302,7 +319,7 @@ def get_stats_overview(
 def get_feed_timeseries(
     days: int = Query(default=30, ge=7, le=365),
     feed_ids: str | None = Query(default=None),
-    top_feeds: int | None = Query(default=None, ge=1, le=500),
+    top_feeds: int = Query(default=DEFAULT_TIMESERIES_FEED_LIMIT, ge=1, le=MAX_STATS_FEED_SELECTION),
     db: Session = Depends(get_db),
     _principal: AuthenticatedPrincipal = Depends(require_permissions(SCOPE_READ_STATS)),
     data_access: DataAccessContext = Depends(get_data_access_context),
@@ -315,17 +332,19 @@ def get_feed_timeseries(
     )
 
     target_feed_ids = selected_feed_ids
+    total_feeds = 0
+    feed_limit = MAX_STATS_FEED_SELECTION if selected_feed_ids else top_feeds
     if not target_feed_ids:
         target_feed_rows_query = (
             select(Item.feed_id, func.count(Item.id).label("count"))
             .join(Feed, Feed.id == Item.feed_id)
-            .where(timeline_at >= window.start_at, feed_access_filter)
+            .where(timeline_at.between(window.start_at, window.generated_at), feed_access_filter)
             .group_by(Item.feed_id)
-            .order_by(func.count(Item.id).desc())
         )
-        if top_feeds is not None:
-            target_feed_rows_query = target_feed_rows_query.limit(top_feeds)
-        target_feed_rows = db.execute(target_feed_rows_query).all()
+        total_feeds = int(db.scalar(select(func.count()).select_from(target_feed_rows_query.subquery())) or 0)
+        target_feed_rows = db.execute(
+            target_feed_rows_query.order_by(func.count(Item.id).desc(), Item.feed_id.asc()).limit(feed_limit)
+        ).all()
         target_feed_ids = [feed_id for feed_id, _count in target_feed_rows]
 
     if not target_feed_ids:
@@ -335,6 +354,7 @@ def get_feed_timeseries(
             window_start_at=window.start_at,
             window_end_at=window.generated_at,
             series=[],
+            feed_limit=feed_limit,
         )
 
     feed_rows = db.execute(
@@ -343,10 +363,11 @@ def get_feed_timeseries(
         )
     ).all()
     feed_name_by_id = {feed_id: feed_name for feed_id, feed_name in feed_rows}
-    if data_access.enforced:
-        target_feed_ids = [
-            feed_id for feed_id in target_feed_ids if feed_id in feed_name_by_id
-        ]
+    target_feed_ids = [
+        feed_id for feed_id in target_feed_ids if feed_id in feed_name_by_id
+    ]
+    if selected_feed_ids:
+        total_feeds = len(feed_rows)
 
     if not target_feed_ids:
         return FeedTimeSeriesResponse(
@@ -355,6 +376,7 @@ def get_feed_timeseries(
             window_start_at=window.start_at,
             window_end_at=window.generated_at,
             series=[],
+            feed_limit=feed_limit,
         )
 
     time_rows = db.execute(
@@ -366,7 +388,7 @@ def get_feed_timeseries(
         .join(Feed, Feed.id == Item.feed_id)
         .where(
             Item.feed_id.in_(target_feed_ids),
-            timeline_at >= window.start_at,
+            timeline_at.between(window.start_at, window.generated_at),
             feed_access_filter,
         )
         .group_by(Item.feed_id, func.date(timeline_at))
@@ -406,6 +428,9 @@ def get_feed_timeseries(
         window_start_at=window.start_at,
         window_end_at=window.generated_at,
         series=series,
+        total_feeds=total_feeds,
+        feed_limit=feed_limit,
+        truncated=total_feeds > len(series),
     )
 
 
@@ -443,7 +468,7 @@ def get_activity_heatmap(
                 func.count(Item.id).label("count"),
             )
             .join(Feed, Feed.id == Item.feed_id)
-            .where(timeline_at >= window.start_at, feed_access_filter)
+            .where(timeline_at.between(window.start_at, window.generated_at), feed_access_filter)
             .group_by(
                 func.date(timeline_at), cast(func.extract("hour", timeline_at), Integer)
             )
@@ -465,7 +490,7 @@ def get_activity_heatmap(
                 func.count(Item.id).label("count"),
             )
             .join(Feed, Feed.id == Item.feed_id)
-            .where(timeline_at >= window.start_at, feed_access_filter)
+            .where(timeline_at.between(window.start_at, window.generated_at), feed_access_filter)
             .group_by(func.date(timeline_at))
         )
         if selected_feed_ids:
@@ -517,7 +542,7 @@ def get_signal_radar(
         .join(Item, Item.id == ItemClassification.item_id)
         .join(Feed, Feed.id == Item.feed_id)
         .where(
-            func.coalesce(Item.published_at, Item.first_seen_at) >= window.start_at,
+            func.coalesce(Item.published_at, Item.first_seen_at).between(window.start_at, window.generated_at),
             feed_access_filter,
         )
     )
@@ -566,6 +591,7 @@ def _load_top_domains(
     db: Session,
     *,
     window_start: datetime,
+    window_end: datetime,
     timeline_at,
     item_filters: list,
     data_access: DataAccessContext,
@@ -581,7 +607,7 @@ def _load_top_domains(
         select(Item.url_domain.label("domain"), func.count(Item.id).label("count"))
         .join(Feed, Feed.id == Item.feed_id)
         .where(
-            timeline_at >= window_start,
+            timeline_at.between(window_start, window_end),
             Item.status == "content_fetched",
             Item.url_domain.is_not(None),
             Item.url_domain != "",

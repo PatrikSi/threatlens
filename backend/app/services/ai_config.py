@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
-from urllib.parse import urlsplit
+from dataclasses import dataclass, field
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.ai_endpoints import matches_ai_key_origin
 from app.core.config import get_settings
 from app.models.ai_settings import AISettings
+from app.schemas.ai_provider_capabilities import CAPABILITY_FIELDS, capability_values
+from app.schemas.ai_provider_admission import ADMISSION_FIELDS, admission_limit_values
 from app.schemas.ai import AIPromptPreview, AIPromptPreviews, AISettingsResponse, AISettingsUpdate
 
 
@@ -31,8 +33,8 @@ class ActiveAISettings:
     provider_type: str
     base_url: str | None
     model: str | None
-    api_key: str | None
-    temperature: float
+    api_key: str | None = field(repr=False)
+    temperature: float | None
     max_completion_tokens: int
     request_timeout_seconds: int
     request_max_retries: int
@@ -68,6 +70,19 @@ class ActiveAISettings:
     report_max_sources: int = 100
     report_max_model_calls: int = 20
     report_context_safety_percent: int = 15
+    provider_id: uuid.UUID | None = None
+    provider_version: int | None = None
+    provider_name: str | None = None
+    credential_origin: str | None = None
+    configuration_error: str | None = None
+    configuration_error_code: str | None = None
+    max_concurrent_requests: int = 0
+    hourly_token_budget: int = 0
+    request_dialect: str = "chat_completions"
+    reasoning_effort: str | None = None
+    structured_output_mode: str = "off"
+    model_context_window_tokens: int | None = None
+    model_max_output_tokens: int | None = None
 
 
 DEFAULT_ITEM_ENRICHMENT_SYSTEM_PROMPT = "\n".join(
@@ -96,7 +111,6 @@ DEFAULT_DAILY_BRIEF_SYSTEM_PROMPT = "\n".join(
         "Use concise, factual language and avoid hype.",
     ]
 )
-SHARED_AI_API_KEY_ALLOWED_HOSTS = frozenset({"api.openai.com"})
 
 
 def get_or_create_ai_settings(db: Session) -> AISettings:
@@ -143,6 +157,9 @@ def get_or_create_ai_settings(db: Session) -> AISettings:
 
 
 def apply_ai_settings_update(settings: AISettings, payload: AISettingsUpdate) -> None:
+    for name in (*CAPABILITY_FIELDS, *ADMISSION_FIELDS):
+        if name in payload.model_fields_set:
+            setattr(settings, name, getattr(payload, name))
     settings.provider_type = payload.provider_type
     settings.base_url = _normalize_optional_text(payload.base_url)
     settings.model = _normalize_optional_text(payload.model)
@@ -184,12 +201,19 @@ def apply_ai_settings_update(settings: AISettings, payload: AISettingsUpdate) ->
     settings.daily_brief_instructions = _normalize_optional_text(payload.daily_brief_instructions)
 
 
-def ai_settings_response_from_model(settings: AISettings) -> AISettingsResponse:
+def ai_settings_response_from_model(settings: AISettings, *, db: Session | None = None) -> AISettingsResponse:
     runtime_settings = get_settings()
     base_url = _normalize_optional_text(settings.base_url)
     model = _normalize_optional_text(settings.model)
     api_key = resolve_ai_api_key_for_base_url(base_url, runtime_settings.ai_api_key)
     ai_configured = bool(base_url and model and is_shared_ai_base_url_allowed(base_url, api_key=api_key))
+    effective_features = {}
+    if db is not None:
+        effective_features = {
+            feature: load_active_ai_settings(db, feature_type=feature).ai_configured
+            for feature in ("item_enrichment", "daily_brief", "report")
+        }
+        ai_configured = any(effective_features.values())
     active = ActiveAISettings(
         id=settings.id,
         ai_enabled=runtime_settings.ai_enabled,
@@ -198,7 +222,9 @@ def ai_settings_response_from_model(settings: AISettings) -> AISettingsResponse:
         base_url=base_url,
         model=model,
         api_key=api_key,
-        temperature=float(settings.temperature),
+        temperature=settings.temperature,
+        **capability_values(settings),
+        **admission_limit_values(settings),
         max_completion_tokens=int(settings.max_completion_tokens),
         request_timeout_seconds=int(settings.request_timeout_seconds),
         request_max_retries=int(settings.request_max_retries),
@@ -239,11 +265,14 @@ def ai_settings_response_from_model(settings: AISettings) -> AISettingsResponse:
         id=settings.id,
         ai_enabled=runtime_settings.ai_enabled,
         ai_configured=ai_configured,
+        effective_feature_configured=effective_features,
         api_key_configured=bool(api_key),
         provider_type=settings.provider_type,
         base_url=base_url,
         model=model,
-        temperature=float(settings.temperature),
+        temperature=settings.temperature,
+        **capability_values(settings),
+        **admission_limit_values(settings),
         max_completion_tokens=int(settings.max_completion_tokens),
         request_timeout_seconds=int(settings.request_timeout_seconds),
         request_max_retries=int(settings.request_max_retries),
@@ -297,29 +326,34 @@ def load_public_ai_feature_flags(db: Session) -> PublicAIFeatureFlags:
             ai_reporting_enabled=False,
         )
 
-    settings = get_or_create_ai_settings(db)
-    base_url = _normalize_optional_text(settings.base_url)
-    model = _normalize_optional_text(settings.model)
-    api_key = resolve_ai_api_key_for_base_url(base_url, runtime_settings.ai_api_key)
-    configured = bool(base_url and model and is_shared_ai_base_url_allowed(base_url, api_key=api_key))
+    item = load_active_ai_settings(db, feature_type="item_enrichment")
+    brief = load_active_ai_settings(db, feature_type="daily_brief")
+    report = load_active_ai_settings(db, feature_type="report")
     return PublicAIFeatureFlags(
         ai_enabled=True,
-        ai_configured=configured,
-        ai_summary_enabled=configured and bool(settings.summary_enabled),
-        ai_relevance_enabled=configured and bool(settings.relevance_enabled),
-        ai_daily_brief_enabled=configured and bool(settings.daily_brief_enabled),
-        ai_reporting_enabled=configured and bool(settings.reporting_enabled),
+        ai_configured=item.ai_configured or brief.ai_configured or report.ai_configured,
+        ai_summary_enabled=item.ai_configured and item.summary_enabled,
+        ai_relevance_enabled=item.ai_configured and item.relevance_enabled,
+        ai_daily_brief_enabled=brief.ai_configured and brief.daily_brief_enabled,
+        ai_reporting_enabled=report.ai_configured and report.reporting_enabled,
     )
 
 
-def load_active_ai_settings(db: Session) -> ActiveAISettings:
+def load_active_ai_settings(
+    db: Session,
+    *,
+    feature_type: str | None = None,
+    task_run_id: uuid.UUID | None = None,
+    provider_id: uuid.UUID | None = None,
+    use_legacy: bool = False,
+) -> ActiveAISettings:
     runtime_settings = get_settings()
     settings = get_or_create_ai_settings(db)
     base_url = _normalize_optional_text(settings.base_url)
     model = _normalize_optional_text(settings.model)
     api_key = resolve_ai_api_key_for_base_url(base_url, runtime_settings.ai_api_key)
     configured = bool(runtime_settings.ai_enabled and base_url and model and is_shared_ai_base_url_allowed(base_url, api_key=api_key))
-    return ActiveAISettings(
+    active = ActiveAISettings(
         id=settings.id,
         ai_enabled=runtime_settings.ai_enabled,
         ai_configured=configured,
@@ -327,7 +361,9 @@ def load_active_ai_settings(db: Session) -> ActiveAISettings:
         base_url=base_url,
         model=model,
         api_key=api_key,
-        temperature=float(settings.temperature),
+        temperature=settings.temperature,
+        **capability_values(settings),
+        **admission_limit_values(settings),
         max_completion_tokens=int(settings.max_completion_tokens),
         request_timeout_seconds=int(settings.request_timeout_seconds),
         request_max_retries=int(settings.request_max_retries),
@@ -363,6 +399,14 @@ def load_active_ai_settings(db: Session) -> ActiveAISettings:
         item_summary_instructions=settings.item_summary_instructions,
         relevance_instructions=settings.relevance_instructions,
         daily_brief_instructions=settings.daily_brief_instructions,
+    )
+    if use_legacy:
+        return active
+    from app.services.ai_provider_selection import apply_provider_selection
+
+    return apply_provider_selection(
+        db, active, feature_type=feature_type, task_run_id=task_run_id,
+        provider_id=provider_id,
     )
 
 
@@ -431,37 +475,11 @@ def _normalize_optional_text(value: str | None) -> str | None:
 def is_shared_ai_base_url_allowed(base_url: str | None, *, api_key: str | None) -> bool:
     if not _normalize_optional_text(api_key):
         return True
-
-    normalized_base_url = _normalize_optional_text(base_url)
-    if normalized_base_url is None:
-        return True
-
-    try:
-        parsed = urlsplit(normalized_base_url)
-        port = parsed.port
-    except ValueError:
-        return False
-
-    hostname = (parsed.hostname or "").lower().rstrip(".")
-    return parsed.scheme.lower() == "https" and hostname in SHARED_AI_API_KEY_ALLOWED_HOSTS and port in (None, 443)
+    return matches_ai_key_origin(base_url, get_settings().ai_api_key_base_url)
 
 
 def resolve_ai_api_key_for_base_url(base_url: str | None, api_key: str | None) -> str | None:
     normalized_api_key = _normalize_optional_text(api_key)
-    if not normalized_api_key:
-        return None
-
-    normalized_base_url = _normalize_optional_text(base_url)
-    if normalized_base_url is None:
-        return normalized_api_key
-
-    try:
-        parsed = urlsplit(normalized_base_url)
-        port = parsed.port
-    except ValueError:
-        return normalized_api_key
-
-    hostname = (parsed.hostname or "").lower().rstrip(".")
-    if parsed.scheme.lower() == "https" and hostname in SHARED_AI_API_KEY_ALLOWED_HOSTS and port in (None, 443):
+    if normalized_api_key and matches_ai_key_origin(base_url, get_settings().ai_api_key_base_url):
         return normalized_api_key
     return None

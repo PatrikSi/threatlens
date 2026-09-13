@@ -24,6 +24,7 @@ def build_beat_command(settings: Settings) -> tuple[str, ...]:
         *BEAT_COMMAND_PREFIX,
         f"--loglevel={settings.log_level}",
         "--scheduler=app.tasks.beat_scheduler:WatchdogPersistentScheduler",
+        "--schedule=/tmp/threatlens-celerybeat-schedule",
     )
 
 
