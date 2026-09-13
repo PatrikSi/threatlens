@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "1.10.0",
-    "x-threatlens-contract-sha256": "f49caff7d89f24f948fe7c0537135313edbdc3458655c413b4b2d5c9b60cc1b1"
+    "x-threatlens-contract-sha256": "3b7cf09fa19afec6815ab219fb5acd1c24c687df0a16c3765c6d0a1c3ada3cd9"
   },
   "servers": [
     {
@@ -30547,6 +30547,42 @@
       },
       "AIOpsOverviewResponse": {
         "properties": {
+          "since": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Since"
+          },
+          "until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Until"
+          },
+          "bucket_unit": {
+            "type": "string",
+            "const": "day",
+            "title": "Bucket Unit",
+            "default": "day"
+          },
+          "bucket_timezone": {
+            "type": "string",
+            "const": "UTC",
+            "title": "Bucket Timezone",
+            "default": "UTC"
+          },
           "kpis": {
             "$ref": "#/components/schemas/AIOverviewKpiResponse"
           },
@@ -33510,6 +33546,16 @@
           "p95_latency_ms": {
             "type": "number",
             "title": "P95 Latency Ms"
+          },
+          "latency_samples": {
+            "type": "integer",
+            "title": "Latency Samples",
+            "default": 0
+          },
+          "known_usage_requests": {
+            "type": "integer",
+            "title": "Known Usage Requests",
+            "default": 0
           },
           "daily_brief_successes": {
             "type": "integer",

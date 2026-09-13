@@ -49,4 +49,3 @@ def ai_request_fingerprint(
         sort_keys=True,
     )
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
-
