@@ -9,11 +9,12 @@ from __future__ import annotations
 import uuid
 from sqlalchemy.orm import Session
 
-from app.core.token_scopes import SCOPE_WRITE_INVESTIGATIONS
+from app.core.token_scopes import SCOPE_WRITE_INVESTIGATIONS, SCOPE_WRITE_TEAMS
 from app.models.investigation import Investigation, InvestigationMember
 from app.models.user import User
 from app.services.auth_sessions import lock_user_auth_state
 from app.services.authorization import (
+    AuthorizationContext,
     authorization_context_for_user,
     fence_authorization_context,
 )
@@ -29,6 +30,7 @@ from app.services.investigation_owner_eligibility import (
     eligible_investigation_owner_ids_query,
     has_durable_investigation_write_access,
 )
+from app.services.team_access import assert_current_team_access
 
 
 def require_owner(member: InvestigationMember) -> None:
@@ -84,6 +86,43 @@ def lock_eligible_actor(db: Session, user_id: uuid.UUID) -> User:
             "again before retrying."
         )
     return actor
+
+
+def assert_current_investigation_write(
+    db: Session,
+    *,
+    user: User,
+    authorization: AuthorizationContext | None,
+    team_id: uuid.UUID | None,
+) -> None:
+    """Recheck expiring grants before commit, under the mutation's held locks.
+
+    The accepted credential's cap must survive the current-account refresh.
+    This checkpoint acquires no locks and follows all resource/response waits.
+    """
+    required = [SCOPE_WRITE_INVESTIGATIONS]
+    if team_id is not None:
+        required.append(SCOPE_WRITE_TEAMS)
+    if (
+        authorization is None
+        or authorization.principal_type != "user"
+        or authorization.principal_id != user.id
+        or not all(authorization.has(permission) for permission in required)
+    ):
+        raise InvestigationActorNotEligibleError(
+            "The accepting credential does not permit this investigation change. "
+            "Refresh your access before retrying."
+        )
+    current = authorization_context_for_user(
+        db, user, credential_scopes=authorization.credential_grants
+    )
+    if not all(current.has(permission) for permission in required):
+        raise InvestigationActorNotEligibleError(
+            "Your investigation write access expired or changed while this request "
+            "was in progress. Refresh your access before retrying."
+        )
+    if team_id is not None:
+        assert_current_team_access(db, team_id=team_id, user_id=user.id)
 
 
 def require_individual_membership_management(investigation: Investigation) -> None:

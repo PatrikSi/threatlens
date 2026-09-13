@@ -33,6 +33,7 @@ from app.models.investigation import (
 from app.models.item import Item
 from app.models.report import Report
 from app.models.user import User
+from app.services.authorization import authorization_context_for_user
 from app.services.data_access_policy import DataAccessContext
 from app.services.investigation_collections import INVESTIGATION_DETAIL_COLLECTION_LIMIT
 from app.services.investigations import (
@@ -325,6 +326,7 @@ def test_mutation_response_is_materialized_before_membership_revocation(
             )
             return investigation_routes._commit_investigation_detail(
                 writer_db,
+                authorization=authorization_context_for_user(writer_db, editor),
                 investigation_id=investigation.id,
                 user=editor,
                 data_access=_disabled_data_access(editor),
