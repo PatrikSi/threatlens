@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 import hashlib
 import json
 import os
@@ -12,6 +13,26 @@ from urllib.parse import quote
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 SAFETY = REPOSITORY_ROOT / "scripts" / "recovery" / "recovery_safety.py"
+
+
+def _deployment_identity_document() -> dict:
+    return {
+        "database": {
+            "Id": "database-container",
+            "Image": "sha256:database-image",
+            "Name": "/review-db-1",
+            "Mounts": [
+                {"Type": "volume", "Name": "database-data", "Source": "/volumes/database-data", "Destination": "/var/lib/postgresql/data"},
+                {"Type": "bind", "Source": "/review/provision.sh", "Destination": "/docker-entrypoint-initdb.d/provision.sh"},
+            ],
+        },
+        "redis": {
+            "Id": "redis-container",
+            "Image": "sha256:redis-image",
+            "Name": "/review-redis-1",
+            "Mounts": [{"Type": "volume", "Name": "redis-data", "Source": "/volumes/redis-data", "Destination": "/data"}],
+        },
+    }
 
 
 def _compose_document() -> dict:
@@ -59,6 +80,86 @@ class RecoverySafetyTests(unittest.TestCase):
             text=True,
             env=process_environment,
         )
+
+    def _identity(self, document: dict) -> subprocess.CompletedProcess[str]:
+        return self._run(
+            "identity", "--project", "review", "--database", "threatlens",
+            "--target-config-sha256", "a" * 64, "--archive-sha256", "b" * 64,
+            input_text=json.dumps(document),
+        )
+
+    def test_identity_ignores_inspection_mount_and_object_order(self) -> None:
+        document = _deployment_identity_document()
+        original = self._identity(document)
+        document["database"]["Mounts"].reverse()
+        reordered = json.loads(json.dumps(document, sort_keys=True))
+        result = self._identity(reordered)
+        self.assertEqual(original.returncode, 0, original.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, original.stdout)
+
+    def test_identity_binds_every_container_and_mount_component(self) -> None:
+        document = _deployment_identity_document()
+        original = self._identity(document)
+        self.assertEqual(original.returncode, 0, original.stderr)
+        for service in ("database", "redis"):
+            for key in ("Id", "Image", "Name", "Type", "Source", "Destination", "volume_name"):
+                with self.subTest(service=service, component=key):
+                    changed = deepcopy(document)
+                    if key in {"Id", "Image", "Name"}:
+                        changed[service][key] += "-changed"
+                    else:
+                        changed[service]["Mounts"][0]["Name" if key == "volume_name" else key] += "-changed"
+                    result = self._identity(changed)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertNotEqual(result.stdout, original.stdout)
+
+    def test_identity_distinguishes_delimiters_inside_mount_paths(self) -> None:
+        document = _deployment_identity_document()
+        mount = document["database"]["Mounts"][1]
+        mount.update(Source="/source:/a", Destination="/destination;part")
+        first = self._identity(document)
+        mount.update(Source="/source", Destination="/a:/destination;part")
+        second = self._identity(document)
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertNotEqual(first.stdout, second.stdout)
+
+    def test_identity_preserves_tmpfs_mounts_without_a_host_source(self) -> None:
+        document = _deployment_identity_document()
+        mount = {"Type": "tmpfs", "Source": "", "Destination": "/run"}
+        document["database"]["Mounts"].append(mount)
+        explicit_empty = self._identity(document)
+        del mount["Source"]
+        omitted = self._identity(document)
+        self.assertEqual(explicit_empty.returncode, 0, explicit_empty.stderr)
+        self.assertEqual(omitted.returncode, 0, omitted.stderr)
+        self.assertEqual(explicit_empty.stdout, omitted.stdout)
+        document["database"]["Mounts"].pop()
+        self.assertNotEqual(self._identity(document).stdout, omitted.stdout)
+
+    def test_identity_requires_sources_for_bind_and_volume_mounts(self) -> None:
+        for mount_type in ("bind", "volume"):
+            for source in (None, ""):
+                with self.subTest(mount_type=mount_type, source=source):
+                    document = _deployment_identity_document()
+                    mount = document["database"]["Mounts"][0]
+                    mount["Type"] = mount_type
+                    if source is None:
+                        del mount["Source"]
+                    else:
+                        mount["Source"] = source
+                    result = self._identity(document)
+                    self.assertEqual(result.returncode, 4)
+
+    def test_identity_rejects_malformed_inspection_without_echoing_values(self) -> None:
+        for field, value in (("Id", None), ("Mounts", "synthetic-secret"), ("Mounts", [{}])):
+            with self.subTest(field=field, value=value):
+                document = _deployment_identity_document()
+                document["database"][field] = value
+                result = self._identity(document)
+                self.assertEqual(result.returncode, 4)
+                self.assertNotIn("synthetic-secret", result.stdout + result.stderr)
 
     def test_validate_target_accepts_only_matching_local_services(self) -> None:
         result = self._run(

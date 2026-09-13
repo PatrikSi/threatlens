@@ -509,8 +509,12 @@ confirmation for the currently running database and Redis containers:
     printf '%s\n' "$confirmation"
 
 The text includes the project, database, full archive SHA-256, and a deployment
-identity derived from stable live database/Redis container, image, and volume
-identities. Restarting or replacing either container invalidates it. Review the
+identity derived from live database/Redis container IDs, images, names, mount
+types, volume names, host sources and destinations. Docker's mount enumeration
+order does not affect this identity. Replacing a container or changing a bound
+field or validated configuration invalidates the confirmation. Obtain fresh
+confirmation after updating the recovery scripts; finish or reconcile an active
+operation with the script version that started it before upgrading. Review the
 text, then provide it with the independent data-loss acknowledgement:
 
     ./scripts/recovery/threatlens-recovery.sh \

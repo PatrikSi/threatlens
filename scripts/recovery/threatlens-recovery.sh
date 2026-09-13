@@ -747,14 +747,14 @@ resolve_target_deployment_identity() {
   db_container="$(resolve_compose_container db)"
   redis_container="$(resolve_compose_container redis)"
   db_identity="$(docker inspect --format \
-    '{{.Id}}|{{.Image}}|{{.Name}}|{{range .Mounts}}{{.Type}}:{{if eq .Type "volume"}}{{.Name}}{{end}}:{{.Source}}:{{.Destination}};{{end}}' \
+    '{"Id":{{json .Id}},"Image":{{json .Image}},"Name":{{json .Name}},"Mounts":{{json .Mounts}}}' \
     "${db_container}")" \
     || die "${EXIT_DATABASE}" "E527" "Unable to inspect the live database container"
   redis_identity="$(docker inspect --format \
-    '{{.Id}}|{{.Image}}|{{.Name}}|{{range .Mounts}}{{.Type}}:{{if eq .Type "volume"}}{{.Name}}{{end}}:{{.Source}}:{{.Destination}};{{end}}' \
+    '{"Id":{{json .Id}},"Image":{{json .Image}},"Name":{{json .Name}},"Mounts":{{json .Mounts}}}' \
     "${redis_container}")" \
     || die "${EXIT_DATABASE}" "E531" "Unable to inspect the live Redis container"
-  inspect_payload="database=${db_identity}"$'\n'"redis=${redis_identity}"
+  inspect_payload="{\"database\":${db_identity},\"redis\":${redis_identity}}"
   TARGET_DEPLOYMENT_IDENTITY="$(
     printf '%s' "${inspect_payload}" | python3 "${SAFETY_HELPER}" identity \
       --project "${COMPOSE_PROJECT}" \

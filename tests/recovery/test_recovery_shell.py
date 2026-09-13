@@ -55,8 +55,15 @@ if [[ "$1" == "inspect" ]]; then
     if [[ -n "${FAKE_ID_CHANGE_AFTER:-}" && "$identity_count" -gt "$FAKE_ID_CHANGE_AFTER" ]]; then
       dynamic_variant="changed-after-confirmation"
     fi
-    printf '%s%s|sha256:stable-image|/%s|volume:stable-data:/var/lib/data;\n' \
-      "$target" "$dynamic_variant" "$target"
+    volume='{"Type":"volume","Name":"stable-data","Source":"/var/lib/docker/volumes/stable-data/_data","Destination":"/var/lib/data"}'
+    bind='{"Type":"bind","Source":"/review/provision.sh","Destination":"/docker-entrypoint-initdb.d/provision.sh"}'
+    if [[ "${FAKE_REVERSE_MOUNTS:-0}" == "1" ]]; then
+      mounts="[$bind,$volume]"
+    else
+      mounts="[$volume,$bind]"
+    fi
+    printf '{"Id":"%s%s","Image":"sha256:stable-image","Name":"/%s","Mounts":%s}\n' \
+      "$target" "$dynamic_variant" "$target" "$mounts"
   else
     runtime_database_url='postgresql+psycopg://threatlens:not-logged@db:5432/threatlens'
     if [[ "${FAKE_RUNTIME_MISMATCH:-0}" == "1" ]]; then
@@ -707,6 +714,19 @@ class RecoveryShellTests(unittest.TestCase):
         command_log = self.docker_log.read_text(encoding="utf-8")
         self.assertNotIn("THREATLENS_RECOVERY_PASSWORD=", command_log)
         self.assertNotIn("not-logged", command_log)
+
+    def test_restore_confirmation_survives_inspection_mount_reordering(self) -> None:
+        backup = self._create_backup()
+        hook, hook_log = self._create_hook()
+        confirmation = self._restore_confirmation(backup)
+        result = self._run(
+            "restore", "--backup", str(backup), "--confirm", confirmation,
+            "--acknowledge-data-loss", "--quarantine-hook", str(hook),
+            "--safety-backup-dir", str(self.root / "safety"),
+            FAKE_HOOK_LOG=str(hook_log), FAKE_REVERSE_MOUNTS="1",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(hook_log.read_text(encoding="utf-8").splitlines()[-2:], ["apply", "verify"])
 
     def test_restore_confirmation_expires_when_live_target_identity_changes(
         self,
