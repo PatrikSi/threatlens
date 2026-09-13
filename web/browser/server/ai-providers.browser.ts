@@ -3,6 +3,16 @@ import { test, expect, signIn } from './fixtures'
 test('real AI provider settings preserve credentials and enforce versioned routing', async ({ page, identity }) => {
   test.setTimeout(90000)
   test.skip(process.env.THREATLENS_BROWSER_AI_PROVIDERS !== 'true', 'Run isolated harness with --ai-providers')
+  async function saveAssignments() {
+    const responsePromise = page.waitForResponse(
+      (response) => response.url().endsWith('/ai/provider-routing') && response.request().method() === 'PUT',
+    )
+    await page.getByRole('button', { name: 'Save feature assignments', exact: true }).click()
+    const response = await responsePromise
+    expect(response.status()).toBe(200)
+    await expect(page.getByRole('status').filter({ hasText: 'AI feature assignments saved.' })).toBeVisible()
+    return response.json()
+  }
   await signIn(page, identity)
   await page.goto('/settings/ai')
   await page.getByRole('tab', { name: 'Configuration', exact: true }).click()
@@ -59,8 +69,7 @@ test('real AI provider settings preserve credentials and enforce versioned routi
 
   await page.getByRole('button', { name: 'Assign selected provider to default provider', exact: true }).click()
   await page.getByRole('button', { name: 'Assign selected provider to reports', exact: true }).click()
-  await page.getByRole('button', { name: 'Save feature assignments', exact: true }).click()
-  await expect(page.getByRole('button', { name: 'Save feature assignments', exact: true })).toBeDisabled()
+  expect(await saveAssignments()).toMatchObject({ default_provider_id: provider.id, report_provider_id: provider.id })
   const routing = await (await page.request.get('/api/v1/ai/provider-routing')).json()
   expect(routing).toMatchObject({
     default_provider_id: provider.id,
@@ -73,7 +82,7 @@ test('real AI provider settings preserve credentials and enforce versioned routi
 
   await page.getByRole('button', { name: 'Use legacy settings for default provider', exact: true }).click()
   await page.getByRole('button', { name: 'Use default provider for reports', exact: true }).click()
-  await page.getByRole('button', { name: 'Save feature assignments', exact: true }).click()
+  expect(await saveAssignments()).toMatchObject({ default_provider_id: null, report_provider_id: null })
   await page.getByRole('button', { name: 'Delete provider', exact: true }).click()
   const deletion = page.getByRole('alertdialog', { name: 'Delete provider?', exact: true })
   const deleteResponse = page.waitForResponse(
