@@ -23,6 +23,8 @@ class PublicAIFeatureFlags:
     ai_relevance_enabled: bool
     ai_daily_brief_enabled: bool
     ai_reporting_enabled: bool
+    ai_structured_extraction_enabled: bool = False
+    ai_hunt_suggestions_enabled: bool = False
 
 
 @dataclass(frozen=True)
@@ -63,6 +65,8 @@ class ActiveAISettings:
     item_summary_instructions: str | None
     relevance_instructions: str | None
     daily_brief_instructions: str | None
+    structured_extraction_enabled: bool = False
+    hunt_suggestions_enabled: bool = False
     reporting_enabled: bool = True
     report_context_window_tokens: int = 8192
     report_reserved_output_tokens: int = 1200
@@ -167,6 +171,9 @@ def apply_ai_settings_update(settings: AISettings, payload: AISettingsUpdate) ->
     settings.max_completion_tokens = payload.max_completion_tokens
     settings.request_timeout_seconds = payload.request_timeout_seconds
     settings.request_max_retries = payload.request_max_retries
+    for name in ("structured_extraction_enabled", "hunt_suggestions_enabled"):
+        if name in payload.model_fields_set:
+            setattr(settings, name, getattr(payload, name))
     settings.summary_enabled = payload.summary_enabled
     settings.relevance_enabled = payload.relevance_enabled
     settings.daily_brief_enabled = payload.daily_brief_enabled
@@ -228,6 +235,8 @@ def ai_settings_response_from_model(settings: AISettings, *, db: Session | None 
         max_completion_tokens=int(settings.max_completion_tokens),
         request_timeout_seconds=int(settings.request_timeout_seconds),
         request_max_retries=int(settings.request_max_retries),
+        structured_extraction_enabled=bool(settings.structured_extraction_enabled),
+        hunt_suggestions_enabled=bool(settings.hunt_suggestions_enabled),
         summary_enabled=bool(settings.summary_enabled),
         relevance_enabled=bool(settings.relevance_enabled),
         daily_brief_enabled=bool(settings.daily_brief_enabled),
@@ -276,6 +285,8 @@ def ai_settings_response_from_model(settings: AISettings, *, db: Session | None 
         max_completion_tokens=int(settings.max_completion_tokens),
         request_timeout_seconds=int(settings.request_timeout_seconds),
         request_max_retries=int(settings.request_max_retries),
+        structured_extraction_enabled=bool(settings.structured_extraction_enabled),
+        hunt_suggestions_enabled=bool(settings.hunt_suggestions_enabled),
         summary_enabled=bool(settings.summary_enabled),
         relevance_enabled=bool(settings.relevance_enabled),
         daily_brief_enabled=bool(settings.daily_brief_enabled),
@@ -332,6 +343,8 @@ def load_public_ai_feature_flags(db: Session) -> PublicAIFeatureFlags:
     return PublicAIFeatureFlags(
         ai_enabled=True,
         ai_configured=item.ai_configured or brief.ai_configured or report.ai_configured,
+        ai_structured_extraction_enabled=item.ai_configured and item.structured_extraction_enabled,
+        ai_hunt_suggestions_enabled=item.ai_configured and item.hunt_suggestions_enabled,
         ai_summary_enabled=item.ai_configured and item.summary_enabled,
         ai_relevance_enabled=item.ai_configured and item.relevance_enabled,
         ai_daily_brief_enabled=brief.ai_configured and brief.daily_brief_enabled,
@@ -367,6 +380,8 @@ def load_active_ai_settings(
         max_completion_tokens=int(settings.max_completion_tokens),
         request_timeout_seconds=int(settings.request_timeout_seconds),
         request_max_retries=int(settings.request_max_retries),
+        structured_extraction_enabled=bool(settings.structured_extraction_enabled),
+        hunt_suggestions_enabled=bool(settings.hunt_suggestions_enabled),
         summary_enabled=bool(settings.summary_enabled),
         relevance_enabled=bool(settings.relevance_enabled),
         daily_brief_enabled=bool(settings.daily_brief_enabled),
@@ -418,6 +433,10 @@ def build_item_enrichment_system_prompt(active: ActiveAISettings) -> str:
         system_parts.append(f"Summary instructions: {active.item_summary_instructions}")
     if active.relevance_instructions and active.relevance_enabled:
         system_parts.append(f"Relevance instructions: {active.relevance_instructions}")
+    if getattr(active, "structured_extraction_enabled", False):
+        from app.services.ai_extraction import EXTRACTION_SYSTEM_INSTRUCTIONS
+
+        system_parts.append(EXTRACTION_SYSTEM_INSTRUCTIONS)
     return "\n".join(system_parts)
 
 

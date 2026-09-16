@@ -19,7 +19,7 @@ def adopt_legacy_workflows(db, *, limit: int):
     runs = db.scalars(select(AITaskRun).outerjoin(
         AIWorkflowDispatch, AIWorkflowDispatch.run_id == AITaskRun.id
     ).where(
-        AITaskRun.task_type.in_(["item_enrichment", "daily_brief", "reprocess"]),
+        AITaskRun.task_type.in_(["item_enrichment", "team_assessment", "daily_brief", "reprocess"]),
         AITaskRun.status.in_(["queued", "running"]), AITaskRun.finished_at.is_(None),
         AIWorkflowDispatch.run_id.is_(None),
         (AITaskRun.task_type != "daily_brief") | AITaskRun.parent_run_id.is_(None),

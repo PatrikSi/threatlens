@@ -129,6 +129,7 @@ def _task_queue(request) -> str | None:
 
 
 TASK_ROUTES = {
+    "app.tasks.team_assessment_tasks.generate_team_assessment": {"queue": QUEUE_AI},
     "app.tasks.processing_tasks.execute_processing_work": {"queue": QUEUE_PROCESSING},
     "app.tasks.processing_tasks.dispatch_processing_work": {"queue": QUEUE_MAINTENANCE},
     "app.tasks.export_tasks.generate_export_job": {"queue": QUEUE_EXPORTS},
@@ -233,6 +234,7 @@ celery_app = Celery(
         "app.tasks.processing_tasks",
         "app.tasks.feed_tasks",
         "app.tasks.ai_workflow_tasks",
+        "app.tasks.team_assessment_tasks",
         "app.tasks.history_maintenance_tasks",
         "app.tasks.alert_tasks",
         "app.tasks.system_health_tasks",

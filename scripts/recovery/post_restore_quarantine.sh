@@ -459,6 +459,8 @@ DECLARE
   quarantined_legacy_deliveries bigint := 0;
   disabled_feeds bigint := 0;
   disabled_ai_settings bigint := 0;
+  disabled_intelligence_settings bigint := 0;
+  intelligence_flag text;
   interrupted_ai_tasks bigint := 0;
   interrupted_daily_briefs bigint := 0;
   interrupted_item_enrichments bigint := 0;
@@ -678,6 +680,17 @@ BEGIN
          OR daily_brief_enabled IS TRUE OR reporting_enabled IS TRUE
          OR auto_enrich_new_items IS TRUE$sql$;
     GET DIAGNOSTICS disabled_ai_settings = ROW_COUNT;
+    -- Keep restoring older archives possible while disabling new opt-in work
+    -- whenever its columns exist. These identifiers are a fixed internal list.
+    FOREACH intelligence_flag IN ARRAY ARRAY['structured_extraction_enabled', 'hunt_suggestions_enabled'] LOOP
+      IF EXISTS (SELECT 1 FROM information_schema.columns
+                 WHERE table_schema = 'public' AND table_name = 'ai_settings'
+                   AND column_name = intelligence_flag) THEN
+        EXECUTE format('UPDATE ai_settings SET %I = false WHERE %I IS TRUE', intelligence_flag, intelligence_flag);
+        GET DIAGNOSTICS disabled_intelligence_settings = ROW_COUNT;
+        disabled_ai_settings := GREATEST(disabled_ai_settings, disabled_intelligence_settings);
+      END IF;
+    END LOOP;
   END IF;
 
   IF to_regclass('public.ai_task_runs') IS NOT NULL THEN
@@ -842,6 +855,8 @@ SELECT set_config('threatlens.restore_checksum', :'restore_checksum', false);
 DO $verify$
 DECLARE
   requested_report_deliveries boolean;
+  intelligence_flag text;
+  intelligence_enabled boolean;
 BEGIN
   IF EXISTS (SELECT 1 FROM api_tokens WHERE revoked_at IS NULL) THEN
     RAISE EXCEPTION 'active API tokens remain after restore quarantine';
@@ -905,6 +920,17 @@ BEGIN
     ) THEN
       RAISE EXCEPTION 'enabled AI automation remains after restore quarantine';
     END IF;
+    FOREACH intelligence_flag IN ARRAY ARRAY['structured_extraction_enabled', 'hunt_suggestions_enabled'] LOOP
+      IF EXISTS (SELECT 1 FROM information_schema.columns
+                 WHERE table_schema = 'public' AND table_name = 'ai_settings'
+                   AND column_name = intelligence_flag) THEN
+        EXECUTE format('SELECT EXISTS (SELECT 1 FROM ai_settings WHERE %I IS TRUE)', intelligence_flag)
+          INTO intelligence_enabled;
+        IF intelligence_enabled THEN
+          RAISE EXCEPTION 'enabled article/team intelligence remains after restore quarantine';
+        END IF;
+      END IF;
+    END LOOP;
   END IF;
   IF to_regclass('public.ai_task_runs') IS NOT NULL THEN
     IF EXISTS (SELECT 1 FROM ai_task_runs WHERE status IN ('queued', 'running')) THEN

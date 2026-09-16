@@ -111,6 +111,8 @@ function RunHistoryFilters({
       >
         <option value="">All task types</option>
         <option value="item_enrichment">Item Enrichment</option>
+        <option value="team_assessment">Team Assessment</option>
+        <option value="report">Intelligence Report</option>
         <option value="daily_brief">Daily Brief</option>
         <option value="connection_test">Connection Test</option>
         <option value="reprocess">Reprocess</option>

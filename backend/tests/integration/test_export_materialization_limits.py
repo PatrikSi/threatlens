@@ -8,6 +8,7 @@ from sqlalchemy import event, inspect, update
 
 from app.models.article import Article
 from app.models.ioc import IOC, ItemIOC
+from app.models.item_ai_enrichment import ItemAIEnrichment
 from app.models.tag import Tag, ItemTag
 from app.schemas.exports import ArticleExportOptions
 from app.services import export_pdf, export_query
@@ -42,6 +43,29 @@ def test_unused_raw_ioc_is_not_materialized(db_session, seed_users):
     finally:
         event.remove(IOC, "load", record_raw)
     assert len(records) == len(records[0].iocs) == 1
+    assert loaded == [True]
+
+
+def test_unused_structured_extraction_is_not_materialized(db_session, seed_users):
+    ids, context, _, _ = _seed_sources(db_session, seed_users["analyst"])
+    db_session.execute(update(ItemAIEnrichment).where(ItemAIEnrichment.item_id == ids[0]).values(
+        structured_extraction_json={"large_evidence": "x" * 2_000_000},
+    ))
+    db_session.flush()
+    db_session.expunge_all()
+    loaded = []
+
+    def record_extraction(value, _context):
+        loaded.append("structured_extraction_json" in inspect(value).unloaded)
+
+    event.listen(ItemAIEnrichment, "load", record_extraction)
+    try:
+        records = list(export_query.iter_export_records(
+            db_session, item_ids=ids, context=context, include_iocs=False,
+        ))
+    finally:
+        event.remove(ItemAIEnrichment, "load", record_extraction)
+    assert len(records) == 1
     assert loaded == [True]
 
 

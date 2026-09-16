@@ -180,7 +180,7 @@ def _enforce_ai_egress_data_policy(
         )
         return fence, audit_log
 
-    assert feature_type == _FEATURE_ITEM_ENRICHMENT
+    assert feature_type in (_FEATURE_ITEM_ENRICHMENT, "team_assessment")
     assert item_id is not None
     label_id = _lock_item_feed_label(db, item_id=item_id)
     inaccessible = (
@@ -243,6 +243,7 @@ def _require_unambiguous_lineage(
 ) -> None:
     lineage = {
         _FEATURE_ITEM_ENRICHMENT: (item_id, daily_brief_id, report_id),
+        "team_assessment": (item_id, daily_brief_id, report_id),
         _FEATURE_DAILY_BRIEF: (daily_brief_id, item_id, report_id),
         _FEATURE_REPORT: (report_id, item_id, daily_brief_id),
     }.get(feature_type)

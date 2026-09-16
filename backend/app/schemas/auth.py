@@ -65,6 +65,8 @@ class AppFeaturesResponse(BaseModel):
     ai_relevance_enabled: bool
     ai_daily_brief_enabled: bool
     ai_reporting_enabled: bool
+    ai_structured_extraction_enabled: bool = False
+    ai_hunt_suggestions_enabled: bool = False
 
 
 class UserResponse(BaseModel):

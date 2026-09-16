@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 PROVIDER_SELECTION_KEY = "provider_selection"
 _FEATURE_FIELDS = {
     "item_enrichment": "item_enrichment_provider_id",
+    "team_assessment": "item_enrichment_provider_id",
     "daily_brief": "daily_brief_provider_id",
     "report": "report_provider_id",
 }

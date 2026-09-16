@@ -12,7 +12,7 @@ from app.services.ai_failure_categories import DEADLINE_CATEGORIES, TIMEOUT_CATE
 from app.services.ai_telemetry_data_policy import ai_task_run_access_predicate, ai_usage_event_access_predicate
 from app.services.data_access_policy import DataAccessContext
 
-FEATURES = ("summary", "relevance", "item_enrichment", "daily_brief", "report", "connection_test", "reprocess")
+FEATURES = ("summary", "relevance", "item_enrichment", "structured_extraction", "team_assessment", "daily_brief", "report", "connection_test", "reprocess")
 BUDGET_FAILURES = ("budget_request_too_large", "provider_concurrency_budget", "provider_hourly_token_budget", "provider_budget_unavailable")
 LATENCY_BUCKETS = (("under_1s", 0, 1000), ("1_to_5s", 1000, 5000), ("5_to_15s", 5000, 15000),
                    ("15_to_60s", 15000, 60000), ("60s_or_more", 60000, None))

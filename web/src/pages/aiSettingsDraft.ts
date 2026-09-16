@@ -9,6 +9,8 @@ export type AISettingsDraft = ProviderCapabilitiesDraft & ProviderAdmissionDraft
   max_completion_tokens: string
   request_timeout_seconds: string
   request_max_retries: string
+  structured_extraction_enabled: boolean
+  hunt_suggestions_enabled: boolean
   summary_enabled: boolean
   relevance_enabled: boolean
   daily_brief_enabled: boolean
@@ -55,6 +57,8 @@ export const DEFAULT_DRAFT: AISettingsDraft = {
   max_completion_tokens: '5000',
   request_timeout_seconds: '300',
   request_max_retries: '3',
+  structured_extraction_enabled: false,
+  hunt_suggestions_enabled: false,
   summary_enabled: true,
   relevance_enabled: true,
   daily_brief_enabled: true,
@@ -207,6 +211,8 @@ export function createDraftFromSettings(settings: AISettings): AISettingsDraft {
     max_completion_tokens: String(settings.max_completion_tokens),
     request_timeout_seconds: String(settings.request_timeout_seconds),
     request_max_retries: String(settings.request_max_retries),
+    structured_extraction_enabled: settings.structured_extraction_enabled ?? false,
+    hunt_suggestions_enabled: settings.hunt_suggestions_enabled ?? false,
     summary_enabled: settings.summary_enabled,
     relevance_enabled: settings.relevance_enabled,
     daily_brief_enabled: settings.daily_brief_enabled,
@@ -253,6 +259,8 @@ export function createRequestFromDraft(draft: AISettingsDraft): AISettingsUpdate
     max_completion_tokens: parseNumberOrDefault(draft.max_completion_tokens, 5000),
     request_timeout_seconds: parseNumberOrDefault(draft.request_timeout_seconds, 300),
     request_max_retries: Math.max(0, parseNumberOrDefault(draft.request_max_retries, 3)),
+    structured_extraction_enabled: draft.structured_extraction_enabled,
+    hunt_suggestions_enabled: draft.hunt_suggestions_enabled,
     summary_enabled: draft.summary_enabled,
     relevance_enabled: draft.relevance_enabled,
     daily_brief_enabled: draft.daily_brief_enabled,

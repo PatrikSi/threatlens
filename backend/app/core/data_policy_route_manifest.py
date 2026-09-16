@@ -63,6 +63,8 @@ _CONTROL_PLANE_OPERATIONS: tuple[OperationLiteral, ...] = (
     ('GET', '/v1/teams/admin/{team_id}', 'get_admin_team'),
     ('GET', '/v1/teams/{team_id}', 'get_team'),
     ('PATCH', '/v1/teams/{team_id}', 'update_team'),
+    ('GET', '/v1/teams/{team_id}/ai-context', 'get_ai_context'),
+    ('PATCH', '/v1/teams/{team_id}/ai-context', 'update_ai_context'),
     ('PUT', '/v1/teams/{team_id}/bindings', 'update_team_bindings'),
     ('GET', '/v1/teams/{team_id}/members', 'list_team_members'),
     ('GET', '/v1/ai/providers', 'list_ai_providers_route'),
@@ -241,6 +243,10 @@ _PUBLIC_OPERATIONS: tuple[OperationLiteral, ...] = (
 )
 
 _REQUEST_CONTEXT_OPERATIONS: tuple[OperationLiteral, ...] = (
+    ('GET', '/v1/items/{item_id}/team-assessment', 'get_team_assessment_route'),
+    ('POST', '/v1/items/{item_id}/team-assessment', 'queue_team_assessment_route'),
+    ('PATCH', '/v1/items/{item_id}/team-assessment/hunts/{hunt_id}', 'review_team_hunt_route'),
+    ('POST', '/v1/items/{item_id}/team-assessment/hunts/{hunt_id}/investigation', 'create_team_hunt_investigation_route'),
     ('GET', '/v1/ai/daily-brief/latest', 'get_latest_daily_brief_route'),
     ('GET', '/v1/ai/daily-briefs', 'list_daily_briefs_route'),
     ('GET', '/v1/ai/daily-briefs/{brief_id}/sources', 'list_daily_brief_sources_route'),
@@ -391,9 +397,14 @@ _EGRESS_FENCED_OPERATIONS: tuple[OperationLiteral, ...] = (
 # retained as useful operator evidence, but cannot by themselves detect a handler
 # replacement that reuses the same display name.
 _ENDPOINT_NAMES_BY_MODULE: Final[dict[str, tuple[str, ...]]] = {
+    "app.api.routes.team_assessments": (
+        "get_team_assessment_route", "queue_team_assessment_route",
+        "review_team_hunt_route", "create_team_hunt_investigation_route",
+    ),
     "app.api.routes.teams": (
         "list_teams", "create_team", "list_admin_teams", "get_admin_team", "get_team",
         "update_team", "update_team_bindings", "list_team_members",
+        "get_ai_context", "update_ai_context",
     ),
     "app.api.routes.access_reviews": (
         "get_access_review_campaign_route",

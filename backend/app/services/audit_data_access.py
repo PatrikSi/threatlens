@@ -18,6 +18,7 @@ from app.schemas.audit import AuditLogResponse
 from app.services.ai_ops_common import AI_TASK_TYPE_CONNECTION_TEST
 from app.services.data_access_envelopes import (
     DATA_ACCESS_RESOURCE_ACTION_APPROVAL,
+    DATA_ACCESS_RESOURCE_AI_TASK_RUN,
     DATA_ACCESS_RESOURCE_ALERT_OCCURRENCE,
     DATA_ACCESS_RESOURCE_DAILY_BRIEF,
     DATA_ACCESS_RESOURCE_INTEGRATION_DELIVERY,
@@ -298,6 +299,12 @@ def _ai_provider_receipt_labels(
             receipt = db.get(AIProviderAttemptReceipt, receipt_id)
     if receipt is None or receipt.resource_id is None:
         return frozenset()
+    if receipt.resource_type == "team_item_assessment":
+        return _envelope_labels(
+            db,
+            DATA_ACCESS_RESOURCE_AI_TASK_RUN,
+            receipt.task_run_id_snapshot,
+        )
     if receipt.resource_type in {"item", "item_ai_enrichment"}:
         return _item_labels(db, receipt.resource_id)
     if receipt.resource_type in {"daily_brief", DATA_ACCESS_RESOURCE_DAILY_BRIEF}:

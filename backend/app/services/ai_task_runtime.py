@@ -107,13 +107,14 @@ def filter_ai_live_tasks(
 ) -> list[AILiveTaskResponse]:
     """Hide broker metadata that cannot be tied to an accessible durable run."""
 
-    if data_access.principal_eligible and not data_access.enforced:
-        return tasks
     if not data_access.principal_eligible:
         return []
+    legacy_visibility = not data_access.enforced
+    if legacy_visibility and not any(task.task_name == "team_assessment" for task in tasks):
+        return tasks
     run_ids = {task.run_id for task in tasks if task.run_id is not None}
     if not run_ids:
-        return []
+        return [task for task in tasks if legacy_visibility and task.task_name != "team_assessment"]
     accessible_runs = list(
         db.scalars(
             select(AITaskRun).where(
@@ -126,9 +127,11 @@ def filter_ai_live_tasks(
     return [
         task
         for task in tasks
-        if task.run_id is not None
-        and (run := runs_by_id.get(task.run_id)) is not None
-        and _live_task_matches_run(task, run)
+        if (legacy_visibility and task.task_name != "team_assessment") or (
+            task.run_id is not None
+            and (run := runs_by_id.get(task.run_id)) is not None
+            and _live_task_matches_run(task, run)
+        )
     ]
 
 
@@ -156,7 +159,14 @@ def get_ai_live_status_for_data_access(
     if data_access.principal_eligible and not data_access.enforced:
         from app.services.ai_ops import get_ai_live_status
 
-        return get_ai_live_status(db)
+        live = get_ai_live_status(db)
+        active = filter_ai_live_tasks(db, tasks=live.active_tasks, data_access=data_access)
+        reserved = filter_ai_live_tasks(db, tasks=live.reserved_tasks, data_access=data_access)
+        scheduled = filter_ai_live_tasks(db, tasks=live.scheduled_tasks, data_access=data_access)
+        return live.model_copy(update={
+            "active_tasks": active, "reserved_tasks": reserved, "scheduled_tasks": scheduled,
+            "active_count": len(active), "reserved_count": len(reserved), "scheduled_count": len(scheduled),
+        })
     if not data_access.principal_eligible:
         return get_ai_db_live_status(db, data_access=data_access)
 

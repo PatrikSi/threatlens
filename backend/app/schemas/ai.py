@@ -19,10 +19,10 @@ from app.services.url_utils import is_fetchable_url, normalize_url
 AIProviderType = Literal["openai_compatible"]
 AIRelevanceLabel = Literal["low", "medium", "high"]
 AIUsageFeatureType = Literal[
-    "item_enrichment", "daily_brief", "report", "connection_test"
+    "item_enrichment", "team_assessment", "daily_brief", "report", "connection_test"
 ]
 AITaskType = Literal[
-    "item_enrichment", "daily_brief", "report", "connection_test", "reprocess"
+    "item_enrichment", "team_assessment", "daily_brief", "report", "connection_test", "reprocess"
 ]
 AITriggerSource = Literal["auto", "manual", "scheduled"]
 AITaskStatus = Literal["queued", "running", "ready", "error", "skipped"]
@@ -71,6 +71,8 @@ class AISettingsUpdate(AIProviderAdmissionFields, AIProviderCapabilityFields):
     max_completion_tokens: int = Field(default=5000, ge=128, le=MAX_AI_COMPLETION_TOKENS)
     request_timeout_seconds: int = Field(default=300, ge=5, le=300)
     request_max_retries: int = Field(default=3, ge=0, le=5)
+    structured_extraction_enabled: bool = False
+    hunt_suggestions_enabled: bool = False
     summary_enabled: bool = True
     relevance_enabled: bool = True
     daily_brief_enabled: bool = True
@@ -215,6 +217,8 @@ class AISettingsResponse(AIProviderAdmissionFields, AIProviderCapabilityFields):
     max_completion_tokens: int
     request_timeout_seconds: int
     request_max_retries: int
+    structured_extraction_enabled: bool = False
+    hunt_suggestions_enabled: bool = False
     summary_enabled: bool
     relevance_enabled: bool
     daily_brief_enabled: bool

@@ -57,6 +57,7 @@ from app.api.routes import (
     service_accounts,
     stats,
     teams,
+    team_assessments,
     tagging,
     tags,
     temporary_elevations,
@@ -109,6 +110,7 @@ SAVED_VIEW_QUERY_INPUT_SCHEMA = "SavedViewQueryPayload-Input"
 SAVED_VIEW_QUERY_OUTPUT_SCHEMA = "SavedViewQueryPayload-Output"
 API_ROUTERS: tuple[APIRouter, ...] = (
     teams.router,
+    team_assessments.router,
     auth.router,
     auth_security.router,
     oidc.router,

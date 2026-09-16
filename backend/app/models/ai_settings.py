@@ -22,6 +22,8 @@ class AISettings(AIProviderAdmissionLimits, AIProviderCapabilities, Base):
     request_timeout_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=300, server_default="300")
     request_max_retries: Mapped[int] = mapped_column(Integer, nullable=False, default=3, server_default="3")
     summary_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    structured_extraction_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    hunt_suggestions_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     relevance_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     daily_brief_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     reporting_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")

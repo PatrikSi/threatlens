@@ -29,6 +29,7 @@ AI_STATUS_SKIPPED = "skipped"
 AI_TERMINAL_STATUSES = {AI_STATUS_READY, AI_STATUS_ERROR, AI_STATUS_SKIPPED}
 
 AI_TASK_NAMES = {
+    "app.tasks.team_assessment_tasks.generate_team_assessment": "team_assessment",
     "app.tasks.feed_tasks.generate_item_ai_enrichment": AI_TASK_TYPE_ITEM_ENRICHMENT,
     "app.tasks.feed_tasks.reprocess_recent_ai_items": AI_TASK_TYPE_REPROCESS,
     "app.tasks.feed_tasks.backfill_daily_ai_briefs": AI_TASK_TYPE_REPROCESS,
@@ -36,6 +37,7 @@ AI_TASK_NAMES = {
     "app.tasks.feed_tasks.generate_intelligence_report": AI_TASK_TYPE_REPORT,
 }
 AI_CONNECTION_TEST_BLOCKING_TASK_TYPES = {
+    "team_assessment",
     AI_TASK_TYPE_ITEM_ENRICHMENT,
     AI_TASK_TYPE_DAILY_BRIEF,
     AI_TASK_TYPE_REPORT,

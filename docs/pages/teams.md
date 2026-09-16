@@ -41,6 +41,32 @@ deletion of their creator and are never silently transferred to another user.
 Lists and assignment rosters are paginated. Shared links preserve context but
 confer no permissions.
 
+## Team AI context and hunt review
+
+Open a team and select **AI context** to maintain its technology stack, priorities,
+available telemetry and relevance criteria. Current members can read the context;
+team managers with `write:teams` can edit it. Each save creates a new context
+version. Do not include credentials: generation sends this context to the
+configured article AI provider alongside the selected article excerpt.
+
+Expand an article, select a team under **Team assessment**, and generate an
+assessment. It is visible only to current team members who can also read that
+article. Team membership does not override handling labels or token scopes.
+Shared article extraction remains separate from each team's interpretation.
+
+When **Suggested hunt cards** is enabled in AI settings, an assessment may include
+hypotheses with supporting passages, telemetry requirements, benign explanations,
+uncertainties and official ATT&CK references. Accept or reject each suggestion.
+An accepted, current suggestion can create a team investigation with the source
+article and a snapshot of the reviewed hypothesis. This requires
+`write:investigations` in addition to assessment access. Nothing executes a hunt
+or contacts an external security system automatically.
+
+Article or context changes mark old results stale and require regeneration before
+review. Review notes stay attached to the revision being edited. Regeneration
+preserves prior result revisions; it does not rewrite investigations already
+created from them. See [AI enrichment](ai.md) for configuration and limits.
+
 ## Concurrent changes and recovery
 
 Editors keep the revision associated with their draft. A conflicting save returns
@@ -64,6 +90,12 @@ workers assume personal ownership and must not consume team work. Stop producers
 and affected workers, apply migrations, replace the workers, then resume work.
 Use the same coordinated window for the
 [report editorial migration](reporting.md#failure-recovery).
+
+Migration `0106_article_team_intelligence` adds team context, assessment revisions
+and the shared extraction column. Both new feature switches default to off.
+Replace the API, web and AI workers together before enabling them or queuing team
+assessments. Pending work uses the durable AI outbox and current provider budgets.
+Restore quarantine interrupts queued assessments and disables AI automation.
 
 Downgrades must preserve the migration's explicit protection checks. Export or
 remove newly owned resources before removing their schema; do not bypass a guard

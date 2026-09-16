@@ -80,6 +80,8 @@ describe('saved AI settings with a real query cache', () => {
     act(() => button('Configuration').click())
     await settle()
     act(() => {
+      input('Evidence-backed extraction').click()
+      input('Suggested hunt cards').click()
       change('Model', 'model-after-save')
       change('Default completion tokens', '16000')
       change('Model Context Window', '65536')
@@ -98,6 +100,7 @@ describe('saved AI settings with a real query cache', () => {
     await settle()
     expect(writes).toHaveLength(1)
     expect(writes[0]).toMatchObject({
+      structured_extraction_enabled: true, hunt_suggestions_enabled: true,
       temperature: null, request_dialect: 'chat_completions_modern', reasoning_effort: 'low',
       structured_output_mode: 'json_object', model_context_window_tokens: 65536, model_max_output_tokens: 16384,
       max_concurrent_requests: 2, hourly_token_budget: 100000,

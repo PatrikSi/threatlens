@@ -474,6 +474,7 @@ def _load_export_record_batch(
             defer(Item.summary, raiseload=True),
             defer(ItemAIEnrichment.summary_text, raiseload=True),
             defer(ItemAIEnrichment.result_provenance_json, raiseload=True),
+            defer(ItemAIEnrichment.structured_extraction_json, raiseload=True),
             defer(Item.last_error, raiseload=True),
             defer(Item.dedupe_key, raiseload=True),
         )

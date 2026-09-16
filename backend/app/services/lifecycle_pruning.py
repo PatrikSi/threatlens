@@ -22,6 +22,7 @@ from app.models.governance_operation_receipt import GovernanceOperationReceipt
 from app.models.integration import IntegrationAttempt, IntegrationDelivery
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.report import Report
+from app.models.team_item_assessment import TeamItemAssessment
 from app.models.lifecycle_pruning import LifecyclePruningRecord
 
 from app.services.lifecycle_pruning_contracts import PruningContext, PruningResult
@@ -58,6 +59,7 @@ _RETAINED_REFERENCES = {
         AITaskRun.parent_run_id,
         AITaskRun.superseded_by_task_run_id,
         Report.request_task_run_id,
+        TeamItemAssessment.task_run_id,
     ),
     "integration_deliveries": (
         IntegrationDelivery.source_delivery_id,

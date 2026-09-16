@@ -474,6 +474,10 @@ def _validate_task_binding(
         )
     expected_resources = {
         "item_enrichment": ("item", item_id),
+        "team_assessment": (
+            "team_item_assessment",
+            _uuid_or_none((run.metadata_json or {}).get("assessment_id")),
+        ),
         "daily_brief": ("ai_daily_brief", daily_brief_id),
         "report": ("report", report_id),
         "connection_test": ("connection_test", None),
@@ -488,7 +492,11 @@ def _validate_task_binding(
         raise AIProviderTaskBindingError(
             "AI provider task resource is unavailable.", retryable=False
         )
-    expected_item_id = item_id if feature_type == "item_enrichment" else None
+    if feature_type == "team_assessment" and item_id is None:
+        raise AIProviderTaskBindingError(
+            "AI provider task article is unavailable.", retryable=False
+        )
+    expected_item_id = item_id if feature_type in ("item_enrichment", "team_assessment") else None
     expected_brief_id = daily_brief_id if feature_type == "daily_brief" else None
     expected_report_id = report_id if feature_type == "report" else None
     if (

@@ -15,6 +15,7 @@ from app.models.audit_log import AuditLog
 from app.models.governance_operation_receipt import GovernanceOperationReceipt
 from app.models.integration import IntegrationRun
 from app.models.report import Report
+from app.models.team_item_assessment import TeamItemAssessment
 from app.models.system_health_sample import SystemHealthSample
 from app.models.tag import TagFeedbackEvent
 from app.services.auth_sessions import cleanup_auth_sessions
@@ -145,6 +146,7 @@ def prune_application_history(
                 _unresolved_ai_provider_receipt(AIProviderAttemptReceipt),
             )
             .exists(),
+            ~select(TeamItemAssessment.id).where(TeamItemAssessment.task_run_id == AITaskRun.id).exists(),
             ~_retained_action_approval_run_reference(AITaskRun.id),
         ),
     )

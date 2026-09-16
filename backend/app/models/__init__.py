@@ -1,5 +1,7 @@
 from app.models.ai_provider_budget import AIProviderBudgetState, AIProviderBudgetReservation
 from app.models.team import Team
+from app.models.team_ai_context import TeamAIContext
+from app.models.team_item_assessment import TeamAssessmentRevision, TeamItemAssessment
 from app.models.lifecycle_pruning import LifecyclePruningRecord
 from app.models.ai_daily_brief import AIDailyBrief
 from app.models.ai_daily_brief_source_item import AIDailyBriefSourceItem
@@ -129,6 +131,9 @@ from app.models.workspace import WorkspaceRolePolicy, WorkspaceUserPreference
 
 __all__ = [
     "Team",
+    "TeamAIContext",
+    "TeamAssessmentRevision",
+    "TeamItemAssessment",
     "AIProviderBudgetState",
     "AIProviderBudgetReservation",
     "ProcessingDispatchState",
