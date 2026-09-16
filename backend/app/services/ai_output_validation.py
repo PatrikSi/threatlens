@@ -3,6 +3,7 @@ from dataclasses import replace
 
 from app.core.config import get_settings
 from app.services.ai_config import ActiveAISettings
+from app.services.ai_extraction import ExtractionValidationError, extraction_input, validate_structured_extraction
 from app.services.ai_normalization import coerce_score
 from app.services.ai_output_storage import AIOutputStorageError, optional_storage_text, validate_output_storage
 from app.services.ai_provider_client import AICompletionResult, AIIntegrationError
@@ -57,6 +58,13 @@ def _invalid_feature_fields(
             invalid_fields.append("summary_text (nonempty text)")
         if active.relevance_enabled and coerce_score(payload.get("relevance_score")) is None:
             invalid_fields.append("relevance_score (finite number)")
+        if getattr(active, "structured_extraction_enabled", False):
+            try:
+                validate_structured_extraction(
+                    payload.get("structured_extraction"), source=extraction_input(messages),
+                )
+            except ExtractionValidationError as error:
+                invalid_fields.append(str(error))
     elif feature_type == "daily_brief":
         if not _has_text(payload.get("brief_text")):
             invalid_fields.append("brief_text (nonempty text)")
@@ -70,6 +78,13 @@ def _invalid_feature_fields(
                 validate_stage_output(payload, stage=stage)
             except ReportGroundingError as error:
                 invalid_fields.append(str(error))
+    elif feature_type == "team_assessment":
+        from app.services.team_assessment_contract import validate_team_assessment_output
+
+        try:
+            validate_team_assessment_output(payload, messages)
+        except ValueError as error:
+            invalid_fields.append(str(error))
     return invalid_fields
 
 

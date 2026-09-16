@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from threading import Lock
 from time import monotonic
 
-from sqlalchemy import select
+from sqlalchemy import literal, select, union_all
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
@@ -16,6 +16,7 @@ from app.models.mfa import UserRecoveryCode, UserTOTPCredential
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.oidc import OIDCProvider
+from app.models.team_item_assessment import TeamAssessmentRevision, TeamItemAssessment
 from app.schemas.health import (
     EncryptedDataInventoryCategory,
     EncryptedDataInventoryResponse,
@@ -160,6 +161,7 @@ def _scan_encrypted_data_inventory(
         bounds=bounds,
     )
     recovery_hashes = _scan_recovery_code_hashes(db, settings=settings, bounds=bounds)
+    team_assessment_authorizations = _scan_team_assessment_authorizations(db, bounds=bounds)
     summary = _build_summary(
         feeds,
         integration_secrets,
@@ -169,6 +171,7 @@ def _scan_encrypted_data_inventory(
         mfa_secrets,
         recovery_hashes,
         ai_provider_secrets,
+        team_assessment_authorizations,
     )
 
     warnings: list[str] = []
@@ -207,6 +210,7 @@ def _scan_encrypted_data_inventory(
         feeds=feeds,
         integration_secrets=integration_secrets,
         ai_provider_secrets=ai_provider_secrets,
+        team_assessment_authorizations=team_assessment_authorizations,
         notification_webhooks=notification_webhooks,
         notification_delivery_snapshots=notification_delivery_snapshots,
         oidc_client_secrets=oidc_client_secrets,
@@ -267,7 +271,7 @@ def _inventory_rows(
     bounds: _InventoryScanBounds | None,
 ):
     if bounds is None:
-        return db.execute(statement)
+        return db.execute(statement.execution_options(yield_per=OPERATIONS_INVENTORY_ROW_LIMIT))
     rows = db.execute(
         statement.order_by(*(column.desc() for column in order_columns)).limit(
             bounds.row_limit + 1
@@ -355,6 +359,52 @@ def _scan_integration_secrets(
             category,
             encrypted_fields=encrypted_fields,
             unreadable_fields=unreadable_fields,
+        )
+    return category
+
+
+def _scan_team_assessment_authorizations(
+    db: Session, *, bounds: _InventoryScanBounds | None = None,
+) -> EncryptedDataInventoryCategory:
+    category = EncryptedDataInventoryCategory()
+    # One combined cap covers canonical jobs and archived result label snapshots.
+    # Do not select private result JSON or team profiles into the health scanner.
+    candidates = union_all(
+        select(
+            TeamItemAssessment.authorization_encrypted.label("authorization"),
+            TeamItemAssessment.source_encrypted.label("source"),
+            TeamItemAssessment.result_source_encrypted.label("result_source"),
+            TeamItemAssessment.result_json.is_not(None).label("has_result"),
+            literal(False).label("archived"),
+            TeamItemAssessment.updated_at.label("updated_at"),
+            TeamItemAssessment.id.label("id"),
+            literal(0).label("version"),
+        ),
+        select(
+            literal(None), literal(None), TeamAssessmentRevision.result_source_encrypted,
+            literal(True), literal(True), TeamAssessmentRevision.created_at,
+            TeamAssessmentRevision.assessment_id, TeamAssessmentRevision.version,
+        ),
+    ).subquery()
+    rows = _inventory_rows(
+        db,
+        select(candidates.c.authorization, candidates.c.source, candidates.c.result_source, candidates.c.has_result, candidates.c.archived),
+        category_name="team_assessment_authorizations",
+        order_columns=(candidates.c.updated_at, candidates.c.id, candidates.c.version),
+        bounds=bounds,
+    )
+    for authorization, source, result_source, has_result, archived in rows:
+        category.total_records += 1
+        values = (result_source,) if archived else (authorization, source)
+        if not archived and (has_result or result_source is not None):
+            values = (*values, result_source)
+        _apply_record_counts(
+            category,
+            encrypted_fields=sum(_count_json_field(value) for value in values),
+            unreadable_fields=sum(
+                _count_unreadable_json_field(value) if is_encrypted_json(value) else 1
+                for value in values
+            ),
         )
     return category
 
@@ -526,6 +576,7 @@ def _build_summary(
     mfa_secrets: EncryptedDataInventoryCategory,
     recovery_hashes: RecoveryCodeHashInventory,
     ai_provider_secrets: EncryptedDataInventoryCategory,
+    team_assessment_authorizations: EncryptedDataInventoryCategory,
 ) -> EncryptedDataInventorySummary:
     categories = (
         feeds,
@@ -535,6 +586,7 @@ def _build_summary(
         oidc_client_secrets,
         mfa_secrets,
         ai_provider_secrets,
+        team_assessment_authorizations,
     )
     return EncryptedDataInventorySummary(
         total_records=sum(category.total_records for category in categories),

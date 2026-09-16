@@ -6,6 +6,14 @@ export function AiFeatureControls({ draft, setDraft, validation }: AiConfigurati
   return (
     <Panel title="Feature controls" subtitle="Enable the AI features that should run and tune the relevance thresholds they rely on.">
       <div className="grid gap-3 md:grid-cols-2">
+        <div className="space-y-1">
+          <CheckboxRow label="Evidence-backed extraction" checked={draft.structured_extraction_enabled} onChange={(checked) => updateDraft(setDraft, 'structured_extraction_enabled', checked)} />
+          <p className="text-xs text-slate dark:text-slate-300">Extract entities, behaviors and relationships with source passages. Shared evidence stays separate from team assessments.</p>
+        </div>
+        <div className="space-y-1">
+          <CheckboxRow label="Suggested hunt cards" checked={draft.hunt_suggestions_enabled} onChange={(checked) => updateDraft(setDraft, 'hunt_suggestions_enabled', checked)} />
+          <p className="text-xs text-slate dark:text-slate-300">Allow analysts to request team-specific suggestions for review. Suggestions do not run searches or take action in external systems.</p>
+        </div>
         <CheckboxRow label="AI article summaries" checked={draft.summary_enabled} onChange={(checked) => updateDraft(setDraft, 'summary_enabled', checked)} />
         <CheckboxRow label="AI relevance scoring" checked={draft.relevance_enabled} onChange={(checked) => updateDraft(setDraft, 'relevance_enabled', checked)} />
         <CheckboxRow

@@ -1,3 +1,5 @@
+import type { StructuredExtraction } from './articleIntelligence'
+
 export interface ItemListEntry {
   id: string
   feed_id: string
@@ -70,6 +72,8 @@ export interface ItemDetail {
   last_error: string | null
   tags: string[]
   ai_insight: {
+    structured_extraction?: StructuredExtraction | null
+    structured_extraction_stale?: boolean
     status: string
     summary_text: string | null
     relevance_score: number | null

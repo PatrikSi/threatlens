@@ -33,6 +33,7 @@ from app.models.integration import (
 from app.models.mfa import UserTOTPCredential
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.report import Report
+from app.models.team_item_assessment import TeamItemAssessment
 from app.services.lifecycle_pruning import incremental_pruning_candidates, prune_oversized_parent
 from app.services.lifecycle_pruning_contracts import PruningContext
 
@@ -220,6 +221,7 @@ def lifecycle_dependent_row_counts(
             AIWorkflowDispatch.run_id,
             AIReprocessMember.parent_run_id,
             AIReportStageArtifact.task_run_id,
+            TeamItemAssessment.task_run_id,
         ):
             _add_capped_direct_counts(
                 db, counts, parent_model=model, parent_column=reference, cap=cap,

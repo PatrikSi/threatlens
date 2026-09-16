@@ -9,6 +9,7 @@ import { useCurrentUser } from '../hooks/useCurrentUser'
 import type { SavedView } from '../types/savedViews'
 import type { Team, TeamPage } from '../types/teams'
 import { hasRequiredPermissions } from '../workspace/workspaceModel'
+import { TeamAIContextTab } from './TeamAIContext'
 import { TeamCreateForm } from './TeamCreateForm'
 import { TeamListPanel } from './TeamListPanel'
 import { TeamMembersPanel } from './TeamMembersPanel'
@@ -60,6 +61,7 @@ export function TeamsPage() {
     setCreated(null)
     void queryClient.invalidateQueries({ queryKey: ['teams'] })
   }, [created, queryClient, setParams])
+  const contextPanel = !adminMode && params.get('panel') === 'ai-context'
   const team = detail.data
   const changePage = (next: number) =>
     setParams((current) => {
@@ -187,13 +189,14 @@ export function TeamsPage() {
                         ])}
                       />
                     )}
+                    <TeamAIContextTab teamId={team.id} selected={contextPanel} writable={hasRequiredPermissions(permissions, ['write:teams'])} unavailable={user.isError} />
                     <TeamMembersPanel
                       key={`members-${team.id}`}
                       teamId={team.id}
                     />
                   </>
                 )}
-                {(team.can_manage || (adminMode && canAdminister)) && (
+                {!contextPanel && (team.can_manage || (adminMode && canAdminister)) && (
                   <TeamSettingsEditor
                     key={team.id}
                     team={team}

@@ -32,3 +32,15 @@ export interface TeamMemberPage {
   page: number
   page_size: number
 }
+
+export interface TeamAIContext {
+  team_id: string
+  technology_stack: string[]
+  priorities: string[]
+  available_telemetry: string[]
+  relevance_criteria: string
+  version: number
+  can_manage: boolean
+  created_at: string | null
+  updated_at: string | null
+}

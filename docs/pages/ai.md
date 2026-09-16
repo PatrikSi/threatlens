@@ -67,7 +67,7 @@ remain unchanged.
 ### Completion Budgets
 
 **Default completion tokens** sets the initial output allowance for article
-enrichment and daily briefs. Both legacy settings and named providers accept
+enrichment, team assessments and daily briefs. Both legacy settings and named providers accept
 128–131,072 tokens. **Initial report completion tokens**, under **Report context
 guardrails**, independently sets the starting allowance for every evidence batch
 and report section, from 256–131,072 tokens. Reports reserve that same amount in
@@ -307,6 +307,149 @@ remain visible if private-network access is later disabled, so an administrator
 can inspect them and replace the endpoint. Reading an inventory entry does not
 authorize a network request to it.
 
+## Article Intelligence and Team Assessments
+
+The article detail view separates shared source extraction from a team's relevance
+assessment. The same article can have different assessments for an endpoint team
+and a cloud team without either profile changing the shared extracted facts.
+
+### Enable and Try the Features
+
+1. Configure the provider used for **Article enrichment**. Shared extraction and
+   team assessments use this route, including its legacy fallback, model limits,
+   request deadline, retries and workload budgets.
+2. In **Settings → AI → Configuration → Feature controls**, enable
+   **Evidence-backed extraction** and, if wanted, **Suggested hunt cards**, then
+   save. Both switches default to off. They are stored application settings,
+   `structured_extraction_enabled` and `hunt_suggestions_enabled`; no additional
+   environment variables or provider keys are required.
+3. Enrich a newly ingested article, or use AI reprocessing for existing articles.
+   Expand its dashboard entry to inspect extracted entities and supporting
+   passages. Enabling extraction does not automatically regenerate historical
+   articles or require summaries and global relevance scoring to be enabled.
+4. A team manager opens **Teams → AI context** and saves the team's technology
+   stack, priorities, available telemetry and relevance criteria. Members can
+   inspect the profile. An unconfigured profile has revision zero and empty fields;
+   missing inventory is not inferred from the global company profile.
+5. In the article's **Team assessment and hunt suggestions** panel, select a team
+   and choose **Generate team assessment**. The accepted request is queued. The
+   panel refreshes until the task finishes and shows its relevance reasons, gaps
+   and any supported suggestions.
+
+Team assessment generation is an explicit action. It does not run for every team
+when an article arrives. The hunt switch controls newly generated hunt cards;
+turning it off still permits team relevance assessments and retains historical
+results and reviews. A switch change while work is queued or running prevents
+that old request from publishing under a different configuration.
+Turning shared extraction off preserves its existing evidence during later
+summary refreshes; retained evidence still carries its original revision and
+staleness warning rather than being presented as newly extracted.
+
+### Evidence and Interpretation
+
+Shared extraction identifies actors, malware, affected products and versions,
+behaviors, indicators and relationships. Indicators distinguish malicious
+infrastructure, benign uses, references and unknown roles. Merely appearing in an
+article does not establish that a domain is malicious.
+
+Every entity and relationship carries a **Reported** or **Inferred** label and
+supporting source passages. Reported means the publisher stated a claim; it does
+not mean ThreatLens independently confirmed it. The server validates the output
+shape, relationship targets and exact passage matches against the input sent to
+the provider. Named entities and product versions must occur in their cited
+passages. These checks establish traceability, not the truth of a claim or the
+correctness of an AI interpretation.
+
+The shared request includes at most 8,000 whitespace-normalized article characters
+and 2,000 summary characters, plus item metadata. Extraction is bounded to 24
+entities and 24 relationships, each with one to three passages. The response
+records its article identity, source revision, retrieval time and input hash. A
+clipping notice identifies limited article coverage. Passage offsets refer to the
+normalized prompt fields, not character positions in the publisher's original page.
+
+Team assessments use a separately bounded primary-source excerpt: up to 1,000
+title characters, 2,000 summary characters and 16,000 article characters. The
+article excerpt can shrink further to fit the configured model context window;
+the team profile remains intact. The same context and output checks used by the
+provider adapter determine available headroom. If the profile and requested output
+still cannot fit, the task fails before sending a request. A bounded-excerpt
+information gap accompanies results when article text was omitted.
+
+Shared extraction and team relevance are separate persisted results. Team prompts
+contain only the selected team's profile and accessible primary article evidence;
+they do not reuse another team's assessment or inject team context into the shared
+extraction. Historical extraction remains readable after a failed refresh, with a
+staleness warning; invalid output never replaces the last verified result.
+
+### Review Suggested Hunts
+
+Each assessment can propose up to three hunt cards with a hypothesis, supporting
+passages, relevance explanation, required logs, benign explanations and information
+gaps. A hypothesis is an unconfirmed possibility. No local telemetry is queried,
+and ThreatLens does not execute a suggested hunt or send commands to external
+systems.
+
+Review the evidence and available telemetry, add an analyst note, and **Accept**
+or **Reject** the suggestion. An accepted suggestion can create a team-owned
+investigation with the source article and a bounded note recording the hypothesis,
+evidence and assessment revision. Creation requires investigation write permission
+as well as team and article access. A repeat with the old submitted revision
+returns `409`; after refreshing, creation returns the existing linked
+investigation instead of creating another one.
+
+Review and generation requests carry the assessment revision. A concurrent change
+returns `409`; refresh and reconcile the current result before retrying. Changes
+to the article or team profile mark prior results stale and prevent review against
+outdated evidence. Regeneration and review retain previous result revisions.
+Unsubmitted review notes remain in the current signed-in browser session when an
+article is collapsed or the user navigates; they are not shared until submitted.
+
+ATT&CK links are checked against the bundled **Enterprise ATT&CK 19.2** catalog.
+The server attaches matching official detection strategies to recognized technique
+IDs and rejects invented or unrelated references. A valid catalog relationship
+does not prove that the technique applies to this article or that the team's logs
+provide adequate detection coverage. See MITRE's
+[detection strategies](https://attack.mitre.org/detectionstrategies/).
+The repository's `backend/app/data/README.md` records the exact upstream source,
+license and refresh commands.
+Runtime services do not download ATT&CK data.
+
+### Team Privacy, Recovery and Deployment
+
+Reading a profile or assessment requires current team membership and the respective
+feature permissions. Updating the profile also requires membership in the team's
+manager group and `write:teams`. Generating and reviewing assessments requires
+`read:items`, `read:teams` and `write:teams`; creating an investigation additionally
+requires `write:investigations`. Team membership never grants access to otherwise
+restricted source articles. Administrators have no automatic team-content bypass.
+
+The selected team's profile and source excerpts leave the installation when its
+assessment calls an external provider. Configure an appropriate article provider
+and avoid secrets in team profiles. Team profiles and results are stored in
+PostgreSQL. Accepting credentials and source-access snapshots are encrypted using
+the existing application encryption key. Task details, scoped usage and failure
+history also enforce current team membership, independently of whether handling
+label policies are enabled. Provider exchange diagnostics contain sanitized
+metadata rather than prompt or response bodies.
+
+Accepted work uses the durable AI outbox, execution ownership and provider-attempt
+receipts. Workers recheck the original session or token, membership, handling
+access, profile revision, article revision and hunt setting before provider I/O
+and publication. Revoked credentials, changed inputs or a superseded delivery
+prevent publication. Uncertain provider outcomes are retained as ambiguous
+receipts and are not automatically sent again. Use the existing
+[AI recovery workflow](ai-workflow-recovery.md) for investigation and reconciliation.
+Queue admission limits are 100 active team assessments per installation and ten
+per accepting user; a full queue returns `429` with retry guidance.
+
+Migration `0106_article_team_intelligence` adds the new settings, nullable shared
+extraction and team assessment tables. Existing summaries, providers and personal
+resources remain intact, and older settings clients that omit the new switches
+preserve their saved values. Deploy the matching API, web and AI workers together
+before enabling the features. Downgrade is blocked while feature settings,
+results or task history remain. Stop producers and workers, take a backup, and
+explicitly export or retire that data before removing the schema.
+
 ## Primary Areas
 
 ### Overview
@@ -427,6 +570,8 @@ request is pending remain available for the next operation.
 
 - The dashboard can add a `Daily Brief` window when AI daily briefing is enabled.
 - RSS item detail can render AI summary + relevance insight blocks when enrichment is available.
+- Expanded article entries show shared evidence extraction and independently
+  selected team assessments, with analyst-reviewed hunt cards when enabled.
 
 ## Trust Boundary Notes
 
@@ -472,6 +617,12 @@ an MCP server or consume external MCP tools.
 - `GET /ai/ops/manual-actions`
 - `GET /ai/ops/prompt-history`
 - `GET /ai/daily-briefs/{id}/sources`
+- `GET /teams/{team_id}/ai-context`
+- `PATCH /teams/{team_id}/ai-context`
+- `GET /items/{item_id}/team-assessment?team_id={team_id}`
+- `POST /items/{item_id}/team-assessment`
+- `PATCH /items/{item_id}/team-assessment/hunts/{hunt_id}`
+- `POST /items/{item_id}/team-assessment/hunts/{hunt_id}/investigation`
 
 Statistics navigation is available with `read:stats`, or to administrators with
 `read:ai` while AI is enabled. Each statistics section keeps its own permission

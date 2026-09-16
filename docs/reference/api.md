@@ -5,7 +5,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ## Published Contract
 
 - Schema version: `2.0.1`
-- OpenAPI contract anchor: `openapi-sha256:ff16c2dbfd7f0d6d8289e44aaf417eb26d28bb320e84b00f6aa7ec97a874b3fd`
+- OpenAPI contract anchor: `openapi-sha256:c1b37ac26a550db013e1f9ca3c9fd3eff2a8c0b6c4c6f192d0f0d0313f098767`
 - API service base path: `/v1`
 - Web proxy base path: `/api/v1`
 - Bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`.
@@ -2137,6 +2137,43 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Request body: `application/json` -> TagCreate
 - Responses: `201` `application/json` -> TagResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 
+## Team Assessments
+
+### `GET /v1/items/{item_id}/team-assessment`
+- Summary: Get Team Assessment
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:items`, `read:teams`
+- Parameters:
+  - `item_id` (path, required): string
+  - `team_id` (query, required): string
+- Responses: `200` `application/json` -> TeamAssessmentEnvelope, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/items/{item_id}/team-assessment`
+- Summary: Queue Team Assessment
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:items`, `read:teams`, `write:teams`
+- Parameters:
+  - `item_id` (path, required): string
+- Request body: `application/json` -> TeamAssessmentCommand
+- Responses: `202` `application/json` -> TeamAssessmentEnvelope, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `PATCH /v1/items/{item_id}/team-assessment/hunts/{hunt_id}`
+- Summary: Review Team Hunt
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:items`, `read:teams`, `write:teams`
+- Parameters:
+  - `item_id` (path, required): string
+  - `hunt_id` (path, required): string
+- Request body: `application/json` -> HuntReviewCommand
+- Responses: `200` `application/json` -> TeamAssessmentEnvelope, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/items/{item_id}/team-assessment/hunts/{hunt_id}/investigation`
+- Summary: Create Team Hunt Investigation
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:items`, `read:teams`, `write:teams`, `write:investigations`
+- Parameters:
+  - `item_id` (path, required): string
+  - `hunt_id` (path, required): string
+- Request body: `application/json` -> TeamAssessmentCommand
+- Responses: `200` `application/json` -> TeamAssessmentEnvelope, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+
 ## Teams
 
 ### `GET /v1/teams`
@@ -2183,6 +2220,21 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `team_id` (path, required): string
 - Request body: `application/json` -> TeamUpdate
 - Responses: `200` `application/json` -> TeamResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `GET /v1/teams/{team_id}/ai-context`
+- Summary: Get Ai Context
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:teams`
+- Parameters:
+  - `team_id` (path, required): string
+- Responses: `200` `application/json` -> TeamAIContextResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `PATCH /v1/teams/{team_id}/ai-context`
+- Summary: Update Ai Context
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:teams`
+- Parameters:
+  - `team_id` (path, required): string
+- Request body: `application/json` -> TeamAIContextUpdate
+- Responses: `200` `application/json` -> TeamAIContextResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `PUT /v1/teams/{team_id}/bindings`
 - Summary: Update Team Bindings
 - Auth: ApiTokenBearer or SessionCookieAuth

@@ -28,6 +28,7 @@ from app.services import ai_provider_client as _ai_provider_client
 from app.services.ai_workflow_recovery import owns_pending_daily_brief
 from app.services.ai_brief_sources import load_brief_sources
 from app.services.ai_enrichment_provenance import enrichment_result_provenance, refresh_verified_provenance
+from app.services.ai_extraction import ExtractionValidationError, build_verified_extraction
 from app.services.ai_config import ActiveAISettings, load_active_ai_settings
 from app.services.ai_egress_data_policy import (
     AIEgressPolicyError,
@@ -183,7 +184,8 @@ def run_item_ai_enrichment(
             input_text_chars=0,
             error=active.configuration_error if active.ai_enabled else None,
         )
-    if not active.summary_enabled and not active.relevance_enabled:
+    extraction_enabled = getattr(active, "structured_extraction_enabled", False)
+    if not any((active.summary_enabled, active.relevance_enabled, extraction_enabled)):
         return AIItemEnrichmentResult(
             enrichment=None,
             status="skipped",
@@ -273,6 +275,15 @@ def run_item_ai_enrichment(
         feed_name=feed.name if feed is not None else "", tag_names=tag_names,
         source_hash=source_hash, generated_at=claim_updated_at,
     )
+    # Capture the revision before committing/releasing ORM instances. A source
+    # refresh while the provider is running must not relabel old evidence as new.
+    extraction_snapshot = {
+        "article_id": article.id,
+        "article_retrieved_at": article.retrieved_at,
+        "source_version": int(item.classification_required_version),
+        "source_hash": source_hash,
+        "article_text_length": len(" ".join((article.text or "").split())),
+    } if extraction_enabled else None
     stop_reason = _prepare_provider_claim(
         db,
         task_run_id=task_run_id,
@@ -314,6 +325,13 @@ def run_item_ai_enrichment(
             provider_operation_scope="item_enrichment",
             messages=messages,
         )
+        structured_extraction = (
+            build_verified_extraction(
+                completion.payload.get("structured_extraction"), messages=messages, **extraction_snapshot,
+            )
+            if extraction_snapshot is not None
+            else None
+        )
     except AITaskRunStoppedError as exc:
         return AIItemEnrichmentResult(
             enrichment=_load_item_enrichment(db, item_id=item_id),
@@ -321,7 +339,7 @@ def run_item_ai_enrichment(
             reason=exc.reason,
             input_text_chars=input_text_chars,
         )
-    except AIIntegrationError as exc:
+    except (AIIntegrationError, ExtractionValidationError) as exc:
         stop_reason = _record_task_run_stop_observed(
             db,
             task_run_id=task_run_id,
@@ -418,6 +436,7 @@ def run_item_ai_enrichment(
         .values(
             status="ready",
             result_provenance_json=result_provenance,
+            **({"structured_extraction_json": structured_extraction} if extraction_enabled else {}),
             summary_text=summary_text,
             relevance_score=relevance_score,
             relevance_label=relevance_label,
@@ -1012,13 +1031,21 @@ def _request_json_with_usage(
     execution_checkpoint: Callable[[], None] | None = None,
     execution_commit: Callable[[], None] | None = None,
     request_authorization: AuthorizationContext | None = None,
+    request_authorization_check: Callable[[], None] | None = None,
 ) -> AICompletionResult:
+    if feature_type == "team_assessment" and request_authorization_check is None:
+        raise AIIntegrationError(
+            "Team assessment provider calls require a current team and accepting-credential authorization fence.",
+            retryable=False,
+        )
     if feature_type == FEATURE_REPORT and provider_operation_scope is None:
         raise AIIntegrationError(
             "Report provider calls require a durable operation scope.",
             retryable=False,
         )
     def enforce_provider_authorization(db: Session, **kwargs):
+        if request_authorization_check is not None:
+            request_authorization_check()
         if request_authorization is not None:
             try:
                 fence_authorization_context(db, request_authorization)
@@ -1062,6 +1089,7 @@ def request_ai_json_with_usage(
     *,
     feature_type: str,
     messages: list[dict[str, str]],
+    item_id: uuid.UUID | None = None,
     report_id: uuid.UUID | None = None,
     task_run_id: uuid.UUID | None = None,
     provider_operation_scope: str | None = None,
@@ -1070,6 +1098,7 @@ def request_ai_json_with_usage(
     max_provider_attempts: int | None = None,
     execution_checkpoint: Callable[[], None] | None = None,
     execution_commit: Callable[[], None] | None = None,
+    request_authorization_check: Callable[[], None] | None = None,
 ) -> AICompletionResult:
     """Run a provider exchange with the standard retry, history, and cancellation behavior."""
     if feature_type == FEATURE_CONNECTION_TEST:
@@ -1083,6 +1112,7 @@ def request_ai_json_with_usage(
         active,
         feature_type=feature_type,
         messages=messages,
+        item_id=item_id,
         report_id=report_id,
         task_run_id=task_run_id,
         provider_operation_scope=provider_operation_scope,
@@ -1091,6 +1121,7 @@ def request_ai_json_with_usage(
         max_provider_attempts=max_provider_attempts,
         execution_checkpoint=execution_checkpoint,
         execution_commit=execution_commit,
+        request_authorization_check=request_authorization_check,
     )
 
 

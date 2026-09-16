@@ -78,7 +78,7 @@ import {
 const AI_QUERY_STALE_MS = 15_000
 const AI_REFERENCE_STALE_MS = 60_000
 const AI_CONNECTION_TEST_TIMEOUT_MS = 45_000
-const CONNECTION_TEST_BLOCKING_TASK_TYPES = new Set(['item_enrichment', 'daily_brief', 'reprocess'])
+const CONNECTION_TEST_BLOCKING_TASK_TYPES = new Set(['item_enrichment', 'team_assessment', 'daily_brief', 'report', 'reprocess'])
 const DEFAULT_RUN_FILTERS: RunFilters = {
   taskType: '',
   status: '',

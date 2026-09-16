@@ -24,6 +24,7 @@ from app.schemas.team import (
     TeamResponse,
     TeamUpdate,
 )
+from app.schemas.team_ai_context import TeamAIContextResponse, TeamAIContextUpdate
 from app.services.audit import record_audit
 from app.services.authorization import AuthorizationContext, fence_authorization_context
 from app.services.team_access import (
@@ -31,8 +32,40 @@ from app.services.team_access import (
     team_access_predicate,
     team_member_user_ids_query,
 )
+from app.services.team_ai_context import get_team_ai_context, update_team_ai_context
 
 router = APIRouter(prefix="/teams", tags=["teams"])
+
+
+@router.get("/{team_id}/ai-context", response_model=TeamAIContextResponse)
+def get_ai_context(
+    team_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permissions(SCOPE_READ_TEAMS)),
+) -> TeamAIContextResponse:
+    return get_team_ai_context(
+        db, team_id=team_id, user=user, authorization=_authorization(request)
+    )
+
+
+@router.patch("/{team_id}/ai-context", response_model=TeamAIContextResponse)
+def update_ai_context(
+    team_id: uuid.UUID,
+    payload: TeamAIContextUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permissions(SCOPE_WRITE_TEAMS)),
+) -> TeamAIContextResponse:
+    response = update_team_ai_context(
+        db,
+        team_id=team_id,
+        user=user,
+        authorization=_authorization(request),
+        payload=payload,
+    )
+    db.commit()
+    return response
 
 
 def _authorization(request: Request) -> AuthorizationContext:

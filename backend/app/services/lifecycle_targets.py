@@ -33,6 +33,7 @@ from app.models.item_state import ItemState
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.report_source_item import ReportSourceItem
 from app.models.report import Report
+from app.models.team_item_assessment import TeamItemAssessment
 from app.models.system_health_sample import SystemHealthSample
 from app.models.tag import TagFeedbackEvent
 from app.services.data_access_envelopes import (
@@ -307,6 +308,7 @@ def _candidate_query(
                 _unresolved_ai_provider_receipt(AIProviderAttemptReceipt),
             )
             .exists(),
+            ~select(TeamItemAssessment.id).where(TeamItemAssessment.task_run_id == AITaskRun.id).exists(),
             ~_retained_action_approval_run_reference(AITaskRun.id),
         )
         return _CandidateQuery(AITaskRun, AITaskRun.finished_at, predicate)
@@ -958,6 +960,7 @@ def _delete_ai_task_history(
             _unresolved_ai_provider_receipt(AIProviderAttemptReceipt),
         )
         .exists(),
+        ~select(TeamItemAssessment.id).where(TeamItemAssessment.task_run_id == AITaskRun.id).exists(),
         ~_retained_action_approval_run_reference(AITaskRun.id),
     )
     task_count = _delete_ai_history_with_envelopes(

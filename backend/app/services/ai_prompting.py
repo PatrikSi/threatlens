@@ -13,6 +13,7 @@ from app.services.ai_config import (
     build_item_enrichment_system_prompt,
 )
 from app.services.ai_normalization import truncate_text
+from app.services.ai_extraction import EXTRACTION_PROMPT
 from app.services.url_utils import normalize_url
 
 
@@ -30,7 +31,7 @@ def build_item_enrichment_messages(
     feed: Feed | None,
     tag_names: list[str],
 ) -> list[dict[str, str]]:
-    feature_instructions: dict[str, str] = {}
+    feature_instructions: dict[str, object] = {}
     if active.summary_enabled:
         feature_instructions["summary_text"] = (
             "2-4 concise sentences explaining the article and its practical defensive significance. Use only the provided input."
@@ -44,8 +45,12 @@ def build_item_enrichment_messages(
             "1-4 short plain strings citing concrete matches, mismatches, exclusions, or evidence gaps from company_context and item content."
         )
 
+    system_prompt = build_item_enrichment_system_prompt(active)
+    if getattr(active, "structured_extraction_enabled", False):
+        feature_instructions["structured_extraction"] = EXTRACTION_PROMPT
+
     return [
-        {"role": "system", "content": build_item_enrichment_system_prompt(active)},
+        {"role": "system", "content": system_prompt},
         {
             "role": "user",
             "content": json.dumps(

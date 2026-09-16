@@ -153,6 +153,8 @@ def update_ai_settings_route(
     before_values = {
         "base_url": settings.base_url,
         "model": settings.model,
+        "structured_extraction_enabled": settings.structured_extraction_enabled,
+        "hunt_suggestions_enabled": settings.hunt_suggestions_enabled,
         "summary_enabled": settings.summary_enabled,
         "relevance_enabled": settings.relevance_enabled,
         "daily_brief_enabled": settings.daily_brief_enabled,
@@ -203,6 +205,8 @@ def update_ai_settings_route(
         metadata={
             "base_url": payload.base_url,
             "model": payload.model,
+            "structured_extraction_enabled": settings.structured_extraction_enabled,
+            "hunt_suggestions_enabled": settings.hunt_suggestions_enabled,
             "summary_enabled": payload.summary_enabled,
             "relevance_enabled": payload.relevance_enabled,
             "daily_brief_enabled": payload.daily_brief_enabled,

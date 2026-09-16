@@ -5,6 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.schemas.ai_extraction import StructuredExtractionResponse
 from app.services.url_utils import normalize_url
 
 
@@ -122,6 +123,8 @@ class ItemAIInsightResponse(BaseModel):
     model: str | None
     generated_at: datetime | None
     error: str | None
+    structured_extraction: StructuredExtractionResponse | None = None
+    structured_extraction_stale: bool = False
 
 
 class ItemGraphNodeResponse(BaseModel):

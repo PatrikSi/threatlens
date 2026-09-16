@@ -37,6 +37,8 @@ export interface AISettings extends AIProviderCapabilities, AIProviderAdmissionL
   max_completion_tokens: number
   request_timeout_seconds: number
   request_max_retries: number
+  structured_extraction_enabled?: boolean
+  hunt_suggestions_enabled?: boolean
   summary_enabled: boolean
   relevance_enabled: boolean
   daily_brief_enabled: boolean
@@ -125,6 +127,8 @@ export interface AISettingsUpdateRequest extends AIProviderCapabilities, AIProvi
   max_completion_tokens: number
   request_timeout_seconds: number
   request_max_retries: number
+  structured_extraction_enabled?: boolean
+  hunt_suggestions_enabled?: boolean
   summary_enabled: boolean
   relevance_enabled: boolean
   daily_brief_enabled: boolean
@@ -172,7 +176,7 @@ export interface AITestConnectionResponse {
 }
 
 export interface AIUsageFeatureSummary {
-  feature_type: 'item_enrichment' | 'daily_brief' | 'report' | 'connection_test'
+  feature_type: 'item_enrichment' | 'team_assessment' | 'daily_brief' | 'report' | 'connection_test'
   total_requests: number
   successful_requests: number
   failed_requests: number
@@ -243,7 +247,7 @@ export interface AIDailyBriefBackfillResponse extends AIQueuedTaskResponse {
 
 export interface AITaskRunResponse {
   id: string
-  task_type: 'item_enrichment' | 'daily_brief' | 'report' | 'connection_test' | 'reprocess'
+  task_type: 'item_enrichment' | 'team_assessment' | 'daily_brief' | 'report' | 'connection_test' | 'reprocess'
   trigger_source: 'auto' | 'manual' | 'scheduled'
   status: 'queued' | 'running' | 'ready' | 'error' | 'skipped'
   reason: string | null
@@ -309,7 +313,7 @@ export interface AITaskRunDetailResponse {
 export interface AILiveTaskResponse {
   worker_name: string
   celery_task_id: string | null
-  task_name: 'item_enrichment' | 'daily_brief' | 'report' | 'connection_test' | 'reprocess'
+  task_name: 'item_enrichment' | 'team_assessment' | 'daily_brief' | 'report' | 'connection_test' | 'reprocess'
   state: 'active' | 'reserved' | 'scheduled'
   run_id: string | null
   item_id: string | null
@@ -411,7 +415,7 @@ export interface AICoverageStatsResponse {
 }
 
 export interface AIFailureGroupResponse {
-  task_type: 'item_enrichment' | 'daily_brief' | 'connection_test' | 'reprocess' | null
+  task_type: 'item_enrichment' | 'team_assessment' | 'daily_brief' | 'connection_test' | 'reprocess' | null
   feature_type: string | null
   model: string | null
   error: string

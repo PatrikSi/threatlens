@@ -70,5 +70,6 @@ export interface EncryptedDataInventoryResponse {
   feeds: EncryptedDataInventoryCategory
   notification_webhooks: EncryptedDataInventoryCategory
   notification_delivery_snapshots: EncryptedDataInventoryCategory
+  team_assessment_authorizations?: EncryptedDataInventoryCategory
   summary: EncryptedDataInventorySummary
 }

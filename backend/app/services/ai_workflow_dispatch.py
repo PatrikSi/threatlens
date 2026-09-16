@@ -38,6 +38,8 @@ def register_ai_workflow(db: Session, run: AITaskRun) -> AIWorkflowDispatch | No
         task_name = "generate_item_ai_enrichment"
         payload.update(item_id=str(run.item_id or metadata.get("accepted_item_id") or uuid.UUID(int=0)),
                        force=bool(metadata.get("force")))
+    elif run.task_type == "team_assessment":
+        task_name = "generate_team_assessment"
     elif run.task_type == "daily_brief" and run.parent_run_id is None:
         task_name = "dispatch_daily_ai_brief_generation"
         payload["force"] = bool(metadata.get("force"))
@@ -58,7 +60,7 @@ def register_ai_workflow(db: Session, run: AITaskRun) -> AIWorkflowDispatch | No
     if run.task_type != "item_enrichment":
         payload["actor_user_id"] = str(run.actor_user_id) if run.actor_user_id else None
     dispatch = AIWorkflowDispatch(
-        run_id=run.id, task_name=TASK_PREFIX + task_name, payload_json=payload,
+        run_id=run.id, task_name=("app.tasks.team_assessment_tasks." if run.task_type == "team_assessment" else TASK_PREFIX) + task_name, payload_json=payload,
         state="complete" if run.status in TERMINAL else "running" if run.status == "running" else "pending",
         delivery_id=run.celery_task_id,
         next_attempt_at=datetime.now(timezone.utc), attempt_count=0,

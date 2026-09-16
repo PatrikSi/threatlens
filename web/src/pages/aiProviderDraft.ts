@@ -21,7 +21,7 @@ export type RoutingField = Exclude<keyof AIProviderRouting, 'version'>
 
 export const ROUTING_FIELDS: { key: RoutingField; label: string }[] = [
   { key: 'default_provider_id', label: 'Default provider' },
-  { key: 'item_enrichment_provider_id', label: 'Article summaries and relevance' },
+  { key: 'item_enrichment_provider_id', label: 'Article enrichment and team assessments' },
   { key: 'daily_brief_provider_id', label: 'Daily briefs' },
   { key: 'report_provider_id', label: 'Reports' },
 ]

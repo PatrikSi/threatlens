@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "2.0.1",
-    "x-threatlens-contract-sha256": "ff16c2dbfd7f0d6d8289e44aaf417eb26d28bb320e84b00f6aa7ec97a874b3fd"
+    "x-threatlens-contract-sha256": "c1b37ac26a550db013e1f9ca3c9fd3eff2a8c0b6c4c6f192d0f0d0313f098767"
   },
   "servers": [
     {
@@ -23,6 +23,182 @@
     }
   ],
   "paths": {
+    "/v1/teams/{team_id}/ai-context": {
+      "get": {
+        "tags": [
+          "teams"
+        ],
+        "summary": "Get Ai Context",
+        "operationId": "get_ai_context_v1_teams__team_id__ai_context_get",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "team_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Team Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamAIContextResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "read:teams"
+        ]
+      },
+      "patch": {
+        "tags": [
+          "teams"
+        ],
+        "summary": "Update Ai Context",
+        "operationId": "update_ai_context_v1_teams__team_id__ai_context_patch",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "team_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Team Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TeamAIContextUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamAIContextResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "write:teams"
+        ]
+      }
+    },
     "/v1/teams": {
       "get": {
         "tags": [
@@ -775,6 +951,412 @@
         },
         "x-threatlens-required-token-scopes": [
           "read:teams"
+        ]
+      }
+    },
+    "/v1/items/{item_id}/team-assessment": {
+      "get": {
+        "tags": [
+          "team assessments"
+        ],
+        "summary": "Get Team Assessment Route",
+        "operationId": "get_team_assessment_route_v1_items__item_id__team_assessment_get",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Item Id"
+            }
+          },
+          {
+            "name": "team_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Team Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamAssessmentEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "read:items",
+          "read:teams"
+        ]
+      },
+      "post": {
+        "tags": [
+          "team assessments"
+        ],
+        "summary": "Queue Team Assessment Route",
+        "operationId": "queue_team_assessment_route_v1_items__item_id__team_assessment_post",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Item Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TeamAssessmentCommand"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamAssessmentEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "read:items",
+          "read:teams",
+          "write:teams"
+        ]
+      }
+    },
+    "/v1/items/{item_id}/team-assessment/hunts/{hunt_id}": {
+      "patch": {
+        "tags": [
+          "team assessments"
+        ],
+        "summary": "Review Team Hunt Route",
+        "operationId": "review_team_hunt_route_v1_items__item_id__team_assessment_hunts__hunt_id__patch",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Item Id"
+            }
+          },
+          {
+            "name": "hunt_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80,
+              "pattern": "^[a-zA-Z0-9_-]+$",
+              "title": "Hunt Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HuntReviewCommand"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamAssessmentEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "read:items",
+          "read:teams",
+          "write:teams"
+        ]
+      }
+    },
+    "/v1/items/{item_id}/team-assessment/hunts/{hunt_id}/investigation": {
+      "post": {
+        "tags": [
+          "team assessments"
+        ],
+        "summary": "Create Team Hunt Investigation Route",
+        "operationId": "create_team_hunt_investigation_route_v1_items__item_id__team_assessment_hunts__hunt_id__investigation_post",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Item Id"
+            }
+          },
+          {
+            "name": "hunt_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80,
+              "pattern": "^[a-zA-Z0-9_-]+$",
+              "title": "Hunt Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TeamAssessmentCommand"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamAssessmentEnvelope"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "read:items",
+          "read:teams",
+          "write:teams",
+          "write:investigations"
         ]
       }
     },
@@ -32132,6 +32714,16 @@
             "type": "integer",
             "title": "Request Max Retries"
           },
+          "structured_extraction_enabled": {
+            "type": "boolean",
+            "title": "Structured Extraction Enabled",
+            "default": false
+          },
+          "hunt_suggestions_enabled": {
+            "type": "boolean",
+            "title": "Hunt Suggestions Enabled",
+            "default": false
+          },
           "summary_enabled": {
             "type": "boolean",
             "title": "Summary Enabled"
@@ -32547,6 +33139,16 @@
             "minimum": 0.0,
             "title": "Request Max Retries",
             "default": 3
+          },
+          "structured_extraction_enabled": {
+            "type": "boolean",
+            "title": "Structured Extraction Enabled",
+            "default": false
+          },
+          "hunt_suggestions_enabled": {
+            "type": "boolean",
+            "title": "Hunt Suggestions Enabled",
+            "default": false
           },
           "summary_enabled": {
             "type": "boolean",
@@ -33023,6 +33625,7 @@
             "type": "string",
             "enum": [
               "item_enrichment",
+              "team_assessment",
               "daily_brief",
               "report",
               "connection_test",
@@ -33635,6 +34238,7 @@
             "type": "string",
             "enum": [
               "item_enrichment",
+              "team_assessment",
               "daily_brief",
               "report",
               "connection_test"
@@ -38221,6 +38825,16 @@
           "ai_reporting_enabled": {
             "type": "boolean",
             "title": "Ai Reporting Enabled"
+          },
+          "ai_structured_extraction_enabled": {
+            "type": "boolean",
+            "title": "Ai Structured Extraction Enabled",
+            "default": false
+          },
+          "ai_hunt_suggestions_enabled": {
+            "type": "boolean",
+            "title": "Ai Hunt Suggestions Enabled",
+            "default": false
           }
         },
         "type": "object",
@@ -40517,6 +41131,9 @@
           "ai_provider_secrets": {
             "$ref": "#/components/schemas/EncryptedDataInventoryCategory"
           },
+          "team_assessment_authorizations": {
+            "$ref": "#/components/schemas/EncryptedDataInventoryCategory"
+          },
           "notification_webhooks": {
             "$ref": "#/components/schemas/EncryptedDataInventoryCategory"
           },
@@ -42232,6 +42849,174 @@
           "expected_revision"
         ],
         "title": "HandlingLabelUpdateRequest"
+      },
+      "HuntEvidenceResponse": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": [
+              "title",
+              "summary",
+              "article_text"
+            ],
+            "title": "Source"
+          },
+          "quote": {
+            "type": "string",
+            "title": "Quote"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source",
+          "quote"
+        ],
+        "title": "HuntEvidenceResponse"
+      },
+      "HuntReviewCommand": {
+        "properties": {
+          "team_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Team Id"
+          },
+          "expected_version": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Expected Version"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "accepted",
+              "rejected"
+            ],
+            "title": "Status"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 2000,
+            "title": "Note",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "team_id",
+          "expected_version",
+          "status"
+        ],
+        "title": "HuntReviewCommand"
+      },
+      "HuntSuggestionResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "hypothesis": {
+            "type": "string",
+            "title": "Hypothesis"
+          },
+          "rationale": {
+            "type": "string",
+            "title": "Rationale"
+          },
+          "required_logs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Required Logs"
+          },
+          "benign_explanations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Benign Explanations"
+          },
+          "information_gaps": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Information Gaps"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/HuntEvidenceResponse"
+            },
+            "type": "array",
+            "title": "Evidence"
+          },
+          "attack_technique_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Attack Technique Ids"
+          },
+          "detection_strategy_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Detection Strategy Ids"
+          },
+          "review_status": {
+            "type": "string",
+            "enum": [
+              "suggested",
+              "accepted",
+              "rejected"
+            ],
+            "title": "Review Status",
+            "default": "suggested"
+          },
+          "review_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Note"
+          },
+          "investigation_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Investigation Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "hypothesis",
+          "rationale",
+          "required_logs",
+          "benign_explanations",
+          "information_gaps",
+          "evidence",
+          "attack_technique_ids",
+          "detection_strategy_ids"
+        ],
+        "title": "HuntSuggestionResponse"
       },
       "IntegrationConnectorResponse": {
         "properties": {
@@ -44013,6 +44798,21 @@
               }
             ],
             "title": "Error"
+          },
+          "structured_extraction": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StructuredExtractionResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "structured_extraction_stale": {
+            "type": "boolean",
+            "title": "Structured Extraction Stale",
+            "default": false
           }
         },
         "type": "object",
@@ -55975,6 +56775,76 @@
         ],
         "title": "StatusPoint"
       },
+      "StructuredExtractionResponse": {
+        "properties": {
+          "schema_version": {
+            "type": "integer",
+            "const": 1,
+            "title": "Schema Version",
+            "default": 1
+          },
+          "article_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Article Id"
+          },
+          "source_version": {
+            "type": "integer",
+            "title": "Source Version"
+          },
+          "article_retrieved_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Article Retrieved At"
+          },
+          "source_hash": {
+            "type": "string",
+            "title": "Source Hash"
+          },
+          "input_sha256": {
+            "type": "string",
+            "title": "Input Sha256"
+          },
+          "truncated": {
+            "type": "boolean",
+            "title": "Truncated"
+          },
+          "entities": {
+            "items": {
+              "$ref": "#/components/schemas/VerifiedExtractedEntity"
+            },
+            "type": "array",
+            "title": "Entities"
+          },
+          "relationships": {
+            "items": {
+              "$ref": "#/components/schemas/VerifiedExtractedRelationship"
+            },
+            "type": "array",
+            "title": "Relationships"
+          },
+          "information_gaps": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Information Gaps"
+          }
+        },
+        "type": "object",
+        "required": [
+          "article_id",
+          "source_version",
+          "article_retrieved_at",
+          "source_hash",
+          "input_sha256",
+          "truncated",
+          "entities",
+          "relationships",
+          "information_gaps"
+        ],
+        "title": "StructuredExtractionResponse"
+      },
       "SystemOperationRunListResponse": {
         "properties": {
           "runs": {
@@ -56967,6 +57837,330 @@
         },
         "type": "object",
         "title": "TaggingSettingsUpdate"
+      },
+      "TeamAIContextResponse": {
+        "properties": {
+          "technology_stack": {
+            "items": {
+              "type": "string",
+              "maxLength": 200,
+              "minLength": 1
+            },
+            "type": "array",
+            "maxItems": 40,
+            "title": "Technology Stack"
+          },
+          "priorities": {
+            "items": {
+              "type": "string",
+              "maxLength": 200,
+              "minLength": 1
+            },
+            "type": "array",
+            "maxItems": 40,
+            "title": "Priorities"
+          },
+          "available_telemetry": {
+            "items": {
+              "type": "string",
+              "maxLength": 200,
+              "minLength": 1
+            },
+            "type": "array",
+            "maxItems": 40,
+            "title": "Available Telemetry"
+          },
+          "relevance_criteria": {
+            "type": "string",
+            "maxLength": 4000,
+            "title": "Relevance Criteria"
+          },
+          "team_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Team Id"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Version"
+          },
+          "can_manage": {
+            "type": "boolean",
+            "title": "Can Manage",
+            "default": false
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "technology_stack",
+          "priorities",
+          "available_telemetry",
+          "relevance_criteria",
+          "team_id",
+          "version"
+        ],
+        "title": "TeamAIContextResponse"
+      },
+      "TeamAIContextUpdate": {
+        "properties": {
+          "technology_stack": {
+            "items": {
+              "type": "string",
+              "maxLength": 200,
+              "minLength": 1
+            },
+            "type": "array",
+            "maxItems": 40,
+            "title": "Technology Stack"
+          },
+          "priorities": {
+            "items": {
+              "type": "string",
+              "maxLength": 200,
+              "minLength": 1
+            },
+            "type": "array",
+            "maxItems": 40,
+            "title": "Priorities"
+          },
+          "available_telemetry": {
+            "items": {
+              "type": "string",
+              "maxLength": 200,
+              "minLength": 1
+            },
+            "type": "array",
+            "maxItems": 40,
+            "title": "Available Telemetry"
+          },
+          "relevance_criteria": {
+            "type": "string",
+            "maxLength": 4000,
+            "title": "Relevance Criteria"
+          },
+          "expected_version": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Expected Version"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "technology_stack",
+          "priorities",
+          "available_telemetry",
+          "relevance_criteria",
+          "expected_version"
+        ],
+        "title": "TeamAIContextUpdate"
+      },
+      "TeamAssessmentCommand": {
+        "properties": {
+          "team_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Team Id"
+          },
+          "expected_version": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Expected Version"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "team_id",
+          "expected_version"
+        ],
+        "title": "TeamAssessmentCommand"
+      },
+      "TeamAssessmentEnvelope": {
+        "properties": {
+          "assessment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TeamAssessmentResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ai_enabled": {
+            "type": "boolean",
+            "title": "Ai Enabled"
+          },
+          "configured": {
+            "type": "boolean",
+            "title": "Configured"
+          },
+          "hunt_suggestions_enabled": {
+            "type": "boolean",
+            "title": "Hunt Suggestions Enabled"
+          },
+          "can_generate": {
+            "type": "boolean",
+            "title": "Can Generate"
+          }
+        },
+        "type": "object",
+        "required": [
+          "assessment",
+          "ai_enabled",
+          "configured",
+          "hunt_suggestions_enabled",
+          "can_generate"
+        ],
+        "title": "TeamAssessmentEnvelope"
+      },
+      "TeamAssessmentResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "team_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Team Id"
+          },
+          "item_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Item Id"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "stale": {
+            "type": "boolean",
+            "title": "Stale"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "generated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generated At"
+          },
+          "context_version": {
+            "type": "integer",
+            "title": "Context Version"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TeamAssessmentResultResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "team_id",
+          "item_id",
+          "version",
+          "status",
+          "stale",
+          "error",
+          "generated_at",
+          "context_version",
+          "result"
+        ],
+        "title": "TeamAssessmentResponse"
+      },
+      "TeamAssessmentResultResponse": {
+        "properties": {
+          "relevance_score": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Relevance Score"
+          },
+          "relevance_reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Relevance Reasons"
+          },
+          "information_gaps": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Information Gaps"
+          },
+          "hunts": {
+            "items": {
+              "$ref": "#/components/schemas/HuntSuggestionResponse"
+            },
+            "type": "array",
+            "title": "Hunts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "relevance_score",
+          "relevance_reasons",
+          "information_gaps",
+          "hunts"
+        ],
+        "title": "TeamAssessmentResultResponse"
       },
       "TeamBindingsUpdate": {
         "properties": {
@@ -58270,6 +59464,185 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "VerifiedExtractedEntity": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^e[1-9][0-9]{0,2}$",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "actor",
+              "malware",
+              "product",
+              "behavior",
+              "indicator"
+            ],
+            "title": "Kind"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 600,
+            "minLength": 1,
+            "title": "Description"
+          },
+          "assertion": {
+            "type": "string",
+            "enum": [
+              "reported",
+              "inferred"
+            ],
+            "title": "Assertion"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/VerifiedExtractionEvidence"
+            },
+            "type": "array",
+            "maxItems": 3,
+            "minItems": 1,
+            "title": "Evidence"
+          },
+          "versions": {
+            "items": {
+              "type": "string",
+              "maxLength": 240,
+              "minLength": 1
+            },
+            "type": "array",
+            "maxItems": 8,
+            "title": "Versions"
+          },
+          "indicator_role": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "malicious_infrastructure",
+                  "benign",
+                  "reference",
+                  "unknown"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Indicator Role"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "name",
+          "description",
+          "assertion",
+          "evidence"
+        ],
+        "title": "VerifiedExtractedEntity"
+      },
+      "VerifiedExtractedRelationship": {
+        "properties": {
+          "source_entity_id": {
+            "type": "string",
+            "pattern": "^e[1-9][0-9]{0,2}$",
+            "title": "Source Entity Id"
+          },
+          "target_entity_id": {
+            "type": "string",
+            "pattern": "^e[1-9][0-9]{0,2}$",
+            "title": "Target Entity Id"
+          },
+          "relationship": {
+            "type": "string",
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Relationship"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 600,
+            "minLength": 1,
+            "title": "Description"
+          },
+          "assertion": {
+            "type": "string",
+            "enum": [
+              "reported",
+              "inferred"
+            ],
+            "title": "Assertion"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/VerifiedExtractionEvidence"
+            },
+            "type": "array",
+            "maxItems": 3,
+            "minItems": 1,
+            "title": "Evidence"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "source_entity_id",
+          "target_entity_id",
+          "relationship",
+          "description",
+          "assertion",
+          "evidence"
+        ],
+        "title": "VerifiedExtractedRelationship"
+      },
+      "VerifiedExtractionEvidence": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": [
+              "title",
+              "summary",
+              "article_text"
+            ],
+            "title": "Source"
+          },
+          "quote": {
+            "type": "string",
+            "maxLength": 600,
+            "minLength": 8,
+            "title": "Quote"
+          },
+          "start": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Start"
+          },
+          "end": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "End"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "source",
+          "quote",
+          "start",
+          "end"
+        ],
+        "title": "VerifiedExtractionEvidence"
       },
       "WorkspaceDashboardPanelDefinitionResponse": {
         "properties": {

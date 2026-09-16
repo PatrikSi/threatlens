@@ -772,6 +772,7 @@ def _reconcile_stale_ai_runs(
                 AITaskRun.task_type.in_(
                     [
                         AI_TASK_TYPE_ITEM_ENRICHMENT,
+                        "team_assessment",
                         AI_TASK_TYPE_DAILY_BRIEF,
                         AI_TASK_TYPE_REPORT,
                     ]
