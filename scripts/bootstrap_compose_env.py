@@ -18,7 +18,7 @@ ENVIRONMENT_MAPPINGS = (
 )
 
 
-def render_mappings(environment_file: Path, compose_file: Path) -> str:
+def load_configuration(environment_file: Path, compose_file: Path) -> dict:
     # Shell application overrides must not change freshly generated credentials
     # or make this output disagree with the ordinary bootstrap .env file.
     environment = {
@@ -40,6 +40,13 @@ def render_mappings(environment_file: Path, compose_file: Path) -> str:
         timeout=60,
     )
     document = json.loads(result.stdout)
+    if not isinstance(document, dict):
+        raise ValueError("Compose configuration is not an object")
+    return document
+
+
+def render_mappings(environment_file: Path, compose_file: Path) -> str:
+    document = load_configuration(environment_file, compose_file)
     lines: list[str] = []
     for name in ENVIRONMENT_MAPPINGS:
         mapping = document[f"x-{name}"]

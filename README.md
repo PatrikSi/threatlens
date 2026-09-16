@@ -45,7 +45,10 @@ Python 3 to generate secrets. Create a local environment file:
 ```
 
 The script creates `.env` and prints the generated admin login; it does not
-start containers. To choose your own admin identity, run:
+start containers. The file includes every setting and comment from `.env.example`,
+including AI, authentication, logging, retention and worker configuration. It
+uses local HTTP defaults with AI disabled and initial admin seeding enabled.
+To choose your own admin identity, run:
 
 ```bash
 ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='use-a-long-password' ./bootstrap.sh
@@ -162,6 +165,27 @@ their writable tmpfs paths. Preserve existing credentials, encryption keys and
 persistent volumes. A complete upgrade from 1.x still requires the
 [2.0 upgrade procedure](docs/releases/2.0.0.md#upgrade-from-1x).
 
+## Kubernetes configuration
+
+Export each workload's resolved environment from an existing `.env` as a
+Kubernetes Secret. This requires Python 3 and Docker Compose v2; it does not
+require a Docker daemon or contact a cluster:
+
+```bash
+umask 077
+python3 scripts/export_kubernetes_secret.py \
+  --env-file .env --service api --name threatlens-api --namespace threatlens \
+  > threatlens-api-secret.json
+```
+
+Set cluster database/Redis URLs, HTTPS, host and proxy settings in the input file
+before exporting. The output contains plaintext secret values; keep it private
+and out of source control. The exporter preserves configured values and does
+not generate credentials or deploy workloads. See the
+[Kubernetes environment reference](docs/reference/configuration.md#kubernetes-environment-export)
+for AI worker and migration exports, `envFrom` usage, and the separate deployment
+requirements.
+
 ## AI
 
 AI is disabled by default.
@@ -174,6 +198,12 @@ AI_ENABLED=true
 
 Then open **Settings -> AI** and configure an OpenAI-compatible endpoint, model, and API key if needed.
 For Ollama, use either the server origin such as `http://192.168.0.113:11434` or the explicit OpenAI-compatible base `http://192.168.0.113:11434/v1`.
+
+The generated `.env` includes all global AI environment settings. Named
+providers, their keys, models, feature routes and model limits are configured in
+the application and stored in PostgreSQL. `AI_API_KEY` and
+`AI_API_KEY_BASE_URL` provide the optional legacy server key and its trusted
+origin; they do not define the named-provider list.
 
 If your AI provider is on a private network, also set:
 
