@@ -16,6 +16,11 @@ flag is still accepted as an alias.
 Environment overrides:
   ADMIN_EMAIL      Admin email to write into the generated output.
   ADMIN_PASSWORD   Admin password to write into the generated output.
+  POSTGRES_DB, POSTGRES_USER, POSTGRES_RUNTIME_USER, POSTGRES_MIGRATION_USER
+                  Database and role names for a new installation.
+
+--force replaces every generated secret. Do not use it to upgrade an existing
+installation; retain its database credentials and application encryption keys.
 USAGE
 }
 
@@ -36,6 +41,11 @@ while [ "$#" -gt 0 ]; do
     -h|--help)
       usage
       exit 0
+      ;;
+    -*)
+      echo "Unknown option: $1" >&2
+      usage >&2
+      exit 2
       ;;
     *)
       if [ -n "$output_file" ]; then
@@ -65,9 +75,15 @@ if [ -z "$output_file" ] && [ "$print_compose_env" != "true" ]; then
   output_file=".env"
 fi
 
-if [ -n "$output_file" ] && [ -e "$output_file" ] && [ "$force" != "true" ]; then
-  echo "$output_file already exists. Use --force to replace it." >&2
-  exit 1
+if [ -n "$output_file" ]; then
+  if [ -L "$output_file" ] || { [ -e "$output_file" ] && [ ! -f "$output_file" ]; }; then
+    echo "Refusing to replace a symlink or non-regular file: $output_file" >&2
+    exit 1
+  fi
+  if [ -e "$output_file" ] && [ "$force" != "true" ]; then
+    echo "$output_file already exists. Retain it for upgrades; --force replaces all secrets." >&2
+    exit 1
+  fi
 fi
 
 random_value() {
@@ -104,23 +120,107 @@ jwt_secret="$(random_value 64)"
 app_data_encryption_key="$(random_value 64)"
 admin_email="${ADMIN_EMAIL:-admin@example.com}"
 admin_password="${ADMIN_PASSWORD:-$(random_value 24)}"
-database_url="postgresql+psycopg://${postgres_runtime_user}:${postgres_runtime_password}@db:5432/${postgres_db}"
-redis_url="redis://:${redis_password}@redis:6379/0"
 compose_project_name="${COMPOSE_PROJECT_NAME:-$(basename "$PWD" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]//g')}"
 if [ -z "$compose_project_name" ]; then
   compose_project_name="threatlens"
 fi
 postgres_volume_name="${compose_project_name}_postgres_data"
 
+validate_single_line() {
+  if [[ "$2" == *$'\n'* || "$2" == *$'\r'* ]]; then
+    echo "$1 must be a single-line value." >&2
+    exit 2
+  fi
+}
+
+validate_single_line ADMIN_EMAIL "$admin_email"
+validate_single_line ADMIN_PASSWORD "$admin_password"
+validate_single_line POSTGRES_USER "$postgres_user"
+
+admin_email="${admin_email#"${admin_email%%[![:space:]]*}"}"
+admin_email="${admin_email%"${admin_email##*[![:space:]]}"}"
+valid_admin_email() {
+  if [[ ! "$admin_email" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]]; then
+    return 1
+  fi
+  local local_part="${admin_email%@*}"
+  local domain="${admin_email#*@}"
+  local label
+  local -a labels
+  # The login API rejects dot-boundary errors and invalid domain labels.
+  # Catch these before seeding an administrator who cannot sign in.
+  if [[ "$local_part" == .* || "$local_part" == *. || "$local_part" == *..* ||
+        "$domain" == .* || "$domain" == *. || "$domain" == *..* ]]; then
+    return 1
+  fi
+  IFS=. read -r -a labels <<< "$domain"
+  for label in "${labels[@]}"; do
+    if [[ "${#label}" -gt 63 || ! "$label" =~ ^[[:alnum:]]([[:alnum:]-]*[[:alnum:]])?$ ]]; then
+      return 1
+    fi
+  done
+}
+if ! valid_admin_email; then
+  echo "ADMIN_EMAIL must be an email address, such as admin@example.com." >&2
+  exit 2
+fi
+if [ "${#admin_password}" -gt 256 ]; then
+  echo "ADMIN_PASSWORD must be at most 256 characters, matching the login form limit." >&2
+  exit 2
+fi
+normalized_password="${admin_password#"${admin_password%%[![:space:]]*}"}"
+normalized_password="${normalized_password%"${normalized_password##*[![:space:]]}"}"
+normalized_password="$(printf '%s' "$normalized_password" | tr '[:upper:]' '[:lower:]')"
+case "$normalized_password" in
+  admin123|replace-with*|change-me*|changeme*|placeholder*|example-*|your-*)
+    echo "ADMIN_PASSWORD must not use a default or placeholder value when creating the first administrator." >&2
+    exit 2
+    ;;
+esac
+
+if [[ ! "$postgres_db" =~ ^[a-zA-Z_][a-zA-Z0-9_-]{0,62}$ ]]; then
+  echo "POSTGRES_DB must be a URL-safe database name of at most 63 characters (letters, digits, _ or -)." >&2
+  exit 2
+fi
+if [[ ! "$postgres_user" =~ ^[a-zA-Z_][a-zA-Z0-9_-]{0,62}$ || "$postgres_user" == pg_* ]]; then
+  echo "POSTGRES_USER must be a SQL identifier of at most 63 characters (letters, digits, _ or -), without the reserved pg_ prefix." >&2
+  exit 2
+fi
+for role_variable in postgres_runtime_user postgres_migration_user; do
+  role_name="${!role_variable}"
+  if [[ ! "$role_name" =~ ^[a-z_][a-z0-9_]{0,62}$ || "$role_name" == pg_* ]]; then
+    role_label="$(printf '%s' "$role_variable" | tr '[:lower:]' '[:upper:]')"
+    echo "$role_label must be a lowercase SQL identifier of at most 63 characters, without the reserved pg_ prefix." >&2
+    exit 2
+  fi
+done
+if [[ "$postgres_runtime_user" == "$postgres_migration_user" ||
+      "$postgres_user" == "$postgres_runtime_user" ||
+      "$postgres_user" == "$postgres_migration_user" ]]; then
+  echo "POSTGRES_USER, POSTGRES_RUNTIME_USER and POSTGRES_MIGRATION_USER must be distinct." >&2
+  exit 2
+fi
+
+dotenv_quote() {
+  # Compose interpolates dollar signs in double-quoted dotenv values. Escape
+  # these separately from backslashes and quotes to preserve chosen passwords.
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  value="${value//\$/\$\$}"
+  printf '"%s"' "$value"
+}
+
 render_env_file_block() {
   cat <<EOF
 POSTGRES_DB=$postgres_db
-POSTGRES_USER=$postgres_user
+POSTGRES_USER=$(dotenv_quote "$postgres_user")
 POSTGRES_PASSWORD=$postgres_password
 POSTGRES_RUNTIME_USER=$postgres_runtime_user
 POSTGRES_RUNTIME_PASSWORD=$postgres_runtime_password
 POSTGRES_MIGRATION_USER=$postgres_migration_user
 POSTGRES_MIGRATION_PASSWORD=$postgres_migration_password
+MIGRATION_DATABASE_URL=
 REDIS_PASSWORD=$redis_password
 DATABASE_URL=
 REDIS_URL=
@@ -129,8 +229,8 @@ APP_DATA_ENCRYPTION_KEY=$app_data_encryption_key
 APP_DATA_ENCRYPTION_PREVIOUS_KEYS=
 REQUIRE_EXPLICIT_DATA_ENCRYPTION_KEY=true
 JWT_EXPIRES_MINUTES=1440
-ADMIN_EMAIL=$admin_email
-ADMIN_PASSWORD=$admin_password
+ADMIN_EMAIL=$(dotenv_quote "$admin_email")
+ADMIN_PASSWORD=$(dotenv_quote "$admin_password")
 SEED_ADMIN_ON_STARTUP=true
 SEED_ADMIN_FORCE_ROLE=false
 SEED_ADMIN_REACTIVATE_EXISTING=false
@@ -142,6 +242,7 @@ AUTH_REQUIRE_CSRF=true
 AUTH_COOKIE_NAME=threatlens_session
 AUTH_CSRF_COOKIE_NAME=threatlens_csrf
 AUTH_CSRF_HEADER_NAME=x-csrf-token
+TRUSTED_PROXY_HOSTS=web
 RUN_MIGRATIONS_ON_STARTUP=false
 ALLOW_SELF_REGISTRATION=false
 ALLOW_LEGACY_UNSCOPED_TOKENS=false
@@ -163,133 +264,43 @@ LOG_LEVEL=INFO
 EOF
 }
 
-yaml_quote() {
-  printf "'"
-  printf "%s" "$1" | sed "s/'/''/g"
-  printf "'"
-}
-
-render_yaml_entry() {
-  local key="$1"
-  local value="$2"
-  printf "  %s: " "$key"
-  yaml_quote "$value"
-  printf "\n"
-}
-
-render_compose_env_mapping() {
-  cat <<EOF
-x-db-environment: &db-environment
-EOF
-  render_yaml_entry "POSTGRES_DB" "$postgres_db"
-  render_yaml_entry "POSTGRES_USER" "$postgres_user"
-  render_yaml_entry "POSTGRES_PASSWORD" "$postgres_password"
-  render_yaml_entry "POSTGRES_RUNTIME_USER" "$postgres_runtime_user"
-  render_yaml_entry "POSTGRES_RUNTIME_PASSWORD" "$postgres_runtime_password"
-  render_yaml_entry "POSTGRES_MIGRATION_USER" "$postgres_migration_user"
-  render_yaml_entry "POSTGRES_MIGRATION_PASSWORD" "$postgres_migration_password"
-  cat <<EOF
-
-x-redis-environment: &redis-environment
-EOF
-  render_yaml_entry "REDIS_PASSWORD" "$redis_password"
-  cat <<EOF
-
-x-migration-environment: &migration-environment
-EOF
-  render_yaml_entry "APP_ENV" "development"
-  render_yaml_entry "DATABASE_URL" "postgresql+psycopg://${postgres_migration_user}:${postgres_migration_password}@db:5432/${postgres_db}"
-  cat <<EOF
-
-x-backend-environment: &backend-environment
-  <<: *redis-environment
-EOF
-  render_yaml_entry "APP_ENV" "development"
-  render_yaml_entry "DATABASE_URL" "$database_url"
-  render_yaml_entry "REDIS_URL" "$redis_url"
-  render_yaml_entry "JWT_SECRET" "$jwt_secret"
-  render_yaml_entry "APP_DATA_ENCRYPTION_KEY" "$app_data_encryption_key"
-  render_yaml_entry "APP_DATA_ENCRYPTION_PREVIOUS_KEYS" ""
-  render_yaml_entry "REQUIRE_EXPLICIT_DATA_ENCRYPTION_KEY" "true"
-  render_yaml_entry "JWT_EXPIRES_MINUTES" "1440"
-  render_yaml_entry "ADMIN_EMAIL" "$admin_email"
-  render_yaml_entry "ADMIN_PASSWORD" "$admin_password"
-  render_yaml_entry "ALLOW_SELF_REGISTRATION" "false"
-  render_yaml_entry "ALLOW_LEGACY_UNSCOPED_TOKENS" "false"
-  render_yaml_entry "DEFAULT_API_TOKEN_EXPIRY_DAYS" "90"
-  render_yaml_entry "AI_ENABLED" "false"
-  render_yaml_entry "AI_API_KEY" ""
-  render_yaml_entry "AI_API_KEY_BASE_URL" "https://api.openai.com"
-  render_yaml_entry "EXPOSE_API_DOCS_IN_PRODUCTION" "false"
-  render_yaml_entry "EXPOSE_OPENAPI_SCHEMA_IN_PRODUCTION" "true"
-  render_yaml_entry "FEED_MAX_BYTES" "2000000"
-  render_yaml_entry "ALLOW_PRIVATE_NETWORK_FETCH" "false"
-  render_yaml_entry "ALLOW_PRIVATE_NETWORK_AI" "false"
-  render_yaml_entry "ALLOW_PRIVATE_NETWORK_WEBHOOKS" "false"
-  render_yaml_entry "ALLOW_PRIVATE_NETWORK_OIDC" "false"
-  render_yaml_entry "ALLOW_INSECURE_HTTP_OIDC" "false"
-  render_yaml_entry "OUTBOUND_MAX_REDIRECTS" "5"
-  render_yaml_entry "AUTH_LOGIN_MAX_ATTEMPTS" "8"
-  render_yaml_entry "AUTH_LOGIN_WINDOW_SECONDS" "300"
-  render_yaml_entry "AUTH_LOGIN_LOCKOUT_SECONDS" "900"
-  render_yaml_entry "API_TOKEN_LAST_USED_UPDATE_INTERVAL_SECONDS" "300"
-  render_yaml_entry "OIDC_TRANSACTION_COOKIE_NAME" "threatlens_oidc_transaction"
-  render_yaml_entry "OIDC_TRANSACTION_TTL_SECONDS" "600"
-  render_yaml_entry "OIDC_CALLBACK_PATH" "/api/v1/auth/oidc/callback"
-  render_yaml_entry "OIDC_METADATA_CACHE_SECONDS" "300"
-  render_yaml_entry "OIDC_CONNECT_TIMEOUT_SECONDS" "5"
-  render_yaml_entry "OIDC_READ_TIMEOUT_SECONDS" "10"
-  render_yaml_entry "OIDC_MAX_RESPONSE_BYTES" "1000000"
-  render_yaml_entry "CORS_ORIGINS" "http://localhost:3000,http://127.0.0.1:3000"
-  render_yaml_entry "TRUSTED_PROXY_CIDRS" ""
-  render_yaml_entry "ALLOWED_HOSTS" "api,localhost,127.0.0.1,::1"
-  render_yaml_entry "AUTH_COOKIE_NAME" "threatlens_session"
-  render_yaml_entry "AUTH_COOKIE_SECURE" "false"
-  render_yaml_entry "AUTH_COOKIE_SAMESITE" "lax"
-  render_yaml_entry "AUTH_CSRF_COOKIE_NAME" "threatlens_csrf"
-  render_yaml_entry "AUTH_CSRF_HEADER_NAME" "x-csrf-token"
-  render_yaml_entry "AUTH_REQUIRE_CSRF" "true"
-  render_yaml_entry "RUN_MIGRATIONS_ON_STARTUP" "false"
-  render_yaml_entry "SEED_ADMIN_ON_STARTUP" "true"
-  render_yaml_entry "PROBE_FEED_METADATA_ON_CREATE" "false"
-  render_yaml_entry "PROBE_FEED_METADATA_ON_IMPORT" "false"
-  render_yaml_entry "MAX_METADATA_BACKFILL_TASKS_PER_REQUEST" "100"
-  render_yaml_entry "DISPATCH_DUE_FEEDS_BATCH_SIZE" "500"
-  render_yaml_entry "DISPATCH_UNCLASSIFIED_ITEMS_BATCH_SIZE" "200"
-  render_yaml_entry "DISPATCH_ITEMS_MISSING_IOCS_BATCH_SIZE" "200"
-  render_yaml_entry "DISPATCH_ITEMS_MISSING_AI_ENRICHMENT_BATCH_SIZE" "200"
-  render_yaml_entry "DISPATCH_ITEMS_FAILED_AI_ENRICHMENT_AFTER_SECONDS" "3600"
-  render_yaml_entry "AI_AUTO_ENRICH_NEW_ITEM_MAX_AGE_HOURS" "24"
-  render_yaml_entry "AI_DAILY_BRIEF_SOURCE_AUDIT_LIMIT" "500"
-  render_yaml_entry "DISPATCH_FEED_METADATA_SCAN_LIMIT" "250"
-  render_yaml_entry "DISPATCH_FEED_METADATA_QUEUE_LIMIT" "50"
-  render_yaml_entry "DISPATCH_AI_REPROCESS_BATCH_SIZE" "100"
-  render_yaml_entry "ALERT_MATCHES_KEYWORD_CAP" "512"
-  render_yaml_entry "STATS_TOP_DOMAINS_LIMIT" "10"
-  render_yaml_entry "SEED_ADMIN_FORCE_ROLE" "false"
-  render_yaml_entry "SEED_ADMIN_REACTIVATE_EXISTING" "false"
-  render_yaml_entry "SEED_ADMIN_RESET_PASSWORD_ON_STARTUP" "false"
-  render_yaml_entry "LOG_LEVEL" "INFO"
-  render_yaml_entry "HEALTH_WORKER_PING_TIMEOUT_SECONDS" "1.0"
-  render_yaml_entry "BEAT_HEARTBEAT_KEY" "threatlens:beat:heartbeat"
-  render_yaml_entry "BEAT_HEARTBEAT_TTL_SECONDS" "180"
-  render_yaml_entry "BEAT_HEARTBEAT_STALE_AFTER_SECONDS" "180"
-  render_yaml_entry "BEAT_HEARTBEAT_INTERVAL_SECONDS" "60"
-}
-
 if [ "$print_compose_env" = "true" ]; then
-  render_compose_env_mapping
+  if ! command -v python3 >/dev/null 2>&1 || ! command -v docker >/dev/null 2>&1; then
+    echo "--print-compose-env requires Python 3 and Docker Compose v2; no running Docker daemon is needed." >&2
+    exit 1
+  fi
+  script_directory="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+  umask 077
+  temporary_file="$(mktemp "${TMPDIR:-/tmp}/threatlens-bootstrap.XXXXXX")"
+  trap 'rm -f -- "$temporary_file"' EXIT
+  render_env_file_block > "$temporary_file"
+  python3 "$script_directory/scripts/bootstrap_compose_env.py" \
+    "$temporary_file" "$script_directory/docker-compose.yml"
   exit 0
 fi
 
 umask 077
-cat > "$output_file" <<EOF
+temporary_file="$(mktemp "${output_file}.tmp.XXXXXX")"
+trap 'rm -f -- "$temporary_file"' EXIT
+cat > "$temporary_file" <<EOF
 # Generated by bootstrap.sh.
 # These values are intended for a local HTTP deployment at http://localhost:3000.
 # Review .env.example before using this file for an internet-facing deployment.
 $(render_env_file_block)
 EOF
-chmod 600 "$output_file"
+if [ "$force" = "true" ]; then
+  mv -f -- "$temporary_file" "$output_file"
+else
+  # A concurrent bootstrap must not replace credentials already written by
+  # another process after the existence check above.
+  ln -- "$temporary_file" "$output_file"
+fi
+
+compose_command="docker compose"
+if [ "$output_file" != ".env" ]; then
+  printf -v quoted_output_file '%q' "$output_file"
+  compose_command+=" --env-file $quoted_output_file"
+fi
 
 cat <<EOF
 Created $output_file
@@ -299,8 +310,8 @@ Admin login:
   Password: $admin_password
 
 Start ThreatLens with:
-  docker compose pull
-  docker compose up -d
+  $compose_command pull
+  $compose_command up -d --wait
 
 After the first admin account exists, you can set SEED_ADMIN_ON_STARTUP=false in $output_file.
 EOF
