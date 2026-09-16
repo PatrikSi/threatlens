@@ -29,7 +29,9 @@ services:
     image: postgres:16
     environment: *database
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d threatlens"]
+      # The initialization server accepts sockets before role provisioning is done.
+      # TCP becomes ready only after the final PostgreSQL server starts.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d threatlens"]
       interval: 1s
       timeout: 2s
       retries: 30
