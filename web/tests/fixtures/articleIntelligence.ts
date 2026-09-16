@@ -14,4 +14,3 @@ export const extractionFixture: StructuredExtraction = {
     { id: 'actor', name: 'Possible actor', kind: 'actor', description: 'The source implies an attribution.', assertion: 'inferred', versions: [], indicator_role: null, evidence: [{ source: 'summary', quote: 'Attribution is uncertain.' }] },
   ], relationships: [{ source_entity_id: 'actor', target_entity_id: 'reference', relationship: 'references', description: 'Contextual mention.', assertion: 'inferred', evidence: [] }], information_gaps: ['No independent validation'],
 }
-
