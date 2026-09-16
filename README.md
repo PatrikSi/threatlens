@@ -36,17 +36,23 @@ It stores feeds, extracts article text, and gives a single pane of glass to revi
 
 ## Quick Start
 
-Create a local environment file with fresh random secrets:
+For a new installation, use a matching repository checkout with Bash, Docker
+Engine and Docker Compose v2 installed. Bootstrap needs either OpenSSL or
+Python 3 to generate secrets. Create a local environment file:
 
 ```bash
 ./bootstrap.sh
 ```
 
-The script prints the generated admin login. To choose your own admin identity, run:
+The script creates `.env` and prints the generated admin login; it does not
+start containers. To choose your own admin identity, run:
 
 ```bash
 ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='use-a-long-password' ./bootstrap.sh
 ```
+
+Bootstrap escapes custom credentials for Compose, preserving literal dollar
+signs, quotes and backslashes. Keep the generated file private.
 
 For a production or internet-facing deployment, review `.env.example` and replace any local-only settings before first startup.
 
@@ -54,14 +60,24 @@ Pull the latest published images and start everything:
 
 ```bash
 docker compose pull
-docker compose up -d
+docker compose up -d --wait
 ```
 
-The default `latest` tag follows the newest published default image, and the bundled compose file asks Docker to refresh ThreatLens application images during `up`. To pin a specific release, set `THREATLENS_IMAGE_TAG` to an immutable image tag:
+If you choose a custom output filename on first run, pass it to every Compose
+command:
 
 ```bash
-THREATLENS_IMAGE_TAG=1.0.0 docker compose pull
-THREATLENS_IMAGE_TAG=1.0.0 docker compose up -d
+./bootstrap.sh threatlens.env
+docker compose --env-file threatlens.env pull
+docker compose --env-file threatlens.env up -d --wait
+```
+
+The default `latest` tag follows the newest published default image, and the bundled compose file asks Docker to refresh ThreatLens application images during `up`. To pin images to a published commit, first check out that commit and confirm its **Publish container images** workflow succeeded. Then use its SHA tag so the Compose configuration and images match:
+
+```bash
+export THREATLENS_IMAGE_TAG="sha-$(git rev-parse HEAD)"
+docker compose pull
+docker compose up -d --wait
 ```
 
 Or build and start local development images from source:
@@ -93,11 +109,21 @@ Log in with `ADMIN_EMAIL` and `ADMIN_PASSWORD`.
 
 After the first admin account exists, set `SEED_ADMIN_ON_STARTUP=false` for normal use.
 
+For upgrades, retain the existing environment, credentials and encryption keys.
+Bootstrap refuses to overwrite an existing file by default. `--force` explicitly
+regenerates all secrets and is unsuitable for updating an initialized deployment;
+follow the [database upgrade instructions](docs/pages/database-privileges.md#existing-installations-explicit-offline-cutover)
+when moving from a single database role.
+
 ## Portainer
 
-You can paste `docker-compose.yml` into a Portainer stack without uploading a `.env` file.
+You can paste `docker-compose.yml` into a Portainer stack without uploading a
+`.env` file or placing a database initialization script on the Docker host.
+The Compose file includes the initialization script for new database volumes.
 
-Generate pasteable Compose environment mappings:
+From the matching repository checkout, generate pasteable Compose environment
+mappings. This mode requires Python 3 and Docker Compose v2; rendering does not
+require a running Docker daemon:
 
 ```bash
 ./bootstrap.sh --print-compose-env
@@ -109,7 +135,11 @@ Replace the `x-db-environment`, `x-redis-environment`, `x-migration-environment`
 ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='use-a-long-password' ./bootstrap.sh --print-compose-env
 ```
 
-Keep `APP_DATA_ENCRYPTION_KEY` stable across upgrades.
+Treat the generated mappings as secrets and preserve their escaping when
+pasting. They use the current Compose defaults, including database connection
+budgets and proxy settings. Keep the existing credentials and `APP_DATA_ENCRYPTION_KEY`
+stable across upgrades; generating another mapping does not update roles or
+passwords in an existing database volume.
 
 The generated mapping is for HTTP-only local or LAN testing:
 

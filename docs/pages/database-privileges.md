@@ -18,11 +18,35 @@ application authorization continues to enforce user and feed access.
 
 ## New installations
 
-Generate configuration with `./bootstrap.sh`. It produces independent passwords
-for all three roles. `docker compose up -d` initializes an empty database volume
-through `scripts/database/provision-roles.sh`, runs the `migrate` service, and
-starts the API only after migrations succeed. Workers start after API readiness.
-`RUN_MIGRATIONS_ON_STARTUP` is false in bundled Compose.
+Generate configuration with `./bootstrap.sh`. It requires Bash and either
+OpenSSL or Python 3, produces independent passwords for all three roles, and
+prints the first administrator's login. It creates configuration only. Pull
+the images and start the stack separately:
+
+```bash
+./bootstrap.sh
+docker compose pull
+docker compose up -d --wait
+```
+
+If you generated a different filename, such as `./bootstrap.sh threatlens.env`,
+include `--env-file threatlens.env` in every Compose command. Custom credentials
+are escaped for Compose; retain that escaping in the generated file.
+
+The database service writes its embedded copy of
+`scripts/database/provision-roles.sh` into a writable tmpfs initialization
+directory before invoking the stock PostgreSQL entrypoint. That entrypoint runs
+provisioning only for an empty data volume. No host script bind mount is needed,
+so a pasted Portainer stack can initialize the same roles. Generate its four
+environment mappings with `./bootstrap.sh --print-compose-env` from the matching
+checkout; this mode requires Python 3 and Docker Compose v2, but no running
+Docker daemon. Keep the generated mappings private.
+
+After initialization, the `migrate` service applies the schema and the API starts
+only after migrations succeed. Workers start after API readiness.
+`RUN_MIGRATIONS_ON_STARTUP` is false in bundled Compose. Verify the web login at
+`http://localhost:3000` with the generated administrator credentials, then set
+`SEED_ADMIN_ON_STARTUP=false` for steady state.
 
 The provisioning script revokes public database access and public schema
 creation, then grants runtime data access and default privileges for future
@@ -32,6 +56,17 @@ recovery administrator. Existing elevated roles or inherited memberships are
 refused. Passwords are passed through environment variables and standard input,
 not embedded in command arguments by the provisioning script.
 
+For contributors, `scripts/database/provision-roles.sh` remains the source of
+truth. After changing it, regenerate the embedded Compose block and check it:
+
+```bash
+python3 scripts/database/sync-compose-init.py
+python3 scripts/database/sync-compose-init.py --check
+```
+
+The check detects differences without modifying files. Do not edit the generated
+block by hand.
+
 ## Existing installations: explicit offline cutover
 
 Changing PostgreSQL image environment variables does not modify users stored in
@@ -39,6 +74,11 @@ an existing volume. Do not replace the existing administrator password with a
 new bootstrap password, rename `POSTGRES_USER`/`POSTGRES_DB`, or remove the volume.
 The cutover is an operator maintenance action; ordinary restarts never transfer
 existing object ownership.
+
+Bootstrap preserves an existing output file unless explicitly invoked with
+`--force`. That flag replaces all generated secrets; it is not an upgrade or
+credential-rotation procedure. Retain the deployed credentials and application
+encryption keys when updating either an environment file or pasted mappings.
 
 1. Create and verify a backup using the currently working deployment. Retain the
    previous Compose configuration and environment file in private storage.

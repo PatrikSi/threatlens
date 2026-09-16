@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import re
@@ -21,7 +22,10 @@ class DatabasePrivilegeBootstrapTests(unittest.TestCase):
         ).stdout
         sections = re.split(r"(?m)^x-([a-z-]+): &[^\n]+\n", generated)
         mappings = dict(zip(sections[1::2], sections[2::2], strict=True))
-        database = dict(re.findall(r"(?m)^  ([A-Z_]+): '([^']*)'$", mappings["db-environment"]))
+        database = {
+            key: json.loads(value)
+            for key, value in re.findall(r'(?m)^  ([A-Z_]+): (".*")$', mappings["db-environment"])
+        }
         runtime = mappings["backend-environment"]
         migration = mappings["migration-environment"]
         passwords = [database[key] for key in (
@@ -35,7 +39,7 @@ class DatabasePrivilegeBootstrapTests(unittest.TestCase):
         self.assertNotIn(database["POSTGRES_PASSWORD"], migration)
         self.assertNotIn(database["POSTGRES_RUNTIME_PASSWORD"], migration)
         self.assertNotIn("*db-environment", runtime)
-        self.assertIn("RUN_MIGRATIONS_ON_STARTUP: 'false'", runtime)
+        self.assertIn('RUN_MIGRATIONS_ON_STARTUP: "false"', runtime)
 
 
 if __name__ == "__main__":
