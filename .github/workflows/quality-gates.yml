@@ -315,10 +315,11 @@ jobs:
 
       - name: Validate recovery shell
         run: |
+          bash -n bootstrap.sh
           for script in scripts/recovery/*.sh; do
             bash -n "$script"
           done
-          shellcheck scripts/recovery/*.sh
+          shellcheck bootstrap.sh scripts/database/provision-roles.sh scripts/recovery/*.sh
 
       - name: Run non-destructive recovery tests
         run: >-
@@ -396,6 +397,8 @@ jobs:
       THREATLENS_DEV_IMAGE_TAG: dev
       THREATLENS_SMOKE_ARCH: ${{ matrix.arch }}
       THREATLENS_SMOKE_PLATFORM: linux/${{ matrix.arch }}
+      BOOTSTRAP_ADMIN_EMAIL: admin@example.com
+      BOOTSTRAP_ADMIN_PASSWORD: 'ci-bootstrap-$literal-${not_expanded}-''single''-"double"-\ # end'
     # Direct push/PR runs have no input (`null`); only a reusable caller's
     # explicit false disables this job.
     # These isolated builds consume no test-job artifacts. Run them independently
@@ -415,9 +418,25 @@ jobs:
 
       - name: Generate isolated Compose environment
         env:
-          ADMIN_EMAIL: admin@example.com
-          ADMIN_PASSWORD: ci-admin-password-with-sufficient-length
-        run: timeout 3m ./bootstrap.sh --force
+          ADMIN_EMAIL: ${{ env.BOOTSTRAP_ADMIN_EMAIL }}
+          ADMIN_PASSWORD: ${{ env.BOOTSTRAP_ADMIN_PASSWORD }}
+        run: |
+          umask 077
+          timeout 3m ./bootstrap.sh --force
+          if [[ "$THREATLENS_SMOKE_ARCH" == amd64 ]]; then
+            timeout 3m ./bootstrap.sh --print-compose-env > "$RUNNER_TEMP/bootstrap-mappings.yml"
+            python3 - <<'PY'
+          import os
+          from pathlib import Path
+          compose = Path("docker-compose.yml")
+          source = compose.read_text()
+          mappings = (Path(os.environ["RUNNER_TEMP"]) / "bootstrap-mappings.yml").read_text()
+          compose.write_text(mappings + "\n" + source[source.index("x-runtime-isolation:"):])
+          compose.chmod(0o600)
+          # Paste-only deployments must not depend on a neighboring .env file.
+          Path(".env").unlink()
+          PY
+          fi
 
       - name: Validate Compose configuration
         run: timeout 1m docker compose -f docker-compose.yml -f docker-compose.build.yml config --quiet
@@ -524,6 +543,12 @@ jobs:
           --base-url http://localhost:3000
           --container "$(docker compose ps -q web)"
           --container "$(docker compose ps -q api)"
+
+      - name: Verify bootstrap administrator login
+        env:
+          ADMIN_EMAIL: ${{ env.BOOTSTRAP_ADMIN_EMAIL }}
+          ADMIN_PASSWORD: ${{ env.BOOTSTRAP_ADMIN_PASSWORD }}
+        run: timeout 1m python3 scripts/verify_bootstrap_login.py --base-url http://localhost:3000
 
       - name: Verify checked-in dependency and legal artifacts
         if: matrix.arch == 'amd64'

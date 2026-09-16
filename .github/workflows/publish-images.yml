@@ -162,6 +162,9 @@ jobs:
     permissions:
       contents: read
       packages: read
+    env:
+      BOOTSTRAP_ADMIN_EMAIL: admin@example.com
+      BOOTSTRAP_ADMIN_PASSWORD: 'ci-bootstrap-$literal-${not_expanded}-''single''-"double"-\ # end'
     strategy:
       fail-fast: true
       matrix:
@@ -193,9 +196,25 @@ jobs:
 
       - name: Generate isolated Compose environment
         env:
-          ADMIN_EMAIL: admin@example.com
-          ADMIN_PASSWORD: ci-admin-password-with-sufficient-length
-        run: timeout 3m ./bootstrap.sh --force
+          ADMIN_EMAIL: ${{ env.BOOTSTRAP_ADMIN_EMAIL }}
+          ADMIN_PASSWORD: ${{ env.BOOTSTRAP_ADMIN_PASSWORD }}
+        run: |
+          umask 077
+          timeout 3m ./bootstrap.sh --force
+          if [[ "${{ matrix.platform }}" == linux/amd64 ]]; then
+            timeout 3m ./bootstrap.sh --print-compose-env > "$RUNNER_TEMP/bootstrap-mappings.yml"
+            python3 - <<'PY'
+          import os
+          from pathlib import Path
+          compose = Path("docker-compose.yml")
+          source = compose.read_text()
+          mappings = (Path(os.environ["RUNNER_TEMP"]) / "bootstrap-mappings.yml").read_text()
+          compose.write_text(mappings + "\n" + source[source.index("x-runtime-isolation:"):])
+          compose.chmod(0o600)
+          # Paste-only deployments must not depend on a neighboring .env file.
+          Path(".env").unlink()
+          PY
+          fi
 
       - name: Pin Compose services to exact digests
         run: |
@@ -290,6 +309,12 @@ jobs:
           done
           timeout 3m docker compose -f docker-compose.yml -f "$RUNNER_TEMP/release-images.yml" exec -T api python -m alembic current | grep -F '(head)'
           docker compose -f docker-compose.yml -f "$RUNNER_TEMP/release-images.yml" ps
+
+      - name: Verify bootstrap administrator login
+        env:
+          ADMIN_EMAIL: ${{ env.BOOTSTRAP_ADMIN_EMAIL }}
+          ADMIN_PASSWORD: ${{ env.BOOTSTRAP_ADMIN_PASSWORD }}
+        run: timeout 1m python3 scripts/verify_bootstrap_login.py --base-url http://localhost:3000
 
       - name: Show container logs after failure
         if: failure()
