@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
 import shlex
 import shutil
 import stat
@@ -70,6 +71,72 @@ class BootstrapTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, "Compose configuration failed")
         return result.stdout
+
+    def test_generated_file_includes_every_template_setting_comment_and_default(self) -> None:
+        result = self.run_bootstrap()
+        self.assertEqual(result.returncode, 0)
+        generated = (self.work / ".env").read_text()
+        template = (ROOT / ".env.example").read_text()
+        assignments = r"(?m)^([A-Z][A-Z0-9_]*)=(.*)$"
+        generated_entries = re.findall(assignments, generated)
+        template_entries = re.findall(assignments, template)
+        actual = dict(generated_entries)
+        expected = dict(template_entries)
+        self.assertEqual(set(actual), set(expected))
+        self.assertEqual(len(generated_entries), len(actual), "Generated settings must not be duplicated")
+        self.assertEqual(len(template_entries), len(expected), "Template settings must not be duplicated")
+        overrides = {
+            "POSTGRES_DB", "POSTGRES_USER", "POSTGRES_PASSWORD",
+            "POSTGRES_RUNTIME_USER", "POSTGRES_RUNTIME_PASSWORD",
+            "POSTGRES_MIGRATION_USER", "POSTGRES_MIGRATION_PASSWORD",
+            "REDIS_PASSWORD", "JWT_SECRET", "APP_DATA_ENCRYPTION_KEY",
+            "ADMIN_EMAIL", "ADMIN_PASSWORD", "APP_ENV", "AUTH_COOKIE_SECURE", "SEED_ADMIN_ON_STARTUP",
+        }
+        for key in expected.keys() - overrides:
+            with self.subTest(setting=key):
+                self.assertEqual(actual[key], expected[key])
+        for line in template.splitlines():
+            if line.startswith("#"):
+                self.assertIn(line, generated.splitlines())
+        for key in (
+            "AI_ENABLED", "AI_API_KEY", "AI_API_KEY_BASE_URL", "AI_RESPONSE_MAX_BYTES",
+            "ALLOW_PRIVATE_NETWORK_AI", "AI_AUTO_ENRICH_NEW_ITEM_MAX_AGE_HOURS",
+            "AI_DAILY_BRIEF_SOURCE_AUDIT_LIMIT", "DISPATCH_AI_REPROCESS_BATCH_SIZE",
+            "AI_TASK_HISTORY_RETENTION_DAYS", "AI_USAGE_RETENTION_DAYS", "AI_WORKER_CONCURRENCY",
+        ):
+            with self.subTest(ai_setting=key):
+                self.assertIn(key, actual)
+        self.assertEqual(actual["AI_ENABLED"], "false")
+        self.assertEqual(actual["AI_API_KEY"], "")
+        self.assertEqual(actual["APP_ENV"], "development")
+        self.assertEqual(actual["AUTH_COOKIE_SECURE"], "false")
+        self.assertEqual(actual["SEED_ADMIN_ON_STARTUP"], "true")
+
+    @unittest.skipUnless(shutil.which("openssl"), "OpenSSL is needed to verify the dependency-free ordinary mode")
+    def test_ordinary_generation_requires_neither_python_nor_docker(self) -> None:
+        binaries = self.work / "tools"
+        binaries.mkdir()
+        for name in ("bash", "openssl", "tr", "cut", "basename", "sed", "dirname", "mktemp", "cat", "ln", "rm"):
+            executable = shutil.which(name)
+            self.assertIsNotNone(executable, name)
+            (binaries / name).symlink_to(executable)
+        result = self.run_bootstrap(PATH=str(binaries))
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("AI_RESPONSE_MAX_BYTES=", (self.work / ".env").read_text())
+
+    def test_incomplete_checkout_fails_before_creating_credentials(self) -> None:
+        checkout = self.work / "incomplete-checkout"
+        checkout.mkdir()
+        script = checkout / "bootstrap.sh"
+        shutil.copy(ROOT / "bootstrap.sh", script)
+        result = subprocess.run(
+            [str(script)], cwd=self.work, env=self.environment,
+            capture_output=True, text=True, check=False, timeout=30,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("complete matching ThreatLens checkout", result.stderr)
+        self.assertFalse((self.work / ".env").exists())
+        self.assertEqual(result.stdout, "")
 
     def test_dotenv_preserves_literal_credentials_and_trims_email(self) -> None:
         compose_file = self.work / "compose.yml"

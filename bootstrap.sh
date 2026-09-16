@@ -6,12 +6,17 @@ usage() {
 Usage: ./bootstrap.sh [--force] [output-file]
        ./bootstrap.sh --print-compose-env
 
-Generate a local .env file with fresh random secrets for the default
-Docker Compose stack. The default output file is .env in the current directory.
+Generate a complete local .env from the matching .env.example, with fresh random
+secrets and first-run settings for the default Docker Compose stack. The default
+output file is .env in the current directory.
 
 Use --print-compose-env to print pasteable YAML environment mappings for
 docker-compose.yml instead of writing a file. The legacy --print-portainer-env
 flag is still accepted as an alias.
+
+For Kubernetes, generate and edit the environment first, then export one
+service's resolved values with scripts/export_kubernetes_secret.py. A Compose
+.env file is not a Kubernetes Secret; see docs/reference/configuration.md.
 
 Environment overrides:
   ADMIN_EMAIL      Admin email to write into the generated output.
@@ -84,6 +89,13 @@ if [ -n "$output_file" ]; then
     echo "$output_file already exists. Retain it for upgrades; --force replaces all secrets." >&2
     exit 1
   fi
+fi
+
+script_directory="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+environment_template="$script_directory/.env.example"
+if [ ! -f "$environment_template" ] || [ ! -r "$environment_template" ]; then
+  echo "Unable to read .env.example. Run bootstrap.sh from a complete matching ThreatLens checkout." >&2
+  exit 1
 fi
 
 random_value() {
@@ -212,56 +224,32 @@ dotenv_quote() {
 }
 
 render_env_file_block() {
-  cat <<EOF
-POSTGRES_DB=$postgres_db
-POSTGRES_USER=$(dotenv_quote "$postgres_user")
-POSTGRES_PASSWORD=$postgres_password
-POSTGRES_RUNTIME_USER=$postgres_runtime_user
-POSTGRES_RUNTIME_PASSWORD=$postgres_runtime_password
-POSTGRES_MIGRATION_USER=$postgres_migration_user
-POSTGRES_MIGRATION_PASSWORD=$postgres_migration_password
-MIGRATION_DATABASE_URL=
-REDIS_PASSWORD=$redis_password
-DATABASE_URL=
-REDIS_URL=
-JWT_SECRET=$jwt_secret
-APP_DATA_ENCRYPTION_KEY=$app_data_encryption_key
-APP_DATA_ENCRYPTION_PREVIOUS_KEYS=
-REQUIRE_EXPLICIT_DATA_ENCRYPTION_KEY=true
-JWT_EXPIRES_MINUTES=1440
-ADMIN_EMAIL=$(dotenv_quote "$admin_email")
-ADMIN_PASSWORD=$(dotenv_quote "$admin_password")
-SEED_ADMIN_ON_STARTUP=true
-SEED_ADMIN_FORCE_ROLE=false
-SEED_ADMIN_REACTIVATE_EXISTING=false
-SEED_ADMIN_RESET_PASSWORD_ON_STARTUP=false
-APP_ENV=development
-AUTH_COOKIE_SECURE=false
-AUTH_COOKIE_SAMESITE=lax
-AUTH_REQUIRE_CSRF=true
-AUTH_COOKIE_NAME=threatlens_session
-AUTH_CSRF_COOKIE_NAME=threatlens_csrf
-AUTH_CSRF_HEADER_NAME=x-csrf-token
-TRUSTED_PROXY_HOSTS=web
-RUN_MIGRATIONS_ON_STARTUP=false
-ALLOW_SELF_REGISTRATION=false
-ALLOW_LEGACY_UNSCOPED_TOKENS=false
-AI_ENABLED=false
-AI_API_KEY=
-AI_API_KEY_BASE_URL=https://api.openai.com
-ALLOW_PRIVATE_NETWORK_FETCH=false
-ALLOW_PRIVATE_NETWORK_AI=false
-ALLOW_PRIVATE_NETWORK_WEBHOOKS=false
-ALLOW_PRIVATE_NETWORK_OIDC=false
-ALLOW_INSECURE_HTTP_OIDC=false
-OIDC_CALLBACK_PATH=/api/v1/auth/oidc/callback
-WEB_VITE_API_BASE_URL=/api/v1
-THREATLENS_WEB_PORT=3000
-THREATLENS_IMAGE_TAG=latest
-THREATLENS_CSP_CONNECT_SRC="'self'"
-THREATLENS_CSP_FRAME_SRC="'self'"
-LOG_LEVEL=INFO
-EOF
+  local line key
+  # Read data, never source it. Keeping the complete template makes new
+  # settings and their comments available without another copied defaults list.
+  while IFS= read -r line || [ -n "$line" ]; do
+    if [[ "$line" =~ ^([A-Z][A-Z0-9_]*)= ]]; then
+      key="${BASH_REMATCH[1]}"
+      case "$key" in
+        POSTGRES_DB) line="$key=$postgres_db" ;;
+        POSTGRES_USER) line="$key=$(dotenv_quote "$postgres_user")" ;;
+        POSTGRES_PASSWORD) line="$key=$postgres_password" ;;
+        POSTGRES_RUNTIME_USER) line="$key=$postgres_runtime_user" ;;
+        POSTGRES_RUNTIME_PASSWORD) line="$key=$postgres_runtime_password" ;;
+        POSTGRES_MIGRATION_USER) line="$key=$postgres_migration_user" ;;
+        POSTGRES_MIGRATION_PASSWORD) line="$key=$postgres_migration_password" ;;
+        REDIS_PASSWORD) line="$key=$redis_password" ;;
+        JWT_SECRET) line="$key=$jwt_secret" ;;
+        APP_DATA_ENCRYPTION_KEY) line="$key=$app_data_encryption_key" ;;
+        ADMIN_EMAIL) line="$key=$(dotenv_quote "$admin_email")" ;;
+        ADMIN_PASSWORD) line="$key=$(dotenv_quote "$admin_password")" ;;
+        APP_ENV) line="$key=development" ;;
+        AUTH_COOKIE_SECURE) line="$key=false" ;;
+        SEED_ADMIN_ON_STARTUP) line="$key=true" ;;
+      esac
+    fi
+    printf '%s\n' "$line"
+  done < "$environment_template"
 }
 
 if [ "$print_compose_env" = "true" ]; then
@@ -269,7 +257,6 @@ if [ "$print_compose_env" = "true" ]; then
     echo "--print-compose-env requires Python 3 and Docker Compose v2; no running Docker daemon is needed." >&2
     exit 1
   fi
-  script_directory="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
   umask 077
   temporary_file="$(mktemp "${TMPDIR:-/tmp}/threatlens-bootstrap.XXXXXX")"
   trap 'rm -f -- "$temporary_file"' EXIT
@@ -282,12 +269,15 @@ fi
 umask 077
 temporary_file="$(mktemp "${output_file}.tmp.XXXXXX")"
 trap 'rm -f -- "$temporary_file"' EXIT
-cat > "$temporary_file" <<EOF
+{
+  cat <<'EOF'
 # Generated by bootstrap.sh.
 # These values are intended for a local HTTP deployment at http://localhost:3000.
-# Review .env.example before using this file for an internet-facing deployment.
-$(render_env_file_block)
+# All settings and comments below come from .env.example, with generated secrets
+# and local first-run overrides. Review them before internet-facing deployment.
 EOF
+  render_env_file_block
+} > "$temporary_file"
 if [ "$force" = "true" ]; then
   mv -f -- "$temporary_file" "$output_file"
 else
