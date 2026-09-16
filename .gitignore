@@ -22,6 +22,8 @@ dist/
 .env
 .env.*
 !.env.example
+# Local Kubernetes Secret exports from the documented examples
+/threatlens-*-secret.json
 
 # IDE
 .vscode/
