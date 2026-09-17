@@ -6,7 +6,11 @@ from app.core.config import get_settings
 from app.models.team_item_assessment import TeamAssessmentRevision, TeamItemAssessment
 from app.services.secret_storage import decrypt_json, encrypt_json
 from app.services.encrypted_data_inventory import scan_encrypted_data_inventory
-from tests.integration.test_team_assessments_api import assessment_setup, _queue  # noqa: F401
+from tests.integration.test_team_assessments_api import _queue
+from tests.integration.test_team_assessments_api import assessment_setup as _assessment_setup
+
+# Explicitly register the shared pytest fixture in this module.
+assessment_setup = _assessment_setup
 
 
 def test_queued_authority_inventory_detects_lost_keys_and_accepts_rotation_fallback(

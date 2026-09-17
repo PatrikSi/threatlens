@@ -5,7 +5,11 @@ from app.models.ai_task_run import AITaskRun
 from app.models.ai_workflow import AIWorkflowDispatch
 from app.models.team_item_assessment import TeamItemAssessment
 from app.services.history_maintenance import prune_application_history
-from tests.integration.test_team_assessments_api import assessment_setup, _queue  # noqa: F401
+from tests.integration.test_team_assessments_api import _queue
+from tests.integration.test_team_assessments_api import assessment_setup as _assessment_setup
+
+# Explicitly register the shared pytest fixture in this module.
+assessment_setup = _assessment_setup
 
 
 def test_latest_assessment_run_survives_history_retention_until_replaced(
