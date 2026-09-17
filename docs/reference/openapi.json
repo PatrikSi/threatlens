@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "2.0.1",
-    "x-threatlens-contract-sha256": "c1b37ac26a550db013e1f9ca3c9fd3eff2a8c0b6c4c6f192d0f0d0313f098767"
+    "x-threatlens-contract-sha256": "a5e1c1a0c03427b91ccc915604b9d2f39b8741e260587086100617c50dfd4f11"
   },
   "servers": [
     {
@@ -23,6 +23,170 @@
     }
   ],
   "paths": {
+    "/v1/mcp": {
+      "post": {
+        "tags": [
+          "MCP"
+        ],
+        "summary": "Read-only MCP endpoint using explicitly scoped bearer tokens",
+        "description": "Stateless MCP Streamable HTTP supporting protocol revisions 2026-07-28 and 2025-11-25. Requires MCP_ENABLED and a personal or service-account bearer token explicitly containing read:mcp. Each tool also requires its ordinary resource permissions. Cookie sessions and OAuth discovery are not supported. Requests and responses use MCP JSON-RPC envelopes, rather than the REST error contract.",
+        "operationId": "handle_mcp_request_v1_mcp_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "MCP JSON-RPC result or tool error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Legacy initialized notification accepted"
+          },
+          "400": {
+            "description": "MCP JSON-RPC protocol, authorization or transport error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "MCP JSON-RPC protocol, authorization or transport error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "MCP JSON-RPC protocol, authorization or transport error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "MCP JSON-RPC protocol, authorization or transport error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "MCP JSON-RPC protocol, authorization or transport error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "406": {
+            "description": "MCP JSON-RPC protocol, authorization or transport error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "MCP JSON-RPC protocol, authorization or transport error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "MCP JSON-RPC protocol, authorization or transport error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "MCP JSON-RPC protocol, authorization or transport error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "MCP JSON-RPC protocol, authorization or transport error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "MCP JSON-RPC protocol, authorization or transport error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "MCP JSON-RPC protocol, authorization or transport error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiTokenBearer": []
+          }
+        ],
+        "x-threatlens-error-format": "mcp-jsonrpc",
+        "x-threatlens-required-token-scopes": [
+          "read:mcp"
+        ]
+      }
+    },
     "/v1/teams/{team_id}/ai-context": {
       "get": {
         "tags": [

@@ -25,10 +25,7 @@ from app.models.report import Report
 from app.models.user import User
 from app.schemas.reports import ReportQueueResponse
 from app.services.ai_config import load_active_ai_settings
-from app.services.data_access_envelopes import (
-    DATA_ACCESS_RESOURCE_REPORT,
-    data_access_envelope_predicate,
-)
+from app.services.report_read_access import get_accessible_report as get_accessible_report
 from app.services.data_access_policy import DataAccessContext
 from app.services.ai_telemetry_data_policy import ai_task_run_access_predicate
 from app.services.authorization import (
@@ -89,26 +86,6 @@ def active_reporting_settings(db: Session):
             detail=str(exc),
         ) from exc
     return active
-
-
-def get_accessible_report(
-    db: Session,
-    *,
-    report_id: uuid.UUID,
-    data_access: DataAccessContext,
-    for_update: bool = False,
-) -> Report | None:
-    statement = select(Report).where(
-        Report.id == report_id,
-        data_access_envelope_predicate(
-            DATA_ACCESS_RESOURCE_REPORT,
-            Report.id,
-            data_access,
-        ),
-    )
-    if for_update:
-        statement = statement.with_for_update()
-    return db.scalar(statement.execution_options(populate_existing=True))
 
 
 def get_accessible_report_task(

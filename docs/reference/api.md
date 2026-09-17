@@ -5,7 +5,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ## Published Contract
 
 - Schema version: `2.0.1`
-- OpenAPI contract anchor: `openapi-sha256:c1b37ac26a550db013e1f9ca3c9fd3eff2a8c0b6c4c6f192d0f0d0313f098767`
+- OpenAPI contract anchor: `openapi-sha256:a5e1c1a0c03427b91ccc915604b9d2f39b8741e260587086100617c50dfd4f11`
 - API service base path: `/v1`
 - Web proxy base path: `/api/v1`
 - Bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`.
@@ -21,6 +21,15 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ## Error Diagnostics
 
 Error responses retain FastAPI's top-level `detail` field for compatibility and also include an `error` object with a stable category in `code`, a display-safe `message`, the HTTP `status`, a `retryable` hint, and a correlation `request_id`. The same correlation value is returned in the `X-Request-ID` response header and can be used to locate the server-side log entry. Validation responses do not echo submitted input values.
+
+## Mcp
+
+### `POST /v1/mcp`
+- Summary: Read-only MCP endpoint using explicitly scoped bearer tokens
+- Auth: ApiTokenBearer
+- Token scopes: `read:mcp`
+- Request body: `application/json` -> object
+- Responses: `200` `application/json` -> object, `202`, `400` `application/json` -> object, `401` `application/json` -> object, `403` `application/json` -> object, `404` `application/json` -> object, `405` `application/json` -> object, `406` `application/json` -> object, `413` `application/json` -> object, `415` `application/json` -> object, `429` `application/json` -> object, `500` `application/json` -> object, `503` `application/json` -> object, `504` `application/json` -> object
 
 ## Access Reviews
 

@@ -594,8 +594,10 @@ See [Access Governance and Data Policy](../reference/access-governance.md) for
 the activation preflight and approval target contract.
 
 The [provider and MCP architecture decision](../architecture/0006-ai-provider-profiles-and-mcp-boundary.md)
-describes routing invariants and future MCP exposure. This release does not expose
-an MCP server or consume external MCP tools.
+describes routing invariants and the separate optional read-only MCP endpoint.
+[MCP access](./mcp.md) uses explicitly scoped ThreatLens bearer credentials and
+reads saved evidence without calling an AI provider. ThreatLens does not consume
+external MCP tools.
 
 ## API Calls
 

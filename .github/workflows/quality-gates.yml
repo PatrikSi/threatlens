@@ -141,6 +141,44 @@ jobs:
           timeout 5m python -m pip install pip-audit
           timeout 5m python -m pip_audit -r backend/requirements-lock.txt
 
+  mcp-sdk:
+    name: MCP protocol and pinned SDK interoperability
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up isolated SDK test Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements-lock.txt
+            backend/requirements-dev.txt
+            backend/requirements-mcp-test.txt
+
+      - name: Install pinned SDK test dependencies
+        run: timeout 5m python -m pip install -r backend/requirements-mcp-test.txt
+
+      - name: Check both MCP protocol versions through the official SDK
+        working-directory: backend
+        run: >-
+          timeout 2m python -m pytest --confcutdir=tests/unit
+          tests/unit/test_mcp_protocol.py tests/unit/test_mcp_sdk_protocol.py
+
+      - name: Install backend dependencies for SDK route integration
+        run: >-
+          timeout 7m python -m pip install
+          -r backend/requirements-dev.txt -r backend/requirements-mcp-test.txt
+
+      - name: Check official SDK against the authenticated HTTP route
+        working-directory: backend
+        run: >-
+          env -u THREATLENS_TEST_DATABASE_URL -u THREATLENS_TEST_REDIS_URL
+          timeout 3m python -m pytest tests/integration/test_mcp_sdk_http.py
+
   frontend:
     name: Frontend tests and build
     runs-on: ubuntu-latest

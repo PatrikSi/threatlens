@@ -219,6 +219,7 @@ Resource scopes:
 
 - `read:feeds`, `write:feeds`
 - `read:items`, `write:items`
+- `read:mcp` (explicit credential opt-in for MCP; feature permissions still apply)
 - `read:tags`, `write:tags`
 - `read:views`, `write:views`
 - `read:alerts`, `write:alerts`
@@ -263,6 +264,13 @@ Evaluation rules:
 - `admin:*` and `*:*` grant all.
 - `write:<resource>` implies `read:<resource>`.
 - If token scope list is empty and `ALLOW_LEGACY_UNSCOPED_TOKENS=true`, scope checks are bypassed for token auth.
+
+MCP additionally requires the literal `read:mcp` scope on the stored credential;
+wildcards and legacy unscoped-token compatibility do not satisfy that opt-in.
+It accepts personal API tokens and service-account credentials, with current
+principal permissions and record policy checked on each request. Browser
+sessions/JWTs are not MCP credentials. See [Read-only MCP access](../pages/mcp.md)
+for the local bearer-token mode, supported tools, and OAuth limitations.
 
 ## Endpoint Auth Summary
 

@@ -142,6 +142,7 @@ def load_assessment_state(
     team_id: uuid.UUID,
     item_id: uuid.UUID,
     write: bool,
+    run_status_only: bool = False,
 ) -> AssessmentState:
     # Global policy and credential fences precede team, assessment, item, run.
     fence_assessment_request(db, actor, write=write)
@@ -186,6 +187,8 @@ def load_assessment_state(
     run = None
     if assessment is not None and assessment.task_run_id is not None:
         run_query = select(AITaskRun).where(AITaskRun.id == assessment.task_run_id)
+        if run_status_only:
+            run_query = run_query.options(load_only(AITaskRun.id, AITaskRun.status, raiseload=True))
         if write:
             run_query = run_query.with_for_update()
         run = db.scalar(run_query.execution_options(populate_existing=True))
