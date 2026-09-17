@@ -14,6 +14,11 @@ test('renders safe report Markdown and follows citations by keyboard without loa
     items: [], current_cursor: 'first', next_cursor: null, as_of: report.created_at,
   } }))
   await page.route('**/api/v1/reports/markdown-report', (route) => route.fulfill({ json: report }))
+  await page.route('**/api/v1/reports/markdown-report/sources/S1/evidence?*', (route) => route.fulfill({ json: {
+    report_id: report.id, citation_key: 'S1', editorial_version: 1,
+    source_revision: 'a'.repeat(64), evidence_text: 'Retained <evidence> passage.',
+    offset: 0, next_offset: null, total_characters: 28,
+  } }))
   await page.goto('/reporting/markdown-report')
   await expect(page.getByRole('heading', { name: 'Operational assessment', level: 3 })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Priorities', level: 4 })).toBeVisible()
@@ -33,6 +38,13 @@ test('renders safe report Markdown and follows citations by keyboard without loa
   await page.getByRole('link', { name: 'Source S1', exact: true }).first().focus()
   await page.keyboard.press('Enter')
   await expect(page.locator('#report-markdown-report-source-S1')).toBeFocused()
+  const retainedEvidence = page.getByRole('button', { name: 'Read retained evidence [S1]', exact: true })
+  await retainedEvidence.click()
+  const evidenceDialog = page.getByRole('dialog', { name: 'Retained evidence [S1]', exact: true })
+  await expect(evidenceDialog.getByRole('region', { name: 'Retained source passage' })).toHaveText('Retained <evidence> passage.')
+  expect((await new AxeBuilder({ page }).include('[role="dialog"]').analyze()).violations).toEqual([])
+  await evidenceDialog.getByRole('button', { name: 'Close evidence', exact: true }).click()
+  await expect(retainedEvidence).toBeFocused()
   const results = await new AxeBuilder({ page }).include('article').analyze()
   expect(results.violations).toEqual([])
   await page.setViewportSize({ width: 390, height: 844 })

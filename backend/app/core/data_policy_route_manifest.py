@@ -353,6 +353,7 @@ _REQUEST_CONTEXT_OPERATIONS: tuple[OperationLiteral, ...] = (
     ('DELETE', '/v1/reports/{report_id}', 'remove_report', '/v1/reports/{report_id:uuid}'),
     ('GET', '/v1/reports/{report_id}', 'get_report', '/v1/reports/{report_id:uuid}'),
     ('GET', '/v1/reports/{report_id}/download', 'download_report', '/v1/reports/{report_id:uuid}/download'),
+    ('GET', '/v1/reports/{report_id}/sources/{citation_key}/evidence', 'get_report_source_evidence', '/v1/reports/{report_id:uuid}/sources/{citation_key}/evidence'),
     ('PUT', '/v1/reports/{report_id}/draft', 'edit_report_draft', '/v1/reports/{report_id:uuid}/draft'),
     ('POST', '/v1/reports/{report_id}/editorial', 'change_report_editorial_state', '/v1/reports/{report_id:uuid}/editorial'),
     ('POST', '/v1/reports/{report_id}/retry', 'retry_report', '/v1/reports/{report_id:uuid}/retry'),
@@ -670,7 +671,7 @@ _ENDPOINT_NAMES_BY_MODULE: Final[dict[str, tuple[str, ...]]] = {
         "runs",
         "workers",
     ),
-    "app.api.routes.report_documents": ("get_report",),
+    "app.api.routes.report_documents": ("get_report", "get_report_source_evidence"),
     "app.api.routes.report_editorial": ("edit_report_draft", "change_report_editorial_state"),
     "app.api.routes.report_library": ("list_report_library",),
     "app.api.routes.reports": (

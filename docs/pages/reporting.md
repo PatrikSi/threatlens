@@ -204,6 +204,22 @@ The owner or an administrator can edit, submit, and publish. A user with current
 
 Approval pins the exact retained content and evidence revision. Editing after submission requires returning to draft, which clears prior approval. Stale versions receive a conflict with instructions to refresh; refreshing an open editor preserves its draft and baseline. Fields are disabled during submission. Published reports are immutable; create a new report for a revised publication. Changing underlying live articles does not change retained report evidence, and removing a live item link does not invalidate an otherwise unchanged historical snapshot.
 
+Use **Read retained evidence** beside each source to inspect the actual passage
+saved for the report. The evidence dialog pages through bounded excerpts and
+pins both the report revision and source text revision. If either changes,
+refresh the report before continuing the review. **Open current publisher page**
+is a separate action; it may show newer content or an unavailable page. Legacy
+reports with no saved passage disclose that limitation explicitly. Each evidence
+page rechecks current report access, and closing the dialog clears its page cache.
+
+Integrators can read the same bounded passages from
+`GET /api/v1/reports/{report_id}/sources/{citation_key}/evidence` with
+`editorial_version`, an optional `limit` (at most 16,000 characters), and `offset`.
+Continue with the returned `next_offset` and `source_revision`. A changed report
+or source revision returns `409`; offset pages without a source revision return
+`422`. The endpoint requires `read:reports` and current access to the retained
+report's source envelope.
+
 Requested email/webhook delivery starts only after publication. Both event routing and the final external delivery validate the published revision, while holding the report authorization lock. A changed published snapshot is blocked from delivery. Drafts remain visible to users with the existing report evidence permissions, and downloads prominently disclose their unpublished state. Publication is an editorial/distribution gate, not a separate confidentiality boundary. Reviewers must check factual support themselves; source-reference checks do not prove a claim is true.
 
 New schedules require editorial review by default. Administrators can explicitly disable **Require editorial review before publication** for trusted automatic schedules. Existing schedules and already queued legacy reports keep automatic publication during migration; existing completed reports remain published without claiming a historical human approval. The UI discloses that automatic policy. Changing a schedule governs future reports; it does not silently change reports already queued from it.
