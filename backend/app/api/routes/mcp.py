@@ -16,16 +16,17 @@ from starlette.requests import ClientDisconnect
 from starlette.responses import JSONResponse, Response
 
 from app.api.deps import resolve_client_ip
+from app.api.mcp_context import parse_mcp_bearer_token, resolve_mcp_read_context
 from app.core.config import get_settings
+from app.core.token_scopes import SCOPE_READ_MCP
 from app.db import session as db_session
 from app.db.budgets import DatabaseDeadlineExceeded
 from app.services.data_access_policy import DataPolicyError
 from app.services.export_job_access import ExportJobAccessDenied
 from app.services.mcp_access import (
     fence_mcp_read_context, mcp_transfer_timeout_seconds, record_mcp_audit,
-    resolve_mcp_read_context, parse_mcp_bearer_token,
 )
-from app.services.mcp_dispatch import dispatch_mcp_read
+from app.services.mcp_dispatch import dispatch_mcp_read, mcp_audit_operation
 from app.services.mcp_protocol import MCPProtocolError, MCPRequest, error_response, parse_json, parse_request
 from app.services.mcp_read_contracts import MCPReadContext, json_bytes
 from app.services.mcp_read_service import tool_required_permissions
@@ -48,7 +49,7 @@ logger = logging.getLogger("threatlens.mcp")
     openapi_extra={
         "security": [{"ApiTokenBearer": []}],
         "x-threatlens-error-format": "mcp-jsonrpc",
-        "x-threatlens-required-token-scopes": ["read:mcp"],
+        "x-threatlens-required-token-scopes": [SCOPE_READ_MCP],
         "requestBody": {"required": True, "content": {"application/json": {"schema": {"type": "object"}}}},
         "responses": {"200": {"description": "MCP JSON-RPC result or tool error", "content": {"application/json": {"schema": {"type": "object"}}}},
                       "202": {"description": "Legacy initialized notification accepted"},
@@ -74,13 +75,18 @@ async def handle_mcp_request(request: Request) -> Response:
     return await run_in_threadpool(_prepare_response, request, rpc, resources)
 
 
+# Authentication runs inside the owned transaction so MCP can retain its fences
+# through transfer. Publish the same permission metadata used by dependency gates.
+handle_mcp_request._threatlens_required_scopes = (SCOPE_READ_MCP,)
+
+
 def _prepare_response(request: Request, rpc: MCPRequest, resources: ExitStack) -> Response:
     settings = get_settings()
     deadline = request.state.mcp_deadline
     context: MCPReadContext | None = None
     db: Session | None = None
     audit_db: Session | None = None
-    operation = rpc.params.get("name", rpc.method) if rpc.method == "tools/call" else rpc.method
+    operation = mcp_audit_operation(rpc)
     try:
         enforce_mcp_rate_limit(bucket=f"source:{resolve_client_ip(request)}",
                                limit=settings.mcp_rate_limit_per_minute * 5, deadline=deadline)

@@ -37,7 +37,10 @@ class SearchArticlesArguments(ReadArguments):
         if value is not None:
             if value.tzinfo is None or value.utcoffset() is None:
                 raise ValueError("Timestamps must include a timezone.")
-            return value.astimezone(timezone.utc)
+            try:
+                return value.astimezone(timezone.utc)
+            except OverflowError as exc:
+                raise ValueError("Timestamp is outside the supported UTC range.") from exc
         return value
 
     @model_validator(mode="after")

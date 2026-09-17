@@ -269,7 +269,9 @@ MCP additionally requires the literal `read:mcp` scope on the stored credential;
 wildcards and legacy unscoped-token compatibility do not satisfy that opt-in.
 It accepts personal API tokens and service-account credentials, with current
 principal permissions and record policy checked on each request. Browser
-sessions/JWTs are not MCP credentials. See [Read-only MCP access](../pages/mcp.md)
+sessions/JWTs are not MCP credentials. The service-account permission allowlist
+limits machine credentials to MCP article search and evidence; it does not grant
+report, investigation, or team-assessment reads. See [Read-only MCP access](../pages/mcp.md)
 for the local bearer-token mode, supported tools, and OAuth limitations.
 
 ## Endpoint Auth Summary
