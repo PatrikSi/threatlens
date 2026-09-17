@@ -50,6 +50,19 @@ window and backlog metrics.
 - Date range labels at chart edges
 - Daily buckets use item `published_at`, falling back to `first_seen_at` when publication time is missing
 
+## Activity heatmap accessibility
+
+**Inspect activity bucket** provides one keyboard focus target for the entire
+heatmap. Use Left/Right arrows to inspect the adjacent hour or day, and Home/End
+to reach the first or last bucket. The selected UTC bucket and exact article
+count are shown as text and exposed to assistive technology. Pointer selection
+uses the same values; color is not the only way to read the chart.
+
+Expand **Show exact activity counts** for a table with explicit day/hour headers,
+zero counts and ten days per page. Its scroll region supports keyboard scrolling
+on narrow screens. Pagination and selection stay within the available data when
+the selected time window or feed scope changes.
+
 ## API Calls
 
 - `GET /feeds`

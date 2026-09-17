@@ -62,10 +62,32 @@ article and a snapshot of the reviewed hypothesis. This requires
 `write:investigations` in addition to assessment access. Nothing executes a hunt
 or contacts an external security system automatically.
 
+Investigation handoffs retain the supporting passages and analyst review before
+the other hunt fields. Long snapshots become numbered notes, each within the
+investigation note limit, created together in the same transaction. No hunt field
+is silently cut off. Every part records the assessment and team-context revision;
+normal investigation note permissions and history apply afterward.
+
 Article or context changes mark old results stale and require regeneration before
 review. Review notes stay attached to the revision being edited. Regeneration
 preserves prior result revisions; it does not rewrite investigations already
 created from them. See [AI enrichment](ai.md) for configuration and limits.
+
+Unsaved hunt notes remain available for the signed-in session when you collapse
+an article, switch teams or navigate to another page. Use **Resume hunt reviews**
+above the workspace to reopen them; access is checked again before retained notes
+are displayed. The browser warns before refresh or tab closure while any hunt
+notes remain unsaved. Notes are held in memory, not durable storage: save them
+before refreshing, closing the tab or signing out. You can deliberately discard
+one assessment's drafts with **Reload saved reviews**, or all drafts from the
+recovery dialog. Confirmed loss of article/team access removes affected drafts.
+
+Saving a different hunt does not invalidate an unchanged note draft. A draft
+advances to the new aggregate revision only when its hunt, saved review and
+generated evidence baseline are unchanged. Changed evidence or another analyst's
+review keeps submission blocked until you inspect the current result and reload.
+If regeneration replaces a hunt entirely, its unsaved note stays available as a
+read-only field for copying; it cannot be submitted against different evidence.
 
 ## Concurrent changes and recovery
 
