@@ -375,11 +375,23 @@ def test_expiring_credential_during_acceptance_rolls_back_work_and_delivery(
     )
 
 
+@pytest.mark.parametrize("long_hunt", [False, True])
 def test_accepted_hunt_creates_one_team_investigation_with_evidence_and_review_history(
-    client, db_session, auth_headers, assessment_setup
+    client, db_session, auth_headers, assessment_setup, long_hunt
 ):
     response = _queue(client, assessment_setup, auth_headers["analyst"])
     row, hunt_id = _ready(db_session, response)
+    if long_hunt:
+        from copy import deepcopy
+
+        result = deepcopy(row.result_json)
+        hunt = result["hunts"][0]
+        hunt["hypothesis"] = "Hypothesis " + "h" * 1589
+        hunt["rationale"] = "Rationale " + "r" * 1590
+        for field in ("required_logs", "benign_explanations", "information_gaps"):
+            hunt[field] = [f"{field} {index} " + "x" * 365 for index in range(8)]
+        row.result_json = result
+        db_session.commit()
     team, item, *_ = assessment_setup
     path = f"/items/{item.id}/team-assessment/hunts/{hunt_id}/investigation"
     missing_review = client.post(
@@ -409,12 +421,20 @@ def test_accepted_hunt_creates_one_team_investigation_with_evidence_and_review_h
         )
     )
     assert evidence.source_id == item.id
-    note = db_session.scalar(
+    notes = db_session.scalars(
         select(InvestigationNote).where(
             InvestigationNote.investigation_id == investigation_id
         )
-    )
-    assert "Checked the primary evidence." in note.body
+    ).all()
+    assert all(len(note.body) <= 10_000 for note in notes)
+    bodies = "\n".join(note.body for note in notes)
+    assert "Checked the primary evidence." in bodies
+    assert "A bounded source summary for the investigation snapshot." in bodies
+    if long_hunt:
+        assert len(notes) > 1
+        for field in ("required_logs", "benign_explanations", "information_gaps"):
+            assert all(entry in bodies for entry in hunt[field])
+        assert hunt["hypothesis"] in bodies and hunt["rationale"] in bodies
     repeat = client.post(
         path,
         headers=auth_headers["analyst"],

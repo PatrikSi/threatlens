@@ -89,6 +89,9 @@ The readable bundle is a ZIP with `manifest.json` and one PDF per article under 
 | `EXPORT_PREVIEW_LIMIT` | `25` | Maximum rows returned in a preview. |
 | `EXPORT_MAX_UNCOMPRESSED_BYTES` | `250000000` | Maximum generated content before or after compression. |
 | `EXPORT_LOCK_TTL_SECONDS` | `900` | Per-user export lock expiry and crash recovery window. Active exports renew the lock every third of this interval. |
+| `EXPORT_DOWNLOAD_PREPARATION_TIMEOUT_SECONDS` | `30` | Total background-artifact download preparation allowance, including authorization, decryption, temporary writes, audit, and final access checks. |
+| `EXPORT_DOWNLOAD_SCRATCH_HEADROOM_BYTES` | `67108864` | Free temporary-storage space that download admission must preserve (64 MiB). |
+| `EXPORT_TRANSFER_TIMEOUT_SECONDS` | `300` | Maximum response transfer lifetime after preparation. |
 
 Only one generated export per user can run at a time. Results are loaded in bounded batches and written to disk rather than assembled completely in memory. A changing result set, exhausted size budget, unavailable Redis lock, or competing export produces a clear failure instead of a partial artifact. Narrow filters and retry after the current export finishes.
 
@@ -109,6 +112,41 @@ deadline. Acceptance is durable before broker publication and idempotent for the
 same principal, request, and idempotency key. Jobs expose progress, cancellation,
 failure reasons, expiry, and a download when ready. Current permissions and the
 accepting credential are checked during generation and download.
+
+Before decrypting a background artifact, download admission reserves its full
+size in an anonymous temporary file. API processes sharing the temporary
+directory coordinate this check with a nonblocking file lock, and filesystem
+allocation accounts for reservations held by other active downloads. With the
+default 512 MiB API temporary filesystem and 64 MiB headroom, only one near-limit
+250 MB artifact can be prepared or transferred at a time. Smaller concurrent
+downloads can use the remaining space. Reservations last through response
+streaming and release on success, disconnect, timeout, failure, or process death.
+
+Storage admission returns HTTP 503 with `export_download_capacity` and
+`Retry-After: 5` when capacity is unavailable. The ready job remains intact: retry
+the same download rather than creating another export. If this persists, inspect
+temporary-filesystem capacity, other temporary files, and allocation support.
+Linux anonymous files, process-local `/proc` descriptors, and `posix_fallocate`
+support are required; unsupported storage fails before plaintext is copied.
+The small `threatlens-export-download-admission.lock` coordination file contains
+no article data and must not be removed while API processes are running.
+
+Preparation uses one monotonic deadline across its transactions. SQL statements
+receive the remaining allowance, and bounded decryption/write chunks check the
+deadline before proceeding. Exceeding it returns HTTP 504 with
+`export_download_preparation_deadline` and `Retry-After: 5`, closes partial
+plaintext, and leaves the stored job available for retry. Final authorization
+locks remain held during the independently bounded transfer. As with other
+database operations, connection establishment and failed-network cleanup retain
+their configured driver limits; a blocked kernel filesystem call cannot be
+preempted between chunk checkpoints. Use the supported local tmpfs configuration
+and include those driver limits when sizing end-to-end infrastructure timeouts.
+
+The headroom protects against coordinated download allocations; unrelated
+processes can still consume temporary storage. Keep container memory and tmpfs
+budgets aligned, use the same `TMPDIR` for API processes sharing temporary
+storage, and qualify the preparation allowance on target hardware before raising
+artifact sizes or download concurrency.
 
 Each queued job receives a durable publication reservation. If the broker's
 acknowledgement is lost or consumers pause, periodic repair does not keep adding

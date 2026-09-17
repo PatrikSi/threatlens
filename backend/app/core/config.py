@@ -324,6 +324,8 @@ class Settings(BaseSettings):
     export_max_uncompressed_bytes: int = 250_000_000
     export_lock_ttl_seconds: int = 900
     export_transfer_timeout_seconds: int = 300
+    export_download_preparation_timeout_seconds: int = 30
+    export_download_scratch_headroom_bytes: int = 67_108_864
     export_job_timeout_seconds: int = 3600
     export_job_lease_seconds: int = 120
     export_job_retention_seconds: int = 86_400
@@ -650,6 +652,8 @@ class Settings(BaseSettings):
         "export_max_uncompressed_bytes",
         "export_lock_ttl_seconds",
         "export_transfer_timeout_seconds",
+        "export_download_preparation_timeout_seconds",
+        "export_download_scratch_headroom_bytes",
         "export_job_timeout_seconds",
         "export_job_lease_seconds",
         "export_job_retention_seconds",

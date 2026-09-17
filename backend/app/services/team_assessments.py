@@ -27,6 +27,7 @@ from app.services.export_job_access import (
 from app.services.secret_storage import encrypt_json
 from app.services.investigations import add_evidence, add_note, create_investigation
 from app.services.team_access import assert_current_team_access
+from app.services.team_hunt_snapshot import hunt_snapshot_notes
 
 from app.services.team_assessment_access import (
     AssessmentRequest,
@@ -93,8 +94,8 @@ def archive_assessment_revision(
         TeamAssessmentRevision(
             assessment_id=row.id,
             version=row.version,
-        result_json=deepcopy(row.result_json),
-        result_source_encrypted=deepcopy(row.result_source_encrypted),
+            result_json=deepcopy(row.result_json),
+            result_source_encrypted=deepcopy(row.result_source_encrypted),
             result_context_version=row.result_context_version,
             result_source_version=row.result_source_version,
             result_article_id=row.result_article_id,
@@ -280,32 +281,6 @@ def review_hunt(
     )
 
 
-def _hunt_note(hunt: dict, row: TeamItemAssessment) -> str:
-    sections = [
-        f"Analyst-reviewed hunt suggestion: {hunt['title']}",
-        f"Assessment {row.id}, revision {row.version}; team context revision {row.result_context_version}.",
-        f"Hypothesis: {hunt['hypothesis']}",
-        f"Team relevance: {hunt['rationale']}",
-    ]
-    for field_name, label in (
-        ("required_logs", "Required telemetry"),
-        ("benign_explanations", "Expected benign explanations"),
-        ("information_gaps", "Information gaps"),
-        ("attack_technique_ids", "ATT&CK techniques"),
-        ("detection_strategy_ids", "ATT&CK detection strategies"),
-    ):
-        sections.append(f"{label}: " + "; ".join(hunt.get(field_name, [])))
-    sections.extend(
-        f"Supporting passage ({entry['source']}): {entry['quote']}"
-        for entry in hunt.get("evidence", [])
-    )
-    if hunt.get("review_note"):
-        sections.append(f"Analyst review: {hunt['review_note']}")
-    body = "\n\n".join(sections)
-    suffix = "\n\nAdditional details are retained in the team assessment revision."
-    return body if len(body) <= 10_000 else body[: 10_000 - len(suffix)] + suffix
-
-
 def create_hunt_investigation(
     db: Session,
     *,
@@ -359,14 +334,15 @@ def create_hunt_investigation(
         note="Primary evidence for the accepted hunt suggestion.",
         expected_version=investigation.version,
     )
-    add_note(
-        db,
-        investigation_id=investigation.id,
-        user=actor.user,
-        data_access=actor.access,
-        body=_hunt_note(hunt, row),
-        expected_version=investigation.version,
-    )
+    for body in hunt_snapshot_notes(hunt, row):
+        add_note(
+            db,
+            investigation_id=investigation.id,
+            user=actor.user,
+            data_access=actor.access,
+            body=body,
+            expected_version=investigation.version,
+        )
     hunt["investigation_id"] = str(investigation.id)
     row.result_json = result
     row.version += 1

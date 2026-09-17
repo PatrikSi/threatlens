@@ -39,7 +39,7 @@ def test_deadline_cleans_partial_or_unstarted_file_transfers(
     artifact.write_bytes(b"private evidence" * 20)
     scratch = None
     if anonymous:
-        scratch = ExportDownloadScratch()
+        scratch = ExportDownloadScratch(reserved_bytes=artifact.stat().st_size)
         scratch.file.write(artifact.read_bytes())
         artifact.unlink()
         response = scratch.response(media_type="text/plain", filename="export.txt", headers={})
