@@ -16,4 +16,3 @@ class ReportSourceEvidenceResponse(BaseModel):
     total_characters: int
     offset: int
     next_offset: int | None
-

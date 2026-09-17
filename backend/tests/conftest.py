@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging.config
 import math
 import os
 import shutil
@@ -38,6 +39,29 @@ _TEST_REDIS_IMAGE_ENV = "THREATLENS_TEST_REDIS_IMAGE"
 _DEFAULT_TEST_POSTGRES_IMAGE = "postgres:16"
 _DEFAULT_TEST_REDIS_IMAGE = "redis:7-alpine"
 _DOCKER_STARTUP_TIMEOUT_SECONDS = 60
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _preserve_pytest_logging_during_in_process_migrations():
+    """Keep migration CLI logging from replacing the long-lived test process.
+
+    Production invokes Alembic in its own process. Tests invoke it in-process,
+    where fileConfig otherwise closes pytest handlers and disables application
+    loggers, silently invalidating later log assertions. Preserve existing log
+    capture only for this repository's migration INI; unrelated configuration
+    calls and the production CLI retain their ordinary behavior.
+    """
+    migration_ini = (_BACKEND_DIR / "alembic.ini").resolve()
+    configure = logging.config.fileConfig
+
+    def configure_without_migration_cli_reset(filename, *args, **kwargs):
+        if isinstance(filename, (str, os.PathLike)) and Path(filename).resolve() == migration_ini:
+            return None
+        return configure(filename, *args, **kwargs)
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(logging.config, "fileConfig", configure_without_migration_cli_reset)
+        yield
 
 
 @pytest.fixture(autouse=True)

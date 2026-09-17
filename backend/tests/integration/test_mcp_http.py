@@ -58,11 +58,9 @@ def test_mcp_is_disabled_by_default_at_the_real_endpoint(mcp_http_environment, m
     assert response.json()["error"]["data"]["code"] == "mcp_disabled"
 
 
-def test_mcp_transport_owns_correlation_and_final_http_logging(mcp_http_environment, caplog, monkeypatch):
-    # Alembic's test-database setup disables pre-existing loggers via fileConfig.
-    # Restore the application loggers for this ordinary-request observation.
-    monkeypatch.setattr(logging.getLogger("threatlens.mcp"), "disabled", False)
-    monkeypatch.setattr(logging.getLogger("threatlens.api"), "disabled", False)
+def test_mcp_transport_owns_correlation_and_final_http_logging(mcp_http_environment, caplog):
+    # The fixture has just run in-process migrations. Application logging and
+    # pytest capture must survive that setup without per-logger repair here.
     caplog.set_level(logging.INFO, logger="threatlens.mcp")
     caplog.set_level(logging.INFO, logger="threatlens.api")
     env = mcp_http_environment
