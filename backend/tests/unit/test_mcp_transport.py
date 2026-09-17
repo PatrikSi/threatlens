@@ -1,4 +1,5 @@
 import copy
+import logging
 import time
 from types import SimpleNamespace
 
@@ -91,6 +92,7 @@ def test_unknown_origin_is_denied_before_application_access(transport_settings):
     messages = anyio.run(_run, middleware, _scope(headers=[(b"origin", b"https://other.example")]))
     assert messages[0]["status"] == 403
     assert called is False
+    assert b"access-control-allow-origin" not in dict(messages[0]["headers"])
 
 
 @pytest.mark.parametrize("requested,status", [
@@ -173,6 +175,100 @@ def test_backpressure_cannot_retain_authorization_fences_forever(transport_setti
     anyio.run(exercise)
     assert cleanups == ["closed"]
     assert middleware._active == 0
+
+
+@pytest.mark.parametrize("failure,status", [("content_type", 415), ("disabled", 404), ("busy", 429), ("deadline", 504)])
+def test_allowed_browser_origin_can_read_every_transport_failure(transport_settings, failure, status):
+    async def application(scope, receive, send):
+        await anyio.sleep_forever()
+
+    middleware = mcp_transport.MCPTransportMiddleware(application)
+    scope = _scope(headers=[(b"origin", b"https://client.example"), (b"x-request-id", b"browser-retry-1")])
+    if failure == "content_type":
+        scope["headers"][0] = (b"content-type", b"text/plain")
+    elif failure == "disabled":
+        transport_settings.mcp_enabled = False
+    elif failure == "busy":
+        middleware._active = 2
+    else:
+        transport_settings.mcp_request_timeout_seconds = 0.01
+    messages = anyio.run(_run, middleware, scope)
+    assert messages[0]["status"] == status
+    headers = dict(messages[0]["headers"])
+    assert headers[b"access-control-allow-origin"] == b"https://client.example"
+    assert headers[b"x-request-id"] == b"browser-retry-1"
+    assert b"Retry-After" in headers[b"access-control-expose-headers"]
+    assert b"access-control-allow-credentials" not in headers
+    assert headers[b"cache-control"] == b"no-store"
+
+
+def test_outer_completion_logs_final_deadline_and_cleanup_outcome(transport_settings, caplog):
+    transport_settings.mcp_request_timeout_seconds = 0.01
+    caplog.set_level(logging.INFO, logger="threatlens.mcp")
+
+    async def application(scope, receive, send):
+        scope["state"]["mcp_cleanup"] = lambda: None
+        await _json_response(scope, receive, send)
+
+    async def blocked_send(message):
+        if message["type"] == "http.response.body":
+            await anyio.sleep_forever()
+
+    async def exercise():
+        with pytest.raises(TimeoutError):
+            await _run(mcp_transport.MCPTransportMiddleware(application), _scope(headers=[(b"x-request-id", b"deadline-trace")]), send_hook=blocked_send)
+
+    anyio.run(exercise)
+    records = [record for record in caplog.records if record.message.startswith("mcp_request_complete")]
+    assert len(records) == 1
+    assert records[0].request_id == "deadline-trace"
+    assert records[0].status == 200  # Headers were sent, but transfer never completed.
+    assert "outcome=deadline" in records[0].message
+    assert "transfer_complete=False" in records[0].message
+    assert "cleanup_outcome=completed" in records[0].message
+
+
+def test_cleanup_failure_is_correlated_without_replacing_transfer_result(transport_settings, caplog):
+    def failed_cleanup():
+        raise RuntimeError("PRIVATE_DATABASE_DETAILS")
+
+    async def application(scope, receive, send):
+        scope["state"]["mcp_cleanup"] = failed_cleanup
+        await _json_response(scope, receive, send)
+
+    middleware = mcp_transport.MCPTransportMiddleware(application)
+    messages = anyio.run(_run, middleware, _scope())
+    assert messages[0]["status"] == 200
+    assert middleware._active == 0
+    assert "cleanup_outcome=failed" in caplog.text
+    assert "PRIVATE_DATABASE_DETAILS" not in caplog.text
+
+
+def test_completion_separates_preparation_and_cleanup_durations(transport_settings, monkeypatch, caplog):
+    clock = [100.0]
+    monkeypatch.setattr(mcp_transport, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+    caplog.set_level(logging.INFO, logger="threatlens.mcp")
+
+    def cleanup():
+        clock[0] = 100.070
+
+    async def application(scope, receive, send):
+        scope["state"]["mcp_cleanup"] = cleanup
+        clock[0] = 100.025
+        await _json_response(scope, receive, send)
+
+    async def socket_send(message):
+        if message["type"] == "http.response.body":
+            clock[0] = 100.060
+
+    async def exercise():
+        return await _run(mcp_transport.MCPTransportMiddleware(application), _scope(), send_hook=socket_send)
+
+    anyio.run(exercise)
+    completion = next(record for record in caplog.records if record.getMessage().startswith("mcp_request_complete"))
+    assert "preparation_ms=25.00" in completion.getMessage()
+    assert "cleanup_ms=10.00" in completion.getMessage()
+    assert completion.duration_ms == pytest.approx(70.0)
 
 
 def test_disconnect_releases_fences_and_admission(transport_settings):

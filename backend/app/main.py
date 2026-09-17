@@ -2,7 +2,6 @@ import hashlib
 import json
 import logging
 import time
-import uuid
 from copy import deepcopy
 from contextlib import asynccontextmanager
 from typing import Any
@@ -30,6 +29,7 @@ from app.core.logging_config import (
 from app.db import session as db_session
 from app.services.export_transport import ExportTransferDeadlineMiddleware
 from app.services.mcp_transport import MCPTransportMiddleware
+from app.core.request_ids import normalize_request_id as _normalize_request_id
 from app.api.routes import (
     access_reviews,
     action_approvals,
@@ -77,9 +77,6 @@ from app.version import get_app_version
 settings = get_settings()
 configure_logging(settings)
 logger = logging.getLogger("threatlens.api")
-_REQUEST_ID_ALLOWED_CHARS = frozenset(
-    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._"
-)
 API_VERSION = "v1"
 API_SERVICE_PREFIX = f"/{API_VERSION}"
 WEB_PROXY_API_PREFIX = f"/api/{API_VERSION}"
@@ -234,6 +231,10 @@ if settings.allowed_hosts:
 
 @app.middleware("http")
 async def request_logging_middleware(request: Request, call_next):
+    if getattr(request.state, "mcp_transport_owned", False):
+        # The outer MCP boundary correlates admission through final transfer and
+        # cleanup. Logging here would report headers as a completed download.
+        return await call_next(request)
     request_id = _normalize_request_id(request.headers.get("x-request-id"))
     request.state.request_id = request_id
     context_token = set_log_context(
@@ -298,22 +299,6 @@ def _request_completion_log_level(status_code: int, duration_ms: float) -> int:
     if duration_ms >= settings.log_slow_request_ms:
         return logging.WARNING
     return logging.INFO
-
-
-def _normalize_request_id(raw_request_id: str | None) -> str:
-    generated = str(uuid.uuid4())
-    if not raw_request_id:
-        return generated
-
-    candidate = raw_request_id.strip()
-    if not candidate:
-        return generated
-
-    sanitized = "".join(char for char in candidate if char in _REQUEST_ID_ALLOWED_CHARS)
-    if not sanitized:
-        return generated
-
-    return sanitized[:128]
 
 
 def _mount_api_routers(application: FastAPI, *, include_legacy_aliases: bool) -> None:

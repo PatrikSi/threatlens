@@ -114,6 +114,40 @@ def test_postgres_statement_limits_follow_remaining_budget(
     _assert_detached(tracked_listeners)
 
 
+def test_unchanged_postgres_limits_are_reused_only_within_the_transaction(
+    sqlite_db, runtime_clock, tracked_listeners,
+):
+    with mcp_runtime.mcp_database_budget(sqlite_db, deadline=110):
+        sqlite_db.scalar(text("SELECT 1"))
+        before_statement = next(listener for _, name, listener in tracked_listeners if name == "before_cursor_execute")
+        after_begin = next(listener for _, name, listener in tracked_listeners if name == "after_begin")
+        connection = sqlite_db.connection()
+        # Exercise the listener with a recording cursor, not a real PostgreSQL
+        # statement. The connection remains an event-capable SQLAlchemy object.
+        postgres = SimpleNamespace(dialect=SimpleNamespace(name="postgresql"))
+        executions = []
+        cursor = SimpleNamespace(execute=lambda statement, params: executions.append(params))
+        before_statement(postgres, cursor, "SELECT 1", (), None, False)
+        runtime_clock.now += 0.001
+        before_statement(postgres, cursor, "SELECT 2", (), None, False)
+        assert executions == [("5000", "2000")]
+        runtime_clock.now = 109
+        before_statement(postgres, cursor, "SELECT 3", (), None, False)
+        assert executions[-1] == ("1000", "1000")
+        # Simulate a new transaction on the same tracked connection. Resetting
+        # its deadline settings must happen even when numeric limits match.
+        monkey_connection = connection.dialect
+        try:
+            connection.dialect = postgres.dialect
+            before_statement(connection, cursor, "SELECT 4", (), None, False)
+            count = len(executions)
+            after_begin(sqlite_db, object(), connection)
+            before_statement(connection, cursor, "SELECT 5", (), None, False)
+            assert len(executions) == count + 1
+        finally:
+            connection.dialect = monkey_connection
+
+
 def test_expired_commit_leaves_rollback_usable_and_drops_pending_work(
     sqlite_db, runtime_clock, tracked_listeners
 ):

@@ -140,6 +140,14 @@ result as JSON text for clients that do not use structured tool content. Treat
 not guarantee that a source is current; retained article text may be absent and
 saved assessments may be stale.
 
+Report results include `data.coverage`, preserving the saved grounding status,
+coverage warnings, and available source-coverage information. `degraded`,
+`insufficient_evidence`, and `human_edited` reports require those qualifications
+to accompany their narrative. Oversized legacy metadata keeps its grounding
+status with an explicit incomplete-details warning and truncation marker. MCP
+clients must also honor response-byte truncation and follow the canonical report
+link to inspect retained evidence before acting on a claim.
+
 ## Protocol and operating limits
 
 The current protocol is **2026-07-28**. Requests carry protocol metadata in
@@ -176,6 +184,14 @@ the code-default pool of two permits one concurrent MCP request; the bundled
 Compose API pool of eight plus two overflow connections permits the configured
 default of four. Other API traffic shares this pool, so this cap does not reserve
 connections exclusively for MCP.
+
+Effective permissions are rebuilt after authentication under retained IAM,
+handling-policy, principal, and credential locks. Later checks in that same
+request reuse the locked permission snapshot while refreshing owner/credential
+state and policy revisions in one query. This reuse ends with the exact original
+transaction; it never crosses requests or survives commit, rollback, or a changed
+savepoint. Credential, OIDC-assertion, and temporary-elevation expiry still limit
+publication and the remaining transfer allowance.
 
 The MCP deadline bounds SQL work, new response output, and response transfer.
 Initial shared-pool checkout, connection establishment, and cleanup cannot always
@@ -218,7 +234,21 @@ model, but the external client may send the retrieved data to its own provider.
 | HTTP 400 with `-32020` | Correct missing or mismatched MCP headers. With `-32022`, select one of the error's supported protocol versions. |
 | HTTP 413 or a truncation marker | Reduce request size, `limit`, or `text_limit`; open the canonical record for omitted detail. |
 | HTTP 429 | Respect `Retry-After` and reduce request rate/concurrency. |
+| HTTP 503 with `mcp_database_busy` | Database lock contention, a deadlock, or a serialization retry interrupted this read. Respect `Retry-After`; repeated failures warrant investigating database wait activity. |
 | HTTP 504 or a connection interrupted during transfer | Retry the read with a smaller result. No tool mutation needs reconciliation. |
+
+PostgreSQL statement cancellations use the same `mcp_deadline` error as the
+application deadline. Errors remain JSON-RPC envelopes even when rollback or
+connection cleanup also fails. Explicitly allowed browser origins can read all
+transport errors, their `Retry-After` guidance, and `X-Request-ID` correlation.
+
+Use the `threatlens.mcp` logs and response `X-Request-ID` to correlate admission,
+`mcp_request_prepared`, and `mcp_request_complete`. The final event records the
+wire status, transfer completion, deadline/disconnect outcome, elapsed time, and
+cleanup outcome. A status of 200 with `transfer_complete=False` is an interrupted
+response, not a successfully delivered read. `mcp_rollback_failed`,
+`mcp_invalidation_failed`, and `mcp_cleanup_failed` expose the exception type
+without logging database queries, credentials, or returned article content.
 
 Domain failures and invalid tool arguments use tool results with `isError=true`;
 malformed protocol envelopes or RPC parameters use JSON-RPC errors. Disabling MCP

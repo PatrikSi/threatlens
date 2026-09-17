@@ -50,8 +50,8 @@ from app.services.data_access_policy import handling_label_access_predicate
 from app.services.ai_extraction import item_extraction_response
 from app.services.export_job_access import (
     ExportJobAccessDenied,
-    fence_export_authorization,
 )
+from app.services.mcp_access import authorize_mcp_read_context
 from app.services.investigation_read_access import (
     load_composed_investigation_read_access,
 )
@@ -67,9 +67,9 @@ from app.services.mcp_read_contracts import (
     encode_cursor,
 )
 from app.services.report_read_access import get_accessible_report
+from app.services.report_quality_reads import report_quality_excerpt
 from app.services.team_assessment_access import (
     AssessmentRequest,
-    RequestPrincipal,
     load_assessment_state,
     result_is_stale,
 )
@@ -176,12 +176,9 @@ def _authorize(db, context, name):
             "access_denied", "The current credential does not permit this tool."
         )
     try:
-        fence_export_authorization(
+        authorize_mcp_read_context(
             db,
-            RequestPrincipal(context.principal.id, principal_type=principal_type),
-            context.authorization,
-            context.data_access,
-            snapshot=context.credential_snapshot,
+            context,
             required_permissions=_PERMISSIONS[name],
         )
     except ExportJobAccessDenied as exc:
@@ -693,6 +690,9 @@ def _report(db, context, args, base):
         raise _missing()
     _bounded_egress(db, context, DATA_ACCESS_RESOURCE_REPORT, report.id)
     cuts = []
+    coverage, coverage_truncated = report_quality_excerpt(db, report.id)
+    if coverage_truncated:
+        cuts.append("data.coverage")
     summary = db.scalar(
         select(_project(Report.summary_text, "summary", 4000)).where(
             Report.id == report.id
@@ -736,6 +736,7 @@ def _report(db, context, args, base):
         "status": report.status,
         "publication_status": report.publication_status,
         "editorial_version": report.editorial_version,
+        "coverage": coverage,
         "summary": summary[:4000] if summary else summary,
         "sections": [
             _record(
