@@ -30,6 +30,10 @@ it('gives the next identity a fresh cache and fences old mutation callbacks afte
   root = createRoot(container)
   act(() => root!.render(<AuthProvider><SessionQueryProvider><Probe /></SessionQueryProvider></AuthProvider>))
   const previous = current
+  act(() => previous.setQueryData(['team-assessment-drafts', 'old-item', 'old-team'], { hunt: { note: 'Private old draft', version: 1, baseline: 'old' } }))
+  const dirtyUnload = new Event('beforeunload', { cancelable: true })
+  window.dispatchEvent(dirtyUnload)
+  expect(dirtyUnload.defaultPrevented).toBe(true)
   let resolve!: (value: string) => void
   const result = new Promise<string>((done) => { resolve = done })
   const mutation = new MutationObserver(previous, {
@@ -40,6 +44,10 @@ it('gives the next identity a fresh cache and fences old mutation callbacks afte
   const rejected = expect(pending).rejects.toBeInstanceOf(SessionChangedError)
   await act(async () => { await Promise.resolve(); changeSession() })
   expect(current).not.toBe(previous)
+  const cleanUnload = new Event('beforeunload', { cancelable: true })
+  window.dispatchEvent(cleanUnload)
+  expect(cleanUnload.defaultPrevented).toBe(false)
+  expect(current.getQueryData(['team-assessment-drafts', 'old-item', 'old-team'])).toBeUndefined()
   await act(async () => { resolve('old account evidence'); await rejected })
   expect(previous.getQueryData(['private-occurrence'])).toBeUndefined()
   expect(current.getQueryData(['private-occurrence'])).toBeUndefined()

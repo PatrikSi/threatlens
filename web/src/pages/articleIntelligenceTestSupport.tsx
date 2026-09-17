@@ -2,6 +2,7 @@ import { act, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
+import { HuntDraftUnloadGuard } from '../components/HuntDraftUnloadGuard'
 
 export { contextFixture, assessmentFixture, extractionFixture } from '../../tests/fixtures/articleIntelligence'
 
@@ -18,7 +19,7 @@ export async function mountIntel(element: ReactNode, entry = '/?assessment_team=
   const host = document.createElement('div')
   document.body.appendChild(host)
   const root = createRoot(host)
-  act(() => root.render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>))
+  act(() => root.render(<QueryClientProvider client={client}><HuntDraftUnloadGuard /><RouterProvider router={router} /></QueryClientProvider>))
   await settle()
   return { host, root, client, router, close: () => { act(() => root.unmount()); router.dispose(); client.clear(); host.remove() } }
 }

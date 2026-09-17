@@ -68,6 +68,27 @@ describe('team assessment asynchronous lifecycle', () => {
     expect(intelButton(view.host, 'Create team investigation').disabled).toBe(false)
   })
 
+  it('preserves edits from another mounted editor while a review save is pending', async () => {
+    const pending = deferred<TeamAssessmentResponse>()
+    vi.mocked(apiFetch).mockImplementation((_path, init) => init?.method === 'PATCH' ? pending.promise : Promise.resolve(assessmentFixture))
+    view = await mountIntel(<><div data-editor="first"><AssessmentWorkspace itemId="item-1" teamId="team-1" canWrite canCreate /></div>
+      <div data-editor="second"><AssessmentWorkspace itemId="item-1" teamId="team-1" canWrite canCreate /></div></>)
+    const first = view.host.querySelector('[data-editor="first"]')!
+    const second = view.host.querySelector('[data-editor="second"]')!
+    editIntel(first, 'Review note', 'Submitted note')
+    await settle()
+    act(() => intelButton(first, 'Accept suggestion').click())
+    await settle()
+    editIntel(second, 'Review note', 'Newer note while the save is pending')
+    await settle()
+    const response = reviewedResponse()
+    response.assessment!.result!.hunts[0].review_note = 'Submitted note'
+    await act(async () => pending.resolve(response))
+    await settle()
+    expect(intelField(second, 'Review note').value).toBe('Newer note while the save is pending')
+    expect(intelButton(second, 'Accept suggestion').disabled).toBe(true)
+  })
+
   it('retains notes through collapse and binds them to their original assessment revision', async () => {
     let display!: (show: boolean) => void
     function Harness() {
@@ -79,6 +100,9 @@ describe('team assessment asynchronous lifecycle', () => {
     editIntel(view.host, 'Review note', 'Unsubmitted analyst note')
     await settle()
     act(() => display(false))
+    const unload = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(unload)
+    expect(unload.defaultPrevented).toBe(true)
     const changed = reviewedResponse()
     act(() => view!.client.setQueryData(['team-assessments', 'item-1', 'team-1'], changed))
     act(() => display(true))
@@ -92,6 +116,81 @@ describe('team assessment asynchronous lifecycle', () => {
     act(() => intelButton(document, 'Discard changes').click())
     await settle()
     expect(intelField(view.host, 'Review note').value).toBe('Checked required logs.')
+    const cleanUnload = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(cleanUnload)
+    expect(cleanUnload.defaultPrevented).toBe(false)
+  })
+
+  it('rebases unchanged hunt drafts after saving another hunt without replacing their notes', async () => {
+    let response = structuredClone(assessmentFixture)
+    response.assessment!.result!.hunts.push({ ...response.assessment!.result!.hunts[0], id: 'hunt-2', title: 'Review cloud logs' })
+    vi.mocked(apiFetch).mockImplementation((path, init) => {
+      if (init?.method === 'PATCH') {
+        response = structuredClone(response)
+        const body = JSON.parse(String(init.body))
+        expect(body.expected_version).toBe(response.assessment!.version)
+        response.assessment!.version += 1
+        const hunt = response.assessment!.result!.hunts.find((entry) => path.endsWith(entry.id))!
+        hunt.review_status = body.status
+        hunt.review_note = body.note
+      }
+      return Promise.resolve(response)
+    })
+    view = await mountIntel(<AssessmentWorkspace itemId="item-1" teamId="team-1" canWrite canCreate />)
+    editIntel(view.host, 'Review note for Review unusual services', 'Endpoint review')
+    editIntel(view.host, 'Review note for Review cloud logs', 'Cloud review in progress')
+    await settle()
+    act(() => intelButton(view!.host.querySelector('article')!, 'Accept suggestion').click())
+    await settle()
+    const second = view.host.querySelectorAll('article')[1]
+    expect(intelField(second, 'Review note').value).toBe('Cloud review in progress')
+    expect(intelButton(second, 'Accept suggestion').disabled).toBe(false)
+    act(() => intelButton(second, 'Accept suggestion').click())
+    await settle()
+    expect(response.assessment!.version).toBe(3)
+    expect(response.assessment!.result!.hunts[1].review_note).toBe('Cloud review in progress')
+  })
+
+  it.each(['review', 'evidence'])('does not rebase a draft after its saved %s changed', async (change) => {
+    view = await mountIntel(<AssessmentWorkspace itemId="item-1" teamId="team-1" canWrite canCreate />)
+    editIntel(view.host, 'Review note', 'My pending review')
+    await settle()
+    const changed = structuredClone(assessmentFixture)
+    changed.assessment!.version = 2
+    if (change === 'review') changed.assessment!.result!.hunts[0].review_note = 'Another analyst updated this review'
+    else changed.assessment!.result!.hunts[0].evidence[0].quote = 'Different retained evidence'
+    act(() => view!.client.setQueryData(['team-assessments', 'item-1', 'team-1'], changed))
+    await settle()
+    expect(intelField(view.host, 'Review note').value).toBe('My pending review')
+    expect(intelButton(view.host, 'Accept suggestion').disabled).toBe(true)
+  })
+
+  it('clears the dirty state when an edit is reverted to the saved note', async () => {
+    view = await mountIntel(<AssessmentWorkspace itemId="item-1" teamId="team-1" canWrite canCreate />)
+    editIntel(view.host, 'Review note', 'Temporary draft')
+    await settle()
+    editIntel(view.host, 'Review note', '')
+    await settle()
+    expect(view.client.getQueryData(['team-assessment-drafts', 'item-1', 'team-1'])).toEqual({})
+    const unload = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(unload)
+    expect(unload.defaultPrevented).toBe(false)
+  })
+
+  it('keeps notes from replaced hunts available for copying after external regeneration', async () => {
+    view = await mountIntel(<AssessmentWorkspace itemId="item-1" teamId="team-1" canWrite canCreate />)
+    editIntel(view.host, 'Review note', 'Notes from earlier evidence')
+    await settle()
+    const regenerated = structuredClone(assessmentFixture)
+    regenerated.assessment!.version = 2
+    regenerated.assessment!.result!.hunts = []
+    act(() => view!.client.setQueryData(['team-assessments', 'item-1', 'team-1'], regenerated))
+    await settle()
+    const retained = intelField(view.host, 'Retained note for hunt hunt-1')
+    expect(retained.readOnly).toBe(true)
+    expect(retained.value).toBe('Notes from earlier evidence')
+    expect(view.host.textContent).toContain('cannot be submitted against different evidence')
+    expect(intelButton(view.host, 'Reload saved reviews')).toBeDefined()
   })
 
   it('keeps late queue responses scoped to the team that submitted them', async () => {
@@ -139,6 +238,35 @@ describe('team assessment asynchronous lifecycle', () => {
     await settle()
     expect(view.host.textContent).not.toContain('Review unusual services')
     expect(view.host.querySelector('textarea')).toBeNull()
+    expect(view.client.getQueryData(['team-assessment-drafts', 'item-1', 'team-1'])).toEqual({})
+  })
+
+  it('retains recoverable notes when write access is withdrawn but independent reads still succeed', async () => {
+    const readonlyResponse = { ...assessmentFixture, can_generate: false }
+    let writeDenied = false
+    vi.mocked(apiFetch).mockImplementation((_path, init) => {
+      if (init?.method === 'PATCH') {
+        writeDenied = true
+        return Promise.reject(new ApiError('Missing write:teams permission', 403, '/items/item-1/team-assessment/hunts/hunt-1'))
+      }
+      return Promise.resolve(writeDenied ? readonlyResponse : assessmentFixture)
+    })
+    view = await mountIntel(<AssessmentWorkspace itemId="item-1" teamId="team-1" canWrite canCreate />)
+    editIntel(view.host, 'Review note', 'Keep this review after write permission changes')
+    await settle()
+    act(() => intelButton(view!.host, 'Accept suggestion').click())
+    await settle()
+    expect(view.client.getQueryData(['team-assessment-drafts', 'item-1', 'team-1'])).toMatchObject({
+      'hunt-1': { note: 'Keep this review after write permission changes' },
+    })
+    expect(view.client.getQueryData<TeamAssessmentResponse>(['team-assessments', 'item-1', 'team-1'])?.can_generate).toBe(false)
+    act(() => intelButton(view!.host, 'Refresh assessment').click())
+    await settle()
+    expect(intelField(view.host, 'Review note').value).toBe('Keep this review after write permission changes')
+    expect(intelField(view.host, 'Review note').matches(':disabled')).toBe(true)
+    const unload = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(unload)
+    expect(unload.defaultPrevented).toBe(true)
   })
 
   it('keeps historical suggestions readable and reviewable when AI generation is disabled', async () => {

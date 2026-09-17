@@ -31,7 +31,7 @@ describe('statistics section access and navigation', () => {
     ['/feeds', 'Private feed', 403], ['/feeds', 'Private feed', 503],
     ['/stats/overview', 'private.example', 403], ['/stats/overview', 'private.example', 503],
     ['/stats/feed-timeseries', 'Private series', 403], ['/stats/feed-timeseries', 'Private series', 503],
-    ['/stats/activity-heatmap', 'Last 30 Days (Hourly)', 403], ['/stats/activity-heatmap', 'Last 30 Days (Hourly)', 503],
+    ['/stats/activity-heatmap', '2026-09-12 05:00 UTC: 73 posts', 403], ['/stats/activity-heatmap', '2026-09-12 05:00 UTC: 73 posts', 503],
     ['/stats/signal-radar', 'Ransomware', 403], ['/stats/signal-radar', 'Ransomware', 503],
   ])('hides only withdrawn ingestion snapshots while preserving transient failures (%s, %s, %s)', async (deniedPath, marker, status) => {
     vi.mocked(apiFetch).mockImplementation((path) => Promise.resolve(ingestionSnapshot(path)) as never)
@@ -91,7 +91,8 @@ function ingestionSnapshot(path: string) {
   if (path === '/feeds') return [{ id: 'private-feed', name: 'Private feed' }]
   if (path.startsWith('/stats/feed-timeseries')) return { ...timeWindow,
     series: [{ feed_id: 'private-feed', feed_name: 'Private series', points: [{ date: '2026-09-12', count: 1 }] }] }
-  if (path.startsWith('/stats/activity-heatmap')) return { ...timeWindow, bucket_unit: 'hour', bucket_labels: [], rows: [], max_count: 0 }
+  if (path.startsWith('/stats/activity-heatmap')) return { ...timeWindow, bucket_unit: 'hour', bucket_labels: ['05:00'],
+    rows: [{ day: '2026-09-12', counts: [73] }], max_count: 73 }
   if (path.startsWith('/stats/signal-radar')) return { ...timeWindow, total: 1, max_count: 1, axes: [{ category: 'ransomware', count: 1, pct: 100 }] }
   return { ...timeWindow, totals: { feeds_total: 1, feeds_enabled: 1, feeds_disabled: 0, items_total: 1,
     items_new: 1, items_content_fetched: 0, items_error: 0, articles_total: 0 },
