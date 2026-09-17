@@ -1,4 +1,5 @@
 import os
+import stat
 import tempfile
 from datetime import datetime, timezone
 
@@ -22,16 +23,23 @@ def scratch_owners(tmp_path, monkeypatch):
     monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
     owners = []
 
-    def create():
-        owner = ExportDownloadScratch()
-        assert os.fstat(owner.file.fileno()).st_nlink == 0
+    def create(*, reserved_bytes):
+        owner = ExportDownloadScratch(reserved_bytes=reserved_bytes)
+        metadata = os.fstat(owner.file.fileno())
+        assert metadata.st_nlink == 0
+        assert metadata.st_size == reserved_bytes
         owners.append(owner)
         return owner
 
     monkeypatch.setattr(export_job_download, "ExportDownloadScratch", create)
     yield owners
     assert owners and all(owner.file.closed for owner in owners)
-    assert list(tmp_path.glob("threatlens-export-download-*")) == []
+    # Cross-process admission retains only an empty coordination inode; no
+    # plaintext download may survive as either a named file or an open handle.
+    remaining = list(tmp_path.glob("threatlens-export-download-*"))
+    assert [path.name for path in remaining] == ["threatlens-export-download-admission.lock"]
+    assert remaining[0].stat().st_size == 0
+    assert stat.S_IMODE(remaining[0].stat().st_mode) == 0o600
 
 
 def test_real_job_download_closes_anonymous_plaintext_and_keeps_range_support(export_env, scratch_owners):
