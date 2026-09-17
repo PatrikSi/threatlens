@@ -333,6 +333,8 @@ def test_logging_settings_normalize_supported_values():
         "export_pdf_max_items",
         "export_preview_limit",
         "export_max_uncompressed_bytes",
+        "export_download_preparation_timeout_seconds",
+        "export_download_scratch_headroom_bytes",
         "export_lock_ttl_seconds",
     ],
 )

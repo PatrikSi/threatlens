@@ -8,6 +8,8 @@ from typing import BinaryIO
 
 from starlette.types import Receive, Scope, Send
 
+from app.core.config import get_settings
+from app.services.export_download_capacity import reserve_download_storage
 from app.services.export_transport import DisconnectSafeFileResponse
 
 
@@ -19,7 +21,7 @@ class ExportDownloadScratch:
     process-local descriptor path preserves FileResponse's range support.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, reserved_bytes: int | None = None) -> None:
         self.file: BinaryIO = tempfile.TemporaryFile(
             mode="w+b", prefix="threatlens-export-download-"
         )
@@ -34,6 +36,13 @@ class ExportDownloadScratch:
             ):
                 raise RuntimeError(
                     "Anonymous export downloads require Linux process-local descriptors"
+                )
+            if reserved_bytes is not None:
+                reserve_download_storage(
+                    self.file,
+                    directory=tempfile.gettempdir(),
+                    size=reserved_bytes,
+                    headroom=get_settings().export_download_scratch_headroom_bytes,
                 )
         except BaseException:
             self.close()
