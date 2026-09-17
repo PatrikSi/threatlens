@@ -225,6 +225,8 @@
 | `EXPORT_LOCK_TTL_SECONDS` (`export_lock_ttl_seconds`) | `900` | Redis-backed per-user export lock lifetime and abandoned-lock recovery interval. Active exports renew the lock every third of this interval. |
 | `EXPORT_JOB_TIMEOUT_SECONDS` (`export_job_timeout_seconds`) | `3600` | Background generation deadline per attempt; the worker hard limit adds 60 seconds for shutdown. |
 | `EXPORT_TRANSFER_TIMEOUT_SECONDS` (`export_transfer_timeout_seconds`) | `300` | Absolute response-streaming lifetime for prepared synchronous/background exports, including client backpressure. Expiry terminates the transfer and releases its authorization fences and scratch file. |
+| `EXPORT_DOWNLOAD_PREPARATION_TIMEOUT_SECONDS` (`export_download_preparation_timeout_seconds`) | `30` | Shared deadline for preparing a stored export download, including SQL, decryption, temporary writes, audit, and final authorization checks. A preparation timeout leaves the ready artifact available for retry. |
+| `EXPORT_DOWNLOAD_SCRATCH_HEADROOM_BYTES` (`export_download_scratch_headroom_bytes`) | `67108864` | Free temporary-storage bytes reserved for other API work. Downloads allocate their full anonymous-file storage before decryption; insufficient space returns a retryable capacity error. API processes sharing storage must use the same `TMPDIR`. |
 | `EXPORT_JOB_LEASE_SECONDS` (`export_job_lease_seconds`) | `120` | Renewable durable claim lease; expired claims are repaired by maintenance. |
 | `EXPORT_JOB_RETENTION_SECONDS` (`export_job_retention_seconds`) | `86400` | Time from acceptance to expiry, including queue wait. |
 | `EXPORT_JOB_MAX_ATTEMPTS` (`export_job_max_attempts`) | `3` | Maximum interrupted/retryable generation attempts. |
