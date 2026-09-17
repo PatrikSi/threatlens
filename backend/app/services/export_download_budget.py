@@ -38,3 +38,6 @@ class ExportDownloadPreparationBudget:
         with database_operation(db, operation="interactive", timeout_seconds=self.remaining()):
             yield
             self.checkpoint()
+        # Restoring ordinary SQL limits happens during context teardown. It is
+        # still preparation work and must finish before a response is accepted.
+        self.checkpoint()
