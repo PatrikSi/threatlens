@@ -41,6 +41,13 @@
 | `JWT_ALGORITHM` (`jwt_algorithm`) | `HS256` | JWT signature algorithm. |
 | `JWT_EXPIRES_MINUTES` (`jwt_expires_minutes`) | `1440` | Access token TTL in minutes. |
 | `ALLOW_LEGACY_UNSCOPED_TOKENS` (`allow_legacy_unscoped_tokens`) | `false` | Whether API tokens with empty scope lists are accepted. |
+| `MCP_ENABLED` (`mcp_enabled`) | `false` | Enables the optional read-only MCP endpoint at `/api/v1/mcp` through the web proxy. Requires explicitly scoped local bearer credentials; see [MCP setup](../pages/mcp.md). |
+| `MCP_ALLOWED_ORIGINS` (`mcp_allowed_origins`) | empty | Comma-separated exact HTTP(S) Origin allowlist for MCP browser clients, separate from `CORS_ORIGINS`. Empty rejects all requests carrying Origin. |
+| `MCP_REQUEST_MAX_BYTES` (`mcp_request_max_bytes`) | `16384` | Maximum MCP request-body bytes; range 1,024–65,536. |
+| `MCP_RESPONSE_MAX_BYTES` (`mcp_response_max_bytes`) | `65536` | Maximum complete MCP JSON-response bytes; range 16,384–65,536, including text and structured-content copies. |
+| `MCP_REQUEST_TIMEOUT_SECONDS` (`mcp_request_timeout_seconds`) | `15` | MCP SQL/output/transfer deadline; range 1–30 seconds. Initial database checkout and cleanup may overrun it under ordinary database timeouts; see [MCP operating limits](../pages/mcp.md#protocol-and-operating-limits). |
+| `MCP_RATE_LIMIT_PER_MINUTE` (`mcp_rate_limit_per_minute`) | `60` | Redis-backed MCP request allowance per authenticated principal; source-IP allowance is five times this value. Range 1–10,000. |
+| `MCP_MAX_CONCURRENT_REQUESTS` (`mcp_max_concurrent_requests`) | `4` | Configured MCP request cap per API process; range 1–64. Effective admission is the smaller of this value and half of `DATABASE_POOL_SIZE + DATABASE_MAX_OVERFLOW`, rounded down. Enabling MCP requires pool capacity of at least two. |
 | `ALLOW_SELF_REGISTRATION` (`allow_self_registration`) | `false` | Enables/disables `/auth/register`. |
 | `DEFAULT_API_TOKEN_EXPIRY_DAYS` (`default_api_token_expiry_days`) | `90` | Default token lifetime if not supplied. |
 | `AI_ENABLED` (`ai_enabled`) | `false` | Enables AI routes, nav visibility, enrichment, and daily-brief features. |

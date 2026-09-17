@@ -387,6 +387,7 @@ _DYNAMIC_TARGET_OPERATIONS: tuple[OperationLiteral, ...] = (
 )
 
 _EGRESS_FENCED_OPERATIONS: tuple[OperationLiteral, ...] = (
+    ('POST', '/v1/mcp', 'handle_mcp_request'),
     ('POST', '/v1/ai/providers/{provider_id}/test-connection', 'test_ai_provider_connection_route'),
     ('POST', '/v1/ai/test-connection', 'test_ai_connection_route'),
 )
@@ -397,6 +398,7 @@ _EGRESS_FENCED_OPERATIONS: tuple[OperationLiteral, ...] = (
 # retained as useful operator evidence, but cannot by themselves detect a handler
 # replacement that reuses the same display name.
 _ENDPOINT_NAMES_BY_MODULE: Final[dict[str, tuple[str, ...]]] = {
+    "app.api.routes.mcp": ("handle_mcp_request",),
     "app.api.routes.team_assessments": (
         "get_team_assessment_route", "queue_team_assessment_route",
         "review_team_hunt_route", "create_team_hunt_investigation_route",

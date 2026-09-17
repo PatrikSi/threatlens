@@ -277,6 +277,8 @@ def apply_openapi_error_contract(schema: dict[str, Any]) -> dict[str, Any]:
         for operation in path_item.values():
             if not isinstance(operation, dict):
                 continue
+            if operation.get("x-threatlens-error-format") == "mcp-jsonrpc":
+                continue
             responses = operation.get("responses")
             if not isinstance(responses, dict):
                 continue

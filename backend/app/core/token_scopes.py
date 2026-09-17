@@ -6,6 +6,7 @@ SCOPE_READ_FEEDS = "read:feeds"
 SCOPE_WRITE_FEEDS = "write:feeds"
 SCOPE_ADMIN_FEEDS = "admin:feeds"
 SCOPE_READ_ITEMS = "read:items"
+SCOPE_READ_MCP = "read:mcp"
 SCOPE_WRITE_ITEMS = "write:items"
 SCOPE_READ_TAGS = "read:tags"
 SCOPE_WRITE_TAGS = "write:tags"
@@ -66,6 +67,7 @@ ALLOWED_API_TOKEN_SCOPES = {
     SCOPE_WRITE_FEEDS,
     SCOPE_ADMIN_FEEDS,
     SCOPE_READ_ITEMS,
+    SCOPE_READ_MCP,
     SCOPE_WRITE_ITEMS,
     SCOPE_READ_TAGS,
     SCOPE_WRITE_TAGS,
@@ -131,6 +133,7 @@ ROLE_API_TOKEN_SCOPE_GRANTS = {
             SCOPE_WRITE_TEAMS,
             SCOPE_READ_FEEDS,
             SCOPE_READ_ITEMS,
+            SCOPE_READ_MCP,
             SCOPE_READ_TAGS,
             SCOPE_READ_NOTIFICATIONS,
             SCOPE_READ_STATS,
@@ -154,6 +157,7 @@ ROLE_API_TOKEN_SCOPE_GRANTS = {
             SCOPE_READ_TEAMS,
             SCOPE_READ_FEEDS,
             SCOPE_READ_ITEMS,
+            SCOPE_READ_MCP,
             SCOPE_READ_TAGS,
             SCOPE_READ_NOTIFICATIONS,
             SCOPE_READ_STATS,

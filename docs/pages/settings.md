@@ -212,6 +212,11 @@ permission requires the built-in administrator base role.
   explicitly read-only.
 - `write:tokens` enables the create form and revoke actions.
 - Create token form: name, expiry days, scopes CSV
+- MCP credentials require explicit `read:mcp` in that CSV plus the feature
+  scopes for their tools. For article search/evidence, use
+  `read:mcp,read:items`. Blank/default scopes and wildcard-only credentials do
+  not enable MCP. See [Read-only MCP access](./mcp.md) for setup and disclosure
+  limits.
 - One-time display of created token secret
 - Admin optional filter by `user_id`
 - API calls:

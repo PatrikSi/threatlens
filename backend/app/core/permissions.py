@@ -42,6 +42,13 @@ def _permission(
 
 
 PERMISSION_DEFINITIONS: tuple[PermissionDefinition, ...] = (
+    _permission(
+        "read:mcp",
+        "Integrations",
+        "Read through MCP",
+        "Allow an explicitly scoped credential to retrieve authorized data through the MCP server; feature permissions and export controls still apply.",
+        risk="elevated",
+    ),
     _permission("read:teams", "Workspace", "View teams", "View workspaces backed by current IAM group membership."),
     _permission("write:teams", "Workspace", "Work in teams", "Change team-owned resources and manage delegated team metadata; feature permissions still apply."),
     _permission(
@@ -379,6 +386,7 @@ RESERVED_CUSTOM_ROLE_PERMISSION_IDS = WILDCARD_PERMISSION_IDS
 # service accounts implicitly.
 SERVICE_ACCOUNT_PERMISSION_IDS = frozenset(
     {
+        "read:mcp",
         "read:feeds",
         "write:feeds",
         "read:items",

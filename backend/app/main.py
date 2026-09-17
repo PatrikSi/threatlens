@@ -29,6 +29,7 @@ from app.core.logging_config import (
 )
 from app.db import session as db_session
 from app.services.export_transport import ExportTransferDeadlineMiddleware
+from app.services.mcp_transport import MCPTransportMiddleware
 from app.api.routes import (
     access_reviews,
     action_approvals,
@@ -50,6 +51,7 @@ from app.api.routes import (
     investigations,
     items,
     lifecycle,
+    mcp,
     notifications,
     oidc,
     operations,
@@ -109,6 +111,7 @@ SAVED_VIEW_QUERY_SCHEMA = "SavedViewQueryPayload"
 SAVED_VIEW_QUERY_INPUT_SCHEMA = "SavedViewQueryPayload-Input"
 SAVED_VIEW_QUERY_OUTPUT_SCHEMA = "SavedViewQueryPayload-Output"
 API_ROUTERS: tuple[APIRouter, ...] = (
+    mcp.router,
     teams.router,
     team_assessments.router,
     auth.router,
@@ -267,6 +270,7 @@ async def request_logging_middleware(request: Request, call_next):
 
 
 app.add_middleware(ExportTransferDeadlineMiddleware)
+app.add_middleware(MCPTransportMiddleware)
 
 
 def _request_log_fields(
@@ -315,7 +319,7 @@ def _normalize_request_id(raw_request_id: str | None) -> str:
 def _mount_api_routers(application: FastAPI, *, include_legacy_aliases: bool) -> None:
     for router in API_ROUTERS:
         application.include_router(router, prefix=API_SERVICE_PREFIX)
-        if include_legacy_aliases:
+        if include_legacy_aliases and router is not mcp.router:
             application.include_router(router, include_in_schema=False)
 
 
