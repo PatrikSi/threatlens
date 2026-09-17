@@ -71,6 +71,32 @@ def test_legacy_source_without_retained_passage_is_explicitly_empty(client, db_s
     assert response.json()["next_offset"] is None
 
 
+def test_retained_source_distinguishes_end_of_text_from_invalid_offset(client, auth_headers, draft):
+    first = _read(client, auth_headers["analyst"], draft).json()
+    end = first["total_characters"]
+    revision = first["source_revision"]
+
+    complete = _read(client, auth_headers["analyst"], draft, offset=end, source_revision=revision)
+    assert complete.status_code == 200, complete.text
+    assert complete.json()["evidence_text"] == ""
+    assert complete.json()["next_offset"] is None
+
+    beyond = _read(client, auth_headers["analyst"], draft, offset=end + 1, source_revision=revision)
+    assert beyond.status_code == 422, beyond.text
+    assert beyond.json()["error"]["code"] == "report_evidence_offset_invalid"
+
+
+def test_retained_source_reports_a_missing_citation_without_substituting_other_evidence(client, auth_headers, draft):
+    response = client.get(
+        f"/reports/{draft.id}/sources/S999/evidence",
+        headers=auth_headers["analyst"],
+        params={"editorial_version": draft.editorial_version},
+    )
+    assert response.status_code == 404, response.text
+    assert response.json()["error"]["code"] == "report_evidence_not_found"
+    assert "evidence_text" not in response.json()
+
+
 @pytest.mark.parametrize("params", [{"limit": 16001}, {"offset": -1}, {"source_revision": "invalid"}])
 def test_retained_source_rejects_invalid_page_arguments(client, auth_headers, draft, params):
     assert _read(client, auth_headers["analyst"], draft, **params).status_code == 422
