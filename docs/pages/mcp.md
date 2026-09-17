@@ -15,20 +15,27 @@ discovery. ThreatLens's OIDC browser login does not change this limitation.
 ## Enable and connect
 
 1. Use a deployment built from a revision containing the MCP endpoint. In the
-   deployment's environment, set `MCP_ENABLED=true`, then recreate the API service
-   with `docker compose up -d api`. The default is disabled. Use the existing
-   HTTPS ingress for remote clients. Set `PUBLIC_APP_URL` to the public ThreatLens
-   URL if clients need absolute canonical record links; otherwise links are relative.
-2. In **Settings → API Tokens**, create a short-lived, dedicated token. Enter
+   deployment's environment, set `MCP_ENABLED=true`. The default is disabled.
+   Use the existing HTTPS ingress for remote clients. Set `PUBLIC_APP_URL` to
+   the public ThreatLens URL if clients need absolute canonical record links;
+   otherwise links are relative. For a browser client that sends `Origin`, set
+   `MCP_ALLOWED_ORIGINS` to its exact HTTP(S) origin, for example
+   `https://assistant.example`. Origins contain no path. This list is separate
+   from `CORS_ORIGINS`; leaving it empty rejects requests carrying any Origin
+   header while allowing clients that omit it.
+2. Recreate the API service after saving all environment changes. Preserve the
+   original Compose project, `--env-file`, and `-f` override options. For the
+   default published-image deployment, the command is `docker compose up -d api`.
+   Source builds must retain `docker-compose.build.yml`; follow the
+   [source-build instructions](../../docker/README.md#run-the-development-stack)
+   and use the same override files when recreating the service. Recreate the API
+   again after any later MCP environment change, including the Origin allowlist.
+3. In **Settings → API Tokens**, create a short-lived, dedicated token. Enter
    `read:mcp,read:items` in **Permissions (API scopes)** for article search and
    evidence. The token's owner must currently hold these permissions. Store the
    one-time secret in the client's secret store.
-3. Configure the client with the endpoint URL and bearer header below. For a
-   browser client that sends `Origin`, also add its exact HTTP(S) origin to
-   `MCP_ALLOWED_ORIGINS`, for example `https://assistant.example`. Origins contain
-   no path. This list is separate from `CORS_ORIGINS`; leaving it empty rejects
-   requests carrying any Origin header while allowing clients that omit it.
-4. List tools and call `search_articles` with `{"limit":5}`. A successful response
+4. Configure the client with the endpoint URL and bearer header below.
+5. List tools and call `search_articles` with `{"limit":5}`. A successful response
    contains `data.articles`, provenance, freshness, and truncation information.
    An empty article list is a valid result when no visible stored items match.
 
@@ -86,6 +93,11 @@ async def main():
             tools = await client.list_tools()
             print([tool.name for tool in tools.tools])
             result = await client.call_tool("search_articles", {"limit": 5})
+            if result.is_error:
+                detail = "\n".join(
+                    block.text for block in result.content if block.type == "text"
+                )
+                raise RuntimeError(detail or "ThreatLens MCP read failed")
             print(json.dumps(result.structured_content, indent=2))
 
 
@@ -107,9 +119,11 @@ that every record is accessible.
 | `get_report` | `read:reports` | Required `report_id`; optional `limit`. Reads an accessible saved report and bounded source metadata under the shared report export checks. |
 
 IDs are UUID strings. Unknown argument fields are rejected. Collection limits
-default to 20 and range from 1 to 50. Service-account credentials can use article
-search, article evidence, and report reads when their current roles and credential
-scopes permit them. They cannot use the team-assessment or investigation tools.
+default to 20 and range from 1 to 50. Service-account credentials can use only
+`search_articles` and `get_article_evidence` when their current roles and
+credential scopes permit them. The service-account permission allowlist excludes
+`read:reports`, so report retrieval requires a personal token. Team-assessment and
+investigation tools also require a human user.
 
 Search results use stable descending `first_seen_at,item_id` order. Pass
 `next_cursor` back with the same search arguments, including `limit`. Cursors
@@ -200,7 +214,7 @@ model, but the external client may send the retrieved data to its own provider.
 | 404 before discovery | Confirm `MCP_ENABLED=true`, the API was recreated, and the endpoint path is correct. Unknown RPC methods also return 404 with JSON-RPC code `-32601`. |
 | 401 | Supply a current ThreatLens personal or service-account bearer credential. Cookies, JWTs, provider keys, and revoked/expired credentials are insufficient. |
 | 403 | Check the literal `read:mcp` credential scope, current principal permissions, and exact Origin allowlist. |
-| Tool missing or record unavailable | Check feature scopes, current membership, ownership, handling labels, and saved-source access. A service account will not see human-only tools. |
+| Tool missing or record unavailable | Check feature scopes, current membership, ownership, handling labels, and saved-source access. Service-account credentials expose only the two article tools. |
 | HTTP 400 with `-32020` | Correct missing or mismatched MCP headers. With `-32022`, select one of the error's supported protocol versions. |
 | HTTP 413 or a truncation marker | Reduce request size, `limit`, or `text_limit`; open the canonical record for omitted detail. |
 | HTTP 429 | Respect `Retry-After` and reduce request rate/concurrency. |
@@ -237,8 +251,23 @@ env -u THREATLENS_TEST_DATABASE_URL -u THREATLENS_TEST_REDIS_URL \
 ```
 
 The dedicated SDK CI job runs both sets. The route tests use an in-process HTTP
-transport and do not test an external reverse proxy or a particular hosted
-assistant's configuration/OAuth flow. Authorization and retrieval tests cover
-additional application boundaries separately. See
+transport. To exercise the bundled nginx configuration and Uvicorn over actual
+HTTP, run the disposable proxy smoke from the repository root:
+
+```bash
+python3 scripts/verify_mcp_proxy.py \
+  --sdk-python /tmp/threatlens-mcp-tests/bin/python
+```
+
+The script requires existing local backend, web, PostgreSQL, and Redis images;
+use its `--help` options to select their names. It mounts current backend source
+and nginx configuration over those images, creates synthetic data, and publishes
+only a random loopback port. It does not read the deployment `.env` or connect
+to the running stack. This verifies the current source and proxy configuration,
+rather than rebuilding or qualifying a release image. It does not test a
+particular hosted assistant's configuration/OAuth flow or production capacity.
+
+Authorization and retrieval tests cover additional application boundaries
+separately. See the [qualification record](../reviews/2026-09-17-mcp.md) and
 [ADR 0006](../architecture/0006-ai-provider-profiles-and-mcp-boundary.md) for the
 implementation boundary and deferred features.

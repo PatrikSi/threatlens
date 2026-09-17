@@ -17,13 +17,6 @@ from fastapi import Request
 from sqlalchemy import func, inspect, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import (
-    AUTH_API_TOKEN,
-    AUTH_SERVICE_ACCOUNT_TOKEN,
-    get_authorization_context,
-    get_current_principal,
-    get_data_access_context,
-)
 from app.core.api_errors import ApiHTTPException
 from app.core.token_scopes import SCOPE_READ_MCP
 from app.models.api_token import ApiToken
@@ -34,19 +27,15 @@ from app.models.user import User
 from app.services.audit import record_audit
 from app.services.export_job_access import (
     ExportJobAccessDenied,
-    capture_export_authorization,
     fence_export_authorization,
 )
 
 if TYPE_CHECKING:
+    from app.services.authorization import AuthorizationContext
     from app.services.mcp_read_contracts import MCPReadContext
 
 
 _FENCE_KEY = "threatlens_mcp_read_fence"
-_MAX_CREDENTIAL_CHARS = 512
-_QUERY_CREDENTIAL_NAMES = frozenset(
-    {"access_token", "token", "api_token", "api_key", "authorization"}
-)
 _SAFE_OPERATION = re.compile(r"[A-Za-z][A-Za-z0-9_./:-]{0,95}\Z")
 
 
@@ -74,7 +63,7 @@ class _MCPAuditIdentity:
     credential_id: uuid.UUID | None
 
 
-def _audit_identity_from_principal(
+def build_mcp_audit_identity(
     principal: object,
     *,
     credential_kind: str | None,
@@ -98,58 +87,12 @@ def _audit_identity_from_principal(
     )
 
 
-def _unauthenticated() -> ApiHTTPException:
-    return ApiHTTPException(
-        status_code=401,
-        detail="MCP requires a scoped personal or service-account bearer token.",
-        error_code="mcp_bearer_token_required",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-
-
-def parse_mcp_bearer_token(request: Request) -> str:
-    """Reject cookie fallback, ambiguous headers, and URI credentials up front."""
-    if any(key.lower() in _QUERY_CREDENTIAL_NAMES for key in request.query_params):
-        raise _unauthenticated()
-    headers = request.headers.getlist("authorization")
-    if len(headers) != 1:
-        raise _unauthenticated()
-    parts = headers[0].split()
-    if len(parts) != 2 or parts[0].lower() != "bearer":
-        raise _unauthenticated()
-    token = parts[1]
-    if len(token) > _MAX_CREDENTIAL_CHARS or not token.startswith(("tlp_", "tlsa_")):
-        raise _unauthenticated()
-    return token
-
-
-def resolve_mcp_read_context(
-    request: Request,
-    db: Session,
+def require_explicit_mcp_scope(
+    authorization: AuthorizationContext | None,
     *,
-    cursor_secret: bytes,
-) -> MCPReadContext:
-    """Authenticate every request and capture a current, scoped local principal."""
-    from app.services.mcp_read_contracts import MCPReadContext
-
-    token = parse_mcp_bearer_token(request)
-    principal = get_current_principal(request, db, token)
-    kind = getattr(request.state, "auth_credential_kind", None)
-    # A failed request rolls back its read session, expiring mapped attributes.
-    # Capture primitives before any authorization denial so audit persistence on
-    # its separate connection cannot refresh an expired principal implicitly.
-    request.state.mcp_audit_identity = _audit_identity_from_principal(
-        principal,
-        credential_kind=kind,
-        credential_id=(
-            getattr(request.state, "api_token_id", None)
-            or getattr(request.state, "service_account_credential_id", None)
-        ),
-    )
-    if kind not in {AUTH_API_TOKEN, AUTH_SERVICE_ACCOUNT_TOKEN}:
-        raise _unauthenticated()
-    authorization = get_authorization_context(request)
-    scopes = getattr(request.state, "token_scopes", None)
+    scopes: object,
+) -> None:
+    """Require literal credential opt-in as well as current MCP permission."""
     # Existing broad tokens must not silently opt in to a new export channel.
     if (
         not isinstance(scopes, list)
@@ -158,15 +101,10 @@ def resolve_mcp_read_context(
         or not authorization.has(SCOPE_READ_MCP)
     ):
         raise _missing_mcp_scope()
-    data_access = get_data_access_context(request, principal, db)
-    snapshot = capture_export_authorization(request, authorization, data_access)
-    context = MCPReadContext(
-        principal=principal,
-        authorization=authorization,
-        data_access=data_access,
-        credential_snapshot=snapshot,
-        cursor_secret=cursor_secret,
-    )
+
+
+def bind_mcp_read_context(db: Session, context: MCPReadContext) -> None:
+    """Acquire and retain the original transaction for resolved read authority."""
     _fence_current_access(db, context, required_permissions=())
     transaction = db.get_transaction()
     if transaction is None or not transaction.is_active:
@@ -176,7 +114,6 @@ def resolve_mcp_read_context(
         transaction=transaction,
         valid_until=_authorization_expiry(db, context),
     )
-    return context
 
 
 def fence_mcp_read_context(
@@ -214,8 +151,8 @@ def _fence_current_access(
     required_permissions: tuple[str, ...],
 ) -> None:
     snapshot = context.credential_snapshot
-    if snapshot.credential_kind not in {AUTH_API_TOKEN, AUTH_SERVICE_ACCOUNT_TOKEN}:
-        raise _unauthenticated()
+    if snapshot.credential_kind not in {"api_token", "service_account_token"}:
+        raise ExportJobAccessDenied("MCP requires a local API credential")
     principal_type = "user" if isinstance(context.principal, User) else "service_account"
     if (
         context.authorization.principal_type != principal_type
@@ -240,7 +177,7 @@ def _fence_current_access(
 def _credential(db: Session, context: MCPReadContext):
     model = (
         ApiToken
-        if context.credential_snapshot.credential_kind == AUTH_API_TOKEN
+        if context.credential_snapshot.credential_kind == "api_token"
         else ServiceAccountCredential
     )
     return db.get(model, context.credential_snapshot.credential_id)
@@ -333,7 +270,7 @@ def record_mcp_audit(
         # Direct service tests may provide a context without authenticating a
         # request first. This fallback also avoids loading expired attributes.
         credential = context.credential_snapshot if context is not None else None
-        identity = _audit_identity_from_principal(
+        identity = build_mcp_audit_identity(
             context.principal if context is not None else getattr(request.state, "authenticated_principal", None),
             credential_kind=(credential.credential_kind if credential is not None else getattr(request.state, "auth_credential_kind", None)),
             credential_id=(

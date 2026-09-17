@@ -10,8 +10,10 @@ from typing import Any
 MINIMUM_TOTAL_COVERAGE = 79.0
 MINIMUM_REPORTING_COVERAGE = 63.0
 CRITICAL_MODULE_MINIMUMS = {
+    "app/api/mcp_context.py": 90.0,
     "app/api/routes/ai_providers.py": 95.0,
     "app/api/routes/export_jobs.py": 85.0,
+    "app/api/routes/mcp.py": 80.0,
     "app/db/budgets.py": 90.0,
     "app/services/ai_provider_selection.py": 92.0,
     "app/services/ai_providers.py": 90.0,
@@ -33,6 +35,13 @@ CRITICAL_MODULE_MINIMUMS = {
     "app/services/lifecycle_pruning.py": 92.0,
     "app/services/lifecycle_scanning.py": 90.0,
     "app/services/lifecycle_targets.py": 84.0,
+    "app/services/mcp_access.py": 90.0,
+    "app/services/mcp_dispatch.py": 90.0,
+    "app/services/mcp_protocol.py": 95.0,
+    "app/services/mcp_read_contracts.py": 90.0,
+    "app/services/mcp_read_service.py": 85.0,
+    "app/services/mcp_runtime.py": 95.0,
+    "app/services/mcp_transport.py": 90.0,
     "app/services/processing_access.py": 95.0,
     "app/services/processing_dispatch.py": 88.0,
     "app/services/processing_queries.py": 68.0,

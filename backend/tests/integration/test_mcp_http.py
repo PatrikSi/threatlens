@@ -5,6 +5,7 @@ import uuid
 
 import pytest
 from sqlalchemy import event, select, update
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -181,6 +182,46 @@ def test_durable_audit_is_redacted_and_identifies_the_authenticated_actor(mcp_ht
         assert env.token not in serialized
 
 
+def test_unknown_tool_name_is_not_persisted_as_audit_content(mcp_http_environment):
+    env = mcp_http_environment
+    private_name = "tlp_synthetic_private_identifier_not_a_tool"
+    response = _request(env, "tools/call", name=private_name, arguments={})
+    assert response.status_code == 200, response.text
+    assert response.json()["result"]["isError"] is True
+    assert private_name not in response.text
+    with Session(env.engine) as db:
+        audit = db.scalar(select(AuditLog).where(
+            AuditLog.request_id.startswith(env.request_prefix), AuditLog.action == "mcp.read",
+        ))
+        assert audit is not None
+        assert audit.metadata_json == {"operation": "tools/call", "outcome": "denied"}
+        assert private_name not in json.dumps(audit.metadata_json)
+
+
+def test_supported_service_account_tokens_expose_only_article_tools(mcp_http_environment):
+    env = mcp_http_environment
+    credential = env.issue_service_token()
+    response = _request(env, token=credential.value)
+    assert response.status_code == 200, response.text
+    assert {tool["name"] for tool in response.json()["result"]["tools"]} == {
+        "search_articles", "get_article_evidence",
+    }
+    evidence = _request(env, "tools/call", name="get_article_evidence", token=credential.value, arguments={"item_id": str(env.item_id)})
+    assert evidence.status_code == 200, evidence.text
+    assert evidence.json()["result"]["isError"] is False
+    denied = _request(env, "tools/call", name="get_report", token=credential.value, arguments={"report_id": str(uuid.uuid4())})
+    assert denied.status_code == 200, denied.text
+    assert denied.json()["result"]["isError"] is True
+    with Session(env.engine) as db:
+        audits = db.scalars(select(AuditLog).where(
+            AuditLog.request_id.startswith(env.request_prefix), AuditLog.action == "mcp.read",
+        )).all()
+        assert len(audits) == 3
+        assert all(audit.actor_user_id is None for audit in audits)
+        assert all(audit.actor_principal_type == "service_account" for audit in audits)
+        assert all(audit.actor_principal_id == credential.principal_id for audit in audits)
+
+
 def test_actual_response_obeys_the_smallest_configured_wire_budget(mcp_http_environment, monkeypatch):
     env = mcp_http_environment
     monkeypatch.setenv("MCP_RESPONSE_MAX_BYTES", "16384")
@@ -249,3 +290,52 @@ def test_read_and_audit_connections_are_pinned_before_authentication_and_survive
     assert len([entry for entry in events if entry[0] == "commit"]) == 2
     assert any(kind == "sql" and statement.startswith("update api_tokens set last_used_at") for kind, statement in events)
     assert any(kind == "sql" and statement.startswith("insert into audit_logs") for kind, statement in events)
+
+
+def test_audit_persistence_failure_withholds_read_data_and_releases_both_connections(
+    mcp_http_environment, caplog,
+):
+    env = mcp_http_environment
+    private_failure = "PRIVATE_AUDIT_DATABASE_FAILURE_DETAILS"
+    checkouts, checkins, attempted_audits = [], [], []
+
+    def checked_out(_connection, record, _proxy):
+        checkouts.append(id(record))
+
+    def checked_in(_connection, record):
+        checkins.append(id(record))
+
+    def reject_audit_insert(_connection, _cursor, statement, _parameters, _context, _many):
+        if statement.lower().startswith("insert into audit_logs"):
+            attempted_audits.append(statement)
+            raise SQLAlchemyError(private_failure)
+
+    listeners = [
+        (env.engine.pool, "checkout", checked_out),
+        (env.engine.pool, "checkin", checked_in),
+        (env.engine, "before_cursor_execute", reject_audit_insert),
+    ]
+    for target, name, callback in listeners:
+        event.listen(target, name, callback)
+    try:
+        response = _request(env, "tools/call", name="get_article_evidence", arguments={"item_id": str(env.item_id)})
+    finally:
+        for target, name, callback in reversed(listeners):
+            event.remove(target, name, callback)
+
+    assert response.status_code == 503, response.text
+    assert response.json()["error"]["data"]["code"] == "mcp_unavailable"
+    assert "result" not in response.json()
+    assert response.headers["retry-after"] == "5"
+    assert "no-store" in response.headers["cache-control"]
+    assert "Synthetic stored article evidence" not in response.text
+    assert str(env.item_id) not in response.text
+    assert private_failure not in response.text
+    assert private_failure not in caplog.text
+    assert len(attempted_audits) == 2  # Prepared and fallback failure audit both failed.
+    assert len(checkouts) == 2
+    assert sorted(checkins) == sorted(checkouts)
+    with Session(env.engine) as db:
+        assert db.scalar(select(AuditLog.id).where(
+            AuditLog.request_id.startswith(env.request_prefix), AuditLog.action == "mcp.read",
+        )) is None

@@ -53,6 +53,14 @@ def test_official_sdk_reads_article_through_real_mcp_route(
                 assert payload["provenance"]
                 assert payload["freshness"]["retrieved_at"]
                 assert str(environment.item_id) in payload["canonical_link"]
+                invalid = await client.call_tool("search_articles", {"limit": 0})
+                assert invalid.is_error is True
+                assert invalid.structured_content is None
+                assert any(
+                    "invalid_arguments" in block.text
+                    for block in invalid.content
+                    if block.type == "text"
+                )
 
     asyncio.run(exercise())
     successful = [headers for status, headers in responses if status == 200]

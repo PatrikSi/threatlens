@@ -7,7 +7,9 @@ from sqlalchemy.orm import Session
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
 
+from app.api.mcp_context import resolve_mcp_read_context
 from app.core.api_errors import ApiHTTPException
+from app.core.logging_config import reset_log_context, set_log_context
 from app.core.security import generate_api_token
 from app.models.api_token import ApiToken
 from app.models.audit_log import AuditLog
@@ -17,10 +19,20 @@ from app.models.service_account import (
 )
 from app.services.export_job_access import ExportJobAccessDenied
 from app.services.mcp_access import (
-    resolve_mcp_read_context, fence_mcp_read_context, record_mcp_audit,
+    fence_mcp_read_context, record_mcp_audit,
 )
 from app.services.user_access import revoke_user_credentials_with_counts
 from app.services.service_accounts import _generate_service_account_token
+
+
+@pytest.fixture(autouse=True)
+def _isolate_request_log_context():
+    # Direct auth calls bypass the HTTP middleware's request context lifecycle.
+    token = set_log_context()
+    try:
+        yield
+    finally:
+        reset_log_context(token)
 
 
 def _token_request(db, user, *, scopes=None, expires_at=None):

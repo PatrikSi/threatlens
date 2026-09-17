@@ -5,6 +5,7 @@ import uuid
 import pytest
 from starlette.requests import Request
 
+from app.api import mcp_context
 from app.core.api_errors import ApiHTTPException
 from app.core.permissions import PERMISSION_BY_ID, SERVICE_ACCOUNT_PERMISSION_IDS
 from app.core.token_scopes import (
@@ -38,7 +39,7 @@ def _request(*, headers=(), query=b""):
 ])
 def test_bearer_boundary_rejects_ambiguous_or_non_api_credentials(headers, query):
     with pytest.raises(ApiHTTPException) as caught:
-        mcp_access.parse_mcp_bearer_token(_request(headers=headers, query=query))
+        mcp_context.parse_mcp_bearer_token(_request(headers=headers, query=query))
     assert caught.value.status_code == 401
     assert caught.value.headers == {"WWW-Authenticate": "Bearer"}
 
@@ -46,7 +47,7 @@ def test_bearer_boundary_rejects_ambiguous_or_non_api_credentials(headers, query
 @pytest.mark.parametrize("token", ["tlp_test_secret", "tlsa_test_secret"])
 def test_local_bearer_compatibility_accepts_supported_token_families(token):
     request = _request(headers=[(b"authorization", f"bearer {token}".encode())])
-    assert mcp_access.parse_mcp_bearer_token(request) == token
+    assert mcp_context.parse_mcp_bearer_token(request) == token
 
 
 @pytest.mark.parametrize("scopes", [[], ["read:items"], ["read:*"], ["*:*"], ["admin:*"]])
@@ -59,9 +60,9 @@ def test_existing_tokens_do_not_implicitly_opt_in(monkeypatch, scopes):
         request.state.authorization_context = SimpleNamespace(has=lambda value: True)
         return SimpleNamespace(id=uuid.uuid4())
 
-    monkeypatch.setattr(mcp_access, "get_current_principal", authenticate)
+    monkeypatch.setattr(mcp_context, "get_current_principal", authenticate)
     with pytest.raises(ApiHTTPException) as caught:
-        mcp_access.resolve_mcp_read_context(request, object(), cursor_secret=b"x" * 32)
+        mcp_context.resolve_mcp_read_context(request, object(), cursor_secret=b"x" * 32)
     assert caught.value.status_code == 403
     assert caught.value.error_code == "mcp_scope_required"
 
@@ -69,6 +70,9 @@ def test_existing_tokens_do_not_implicitly_opt_in(monkeypatch, scopes):
 def test_mcp_permission_is_delegable_but_not_added_to_default_credentials():
     assert PERMISSION_BY_ID[SCOPE_READ_MCP].delegable
     assert SCOPE_READ_MCP in SERVICE_ACCOUNT_PERMISSION_IDS
+    assert {"read:reports", "read:investigations", "read:teams"}.isdisjoint(
+        SERVICE_ACCOUNT_PERMISSION_IDS
+    )
     assert SCOPE_READ_MCP not in DEFAULT_API_TOKEN_SCOPES
     for role in ("admin", "analyst", "viewer"):
         assert missing_role_token_scopes(role, [SCOPE_READ_MCP]) == []

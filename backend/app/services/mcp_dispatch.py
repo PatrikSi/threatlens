@@ -45,6 +45,14 @@ def tool_definitions(context: MCPReadContext) -> list[dict]:
     } for name in available_read_tools(context)]
 
 
+def mcp_audit_operation(request: MCPRequest) -> str:
+    """Retain only catalogue operation names, never arbitrary client name text."""
+    if request.method != "tools/call":
+        return request.method
+    name = request.params.get("name")
+    return name if name in _DESCRIPTIONS else "tools/call"
+
+
 def dispatch_mcp_read(
     db: Session, *, context: MCPReadContext, request: MCPRequest,
     response_limit: int, canonical_base_url: str,

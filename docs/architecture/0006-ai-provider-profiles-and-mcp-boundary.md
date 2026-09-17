@@ -149,8 +149,10 @@ The catalogue contains exactly five tools: `search_articles`,
 `get_article_evidence`, `get_team_assessment`, `get_investigation`, and
 `get_report`. Each tool requires its current feature permissions in addition to
 the explicit MCP opt-in. Team assessments and investigations remain human-user
-features; a service account cannot call or discover those tools. Saved results
-include provenance, freshness, a canonical link, and explicit truncation metadata.
+features; a service account cannot call or discover those tools. The existing
+service-account permission allowlist also excludes `read:reports`, leaving only
+the two article tools available to machine credentials. Saved results include
+provenance, freshness, a canonical link, and explicit truncation metadata.
 
 Keep the protocol parser independent of HTTP and database access. The HTTP adapter
 resolves current principal, credential, authorization, and data-access contexts
