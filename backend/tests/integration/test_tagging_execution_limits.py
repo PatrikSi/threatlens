@@ -10,7 +10,7 @@ def _seed_items(db, count=1, *, title="ordinary item", article=None):
     feed = Feed(name="Bounded preview", url="https://example.com/preview.xml")
     db.add(feed)
     db.flush()
-    for index in range(count):
+    for _ in range(count):
         identity = uuid.uuid4()
         item = Item(id=identity, feed_id=feed.id, source_guid=str(identity),
                     url=f"https://example.com/{identity}", canonical_url=f"https://example.com/{identity}",
