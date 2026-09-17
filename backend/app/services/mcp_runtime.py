@@ -6,10 +6,11 @@ from contextlib import contextmanager
 import hashlib
 import math
 import time
-from typing import Iterator
+from typing import Iterator, Literal
 
 import redis
 from sqlalchemy import event
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
 from app.core.api_errors import ApiHTTPException
@@ -22,6 +23,18 @@ local count = redis.call('INCR', KEYS[1])
 if count == 1 then redis.call('EXPIRE', KEYS[1], 60) end
 return {count, redis.call('TTL', KEYS[1])}
 """
+
+
+def database_failure_code(exc: Exception) -> Literal["deadline", "contention"] | None:
+    """Classify stable driver codes without interpreting or exposing SQL text."""
+    if not isinstance(exc, DBAPIError):
+        return None
+    sqlstate = getattr(exc.orig, "sqlstate", None) or getattr(exc.orig, "pgcode", None)
+    if sqlstate == "57014":  # query_canceled, including statement_timeout
+        return "deadline"
+    if sqlstate in {"55P03", "40P01", "40001"}:  # lock timeout, deadlock, serialization retry
+        return "contention"
+    return None
 
 
 def remaining_seconds(deadline: float) -> float:
@@ -42,28 +55,34 @@ def mcp_database_budget(db: Session, *, deadline: float) -> Iterator[None]:
     settings = get_settings()
     connections = []
     listeners = []
+    configured_timeouts: dict[int, tuple[str, str]] = {}
 
     def listen(target, name, listener):
         event.listen(target, name, listener)
         listeners.append((target, name, listener))
 
     def before_statement(connection, cursor, _statement, _parameters, _context, _many):
-        remaining_ms = max(1, math.floor(remaining_seconds(deadline) * 1000))
+        # Round down, never up: a short operation can share deadline settings
+        # across statements without another network round trip for each elapsed
+        # millisecond. The allowance is at most 49ms more conservative.
+        remaining_ms = max(1, math.floor(remaining_seconds(deadline) * 20) * 50)
         if connection.dialect.name == "postgresql":
-            cursor.execute(
-                "SELECT set_config('statement_timeout', %s, true), set_config('lock_timeout', %s, true)",
-                (
-                    str(
-                        min(
-                            remaining_ms,
-                            settings.database_statement_timeout_ms or remaining_ms,
-                        )
-                    ),
-                    str(min(remaining_ms, settings.database_lock_timeout_ms)),
-                ),
+            limits = (
+                str(min(remaining_ms, settings.database_statement_timeout_ms or remaining_ms)),
+                str(min(remaining_ms, settings.database_lock_timeout_ms)),
             )
+            # SET LOCAL survives statements, but not commit/rollback. Reuse the
+            # exact values only within this transaction; still check the clock
+            # before every statement and tighten as the total budget shrinks.
+            if configured_timeouts.get(id(connection)) != limits:
+                cursor.execute(
+                    "SELECT set_config('statement_timeout', %s, true), set_config('lock_timeout', %s, true)",
+                    limits,
+                )
+                configured_timeouts[id(connection)] = limits
 
     def after_begin(_session, _transaction, connection):
+        configured_timeouts.pop(id(connection), None)
         if connection not in connections:
             connections.append(connection)
             listen(connection, "before_cursor_execute", before_statement)

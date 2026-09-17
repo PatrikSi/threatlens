@@ -3,6 +3,8 @@ from types import SimpleNamespace
 import uuid
 
 import pytest
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import Session
 from starlette.requests import Request
 
 from app.api import mcp_context
@@ -115,6 +117,50 @@ def test_transfer_cannot_start_after_authorization_expires():
     )
     with pytest.raises(ExportJobAccessDenied, match="expired"):
         mcp_access.mcp_transfer_timeout_seconds(db, context, maximum=15)
+
+
+def test_bound_reader_never_reopens_a_replaced_transaction(monkeypatch):
+    db, context, _transaction = _fenced_context()
+    db.get_transaction = lambda: SimpleNamespace(is_active=True)
+    monkeypatch.setattr(mcp_access, "fence_export_authorization", lambda *args, **kwargs: pytest.fail("lost fence must not be rebuilt"))
+    with pytest.raises(ExportJobAccessDenied, match="transaction ended"):
+        mcp_access.authorize_mcp_read_context(db, context, required_permissions=("read:items",))
+
+
+def test_bound_reader_checks_clock_expiry_before_reusing_authority(monkeypatch):
+    db, context, _transaction = _fenced_context(expires_at=datetime.now(timezone.utc) - timedelta(seconds=1))
+    monkeypatch.setattr(mcp_access, "_recheck_retained_authority", lambda *args: pytest.fail("expired authority must not reach data queries"))
+    with pytest.raises(ExportJobAccessDenied, match="expired"):
+        mcp_access.authorize_mcp_read_context(db, context, required_permissions=("read:items",))
+
+
+def test_publication_refuses_a_changed_savepoint():
+    db, context, _transaction = _fenced_context()
+    db.get_nested_transaction = lambda: SimpleNamespace(is_active=True)
+    with pytest.raises(ExportJobAccessDenied, match="transaction ended"):
+        mcp_access.fence_mcp_read_context(db, context)
+
+
+def test_assertion_expiry_during_snapshot_remains_a_publication_deadline(monkeypatch):
+    """A legitimate assertion can elapse while a slow snapshot is assembled."""
+    started_at = datetime.now(timezone.utc) - timedelta(seconds=2)
+    elapsed_expiry = started_at + timedelta(seconds=1)
+    user = User(id=uuid.uuid4())
+    context = SimpleNamespace(principal=user)
+    authorization = SimpleNamespace(elevation_ids=())
+    monkeypatch.setattr(mcp_access, "_credential", lambda db, context: SimpleNamespace(expires_at=None))
+    engine = create_engine("sqlite://")
+    try:
+        with Session(engine) as db:
+            for table in ("iam_group_memberships", "iam_user_role_assignments"):
+                # Only the projected fields are needed for this expiry query.
+                db.execute(text(f"CREATE TABLE {table} (user_id CHAR(32), source TEXT, oidc_assertion_expires_at DATETIME)"))
+            db.execute(text("INSERT INTO iam_group_memberships VALUES (:user_id, 'oidc', :expiry)"), {
+                "user_id": user.id.hex, "expiry": elapsed_expiry.replace(tzinfo=None).isoformat(" "),
+            })
+            assert mcp_access._authorization_expiry(db, context, authorization, started_at) == elapsed_expiry
+    finally:
+        engine.dispose()
 
 
 def test_audit_omits_denied_identifiers_and_never_claims_network_delivery(monkeypatch):

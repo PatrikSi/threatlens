@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 import itertools
 import json
+import logging
 import uuid
 
 import pytest
@@ -55,6 +56,26 @@ def test_mcp_is_disabled_by_default_at_the_real_endpoint(mcp_http_environment, m
     response = _request(mcp_http_environment)
     assert response.status_code == 404
     assert response.json()["error"]["data"]["code"] == "mcp_disabled"
+
+
+def test_mcp_transport_owns_correlation_and_final_http_logging(mcp_http_environment, caplog, monkeypatch):
+    # Alembic's test-database setup disables pre-existing loggers via fileConfig.
+    # Restore the application loggers for this ordinary-request observation.
+    monkeypatch.setattr(logging.getLogger("threatlens.mcp"), "disabled", False)
+    monkeypatch.setattr(logging.getLogger("threatlens.api"), "disabled", False)
+    caplog.set_level(logging.INFO, logger="threatlens.mcp")
+    caplog.set_level(logging.INFO, logger="threatlens.api")
+    env = mcp_http_environment
+    response = _request(env)
+    assert response.status_code == 200
+    request_id = response.headers["x-request-id"]
+    assert request_id.startswith(env.request_prefix)
+    records = [record for record in caplog.records if getattr(record, "request_id", None) == request_id]
+    completion = [record for record in records if record.getMessage().startswith("mcp_request_complete")]
+    assert len(completion) == 1
+    assert "transfer_complete=True" in completion[0].getMessage()
+    assert "cleanup_outcome=completed" in completion[0].getMessage()
+    assert not any(record.getMessage() == "request_complete" for record in records)
 
 
 @pytest.mark.parametrize("credential_kind", ["missing", "cookie", "session_bearer", "broad"])

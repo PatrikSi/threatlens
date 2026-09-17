@@ -248,6 +248,42 @@ def test_report_returns_retained_bounded_sections(db_session, seed_users):
     assert result["data"]["status"] == "ready"
 
 
+@pytest.mark.parametrize("grounding_status", ["checked", "degraded", "insufficient_evidence", "human_edited"])
+def test_report_preserves_saved_quality_caveats(db_session, seed_users, grounding_status):
+    from app.services.report_storage import report_detail_response
+
+    now = datetime.now(timezone.utc)
+    report = Report(
+        title="Qualified report", status="ready", period_start=now, period_end=now,
+        coverage_json={
+            "grounding": {"version": 1, "status": grounding_status},
+            "warnings": ["Some source evidence was omitted."],
+            "coverage_percent": 40,
+        },
+    )
+    db_session.add(report)
+    db_session.flush()
+    expected_coverage = report_detail_response(db_session, report=report).coverage
+    context = _context(db_session, seed_users["analyst"])
+    result = _call(db_session, context, "get_report", {"report_id": str(report.id)})
+    assert result["data"]["coverage"] == expected_coverage
+    assert result["truncation"]["truncated"] is False
+
+
+def test_oversized_report_quality_metadata_remains_explicitly_qualified(db_session, seed_users):
+    now = datetime.now(timezone.utc)
+    report = Report(
+        title="Large metadata", status="ready", period_start=now, period_end=now,
+        coverage_json={"grounding": {"status": "degraded"}, "warnings": ["x" * 20000]},
+    )
+    db_session.add(report)
+    db_session.flush()
+    result = _call(db_session, _context(db_session, seed_users["analyst"]), "get_report", {"report_id": str(report.id)})
+    assert result["data"]["coverage"]["grounding"]["status"] == "degraded"
+    assert result["data"]["coverage"]["warnings"]
+    assert "data.coverage" in result["truncation"]["fields"]
+
+
 def test_credential_revocation_and_missing_domain_scope_fail_closed(
     db_session, seed_users
 ):

@@ -1,4 +1,5 @@
 from app import main
+from app.core import request_ids
 
 
 def test_normalize_request_id_preserves_valid_value():
@@ -16,7 +17,7 @@ def test_normalize_request_id_caps_length():
 
 
 def test_normalize_request_id_generates_fallback_for_empty_or_invalid(monkeypatch):
-    monkeypatch.setattr(main.uuid, "uuid4", lambda: "generated-id")
+    monkeypatch.setattr(request_ids.uuid, "uuid4", lambda: "generated-id")
 
     assert main._normalize_request_id("") == "generated-id"
     assert main._normalize_request_id(" \t ") == "generated-id"

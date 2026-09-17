@@ -30,7 +30,7 @@ from app.services.mcp_dispatch import dispatch_mcp_read, mcp_audit_operation
 from app.services.mcp_protocol import MCPProtocolError, MCPRequest, error_response, parse_json, parse_request
 from app.services.mcp_read_contracts import MCPReadContext, json_bytes
 from app.services.mcp_read_service import tool_required_permissions
-from app.services.mcp_runtime import enforce_mcp_rate_limit, mcp_database_budget, remaining_seconds
+from app.services.mcp_runtime import database_failure_code, enforce_mcp_rate_limit, mcp_database_budget, remaining_seconds
 from app.services.mcp_transport import MCPBodyTooLarge, transport_error
 
 router = APIRouter(tags=["MCP"])
@@ -125,6 +125,7 @@ def _prepare_response(request: Request, rpc: MCPRequest, resources: ExitStack) -
             fence_mcp_read_context(db, context, required_permissions=permissions)
             allowance = mcp_transfer_timeout_seconds(db, context, maximum=remaining_seconds(deadline))
             request.state.mcp_deadline = min(deadline, time.monotonic() + allowance)
+        logger.info("mcp_request_prepared operation=%s outcome=%s", operation, "denied" if failed else "prepared")
         return Response(
             encoded, status_code=202 if payload is None else 200,
             media_type="application/json" if payload is not None else None,
@@ -133,10 +134,22 @@ def _prepare_response(request: Request, rpc: MCPRequest, resources: ExitStack) -
     except Exception as exc:
         # Do not hold failed policy/resource locks while persisting diagnostics.
         if db is not None:
-            db.rollback()
+            _rollback_failed_read(db)
         if audit_db is not None:
             _audit_failure(request, audit_db, context, operation, deadline)
         return _error_response(rpc, exc)
+
+
+def _rollback_failed_read(db: Session) -> None:
+    """Cleanup is best effort and must not replace the original MCP error."""
+    try:
+        db.rollback()
+    except Exception as exc:
+        logger.warning("mcp_rollback_failed error_type=%s", type(exc).__name__)
+        try:
+            db.invalidate()
+        except Exception as invalidate_error:
+            logger.warning("mcp_invalidation_failed error_type=%s", type(invalidate_error).__name__)
 
 
 def _audit(
@@ -162,6 +175,7 @@ def _audit_failure(
 
 def _error_response(rpc: MCPRequest, exc: Exception) -> Response:
     headers = {"Cache-Control": "no-store"}
+    database_failure = database_failure_code(exc)
     if isinstance(exc, MCPProtocolError):
         error = exc
     elif isinstance(exc, HTTPException):
@@ -174,9 +188,12 @@ def _error_response(rpc: MCPRequest, exc: Exception) -> Response:
     elif isinstance(exc, DataPolicyError):
         error = MCPProtocolError(-31000, "MCP data access could not be authorized. Check access and retry.",
                                  status_code=exc.status_code, request_id=rpc.request_id, data={"code": exc.code})
-    elif isinstance(exc, (DatabaseDeadlineExceeded, TimeoutError)):
+    elif isinstance(exc, (DatabaseDeadlineExceeded, TimeoutError)) or database_failure == "deadline":
         error = MCPProtocolError(-31000, "MCP request timed out. Retry with a smaller request.",
                                  status_code=504, request_id=rpc.request_id, data={"code": "mcp_deadline"})
+    elif database_failure == "contention":
+        error = MCPProtocolError(-31000, "MCP data is temporarily busy. Retry shortly.",
+                                 status_code=503, request_id=rpc.request_id, data={"code": "mcp_database_busy"})
     else:
         logger.error("mcp_request_failed error_type=%s", type(exc).__name__)
         error = MCPProtocolError(-32603, "MCP is temporarily unavailable. Retry shortly.",
@@ -186,4 +203,5 @@ def _error_response(rpc: MCPRequest, exc: Exception) -> Response:
         headers.setdefault("Retry-After", "5")
     if error.status_code == 401:
         headers.setdefault("WWW-Authenticate", 'Bearer realm="ThreatLens MCP"')
+    logger.warning("mcp_request_rejected error_code=%s status=%s", (error.data or {}).get("code", "mcp_protocol_error"), error.status_code)
     return JSONResponse(error_response(error), status_code=error.status_code, headers=headers)
