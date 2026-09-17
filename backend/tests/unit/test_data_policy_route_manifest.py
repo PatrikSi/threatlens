@@ -150,22 +150,22 @@ def test_live_manifest_is_the_exact_immutable_canonical_route_contract():
     attestation = validate_route_governance_manifest(app)
 
     assert ROUTE_GOVERNANCE_MANIFEST_VERSION == 1
-    assert len(ROUTE_GOVERNANCE_MANIFEST.entries) == 318
-    assert len({entry.operation for entry in ROUTE_GOVERNANCE_MANIFEST.entries}) == 318
+    assert len(ROUTE_GOVERNANCE_MANIFEST.entries) == 319
+    assert len({entry.operation for entry in ROUTE_GOVERNANCE_MANIFEST.entries}) == 319
     assert ROUTE_GOVERNANCE_MANIFEST_SHA256 == (
-        "83c7deb8fd72b8622537449e269c504c481e59de89c300ecb78ff29bb6abe94b"
+        "11bdf9037d3b423a3a13df2ecf0009cf1586e89aba93cd661cef0a359736f545"
     )
     assert attestation.manifest_sha256 == ROUTE_GOVERNANCE_MANIFEST_SHA256
-    assert attestation.declared_operation_count == 318
-    assert attestation.validated_operation_count == 318
-    assert attestation.request_context_operation_count == 130
+    assert attestation.declared_operation_count == 319
+    assert attestation.validated_operation_count == 319
+    assert attestation.request_context_operation_count == 131
     assert attestation.governance_class_counts == (
         ("captured_async", 5),
         ("control_plane", 169),
         ("dynamic_target", 7),
         ("egress_fenced", 3),
         ("public", 11),
-        ("request_context", 123),
+        ("request_context", 124),
     )
     provider_usage = [entry for entry in ROUTE_GOVERNANCE_MANIFEST.entries
                       if entry.operation.path_format == "/v1/ai/ops/providers"]

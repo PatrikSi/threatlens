@@ -5,7 +5,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ## Published Contract
 
 - Schema version: `2.0.1`
-- OpenAPI contract anchor: `openapi-sha256:a5e1c1a0c03427b91ccc915604b9d2f39b8741e260587086100617c50dfd4f11`
+- OpenAPI contract anchor: `openapi-sha256:62c5dabc7aff774b4c724fc84b5be8a049d9c30646cb672687d2f3c982b9f0cd`
 - API service base path: `/v1`
 - Web proxy base path: `/api/v1`
 - Bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`.
@@ -1939,6 +1939,17 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `report_id` (path, required): string
   - `Idempotency-Key` (header, optional): Idempotency-Key
 - Responses: `202` `application/json` -> ReportQueueResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `GET /v1/reports/{report_id}/sources/{citation_key}/evidence`
+- Summary: Get Report Source Evidence
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Parameters:
+  - `report_id` (path, required): string
+  - `citation_key` (path, required): string
+  - `editorial_version` (query, required): integer
+  - `offset` (query, optional): integer
+  - `limit` (query, optional): integer
+  - `source_revision` (query, optional): Source Revision
+- Responses: `200` `application/json` -> ReportSourceEvidenceResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 
 ## Service-Accounts
 
