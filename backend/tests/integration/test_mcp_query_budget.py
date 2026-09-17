@@ -64,8 +64,9 @@ def test_article_http_read_has_a_bounded_per_request_authorization_cost(
             assert response.status_code == 200, response.text
             assert response.json()["result"]["isError"] is False
             assert counts["authorization_snapshots"] == 2, counts
-            # Baseline was 160 driver calls and five full snapshots. Allow a
-            # little headroom while preventing another per-publication rebuild.
+            # These counters exclude raw pool pre-pings. The original path used
+            # 158 SQL/timeout calls here (160 including two pre-pings) and five
+            # full snapshots. Allow headroom without permitting another rebuild.
             assert counts["queries"] <= 42, counts
             assert counts["queries"] + counts["budget_queries"] <= 84, counts
         for key, value in counts.items():
