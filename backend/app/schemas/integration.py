@@ -7,7 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
-from app.schemas.notification import NotificationEventType, NotificationFeedScope
+from app.schemas.notification import LegacyNotificationEventType as NotificationEventType, NotificationFeedScope
 
 IntegrationType = Literal["smtp", "webhook"]
 IntegrationDirection = Literal["destination"]

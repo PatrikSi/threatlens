@@ -129,7 +129,7 @@ def test_legacy_webhook_repair_refuses_future_integration_schema(db_session):
     )
     _persist_rows(db_session, user, webhook)
     instance, _subscription = ensure_webhook_integration(db_session, webhook)
-    instance.schema_version = 2
+    instance.schema_version = 3
     instance.config_json = {**instance.config_json, "future_option": True}
     db_session.add(instance)
     db_session.commit()
@@ -139,7 +139,7 @@ def test_legacy_webhook_repair_refuses_future_integration_schema(db_session):
 
     stored = db_session.get(IntegrationInstance, instance.id)
     assert stored is not None
-    assert stored.schema_version == 2
+    assert stored.schema_version == 3
     assert stored.config_json["future_option"] is True
 
 

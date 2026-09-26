@@ -17,6 +17,7 @@ from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.oidc import OIDCProvider
 from app.models.team_item_assessment import TeamAssessmentRevision, TeamItemAssessment
+from app.models.webhook_credential import WebhookCredentialProfile
 from app.schemas.health import (
     EncryptedDataInventoryCategory,
     EncryptedDataInventoryResponse,
@@ -143,6 +144,7 @@ def _scan_encrypted_data_inventory(
         require_encrypted=True,
     )
     notification_webhooks = _scan_notification_webhooks(db, bounds=bounds)
+    webhook_credential_secrets = _scan_webhook_credential_secrets(db, bounds=bounds)
     notification_delivery_snapshots = _scan_notification_delivery_snapshots(
         db, bounds=bounds
     )
@@ -172,6 +174,7 @@ def _scan_encrypted_data_inventory(
         recovery_hashes,
         ai_provider_secrets,
         team_assessment_authorizations,
+        webhook_credential_secrets,
     )
 
     warnings: list[str] = []
@@ -212,6 +215,7 @@ def _scan_encrypted_data_inventory(
         ai_provider_secrets=ai_provider_secrets,
         team_assessment_authorizations=team_assessment_authorizations,
         notification_webhooks=notification_webhooks,
+        webhook_credential_secrets=webhook_credential_secrets,
         notification_delivery_snapshots=notification_delivery_snapshots,
         oidc_client_secrets=oidc_client_secrets,
         mfa_secrets=mfa_secrets,
@@ -448,6 +452,36 @@ def _scan_notification_webhooks(
     return category
 
 
+def _scan_webhook_credential_secrets(
+    db: Session, *, bounds: _InventoryScanBounds | None = None,
+) -> EncryptedDataInventoryCategory:
+    category = EncryptedDataInventoryCategory()
+    rows = _inventory_rows(
+        db, select(WebhookCredentialProfile.auth_secret_encrypted,
+                   WebhookCredentialProfile.signing_secret_encrypted),
+        category_name="webhook_credential_secrets",
+        order_columns=(WebhookCredentialProfile.updated_at, WebhookCredentialProfile.id),
+        bounds=bounds,
+    )
+    for row in rows:
+        category.total_records += 1
+        encrypted_fields = sum(is_encrypted_text(value) for value in row)
+        unreadable_fields = 0
+        for value in row:
+            if value is None:
+                continue
+            if not is_encrypted_text(value):
+                unreadable_fields += 1
+                continue
+            try:
+                decrypt_text(value)
+            except ValueError:
+                unreadable_fields += 1
+        _apply_record_counts(category, encrypted_fields=encrypted_fields,
+                             unreadable_fields=unreadable_fields)
+    return category
+
+
 def _scan_notification_delivery_snapshots(
     db: Session, *, bounds: _InventoryScanBounds | None = None
 ) -> EncryptedDataInventoryCategory:
@@ -577,6 +611,7 @@ def _build_summary(
     recovery_hashes: RecoveryCodeHashInventory,
     ai_provider_secrets: EncryptedDataInventoryCategory,
     team_assessment_authorizations: EncryptedDataInventoryCategory,
+    webhook_credential_secrets: EncryptedDataInventoryCategory,
 ) -> EncryptedDataInventorySummary:
     categories = (
         feeds,
@@ -587,6 +622,7 @@ def _build_summary(
         mfa_secrets,
         ai_provider_secrets,
         team_assessment_authorizations,
+        webhook_credential_secrets,
     )
     return EncryptedDataInventorySummary(
         total_records=sum(category.total_records for category in categories),

@@ -213,6 +213,31 @@ def update_notification_webhook(
             status_code=status.HTTP_404_NOT_FOUND, detail="Webhook not found"
         )
 
+    # Older clients omit new automation fields. Retain them and validate the
+    # effective configuration, including method/payload compatibility.
+    retained = {
+        "payload_mode": webhook.payload_mode or "template",
+        "conditions": webhook.conditions_json,
+        "credential_profile_id": webhook.credential_profile_id,
+    }
+    inherited = {
+        key: value
+        for key, value in retained.items()
+        if key not in payload.model_fields_set
+    }
+    if inherited:
+        from pydantic import ValidationError
+
+        try:
+            payload = NotificationWebhookWrite.model_validate(
+                {**payload.model_dump(), **inherited}
+            )
+        except ValidationError as exc:
+            raise HTTPException(
+                422,
+                "The update conflicts with retained automation settings; reload the webhook before editing",
+            ) from exc
+
     accessible_feed_ids = _validate_payload(
         db,
         payload,
@@ -581,6 +606,15 @@ def _validate_payload(
         validate_notification_webhook_payload_for_actor(
             payload, available_feed_ids, actor_user=actor_user
         )
+        if payload.credential_profile_id is not None:
+            from app.services.webhook_credentials import load_credential
+
+            load_credential(
+                db,
+                profile_id=payload.credential_profile_id,
+                user_id=actor_user.id,
+                require_enabled=payload.enabled,
+            )
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
@@ -607,9 +641,7 @@ def _preserve_inaccessible_selected_feeds(
 
     stored = notification_webhook_write_from_model(webhook)
     stored_hidden_ids = [
-        feed_id
-        for feed_id in stored.feed_ids
-        if feed_id not in accessible_feed_ids
+        feed_id for feed_id in stored.feed_ids if feed_id not in accessible_feed_ids
     ]
     stored_visible_ids = [
         feed_id for feed_id in stored.feed_ids if feed_id in accessible_feed_ids

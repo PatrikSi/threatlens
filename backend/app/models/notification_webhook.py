@@ -37,6 +37,11 @@ class NotificationWebhook(Base):
     body_fields_json: Mapped[list[dict[str, str]]] = mapped_column(JSON, nullable=False, default=list)
     body_template: Mapped[str | None] = mapped_column(Text, nullable=True)
     timeout_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=10, server_default="10")
+    payload_mode: Mapped[str] = mapped_column(String(32), nullable=False, default="template", server_default="template")
+    conditions_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    credential_profile_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("webhook_credential_profiles.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()

@@ -54,6 +54,7 @@ from app.models.processing_work import (
 )
 from app.models.governance_operation_receipt import GovernanceOperationReceipt
 from app.models.ioc import IOC, ItemIOC
+from app.models.intel_assessment import (ItemIntelState, TeamIntelState, IndicatorAssessment, IndicatorAssessmentHistory, IndicatorSuppression, IndicatorSuppressionHistory)
 from app.models.integration import (
     IntegrationAttempt,
     IntegrationDelivery,
@@ -96,6 +97,7 @@ from app.models.lifecycle import (
 )
 from app.models.mfa import MFALoginChallenge, UserRecoveryCode, UserTOTPCredential
 from app.models.notification_webhook import NotificationWebhook
+from app.models.webhook_credential import WebhookCredentialProfile
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.oidc import ExternalIdentity, OIDCProvider
 from app.models.oidc_access import (
@@ -184,6 +186,12 @@ __all__ = [
     "GovernanceOperationReceipt",
     "ExternalIdentity",
     "IOC",
+    "ItemIntelState",
+    "TeamIntelState",
+    "IndicatorAssessment",
+    "IndicatorAssessmentHistory",
+    "IndicatorSuppression",
+    "IndicatorSuppressionHistory",
     "IntegrationAttempt",
     "IntegrationDelivery",
     "IntegrationDeliveryMetric",
@@ -221,6 +229,7 @@ __all__ = [
     "LifecyclePruningRecord",
     "MFALoginChallenge",
     "NotificationWebhook",
+    "WebhookCredentialProfile",
     "NotificationWebhookDelivery",
     "OIDCProvider",
     "OIDCAccessPolicy",

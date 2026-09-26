@@ -47,6 +47,7 @@ from app.models.integration import (
     IntegrationEvent,
 )
 from app.models.investigation import Investigation
+from app.models.intel_assessment import IndicatorAssessment, ItemIntelState
 from app.models.report import Report
 from app.schemas.data_policy import (
     DataPolicyBlockerResponse,
@@ -750,6 +751,8 @@ def _inactive_normalized_label_blockers(
 ) -> list[DataPolicyBlockerResponse]:
     references = 0
     reference_models = (
+        (ItemIntelState, ItemIntelState.handling_label_id),
+        (IndicatorAssessment, IndicatorAssessment.handling_label_id),
         (DataAccessEnvelopeSource, DataAccessEnvelopeSource.handling_label_id),
         (DataAccessEnvelopeLabel, DataAccessEnvelopeLabel.label_id),
         (AuditLogDataAccessLabel, AuditLogDataAccessLabel.label_id),
@@ -797,7 +800,7 @@ def _inactive_normalized_label_blockers(
     return [
         _blocker(
             "inactive_normalized_label_references",
-            "Normalized envelope, audit, or metric lineage references archived handling labels.",
+            "Retained intelligence, envelope, audit, or metric lineage references archived handling labels.",
             references,
         )
     ]

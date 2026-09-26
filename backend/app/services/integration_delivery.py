@@ -802,19 +802,21 @@ def ensure_webhook_delivery(
             if db.get(IntegrationDelivery, legacy_delivery.id) is None
             else uuid.uuid4()
         )
+        source_delivery_id = _generic_source_delivery_id(db, legacy_delivery)
+        source_delivery = db.get(IntegrationDelivery, source_delivery_id) if source_delivery_id else None
         delivery = IntegrationDelivery(
             id=delivery_id,
             integration_id=instance.id,
             subscription_id=subscription.id,
-            event_id=event_id,
+            event_id=event_id or (source_delivery.event_id if source_delivery else None),
             owner_user_id=legacy_delivery.user_id,
-            source_delivery_id=_generic_source_delivery_id(db, legacy_delivery),
+            source_delivery_id=source_delivery_id,
             connector_type="webhook",
             event_type=legacy_delivery.event_type_snapshot,
             delivery_kind=legacy_delivery.delivery_kind,
             state=legacy_delivery.delivery_state,
             idempotency_key=f"legacy-webhook-delivery:{legacy_delivery.id}",
-            payload_json={"legacy_webhook_delivery_id": str(legacy_delivery.id)},
+            payload_json={**(source_delivery.payload_json if source_delivery else {}), "legacy_webhook_delivery_id": str(legacy_delivery.id)},
             attempt_count=max(0, int(legacy_delivery.attempt_count or 0)),
             max_attempts=max(1, int(settings.notification_delivery_retry_max_attempts)),
             not_before=legacy_delivery.not_before,

@@ -78,6 +78,8 @@ Legacy route behavior:
 
 ## Integrations: Webhooks
 
+For granular subscriptions, typed intelligence events, reusable credentials and HMAC verification, see [Intelligence automation and SIEM webhooks](intelligence-automation.md).
+
 - Personal outbound webhook notifications for:
   - `rss_item_new`
   - `alert_match`

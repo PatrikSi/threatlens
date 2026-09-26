@@ -117,6 +117,8 @@ def emit_integration_event(
         payload=payload,
         requested_schema_version=schema_version,
     )
+    from app.services.webhook_event_metadata import add_routing_metadata
+    add_routing_metadata(db, event_type=event_type, payload=resolved_payload)
     emitted_at = datetime.now(timezone.utc)
     event = IntegrationEvent(
         event_type=event_type,

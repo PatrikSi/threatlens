@@ -68,6 +68,8 @@ def test_notification_webhook(
     authorization: AuthorizationContext | None = None,
     operation_id: str | None = None,
 ) -> NotificationWebhookTestResponse:
+    if payload.payload_mode == "automation_v1":
+        raise ValueError("Automation webhooks require a stored-event preview; sample test sends are disabled to avoid starting a synthetic hunt")
     feed, item = _resolve_sample_feed_and_item(
         db,
         payload=payload,
@@ -169,6 +171,7 @@ def test_notification_webhook(
         return _execute_fenced_notification_webhook_test(
             db,
             user=user,
+            credential_profile_id=payload.credential_profile_id,
             rendered=rendered,
             logical_request={
                 "webhook": payload.model_dump(mode="json"),
@@ -189,7 +192,11 @@ def test_notification_webhook(
             operation_id=operation_id,
         )
 
-    result = notification_webhook_http.send_rendered_notification_request(rendered)
+    from app.services.webhook_credentials import credential_request_callback
+    callback = credential_request_callback(db, profile_id=payload.credential_profile_id, user_id=user.id,
+        event_id=str(uuid.uuid4()), attempt_id=str(uuid.uuid4()))
+    with notification_webhook_http.notification_request_credentials(callback):
+        result = notification_webhook_http.send_rendered_notification_request(rendered)
     return _redact_notification_test_response(result)
 
 
@@ -203,6 +210,7 @@ def _execute_fenced_notification_webhook_test(
     data_access: DataAccessContext,
     authorization: AuthorizationContext,
     operation_id: str,
+    credential_profile_id: uuid.UUID | None = None,
 ) -> NotificationWebhookTestResponse:
     phase_one_error: NotificationWebhookTestPolicyError | None = None
     try:
@@ -324,7 +332,10 @@ def _execute_fenced_notification_webhook_test(
         io_started = True
 
     try:
-        with notification_webhook_http.notification_delivery_external_io_marker(
+        from app.services.webhook_credentials import credential_request_callback
+        callback = credential_request_callback(db, profile_id=credential_profile_id, user_id=user.id,
+            event_id=str(reservation.receipt_id), attempt_id=str(uuid.uuid4()))
+        with notification_webhook_http.notification_request_credentials(callback), notification_webhook_http.notification_delivery_external_io_marker(
             _mark_io_started
         ):
             raw_result = notification_webhook_http.send_rendered_notification_request(

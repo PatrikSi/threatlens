@@ -674,6 +674,35 @@ actor/target/idempotency uniqueness prevent duplicate execution records.
   - expiring aggregate preview request/response
   - manual run, cancellation, run detail, and paginated run-history contracts
 
+## Indicator Evidence and Automation Storage
+
+Migrations `0107_intel_assessments` and `0108_webhook_automation` add these
+contracts while preserving existing IoC identities and notification templates:
+
+| Storage | Purpose |
+| --- | --- |
+| `iocs.value_digest` | Generated UTF-8 SHA-256 uniqueness key so full URL values fit PostgreSQL indexes; full normalized and raw values remain stored. |
+| `item_iocs.evidence_json` | Up to three original passages per article/indicator, with source offsets and normalization provenance; `occurrences` retains the total count. |
+| `item_intel_states` | Current source/extraction fingerprints, captured handling label, semantic indicator hash and extraction revision. |
+| `team_intel_states` | Per-team, per-item semantic revision for targeted assessment change events. |
+| `indicator_assessments`, `indicator_assessment_history` | Team verdicts, reasons, expiry, reviewed source/extraction revisions, captured handling label and versioned history. |
+| `indicator_suppressions`, `indicator_suppression_history` | Exact canonical indicator exclusions for one team, manager-controlled versions, active/expiry state and history. |
+| `webhook_credential_profiles` | Owner-scoped encrypted authentication/signing secrets, public configuration flags and optimistic revision. |
+| `notification_webhooks` additions | `payload_mode` defaults to `template`; nullable `conditions_json` and `credential_profile_id` preserve legacy defaults. |
+
+The generated digest uses the migration-owned `threatlens_indicator_digest`
+SQL function. Normal runtime inserts compute it without administrative
+privileges. The existing IoC upsert constraint name remains stable for older
+callers. A downgrade refuses incompatible long URLs or configured automation
+rather than discarding data or weakening subscription conditions.
+
+Assessment history follows its parent item/team; current article-body retention
+does not erase derived evidence. Current access checks retain captured source
+labels after feed relabeling. Credential profiles participate in encrypted-data
+inventory, including previous-key and unreadable-key diagnostics. See
+[team indicator review](../pages/teams.md) and
+[automation contracts](../pages/intelligence-automation.md) for lifecycle rules.
+
 ## Frontend Type Mirrors (`web/src/types/api.ts`)
 
 The frontend mirrors backend contracts for all major payloads:
@@ -689,6 +718,8 @@ The frontend mirrors backend contracts for all major payloads:
 - Tags: `Tag`
 - Alerts: `AlertInterest`, `AlertMatchReference`, `AlertMatchEntry`, `AlertMatchListResponse`
 - Notifications: `NotificationTemplateVariable`, `NotificationWebhook`, `NotificationWebhookWriteRequest`, `NotificationWebhookTestResponse`, `NotificationWebhookDelivery`, `NotificationWebhookDeliveryListResponse`
+- Indicator evidence, reviews and suppressions: `web/src/types/indicators.ts`.
+- Webhook condition trees, credential metadata and previews: `web/src/types/webhookAutomation.ts`.
 - Tagging: `TaggingSettings`, `TaggingRule`, `TaggingSettingsBundleResponse`, `TaggingRuleWriteRequest`, `TaggingRulePreviewResponse`, `TaggingReapplyResponse`
 - Reporting: `ReportCapabilities`, `ReportPreview`, `ReportTemplate`, `ReportListItem`, `ReportDetail`, `ReportSchedule`, `ReportQueueResponse`
 - Governance: IAM roles/groups, data-policy state and preflight evidence,

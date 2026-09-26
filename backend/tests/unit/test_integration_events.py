@@ -706,7 +706,7 @@ def test_future_webhook_config_schema_remains_recoverable_past_attempt_limit(
         **instance.config_json,
         "future_option": {"mode": "v2"},
     }
-    instance.schema_version = 2
+    instance.schema_version = 3
     instance.config_json = future_config
     db_session.add(instance)
     event = emit_integration_event(
@@ -731,8 +731,8 @@ def test_future_webhook_config_schema_remains_recoverable_past_attempt_limit(
     assert second.status == "failed"
     assert event.routing_attempt_count == 0
     assert all(error.compatibility_wait for error in second.routing_errors)
-    assert "schema version 2" in (event.last_error or "")
-    assert instance.schema_version == 2
+    assert "schema version 3" in (event.last_error or "")
+    assert instance.schema_version == 3
     assert instance.config_json == future_config
     assert (
         db_session.scalar(

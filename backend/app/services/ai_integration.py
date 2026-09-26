@@ -388,6 +388,10 @@ def run_item_ai_enrichment(
             reason="request_failed",
             input_text_chars=input_text_chars,
         )
+    if extraction_enabled:
+        # Acquire the policy fence before execution/enrichment/snapshot locks;
+        # successful evidence and its derived event share this transaction.
+        lock_data_policy_revision_for_derivation(db)
     stop_reason = _record_task_run_stop_observed(
         db,
         task_run_id=task_run_id,
@@ -468,6 +472,12 @@ def run_item_ai_enrichment(
             prompt_char_count=completion.prompt_char_count,
             response_char_count=completion.response_char_count,
         )
+    if extraction_enabled:
+        from app.services.intel_events import emit_intel_events
+
+        # The outbox commits with the successful provider result; its recovery
+        # sweeper routes it even if the worker stops before any broker delivery.
+        emit_intel_events(db, item_id=item_id, deterministic=False)
     return AIItemEnrichmentResult(
         enrichment=enrichment,
         status="ready",

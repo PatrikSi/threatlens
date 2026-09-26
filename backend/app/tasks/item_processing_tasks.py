@@ -299,6 +299,10 @@ def run_extract_item_iocs(item_id: str, *, dependencies: ItemProcessingDependenc
                 "reason": "invalid_item_id",
                 "item_id": item_id,
             }
+        # Domain-event lineage follows policy -> source -> snapshot lock order.
+        from app.services.data_access_runtime import lock_data_policy_revision_for_derivation
+
+        lock_data_policy_revision_for_derivation(db)
         item, claim_reason = feed_task_runtime.claim_item_processing_target(
             db, item_id=parsed_item_id
         )
@@ -338,7 +342,12 @@ def run_extract_item_iocs(item_id: str, *, dependencies: ItemProcessingDependenc
         )
         db.add(item)
         _sync_ioc_tags(db, item, article, stored.values_by_type)
+        from app.services.intel_events import emit_intel_events
+
+        db.flush()
+        event_ids = emit_intel_events(db, item_id=item.id, deterministic=True)
         db.commit()
+    integration_tasks.enqueue_integration_event_routing(event_ids)
     return {"status": "ok", "item_id": item_id, "ioc_count": stored.count}
 
 

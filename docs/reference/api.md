@@ -5,7 +5,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ## Published Contract
 
 - Schema version: `2.0.1`
-- OpenAPI contract anchor: `openapi-sha256:62c5dabc7aff774b4c724fc84b5be8a049d9c30646cb672687d2f3c982b9f0cd`
+- OpenAPI contract anchor: `openapi-sha256:769a529ef509225b062e2fc8a3227903ba7df4189330d7ddd41a0f288ac17c46`
 - API service base path: `/v1`
 - Web proxy base path: `/api/v1`
 - Bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`.
@@ -1281,6 +1281,76 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `assignment_id` (path, required): string
 - Responses: `204`, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `404` `application/json` -> ApiErrorResponse, `409` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 
+## Indicator Intelligence
+
+### `GET /v1/items/{item_id}/indicators`
+- Summary: Get Item Indicators
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:items`
+- Parameters:
+  - `item_id` (path, required): string
+  - `team_id` (query, optional): Team Id
+  - `page` (query, optional): integer
+  - `page_size` (query, optional): integer
+- Responses: `200` `application/json` -> IndicatorPage, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `PATCH /v1/items/{item_id}/indicators/{ioc_id}/assessment`
+- Summary: Patch Indicator Assessment
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:items`, `read:teams`, `write:teams`
+- Parameters:
+  - `item_id` (path, required): string
+  - `ioc_id` (path, required): string
+  - `team_id` (query, required): string
+- Request body: `application/json` -> AssessmentCommand
+- Responses: `200` `application/json` -> AssessmentResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `GET /v1/items/{item_id}/indicators/{ioc_id}/assessment/history`
+- Summary: Get Indicator History
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:items`, `read:teams`
+- Parameters:
+  - `item_id` (path, required): string
+  - `ioc_id` (path, required): string
+  - `team_id` (query, required): string
+  - `page` (query, optional): integer
+  - `page_size` (query, optional): integer
+- Responses: `200` `application/json` -> IndicatorHistoryPage, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `GET /v1/teams/{team_id}/indicator-suppressions`
+- Summary: Get Indicator Suppressions
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:items`, `read:teams`
+- Parameters:
+  - `team_id` (path, required): string
+  - `page` (query, optional): integer
+  - `page_size` (query, optional): integer
+- Responses: `200` `application/json` -> SuppressionPage, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/teams/{team_id}/indicator-suppressions`
+- Summary: Create Indicator Suppression
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:items`, `read:teams`, `write:teams`
+- Parameters:
+  - `team_id` (path, required): string
+- Request body: `application/json` -> SuppressionCreate
+- Responses: `201` `application/json` -> SuppressionResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `PATCH /v1/teams/{team_id}/indicator-suppressions/{suppression_id}`
+- Summary: Patch Indicator Suppression
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:items`, `read:teams`, `write:teams`
+- Parameters:
+  - `team_id` (path, required): string
+  - `suppression_id` (path, required): string
+- Request body: `application/json` -> SuppressionUpdate
+- Responses: `200` `application/json` -> SuppressionResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `GET /v1/teams/{team_id}/indicator-suppressions/{suppression_id}/history`
+- Summary: Get Suppression History
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:items`, `read:teams`
+- Parameters:
+  - `team_id` (path, required): string
+  - `suppression_id` (path, required): string
+  - `page` (query, optional): integer
+  - `page_size` (query, optional): integer
+- Responses: `200` `application/json` -> IndicatorHistoryPage, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+
 ## Integrations
 
 ### `GET /v1/integrations`
@@ -1642,6 +1712,25 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:notifications`
 - Responses: `200` `application/json` -> NotificationAnalyticsResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `GET /v1/notifications/credential-profiles`
+- Summary: List Credential Profiles
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:notifications`
+- Responses: `200` `application/json` -> array[WebhookCredentialResponse], `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/notifications/credential-profiles`
+- Summary: Create Credential Profile
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:notifications`
+- Request body: `application/json` -> WebhookCredentialWrite
+- Responses: `201` `application/json` -> WebhookCredentialResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `PATCH /v1/notifications/credential-profiles/{profile_id}`
+- Summary: Update Credential Profile
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:notifications`
+- Parameters:
+  - `profile_id` (path, required): string
+- Request body: `application/json` -> WebhookCredentialWrite
+- Responses: `200` `application/json` -> WebhookCredentialResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/notifications/template-variables`
 - Summary: Get Notification Template Variables
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -1658,6 +1747,20 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Token scopes: `write:notifications`
 - Request body: `application/json` -> NotificationWebhookWrite
 - Responses: `201` `application/json` -> NotificationWebhookResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `GET /v1/notifications/webhooks/events`
+- Summary: List Webhook Events
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:notifications`
+- Parameters:
+  - `event_type` (query, required): string ('rss_item_new', 'alert_match', 'feed_failing', 'webhook_failed', 'daily_digest', 'report_ready', 'intel.extraction.ready', 'intel.indicators.changed', 'hunt.approved')
+  - `limit` (query, optional): integer
+- Responses: `200` `application/json` -> unspecified, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/notifications/webhooks/preview`
+- Summary: Preview Webhook
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:notifications`
+- Request body: `application/json` -> WebhookPreviewRequest
+- Responses: `200` `application/json` -> WebhookPreviewResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/notifications/webhooks/test`
 - Summary: Test Notification Webhook
 - Auth: ApiTokenBearer or SessionCookieAuth
