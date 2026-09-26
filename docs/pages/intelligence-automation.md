@@ -109,6 +109,8 @@ This abbreviated example omits evidence and other provenance fields. Extraction-
 
 Legacy clients may continue sending their existing webhook write shape. Omitting the three new configuration fields preserves their saved values during updates; explicit `conditions: null` or `credential_profile_id: null` clears that setting. The effective configuration is validated, so an old client cannot silently switch a retained automation hook away from `POST`. Keep all workers upgraded before enabling new subscriptions: schema-v2 webhook configurations deliberately cause older workers to defer instead of ignoring conditions or credentials. A downgrade refuses to remove active automation configuration or credential profiles.
 
+Automation retries and replays retain the accepted body and destination snapshot, including when a legacy event uses Automation v1. Subsequent URL, template or payload-mode edits do not rewrite that saved request. Current authorization, conditions and credentials still apply before sending. Ordinary template-to-template retries retain their existing context-refresh behavior; switching to Automation v1 does not convert an already queued template request.
+
 ## Verify signatures and deduplicate actions
 
 Signing resolves the live profile immediately before each outbound request, after authorization/lease renewal. Authentication secrets and signatures are added only to the actual request; they are not copied into rendered delivery snapshots. Profiles participate in encrypted-data health inventory and support the application's previous encryption keys.
