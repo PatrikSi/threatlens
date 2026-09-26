@@ -12,11 +12,14 @@ from app.services.ai_extraction import build_verified_extraction
 from app.services.ai_extraction_sections import (
     MAX_SECTIONS, TOTAL_TOKEN_BUDGET, extraction_progress_response,
     merge_extractions, plan_sections, run_section_extraction,
+    section_plan_fingerprint,
 )
 from app.services.ai_provider_client import AICompletionResult, AIIntegrationError
 from app.services.ai_request_runtime import AITaskRunStoppedError
 from tests.unit.test_ai_extraction import ARTICLE, extraction_payload, source_messages
-from tests.unit.test_ai_extraction_workflow import extraction_item  # noqa: F401
+from tests.unit.test_ai_extraction_workflow import extraction_item as extraction_fixture
+
+extraction_item = extraction_fixture
 
 
 def test_section_plan_bounds_and_exact_contiguous_coverage():
@@ -106,6 +109,56 @@ def test_completed_sections_resume_without_repeating_calls(db_session, extractio
     assert called == ["item_extraction_section:0", "item_extraction_section:1", "item_extraction_section:1", "item_extraction_section:2"]
     assert extraction["coverage"]["reserved_tokens"] < reserved * 2
     assert extraction["coverage"]["uncovered_chars"] == 0
+
+
+@pytest.mark.parametrize("change", ["rendered_prompt", "source_hash", "model", "legacy_checkpoint"])
+def test_same_run_plan_change_retains_checkpoints_and_budget_without_paid_replay(
+    db_session, extraction_item, change,
+):  # noqa: F811
+    item, article = extraction_item
+    arguments = setup_run(db_session, item, article, "x" * 17000)
+    active = SimpleNamespace(provider_type="openai_compatible", model="test", max_completion_tokens=2048)
+    calls = []
+    def request(_db, _active, **kwargs):
+        calls.append(kwargs["provider_operation_scope"])
+        if len(calls) == 2:
+            raise AIIntegrationError("Safe admission deferral", provider_io_outcome="not_sent")
+        return empty_completion()
+    with pytest.raises(AIIntegrationError):
+        run_section_extraction(db_session, active, request=request, **arguments)
+    row = db_session.get(ItemAIEnrichment, item.id)
+    if change == "rendered_prompt":
+        arguments["messages"].insert(0, {"role": "system", "content": "Changed extraction instructions."})
+    elif change == "source_hash":
+        arguments["snapshot"]["source_hash"] = "b" * 64
+    elif change == "model":
+        active.model = "replacement-model"
+    else:
+        progress = copy.deepcopy(row.extraction_progress_json)
+        progress.pop("plan_fingerprint")
+        row.extraction_progress_json = progress
+        db_session.commit()
+    previous = copy.deepcopy(row.extraction_progress_json)
+    with pytest.raises(AIIntegrationError) as stopped:
+        run_section_extraction(db_session, active, request=request, **arguments)
+    assert stopped.value.failure_category == "extraction_plan_changed"
+    assert stopped.value.provider_io_outcome == "not_sent"
+    assert stopped.value.retryable is False
+    assert calls == ["item_extraction_section:0", "item_extraction_section:1"]
+    db_session.expire_all()
+    assert db_session.get(ItemAIEnrichment, item.id).extraction_progress_json == previous
+
+
+def test_plan_identity_includes_source_beyond_the_bounded_section_plan():
+    active = SimpleNamespace(provider_type="openai_compatible", model="test", max_completion_tokens=2048)
+    text = "x" * 80000
+    arguments = dict(item_id=uuid4(), messages=source_messages(text[:8000]), text=text,
+        snapshot=dict(article_id=uuid4(), article_retrieved_at=datetime.now(timezone.utc),
+                      source_version=1, source_hash="a" * 64))
+    first = section_plan_fingerprint(active, **arguments)
+    assert section_plan_fingerprint(active, **arguments) == first
+    arguments["text"] = text[:-1] + "y"
+    assert section_plan_fingerprint(active, **arguments) != first
 
 
 def test_total_budget_limits_calls_and_discloses_uncovered_text(db_session, extraction_item):  # noqa: F811
