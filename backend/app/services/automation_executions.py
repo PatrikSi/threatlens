@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import uuid
+from typing import TYPE_CHECKING
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -17,6 +18,9 @@ from app.models.automation_execution import (
 )
 from app.models.integration import IntegrationEvent
 from app.schemas.automation_execution import ExecutionCallback
+
+if TYPE_CHECKING:
+    from app.services.automation_execution_authority import ExecutionAuthorityBatch
 
 TRACKED_EVENTS = frozenset(
     {"intel.extraction.ready", "intel.indicators.changed", "hunt.approved"}
@@ -149,7 +153,7 @@ def reconcile_executions(
         IntelEventBusy,
     )
 
-    from app.services.automation_execution_authority import execution_owner_eligible
+    from app.services.automation_execution_authority import ExecutionAuthorityBatch
     from app.services.integration_delivery_data_policy import (
         lock_integration_delivery_policy_fence,
     )
@@ -168,12 +172,13 @@ def reconcile_executions(
         .limit(min(max(limit, 1), 100))
         .with_for_update(skip_locked=True)
     ).all()
+    authority = ExecutionAuthorityBatch(db, rows)
     for row in rows:
         event = db.get(IntegrationEvent, row.event_id)
         row.next_check_at = now + timedelta(minutes=5)
         try:
-            owner_eligible = event is not None and execution_owner_eligible(
-                db, owner_user_id=row.owner_user_id, event=event
+            owner_eligible = event is not None and authority.eligible(
+                owner_user_id=row.owner_user_id, event=event
             )
             current = owner_eligible and automation_event_current(
                 db, event.payload_json, event.event_type
@@ -183,7 +188,9 @@ def reconcile_executions(
             continue
         if not current:
             replacement = (
-                _replacement_action(db, row, event) if owner_eligible else None
+                _replacement_action(db, row, event, authority)
+                if owner_eligible
+                else None
             )
             reserve_policy_update(
                 db,
@@ -196,13 +203,15 @@ def reconcile_executions(
 
 
 def _replacement_action(
-    db: Session, row: AutomationExecution, event: IntegrationEvent | None
+    db: Session,
+    row: AutomationExecution,
+    event: IntegrationEvent | None,
+    authority: "ExecutionAuthorityBatch",
 ) -> str | None:
     """Only a separately routed, current action at this same destination replaces it."""
     if event is None:
         return None
     from app.services.intel_event_eligibility import automation_event_current
-    from app.services.automation_execution_authority import execution_owner_eligible
 
     query = (
         select(AutomationExecution, IntegrationEvent)
@@ -229,8 +238,8 @@ def _replacement_action(
             for key in ("team_id", "hunt_id")
         ):
             continue
-        if execution_owner_eligible(
-            db, owner_user_id=row.owner_user_id, event=candidate_event
+        if authority.eligible(
+            owner_user_id=row.owner_user_id, event=candidate_event
         ) and automation_event_current(db, payload, candidate_event.event_type):
             return candidate.action_id
     return None
