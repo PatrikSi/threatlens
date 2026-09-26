@@ -1,0 +1,114 @@
+"""Owned disposable service/process lifecycle for local topology qualification."""
+from __future__ import annotations
+
+import os
+from pathlib import Path
+import signal
+import socket
+import subprocess
+import time
+import uuid
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def clean_environment() -> dict[str, str]:
+    allowed = {"PATH", "HOME", "TMPDIR", "LANG", "TZ", "XDG_RUNTIME_DIR"}
+    return {key: value for key, value in os.environ.items() if key in allowed or key.startswith(("DOCKER_", "LC_"))}
+
+
+def free_port() -> int:
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        return listener.getsockname()[1]
+
+
+class DisposableTopology:
+    def __init__(self, directory: Path):
+        self.directory = directory
+        self.run_id = uuid.uuid4().hex
+        self.containers: list[str] = []
+        self.processes: dict[str, subprocess.Popen] = {}
+        self.logs = []
+        self.image_ids: dict[str, str] = {}
+
+    def docker(self, *args: str) -> str:
+        result = subprocess.run(["docker", *args], capture_output=True, text=True, timeout=60,
+                                env=clean_environment(), check=False)
+        if result.returncode:
+            raise RuntimeError(f"Disposable Docker operation {args[0]} failed")
+        return result.stdout.strip()
+
+    def service(self, service: str, image: str, *args: str, command: list[str] | None = None) -> str:
+        name = f"threatlens-qualification-{self.run_id}-{service}"
+        self.image_ids[service] = self.docker("image", "inspect", "--format", "{{.Id}}", image)
+        self.containers.append(name)
+        self.docker("run", "--rm", "--detach", "--name", name, "--label",
+                    f"threatlens.qualification.run={self.run_id}",
+                    "--label", f"com.docker.compose.project=qualification-{self.run_id}",
+                    "--label", f"com.docker.compose.service={service}", *args, image, *(command or []))
+        return name
+
+    def start(self, role: str, command: list[str], env: dict[str, str]) -> subprocess.Popen:
+        log = (self.directory / f"{role}.log").open("a")
+        self.logs.append(log)
+        process = subprocess.Popen(command, cwd=self.directory, env=env, stdout=log,
+                                   stderr=subprocess.STDOUT, start_new_session=True)
+        self.processes[role] = process
+        return process
+
+    def stop(self, role: str) -> None:
+        process = self.processes.pop(role, None)
+        if process is None:
+            return
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+        try:
+            process.wait(timeout=8)
+        except subprocess.TimeoutExpired:
+            os.killpg(process.pid, signal.SIGKILL)
+            process.wait(timeout=5)
+
+    def memory(self) -> dict[str, int]:
+        totals = {}
+        for role, process in self.processes.items():
+            if process.poll() is not None:
+                raise RuntimeError(f"Required qualification process {role} exited")
+            waiting, visited, total = [process.pid], set(), 0
+            while waiting and len(visited) < 64:
+                pid = waiting.pop()
+                if pid in visited:
+                    continue
+                visited.add(pid)
+                try:
+                    fields = Path(f"/proc/{pid}/status").read_text().splitlines()
+                    total += next((int(line.split()[1]) * 1024 for line in fields if line.startswith("VmRSS:")), 0)
+                    waiting += [int(value) for value in Path(f"/proc/{pid}/task/{pid}/children").read_text().split()]
+                except (OSError, ValueError) as error:
+                    if pid == process.pid:
+                        raise RuntimeError(f"Required process {role} memory/liveness could not be observed") from error
+            totals[role] = total
+        return totals
+
+    def close(self) -> None:
+        for role in list(self.processes):
+            self.stop(role)
+        for name in reversed(self.containers):
+            subprocess.run(["docker", "rm", "--force", name], stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL, timeout=30, check=False, env=clean_environment())
+        for log in self.logs:
+            log.close()
+
+
+def wait_http(client, path: str, *, timeout: float = 90) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            if client.get(path, timeout=1).status_code == 200:
+                return
+        except Exception:
+            pass
+        time.sleep(.2)
+    raise TimeoutError("Disposable service startup exceeded its deadline")

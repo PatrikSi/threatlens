@@ -1,0 +1,29 @@
+groups:
+  - name: threatlens-independent-host
+    rules:
+      - alert: ThreatLensHostMonitorMissing
+        # Repeat this rule with each expected deployment identity. A fleet-wide
+        # absent() alone would miss one disappeared host while others remain.
+        expr: absent(threatlens_host_observation_timestamp_seconds{deployment="threatlens-production"}) or time() - threatlens_host_observation_timestamp_seconds{deployment="threatlens-production"} > 180
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: ThreatLens independent host observations are missing
+          description: Check the host monitor timer, Docker access and the external scrape path. Application health cannot clear this alert.
+      - alert: ThreatLensHostOrRecoveryObjectiveFailed
+        expr: threatlens_host_active_incidents > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: ThreatLens host or recovery objectives need operator attention
+          description: Inspect the monitor JSON incident codes and receipt policy. Backup failures are separate from application health.
+      - alert: ThreatLensMonitorReceiverBacklog
+        expr: threatlens_host_pending_deliveries > 0 or threatlens_host_receiver_available == 0 or increase(threatlens_host_dropped_events[1h]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: ThreatLens monitoring notifications are not acknowledged
+          description: Check the configured receiver. Receivers must deduplicate event IDs and verify signatures.

@@ -667,3 +667,7 @@ Measure both with representative data and recurring drills. Retain:
 Retest after PostgreSQL, Compose, encryption-key, migration, storage, or hook
 changes. A backup process without a recent isolated restore drill is an unproven
 recovery plan.
+
+## Independent fleet and recovery qualification
+
+See [Independent monitoring and deployment qualification](../reference/operational-qualification.md) for host-level worker memory, OOM/restart and storage observations, external deadman alerts, authenticated backup/key/drill evidence, and disposable ingress/worker and source-loss reconstruction tests. Deployment-specific recovery objectives remain separate from application health. Local simulations do not qualify production recovery.
