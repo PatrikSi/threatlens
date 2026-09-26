@@ -252,6 +252,14 @@ BEGIN
     ('integration_instances', 'last_error'),
     ('integration_subscriptions', 'enabled'),
     ('notification_webhooks', 'enabled'),
+    ('automation_executions', 'policy_state'),
+    ('automation_executions', 'policy_revision'),
+    ('automation_executions', 'status'),
+    ('automation_executions', 'updated_at'),
+    ('automation_policy_updates', 'execution_id'),
+    ('automation_policy_updates', 'revision'),
+    ('automation_policy_updates', 'reason'),
+    ('automation_policy_updates', 'acknowledged_at'),
     ('integration_events', 'routing_state'),
     ('integration_events', 'claimed_at'),
     ('integration_events', 'last_error'),
@@ -350,6 +358,10 @@ BEGIN
       AND column_name = 'consumed_at'
   ) THEN
     RAISE EXCEPTION 'mfa_login_challenges exists without a supported consumed_at column';
+  END IF;
+  IF to_regclass('public.automation_executions') IS NOT NULL
+     AND to_regclass('public.automation_policy_updates') IS NULL THEN
+    RAISE EXCEPTION 'automation executions require the policy update ledger';
   END IF;
   IF to_regclass('public.integration_instances') IS NOT NULL AND NOT EXISTS (
     SELECT 1 FROM information_schema.columns
@@ -454,6 +466,8 @@ DECLARE
   disabled_subscriptions bigint := 0;
   disabled_webhooks bigint := 0;
   quarantined_events bigint := 0;
+  withdrawn_automation_executions bigint := 0;
+  uncertain_automation_executions bigint := 0;
   quarantined_deliveries bigint := 0;
   interrupted_attempts bigint := 0;
   quarantined_legacy_deliveries bigint := 0;
@@ -608,6 +622,31 @@ BEGIN
     EXECUTE 'UPDATE notification_webhooks SET enabled = false WHERE enabled IS TRUE';
     GET DIAGNOSTICS disabled_webhooks = ROW_COUNT;
   END IF;
+
+  -- BEGIN AUTOMATION RECEIPT QUARANTINE
+  IF to_regclass('public.automation_executions') IS NOT NULL THEN
+    -- A restored database cannot prove the current state of a remote job.
+    -- Terminal receipts remain immutable history. No remote work is relaunched.
+    EXECUTE $sql$UPDATE automation_executions
+      SET status = 'unknown', updated_at = clock_timestamp()
+      WHERE status NOT IN ('completed', 'failed', 'unknown')$sql$;
+    GET DIAGNOSTICS uncertain_automation_executions = ROW_COUNT;
+    -- Fresh UUIDs prevent pre-restore ACKs from acknowledging this withdrawal,
+    -- even when the restored revision counter is behind the remote receiver.
+    EXECUTE $sql$WITH withdrawn AS (
+      UPDATE automation_executions
+      SET policy_state = 'withdrawn', policy_revision = policy_revision + 1,
+          updated_at = clock_timestamp()
+      WHERE policy_state = 'current'
+      RETURNING id, policy_revision
+    ) INSERT INTO automation_policy_updates
+      (id, execution_id, revision, event_type, reason)
+      SELECT gen_random_uuid(), id, policy_revision, 'intel.withdrawn',
+        'Disaster recovery restored an earlier state; stop using this action and reconcile the existing remote job.'
+      FROM withdrawn$sql$;
+    GET DIAGNOSTICS withdrawn_automation_executions = ROW_COUNT;
+  END IF;
+  -- END AUTOMATION RECEIPT QUARANTINE
 
   IF to_regclass('public.integration_events') IS NOT NULL THEN
     EXECUTE $sql$UPDATE integration_events
@@ -815,6 +854,8 @@ BEGIN
       'disabled_subscriptions', disabled_subscriptions,
       'disabled_webhooks', disabled_webhooks,
       'quarantined_events', quarantined_events,
+      'withdrawn_automation_executions', withdrawn_automation_executions,
+      'uncertain_automation_executions', uncertain_automation_executions,
       'quarantined_deliveries', quarantined_deliveries,
       'interrupted_attempts', interrupted_attempts,
       'quarantined_legacy_deliveries', quarantined_legacy_deliveries,
@@ -965,6 +1006,12 @@ BEGIN
   IF to_regclass('public.notification_webhooks') IS NOT NULL THEN
     IF EXISTS (SELECT 1 FROM notification_webhooks WHERE enabled IS TRUE) THEN
       RAISE EXCEPTION 'enabled legacy webhooks remain after restore quarantine';
+    END IF;
+  END IF;
+  IF to_regclass('public.automation_executions') IS NOT NULL THEN
+    IF EXISTS (SELECT 1 FROM automation_executions
+               WHERE policy_state = 'current' OR status NOT IN ('unknown', 'completed', 'failed')) THEN
+      RAISE EXCEPTION 'active or apparently current external automation remains after restore quarantine';
     END IF;
   END IF;
   IF to_regclass('public.integration_events') IS NOT NULL THEN

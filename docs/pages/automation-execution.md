@@ -60,7 +60,8 @@ The maintenance worker examines at most 100 due execution snapshots every minute
 Each row retains its next check time, with a five-minute normal revisit interval;
 large backlogs therefore take multiple sweeps. Row locks use `SKIP LOCKED`, so an
 active callback cannot block the scan. Source/extraction revisions, approval and
-team context, analyst verdicts, verdict expiry, and team suppression changes can
+team context, the owner’s durable permissions, current team membership and handling
+label grants, analyst verdicts, verdict expiry, and team suppression changes can
 invalidate an earlier team-scoped action. Shared raw intelligence is not changed
 by a different team's policy. Interrupted scans safely resume from committed
 state. No external job is started during reconciliation.
@@ -129,8 +130,13 @@ profile. Start behind your authenticated TLS reverse proxy:
 python3 examples/automation-receiver/receiver.py serve --database receiver.sqlite3
 ```
 
-The example listens only on `127.0.0.1:8091`, accepts bounded signed POST bodies,
-and allows five minutes of timestamp skew. Synchronize every minute using your
+The example requires Linux/POSIX and its main thread so it can enforce absolute
+transfer deadlines with process alarms. It refuses an already active process alarm
+or threaded use. It listens only on `127.0.0.1:8091`, accepts bounded signed POST
+bodies, and allows five minutes of timestamp skew. Incoming requests and individual
+API transfers have a 15-second total deadline, including headers and body. A sync
+invocation has a 60-second network budget and applies policy withdrawals before
+uploading status receipts; pending work remains durable for the next invocation. Synchronize every minute using your
 scheduler, with `THREATLENS_URL` set to the server origin (without `/v1`) and
 `THREATLENS_API_TOKEN` set to the scoped owner token:
 
@@ -153,3 +159,20 @@ shared transactional database and vendor-specific reconciliation. API redirects
 are refused so a destination cannot redirect the scoped credential elsewhere.
 
 For subscription matching, see [same-indicator conditions](indicator-conditions.md).
+
+## Disaster recovery
+
+A restored database may be behind the receiver's durable ledger. The recovery
+quarantine hook therefore changes nonterminal receipts to `unknown`, preserves
+completed/failed history and findings, and issues a fresh withdrawal ID for every
+previously current action. Existing policy acknowledgement records remain
+historical; an acknowledgement for an older update cannot acknowledge the new
+withdrawal. Reapplying quarantine is idempotent and never launches remote work.
+
+After recovery, rotate the revoked integration credentials, poll and apply the
+withdrawal stream, then reconcile each existing job by its stable action/job ID
+against the receiver or SIEM. Submit newly observed status using a new callback
+ID and a sequence higher than both retained ledgers. Do not interpret `unknown`
+as permission to replay a hunt. A rollback may reuse numeric policy revisions:
+deduplicate policy updates by their UUID, apply every new withdrawal UUID, and
+retain tombstones rather than assuming a previously seen revision is an ACK.

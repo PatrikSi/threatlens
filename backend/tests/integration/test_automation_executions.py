@@ -296,3 +296,178 @@ def test_deleting_destination_does_not_erase_execution_receipts(execution, db_se
     db_session.delete(db_session.get(NotificationWebhook, execution.webhook_id))
     db_session.commit()
     assert db_session.get(AutomationExecution, execution.id) is not None
+
+
+def test_owner_disabled_withdraws_unchanged_source(execution, db_session, seed_users):
+    from app.services.intel_event_eligibility import automation_event_current
+
+    event = db_session.get(IntegrationEvent, execution.event_id)
+    assert automation_event_current(db_session, event.payload_json, event.event_type)
+    seed_users["analyst"].is_active = False
+    db_session.commit()
+    assert reconcile_executions(db_session) == 1
+    db_session.commit()
+    db_session.refresh(execution)
+    assert execution.policy_state == "withdrawn"
+
+
+def test_team_membership_loss_withdraws_unchanged_source(
+    client, execution, db_session, seed_users, auth_headers
+):
+    from app.models.iam import IAMGroupMembership
+    from app.services.intel_event_eligibility import automation_event_current
+    from app.services.team_indicator_policy import team_indicator_snapshot
+    from tests.integration.test_teams_api import _team
+
+    team, _, managers = _team(client, db_session, seed_users, auth_headers)
+    # Team evidence requires read:ai, which the legacy analyst role does not grant.
+    execution.owner_user_id = seed_users["admin"].id
+    db_session.get(
+        NotificationWebhook, execution.webhook_id
+    ).user_id = execution.owner_user_id
+    event = db_session.get(IntegrationEvent, execution.event_id)
+    snapshot = dict(event.payload_json)
+    snapshot["team_id"] = team["id"]
+    _, snapshot["team_indicator_policy_hash"] = team_indicator_snapshot(
+        db_session,
+        team_id=uuid.UUID(team["id"]),
+        item_id=event.source_id,
+        indicators=snapshot["indicators"],
+        source_revision=snapshot["source_revision"],
+        extraction_revision=snapshot["extraction_revision"],
+    )
+    event.payload_json = snapshot
+    db_session.commit()
+    assert automation_event_current(db_session, snapshot, event.event_type)
+    from app.services.authorization import authorization_context_for_user
+    from app.services.team_access import team_access_predicate
+
+    authority = authorization_context_for_user(db_session, seed_users["admin"])
+    assert all(
+        authority.has_durable(permission)
+        for permission in ("read:items", "write:notifications", "read:teams", "read:ai")
+    ), authority.durable_grants
+    assert db_session.scalar(
+        select(team_access_predicate(uuid.UUID(team["id"]), execution.owner_user_id))
+    )
+    assert reconcile_executions(db_session) == 1
+    db_session.commit()
+    db_session.refresh(execution)
+    assert execution.policy_state == "current"
+    membership = db_session.scalar(
+        select(IAMGroupMembership).where(
+            IAMGroupMembership.group_id == managers.id,
+            IAMGroupMembership.user_id == execution.owner_user_id,
+        )
+    )
+    db_session.delete(membership)
+    execution.next_check_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+    db_session.commit()
+    assert automation_event_current(db_session, snapshot, event.event_type)
+    assert reconcile_executions(db_session) == 1
+    db_session.commit()
+    db_session.refresh(execution)
+    assert execution.policy_state == "withdrawn"
+
+
+def test_handling_grant_loss_withdraws_unchanged_source(
+    execution, db_session, seed_users, monkeypatch
+):
+    from app.core.permissions import SYSTEM_ROLE_IDS
+    from app.models.data_policy import DataPolicyRoleGrant, DataPolicyState
+    from app.services.data_access_envelopes import (
+        DataAccessSourceInput,
+        replace_data_access_envelope_sources,
+    )
+    from tests.integration.test_data_policy_read_coverage import _enable_enforcement
+
+    label = _enable_enforcement(db_session, seed_users, monkeypatch)
+    grant = DataPolicyRoleGrant(
+        label_id=label.id,
+        role_id=SYSTEM_ROLE_IDS["analyst"],
+        granted_by_user_id=seed_users["admin"].id,
+    )
+    db_session.add(grant)
+    event = db_session.get(IntegrationEvent, execution.event_id)
+    state = db_session.get(DataPolicyState, 1)
+    replace_data_access_envelope_sources(
+        db_session,
+        resource_type="integration_event",
+        resource_id=event.id,
+        sources=[
+            DataAccessSourceInput(
+                source_type="item",
+                source_id=str(event.source_id),
+                source_version="1",
+                handling_label_id=label.id,
+                captured_policy_revision=state.revision,
+            )
+        ],
+    )
+    db_session.commit()
+    assert reconcile_executions(db_session) == 1
+    db_session.commit()
+    db_session.refresh(execution)
+    assert execution.policy_state == "current"
+    db_session.delete(grant)
+    state.revision += 1
+    execution.next_check_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+    db_session.commit()
+    assert reconcile_executions(db_session) == 1
+    db_session.commit()
+    db_session.refresh(execution)
+    assert execution.policy_state == "withdrawn"
+
+
+def test_restore_quarantines_remote_state_without_erasing_history(
+    execution, db_session
+):
+    from pathlib import Path
+    from sqlalchemy import text
+    from app.services.automation_executions import acknowledge_policy_update
+
+    completed = AutomationExecution(
+        webhook_id=execution.webhook_id,
+        owner_user_id=execution.owner_user_id,
+        event_id=execution.event_id,
+        action_id="completed-action",
+        status="completed",
+        findings="Historical result",
+    )
+    execution.status = "running"
+    db_session.add(completed)
+    db_session.commit()
+    hook = (
+        Path(__file__).resolve().parents[3]
+        / "scripts/recovery/post_restore_quarantine.sh"
+    )
+    if not hook.exists():
+        hook = (
+            Path(__file__).resolve().parents[4]
+            / "scripts/recovery/post_restore_quarantine.sh"
+        )
+    script = hook.read_text()
+    block = script.split("-- BEGIN AUTOMATION RECEIPT QUARANTINE", 1)[1].split(
+        "-- END AUTOMATION RECEIPT QUARANTINE", 1
+    )[0]
+    command = text(
+        "DO $test$ DECLARE uncertain_automation_executions bigint; "
+        "withdrawn_automation_executions bigint; BEGIN " + block + " END $test$;"
+    )
+    db_session.execute(command)
+    db_session.commit()
+    db_session.refresh(execution)
+    db_session.refresh(completed)
+    assert execution.status == "unknown" and execution.policy_state == "withdrawn"
+    assert completed.status == "completed" and completed.findings == "Historical result"
+    updates = db_session.scalars(select(AutomationPolicyUpdate)).all()
+    assert len(updates) == 2 and all(row.acknowledged_at is None for row in updates)
+    assert execution.policy_acknowledged_revision == 0
+    db_session.execute(command)
+    db_session.commit()
+    assert (
+        db_session.scalar(select(func.count()).select_from(AutomationPolicyUpdate)) == 2
+    )
+    own_update = next(row for row in updates if row.execution_id == execution.id)
+    assert acknowledge_policy_update(execution, own_update)
+    assert execution.policy_state == "withdrawn"

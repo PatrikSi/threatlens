@@ -276,3 +276,86 @@ def test_policy_acknowledgements_are_contiguous_and_idempotent():
     assert not acknowledge_policy_update(execution, first)
     assert acknowledge_policy_update(execution, second)
     assert execution.policy_acknowledged_revision == 2
+
+
+def test_receiver_absolute_deadline_covers_slow_response_body(monkeypatch):
+    import signal
+    import time
+
+    receiver = receiver_module()
+    previous = signal.getsignal(signal.SIGALRM)
+
+    class SlowResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            pass
+
+        def read(self, _limit):
+            time.sleep(0.3)
+            return b"{}"
+
+    monkeypatch.setattr(
+        receiver,
+        "build_opener",
+        lambda *_args: SimpleNamespace(open=lambda *_args, **_kwargs: SlowResponse()),
+    )
+    started = time.monotonic()
+    with pytest.raises(TimeoutError):
+        receiver.api(
+            "https://receiver.example", "secret", "/receipt", timeout_seconds=0.02
+        )
+    assert time.monotonic() - started < 0.2
+    assert signal.getsignal(signal.SIGALRM) == previous
+    assert signal.getitimer(signal.ITIMER_REAL) == (0.0, 0.0)
+
+
+def test_receiver_rejects_active_alarm_without_changing_it():
+    import signal
+
+    receiver = receiver_module()
+    prior = signal.getsignal(signal.SIGALRM)
+    def handler(*_args):
+        pass
+
+    signal.signal(signal.SIGALRM, handler)
+    signal.setitimer(signal.ITIMER_REAL, 10)
+    try:
+        with pytest.raises(ValueError, match="active process alarm"):
+            with receiver.absolute_deadline(0.1):
+                pytest.fail("An active external alarm was replaced")
+        assert signal.getsignal(signal.SIGALRM) is handler
+        assert signal.getitimer(signal.ITIMER_REAL)[0] > 5
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, prior)
+
+
+def test_receiver_rejects_threaded_deadline_use():
+    from concurrent.futures import ThreadPoolExecutor
+
+    receiver = receiver_module()
+
+    def invoke():
+        with receiver.absolute_deadline(0.1):
+            pass
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        with pytest.raises(ValueError, match="main-thread runtime"):
+            executor.submit(invoke).result()
+
+
+def test_receiver_reads_policy_before_uploading_status(tmp_path):
+    receiver = receiver_module()
+    ledger = receiver.Ledger(str(tmp_path / "ledger.db"))
+    ledger.accept(receiver_body())
+    calls = []
+
+    def request(path, payload=None):
+        calls.append(path)
+        return {"items": []}
+
+    receiver.synchronize(ledger, request)
+    assert "/updates?" in calls[0]
+    assert calls[-1].endswith("/callbacks")
