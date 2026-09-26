@@ -26,6 +26,8 @@ This documentation covers:
 - [Development Image Builds](../docker/README.md)
 - [Browser Workflow Tests](./development/browser-testing.md)
 - [Concurrent Capacity Baseline](./reference/capacity-baseline.md)
+- [Independent Monitoring and Deployment Qualification](./reference/operational-qualification.md)
+- [Intelligence Expansion and Qualification — 2026-09-26](./reviews/2026-09-26-intelligence-expansion.md)
 - [Outbound Request Budgets](./reference/outbound-request-budgets.md)
 - [Custom Regex Execution](./reference/custom-regex-execution.md)
 - [Background Article Exports](./reference/background-exports.md)
