@@ -477,6 +477,7 @@ function ProviderRouting({ c, onReload }: { c: AiProviderConnectionsController; 
             {ROUTING_FIELDS.map(({ key, label }) => {
               const id = c.visibleRouting![key] ?? null
               const inherited = key !== 'default_provider_id' && id === null
+              const inheritedProvider = key === 'team_assessment_provider_id' ? 'article provider' : 'default provider'
               return (
                 <div
                   key={key}
@@ -512,7 +513,7 @@ function ProviderRouting({ c, onReload }: { c: AiProviderConnectionsController; 
                     <button
                       type="button"
                       className={buttonClass}
-                      aria-label={`Use ${key === 'default_provider_id' ? 'legacy settings for default provider' : `default provider for ${label.toLowerCase()}`}`}
+                      aria-label={`Use ${key === 'default_provider_id' ? 'legacy settings for default provider' : `${inheritedProvider} for ${label.toLowerCase()}`}`}
                       disabled={id === null || c.routing.isError}
                       onClick={() => c.assign(key, null)}
                     >

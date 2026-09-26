@@ -69,20 +69,29 @@ test('real AI provider settings preserve credentials and enforce versioned routi
 
   await page.getByRole('button', { name: 'Assign selected provider to default provider', exact: true }).click()
   await page.getByRole('button', { name: 'Assign selected provider to reports', exact: true }).click()
-  expect(await saveAssignments()).toMatchObject({ default_provider_id: provider.id, report_provider_id: provider.id })
+  await page.getByRole('button', { name: 'Assign selected provider to team assessments and hunt suggestions', exact: true }).click()
+  expect(await saveAssignments()).toMatchObject({
+    default_provider_id: provider.id, report_provider_id: provider.id, team_assessment_provider_id: provider.id,
+  })
   const routing = await (await page.request.get('/api/v1/ai/provider-routing')).json()
   expect(routing).toMatchObject({
     default_provider_id: provider.id,
     report_provider_id: provider.id,
     item_enrichment_provider_id: null,
+    team_assessment_provider_id: provider.id,
   })
   const effective = await (await page.request.get('/api/v1/ai/settings')).json()
-  expect(effective.effective_feature_configured).toEqual({ item_enrichment: true, daily_brief: true, report: true })
+  expect(effective.effective_feature_configured).toEqual({
+    item_enrichment: true, team_assessment: true, daily_brief: true, report: true,
+  })
   await expect(page.getByRole('button', { name: 'Delete provider', exact: true })).toBeDisabled()
 
   await page.getByRole('button', { name: 'Use legacy settings for default provider', exact: true }).click()
   await page.getByRole('button', { name: 'Use default provider for reports', exact: true }).click()
-  expect(await saveAssignments()).toMatchObject({ default_provider_id: null, report_provider_id: null })
+  await page.getByRole('button', { name: 'Use article provider for team assessments and hunt suggestions', exact: true }).click()
+  expect(await saveAssignments()).toMatchObject({
+    default_provider_id: null, report_provider_id: null, team_assessment_provider_id: null,
+  })
   await page.getByRole('button', { name: 'Delete provider', exact: true }).click()
   const deletion = page.getByRole('alertdialog', { name: 'Delete provider?', exact: true })
   const deleteResponse = page.waitForResponse(
