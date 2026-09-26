@@ -41,7 +41,7 @@ export function ReportDetailView({
         canManage={canManage}
       />
 
-      <ReportEditorialPanel key={report.id} report={report} canManage={canManage} canReview={controller.canAuthor} onDirtyChange={controller.setEditorialDirty} discard={controller.builderDraft.confirmDiscard} onRefresh={() => { void controller.reportDetailQuery.refetch() }} />
+      <ReportEditorialPanel key={`editorial:${report.id}`} report={report} canManage={canManage} canReview={controller.canAuthor} onDirtyChange={controller.setEditorialDirty} discard={controller.builderDraft.confirmDiscard} onRefresh={() => { void controller.reportDetailQuery.refetch() }} />
       {running && (
         <GenerationStatus
           status={report.status}
@@ -60,7 +60,7 @@ export function ReportDetailView({
       ))}
 
       <ReportStats report={report} />
-      <ReportContent key={report.id} report={report} onRefresh={() => { void controller.reportDetailQuery.refetch() }} />
+      <ReportContent key={`content:${report.id}`} report={report} onRefresh={() => { void controller.reportDetailQuery.refetch() }} />
     </div>
   )
 }
