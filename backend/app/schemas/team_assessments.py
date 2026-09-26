@@ -45,6 +45,8 @@ class HuntSuggestionResponse(BaseModel):
     review_status: Literal["suggested", "accepted", "rejected"] = "suggested"
     review_note: str | None = None
     investigation_id: uuid.UUID | None = None
+    reviewed_by_user_id: uuid.UUID | None = None
+    reviewed_at: datetime | None = None
 
 
 class TeamAssessmentResultResponse(BaseModel):

@@ -76,6 +76,7 @@ export function AssessmentWorkspace({ itemId, teamId, canWrite, canCreate, verif
       client.setQueryData(queryKey, saved)
       client.setQueryData(baseQueryKey, saved)
       setDrafts((current) => settleHuntDrafts(current, context?.submittedDrafts ?? {}, action, saved.assessment))
+      void client.invalidateQueries({ queryKey: ['team-hunts', teamId] })
       if (action.kind === 'investigation') void client.invalidateQueries({ queryKey: ['investigations'] })
       setNotice(action.kind === 'generate' ? 'Team assessment queued.' : action.kind === 'review' ? 'Hunt review saved.' : 'Team investigation created and linked.')
     },
