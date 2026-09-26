@@ -261,6 +261,7 @@ def run_item_ai_enrichment(
                 payload={"item_id": str(item_id)},
             )
     input_text_chars = len(article.text or "")
+    extraction_article_text = article.text or ""
     messages = _build_item_enrichment_messages(
         active,
         item=item,
@@ -316,22 +317,26 @@ def run_item_ai_enrichment(
     db.commit()
 
     try:
-        completion = _request_json_with_usage(
-            db,
-            active,
-            feature_type=FEATURE_ITEM_ENRICHMENT,
-            item_id=item_id,
-            task_run_id=task_run_id,
-            provider_operation_scope="item_enrichment",
-            messages=messages,
-        )
-        structured_extraction = (
-            build_verified_extraction(
-                completion.payload.get("structured_extraction"), messages=messages, **extraction_snapshot,
+        if extraction_snapshot is not None and extraction_snapshot["article_text_length"] > MAX_ITEM_ARTICLE_PROMPT_CHARS:
+            from app.services.ai_extraction_sections import run_section_extraction, section_execution_checkpoint
+            completion, structured_extraction = run_section_extraction(
+                db, active, item_id=item_id, task_run_id=task_run_id, claim_updated_at=claim_updated_at,
+                messages=messages, article_text=extraction_article_text, snapshot=extraction_snapshot,
+                request=_request_json_with_usage, checkpoint=section_execution_checkpoint(
+                    db, item_id=item_id, task_run_id=task_run_id, claim_updated_at=claim_updated_at,
+                    snapshot=extraction_snapshot, observe_stop=_record_task_run_stop_observed,
+                ),
             )
-            if extraction_snapshot is not None
-            else None
-        )
+        else:
+            completion = _request_json_with_usage(
+                db, active, feature_type=FEATURE_ITEM_ENRICHMENT, item_id=item_id,
+                task_run_id=task_run_id, provider_operation_scope="item_enrichment", messages=messages,
+            )
+            structured_extraction = (
+                build_verified_extraction(
+                    completion.payload.get("structured_extraction"), messages=messages, **extraction_snapshot,
+                ) if extraction_snapshot is not None else None
+            )
     except AITaskRunStoppedError as exc:
         return AIItemEnrichmentResult(
             enrichment=_load_item_enrichment(db, item_id=item_id),

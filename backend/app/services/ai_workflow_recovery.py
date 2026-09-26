@@ -84,11 +84,18 @@ def recover_stale_workflow(db, run: AITaskRun) -> str | None:
     receipts = list(db.scalars(select(AIProviderAttemptReceipt).where(
         AIProviderAttemptReceipt.task_run_id_snapshot == run.id
     ).order_by(AIProviderAttemptReceipt.attempt_number)))
-    if not receipts and (run.metadata_json or {}).get("provider_claim"):
+    from app.services.ai_extraction_sections import checkpointed_receipt_fingerprints
+    checkpointed = (checkpointed_receipt_fingerprints(resource, run_id=run.id)
+                    if run.task_type == "item_enrichment" else None)
+    if not receipts and (run.metadata_json or {}).get("provider_claim") and checkpointed is None:
         return None  # Legacy provider work without a receipt has no safe replay proof.
-    if any(receipt.state in {"reserved", "ambiguous", "succeeded"} for receipt in receipts):
+    unresolved = [receipt for receipt in receipts if not (
+        receipt.state == "succeeded" and checkpointed is not None
+        and receipt.request_fingerprint in checkpointed
+    )]
+    if any(receipt.state in {"reserved", "ambiguous", "succeeded"} for receipt in unresolved):
         return None  # Existing settlement reports interruption; never replay paid I/O.
-    if receipts and receipts[-1].state == "failed" and not receipts[-1].retryable:
+    if any(receipt.state == "failed" and not receipt.retryable for receipt in unresolved):
         return None
     # A new delivery fences delayed messages from a worker judged lost. The
     # logical run and all its provider-operation identities remain unchanged.

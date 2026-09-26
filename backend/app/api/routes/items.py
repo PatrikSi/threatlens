@@ -41,6 +41,7 @@ from app.schemas.item import (
 )
 from app.services.audit import record_audit
 from app.services.ai_extraction import item_extraction_response
+from app.services.ai_extraction_sections import extraction_progress_response
 from app.services.article_preview import (
     article_preview_response_headers,
     ArticlePreviewFetchError,
@@ -429,6 +430,7 @@ def get_item(
             error=enrichment.error,
             structured_extraction=structured_extraction,
             structured_extraction_stale=structured_extraction_stale,
+            extraction_progress=extraction_progress_response(enrichment.extraction_progress_json),
         )
         if enrichment
         else None,

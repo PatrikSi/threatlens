@@ -142,7 +142,7 @@ def compute_item_source_hash(
                 "relevance_high_threshold": active.relevance_high_threshold,
                 "summary_enabled": active.summary_enabled,
                 "relevance_enabled": active.relevance_enabled,
-                **({"structured_extraction_schema_version": 1}
+                **({"structured_extraction_schema_version": 1, "extraction_planner_version": 1}
                    if getattr(active, "structured_extraction_enabled", False) else {}),
                 "company_name": active.company_name,
                 "company_industry": active.company_industry,

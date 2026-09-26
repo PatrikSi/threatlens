@@ -19,6 +19,7 @@ class ItemAIEnrichment(Base):
     source_hash: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     result_provenance_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     structured_extraction_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    extraction_progress_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     summary_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     relevance_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     relevance_label: Mapped[str | None] = mapped_column(String(16), nullable=True)

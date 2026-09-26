@@ -22,6 +22,18 @@ export interface ExtractedRelationship {
   assertion: 'reported' | 'inferred'
   evidence: ArticleEvidence[]
 }
+export interface ExtractionCoverage {
+  planner_version: number
+  source_hash: string
+  normalized_text_chars: number
+  processed_chars: number
+  uncovered_chars: number
+  reserved_tokens: number
+  token_budget: number
+  call_limit: number
+  output_limited: boolean
+  sections: { index: number; start: number; end: number; status: 'pending' | 'started' | 'completed' }[]
+}
 export interface StructuredExtraction {
   schema_version: number
   article_id: string
@@ -30,6 +42,7 @@ export interface StructuredExtraction {
   source_hash: string
   input_sha256: string
   truncated: boolean
+  coverage?: ExtractionCoverage | null
   entities: ExtractedEntity[]
   relationships: ExtractedRelationship[]
   information_gaps: string[]
