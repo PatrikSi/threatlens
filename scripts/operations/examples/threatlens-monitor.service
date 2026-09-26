@@ -1,0 +1,19 @@
+[Unit]
+Description=Independent ThreatLens host and recovery monitor
+After=docker.service
+
+[Service]
+Type=oneshot
+User=threatlens-monitor
+Group=threatlens-monitor
+SupplementaryGroups=docker
+ExecStart=/usr/bin/python3 /opt/threatlens/scripts/operations/monitor.py --config /etc/threatlens-monitor/monitor.json --state /var/lib/threatlens-monitor/state.json --prometheus /var/lib/node_exporter/textfile_collector/threatlens.prom
+# 1 means observed incidents; the timer keeps sampling while external monitoring alerts.
+SuccessExitStatus=1
+TimeoutStartSec=75
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/threatlens-monitor /var/lib/node_exporter/textfile_collector

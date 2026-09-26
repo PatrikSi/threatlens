@@ -366,6 +366,20 @@ jobs:
           --pattern 'test_*.py'
           --verbose
 
+      - name: Install pinned key-recovery test dependency
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import subprocess
+          import sys
+          dependency = next(line for line in Path("backend/requirements-lock.txt").read_text().splitlines()
+                            if line.startswith("cryptography=="))
+          subprocess.run([sys.executable, "-m", "pip", "install", "--only-binary=:all:", dependency], check=True)
+          PY
+
+      - name: Test independent fleet monitoring and recovery evidence
+        run: timeout 2m python -m unittest discover --start-directory tests/operations --pattern 'test_*.py' --verbose
+
   recovery_docker:
     name: Disposable PostgreSQL recovery drill
     needs:
@@ -397,6 +411,34 @@ jobs:
           timeout 20m python -m unittest
           tests.recovery.test_recovery_docker_e2e
           --verbose
+
+      - name: Install pinned independent key verification dependency
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import subprocess
+          import sys
+          dependency = next(line for line in Path("backend/requirements-lock.txt").read_text().splitlines()
+                            if line.startswith("cryptography=="))
+          subprocess.run([sys.executable, "-m", "pip", "install", "--only-binary=:all:", dependency], check=True)
+          PY
+
+      - name: Reconstruct after losing disposable source storage
+        env:
+          THREATLENS_RUN_HOST_LOSS_QUALIFICATION: "1"
+          THREATLENS_HOST_LOSS_OUTPUT: host-loss-qualification.json
+        run: >-
+          timeout 10m python -m unittest discover
+          --start-directory tests/operations --pattern test_host_loss_drill.py --verbose
+
+      - name: Upload source-loss reconstruction evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: host-loss-qualification
+          path: host-loss-qualification.json
+          if-no-files-found: warn
+          retention-days: 14
 
   codeql:
     name: CodeQL (${{ matrix.language }})
