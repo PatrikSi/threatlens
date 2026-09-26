@@ -1,6 +1,6 @@
 """Fence personal webhook administration and evidence reads through their credential."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import uuid
 
 from fastapi import HTTPException, Request
@@ -16,7 +16,9 @@ from app.services.export_job_access import (
     ExportJobAccessDenied,
     capture_export_authorization,
     fence_export_authorization,
+    authorize_export_job,
 )
+from app.services.export_job_contracts import ExportAuthorizationSnapshot
 
 
 @dataclass
@@ -25,6 +27,32 @@ class _RequestPrincipal:
     principal_type: str = "user"
     authorization_encrypted: dict = field(default_factory=dict)
     source_encrypted: dict | None = None
+
+
+def reauthorize_webhook_test_credential(
+    db: Session,
+    *,
+    authorization: AuthorizationContext,
+    data_access: DataAccessContext,
+    snapshot: ExportAuthorizationSnapshot,
+) -> tuple[AuthorizationContext, DataAccessContext]:
+    """Recheck the accepting credential after policy fences and before source locks."""
+    current_authorization, current_access = authorize_export_job(
+        db,
+        _RequestPrincipal(authorization.principal_id, authorization.principal_type),
+        lock=True,
+        snapshot=snapshot,
+        required_permissions=("write:notifications",),
+    )
+    if current_authorization.policy_revision != authorization.policy_revision:
+        raise ExportJobAccessDenied("Webhook test authorization changed")
+    return current_authorization, replace(
+        data_access,
+        principal_eligible=data_access.principal_eligible
+        and current_access.principal_eligible,
+        allowed_label_ids=data_access.allowed_label_ids
+        & current_access.allowed_label_ids,
+    )
 
 
 def fence_webhook_request(

@@ -10,7 +10,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.core.outbound_headers import BLOCKED_REQUEST_HEADERS
-from app.schemas.storage_text import StorageTextInput
+from app.schemas.storage_text import StorageTextInput, validate_storage_text
 
 ConditionField = Literal[
     "feed_id",
@@ -53,6 +53,9 @@ class WebhookCondition(BaseModel):
             raise ValueError(
                 "Conditions require 1–50 nonempty values of at most 200 characters"
             )
+        if isinstance(self.value, list):
+            for value in self.value:
+                validate_storage_text(value)
         return self
 
 

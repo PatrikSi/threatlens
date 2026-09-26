@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import math
 
 from app.schemas.webhook_automation import (
     WebhookCondition,
@@ -28,9 +29,12 @@ def event_condition_values(
         if isinstance(indicators, list)
         else []
     )
-    metadata = payload.get("filter_metadata") or {}
-    tags = payload.get("tags") or []
-    hunt = payload.get("hunt") or {}
+    metadata = payload.get("filter_metadata")
+    metadata = metadata if isinstance(metadata, dict) else {}
+    tags = payload.get("tags")
+    tags = tags if isinstance(tags, list) else []
+    hunt = payload.get("hunt")
+    hunt = hunt if isinstance(hunt, dict) else {}
     current = now or datetime.now(timezone.utc)
     created = (
         created_at.replace(tzinfo=timezone.utc)
@@ -112,7 +116,7 @@ def evaluate_conditions(
                 )
             return True if True in outcomes else (None if None in outcomes else False)
         actual = values.get(node.field)
-        if actual is None or actual == [] or actual == "":
+        if not _condition_value_available(node.field, actual):
             missing.add(node.field)
             checks.append(
                 WebhookConditionCheck(
@@ -148,3 +152,23 @@ def evaluate_conditions(
 
     matched = True if condition is None else evaluate(condition) is True
     return matched, checks, sorted(missing)
+
+
+def _condition_value_available(field: str, value: object) -> bool:
+    """Malformed or incomplete values remain unknown, including under NOT."""
+    if field in {
+        "extraction_confidence",
+        "maliciousness_confidence",
+        "freshness_seconds",
+    }:
+        return (
+            isinstance(value, (float, int))
+            and not isinstance(value, bool)
+            and (isinstance(value, int) or math.isfinite(value))
+            and value >= 0
+            and (field == "freshness_seconds" or value <= 1)
+        )
+    values = value if isinstance(value, list) else [value]
+    return bool(values) and all(
+        isinstance(entry, str) and bool(entry) for entry in values
+    )
