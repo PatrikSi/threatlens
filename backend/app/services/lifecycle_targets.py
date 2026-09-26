@@ -21,6 +21,7 @@ from app.models.alert_occurrence import (
 from app.models.article import Article
 from app.models.audit_log import AuditLog
 from app.models.auth_session import AuthSession
+from app.models.automation_execution import AutomationExecution
 from app.models.integration import (
     IntegrationDelivery,
     IntegrationDeliveryMetric,
@@ -374,6 +375,7 @@ def _candidate_query(
             and_(
                 IntegrationEvent.routing_state.in_(("routed", "dead_letter")),
                 IntegrationEvent.created_at < cutoff,
+                ~exists(select(AutomationExecution.id).where(AutomationExecution.event_id == IntegrationEvent.id)),
                 ~exists(
                     select(IntegrationDelivery.id).where(
                         IntegrationDelivery.event_id == IntegrationEvent.id

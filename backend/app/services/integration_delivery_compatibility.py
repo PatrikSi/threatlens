@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.services.automation_executions import tracked_action_delivery
+
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -97,12 +99,12 @@ def defer_integration_delivery_for_compatibility(
             compatibility_error_code=error_code,
             compatibility_error_message=safe_error_message(error_message),
         )
-        if delivery.connector_type == "smtp" and side_effect_possible is not False:
+        if (delivery.connector_type == "smtp" or tracked_action_delivery(delivery)) and side_effect_possible is not False:
             dead_letter_without_attempt(
                 delivery,
                 code="unknown_delivery_outcome",
                 message=(
-                    "The SMTP worker stopped after delivery began, so message acceptance "
+                    "The delivery worker stopped after delivery began, so receiver acceptance "
                     "is unknown. Replay the delivery explicitly to avoid an automatic duplicate."
                 ),
                 now=current_time,
