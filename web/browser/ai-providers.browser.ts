@@ -29,6 +29,7 @@ async function providerRoutes(page: Page) {
     item_enrichment_provider_id: null,
     daily_brief_provider_id: null,
     report_provider_id: null,
+    team_assessment_provider_id: null,
   }
   const writes: string[] = []
   await page.route('**/api/v1/ai/**', async (route) => {
@@ -37,6 +38,7 @@ async function providerRoutes(page: Page) {
     const method = route.request().method()
     if (method !== 'GET') writes.push(path)
     if (path === '/ai/settings') return route.fulfill({ json: savedSettings })
+    if (path === '/ai/quota-groups') return route.fulfill({ json: { items: [], total: 0, limit: 100, offset: 0 } })
     if (path === '/ai/ops/overview')
       return route.fulfill({ status: 503, json: { detail: 'Overview unavailable in this fixture' } })
     if (path === '/ai/ops/live')
