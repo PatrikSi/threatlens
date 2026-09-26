@@ -803,9 +803,11 @@ def test_workspace_resets_are_revisioned_atomic_and_audited(
         json={"expected_revision": preferences["revision"]},
     )
     assert reset_preferences.status_code == 200
-    assert reset_preferences.headers["X-Current-Revision"] == "0"
-    assert reset_preferences.json()["revision"] == 0
-    assert db_session.get(WorkspaceUserPreference, seed_users["admin"].id) is None
+    assert reset_preferences.headers["X-Current-Revision"] == "2"
+    assert reset_preferences.json()["revision"] == 2
+    stored = db_session.get(WorkspaceUserPreference, seed_users["admin"].id)
+    assert stored is not None and stored.modules_json == {}
+    assert stored.landing_module_id is None and stored.dashboard_panel_ids_json is None
 
     db_session.expire_all()
     audits = db_session.scalars(
@@ -990,7 +992,10 @@ def test_workspace_future_preferences_survive_cycles_then_reset(
     )
     assert reset.status_code == 200
     db_session.expire_all()
-    assert db_session.get(WorkspaceUserPreference, user.id) is None
+    stored = db_session.get(WorkspaceUserPreference, user.id)
+    assert stored is not None and stored.revision == 4
+    assert stored.modules_json == {}
+    assert stored.landing_module_id is None and stored.dashboard_panel_ids_json is None
 
 
 def test_workspace_audit_failure_rolls_back_successful_mutation(
