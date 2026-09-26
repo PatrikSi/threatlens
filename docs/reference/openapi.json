@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "2.0.1",
-    "x-threatlens-contract-sha256": "769a529ef509225b062e2fc8a3227903ba7df4189330d7ddd41a0f288ac17c46"
+    "x-threatlens-contract-sha256": "64116830f1dedc7b6b729ffdac734b21f2fc5b608014696141fe70982ffb3447"
   },
   "servers": [
     {
@@ -63169,6 +63169,11 @@
             ],
             "title": "Dashboard Panel Ids"
           },
+          "article_preview_external_resources": {
+            "type": "boolean",
+            "title": "Article Preview External Resources",
+            "default": false
+          },
           "revision": {
             "type": "integer",
             "minimum": 0.0,
@@ -63250,6 +63255,11 @@
             "type": "integer",
             "minimum": 0.0,
             "title": "Expected Revision"
+          },
+          "article_preview_external_resources": {
+            "type": "boolean",
+            "title": "Article Preview External Resources",
+            "default": false
           },
           "landing_module_id": {
             "anyOf": [

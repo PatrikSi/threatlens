@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -105,6 +106,9 @@ class WorkspaceUserPreference(Base):
     landing_module_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     dashboard_panel_ids_json: Mapped[list[str] | None] = mapped_column(
         _JSON, nullable=True
+    )
+    article_preview_external_resources: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
     )
     revision: Mapped[int] = mapped_column(
         Integer, nullable=False, default=1, server_default="1"

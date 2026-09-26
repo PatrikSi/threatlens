@@ -153,6 +153,7 @@ class WorkspaceModulePreference(StrictWorkspaceModel):
 
 class WorkspaceUserPreferenceWriteRequest(StrictWorkspaceModel):
     expected_revision: int = Field(ge=0)
+    article_preview_external_resources: bool = False
     landing_module_id: str | None = Field(
         default=None,
         min_length=2,
@@ -198,6 +199,7 @@ class WorkspaceUserPreferenceResponse(StrictWorkspaceModel):
     landing_module_id: str | None
     modules: list[WorkspaceModulePreference]
     dashboard_panel_ids: list[str] | None
+    article_preview_external_resources: bool = False
     revision: int = Field(ge=0)
     updated_by_user_id: uuid.UUID | None = None
     created_at: datetime | None = None
