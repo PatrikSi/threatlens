@@ -68,7 +68,10 @@ class DisposableTopology:
         try:
             process.wait(timeout=8)
         except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGKILL)
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
             process.wait(timeout=5)
 
     def memory(self) -> dict[str, int]:
@@ -93,13 +96,22 @@ class DisposableTopology:
         return totals
 
     def close(self) -> None:
+        failures = []
         for role in list(self.processes):
-            self.stop(role)
+            try:
+                self.stop(role)
+            except (OSError, subprocess.SubprocessError):
+                failures.append(f"process:{role}")
         for name in reversed(self.containers):
-            subprocess.run(["docker", "rm", "--force", name], stdout=subprocess.DEVNULL,
-                           stderr=subprocess.DEVNULL, timeout=30, check=False, env=clean_environment())
+            try:
+                subprocess.run(["docker", "rm", "--force", name], stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL, timeout=30, check=False, env=clean_environment())
+            except (OSError, subprocess.SubprocessError):
+                failures.append("container")
         for log in self.logs:
             log.close()
+        if failures:
+            raise RuntimeError(f"Disposable cleanup could not complete {len(failures)} owned resource operations")
 
 
 def wait_http(client, path: str, *, timeout: float = 90) -> None:
