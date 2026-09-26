@@ -373,14 +373,21 @@ def send_request_with_redirects(
                 allow_private_network=settings.allow_private_network_webhooks,
             )
             request_url = _merge_request_url(current_url, current_params)
+            request_headers = httpx.Headers(headers)
+            request_content = current_raw_body
+            if current_form_body is not None:
+                # HTTPX treats a sequence passed as data= as a byte stream;
+                # encode explicitly to retain duplicate fields and empty values.
+                request_content = urlencode(current_form_body).encode("utf-8")
+                request_headers.setdefault(
+                    "Content-Type", "application/x-www-form-urlencoded"
+                )
             request = client.build_request(
                 current_method,
                 request_url,
-                headers=headers,
+                headers=request_headers,
                 json=current_json_body,
-                data=current_form_body
-                if current_form_body is not None
-                else current_raw_body,
+                content=request_content,
             )
             prepare_credentials = _request_credentials.get()
             if prepare_credentials is not None:
