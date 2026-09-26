@@ -37,61 +37,61 @@ def provider_budget_key(active: ActiveAISettings) -> str:
 
 def reserve_provider_budget(
     db: Session, active: ActiveAISettings, *, messages: list[dict[str, str]], requested_tokens: int,
+    team_key: str = "shared",
 ) -> AIProviderBudgetLease | None:
     from app.services.ai_workflow_dispatch import AIWorkflowDeferred
+    from app.services.ai_quota_groups import lock_quota_configuration
+    from app.services.ai_quota_admission import BudgetScope, check_scope, fair_team_turn, group_scope
 
     concurrent_limit = getattr(active, "max_concurrent_requests", 0)
     token_limit = getattr(active, "hourly_token_budget", 0)
-    if not concurrent_limit and not token_limit:
-        return None
     estimated = estimate_message_tokens(messages) + requested_tokens
-    if token_limit and estimated > token_limit:
-        raise AIIntegrationError(
-            "This request exceeds the provider's entire hourly token budget. Reduce its input/output allowance or increase the budget.",
-            retryable=False, provider_io_outcome="not_sent", failure_category="budget_request_too_large",
-        )
     key = provider_budget_key(active)
-    # Independent short transactions release admission locks before external I/O.
-    # The dedicated pool cannot starve behind requests holding authorization
-    # connections. It uses the caller's database, including isolated fixtures.
     try:
         with Session(bind=provider_admission_engine(db)) as budget_db, database_operation(
             budget_db, operation="interactive", timeout_seconds=3,
         ):
-            budget_db.execute(insert(AIProviderBudgetState).values(provider_key=key).on_conflict_do_nothing())
-            budget_db.scalar(select(AIProviderBudgetState).where(
-                AIProviderBudgetState.provider_key == key
-            ).with_for_update())
+            # Configuration cannot move memberships until admission commits.
+            # This shared lock never spans provider I/O or enters IAM/profile locks.
+            lock_quota_configuration(budget_db)
+            group, account_scope = group_scope(budget_db, key)
+            if not concurrent_limit and not token_limit and group is None:
+                return None
+            row = AIProviderBudgetReservation
+            profile_scope = BudgetScope(key, row.provider_key == key, concurrent_limit, token_limit)
+            scopes = [profile_scope, *([account_scope] if account_scope else [])]
+            for scope in sorted(scopes, key=lambda entry: entry.key):
+                budget_db.execute(insert(AIProviderBudgetState).values(provider_key=scope.key).on_conflict_do_nothing())
+                budget_db.scalar(select(AIProviderBudgetState).where(
+                    AIProviderBudgetState.provider_key == scope.key,
+                ).with_for_update())
             lease_started = time.monotonic()
             now = budget_db.scalar(select(func.clock_timestamp()))
             assert isinstance(now, datetime)
-            row = AIProviderBudgetReservation
-            live = (row.completed_at.is_(None)) & (row.expires_at > now)
-            active_count, first_expiry = budget_db.execute(select(func.count(), func.min(row.expires_at)).where(
-                row.provider_key == key, live,
-            )).one()
-            if concurrent_limit and active_count >= concurrent_limit:
-                raise AIWorkflowDeferred("provider_concurrency_budget", min(60.0, max(1.0, (first_expiry - now).total_seconds())))
-            # Unknown outcomes retain the reserved estimate; known usage charges
-            # actual total tokens. Provider profile edits do not reset history.
-            charge = func.coalesce(row.charged_tokens, row.reserved_tokens)
-            spent, first_created = budget_db.execute(select(func.coalesce(func.sum(charge), 0), func.min(row.created_at)).where(
-                row.provider_key == key, row.created_at > now - timedelta(hours=1), charge > 0,
-            )).one()
-            if token_limit and spent + estimated > token_limit:
-                retry_after = (first_created + timedelta(hours=1) - now).total_seconds() if first_created else 60.0
-                raise AIWorkflowDeferred("provider_hourly_token_budget", max(1.0, retry_after))
+            profile_denial = check_scope(budget_db, profile_scope, now=now, estimated=estimated)
+            denial = profile_denial or (check_scope(budget_db, account_scope, now=now, estimated=estimated) if account_scope else None)
+            if group is not None and account_scope is not None and profile_denial is None:
+                denial = fair_team_turn(budget_db, group=group, scope=account_scope,
+                    team_key=team_key, now=now, capacity_available=denial is None) or denial
+            elif group is not None:
+                # A team blocked by its own profile policy cannot reserve the
+                # account's next turn against otherwise eligible profiles.
+                from app.models.ai_quota_group import AIQuotaTeamTurn
+                budget_db.execute(delete(AIQuotaTeamTurn).where(
+                    AIQuotaTeamTurn.group_id == group.id, AIQuotaTeamTurn.team_key == team_key,
+                ))
+            if denial is not None:
+                budget_db.commit()
+                raise denial
             reservation = AIProviderBudgetReservation(
-                provider_key=key, reserved_tokens=estimated,
+                provider_key=key, quota_group_key=account_scope.key if account_scope else None,
+                team_key=team_key, reserved_tokens=estimated,
                 expires_at=now + timedelta(seconds=getattr(active, "request_timeout_seconds", 300) + 60),
                 created_at=now,
             )
             budget_db.add(reservation)
             budget_db.flush()
             reservation_id = reservation.id
-            # Globally prune at most 100 expired reservations per admission,
-            # including retired/inactive profiles. Active leases and this hour's
-            # accounting are never removed; the creation index bounds the scan.
             expired_ids = select(row.id).where(
                 row.created_at < now - timedelta(hours=2), row.expires_at < now,
             ).order_by(row.created_at).limit(100)
@@ -136,8 +136,12 @@ def settle_provider_budget(
 def call_with_provider_budget(
     db: Session, active: ActiveAISettings, *, call: Callable[..., AICompletionResult],
     messages: list[dict[str, str]], requested_tokens: int, call_kwargs: dict,
+    task_run_id: uuid.UUID | None = None,
 ) -> AICompletionResult:
-    lease = reserve_provider_budget(db, active, messages=messages, requested_tokens=requested_tokens)
+    from app.services.ai_quota_admission import task_team_key
+
+    lease = reserve_provider_budget(db, active, messages=messages, requested_tokens=requested_tokens,
+        team_key=task_team_key(db, task_run_id))
     if lease is None:
         return call(active, **call_kwargs)
     call_started = False

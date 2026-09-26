@@ -1,3 +1,4 @@
+import { useAiQuotaGroups } from './useAiQuotaGroups'
 import { useDeferredValue, useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
@@ -63,6 +64,7 @@ async function performAction(action: Action) {
 
 export function useAiProviderConnections(enabled: boolean) {
   const queryClient = useQueryClient()
+  const quotas = useAiQuotaGroups(enabled)
   const [search, setSearch] = useState('')
   const deferredSearch = useDeferredValue(search.trim())
   const [page, setPage] = useState(0)
@@ -108,7 +110,7 @@ export function useAiProviderConnections(enabled: boolean) {
     editor && JSON.stringify(editor.draft) !== JSON.stringify(createProviderDraft(editor.baseline ?? undefined)),
   )
   const validation = editor ? validateProviderDraft(editor.draft) : {}
-  const dirty = editorDirty || routingDraft !== null
+  const dirty = editorDirty || routingDraft !== null || quotas.dirty
 
   useEffect(() => {
     if (providers.data && providers.data.total > 0 && page * PAGE_SIZE >= providers.data.total) {
@@ -231,12 +233,13 @@ export function useAiProviderConnections(enabled: boolean) {
     ...(assignedProviders.data ?? []),
     ...(editor?.baseline ? [editor.baseline] : []),
   ]
-  function providerName(id: string | null) {
+  function providerName(id: string | null | undefined) {
     if (!id) return 'Legacy provider settings'
     return knownProviders.find((provider) => provider.id === id)?.name ?? `Provider ${id}`
   }
 
   return {
+    quotas,
     providers,
     routing,
     assignedProviders,
@@ -252,7 +255,7 @@ export function useAiProviderConnections(enabled: boolean) {
     deleteTarget,
     visibleRouting,
     routingDirty: routingDraft !== null,
-    busy: mutation.isPending,
+    busy: mutation.isPending || quotas.busy,
     search,
     page,
     providerName,

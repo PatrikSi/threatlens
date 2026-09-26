@@ -70,6 +70,7 @@ function body(init?: RequestInit) {
   return JSON.parse(String(init?.body))
 }
 function respondToRead(path: string) {
+  if (path === '/ai/quota-groups?limit=100') return { items: [], total: 0, limit: 100, offset: 0 }
   if (path === '/ai/provider-routing') return savedRouting
   if (path.startsWith('/ai/providers?')) return { items: [savedProvider], total: 1, limit: 25, offset: 0 }
   if (path === `/ai/providers/${provider.id}`) return savedProvider
@@ -89,6 +90,37 @@ afterEach(() => {
 })
 
 describe('AI provider lifecycle with a real query cache', () => {
+  it('preserves quota draft version across refreshes and rejects duplicate pending saves', async () => {
+    const baseline = { id: provider.id, version: 4, name: 'Shared upstream account', provider_keys: ['legacy'],
+      max_concurrent_requests: 2, hourly_token_budget: 10000, max_concurrent_per_team: 1 }
+    let complete!: (error: Error) => void
+    vi.mocked(apiFetch).mockImplementation((path, init) => init?.method === 'PUT'
+      ? new Promise((_resolve, reject) => { complete = reject })
+      : Promise.resolve(respondToRead(path)))
+    mount(true)
+    await settle()
+    act(() => current.quotas.select(baseline))
+    act(() => current.quotas.update('name', 'Edited account quota'))
+    act(() => client.setQueryData(['ai', 'quota-groups'], { items: [{ ...baseline, version: 5 }], total: 1, limit: 100, offset: 0 }))
+    expect(current.dirty).toBe(true)
+    act(() => {
+      current.quotas.save()
+      current.quotas.save()
+      current.quotas.update('name', 'Late edit')
+    })
+    await settle()
+    expect(current.quotas.editor?.draft.name).toBe('Edited account quota')
+    const writes = vi.mocked(apiFetch).mock.calls.filter(([, init]) => init?.method === 'PUT')
+    expect(writes).toHaveLength(1)
+    expect(body(writes[0][1])).toMatchObject({ version: 4, name: 'Edited account quota' })
+    expect(host.querySelector('input[value="Edited account quota"]')?.matches(':disabled')).toBe(true)
+    await act(async () => complete(new ApiError('Quota changed. Reload saved configuration.', 409, '/ai/quota-groups')))
+    await settle()
+    expect(current.quotas.editor?.baseline?.version).toBe(4)
+    expect(current.quotas.dirty).toBe(true)
+    expect(host.textContent).toContain('Quota changed')
+  })
+
   it('keeps the current provider when a new provider cannot obtain a secure request ID', async () => {
     mount(true)
     await settle()

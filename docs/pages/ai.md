@@ -635,3 +635,39 @@ section. Hidden organization navigation policy still takes precedence.
 ## Extraction coverage and quality evaluation
 
 See [AI extraction coverage and quality evaluation](ai-quality-and-coverage.md) for bounded long-article processing, durable section recovery, coverage disclosures and the versioned evaluation workflow. The initial adversarial corpus is explicitly pending analyst review.
+
+## Independent team routing and shared account quotas
+
+**Settings → AI → Provider connections** includes a separate **Team assessments
+and hunt suggestions** assignment. When it is unset, team work inherits the
+article-enrichment provider, then the default provider, then legacy settings.
+Older clients omitting the new field preserve a saved override. Existing queued
+work retains its captured provider selection and version; changing routing only
+changes new work. Public feature readiness evaluates the team assignment
+independently from shared article extraction.
+
+**Shared provider account quotas** groups named connections and, optionally,
+the legacy provider when they use the same upstream account. Membership is an
+explicit administrator choice; ThreatLens never guesses accounts by comparing
+credentials. A profile belongs to one group. Select a saved provider above the
+quota editor to add it. Remove every member to leave a quota inactive. There
+are at most 100 groups, each with at most 100 members.
+
+Account concurrent-request and rolling-hour token budgets apply in addition to
+existing per-profile limits. Zero means unlimited. A separate per-team concurrent
+limit defaults to one; requests without a team share a background allocation.
+Under contention, durable waiting teams take turns based on their last admitted
+request. Inactive wait entries expire after three minutes, and each account
+retains at most 1,000 waiting/recent team entries. A request blocked by its own
+profile does not reserve the account's next turn. These are fair admission turns,
+not guaranteed per-team throughput or equal token consumption.
+
+Admission commits before any provider call and releases database locks before
+external I/O. Account and profile slots are reserved atomically. Deferral is
+explicitly `not_sent` and resumes through the existing durable AI dispatch path.
+Unknown outcomes keep the estimated token charge; optional settlement failure
+cannot trigger another paid call. Moving a connection into an account includes
+its recent historical charges, and its old account retains already attributed
+reservations until they age out. Account edits do not alter credentials or
+invalidate queued provider selections. Account budgets measure this ThreatLens
+installation only, not other clients' upstream usage or monetary billing.

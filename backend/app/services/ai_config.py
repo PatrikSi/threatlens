@@ -218,7 +218,7 @@ def ai_settings_response_from_model(settings: AISettings, *, db: Session | None 
     if db is not None:
         effective_features = {
             feature: load_active_ai_settings(db, feature_type=feature).ai_configured
-            for feature in ("item_enrichment", "daily_brief", "report")
+            for feature in ("item_enrichment", "team_assessment", "daily_brief", "report")
         }
         ai_configured = any(effective_features.values())
     active = ActiveAISettings(
@@ -340,11 +340,12 @@ def load_public_ai_feature_flags(db: Session) -> PublicAIFeatureFlags:
     item = load_active_ai_settings(db, feature_type="item_enrichment")
     brief = load_active_ai_settings(db, feature_type="daily_brief")
     report = load_active_ai_settings(db, feature_type="report")
+    team = load_active_ai_settings(db, feature_type="team_assessment")
     return PublicAIFeatureFlags(
         ai_enabled=True,
-        ai_configured=item.ai_configured or brief.ai_configured or report.ai_configured,
+        ai_configured=item.ai_configured or brief.ai_configured or report.ai_configured or team.ai_configured,
         ai_structured_extraction_enabled=item.ai_configured and item.structured_extraction_enabled,
-        ai_hunt_suggestions_enabled=item.ai_configured and item.hunt_suggestions_enabled,
+        ai_hunt_suggestions_enabled=team.ai_configured and team.hunt_suggestions_enabled,
         ai_summary_enabled=item.ai_configured and item.summary_enabled,
         ai_relevance_enabled=item.ai_configured and item.relevance_enabled,
         ai_daily_brief_enabled=brief.ai_configured and brief.daily_brief_enabled,
