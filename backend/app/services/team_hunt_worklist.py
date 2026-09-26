@@ -199,6 +199,7 @@ def list_team_hunts(
             handling_label_access_predicate(Feed.handling_label_id, actor.access),
             func.jsonb_typeof(value.op("->")("id")) == "string",
             func.length(hunt_id).between(1, 80),
+            hunt_id.op("~")(r"^[a-zA-Z0-9_-]+$"),
             effective_status.in_(["pending", "stale", "accepted", "rejected"]),
         )
         .options(
