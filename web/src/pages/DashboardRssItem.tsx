@@ -1,5 +1,6 @@
 import { ArticleExtractionPanel } from './ArticleExtractionPanel'
 import { ArticleTeamAssessment } from './ArticleTeamAssessment'
+import { ArticleIndicatorsPanel } from './ArticleIndicatorsPanel'
 import { resolveApiErrorMessage } from '../api/errors'
 import { sanitizeHref } from './dashboardContent'
 import { RichContent } from './DashboardPageComponents'
@@ -216,6 +217,7 @@ function DashboardRssItemDetailContent({
       <DashboardRssItemSummary detail={detail} />
       <DashboardRssItemAiInsight controller={controller} detail={detail} />
       <ArticleExtractionPanel detail={detail} />
+      <ArticleIndicatorsPanel itemId={detail.id} />
       <ArticleTeamAssessment itemId={detail.id} />
       <DashboardRssItemArticle controller={controller} detail={detail} />
       <DashboardRssItemNotes controller={controller} detail={detail} />

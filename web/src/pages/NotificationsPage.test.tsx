@@ -193,6 +193,6 @@ describe('NotificationsPage rendered workflow', () => {
     expect(markup).toContain('Configured webhooks')
     expect(markup).toContain('Webhook URL')
     expect(markup).toContain('Test webhook')
-    expect(notificationsPageMocks.useUnsavedChangesWarning).toHaveBeenCalledWith(false, 'Discard unsaved webhook changes?')
+    expect(notificationsPageMocks.useUnsavedChangesWarning).toHaveBeenCalledWith(false, 'Discard unsaved webhook or credential changes?')
   })
 })

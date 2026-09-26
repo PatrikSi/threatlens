@@ -1,3 +1,4 @@
+import { normalizeConditions } from './webhookConditionModel'
 import {
   NotificationEventType,
   NotificationWebhook,
@@ -21,9 +22,15 @@ export const EVENT_OPTIONS: Array<{
   { value: 'webhook_failed', label: 'Webhook failed', description: 'Fire when one of your other webhook deliveries fails.' },
   { value: 'daily_digest', label: 'AI daily brief', description: 'Send the generated AI daily brief as soon as it is ready.' },
   { value: 'report_ready', label: 'Intelligence report', description: 'Send a completed intelligence report when delivery is requested.' },
+  { value: 'intel.extraction.ready', label: 'Indicator extraction ready', description: 'Fire after a current indicator extraction commits successfully.' },
+  { value: 'intel.indicators.changed', label: 'Indicators changed', description: 'Fire when the indicator set or its assessments change; unchanged sets do not repeat.' },
+  { value: 'hunt.approved', label: 'Hunt approved', description: 'Fire for the exact accepted hunt revision and its evidence. Delivery does not mean a hunt was executed.' },
 ]
 
 const EVENT_DEFAULT_JSON_FIELDS: Record<NotificationEventType, NotificationWebhookField[]> = {
+  'intel.extraction.ready': [{ key: 'event.type', value: '{{ event.type }}' }, { key: 'item.id', value: '{{ item.id }}' }],
+  'intel.indicators.changed': [{ key: 'event.type', value: '{{ event.type }}' }, { key: 'item.id', value: '{{ item.id }}' }],
+  'hunt.approved': [{ key: 'event.type', value: '{{ event.type }}' }, { key: 'item.id', value: '{{ item.id }}' }],
   rss_item_new: [
     { key: 'event.type', value: '{{ event.type }}' },
     { key: 'item.title', value: '{{ item.title }}' },
@@ -85,6 +92,9 @@ export function createDefaultDraft(): NotificationWebhookDraft {
     body_template: '',
     content_type: '',
     timeout_seconds: 10,
+    payload_mode: 'template',
+    conditions: null,
+    credential_profile_id: null,
   }
 }
 
@@ -105,6 +115,9 @@ export function createDraftFromWebhook(webhook: NotificationWebhook): Notificati
     body_template: webhook.body_template ?? '',
     content_type: contentType,
     timeout_seconds: webhook.timeout_seconds,
+    payload_mode: webhook.payload_mode ?? 'template',
+    conditions: webhook.conditions ? structuredClone(webhook.conditions) : null,
+    credential_profile_id: webhook.credential_profile_id ?? null,
   }
 }
 
@@ -127,6 +140,9 @@ export function createRequestFromDraft(draft: NotificationWebhookDraft): Notific
         : [],
     body_template: normalizedDraft.body_mode === 'raw' ? normalizedDraft.body_template : null,
     timeout_seconds: normalizedDraft.timeout_seconds,
+    payload_mode: normalizedDraft.payload_mode ?? 'template',
+    conditions: normalizeConditions(normalizedDraft.conditions ?? null),
+    credential_profile_id: normalizedDraft.credential_profile_id ?? null,
   }
 }
 

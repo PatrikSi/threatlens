@@ -6,6 +6,7 @@ import { apiFetch } from '../api/client'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { hasRequiredPermissions } from '../workspace/workspaceModel'
+import { validateConditions } from './webhookConditionModel'
 import {
   Feed,
   NotificationAnalyticsResponse,
@@ -26,7 +27,7 @@ import {
 
 const DELIVERY_HISTORY_REFRESH_MS = 30_000
 
-export function useNotificationWebhooksController() {
+export function useNotificationWebhooksController(extraDirty = false) {
   const queryClient = useQueryClient()
   const currentUserQuery = useCurrentUser()
   const [selectedWebhookId, setSelectedWebhookId] = useState<string | null>(null)
@@ -42,7 +43,7 @@ export function useNotificationWebhooksController() {
 
   const baseRoleCanManage = currentUserQuery.data?.role === 'admin' ||
     currentUserQuery.data?.role === 'analyst'
-  const canManageWebhooks = baseRoleCanManage && hasRequiredPermissions(
+  const canManageWebhooks = !currentUserQuery.isError && baseRoleCanManage && hasRequiredPermissions(
     currentUserQuery.data?.access?.permissions ?? [],
     ['write:notifications'],
   )
@@ -168,8 +169,8 @@ export function useNotificationWebhooksController() {
   const baselineDraft = selectedWebhook ? createDraftFromWebhook(selectedWebhook) : createDefaultDraft()
   const hasUnsavedWebhookDraftChanges = JSON.stringify(draft) !== JSON.stringify(baselineDraft)
   const confirmDiscardUnsavedWebhookChanges = useUnsavedChangesWarning(
-    hasUnsavedWebhookDraftChanges,
-    'Discard unsaved webhook changes?',
+    hasUnsavedWebhookDraftChanges || extraDirty,
+    'Discard unsaved webhook or credential changes?',
   )
   const showWebhookEditor = canManageWebhooks || Boolean(selectedWebhookId)
   const webhookEditorBlockedNotice = accessNotice ?? 'Changes require permission to manage notifications.'
@@ -225,6 +226,8 @@ export function useNotificationWebhooksController() {
 
   const onSave = () => {
     if (!canManageWebhooks) return
+    const validation = validateConditions(draft.conditions ?? null)
+    if (validation) { setFormNotice(validation); return }
     const normalizedDraft = normalizeDraftUrlQuery(draft)
     setDraft(normalizedDraft)
     setFormNotice(null)
@@ -233,6 +236,8 @@ export function useNotificationWebhooksController() {
 
   const onTest = () => {
     if (!canManageWebhooks) return
+    const validation = validateConditions(draft.conditions ?? null)
+    if (validation) { setFormNotice(validation); return }
     const normalizedDraft = normalizeDraftUrlQuery(draft)
     setDraft(normalizedDraft)
     setFormNotice(null)
