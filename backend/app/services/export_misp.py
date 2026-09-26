@@ -10,7 +10,10 @@ from app.services.export_models import ExportRecord
 
 MISP_IOC_TYPES = {
     "ipv4": "ip-dst",
+    "ipv6": "ip-dst",
     "domain": "domain",
+    "url": "url",
+    "email": "email",
     "hash_md5": "md5",
     "hash_sha1": "sha1",
     "hash_sha256": "sha256",
@@ -36,7 +39,8 @@ def build_misp_event(record: ExportRecord, *, options: ArticleExportOptions) -> 
     event = MISPEvent(strict_validation=True)
     event.info = record.title[:256] or "Untitled ThreatLens article"
     event.distribution = options.misp_distribution
-    event.threat_level_id = _misp_threat_level(record)
+    # Relevance to the configured organization does not establish threat severity.
+    event.threat_level_id = 4
     event.analysis = 0
     event.published = False
     event.date = _utc_date(record.published_at or record.first_seen_at)
@@ -56,8 +60,11 @@ def build_misp_event(record: ExportRecord, *, options: ArticleExportOptions) -> 
             event.add_attribute(
                 misp_type,
                 ioc.value,
-                comment=f"ThreatLens extraction: {ioc.source_section}"[:255],
-                to_ids=ioc.type not in {"vendor", "program"},
+                comment=(
+                    f"Unreviewed ThreatLens extraction from {ioc.source_section}; "
+                    f"match confidence {max(0, min(1, ioc.confidence)):.2f}, not maliciousness."
+                )[:255],
+                to_ids=False,
             )
 
     for tag in record.tags:
@@ -68,12 +75,6 @@ def build_misp_event(record: ExportRecord, *, options: ArticleExportOptions) -> 
     if report_content:
         event.add_event_report("ThreatLens article context", report_content)
     return event
-
-
-def _misp_threat_level(record: ExportRecord) -> int:
-    if record.ai is None:
-        return 4
-    return {"high": 1, "medium": 2, "low": 3}.get(record.ai.relevance_label or "", 4)
 
 
 def _build_event_report(record: ExportRecord, *, options: ArticleExportOptions) -> str:
