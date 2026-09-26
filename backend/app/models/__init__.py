@@ -1,3 +1,7 @@
+from app.models.ai_quota_group import AIQuotaGroup, AIQuotaGroupMember, AIQuotaTeamTurn
+from app.models.team_hunt_claim import TeamHuntClaim
+from app.models.indicator_publication import IndicatorPublication, IndicatorPublicationLabel, IndicatorPublicationSource
+from app.models.automation_execution import AutomationCallback, AutomationExecution, AutomationPolicyUpdate
 from app.models.ai_provider_budget import AIProviderBudgetState, AIProviderBudgetReservation
 from app.models.team import Team
 from app.models.team_ai_context import TeamAIContext
@@ -132,6 +136,10 @@ from app.models.user import User
 from app.models.workspace import WorkspaceRolePolicy, WorkspaceUserPreference
 
 __all__ = [
+    "AIQuotaGroup", "AIQuotaGroupMember", "AIQuotaTeamTurn",
+    "TeamHuntClaim",
+    "IndicatorPublication", "IndicatorPublicationLabel", "IndicatorPublicationSource",
+    "AutomationCallback", "AutomationExecution", "AutomationPolicyUpdate",
     "Team",
     "TeamAIContext",
     "TeamAssessmentRevision",
@@ -263,3 +271,4 @@ __all__ = [
     "WorkspaceRolePolicy",
     "WorkspaceUserPreference",
 ]
+
