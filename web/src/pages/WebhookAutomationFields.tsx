@@ -272,7 +272,7 @@ function WebhookEventPreview({
           <ul className="list-disc pl-5">
             {result.checks.map((check, index) => (
               <li key={index}>
-                {check.field}: {check.matched ? 'match' : 'no match'} —{' '}
+                {check.indicator_value ? `${check.indicator_type ?? 'Indicator'} ${check.indicator_value}` : check.field}: {check.matched ? 'match' : 'no match'} —{' '}
                 {check.reason}
               </li>
             ))}

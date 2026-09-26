@@ -9,6 +9,7 @@ from app.schemas.webhook_automation import (
     WebhookCondition,
     WebhookConditionGroup,
     WebhookConditionCheck,
+    INDICATOR_OPERATORS,
 )
 
 
@@ -64,6 +65,7 @@ def event_condition_values(
         "alert_rule_id": payload.get("alert_rule_ids"),
         "ioc_type": [entry.get("type") for entry in indicators],
         "ioc_role": [entry.get("role") for entry in indicators],
+        "analyst_verdict": [entry.get("analyst_verdict") for entry in indicators],
         "attack_technique": payload.get("attack_techniques"),
         "hunt_review_status": hunt.get("review_status"),
         "freshness_seconds": freshness,
@@ -96,6 +98,15 @@ def event_condition_values(
         values["tag"] = values["tag_id"] = None
     if metadata.get("alert_rules_complete") is False:
         values["alert_rule_id"] = None
+    # Internal evidence cannot be supplied through filter metadata. Keep excluded
+    # entries for preview, but never allow them to satisfy an indicator predicate.
+    snapshot = payload.get("indicators")
+    values["_indicators"] = (
+        snapshot if isinstance(snapshot, list) and len(snapshot) <= 250
+        and payload.get("indicators_complete") is not False
+        and all(isinstance(entry, dict) and type(entry.get("excluded")) is bool for entry in snapshot)
+        else None
+    )
     return values
 
 
@@ -105,35 +116,38 @@ def evaluate_conditions(
     checks: list[WebhookConditionCheck] = []
     missing: set[str] = set()
 
-    def evaluate(node: WebhookCondition | WebhookConditionGroup) -> bool | None:
+    def combine(op: str, outcomes: list[bool | None]) -> bool | None:
+        if op == "not":
+            return None if outcomes[0] is None else not outcomes[0]
+        if op == "all":
+            return False if False in outcomes else (None if None in outcomes else True)
+        return True if True in outcomes else (None if None in outcomes else False)
+
+    def evaluate(
+        node: WebhookCondition | WebhookConditionGroup,
+        scope: dict,
+        path: str,
+        *,
+        report: bool = True,
+    ) -> bool | None:
         if isinstance(node, WebhookConditionGroup):
-            outcomes = [evaluate(child) for child in node.conditions]
-            if node.op == "not":
-                return None if outcomes[0] is None else not outcomes[0]
-            if node.op == "all":
-                return (
-                    False if False in outcomes else (None if None in outcomes else True)
-                )
-            return True if True in outcomes else (None if None in outcomes else False)
-        actual = values.get(node.field)
+            if node.op in INDICATOR_OPERATORS:
+                return evaluate_indicators(node, path)
+            return combine(node.op, [
+                evaluate(child, scope, f"{path}.{index}", report=report)
+                for index, child in enumerate(node.conditions)
+            ])
+        actual = scope.get(node.field)
         if not _condition_value_available(node.field, actual):
             missing.add(node.field)
-            checks.append(
-                WebhookConditionCheck(
-                    field=node.field,
-                    matched=False,
-                    reason="Field is unavailable in this event",
-                )
-            )
+            if report:
+                checks.append(WebhookConditionCheck(
+                    field=node.field, matched=False,
+                    reason="Field is unavailable in this event", condition_path=path,
+                ))
             return None
         if node.operator in {"gte", "lte"}:
-            matched = isinstance(actual, (float, int)) and not isinstance(actual, bool)
-            if matched:
-                matched = (
-                    actual >= node.value
-                    if node.operator == "gte"
-                    else actual <= node.value
-                )
+            matched = actual >= node.value if node.operator == "gte" else actual <= node.value
         else:
             entries = actual if isinstance(actual, list) else [actual]
             overlap = bool(
@@ -141,16 +155,61 @@ def evaluate_conditions(
                 & {value.casefold() for value in node.value}
             )
             matched = overlap if node.operator == "in" else not overlap
-        checks.append(
-            WebhookConditionCheck(
-                field=node.field,
-                matched=matched,
+        if report:
+            checks.append(WebhookConditionCheck(
+                field=node.field, matched=matched,
                 reason="Condition matched" if matched else "Condition did not match",
-            )
-        )
+                condition_path=path,
+            ))
         return matched
 
-    matched = True if condition is None else evaluate(condition) is True
+    def evaluate_indicators(node: WebhookConditionGroup, path: str) -> bool | None:
+        snapshot = values.get("_indicators")
+        if snapshot is None:
+            missing.add("indicators")
+            checks.append(WebhookConditionCheck(
+                field=node.op, matched=False, condition_path=path,
+                reason="A complete indicator inventory with exclusion status is unavailable",
+            ))
+            return None
+        outcomes: list[bool | None] = []
+        omitted = 0
+        for entry in snapshot:
+            excluded = entry["excluded"]
+            scope = {
+                "ioc_type": entry.get("type"), "ioc_role": entry.get("role"),
+                "analyst_verdict": entry.get("analyst_verdict"),
+                "extraction_confidence": entry.get("extraction_confidence"),
+                "maliciousness_confidence": entry.get("maliciousness_confidence"),
+            }
+            outcome = False if excluded else combine("all", [
+                evaluate(child, scope, f"{path}.{index}", report=False)
+                for index, child in enumerate(node.conditions)
+            ])
+            if not excluded:
+                outcomes.append(outcome)
+            if len(checks) < 250:
+                checks.append(WebhookConditionCheck(
+                    field=node.op, matched=outcome is True, condition_path=path,
+                    indicator_id=_preview_text(entry.get("id"), 80),
+                    indicator_type=_preview_text(entry.get("type"), 50),
+                    indicator_value=_preview_text(entry.get("value"), 200),
+                    indicator_excluded=excluded,
+                    reason=("Excluded indicator is not eligible" if excluded else
+                            "Indicator evidence is unavailable" if outcome is None else
+                            "This indicator matched" if outcome else "This indicator did not match"),
+                ))
+            else:
+                omitted += 1
+        # Do not use vacuous truth: an empty eligible inventory must not trigger a hunt.
+        outcome = combine("all" if node.op == "indicators_all" else "any", outcomes) if outcomes else False
+        checks.append(WebhookConditionCheck(
+            field=node.op, matched=outcome is True, condition_path=path,
+            reason=f"Evaluated {len(outcomes)} eligible indicators; {omitted} preview rows omitted",
+        ))
+        return outcome
+
+    matched = True if condition is None else evaluate(condition, values, "0") is True
     return matched, checks, sorted(missing)
 
 
@@ -172,3 +231,9 @@ def _condition_value_available(field: str, value: object) -> bool:
     return bool(values) and all(
         isinstance(entry, str) and bool(entry) for entry in values
     )
+
+
+def _preview_text(value: object, limit: int) -> str | None:
+    if not isinstance(value, str):
+        return None
+    return value if len(value) <= limit else value[:limit] + "…"

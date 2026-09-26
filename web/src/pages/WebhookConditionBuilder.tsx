@@ -7,6 +7,7 @@ import {
   countConditions,
   newCondition,
   validateConditions,
+  isIndicatorGroup,
 } from './webhookConditionModel'
 import { ConditionRow } from './WebhookConditionRow'
 
@@ -71,11 +72,13 @@ function ConditionGroup({
   onChange,
   depth,
   remaining,
+  indicatorScope = false,
 }: {
   value: WebhookConditionGroup
   onChange: (value: WebhookConditionGroup) => void
   depth: number
   remaining: number
+  indicatorScope?: boolean
 }) {
   const id = useId()
   const groupRef = useRef<HTMLDivElement>(null)
@@ -126,10 +129,17 @@ function ConditionGroup({
       >
         <option value="all">All conditions (AND)</option>
         <option value="any">Any condition (OR)</option>
+        {!indicatorScope && <>
+          <option value="indicators_any">Any eligible indicator matches all conditions</option>
+          <option value="indicators_all">Every eligible indicator matches all conditions</option>
+        </>}
         <option value="not" disabled={!canExclude}>
           Exclude matching condition (NOT)
         </option>
       </select>
+      {isIndicatorGroup(value) && (
+        <p className="text-xs">Conditions below apply to the same indicator. Excluded indicators cannot match. The event payload remains complete.</p>
+      )}
       {value.conditions.map((node, index) => (
         <div key={index} className="space-y-2">
           {'conditions' in node ? (
@@ -138,9 +148,11 @@ function ConditionGroup({
               onChange={(next) => replace(index, next)}
               depth={depth + 1}
               remaining={remaining}
+              indicatorScope={indicatorScope || isIndicatorGroup(value)}
             />
           ) : (
             <ConditionRow
+              indicatorScope={indicatorScope || isIndicatorGroup(value)}
               value={node}
               onChange={(next) => replace(index, next)}
             />
