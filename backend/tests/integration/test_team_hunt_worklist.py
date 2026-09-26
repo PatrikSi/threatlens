@@ -79,6 +79,60 @@ def test_queue_lists_existing_hunts_and_claim_conflicts(
     assert db_session.get(TeamHuntClaim, (row.id, hunt_id)).version == 2
 
 
+def test_claim_blocks_other_reviewers_until_manager_release(
+    client,
+    db_session,
+    auth_headers,
+    assessment_setup,
+):
+    row, hunt_id = _ready(
+        db_session, _queue(client, assessment_setup, auth_headers["analyst"])
+    )
+    assert (
+        _claim(
+            client, assessment_setup, auth_headers["admin"], row, hunt_id
+        ).status_code
+        == 200
+    )
+    blocked_review = _review(
+        client, assessment_setup, auth_headers["analyst"], hunt_id, version=row.version
+    )
+    assert blocked_review.status_code == 409, blocked_review.text
+    assert blocked_review.json()["error"]["code"] == "hunt_claimed_elsewhere"
+    blocked_release = _claim(
+        client,
+        assessment_setup,
+        auth_headers["analyst"],
+        row,
+        hunt_id,
+        version=1,
+        action="unclaim",
+    )
+    assert blocked_release.status_code == 409
+    assert (
+        _claim(
+            client,
+            assessment_setup,
+            auth_headers["admin"],
+            row,
+            hunt_id,
+            version=1,
+            action="unclaim",
+        ).status_code
+        == 200
+    )
+    assert (
+        _review(
+            client,
+            assessment_setup,
+            auth_headers["analyst"],
+            hunt_id,
+            version=row.version,
+        ).status_code
+        == 200
+    )
+
+
 def test_keyset_page_filters_and_reviewer_metadata(
     client, db_session, auth_headers, assessment_setup
 ):
@@ -181,7 +235,10 @@ def test_malformed_hunt_ids_cannot_poison_scan_cursor(
         "hunts": [
             {**valid, "id": "a-valid"},
             {**valid, "id": "b-valid"},
-            *({**valid, "id": value} for value in (999, "z" * 81, "", None)),
+            *(
+                {**valid, "id": value}
+                for value in (999, "z" * 81, "", None, "z/bad-id", "z bad id")
+            ),
             *(
                 {"id": f"z-malformed-{index}", "review_status": "suggested"}
                 for index in range(5)
