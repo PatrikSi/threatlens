@@ -9,19 +9,47 @@ Never turn an ambiguous launch into a second launch.
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import hashlib
 import hmac
 import json
 import os
+import signal
 import sqlite3
 import time
+import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from urllib.error import HTTPError
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 from urllib.parse import urlsplit
 import uuid
 
 MAX_BODY = 280_000
+
+
+@contextmanager
+def absolute_deadline(seconds: float):
+    """POSIX main-thread bound covering DNS, headers and slowly streamed bodies."""
+    if (
+        not hasattr(signal, "setitimer")
+        or threading.current_thread() is not threading.main_thread()
+    ):
+        raise ValueError("The reference receiver requires a POSIX main-thread runtime")
+    if seconds <= 0:
+        raise TimeoutError("Receiver synchronization deadline exceeded")
+    if any(signal.getitimer(signal.ITIMER_REAL)):
+        raise ValueError("The reference receiver cannot share an active process alarm")
+    previous = signal.getsignal(signal.SIGALRM)
+
+    def expired(_signum, _frame):
+        raise TimeoutError("Receiver transfer deadline exceeded")
+
+    signal.signal(signal.SIGALRM, expired)
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
 
 
 class Ledger:
@@ -151,7 +179,7 @@ class Ledger:
             # action must arrive through normal authorization/approval separately.
 
 
-def api(base: str, token: str, path: str, payload=None):
+def api(base: str, token: str, path: str, payload=None, *, timeout_seconds: float = 15):
     parsed = urlsplit(base)
     if (
         parsed.username
@@ -182,7 +210,12 @@ def api(base: str, token: str, path: str, payload=None):
         def redirect_request(self, *_args, **_kwargs):
             raise ValueError("Receiver API redirects are not permitted")
 
-    with build_opener(NoRedirect()).open(request, timeout=15) as response:
+    with (
+        absolute_deadline(min(timeout_seconds, 15)),
+        build_opener(NoRedirect()).open(
+            request, timeout=min(timeout_seconds, 15)
+        ) as response,
+    ):
         body = response.read(1_000_001)
         if len(body) > 1_000_000:
             raise ValueError("Response exceeded receiver limit")
@@ -192,6 +225,12 @@ def api(base: str, token: str, path: str, payload=None):
 def synchronize(ledger: Ledger, request):
     """Drain a bounded receipt batch without one failing job starving withdrawals."""
     failures = []
+    # Apply safety withdrawals before status uploads; slow callbacks must not
+    # consume the entire synchronization budget before control records are read.
+    try:
+        synchronize_policy(ledger, request)
+    except (OSError, ValueError) as exc:
+        failures.append(exc)
     rows = ledger.db.execute(
         "SELECT execution_id, callback FROM jobs WHERE pending=1 ORDER BY execution_id LIMIT 100"
     ).fetchall()
@@ -209,10 +248,6 @@ def synchronize(ledger: Ledger, request):
                 "UPDATE jobs SET pending=0 WHERE execution_id=? AND callback=?",
                 (identity, callback),
             )
-    try:
-        synchronize_policy(ledger, request)
-    except (OSError, ValueError) as exc:
-        failures.append(exc)
     if failures:
         raise failures[0]
 
@@ -294,6 +329,7 @@ def main():
     args = parser.parse_args()
     ledger = Ledger(args.database)
     if args.mode == "sync":
+        deadline = time.monotonic() + 60
 
         def request(path, payload=None):
             return api(
@@ -301,13 +337,10 @@ def main():
                 os.environ["THREATLENS_API_TOKEN"],
                 path,
                 payload,
+                timeout_seconds=deadline - time.monotonic(),
             )
 
-        try:
-            synchronize(ledger, request)
-        except (OSError, HTTPError):
-            synchronize_policy(ledger, request)
-            raise
+        synchronize(ledger, request)
     elif args.mode == "status":
         ledger.status(args.execution_id, args.status, args.findings)
     else:
@@ -315,7 +348,19 @@ def main():
         if len(secret) < 32:
             raise ValueError("Use a signing secret of at least 32 characters")
 
+        # Fail before binding if the runtime cannot enforce absolute deadlines.
+        with absolute_deadline(1):
+            pass
+
         class Handler(BaseHTTPRequestHandler):
+            def handle(self):
+                self.connection.settimeout(15)
+                try:
+                    with absolute_deadline(15):
+                        super().handle()
+                except (OSError, ValueError):
+                    self.close_connection = True
+
             def do_POST(self):
                 try:
                     size = int(self.headers.get("Content-Length", "0"))
@@ -347,4 +392,9 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except (OSError, ValueError, KeyError, sqlite3.Error) as error:
+        raise SystemExit(
+            f"Receiver operation failed ({type(error).__name__}); verify runtime, configuration and connectivity."
+        ) from None

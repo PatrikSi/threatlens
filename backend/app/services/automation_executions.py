@@ -149,6 +149,13 @@ def reconcile_executions(
         IntelEventBusy,
     )
 
+    from app.services.automation_execution_authority import execution_owner_eligible
+    from app.services.integration_delivery_data_policy import (
+        lock_integration_delivery_policy_fence,
+    )
+
+    # Preserve the same global lock order as routing and callback authorization.
+    lock_integration_delivery_policy_fence(db)
     now = datetime.now(timezone.utc)
     query = select(AutomationExecution).where(
         AutomationExecution.next_check_at <= now,
@@ -165,20 +172,25 @@ def reconcile_executions(
         event = db.get(IntegrationEvent, row.event_id)
         row.next_check_at = now + timedelta(minutes=5)
         try:
-            current = event is not None and automation_event_current(
+            owner_eligible = event is not None and execution_owner_eligible(
+                db, owner_user_id=row.owner_user_id, event=event
+            )
+            current = owner_eligible and automation_event_current(
                 db, event.payload_json, event.event_type
             )
         except IntelEventBusy:
             row.next_check_at = now + timedelta(seconds=30)
             continue
         if not current:
-            replacement = _replacement_action(db, row, event)
+            replacement = (
+                _replacement_action(db, row, event) if owner_eligible else None
+            )
             reserve_policy_update(
                 db,
                 row,
                 kind="intel.replaced" if replacement else "intel.withdrawn",
                 replacement_action_id=replacement,
-                reason="Source, approval, indicator verdict, expiry, or suppression changed; stop using the previous action",
+                reason="Source, owner access, approval, verdict, expiry, or suppression changed; stop using the previous action",
             )
     return len(rows)
 
@@ -190,6 +202,7 @@ def _replacement_action(
     if event is None:
         return None
     from app.services.intel_event_eligibility import automation_event_current
+    from app.services.automation_execution_authority import execution_owner_eligible
 
     query = (
         select(AutomationExecution, IntegrationEvent)
@@ -216,7 +229,9 @@ def _replacement_action(
             for key in ("team_id", "hunt_id")
         ):
             continue
-        if automation_event_current(db, payload, candidate_event.event_type):
+        if execution_owner_eligible(
+            db, owner_user_id=row.owner_user_id, event=candidate_event
+        ) and automation_event_current(db, payload, candidate_event.event_type):
             return candidate.action_id
     return None
 
