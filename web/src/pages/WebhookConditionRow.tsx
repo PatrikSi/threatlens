@@ -2,7 +2,7 @@ import type {
   WebhookCondition,
   WebhookConditionGroup,
 } from '../types/webhookAutomation'
-import { CONDITION_FIELDS } from './webhookConditionModel'
+import { CONDITION_FIELDS, INDICATOR_FIELDS } from './webhookConditionModel'
 
 const INPUT =
   'rounded border border-slate/30 bg-white p-2 text-sm dark:bg-[#072019]'
@@ -10,9 +10,11 @@ const INPUT =
 export function ConditionRow({
   value,
   onChange,
+  indicatorScope = false,
 }: {
   value: Exclude<WebhookCondition, WebhookConditionGroup>
   onChange: (value: WebhookCondition) => void
+  indicatorScope?: boolean
 }) {
   const field = CONDITION_FIELDS.find((entry) => entry.value === value.field)!
   return (
@@ -35,7 +37,7 @@ export function ConditionRow({
             }}
           >
             {CONDITION_FIELDS.map((entry) => (
-              <option key={entry.value} value={entry.value}>
+              <option key={entry.value} value={entry.value} disabled={indicatorScope && !INDICATOR_FIELDS.has(entry.value)}>
                 {entry.label}
               </option>
             ))}
@@ -100,7 +102,7 @@ export function ConditionRow({
           />
         </label>
       </div>
-      <p className="text-xs text-slate dark:text-slate-300">{field.hint}</p>
+      <p className="text-xs text-slate dark:text-slate-300">{indicatorScope && field.numeric ? '0–1 for this individual indicator; missing confidence does not match.' : field.hint}</p>
     </div>
   )
 }

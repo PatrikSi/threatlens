@@ -20,6 +20,7 @@ ConditionField = Literal[
     "team_id",
     "ioc_type",
     "ioc_role",
+    "analyst_verdict",
     "extraction_confidence",
     "maliciousness_confidence",
     "freshness_seconds",
@@ -29,6 +30,11 @@ ConditionField = Literal[
 NUMERIC_FIELDS = frozenset(
     {"extraction_confidence", "maliciousness_confidence", "freshness_seconds"}
 )
+INDICATOR_FIELDS = frozenset({
+    "ioc_type", "ioc_role", "analyst_verdict",
+    "extraction_confidence", "maliciousness_confidence",
+})
+INDICATOR_OPERATORS = frozenset({"indicators_any", "indicators_all"})
 
 
 class WebhookCondition(BaseModel):
@@ -61,7 +67,7 @@ class WebhookCondition(BaseModel):
 
 class WebhookConditionGroup(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    op: Literal["all", "any", "not"]
+    op: Literal["all", "any", "not", "indicators_any", "indicators_all"]
     conditions: list[WebhookCondition | WebhookConditionGroup] = Field(
         min_length=1, max_length=32
     )
@@ -69,18 +75,24 @@ class WebhookConditionGroup(BaseModel):
     @model_validator(mode="after")
     def validate_budget(self):
         count = 0
-        pending = [(self, 1)]
+        pending = [(self, 1, False)]
         while pending:
-            node, depth = pending.pop()
+            node, depth, indicator_scope = pending.pop()
             count += 1
             if count > 32 or depth > 4:
                 raise ValueError(
                     "Condition trees allow at most 32 nodes and four levels"
                 )
             if isinstance(node, WebhookConditionGroup):
+                if node.op in INDICATOR_OPERATORS:
+                    if indicator_scope:
+                        raise ValueError("Indicator groups cannot be nested inside indicator groups")
+                    indicator_scope = True
                 if node.op == "not" and len(node.conditions) != 1:
                     raise ValueError("not requires exactly one condition")
-                pending.extend((child, depth + 1) for child in node.conditions)
+                pending.extend((child, depth + 1, indicator_scope) for child in node.conditions)
+            elif indicator_scope and node.field not in INDICATOR_FIELDS:
+                raise ValueError("Indicator groups may contain only indicator fields")
         return self
 
 
@@ -149,6 +161,11 @@ class WebhookConditionCheck(BaseModel):
     field: str
     matched: bool
     reason: str
+    indicator_id: str | None = None
+    indicator_type: str | None = None
+    indicator_value: str | None = None
+    indicator_excluded: bool | None = None
+    condition_path: str | None = None
 
 
 class WebhookPreviewResponse(BaseModel):

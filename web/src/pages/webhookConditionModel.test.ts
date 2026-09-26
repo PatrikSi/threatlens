@@ -37,4 +37,18 @@ describe('bounded webhook condition drafts', () => {
     expect(createRequestFromDraft(draft)).toMatchObject({ payload_mode: 'automation_v1', conditions: normalizeConditions(tree), credential_profile_id: 'profile' })
     expect(draft.conditions).not.toBe(tree)
   })
+  it('keeps same-indicator predicates explicit and rejects cross-scope fields', () => {
+    const scoped: WebhookConditionGroup = { op: 'indicators_any', conditions: [
+      { field: 'ioc_type', operator: 'in', value: ['domain'] },
+      { field: 'analyst_verdict', operator: 'in', value: [' malicious '] },
+    ] }
+    expect(validateConditions(scoped)).toBeNull()
+    expect(normalizeConditions(scoped)).toMatchObject({ op: 'indicators_any', conditions: [
+      { value: ['domain'] }, { value: ['malicious'] },
+    ] })
+    expect(validateConditions({ ...scoped, conditions: [tree] })).toMatch(/only indicator fields/)
+    expect(validateConditions({ ...scoped, conditions: [scoped] })).toMatch(/cannot contain another/)
+    const draft = { ...createDefaultDraft(), conditions: scoped }
+    expect(createRequestFromDraft(draft).conditions?.op).toBe('indicators_any')
+  })
 })

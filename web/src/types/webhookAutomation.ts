@@ -6,6 +6,7 @@ export type WebhookConditionField =
   | 'team_id'
   | 'ioc_type'
   | 'ioc_role'
+  | 'analyst_verdict'
   | 'extraction_confidence'
   | 'maliciousness_confidence'
   | 'freshness_seconds'
@@ -21,7 +22,7 @@ export type WebhookCondition =
     }
 
 export interface WebhookConditionGroup {
-  op: 'all' | 'any' | 'not'
+  op: 'all' | 'any' | 'not' | 'indicators_any' | 'indicators_all'
   conditions: WebhookCondition[]
 }
 
@@ -38,7 +39,12 @@ export interface WebhookCredentialProfile {
 
 export interface WebhookMatchPreview {
   matches: boolean
-  checks: { field: string; matched: boolean; reason: string }[]
+  checks: {
+    field: string; matched: boolean; reason: string
+    indicator_id?: string | null; indicator_type?: string | null
+    indicator_value?: string | null; indicator_excluded?: boolean | null
+    condition_path?: string | null
+  }[]
   missing_fields: string[]
   automation_payload: Record<string, unknown> | null
 }

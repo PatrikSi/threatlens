@@ -4,6 +4,12 @@ import type {
   WebhookConditionGroup,
 } from '../types/webhookAutomation'
 
+export const INDICATOR_FIELDS = new Set<WebhookConditionField>([
+  'ioc_type', 'ioc_role', 'analyst_verdict', 'extraction_confidence', 'maliciousness_confidence',
+])
+export const isIndicatorGroup = (group: WebhookConditionGroup) =>
+  group.op === 'indicators_any' || group.op === 'indicators_all'
+
 export const CONDITION_FIELDS: {
   value: WebhookConditionField
   label: string
@@ -44,6 +50,11 @@ export const CONDITION_FIELDS: {
     value: 'ioc_role',
     label: 'AI indicator role',
     hint: 'malicious_infrastructure, benign, reference, or unknown.',
+  },
+  {
+    value: 'analyst_verdict',
+    label: 'Analyst verdict',
+    hint: 'Current team review: malicious, benign, reference, example, retracted, or unreviewed. Missing review does not match.',
   },
   {
     value: 'extraction_confidence',
@@ -120,19 +131,25 @@ export function validateConditions(
   if (!group) return null
   if (countConditions(group) > 32)
     return 'Use at most 32 conditions and groups.'
-  function inspect(node: WebhookCondition, depth: number): string | null {
+  function inspect(node: WebhookCondition, depth: number, indicatorScope = false): string | null {
     if (depth > 4) return 'Use at most four levels of conditions.'
     if ('conditions' in node) {
+      if (isIndicatorGroup(node)) {
+        if (indicatorScope) return 'Indicator groups cannot contain another indicator group.'
+        indicatorScope = true
+      }
       if (!node.conditions.length)
         return 'Each condition group needs at least one condition.'
       if (node.op === 'not' && node.conditions.length !== 1)
         return 'An exclusion must contain exactly one condition or group.'
       return (
         node.conditions
-          .map((child) => inspect(child, depth + 1))
+          .map((child) => inspect(child, depth + 1, indicatorScope))
           .find(Boolean) ?? null
       )
     }
+    if (indicatorScope && !INDICATOR_FIELDS.has(node.field))
+      return 'Same-indicator groups may contain only indicator fields. Move event fields outside this group.'
     if (typeof node.value === 'number') {
       if (!Number.isFinite(node.value) || node.value < 0)
         return 'Enter a non-negative numeric condition.'
