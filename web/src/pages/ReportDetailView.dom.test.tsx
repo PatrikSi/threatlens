@@ -39,17 +39,38 @@ it('keeps one editor across polling and resets editor/evidence state when the re
     builderDraft: { confirmDiscard: vi.fn() },
     reportDetailQuery: { refetch: vi.fn() },
   } as unknown as ReportingController
-  const original = {
+  const original: ReportDetail = {
     id: 'report-one', owner_user_id: 'owner', title: 'First report', status: 'ready',
+    template_id: null, schedule_id: null, report_type: 'custom', trigger_source: 'manual',
+    generation_stage: 'ready', provider: 'local', model: 'test-model',
+    error_code: null, error: null, created_at: '2026-09-01T00:00:00Z',
     publication_status: 'draft', editorial_version: 1, review_required: true,
     period_start: '2026-09-01T00:00:00Z', period_end: '2026-09-02T00:00:00Z',
     generated_at: '2026-09-02T00:00:00Z', source_count: 1, included_source_count: 1,
     model_calls: 1, generation_batches: 1, estimated_input_tokens: 100,
-    coverage: { warnings: [] }, summary_text: 'Summary.',
-    sections: [{ key: 'summary', title: 'Summary', body_markdown: 'Claim [S1].' }],
+    prompt_tokens: 100, completion_tokens: 50, total_tokens: 150,
+    context_window_tokens: 8192, delivery_requested: false, delivery_mode: 'summary',
+    filters: {
+      q: null, feed_ids: [], tag_ids: [], tags_mode: 'any', classifications: [],
+      ai_relevance_labels: [], ai_score_min: null, ai_score_max: null,
+      is_read: null, is_starred: null, has_article_text: null, since: null, until: null,
+      date_basis: 'published_at_or_first_seen_at', sort: 'published_at_desc',
+    },
+    prompt: {
+      audience: 'security_team', objective: 'Review source evidence.', tone: 'analytical',
+      detail_level: 'standard', use_company_context: true, custom_instructions: null,
+      focus_topics: [], excluded_topics: [],
+    },
+    sections_config: [{ key: 'summary', title: 'Summary', enabled: true }],
+    metrics: {}, coverage: { warnings: [] }, summary_text: 'Summary.',
+    sections: [{ key: 'summary', title: 'Summary', body_markdown: 'Claim [S1].',
+      position: 0, status: 'ready', key_points: [], citations: ['S1'], error: null }],
     sources: [{ citation_key: 'S1', included: true, title: 'Retained source',
-      url: 'https://source.example.com/article', feed_name: 'Source feed' }],
-  } as ReportDetail
+      url: 'https://source.example.com/article', feed_name: 'Source feed',
+      item_id: 'item-one', rank: 1, exclusion_reason: null, classification: null,
+      relevance_score: null, relevance_label: null, published_at: null,
+      first_seen_at: '2026-09-01T00:00:00Z', tags: [], iocs: [], estimated_tokens: 100 }],
+  }
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   container = document.createElement('div')
   document.body.append(container)
