@@ -101,7 +101,8 @@ def downgrade() -> None:
     op.execute("""DO $$ BEGIN
         IF EXISTS (SELECT 1 FROM ai_quota_group_members)
            OR EXISTS (SELECT 1 FROM ai_provider_routing WHERE team_assessment_provider_id IS NOT NULL)
-        THEN RAISE EXCEPTION 'Clear shared quota membership and team-assessment routing before downgrade'; END IF;
+           OR EXISTS (SELECT 1 FROM ai_provider_budget_reservations WHERE quota_group_key IS NOT NULL)
+        THEN RAISE EXCEPTION 'Archive and clear shared quota membership, reservation attribution and team-assessment routing before downgrade'; END IF;
     END $$""")
     op.drop_index(
         "ix_ai_budget_group_created", table_name="ai_provider_budget_reservations"
