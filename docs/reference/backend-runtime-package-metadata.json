@@ -690,7 +690,7 @@
     "version": "1.4.0",
     "license": "Apache-2.0",
     "license_source": "license_expression",
-    "summary": "Clean, filter and sample URLs to optimize data collection \u2013 includes spam, content type and language filters.",
+    "summary": "Clean, filter and sample URLs to optimize data collection – includes spam, content type and language filters.",
     "metadata_license_expression": "Apache-2.0",
     "license_files": [
       "LICENSE"
@@ -1294,7 +1294,7 @@
     "license_source": "license",
     "summary": "Heuristic based boilerplate removal tool",
     "home_page": "https://github.com/miso-belica/jusText",
-    "author": "Jan Pomik\u00e1lek",
+    "author": "Jan Pomikálek",
     "metadata_license": "The BSD 2-Clause License",
     "license_files": [
       "LICENSE.rst"
@@ -1394,7 +1394,7 @@
     "license_source": "license",
     "summary": "HTML cleaner from lxml project",
     "home_page": "https://github.com/fedora-python/lxml_html_clean/",
-    "author": "Lum\u00edr Balhar",
+    "author": "Lumír Balhar",
     "metadata_license": "BSD-3-Clause",
     "license_files": [
       "LICENSE.txt"
@@ -1973,7 +1973,7 @@
     "license": "BSD-2-Clause",
     "license_source": "license_expression",
     "summary": "Python API for MISP.",
-    "author": "Rapha\u00ebl Vinot",
+    "author": "Raphaël Vinot",
     "metadata_license_expression": "BSD-2-Clause",
     "license_files": [
       "LICENSE"
@@ -2444,7 +2444,7 @@
   },
   {
     "name": "soupsieve",
-    "version": "2.8.4",
+    "version": "2.9",
     "license": "MIT",
     "license_source": "license_expression",
     "summary": "A modern CSS selector implementation for Beautiful Soup.",
@@ -2457,8 +2457,8 @@
       {
         "kind": "license",
         "file_name": "LICENSE.md",
-        "source_path": "soupsieve-2.8.4.dist-info/licenses/LICENSE.md",
-        "artifact_path": "soupsieve/2.8.4/soupsieve-2.8.4.dist-info/licenses/LICENSE.md",
+        "source_path": "soupsieve-2.9.dist-info/licenses/LICENSE.md",
+        "artifact_path": "soupsieve/2.9/soupsieve-2.9.dist-info/licenses/LICENSE.md",
         "sha256": "76a0acdb98c3a63681e20b6f096699ef8cad5fb35d56eef8387e0fa71d797a9a"
       }
     ],
