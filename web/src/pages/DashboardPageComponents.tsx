@@ -3,6 +3,7 @@ import { useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { buildApiUrl } from '../api/client'
 import { looksLikeHtml, parseArticleBlocks, sanitizeHtmlFragment, stripHtml } from './dashboardContent'
 import { resolveWindowRect, type DashboardWindow, type DashboardWindowType } from './dashboardSavedViews'
+import { OriginalArticleFrame } from './OriginalArticleFrame'
 
 export interface ArticlePreviewState {
   itemId: string
@@ -16,28 +17,27 @@ const SAVED_VIEW_THUMBNAIL_HEIGHT = 96
 
 export function ArticlePreviewDrawer({
   preview,
-  frameState,
+  defaultExternalResources = false,
   width,
   minWidth,
   maxWidth,
   onResizeStart,
   onResizeBy,
   isResizing,
-  onFrameLoad,
   onClose,
 }: {
   preview: ArticlePreviewState
-  frameState: 'loading' | 'loaded' | 'possibly_blocked'
+  defaultExternalResources?: boolean
   width: number
   minWidth: number
   maxWidth: number
   onResizeStart: (event: ReactPointerEvent<HTMLElement>) => void
   onResizeBy: (delta: number) => void
   isResizing: boolean
-  onFrameLoad: () => void
   onClose: () => void
 }) {
-  const [externalResources, setExternalResources] = useState(false)
+  const [resourceOverride, setResourceOverride] = useState<boolean | null>(null)
+  const externalResources = resourceOverride ?? defaultExternalResources
   const previewFrameUrl = buildApiUrl(`/items/${encodeURIComponent(preview.itemId)}/article-preview${externalResources ? '?external_resources=true' : ''}`)
 
   return (
@@ -111,42 +111,18 @@ export function ArticlePreviewDrawer({
 
       <div className="border-b border-slate/20 px-4 py-2 text-xs dark:border-cyan-900/40">
         <label className="flex items-center gap-2 font-semibold">
-          <input type="checkbox" checked={externalResources} onChange={(event) => setExternalResources(event.target.checked)} />
+          <input type="checkbox" checked={externalResources} aria-describedby="article-preview-resource-privacy" onChange={(event) => setResourceOverride(event.target.checked)} />
           Load external resources for this preview
         </label>
-        <p className="mt-1 text-slate dark:text-slate-300">
+        <p id="article-preview-resource-privacy" className="mt-1 text-slate dark:text-slate-300">
           {externalResources
             ? 'Images, styles, fonts, and media can contact publishers and third parties from your browser.'
             : 'External resources are blocked. Loading them shares your IP address and viewing activity with their hosts.'}
         </p>
+        <p className="mt-1 text-slate dark:text-slate-300">Set your default in Settings → My account → Article previews.</p>
       </div>
 
-      {frameState !== 'loaded' && (
-        <div
-          role={frameState === 'possibly_blocked' ? 'status' : undefined}
-          className={`border-b px-4 py-2 text-xs ${
-            frameState === 'possibly_blocked'
-              ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200'
-              : 'border-slate/20 bg-slate-50 text-slate dark:border-cyan-900/40 dark:bg-white/[0.03] dark:text-slate-300'
-          }`}
-        >
-          {frameState === 'possibly_blocked'
-            ? 'Preview is still loading. Open the original source if it does not render here.'
-            : 'Loading original site...'}
-        </div>
-      )}
-
-      <div className={`min-h-0 flex-1 bg-white dark:bg-[#020b09] ${isResizing ? 'cursor-ew-resize select-none' : ''}`}>
-        <iframe
-          key={previewFrameUrl}
-          title={`Original article preview: ${preview.title}`}
-          src={previewFrameUrl}
-          className={`h-full w-full border-0 bg-white ${isResizing ? 'pointer-events-none' : ''}`}
-          sandbox="allow-popups allow-popups-to-escape-sandbox"
-          referrerPolicy="no-referrer"
-          onLoad={onFrameLoad}
-        />
-      </div>
+      <OriginalArticleFrame key={previewFrameUrl} url={previewFrameUrl} title={preview.title} isResizing={isResizing} />
     </aside>
   )
 }

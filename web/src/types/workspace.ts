@@ -85,6 +85,7 @@ export interface WorkspaceUserPreferenceResponse {
   landing_module_id: string | null
   modules: WorkspaceModulePreference[]
   dashboard_panel_ids: string[] | null
+  article_preview_external_resources?: boolean
   revision: number
   updated_by_user_id: string | null
   created_at: string | null
@@ -99,6 +100,7 @@ export interface WorkspaceUserPreferenceWriteRequest {
   landing_module_id: string | null
   modules: WorkspaceModulePreference[]
   dashboard_panel_ids: string[] | null
+  article_preview_external_resources?: boolean
 }
 
 export interface WorkspaceUserPreferenceResetRequest {
