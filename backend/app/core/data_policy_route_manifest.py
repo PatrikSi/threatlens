@@ -57,6 +57,9 @@ OperationLiteral: TypeAlias = tuple[str, str, str] | tuple[str, str, str, str]
 # security-sensitive contract changes.
 # fmt: off
 _CONTROL_PLANE_OPERATIONS: tuple[OperationLiteral, ...] = (
+    ('GET', '/v1/ai/quota-groups', 'list_ai_quota_groups'),
+    ('POST', '/v1/ai/quota-groups', 'create_ai_quota_group'),
+    ('PUT', '/v1/ai/quota-groups/{group_id}', 'update_ai_quota_group'),
     ('GET', '/v1/notifications/credential-profiles', 'list_credential_profiles'),
     ('GET', '/v1/teams', 'list_teams'),
     ('POST', '/v1/teams', 'create_team'),
@@ -244,6 +247,19 @@ _PUBLIC_OPERATIONS: tuple[OperationLiteral, ...] = (
 )
 
 _REQUEST_CONTEXT_OPERATIONS: tuple[OperationLiteral, ...] = (
+    ('GET', '/v1/teams/{team_id}/hunts', 'list_team_hunt_worklist'),
+    ('POST', '/v1/teams/{team_id}/hunts/{assessment_id}/{hunt_id}/claim', 'update_team_hunt_claim'),
+    ('POST', '/v1/teams/{team_id}/indicator-publications/preview', 'preview_indicator_publication'),
+    ('POST', '/v1/teams/{team_id}/indicator-publications', 'create_indicator_publication'),
+    ('GET', '/v1/teams/{team_id}/indicator-publications', 'list_indicator_publications'),
+    ('GET', '/v1/teams/{team_id}/indicator-publications/{publication_id}/download', 'download_indicator_publication'),
+    ('POST', '/v1/teams/{team_id}/indicator-publications/{publication_id}/withdraw', 'withdraw_indicator_publication'),
+    ('GET', '/v1/notifications/automation/executions', 'list_automation_executions'),
+    ('POST', '/v1/notifications/automation/executions/{execution_id}/callbacks', 'receive_automation_callback'),
+    ('POST', '/v1/notifications/automation/executions/{execution_id}/findings', 'attach_automation_findings'),
+    ('GET', '/v1/notifications/automation/updates', 'list_automation_policy_updates'),
+    ('POST', '/v1/notifications/automation/updates/{update_id}/ack', 'acknowledge_automation_policy_update'),
+    ('POST', '/v1/notifications/automation/reconcile', 'reconcile_automation_executions'),
     ('POST', '/v1/notifications/credential-profiles', 'create_credential_profile'),
     ('PATCH', '/v1/notifications/credential-profiles/{profile_id}', 'update_credential_profile'),
     ('GET', '/v1/notifications/webhooks/events', 'list_webhook_events'),
@@ -415,6 +431,19 @@ _ENDPOINT_NAMES_BY_MODULE: Final[dict[str, tuple[str, ...]]] = {
         'get_item_indicators', 'patch_indicator_assessment', 'get_indicator_history',
         'get_indicator_suppressions', 'create_indicator_suppression',
         'patch_indicator_suppression', 'get_suppression_history',
+    ),
+    'app.api.routes.team_hunt_worklist': ('list_team_hunt_worklist', 'update_team_hunt_claim'),
+    'app.api.routes.indicator_publications': (
+        'preview_indicator_publication', 'create_indicator_publication',
+        'list_indicator_publications', 'download_indicator_publication', 'withdraw_indicator_publication',
+    ),
+    'app.api.routes.automation_executions': (
+        'list_automation_executions', 'receive_automation_callback',
+        'attach_automation_findings', 'list_automation_policy_updates',
+        'acknowledge_automation_policy_update', 'reconcile_automation_executions',
+    ),
+    'app.api.routes.ai_quota_groups': (
+        'list_ai_quota_groups', 'create_ai_quota_group', 'update_ai_quota_group',
     ),
     'app.api.routes.webhook_automation': (
         'list_credential_profiles', 'create_credential_profile', 'update_credential_profile',

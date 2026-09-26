@@ -129,6 +129,8 @@ def _task_queue(request) -> str | None:
 
 
 TASK_ROUTES = {
+    "app.tasks.indicator_publication_tasks.reconcile_publications": {"queue": QUEUE_MAINTENANCE},
+    "app.tasks.automation_tasks.reconcile_automation_executions": {"queue": QUEUE_MAINTENANCE},
     "app.tasks.team_assessment_tasks.generate_team_assessment": {"queue": QUEUE_AI},
     "app.tasks.processing_tasks.execute_processing_work": {"queue": QUEUE_PROCESSING},
     "app.tasks.processing_tasks.dispatch_processing_work": {"queue": QUEUE_MAINTENANCE},
@@ -236,6 +238,8 @@ celery_app = Celery(
         "app.tasks.ai_workflow_tasks",
         "app.tasks.team_assessment_tasks",
         "app.tasks.history_maintenance_tasks",
+        "app.tasks.automation_tasks",
+        "app.tasks.indicator_publication_tasks",
         "app.tasks.alert_tasks",
         "app.tasks.system_health_tasks",
         "app.tasks.lifecycle_tasks",
@@ -276,6 +280,16 @@ celery_app.conf.update(
     },
     visibility_timeout=settings.celery_visibility_timeout_seconds,
     beat_schedule={
+        "reconcile-reviewed-publications": {
+            "task": "app.tasks.indicator_publication_tasks.reconcile_publications",
+            "schedule": 60.0,
+            "options": {"queue": QUEUE_MAINTENANCE},
+        },
+        "reconcile-automation-executions": {
+            "task": "app.tasks.automation_tasks.reconcile_automation_executions",
+            "schedule": 60.0,
+            "options": {"queue": QUEUE_MAINTENANCE},
+        },
         "dispatch-export-jobs": {
             "task": "app.tasks.export_tasks.dispatch_export_jobs",
             "schedule": 30.0,
