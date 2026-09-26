@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack
 import hashlib
 import json
 import statistics
@@ -79,7 +80,10 @@ def run_workload(client, control, topology, *, duration: int, concurrency: int,
     recoveries, artifacts = [], []
     rounds, next_round = 1, 60
     processing_count = len(processing["item_ids"])
-    with ThreadPoolExecutor(max_workers=concurrency) as pool:
+    with ThreadPoolExecutor(max_workers=concurrency) as pool, ExitStack() as cleanup:
+        # Signal readers before executor shutdown even when an HTTP/control
+        # observation raises, so a failed run does not retain load until duration.
+        cleanup.callback(stop.set)
         futures = [pool.submit(reader, index) for index in range(concurrency)]
         while time.monotonic() - started < duration:
             memory = topology.memory()

@@ -160,6 +160,16 @@ class HostMonitorTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "exited"):
                 topology.memory()
 
+    def test_cleanup_attempts_every_owned_resource_after_one_timeout(self):
+        with tempfile.TemporaryDirectory() as directory:
+            topology = DisposableTopology(Path(directory))
+            topology.containers = ["owned-first", "owned-second"]
+            with patch("qualification_runtime.subprocess.run", side_effect=[
+                subprocess.TimeoutExpired("docker", 30), subprocess.CompletedProcess([], 0),
+            ]) as remove, self.assertRaisesRegex(RuntimeError, "cleanup"):
+                topology.close()
+            self.assertEqual(remove.call_count, 2)
+
     def test_receiver_timeouts_preserve_outbox_and_redirects_are_not_acknowledged(self):
         selected = {**config(), "receiver": {"url": "https://monitor.example.com/receive", "signing_key": "/key"}}
         state, _ = reconcile(selected, {}, [{"scope": "fleet", "entity": "api", "code": "missing_service"}], now=NOW)
