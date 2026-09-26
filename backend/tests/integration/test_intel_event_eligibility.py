@@ -1,6 +1,7 @@
 """Delivery readiness rejects stale approvals and uses nonblocking source fences."""
 
 from copy import deepcopy
+import uuid
 
 import pytest
 from sqlalchemy import delete, select, text
@@ -25,12 +26,14 @@ from tests.integration.test_team_assessments_api import (
 
 def test_delivery_fence_is_nonblocking_and_recovers_after_writer(database_engine):
     from app.models.feed import Feed
+    from app.models.ioc import IOC
     from app.services.data_access_retention import prune_deleted_resource_envelopes
 
+    indicator_value = f"ioc-{uuid.uuid4().hex}.net"
     with Session(database_engine) as db:
         item = _create_item(db)
         item_id, feed_id = item.id, item.feed_id
-        events = _extract(db, item)
+        events = _extract(db, item, indicator_value)
         db.commit()
         payload = deepcopy(db.get(IntegrationEvent, events[0]).payload_json)
     try:
@@ -57,6 +60,7 @@ def test_delivery_fence_is_nonblocking_and_recovers_after_writer(database_engine
                 db, resources=[("integration_event", identity) for identity in events]
             )
             db.execute(delete(Feed).where(Feed.id == feed_id))
+            db.execute(delete(IOC).where(IOC.value_norm == indicator_value))
             db.commit()
 
 
