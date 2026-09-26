@@ -117,7 +117,13 @@ def _build_ioc_object(
         pattern=pattern,
         pattern_type="stix",
         valid_from=_aware_datetime(ioc.first_seen_at),
-        confidence=round(max(0, min(1, ioc.confidence)) * 100),
+        labels=["unreviewed-extraction"],
+        description=(
+            "Unreviewed observable extracted from source text. "
+            "This pattern is not an analyst verdict or a recommendation to block. "
+            f"Extraction match confidence: {max(0, min(1, ioc.confidence)):.2f}. "
+            "Team assessments and suppression rules are not applied to raw article exports."
+        ),
         **common,
     )
 
@@ -126,7 +132,10 @@ def _indicator_pattern(ioc: ExportIOC) -> str | None:
     escaped = _escape_pattern_value(ioc.value)
     patterns = {
         "ipv4": f"[ipv4-addr:value = '{escaped}']",
+        "ipv6": f"[ipv6-addr:value = '{escaped}']",
         "domain": f"[domain-name:value = '{escaped}']",
+        "url": f"[url:value = '{escaped}']",
+        "email": f"[email-addr:value = '{escaped}']",
         "hash_md5": f"[file:hashes.MD5 = '{escaped}']",
         "hash_sha1": f"[file:hashes.'SHA-1' = '{escaped}']",
         "hash_sha256": f"[file:hashes.'SHA-256' = '{escaped}']",

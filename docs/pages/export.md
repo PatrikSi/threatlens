@@ -55,18 +55,32 @@ STIX exports a valid STIX 2.1 Bundle. ThreatLens articles become `Report` object
 
 | ThreatLens value | STIX object |
 |---|---|
-| IPv4 address, domain, MD5, SHA-1, SHA-256 | `Indicator` |
+| IPv4/IPv6 address, domain, URL, email address, MD5, SHA-1, SHA-256 | `Indicator` |
 | CVE | `Vulnerability` |
 | Vendor | `Identity` |
 | Program | `Software` |
 
 Source URLs become external references, article tags become report labels, and classification confidence is converted to the STIX `0` to `100` scale. The export can apply no marking or a `TLP:WHITE`, `TLP:GREEN`, `TLP:AMBER`, or `TLP:RED` marking. This is an interoperability mapping, not a claim that every article is a validated indicator or that ThreatLens publishes directly to a TIP or SIEM.
 
+Indicator patterns carry the `unreviewed-extraction` label and a description of
+their match confidence. They omit STIX Indicator `confidence`: recognizing a
+value in text does not establish maliciousness. Review the patterns before
+enabling detections. Raw article exports include the shared inventory; they do
+not apply a team's verdicts or suppression rules. Use reviewed, team-scoped
+automation events for that workflow.
+
 ### MISP
 
 MISP exports one unpublished event per article in a MISP-compatible response document. Source URLs, tags, summaries, optional article text, and supported IOC attributes are included. The selected distribution value is written to each event, but events remain unpublished and are not sent to a MISP server.
 
-IOC mappings include `ip-dst`, `domain`, `md5`, `sha1`, `sha256`, `vulnerability`, `target-org`, and `text`. Review event quality, distribution, and `to_ids` semantics before publishing imported events.
+IOC mappings include `ip-dst` for IPv4/IPv6, `domain`, `url`, direction-neutral
+`email`, `md5`, `sha1`, `sha256`, `vulnerability`, `target-org`, and `text`.
+Extracted attributes use `to_ids: false` and comments identify their unreviewed
+provenance. Event threat level is undefined (`4`); AI relevance is not a severity
+assessment. Review event quality and distribution, apply any team verdicts and
+suppression rules, and explicitly enable chosen detection attributes before
+publishing imported events. This replaces the earlier automatic `to_ids: true`
+behavior for raw extracted values.
 
 ### PDF Bundle
 
