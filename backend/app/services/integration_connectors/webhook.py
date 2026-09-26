@@ -597,6 +597,10 @@ class WebhookIntegrationConnector:
             from app.services.webhook_automation import PAYLOAD_MODE_SNAPSHOT_KEY, store_automation_snapshot
             payload_mode = webhook.payload_mode or "template"
             if payload_mode == "automation_v1":
+                from app.services.automation_executions import register_execution
+                execution = register_execution(db, event=event, webhook=webhook)
+                if execution is not None:
+                    generic.payload_json["execution"] = {"id": str(execution.id), "webhook_id": str(webhook.id), "callback_path": f"/v1/notifications/automation/executions/{execution.id}/callbacks"}
                 store_automation_snapshot(legacy_delivery, event, payload=generic.payload_json)
             generic.payload_json[PAYLOAD_MODE_SNAPSHOT_KEY] = payload_mode
             generic.payload_json["legacy_webhook_delivery_id"] = str(legacy_delivery.id)

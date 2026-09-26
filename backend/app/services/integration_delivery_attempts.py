@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.services.automation_executions import tracked_action_delivery
+
 import uuid
 from datetime import datetime
 
@@ -101,7 +103,7 @@ def interrupt_running_attempt(
     attempt.retryable = (
         True
         if compatibility_wait
-        else delivery.connector_type != "smtp" or known_pre_side_effect
+        else not (delivery.connector_type == "smtp" or tracked_action_delivery(delivery)) or known_pre_side_effect
     )
     attempt.response_json = response
     db.add(attempt)

@@ -173,3 +173,11 @@ The delivery engine has durable attempts, bounded retries, circuit/concurrency/r
 HTTP success, including an accepted response, records successful delivery only. This release does not provide SIEM-job callbacks, cancellation, result writeback or execution-status reconciliation. It also does not add OAuth token acquisition, mutual-TLS client profiles, shared team-owned destinations or a writable MCP action API. The existing read-only MCP interface can supply additional authorized stored evidence; its team-assessment tools require current human team membership.
 
 Use delivery history and the receiver's job log together. A superseded-event diagnostic requires a fresh extraction or renewed review, not blind replay of old approval. A disabled/unreadable credential profile requires correction or key recovery before retrying. Preview is the first check for a condition mismatch or unavailable legacy metadata.
+
+## Execution receipts and subsequent policy changes
+
+Typed destinations can now report external job state and findings, and consume a
+durable acknowledged withdrawal/replacement stream. HTTP delivery remains distinct
+from hunt execution. See [receiver protocol, reference implementation, and retention
+behavior](automation-execution.md). More precise subscription conditions are described
+in [same-indicator matching](indicator-conditions.md).

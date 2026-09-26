@@ -1009,6 +1009,11 @@ def reserve_retryable_notification_webhook_delivery(
     webhook: NotificationWebhook,
     delivery: NotificationWebhookDelivery,
 ) -> NotificationWebhookRetryReservation | None:
+    # A transport failure can hide receiver acceptance. Known rejections and
+    # pre-send failures retain the normal retry budget.
+    from app.services.automation_executions import ambiguous_action_retry
+    if ambiguous_action_retry(db, delivery):
+        return None
     if delivery.success or not _is_retryable_notification_delivery(delivery):
         return None
 
