@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 from app.core.runtime_metrics import record_runtime_event
 import anyio
-from starlette.responses import FileResponse
+from starlette.responses import FileResponse, Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.core.config import get_settings
@@ -15,6 +15,19 @@ _TRANSFER_DEADLINE = "threatlens_export_transfer_deadline"
 
 class ExportTransferDeadlineExceeded(TimeoutError):
     """An incomplete response must be closed, never replaced after headers."""
+
+
+class DeadlineResponse(Response):
+    """Bound in-memory downloads that retain request-owned authorization locks."""
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        deadline = anyio.current_time() + get_settings().export_transfer_timeout_seconds
+        scope.setdefault("state", {})[_TRANSFER_DEADLINE] = deadline
+        with anyio.CancelScope(deadline=deadline) as transfer:
+            await super().__call__(scope, receive, send)
+        if transfer.cancel_called:
+            logger.warning("export_transfer_deadline_exceeded")
+            raise ExportTransferDeadlineExceeded("Export transfer deadline exceeded")
 
 
 class ExportTransferDeadlineMiddleware:

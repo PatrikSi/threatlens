@@ -4,6 +4,8 @@ import { ExportFormatPanel } from './ExportFormatPanel'
 import { ExportPreviewPanel } from './ExportPreviewPanel'
 import { useExportPageController } from './useExportPageController'
 import { ExportJobsPanel } from './ExportJobsPanel'
+import { ReviewedPublicationPanel } from './ReviewedPublicationPanel'
+import { validateExportFilterDraft } from './exportPageModel'
 
 export function ExportPage() {
   const controller = useExportPageController()
@@ -89,6 +91,7 @@ export function ExportPage() {
           <p className="text-sm text-slate dark:text-slate-300">Use background generation for large exports or work that may take more than five minutes. Article and byte limits still apply.</p>
 
           <ExportPreviewPanel controller={controller} />
+          <ReviewedPublicationPanel filters={validateExportFilterDraft(controller.filterDraft).filters} />
         </>
       )}
       <ExportJobsPanel controller={controller.jobs} />
