@@ -1,6 +1,5 @@
 """Receiver callbacks and durable control receipts use current scoped credentials."""
 
-from datetime import datetime, timezone
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -32,7 +31,7 @@ from app.services.data_access_envelopes import (
     copy_data_access_envelope_lineage,
 )
 from app.services.data_access_policy import DataAccessContext
-from app.services.automation_executions import apply_callback, reconcile_executions
+from app.services.automation_executions import acknowledge_policy_update, apply_callback, reconcile_executions
 from app.services.team_access import lock_team_for_current_access, team_access_predicate
 from app.services.webhook_request_authority import fence_webhook_request
 
@@ -348,11 +347,7 @@ def acknowledge_automation_policy_update(
         .with_for_update()
         .execution_options(populate_existing=True)
     )
-    if row.acknowledged_at is None:
-        execution.policy_acknowledged_revision = max(
-            execution.policy_acknowledged_revision, row.revision
-        )
-        row.acknowledged_at = datetime.now(timezone.utc)
+    if acknowledge_policy_update(execution, row):
         record_audit(
             db,
             actor_user_id=user.id,

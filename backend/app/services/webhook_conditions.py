@@ -229,7 +229,11 @@ def _condition_value_available(field: str, value: object) -> bool:
         )
     values = value if isinstance(value, list) else [value]
     return bool(values) and all(
-        isinstance(entry, str) and bool(entry) for entry in values
+        isinstance(entry, str)
+        and bool(entry)
+        and "\x00" not in entry
+        and not any(0xD800 <= ord(char) <= 0xDFFF for char in entry)
+        for entry in values
     )
 
 

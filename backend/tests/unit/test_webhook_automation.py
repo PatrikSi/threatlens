@@ -278,3 +278,36 @@ def test_malformed_retained_metadata_does_not_break_preview():
     )
     assert values["tag"] == []
     assert values["hunt_review_status"] is None
+
+
+@pytest.mark.parametrize(
+    "unsafe", ["malicious\x00reference", "malicious\ud800reference"]
+)
+def test_unsafe_retained_indicator_text_stays_unknown_under_negation(unsafe):
+    condition = WebhookConditionGroup.model_validate(
+        {
+            "op": "not",
+            "conditions": [
+                {
+                    "op": "indicators_any",
+                    "conditions": [
+                        {"field": "ioc_role", "operator": "in", "value": ["reference"]},
+                    ],
+                }
+            ],
+        }
+    )
+    values = {
+        "_indicators": [
+            {
+                "id": "indicator",
+                "type": "domain",
+                "value": "unsafe.net",
+                "role": unsafe,
+                "excluded": False,
+            }
+        ]
+    }
+    matched, _, missing = evaluate_conditions(condition, values)
+    assert matched is False
+    assert missing == ["ioc_role"]
