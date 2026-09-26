@@ -234,3 +234,47 @@ def test_markerless_deep_template_json_does_not_break_retry_fallback():
     assert not preserve_saved_automation_request(
         None, webhook=SimpleNamespace(payload_mode="template"), delivery=delivery
     )
+
+
+@pytest.mark.parametrize("value", ["tag\x00value", "tag\ud800value"])
+def test_condition_text_is_storage_safe_before_persistence(value):
+    with pytest.raises(ValidationError, match="cannot be stored"):
+        _condition(field="tag", operator="in", value=[value])
+
+
+@pytest.mark.parametrize(
+    "field,operator,value",
+    [
+        ("tag", "not_in", [None]),
+        ("tag", "in", {"name": "endpoint"}),
+        ("extraction_confidence", "gte", "high"),
+        ("extraction_confidence", "gte", float("nan")),
+        ("maliciousness_confidence", "lte", -1),
+        ("maliciousness_confidence", "lte", 2),
+        ("maliciousness_confidence", "lte", 10**500),
+    ],
+)
+def test_invalid_event_fields_stay_unknown_under_negation(field, operator, value):
+    condition = WebhookConditionGroup.model_validate(
+        {
+            "op": "not",
+            "conditions": [
+                {
+                    "field": field,
+                    "operator": operator,
+                    "value": ["endpoint"] if field == "tag" else 0.5,
+                }
+            ],
+        }
+    )
+    matched, _checks, missing = evaluate_conditions(condition, {field: value})
+    assert not matched and missing == [field]
+
+
+def test_malformed_retained_metadata_does_not_break_preview():
+    values = event_condition_values(
+        {"filter_metadata": ["tags"], "tags": 42, "hunt": ["accepted"]},
+        created_at=datetime.now(timezone.utc),
+    )
+    assert values["tag"] == []
+    assert values["hunt_review_status"] is None

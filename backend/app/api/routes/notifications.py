@@ -557,6 +557,8 @@ def test_notification_webhook_route(
         data_access=data_access,
     )
     try:
+        from app.services.export_job_access import capture_export_authorization
+
         result = test_notification_webhook(
             db,
             user=user,
@@ -566,6 +568,9 @@ def test_notification_webhook_route(
             data_access=data_access,
             authorization=authorization,
             operation_id=str(request.state.request_id),
+            credential_snapshot=capture_export_authorization(
+                request, authorization, data_access
+            ),
         )
     except NotificationWebhookTestPolicyError as exc:
         raise HTTPException(

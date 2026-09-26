@@ -44,17 +44,20 @@ _delivery_redirect_chain_started: ContextVar[bool | None] = ContextVar(
     "notification_delivery_redirect_chain_started",
     default=None,
 )
-_request_credentials: ContextVar[Callable[[httpx.Request], None] | None] = ContextVar("webhook_request_credentials", default=None)
+_request_credentials: ContextVar[Callable[[httpx.Request], None] | None] = ContextVar(
+    "webhook_request_credentials", default=None
+)
 
 
 @contextmanager
-def notification_request_credentials(callback: Callable[[httpx.Request], None] | None) -> Iterator[None]:
+def notification_request_credentials(
+    callback: Callable[[httpx.Request], None] | None,
+) -> Iterator[None]:
     token = _request_credentials.set(callback)
     try:
         yield
     finally:
         _request_credentials.reset(token)
-
 
 
 class RenderedNotificationRequestLike(Protocol):
@@ -180,11 +183,15 @@ def send_rendered_notification_request(
 
     try:
         _renew_notification_operation_lease(rendered.timeout_seconds)
-        with outbound_deadline(rendered.timeout_seconds), build_safe_http_client(
-            timeout=timeout,
-            headers={"User-Agent": settings.fetch_user_agent},
-            allow_private_network=settings.allow_private_network_webhooks,
-        ) as client:
+        with (
+            outbound_deadline(rendered.timeout_seconds),
+            build_safe_http_client(
+                timeout=timeout,
+                headers={"User-Agent": settings.fetch_user_agent},
+                allow_private_network=settings.allow_private_network_webhooks,
+                private_network_only=urlsplit(rendered.url).scheme.lower() == "http",
+            ) as client,
+        ):
             response = send_request_with_redirects(
                 client,
                 method=rendered.method,

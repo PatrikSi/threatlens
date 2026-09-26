@@ -12,6 +12,8 @@ ThreatLens can send revisioned extraction and approved-hunt events to an HTTPS r
 
 Public webhook destinations require HTTPS. Internal/private destinations require the existing `ALLOW_PRIVATE_NETWORK_WEBHOOKS=true` deployment setting. Cross-origin redirects remain blocked. Source evidence can contain untrusted article text: the receiver must treat it as data, validate its own action schema, and enforce its own hunt permissions and resource budget.
 
+Opted-in plaintext HTTP connections remain restricted to the pinned private address even if a hostname changes its DNS answers. Template connection tests revalidate the accepting browser session or API token before each request, including after DNS and credential preparation. An expired, revoked or newly restricted credential returns a credential-changed diagnostic; a request rejected before I/O is recorded as `not_sent`.
+
 ## Events and revisions
 
 | Event | Produced when | Action boundary |
@@ -45,6 +47,8 @@ All hooks retain their existing **all feeds / selected feeds** selection. Option
 Set matching is case-insensitive. Conditions select events; they do not trim the event payload to a matching indicator. In particular, `ioc_type` and `ioc_role` are set-level conditions and can match different indicators. A receiver must inspect each indicator's own role, confidence and exclusions before using it.
 
 Numeric indicator confidence uses the minimum across the non-excluded inventory, and remains unavailable if any relevant score is absent. Thus `gte: 0.9` requires every score to reach 0.9, while `lte: 0.5` finds a set containing at least one score at or below 0.5; it does not require every score to be low. Current automated extraction does not invent a maliciousness probability. A missing field does not become a match through `not` or `not_in`; unknown branches remain unknown. An `any` group may still match a different known-true branch. Historical events without new tag/rule metadata explain that absence in preview. Incomplete tag/rule lists cannot satisfy exclusion conditions. Approving a hunt or emitting a new event does not make an old article retrieval fresh.
+
+Malformed retained values also remain unknown, including under negation. Condition text containing characters that PostgreSQL cannot store is rejected during request validation.
 
 Example: send a current accepted hunt with non-excluded malicious infrastructure:
 
