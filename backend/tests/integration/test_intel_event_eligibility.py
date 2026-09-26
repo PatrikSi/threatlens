@@ -96,6 +96,10 @@ def test_approval_ignores_annotations_but_rejection_and_reapproval_have_distinct
         note="An additional annotation.",
     )
     assert annotated.status_code == 200, annotated.text
+    original_hunt = approved.json()["assessment"]["result"]["hunts"][0]
+    annotated_hunt = annotated.json()["assessment"]["result"]["hunts"][0]
+    assert annotated_hunt["reviewed_by_user_id"] == original_hunt["reviewed_by_user_id"]
+    assert annotated_hunt["reviewed_at"] != original_hunt["reviewed_at"]
     db_session.expire_all()
     assert (
         len(
