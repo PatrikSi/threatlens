@@ -38,6 +38,10 @@ test('real cookies protect session credentials and reject missing or incorrect C
 })
 
 test('real verification outage preserves a dirty editor and database expiry removes it', async ({ page, request, identity }) => {
+  let failedSessionChecks = 0
+  page.on('response', (response) => {
+    if (response.url().endsWith('/api/v1/auth/me') && response.status() === 503) failedSessionChecks += 1
+  })
   await page.clock.install()
   await signIn(page, identity)
   const editor = await openEditor(page)
@@ -49,6 +53,10 @@ test('real verification outage preserves a dirty editor and database expiry remo
   await expect(outage).toBeVisible()
   await expect(page.locator('#feed-edit-name')).toHaveValue('Draft through real API outage')
   await expect(page.locator('#root')).toHaveAttribute('inert', '')
+  // Finish the initial attempt and automatic retry while the outage is active.
+  // Otherwise recovery can remove Retry between Playwright's actionability
+  // check and click, despite the application having recovered correctly.
+  await expect.poll(() => failedSessionChecks).toBeGreaterThanOrEqual(2)
   await control(request, 'outage', { unavailable: false })
   await outage.getByRole('button', { name: 'Retry session check' }).click()
   await expect(name).toBeFocused()

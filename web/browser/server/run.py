@@ -207,7 +207,9 @@ def main() -> int:
                     command, cwd=ROOT / "web", env=browser_env, start_new_session=True
                 )
                 processes.append(browser)
-                return browser.wait(timeout=600)
+                # Keep the same bounded allowance per browser when running the
+                # default three-project matrix, as when CI selects one project.
+                return browser.wait(timeout=600 * (1 if args.project else 3))
     finally:
         for process in reversed(processes):
             # Kill the owned group even if npm has exited before its children.
