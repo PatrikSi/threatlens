@@ -230,3 +230,35 @@ large inventory. Downgrade refuses long retained values before removing schema;
 export and remove incompatible values first if rolling back to the older indexes.
 The digest is computed by PostgreSQL, so existing worker inserts continue to work
 without supplying the new column.
+
+## Team hunt queue
+
+Open **Teams → select a team → Team hunt queue** to review generated hunt cards
+across articles. Filter pending, stale, accepted or rejected suggestions and all,
+owned or unclaimed work. Filters and encrypted continuation cursors stay in the
+URL. Pages contain up to 25 accessible suggestions; a bounded authorization
+scan can return an empty page with a next-page action. The queue does not expose
+an unfiltered total. Refresh or return to the first page to include newly
+generated work ahead of the current cursor.
+
+The queue shows the article, source evidence age when a retrieved-article time
+is known, reviewer, review time, owner and visible linked-investigation outcome.
+Older reviews without recorded reviewer metadata remain unknown. Current team
+membership and both current and captured source handling labels govern reads.
+Investigation outcomes additionally require investigation read permission and
+the investigation's own evidence boundary.
+
+Claim/release commands require the current claim version and assessment version.
+An owner or team manager may release a claim; an eligible member can take over
+when the old owner loses team eligibility. Claims survive navigation and browser
+refresh. A queued regeneration blocks new claims; publishing its new suggestions
+removes obsolete claims atomically while audit history is retained. Stale evidence
+must be regenerated before claiming or reviewing. Claims also protect the
+existing per-article review and promotion actions against another active owner.
+
+Accept or reject the evidence-backed suggestion, then promote an accepted card
+into a team investigation. Further assignment, status, disposition and outcomes
+use the investigation workspace. Review drafts retain their original assessment
+version through background refresh; edits are disabled during submission and
+conflicts require deliberate reload. Approval still describes the exact reviewed
+evidence and does not itself establish that a hypothesis is true.

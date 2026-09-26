@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from datetime import datetime, timezone
 import uuid
 
 from sqlalchemy import func, select, text
@@ -19,6 +20,7 @@ from app.schemas.team_assessments import (
 from app.services.ai_config import load_active_ai_settings
 from app.services.ai_ops import queue_ai_task_run
 from app.services.audit import record_audit
+from app.services.team_assessment_audit import assessment_audit_labels
 from app.services.export_job_access import (
     ExportJobAccessDenied,
     export_source_snapshot,
@@ -28,6 +30,7 @@ from app.services.secret_storage import encrypt_json
 from app.services.investigations import add_evidence, add_note, create_investigation
 from app.services.team_access import assert_current_team_access
 from app.services.team_hunt_snapshot import hunt_snapshot_notes
+from app.services.team_hunt_claims import assert_hunt_claim_access
 
 from app.services.team_assessment_access import (
     AssessmentRequest,
@@ -149,7 +152,7 @@ def queue_assessment(
         raise ApiHTTPException(
             status_code=409,
             error_code="team_assessment_ai_unavailable",
-            detail="Team assessments require enabled AI and a configured article provider. Ask an administrator to check AI settings.",
+            detail="Team assessments require enabled AI and a configured team assessment provider. Ask an administrator to check AI settings.",
         )
     row = state.assessment
     if row is None:
@@ -214,6 +217,7 @@ def _audit(
         db,
         actor_user_id=actor.user.id,
         action=f"ai.team_assessment.{action}",
+        data_access_governed=True, data_access_label_ids=assessment_audit_labels(db, row),
         resource_type="item",
         resource_id=str(row.item_id),
         metadata={
@@ -264,6 +268,7 @@ def review_hunt(
     row, result, hunt = _mutable_hunt(
         state, hunt_id=hunt_id, expected_version=payload.expected_version
     )
+    assert_hunt_claim_access(db, row=row, hunt_id=hunt_id, actor=actor)
     archive_assessment_revision(
         db, row, actor_user_id=actor.user.id, change_kind="review"
     )
@@ -271,6 +276,8 @@ def review_hunt(
     if approving:
         hunt["approval_id"] = uuid.uuid4().hex
     hunt["review_status"], hunt["review_note"] = payload.status, payload.note or None
+    hunt["reviewed_by_user_id"] = str(actor.user.id)
+    hunt["reviewed_at"] = datetime.now(timezone.utc).isoformat()
     row.result_json = result
     row.version += 1
     db.flush()
@@ -310,6 +317,7 @@ def create_hunt_investigation(
         state, hunt_id=hunt_id, expected_version=payload.expected_version
     )
     active = load_active_ai_settings(db, feature_type="team_assessment")
+    assert_hunt_claim_access(db, row=row, hunt_id=hunt_id, actor=actor)
     if hunt.get("investigation_id"):
         return assessment_envelope(state, actor=actor, active=active)
     if hunt.get("review_status") != "accepted":

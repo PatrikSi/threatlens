@@ -12,6 +12,7 @@ import { hasRequiredPermissions } from '../workspace/workspaceModel'
 import { TeamCreateForm } from './TeamCreateForm'
 import { TeamListPanel } from './TeamListPanel'
 import { TeamMembersPanel } from './TeamMembersPanel'
+import { TeamHuntWorklist } from './TeamHuntWorklist'
 import { TeamIndicatorPanels } from './TeamIndicatorPanels'
 import { TeamSettingsEditor, type TeamGroupChoice } from './TeamSettingsEditor'
 
@@ -20,7 +21,7 @@ function accessLost(error: unknown) {
 }
 
 function showTeamDetails(adminMode: boolean, panel: string | null) {
-  return adminMode || !['ai-context', 'indicator-suppressions'].includes(panel ?? '')
+  return adminMode || !['ai-context', 'indicator-suppressions', 'hunts'].includes(panel ?? '')
 }
 
 export function TeamsPage() {
@@ -179,6 +180,7 @@ export function TeamsPage() {
                       >
                         Open team investigations
                       </Link>
+                      <Link className="font-semibold text-cyan" to={`/teams?team=${team.id}&panel=hunts`}>Team hunt queue</Link>
                       <Link className="font-semibold text-cyan" to="/">
                         Open dashboard views
                       </Link>
@@ -192,6 +194,12 @@ export function TeamsPage() {
                           'write:views',
                         ])}
                       />
+                    )}
+                    {params.get('panel') === 'hunts' && hasRequiredPermissions(permissions, ['read:items']) && (
+                      <TeamHuntWorklist key={team.id} teamId={team.id}
+                        writable={hasRequiredPermissions(permissions, ['write:teams'])}
+                        canInvestigate={hasRequiredPermissions(permissions, ['write:investigations'])}
+                        unavailable={user.isError || detail.isError} />
                     )}
                     <TeamIndicatorPanels teamId={team.id} panel={params.get('panel')} permissions={permissions} unavailable={user.isError || detail.isError} />
                     <TeamMembersPanel

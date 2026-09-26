@@ -4,8 +4,10 @@ import json
 import uuid
 from datetime import datetime, timezone
 
+from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
+from app.models.team_hunt_claim import TeamHuntClaim
 from app.schemas.team_ai_context import TeamAIContextResponse
 from app.services.ai_config import ActiveAISettings, load_active_ai_settings
 from app.services.ai_context_budget import estimate_tokens
@@ -88,6 +90,9 @@ def generate_team_assessment(db: Session, *, run_id: uuid.UUID) -> AICompletionR
     # fences, including the logical delivery, before changing the canonical row.
     work, _context, _source, _hunts_enabled = fence_team_assessment(db, run_id=run_id)
     work.result_json = _reviewable_result(completion, messages, truncated=truncated)
+    # Claims belong to the previous generated suggestions. Regeneration publishes
+    # new identities atomically; the audit trail retains earlier coordination.
+    db.execute(delete(TeamHuntClaim).where(TeamHuntClaim.assessment_id == work.id))
     work.result_context_version = context.version
     work.result_source_version = source.source_version
     work.result_source_encrypted = work.source_encrypted
