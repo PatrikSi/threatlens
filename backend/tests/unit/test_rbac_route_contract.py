@@ -107,6 +107,8 @@ ADMIN_ONLY_OPERATIONS = frozenset(
 
 OPERATOR_ONLY_OPERATIONS = frozenset(
     {
+        ("POST", "/v1/notifications/credential-profiles"),
+        ("PATCH", "/v1/notifications/credential-profiles/{profile_id}"),
         ("POST", "/v1/notifications/webhooks"),
         ("PATCH", "/v1/notifications/webhooks/{webhook_id}"),
         ("DELETE", "/v1/notifications/webhooks/{webhook_id}"),

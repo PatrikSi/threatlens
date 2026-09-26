@@ -5607,6 +5607,20 @@ def test_extract_item_iocs_skips_stale_article_after_refetch(db_session, monkeyp
 
 def test_extract_item_iocs_skips_when_item_lock_is_unavailable(monkeypatch: pytest.MonkeyPatch):
     item_id = uuid.uuid4()
+    lock_order: list[str] = []
+
+    def fence_policy(_db):
+        lock_order.append("policy")
+        return 1
+
+    def unavailable_item(_db, *, item_id):
+        lock_order.append("item")
+        return None, "already_running"
+
+    monkeypatch.setattr(
+        "app.services.data_access_runtime.lock_data_policy_revision_for_derivation",
+        fence_policy,
+    )
 
     @contextmanager
     def _db_session_override():
@@ -5615,7 +5629,7 @@ def test_extract_item_iocs_skips_when_item_lock_is_unavailable(monkeypatch: pyte
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
     monkeypatch.setattr(
         'app.tasks.feed_task_runtime.claim_item_processing_target',
-        lambda _db, *, item_id: (None, "already_running"),
+        unavailable_item,
     )
     monkeypatch.setattr(
         'app.services.ioc_extraction.extract_iocs',
@@ -5625,6 +5639,7 @@ def test_extract_item_iocs_skips_when_item_lock_is_unavailable(monkeypatch: pyte
     result = extract_item_iocs.run(str(item_id))
 
     assert result == {"status": "skipped", "reason": "already_running", "item_id": str(item_id)}
+    assert lock_order == ["policy", "item"]
 
 
 def test_extract_item_iocs_marks_empty_results_terminal_for_dispatch(db_session, monkeypatch):
