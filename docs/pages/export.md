@@ -67,7 +67,7 @@ their match confidence. They omit STIX Indicator `confidence`: recognizing a
 value in text does not establish maliciousness. Review the patterns before
 enabling detections. Raw article exports include the shared inventory; they do
 not apply a team's verdicts or suppression rules. Use reviewed, team-scoped
-automation events for that workflow.
+automation events or [reviewed publications](reviewed-publications.md) for that workflow.
 
 ### MISP
 
@@ -187,3 +187,10 @@ after migration so older publishers do not bypass the reservation protocol.
 - `GET /api/v1/exports/jobs/{id}/download` downloads an available artifact.
 
 The generated [API reference](../reference/api.md#exports) and [OpenAPI document](../reference/openapi.json) define the complete request schemas.
+
+## Reviewed team publications
+
+The separate [reviewed publication mode](reviewed-publications.md) applies current
+team verdicts, suppression, expiry and evidence revisions before approval. It
+retains stable artifact identities and monotonic withdrawal updates; raw research
+exports above continue to include the shared inventory.
