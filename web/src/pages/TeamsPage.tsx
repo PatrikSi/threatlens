@@ -163,50 +163,8 @@ export function TeamsPage() {
                   </p>
                 </div>
                 {!adminMode && (
-                  <>
-                    <nav
-                      aria-label="Team resources"
-                      className="flex flex-wrap gap-4"
-                    >
-                      <Link
-                        className="font-semibold text-cyan"
-                        to={`/alerts?view=occurrences&queue_scope=team&team_id=${team.id}`}
-                      >
-                        Open shared triage
-                      </Link>
-                      <Link
-                        className="font-semibold text-cyan"
-                        to={`/investigations?team_id=${team.id}`}
-                      >
-                        Open team investigations
-                      </Link>
-                      <Link className="font-semibold text-cyan" to={`/teams?team=${team.id}&panel=hunts`}>Team hunt queue</Link>
-                      <Link className="font-semibold text-cyan" to="/">
-                        Open dashboard views
-                      </Link>
-                    </nav>
-                    {hasRequiredPermissions(permissions, ['read:views']) && (
-                      <TeamSharedViews
-                        key={`views-${team.id}`}
-                        team={team}
-                        writable={hasRequiredPermissions(permissions, [
-                          'write:teams',
-                          'write:views',
-                        ])}
-                      />
-                    )}
-                    {params.get('panel') === 'hunts' && hasRequiredPermissions(permissions, ['read:items']) && (
-                      <TeamHuntWorklist key={team.id} teamId={team.id}
-                        writable={hasRequiredPermissions(permissions, ['write:teams'])}
-                        canInvestigate={hasRequiredPermissions(permissions, ['write:investigations'])}
-                        unavailable={user.isError || detail.isError} />
-                    )}
-                    <TeamIndicatorPanels teamId={team.id} panel={params.get('panel')} permissions={permissions} unavailable={user.isError || detail.isError} />
-                    <TeamMembersPanel
-                      key={`members-${team.id}`}
-                      teamId={team.id}
-                    />
-                  </>
+                  <TeamWorkspaceResources team={team} permissions={permissions}
+                    panel={params.get('panel')} unavailable={user.isError || detail.isError} />
                 )}
                 {detailsPanel && (team.can_manage || (adminMode && canAdminister)) && (
                   <TeamSettingsEditor
@@ -232,6 +190,60 @@ export function TeamsPage() {
         </div>
       )}
     </section>
+  )
+}
+
+function TeamWorkspaceResources({ team, permissions, panel, unavailable }: {
+  team: Team
+  permissions: string[]
+  panel: string | null
+  unavailable: boolean
+}) {
+  return (
+    <>
+      <nav
+        aria-label="Team resources"
+        className="flex flex-wrap gap-4"
+      >
+        <Link
+          className="font-semibold text-cyan"
+          to={`/alerts?view=occurrences&queue_scope=team&team_id=${team.id}`}
+        >
+          Open shared triage
+        </Link>
+        <Link
+          className="font-semibold text-cyan"
+          to={`/investigations?team_id=${team.id}`}
+        >
+          Open team investigations
+        </Link>
+        <Link className="font-semibold text-cyan" to={`/teams?team=${team.id}&panel=hunts`}>Team hunt queue</Link>
+        <Link className="font-semibold text-cyan" to="/">
+          Open dashboard views
+        </Link>
+      </nav>
+      {hasRequiredPermissions(permissions, ['read:views']) && (
+        <TeamSharedViews
+          key={`views-${team.id}`}
+          team={team}
+          writable={hasRequiredPermissions(permissions, [
+            'write:teams',
+            'write:views',
+          ])}
+        />
+      )}
+      {panel === 'hunts' && hasRequiredPermissions(permissions, ['read:items']) && (
+        <TeamHuntWorklist key={team.id} teamId={team.id}
+          writable={hasRequiredPermissions(permissions, ['write:teams'])}
+          canInvestigate={hasRequiredPermissions(permissions, ['write:investigations'])}
+          unavailable={unavailable} />
+      )}
+      <TeamIndicatorPanels teamId={team.id} panel={panel} permissions={permissions} unavailable={unavailable} />
+      <TeamMembersPanel
+        key={`members-${team.id}`}
+        teamId={team.id}
+      />
+    </>
   )
 }
 
