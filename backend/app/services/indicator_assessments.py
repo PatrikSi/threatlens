@@ -34,6 +34,10 @@ from app.services.indicator_evidence import (
     current_ai_indicator_links,
     indicator_exclusion,
 )
+from app.services.indicator_lineage import (
+    assessment_access_predicate,
+    capture_assessment_labels,
+)
 from app.services.team_access import (
     assert_current_team_access,
     lock_team_for_current_access,
@@ -204,9 +208,7 @@ def list_indicators(
                     IndicatorAssessment.team_id == team_id,
                     IndicatorAssessment.item_id == item_id,
                     IndicatorAssessment.ioc_id.in_(ids),
-                    handling_label_access_predicate(
-                        IndicatorAssessment.handling_label_id, actor.access
-                    ),
+                    assessment_access_predicate(actor.access),
                 )
             )
         }
@@ -246,6 +248,8 @@ def list_indicators(
             if ioc.id in assessments
             else None
         )
+        if assessment is not None and not extraction_current:
+            assessment.current = False
         if assessment and assessment.current:
             if assessment.verdict in {"benign", "reference", "example", "retracted"}:
                 reasons.append(f"analyst_{assessment.verdict}")
@@ -339,10 +343,9 @@ def update_assessment(
         .with_for_update()
     )
     if row is not None and not db.scalar(
-        select(
-            handling_label_access_predicate(
-                literal(row.handling_label_id), actor.access
-            )
+        select(IndicatorAssessment.id).where(
+            IndicatorAssessment.id == row.id,
+            assessment_access_predicate(actor.access),
         )
     ):
         raise ApiHTTPException(
@@ -372,6 +375,7 @@ def update_assessment(
     )
     row.updated_by_user_id, row.updated_at = actor.user.id, datetime.now(timezone.utc)
     db.flush()
+    capture_assessment_labels(db, row, current_label_id=feed.handling_label_id)
     result = assessment_response(
         row,
         source_revision=item.classification_required_version,

@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.models.intel_assessment import IndicatorAssessment, IndicatorSuppression
 from app.services.indicator_assessments import expired
+from app.services.indicator_lineage import assessment_labels_by_id
 
 
 def team_indicator_snapshot(
@@ -22,7 +23,6 @@ def team_indicator_snapshot(
     indicators: list[dict],
     source_revision: int,
     extraction_revision: int,
-    handling_label_id: uuid.UUID,
 ) -> tuple[list[dict], str]:
     result = deepcopy(indicators)
     ids = [uuid.UUID(entry["id"]) for entry in result]
@@ -35,10 +35,10 @@ def team_indicator_snapshot(
                 IndicatorAssessment.team_id == team_id,
                 IndicatorAssessment.item_id == item_id,
                 IndicatorAssessment.ioc_id.in_(ids),
-                IndicatorAssessment.handling_label_id == handling_label_id,
             )
         )
     }
+    lineage = assessment_labels_by_id(db, [row.id for row in assessments.values()])
     keys = [(row["type"], row["value"]) for row in result]
     suppressions = {
         (row.ioc_type, row.value_norm): row
@@ -69,9 +69,19 @@ def team_indicator_snapshot(
                 "id": entry["id"],
                 "verdict": assessment.verdict if current else None,
                 "suppressed": suppressed,
+                "assessment_label_ids": sorted(
+                    str(label) for label in lineage.get(assessment.id, set())
+                )
+                if current
+                else [],
             }
         )
         if current:
+            labels = lineage.get(assessment.id, set())
+            entry["assessment_label_ids"] = sorted(str(label) for label in labels)
+            entry["assessment_lineage_complete"] = (
+                assessment.handling_label_id in labels
+            )
             entry["analyst_verdict"] = assessment.verdict
             entry["analyst_assessment_version"] = assessment.version
             if assessment.verdict in {"benign", "reference", "example", "retracted"}:

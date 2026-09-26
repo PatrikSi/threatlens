@@ -21,7 +21,6 @@ from app.schemas.intel_assessments import (
     SuppressionResponse,
     SuppressionUpdate,
 )
-from app.services.data_access_policy import handling_label_access_predicate
 from app.services.indicator_assessments import (
     _conflict,
     expired,
@@ -29,6 +28,7 @@ from app.services.indicator_assessments import (
     load_indicator_item,
 )
 from app.services.indicator_evidence import canonical_indicator
+from app.services.indicator_lineage import assessment_access_predicate
 from app.services.team_access import assert_current_team_access, team_access_predicate
 from app.services.team_assessment_access import AssessmentRequest
 
@@ -175,9 +175,7 @@ def history_page(
                 IndicatorAssessment.team_id == team_id,
                 IndicatorAssessment.item_id == item_id,
                 IndicatorAssessment.ioc_id == ioc_id,
-                handling_label_access_predicate(
-                    IndicatorAssessment.handling_label_id, actor.access
-                ),
+                assessment_access_predicate(actor.access),
             )
         )
         model, foreign = (

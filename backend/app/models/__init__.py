@@ -54,7 +54,7 @@ from app.models.processing_work import (
 )
 from app.models.governance_operation_receipt import GovernanceOperationReceipt
 from app.models.ioc import IOC, ItemIOC
-from app.models.intel_assessment import (ItemIntelState, TeamIntelState, IndicatorAssessment, IndicatorAssessmentHistory, IndicatorSuppression, IndicatorSuppressionHistory)
+from app.models.intel_assessment import (ItemIntelState, TeamIntelState, IndicatorAssessment, IndicatorAssessmentLabel, IndicatorAssessmentHistory, IndicatorSuppression, IndicatorSuppressionHistory)
 from app.models.integration import (
     IntegrationAttempt,
     IntegrationDelivery,
@@ -189,6 +189,7 @@ __all__ = [
     "ItemIntelState",
     "TeamIntelState",
     "IndicatorAssessment",
+    "IndicatorAssessmentLabel",
     "IndicatorAssessmentHistory",
     "IndicatorSuppression",
     "IndicatorSuppressionHistory",

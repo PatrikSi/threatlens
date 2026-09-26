@@ -157,8 +157,21 @@ Team managers can maintain exact-value **Indicator suppressions** with a reason,
 optional expiry, activation state and version history. Values use the same
 canonicalization as extraction, including defanged addresses. These rules apply
 only to that team; membership never grants access to a source handling label.
-Old assessment notes and evidence retain their captured label after a source is
-relabelled. An actor without that original access cannot read or overwrite them.
+Assessment notes and history retain the union of handling labels captured by
+every review, including reviews after a source is relabelled. Reading or
+overwriting the assessment requires access to all those labels. Team automation
+events retain the same boundary; an inaccessible or missing review boundary
+withholds delivery rather than dropping a restrictive verdict from the payload.
+Migration `0110_indicator_review_lineage` backfills the original label for reviews
+that have never been edited. For previously edited reviews, earlier releases did
+not retain every source label, so the migration conservatively captures every
+existing handling label, including archived labels. These histories remain
+preserved but may become inaccessible to principals with narrower label access.
+The boundary is never cleared automatically. Existing queued team actions whose
+policy fingerprint changed are withheld; a hunt needs deliberate review and
+reapproval using the current evidence. Downgrade is blocked while an
+assessment retains labels beyond its original label, to avoid weakening history
+access. Deleting the parent item removes its assessment labels and history.
 
 A changed effective analyst verdict emits a team-scoped
 `intel.indicators.changed` event. Editing only its explanation does not resend an

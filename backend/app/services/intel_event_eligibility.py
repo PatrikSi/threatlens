@@ -10,7 +10,6 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session, load_only
 
 from app.models.article import Article
-from app.models.feed import Feed
 from app.models.intel_assessment import ItemIntelState, TeamIntelState
 from app.models.item import Item
 from app.models.team import Team
@@ -202,17 +201,18 @@ def _current(db: Session, payload: dict, event_type: str, *, lock: bool) -> bool
                 or team_state.revision != payload["team_intel_revision"]
             ):
                 return False
-        _indicators, policy_hash = team_indicator_snapshot(
+        indicators, policy_hash = team_indicator_snapshot(
             db,
             team_id=team_id,
             item_id=item_id,
             indicators=payload.get("indicators") or [],
             source_revision=source_revision,
             extraction_revision=extraction_revision,
-            handling_label_id=db.scalar(
-                select(Feed.handling_label_id).where(Feed.id == item.feed_id)
-            ),
         )
+        if any(
+            entry.get("assessment_lineage_complete") is False for entry in indicators
+        ):
+            return False
         if policy_hash != payload.get("team_indicator_policy_hash"):
             return False
     return True
