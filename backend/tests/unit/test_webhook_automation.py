@@ -191,3 +191,46 @@ def test_legacy_defaults_and_native_event_mode_contract():
         WebhookCredentialWrite(
             name="Bad header", auth_type="header", header_name="X-ThreatLens-Signature"
         )
+
+
+@pytest.mark.parametrize(
+    "event_type",
+    [
+        "rss_item_new",
+        "alert_match",
+        "feed_failing",
+        "webhook_failed",
+        "daily_digest",
+        "report_ready",
+    ],
+)
+def test_automation_marker_preserves_each_legacy_event_after_mode_change(event_type):
+    from types import SimpleNamespace
+    from app.services.webhook_automation import preserve_saved_automation_request
+
+    generic = SimpleNamespace(
+        payload_json={"webhook_payload_mode_snapshot": "automation_v1"}
+    )
+    db = SimpleNamespace(get=lambda *_: generic)
+    delivery = SimpleNamespace(
+        event_type_snapshot=event_type,
+        integration_delivery_id="retained",
+        rendered_body="{}",
+    )
+    assert preserve_saved_automation_request(
+        db, webhook=SimpleNamespace(payload_mode="template"), delivery=delivery
+    )
+
+
+def test_markerless_deep_template_json_does_not_break_retry_fallback():
+    from types import SimpleNamespace
+    from app.services.webhook_automation import preserve_saved_automation_request
+
+    delivery = SimpleNamespace(
+        event_type_snapshot="rss_item_new",
+        integration_delivery_id=None,
+        rendered_body="[" * 1500 + "]" * 1500,
+    )
+    assert not preserve_saved_automation_request(
+        None, webhook=SimpleNamespace(payload_mode="template"), delivery=delivery
+    )

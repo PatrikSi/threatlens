@@ -594,9 +594,11 @@ class WebhookIntegrationConnector:
                 event,
                 owner_user_id=legacy_delivery.user_id,
             )
-            if (webhook.payload_mode or "template") == "automation_v1":
-                from app.services.webhook_automation import store_automation_snapshot
+            from app.services.webhook_automation import PAYLOAD_MODE_SNAPSHOT_KEY, store_automation_snapshot
+            payload_mode = webhook.payload_mode or "template"
+            if payload_mode == "automation_v1":
                 store_automation_snapshot(legacy_delivery, event, payload=generic.payload_json)
+            generic.payload_json[PAYLOAD_MODE_SNAPSHOT_KEY] = payload_mode
             generic.payload_json["legacy_webhook_delivery_id"] = str(legacy_delivery.id)
             db.add(generic)
             generic_ids.append(generic.id)

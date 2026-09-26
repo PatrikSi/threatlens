@@ -306,6 +306,10 @@ def test_automation_delivery_sends_typed_snapshot_with_native_signature(
 def test_retry_preserves_event_action_and_live_disabled_profile_stops_send(
     db_session, seed_users, monkeypatch
 ):
+    monkeypatch.setattr(
+        "app.services.notification_webhook_validation.validate_notification_target_url",
+        lambda *_: None,
+    )
     event = _event(db_session)
     profile = WebhookCredentialProfile(
         user_id=seed_users["analyst"].id, name="SIEM", enabled=True, auth_type="none"
@@ -336,6 +340,9 @@ def test_retry_preserves_event_action_and_live_disabled_profile_stops_send(
     generic = db_session.get(IntegrationDelivery, retry.integration_delivery_id)
     assert generic.event_id == event.id
     assert generic.payload_json["action_id"] == "source-revision-1"
+    assert json.loads(decrypt_notification_text(original.rendered_body))[
+        "event_id"
+    ] == str(event.id)
     assert decrypt_notification_text(retry.rendered_body) == decrypt_notification_text(
         original.rendered_body
     )
@@ -355,6 +362,146 @@ def test_retry_preserves_event_action_and_live_disabled_profile_stops_send(
     result = process_notification_webhook_delivery(db_session, delivery_id=retry.id)
     assert result.result.success is False
     assert "disabled" in result.result.error
+
+
+@pytest.mark.parametrize(
+    "initial_mode,updated_mode",
+    [
+        ("automation_v1", "automation_v1"),
+        ("automation_v1", "template"),
+        ("template", "automation_v1"),
+        ("template", "template"),
+    ],
+)
+def test_retry_payload_mode_boundary_preserves_accepted_request_and_legacy_rerender(
+    db_session,
+    seed_users,
+    monkeypatch,
+    initial_mode,
+    updated_mode,
+):
+    monkeypatch.setattr(
+        "app.services.notification_webhook_validation.validate_notification_target_url",
+        lambda *_: None,
+    )
+    event = _event(db_session, event_type="rss_item_new")
+    webhook = build_notification_webhook(
+        seed_users["analyst"].id,
+        NotificationWebhookWrite(
+            name="SIEM",
+            url_template="https://first.example/hunts",
+            event_type=event.event_type,
+            payload_mode=initial_mode,
+            body_mode="raw",
+            body_template='{"template":"original"}',
+        ),
+    )
+    db_session.add(webhook)
+    db_session.flush()
+    ensure_webhook_integration(db_session, webhook)
+    db_session.commit()
+    original = db_session.get(
+        NotificationWebhookDelivery,
+        route_integration_event(db_session, event_id=event.id).webhook_delivery_ids[0],
+    )
+    original_body = decrypt_notification_text(original.rendered_body)
+    original_url = decrypt_notification_text(original.rendered_url)
+    original_generic = db_session.get(
+        IntegrationDelivery, original.integration_delivery_id
+    )
+    assert (
+        original_generic.payload_json["webhook_payload_mode_snapshot"] == initial_mode
+    )
+    if initial_mode == "automation_v1":
+        assert "webhook_payload_mode_snapshot" not in json.loads(original_body)["data"]
+    apply_notification_webhook_updates(
+        webhook,
+        NotificationWebhookWrite(
+            name="SIEM",
+            url_template="https://changed.example/hunts",
+            event_type=event.event_type,
+            payload_mode=updated_mode,
+            body_mode="raw",
+            body_template='{"template":"changed"}',
+        ),
+    )
+    ensure_webhook_integration(db_session, webhook)
+    db_session.commit()
+    # Reload the accepted request so identity-map state cannot conceal a
+    # missing persisted snapshot or payload-mode marker.
+    db_session.expire_all()
+    retry = reserve_notification_webhook_delivery_from_saved_request(
+        db_session, webhook=webhook, delivery=original
+    )
+    generic = db_session.get(IntegrationDelivery, retry.integration_delivery_id)
+    assert generic.event_id == event.id
+    assert generic.payload_json["action_id"] == "source-revision-1"
+    assert generic.payload_json["webhook_payload_mode_snapshot"] == initial_mode
+    if "automation_v1" in {initial_mode, updated_mode}:
+        assert decrypt_notification_text(retry.rendered_body) == original_body
+        assert decrypt_notification_text(retry.rendered_url) == original_url
+    else:
+        assert (
+            decrypt_notification_text(retry.rendered_body) == '{"template":"changed"}'
+        )
+        assert (
+            decrypt_notification_text(retry.rendered_url)
+            == "https://changed.example/hunts"
+        )
+    from app.services.integration_delivery import replay_dead_letter_delivery
+
+    generic.state = "dead_letter"
+    db_session.flush()
+    replay = replay_dead_letter_delivery(db_session, delivery_id=generic.id)
+    replay_legacy = db_session.get(NotificationWebhookDelivery, replay.id)
+    assert replay.event_id == event.id
+    assert replay.payload_json["webhook_payload_mode_snapshot"] == initial_mode
+    assert decrypt_notification_text(
+        replay_legacy.rendered_body
+    ) == decrypt_notification_text(retry.rendered_body)
+
+
+def test_older_automation_snapshot_survives_without_payload_mode_marker(
+    db_session,
+    seed_users,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "app.services.notification_webhook_validation.validate_notification_target_url",
+        lambda *_: None,
+    )
+    event = _event(db_session, event_type="rss_item_new")
+    webhook = build_notification_webhook(
+        seed_users["analyst"].id,
+        NotificationWebhookWrite(
+            name="SIEM",
+            url_template="https://siem.example/hunts",
+            event_type=event.event_type,
+            payload_mode="automation_v1",
+        ),
+    )
+    db_session.add(webhook)
+    db_session.flush()
+    ensure_webhook_integration(db_session, webhook)
+    db_session.commit()
+    original = db_session.get(
+        NotificationWebhookDelivery,
+        route_integration_event(db_session, event_id=event.id).webhook_delivery_ids[0],
+    )
+    generic = db_session.get(IntegrationDelivery, original.integration_delivery_id)
+    generic.payload_json = {
+        key: value
+        for key, value in generic.payload_json.items()
+        if key != "webhook_payload_mode_snapshot"
+    }
+    webhook.payload_mode = "template"
+    db_session.commit()
+    retry = reserve_notification_webhook_delivery_from_saved_request(
+        db_session, webhook=webhook, delivery=original
+    )
+    assert decrypt_notification_text(retry.rendered_body) == decrypt_notification_text(
+        original.rendered_body
+    )
 
 
 def test_superseded_source_is_not_routed_and_preview_explains(

@@ -18,6 +18,47 @@ AUTOMATION_EVENTS = frozenset(
     {"intel.extraction.ready", "intel.indicators.changed", "hunt.approved"}
 )
 MAX_AUTOMATION_BYTES = 270_336
+PAYLOAD_MODE_SNAPSHOT_KEY = "webhook_payload_mode_snapshot"
+
+
+def preserve_saved_automation_request(db, *, webhook, delivery) -> bool:
+    """Retries retain the accepted wire snapshot across payload-mode changes."""
+    if (
+        webhook.payload_mode == "automation_v1"
+        or delivery.event_type_snapshot in AUTOMATION_EVENTS
+    ):
+        return True
+    from app.models.integration import IntegrationDelivery
+
+    generic = (
+        db.get(IntegrationDelivery, delivery.integration_delivery_id)
+        if delivery.integration_delivery_id
+        else None
+    )
+    payload = (
+        generic.payload_json
+        if generic and isinstance(generic.payload_json, dict)
+        else {}
+    )
+    if payload.get(PAYLOAD_MODE_SNAPSHOT_KEY) == "automation_v1":
+        return True
+    if PAYLOAD_MODE_SNAPSHOT_KEY in payload:
+        return False
+    # Keep already saved typed requests compatible when their worker predates
+    # the marker. The marker is internal; it never changes signed body bytes.
+    from app.services.notification_webhook_storage import decrypt_notification_text
+
+    body = decrypt_notification_text(delivery.rendered_body)
+    if not body or len(body.encode("utf-8")) > MAX_AUTOMATION_BYTES:
+        return False
+    try:
+        envelope = json.loads(body)
+    except (ValueError, TypeError, RecursionError):
+        return False
+    return (
+        isinstance(envelope, dict)
+        and envelope.get("schema_version") == "threatlens.automation.v1"
+    )
 
 
 def automation_envelope(

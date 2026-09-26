@@ -630,6 +630,10 @@ def _reserve_notification_webhook_delivery_from_current_context(
     delivery: NotificationWebhookDelivery,
     not_before: datetime | None = None,
 ) -> NotificationWebhookDelivery | None:
+    from app.services.webhook_automation import preserve_saved_automation_request
+
+    if preserve_saved_automation_request(db, webhook=webhook, delivery=delivery):
+        return None
     user = db.scalar(select(User).where(User.id == webhook.user_id))
     if user is None or not user.is_active or not user.is_approved:
         return None
