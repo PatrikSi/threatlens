@@ -146,6 +146,67 @@ def test_operator_withdrawal_is_versioned_idempotent_and_governed(client, review
     assert all(row.data_access_governed and row.data_access_label_ids for row in audits)
 
 
+def test_manual_withdrawal_does_not_conflict_with_undiscovered_partial_expiry(
+    client, intel_setup, auth_headers, db_session,  # noqa: F811
+):
+    from tests.integration.test_indicator_intelligence import _extract
+
+    team, item, *_ = intel_setup
+    _extract(db_session, item, "Threat infrastructure: evil[.]net and malicious[.]net.")
+    db_session.commit()
+    page = _page(client, intel_setup, auth_headers["analyst"])
+    for indicator in page["items"]:
+        reviewed = client.patch(
+            f"/items/{item.id}/indicators/{indicator['id']}/assessment?team_id={team['id']}",
+            json=_command(page), headers=auth_headers["analyst"],
+        )
+        assert reviewed.status_code == 200, reviewed.text
+    path, _, published = publish(client, (team, item), auth_headers)
+    assert published["indicator_count"] == 2
+    review = db_session.scalars(select(IndicatorAssessment).where(IndicatorAssessment.item_id == item.id)).first()
+    review.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+    db_session.commit()
+    # History has not reconciled this newly expired entry yet. The visible
+    # revision still identifies the exact publication the user can withdraw.
+    listed = client.get(path, headers=auth_headers["analyst"])
+    assert listed.json()["items"][0]["revision"] == 1
+    withdrawn = client.post(
+        f"{path}/{published['id']}/withdraw", json={"expected_revision": 1},
+        headers=auth_headers["analyst"],
+    )
+    assert withdrawn.status_code == 200, withdrawn.text
+    assert withdrawn.json()["status"] == "withdrawn"
+    assert withdrawn.json()["revision"] == 2
+    assert withdrawn.json()["withdrawn_count"] == 2
+
+
+def test_withdrawal_audit_retains_current_and_historical_handling_labels(
+    client, reviewed, auth_headers, db_session, seed_users, monkeypatch,
+):
+    from app.models.feed import Feed
+    from tests.integration.test_data_policy_read_coverage import _enable_enforcement
+
+    path, _, published = publish(client, reviewed, auth_headers)
+    publication = db_session.get(IndicatorPublication, uuid.UUID(published["id"]))
+    captured_labels = {label for entry in publication.snapshot_json["indicators"] for label in entry["label_ids"]}
+    restricted = _enable_enforcement(db_session, seed_users, monkeypatch)
+    feed = db_session.get(Feed, reviewed[1].feed_id)
+    feed.handling_label_id = restricted.id
+    db_session.commit()
+    withdrawn = client.post(
+        f"{path}/{published['id']}/withdraw", json={"expected_revision": 1},
+        headers=auth_headers["admin"],
+    )
+    assert withdrawn.status_code == 200, withdrawn.text
+    audit = db_session.scalar(select(AuditLog).where(
+        AuditLog.action == "intelligence.publication.withdraw",
+        AuditLog.resource_id == published["id"],
+    ))
+    assert audit.data_access_governed
+    assert str(restricted.id) not in captured_labels
+    assert set(audit.data_access_label_ids) == captured_labels | {str(restricted.id)}
+
+
 def test_publication_survives_source_retention_but_withholds_evidence(client, reviewed, auth_headers, db_session):
     from app.models.item import Item
 
