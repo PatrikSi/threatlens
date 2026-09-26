@@ -690,7 +690,7 @@
     "version": "1.4.0",
     "license": "Apache-2.0",
     "license_source": "license_expression",
-    "summary": "Clean, filter and sample URLs to optimize data collection – includes spam, content type and language filters.",
+    "summary": "Clean, filter and sample URLs to optimize data collection \u2013 includes spam, content type and language filters.",
     "metadata_license_expression": "Apache-2.0",
     "license_files": [
       "LICENSE"
@@ -1294,7 +1294,7 @@
     "license_source": "license",
     "summary": "Heuristic based boilerplate removal tool",
     "home_page": "https://github.com/miso-belica/jusText",
-    "author": "Jan Pomikálek",
+    "author": "Jan Pomik\u00e1lek",
     "metadata_license": "The BSD 2-Clause License",
     "license_files": [
       "LICENSE.rst"
@@ -1394,7 +1394,7 @@
     "license_source": "license",
     "summary": "HTML cleaner from lxml project",
     "home_page": "https://github.com/fedora-python/lxml_html_clean/",
-    "author": "Lumír Balhar",
+    "author": "Lum\u00edr Balhar",
     "metadata_license": "BSD-3-Clause",
     "license_files": [
       "LICENSE.txt"
@@ -1973,7 +1973,7 @@
     "license": "BSD-2-Clause",
     "license_source": "license_expression",
     "summary": "Python API for MISP.",
-    "author": "Raphaël Vinot",
+    "author": "Rapha\u00ebl Vinot",
     "metadata_license_expression": "BSD-2-Clause",
     "license_files": [
       "LICENSE"
