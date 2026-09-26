@@ -61,7 +61,8 @@ Each row retains its next check time, with a five-minute normal revisit interval
 large backlogs therefore take multiple sweeps. Row locks use `SKIP LOCKED`, so an
 active callback cannot block the scan. Source/extraction revisions, approval and
 team context, analyst verdicts, verdict expiry, and team suppression changes can
-invalidate an earlier action. Interrupted scans safely resume from committed
+invalidate an earlier team-scoped action. Shared raw intelligence is not changed
+by a different team's policy. Interrupted scans safely resume from committed
 state. No external job is started during reconciliation.
 
 An invalidated action receives exactly one durable `intel.withdrawn` update, or
@@ -79,7 +80,8 @@ subscription types and do not reuse the original subscription's filters:
 - Apply withdrawal/replacement locally, keeping a durable tombstone even if the
   original webhook has not arrived yet. A late delivery must not reactivate it.
 - `POST /v1/notifications/automation/updates/{id}/ack` acknowledges local
-  application. Retry acknowledgement safely after a lost response.
+  application. Acknowledge revisions in order for each execution; skipped earlier
+  revisions return HTTP 409. Retry acknowledgement safely after a lost response.
 - `POST /v1/notifications/automation/reconcile` requests another bounded scan of
   the owner's **due** rows; it does not bypass the recorded revisit time.
 

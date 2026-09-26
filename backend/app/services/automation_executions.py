@@ -257,3 +257,18 @@ def ambiguous_action_retry(db: Session, delivery) -> bool:
         else {}
     )
     return receipt.get("external_side_effect_possible") is not False
+
+
+def acknowledge_policy_update(
+    execution: AutomationExecution, update: AutomationPolicyUpdate
+) -> bool:
+    """Acknowledgements cannot skip an unapplied earlier policy revision."""
+    if update.acknowledged_at is not None:
+        return False
+    if update.revision != execution.policy_acknowledged_revision + 1:
+        raise HTTPException(
+            409, "Acknowledge the earlier policy revision before this update"
+        )
+    update.acknowledged_at = datetime.now(timezone.utc)
+    execution.policy_acknowledged_revision = update.revision
+    return True

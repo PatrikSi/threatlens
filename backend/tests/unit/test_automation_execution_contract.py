@@ -261,3 +261,18 @@ def test_receiver_replays_policy_ack_after_server_already_removed_pending_row(tm
     assert (
         ledger.db.execute("SELECT acknowledged FROM policy_receipts").fetchone()[0] == 1
     )
+
+
+def test_policy_acknowledgements_are_contiguous_and_idempotent():
+    from app.services.automation_executions import acknowledge_policy_update
+
+    execution = SimpleNamespace(policy_acknowledged_revision=0)
+    first = SimpleNamespace(revision=1, acknowledged_at=None)
+    second = SimpleNamespace(revision=2, acknowledged_at=None)
+    with pytest.raises(HTTPException) as conflict:
+        acknowledge_policy_update(execution, second)
+    assert conflict.value.status_code == 409
+    assert acknowledge_policy_update(execution, first)
+    assert not acknowledge_policy_update(execution, first)
+    assert acknowledge_policy_update(execution, second)
+    assert execution.policy_acknowledged_revision == 2
