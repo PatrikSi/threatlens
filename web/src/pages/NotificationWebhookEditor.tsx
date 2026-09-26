@@ -11,6 +11,8 @@ import {
 } from './notificationWebhookDraft'
 import { KeyValueEditor } from './NotificationWebhookShared'
 import { NotificationWebhooksController } from './useNotificationWebhooksController'
+import { WebhookAutomationFields } from './WebhookAutomationFields'
+import { validateConditions } from './webhookConditionModel'
 
 function UnavailableAIEventNotice({ visible, feature }: { visible: boolean; feature: string }) {
   if (!visible) return null
@@ -61,10 +63,10 @@ function BasicRequestFields({ controller }: { controller: NotificationWebhooksCo
           onChange={(event) => setDraft((current) => ({ ...current, method: event.target.value as NotificationWebhookDraft['method'] }))}
         >
           <option value="POST">POST</option>
-          <option value="PUT">PUT</option>
-          <option value="PATCH">PATCH</option>
-          <option value="GET">GET</option>
-          <option value="DELETE">DELETE</option>
+          <option value="PUT" disabled={draft.payload_mode === 'automation_v1'}>PUT</option>
+          <option value="PATCH" disabled={draft.payload_mode === 'automation_v1'}>PATCH</option>
+          <option value="GET" disabled={draft.payload_mode === 'automation_v1'}>GET</option>
+          <option value="DELETE" disabled={draft.payload_mode === 'automation_v1'}>DELETE</option>
         </select>
       </div>
       <div className="md:col-span-2">
@@ -100,8 +102,8 @@ function BasicRequestFields({ controller }: { controller: NotificationWebhooksCo
         <select
           id="notification-webhook-body-mode"
           className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 disabled:bg-slate/5 disabled:text-slate/60 dark:border-cyan-900/40 dark:bg-[#072019] dark:disabled:bg-white/[0.03] dark:disabled:text-white/45"
-          disabled={!canManageWebhooks}
-          value={draft.body_mode}
+          disabled={!canManageWebhooks || draft.payload_mode === 'automation_v1'}
+          value={draft.payload_mode === 'automation_v1' ? 'json' : draft.body_mode}
           onChange={(event) => setDraft((current) => applyBodyMode(current, event.target.value as NotificationWebhookDraft['body_mode']))}
         >
           <option value="json">JSON object</option>
@@ -116,8 +118,8 @@ function BasicRequestFields({ controller }: { controller: NotificationWebhooksCo
           id="notification-webhook-content-type"
           className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm disabled:bg-slate/5 disabled:text-slate/60 dark:border-cyan-900/40 dark:bg-[#072019] dark:disabled:bg-white/[0.03] dark:disabled:text-white/45"
           list="notification-content-types"
-          disabled={!canManageWebhooks}
-          value={draft.content_type}
+          disabled={!canManageWebhooks || draft.payload_mode === 'automation_v1'}
+          value={draft.payload_mode === 'automation_v1' ? 'application/json' : draft.content_type}
           onChange={(event) => setDraft((current) => ({ ...current, content_type: event.target.value }))}
           placeholder={`Auto (${resolveDefaultContentTypeLabel(draft.body_mode)})`}
         />
@@ -127,7 +129,7 @@ function BasicRequestFields({ controller }: { controller: NotificationWebhooksCo
           <option value="text/plain; charset=utf-8" />
           <option value="text/markdown; charset=utf-8" />
         </datalist>
-        <p className="mt-1 text-xs text-slate dark:text-white/60">Leave blank to use the default for the selected body mode.</p>
+        <p className="mt-1 text-xs text-slate dark:text-white/60">{draft.payload_mode === 'automation_v1' ? 'Structured automation always uses JSON.' : 'Leave blank to use the default for the selected body mode.'}</p>
       </div>
     </div>
   )
@@ -221,7 +223,7 @@ function RequestPayloadEditors({ controller }: { controller: NotificationWebhook
           onChange={(fields) => setDraft((current) => ({ ...current, headers: fields }))}
         />
       </div>
-      {(draft.body_mode === 'json' || draft.body_mode === 'form') && (
+      {draft.payload_mode !== 'automation_v1' && (draft.body_mode === 'json' || draft.body_mode === 'form') && (
         <div className="mt-3">
           <KeyValueEditor
             title={draft.body_mode === 'json' ? 'JSON body fields' : 'Form fields'}
@@ -235,7 +237,7 @@ function RequestPayloadEditors({ controller }: { controller: NotificationWebhook
           />
         </div>
       )}
-      {draft.body_mode === 'raw' && (
+      {draft.payload_mode !== 'automation_v1' && draft.body_mode === 'raw' && (
         <div className="mt-3">
           <label htmlFor="notification-webhook-raw-body" className="text-sm font-semibold">Raw body template</label>
           <textarea
@@ -273,16 +275,17 @@ function EditorActions({ controller }: { controller: NotificationWebhooksControl
   if (!canManageWebhooks || isReadOnly) return null
   return (
     <div className="mt-4 flex flex-wrap items-center gap-2">
-      <button className="rounded bg-ink px-3 py-2 text-white disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]" disabled={saveWebhook.isPending} onClick={onSave}>
+      <button className="rounded bg-ink px-3 py-2 text-white disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]" disabled={saveWebhook.isPending || Boolean(validateConditions(draft.conditions ?? null))} onClick={onSave}>
         {selectedWebhookId ? 'Save changes' : 'Create webhook'}
       </button>
       <button
         className="rounded border border-slate/30 px-3 py-2 text-sm font-semibold disabled:opacity-50 dark:border-cyan-900/40"
-        disabled={testWebhook.isPending || (draft.feed_scope === 'selected' && !draft.feed_ids.length)}
+        disabled={testWebhook.isPending || draft.payload_mode === 'automation_v1' || (draft.feed_scope === 'selected' && !draft.feed_ids.length)}
         onClick={onTest}
       >
         Test webhook
       </button>
+      {draft.payload_mode === 'automation_v1' && <p className="text-xs">Use the stored-event preview above for automation payloads; test sends do not fabricate hunt requests.</p>}
       {selectedWebhookId && (
         <button
           className="rounded border border-red-300 px-3 py-2 text-sm font-semibold text-red-700 disabled:opacity-50 dark:border-red-900/60 dark:text-red-300"
@@ -344,6 +347,7 @@ export function NotificationWebhookEditor({ controller }: { controller: Notifica
       </div>
       <BasicRequestFields controller={controller} />
       <FeedScopeEditor controller={controller} />
+      <WebhookAutomationFields controller={controller} />
       <RequestPayloadEditors controller={controller} />
       <EditorActions controller={controller} />
       <EditorNotices controller={controller} />

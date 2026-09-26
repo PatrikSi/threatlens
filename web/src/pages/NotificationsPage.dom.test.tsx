@@ -396,7 +396,7 @@ describe('NotificationsPage DOM workflows', () => {
     })
 
     expect(pageText()).toContain('Discard unsaved changes?')
-    expect(pageText()).toContain('Discard unsaved webhook changes?')
+    expect(pageText()).toContain('Discard unsaved webhook or credential changes?')
     expect(pageText()).not.toContain('Delete webhook?')
 
     const discardChangesButton = Array.from(document.querySelectorAll('button')).find((button) =>

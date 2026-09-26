@@ -49,5 +49,5 @@ test('inspects activity buckets and exact values with the keyboard on desktop an
   await region.focus()
   await page.keyboard.press('ArrowRight')
   await expect.poll(() => region.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0)
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= globalThis.innerWidth)).toBe(true)
 })

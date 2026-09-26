@@ -6,7 +6,7 @@ import { accessibleQueryData } from '../api/queryData'
 import type { TeamPage } from '../types/teams'
 import { TEAM_BUTTON } from './teamPresentation'
 
-export function AssessmentTeamPicker({ value, onChange }: { value: string; onChange: (teamId: string) => void }) {
+export function AssessmentTeamPicker({ value, onChange, label = 'Assessment team', emptyLabel = 'Select a team' }: { value: string; onChange: (teamId: string) => void; label?: string; emptyLabel?: string }) {
   const [page, setPage] = useState(1)
   const query = useQuery({
     queryKey: ['teams', 'list', false, page, 50],
@@ -16,9 +16,9 @@ export function AssessmentTeamPicker({ value, onChange }: { value: string; onCha
   const data = accessibleQueryData(query)
   const teams = data?.items ?? []
   return <div className="space-y-2">
-    <label className="block text-sm font-semibold">Assessment team
+    <label className="block text-sm font-semibold">{label}
       <select className="mt-1 w-full rounded border border-slate/30 bg-white p-2 dark:bg-[#072019]" value={value} onChange={(event) => onChange(event.target.value)}>
-        <option value="">Select a team</option>
+        <option value="">{emptyLabel}</option>
         {value && !teams.some((team) => team.id === value) && <option value={value}>Selected team ({value.slice(0, 8)})</option>}
         {teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
       </select>

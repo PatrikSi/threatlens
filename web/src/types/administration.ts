@@ -68,6 +68,7 @@ export interface EncryptedDataInventoryResponse {
   using_derived_app_data_encryption_key: boolean
   startup_scan: EncryptedDataStartupScan
   feeds: EncryptedDataInventoryCategory
+  webhook_credential_secrets?: EncryptedDataInventoryCategory
   notification_webhooks: EncryptedDataInventoryCategory
   notification_delivery_snapshots: EncryptedDataInventoryCategory
   team_assessment_authorizations?: EncryptedDataInventoryCategory
