@@ -54,12 +54,21 @@ Legacy route behavior:
 - User profile summary (`email`, `role`, `status`, `created`)
 - Change password form
 - OIDC identity status with link and password-confirmed unlink controls when a provider is enabled
+- Personal Article previews switch to remember whether original previews load
+  external resources. It defaults off and explains the privacy tradeoff before
+  saving. Each preview can override it temporarily; scripts remain blocked.
+  Organization navigation defaults and navigation resets do not change this
+  personal consent. Saving requires `write:workspace_preferences`; reading the
+  setting requires `read:workspace`.
 - API calls:
   - `GET /auth/me`
   - `POST /auth/change-password`
   - `GET /auth/oidc/account`
   - `POST /auth/oidc/link`
   - `DELETE /auth/oidc/account`
+  - `GET /workspace/preferences`
+  - `PUT /workspace/preferences` (privacy-only writes preserve navigation;
+    older navigation clients that omit the privacy field preserve its value)
 
 ## Identity Provider (Admin)
 

@@ -1,4 +1,5 @@
 import { ArticlePreviewDrawer } from './DashboardPageComponents'
+import { useArticlePreviewPreferences } from '../hooks/useArticlePreviewPreferences'
 import {
   ARTICLE_PREVIEW_MIN_WIDTH,
   countActiveWindowFilters,
@@ -25,10 +26,11 @@ import { DashboardRssPanel } from './DashboardRssPanel'
 import type { DashboardPageController } from './useDashboardPageController'
 
 export function DashboardWorkspace({ controller }: { controller: DashboardPageController }) {
+  const previewPreference = useArticlePreviewPreferences()
   const {
-    adjustArticlePreviewWidth, articlePreview, articlePreviewFrameState, articlePreviewWidth,
+    adjustArticlePreviewWidth, articlePreview, articlePreviewWidth,
     closeArticlePreview, isArticlePreviewResizing, isWideLayout, mobileActiveWindowIndex,
-    renderedWindows, resolvedMobileWindowId, rootRef, setArticlePreviewFrameState,
+    renderedWindows, resolvedMobileWindowId, rootRef,
     setMobileActiveWindowId, startArticlePreviewResize, viewSavePending, windows,
   } = controller
 
@@ -74,16 +76,15 @@ export function DashboardWorkspace({ controller }: { controller: DashboardPageCo
 
       {articlePreview && (
         <ArticlePreviewDrawer
-          key={articlePreview.itemId}
+          key={`${previewPreference.userId}:${articlePreview.itemId}`}
           preview={articlePreview}
-          frameState={articlePreviewFrameState}
+          defaultExternalResources={previewPreference.defaultExternalResources}
           width={articlePreviewWidth}
           minWidth={ARTICLE_PREVIEW_MIN_WIDTH}
           maxWidth={getArticlePreviewMaxWidth()}
           onResizeStart={startArticlePreviewResize}
           onResizeBy={adjustArticlePreviewWidth}
           isResizing={isArticlePreviewResizing}
-          onFrameLoad={() => setArticlePreviewFrameState('loaded')}
           onClose={closeArticlePreview}
         />
       )}

@@ -47,6 +47,16 @@ const CAPABILITIES = {
       supports_user_state: false,
     },
     {
+      id: 'misp',
+      label: 'MISP',
+      extension: '.misp.json',
+      media_type: 'application/json',
+      description: 'MISP event with extracted indicators.',
+      supports_article_text: false,
+      supports_iocs: true,
+      supports_user_state: false,
+    },
+    {
       id: 'pdf_bundle',
       label: 'PDF bundle',
       extension: '.pdf.zip',
@@ -215,7 +225,7 @@ describe('ExportPage', () => {
     expect(view.querySelector('table')?.parentElement?.className).toContain('hidden')
     expect(view.querySelector('article')?.parentElement?.className).toContain('sm:hidden')
     expect(view.querySelector<HTMLInputElement>('#export-search')).not.toBeNull()
-    expect(view.querySelectorAll('input[name="article-export-format"]')).toHaveLength(3)
+    expect(view.querySelectorAll('input[name="article-export-format"]')).toHaveLength(4)
     const generateButton = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.includes('Generate CSV'))
     const previewHeading = Array.from(view.querySelectorAll('h2')).find((heading) => heading.textContent === 'Matching articles')
     const documentPosition = generateButton && previewHeading ? generateButton.compareDocumentPosition(previewHeading) : 0
@@ -235,6 +245,15 @@ describe('ExportPage', () => {
     expect(view.textContent).toContain('Full article text')
     expect(view.textContent).not.toContain('Full article text in PDFs')
     expect(view.textContent).toContain('Generate PDF bundle')
+  })
+
+  it.each(['stix', 'misp'])('discloses raw extraction and unapplied team policy for %s', async (format) => {
+    const view = renderPage()
+    await waitForPreview(view)
+    const warning = 'Raw extracted values; review before enabling detections. Team verdicts and suppressions are not applied.'
+    expect(view.textContent).not.toContain(warning)
+    act(() => view.querySelector<HTMLInputElement>(`input[value="${format}"]`)!.click())
+    expect(view.querySelector('[role="note"]')?.textContent).toContain(warning)
   })
 
   it('validates filters immediately and pauses export while the preview is stale', async () => {

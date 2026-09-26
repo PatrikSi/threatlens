@@ -14,15 +14,11 @@ import {
 
 export function useArticlePreview() {
   const [articlePreview, setArticlePreview] = useState<ArticlePreviewState | null>(null)
-  const [articlePreviewFrameState, setArticlePreviewFrameState] = useState<'loading' | 'loaded' | 'possibly_blocked'>(
-    'loading',
-  )
   const [articlePreviewWidth, setArticlePreviewWidth] = useState(() => loadArticlePreviewWidth())
   const [isArticlePreviewResizing, setIsArticlePreviewResizing] = useState(false)
   const resizeCleanupRef = useRef<(() => void) | null>(null)
 
   const openArticlePreview = (preview: ArticlePreviewState) => {
-    setArticlePreviewFrameState('loading')
     setArticlePreview(preview)
   }
 
@@ -109,9 +105,6 @@ export function useArticlePreview() {
       return
     }
 
-    const blockedNoticeTimeout = window.setTimeout(() => {
-      setArticlePreviewFrameState((current) => (current === 'loading' ? 'possibly_blocked' : current))
-    }, 5000)
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setArticlePreview(null)
@@ -120,7 +113,6 @@ export function useArticlePreview() {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => {
-      window.clearTimeout(blockedNoticeTimeout)
       window.removeEventListener('keydown', handleKeyDown)
     }
   }, [articlePreview])
@@ -128,12 +120,10 @@ export function useArticlePreview() {
   return {
     adjustArticlePreviewWidth,
     articlePreview,
-    articlePreviewFrameState,
     articlePreviewWidth,
     closeArticlePreview,
     isArticlePreviewResizing,
     openArticlePreview,
-    setArticlePreviewFrameState,
     setArticlePreviewWidth,
     startArticlePreviewResize,
   }

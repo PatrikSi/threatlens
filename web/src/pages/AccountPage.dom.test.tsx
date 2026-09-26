@@ -37,7 +37,8 @@ const accountPageDomMocks = vi.hoisted(() => ({
   })),
 }))
 
-vi.mock('../api/client', () => ({
+vi.mock('../api/client', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../api/client')>(),
   apiFetch: accountPageDomMocks.apiFetch,
   buildApiUrl: (path: string) => `/api/v1${path}`,
 }))
