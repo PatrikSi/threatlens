@@ -7,6 +7,7 @@ import { useCurrentUser } from '../hooks/useCurrentUser'
 import type { ArticleExportFilters, ArticleExportTLPMarking } from '../types/exports'
 import type { IndicatorPublication, IndicatorPublicationPage, ReviewedPublicationPreview } from '../types/indicatorPublications'
 import { hasRequiredPermissions } from '../workspace/workspaceModel'
+import { createSecureRequestId } from '../utils/secureRandomId'
 import { AssessmentTeamPicker } from './AssessmentTeamPicker'
 import { triggerBrowserDownload } from './exportPageModel'
 import { TEAM_BUTTON } from './teamPresentation'
@@ -63,9 +64,16 @@ function PublicationWorkspace({ team, filters, writable }: {
   })
   const currentPreview = preview.isSuccess && preview.data?.scope === scope ? preview.data.value : undefined
   const publish = useMutation({
-    mutationFn: (body: object) => apiFetch<IndicatorPublication>(endpoint, { method: 'POST', body: JSON.stringify(body) }),
+    mutationFn: async (body: object) => {
+      const signature = JSON.stringify(body)
+      if (requestIdentity.current?.body !== signature) requestIdentity.current = { body: signature, id: createSecureRequestId() }
+      return apiFetch<IndicatorPublication>(endpoint, {
+        method: 'POST', body: JSON.stringify({ ...body, idempotency_key: requestIdentity.current.id }),
+      })
+    },
     onSuccess: () => {
       if (!mounted.current) return
+      requestIdentity.current = null
       setApproved(false)
       void client.invalidateQueries({ queryKey: ['reviewed-publications', team] })
     },
@@ -98,9 +106,7 @@ function PublicationWorkspace({ team, filters, writable }: {
   function save() {
     if (!currentPreview || !filters) return
     const body = { filters, preview_fingerprint: currentPreview.fingerprint, format, marking, misp_distribution: distribution }
-    const signature = JSON.stringify(body)
-    if (requestIdentity.current?.body !== signature) requestIdentity.current = { body: signature, id: crypto.randomUUID() }
-    publish.mutate({ ...body, idempotency_key: requestIdentity.current.id })
+    publish.mutate(body)
   }
   return <div className="space-y-3">
     <fieldset disabled={publish.isPending} className="space-y-3">
