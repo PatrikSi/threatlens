@@ -457,19 +457,17 @@ def reset_user_preferences(
             },
         )
     if row is not None:
-        if row.article_preview_external_resources:
-            # This endpoint resets navigation, not the separately chosen
-            # original-preview privacy preference.
-            row.modules_json = {}
-            row.landing_module_id = None
-            row.dashboard_panel_ids_json = None
-            row.revision += 1
-            row.updated_by_user_id = user.id
-            db.flush()
-            db.refresh(row)
-            return user_preference_response(user.id, role, row)
-        db.delete(row)
+        # Reset only navigation overrides. Preserve the privacy choice and the
+        # monotonic revision: deleting the row would make an old revision-zero
+        # draft valid again after another client changed these preferences.
+        row.modules_json = {}
+        row.landing_module_id = None
+        row.dashboard_panel_ids_json = None
+        row.revision += 1
+        row.updated_by_user_id = user.id
         db.flush()
+        db.refresh(row)
+        return user_preference_response(user.id, role, row)
     return user_preference_response(user.id, role, None)
 
 

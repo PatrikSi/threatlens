@@ -135,3 +135,48 @@ def test_navigation_writes_and_resets_preserve_consent_and_stale_writes_conflict
     assert reset.json()["article_preview_external_resources"] is True
     assert reset.json()["dashboard_panel_ids"] is None
     assert reset.json()["revision"] == 3
+
+
+def test_navigation_reset_cannot_revive_a_stale_privacy_draft(
+    workspace_client, auth_headers
+):
+    path = "/v1/workspace/preferences"
+    headers = auth_headers["viewer"]
+    original = workspace_client.get(path, headers=headers).json()
+    assert original["revision"] == 0
+    for revision, enabled in ((0, True), (1, False)):
+        updated = workspace_client.put(
+            path,
+            headers=headers,
+            json={
+                "expected_revision": revision,
+                "article_preview_external_resources": enabled,
+            },
+        )
+        assert updated.status_code == 200, updated.text
+    reset = workspace_client.post(
+        path + "/reset", headers=headers, json={"expected_revision": 2}
+    )
+    assert reset.status_code == 200, reset.text
+    assert reset.json()["revision"] == 3
+    assert reset.json()["article_preview_external_resources"] is False
+    assert reset.json()["modules"] == []
+    assert reset.json()["landing_module_id"] is None
+    assert reset.json()["dashboard_panel_ids"] is None
+
+    stale = workspace_client.put(
+        path,
+        headers=headers,
+        json={
+            "expected_revision": original["revision"],
+            "article_preview_external_resources": True,
+        },
+    )
+    assert stale.status_code == 409, stale.text
+    assert stale.headers["X-Current-Revision"] == "3"
+    assert (
+        workspace_client.get(path, headers=headers).json()[
+            "article_preview_external_resources"
+        ]
+        is False
+    )
