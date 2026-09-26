@@ -193,3 +193,104 @@ def test_legacy_settings_save_preserves_new_toggles_and_explicit_disable_works(
     assert response.status_code == 200
     assert response.json()["structured_extraction_enabled"] is False
     assert response.json()["hunt_suggestions_enabled"] is False
+
+
+def test_long_article_uses_bounded_runtime_calls_and_exposes_tail_evidence(
+    db_session, extraction_item, monkeypatch, client, auth_headers,
+):
+    item, article = extraction_item
+    article.text = "Ordinary introduction. " * 500 + ARTICLE
+    db_session.commit()
+    calls = []
+
+    def extract_section(_active, *, messages, **_kwargs):
+        source = json.loads(messages[-1]["content"])["item"]["article_text"]
+        calls.append(source)
+        return completion(extraction_payload() if ARTICLE in source else {"entities": [], "relationships": []})
+
+    monkeypatch.setattr("app.services.ai_integration._call_ai_json", extract_section)
+    result = run_item_ai_enrichment(db_session, item_id=item.id, force=True)
+    db_session.commit()
+    assert result.status == "ready"
+    assert len(calls) == 2
+    assert result.enrichment.total_tokens == 760
+    response = client.get(f"/items/{item.id}", headers=auth_headers["viewer"])
+    assert response.status_code == 200
+    insight = response.json()["ai_insight"]
+    assert insight["structured_extraction"]["coverage"]["uncovered_chars"] == 0
+    assert insight["extraction_progress"]["sections"][-1]["status"] == "completed"
+    assert "completion" not in json.dumps(insight["extraction_progress"])
+    assert insight["structured_extraction"]["entities"][0]["name"] == "CloudBear"
+
+
+def test_long_article_stops_if_source_changes_before_section_checkpoint(db_session, extraction_item, monkeypatch):
+    item, article = extraction_item
+    article.text = "Ordinary introduction. " * 500 + ARTICLE
+    db_session.commit()
+    calls = []
+
+    def refresh(_active, *, messages, **_kwargs):
+        calls.append(messages)
+        item.classification_required_version += 1
+        db_session.flush()
+        return completion({"entities": [], "relationships": []})
+
+    monkeypatch.setattr("app.services.ai_integration._call_ai_json", refresh)
+    result = run_item_ai_enrichment(db_session, item_id=item.id, force=True)
+    db_session.commit()
+    assert result.status == "skipped"
+    assert result.reason == "stale_result_discarded"
+    assert len(calls) == 1
+    assert result.enrichment.structured_extraction_json is None
+
+
+@pytest.mark.parametrize("checkpoint_committed", [True, False])
+def test_worker_recovery_reuses_completed_sections_but_blocks_uncheckpointed_success(
+    db_session, extraction_item, monkeypatch, checkpoint_committed,
+):
+    from app.models.ai_provider_attempt_receipt import AIProviderAttemptReceipt
+    from app.services import ai_ops
+    from app.services.ai_workflow_recovery import recover_stale_workflow
+    from app.services import ai_extraction_sections
+
+    item, article = extraction_item
+    article.text = "Ordinary introduction. " * 500 + ARTICLE
+    run = ai_ops.queue_ai_task_run(db_session, task_type="item_enrichment", trigger_source="manual", item_id=item.id)
+    ai_ops.start_ai_task_run(db_session, run_id=run.id, celery_task_id="first-worker")
+    db_session.commit()
+    calls = []
+    original_save = ai_extraction_sections._save_progress
+
+    def provider(_active, *, messages, **_kwargs):
+        calls.append(messages)
+        return completion({"entities": [], "relationships": []})
+
+    def interrupted_save(db, **kwargs):
+        sections = kwargs["progress"]["sections"]
+        if sections[0]["status"] == "completed" and not checkpoint_committed:
+            raise RuntimeError("worker crashed before durable section")
+        original_save(db, **kwargs)
+        if sections[0]["status"] == "completed":
+            raise RuntimeError("worker crashed after durable section")
+
+    monkeypatch.setattr("app.services.ai_integration._call_ai_json", provider)
+    monkeypatch.setattr(ai_extraction_sections, "_save_progress", interrupted_save)
+    with pytest.raises(RuntimeError, match="worker crashed"):
+        run_item_ai_enrichment(db_session, item_id=item.id, force=True, task_run_id=run.id)
+    db_session.rollback()
+    receipts = db_session.scalars(select(AIProviderAttemptReceipt).where(AIProviderAttemptReceipt.task_run_id_snapshot == run.id)).all()
+    assert len(receipts) == 1 and receipts[0].state == "succeeded"
+    if not checkpoint_committed:
+        assert recover_stale_workflow(db_session, run) is None
+        assert len(calls) == 1
+        return
+    assert recover_stale_workflow(db_session, run) == "guarded"
+    db_session.commit()
+    ai_ops.start_ai_task_run(db_session, run_id=run.id, celery_task_id=run.celery_task_id)
+    db_session.commit()
+    monkeypatch.setattr(ai_extraction_sections, "_save_progress", original_save)
+    resumed = run_item_ai_enrichment(db_session, item_id=item.id, force=True, task_run_id=run.id)
+    db_session.commit()
+    assert resumed.status == "ready"
+    assert len(calls) == 2  # First-section paid I/O is never repeated.
+    assert resumed.enrichment.structured_extraction_json["coverage"]["uncovered_chars"] == 0

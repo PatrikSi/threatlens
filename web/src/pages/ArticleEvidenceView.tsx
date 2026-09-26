@@ -1,4 +1,5 @@
 import type { ArticleEvidence, StructuredExtraction } from '../types/articleIntelligence'
+import { ArticleExtractionCoverage } from './ArticleExtractionCoverage'
 
 const sourceLabels = { title: 'Article title', summary: 'Feed summary', article_text: 'Article text' }
 function humanize(value: string) { return value.replaceAll('_', ' ') }
@@ -28,6 +29,7 @@ export function ArticleEvidenceView({ extraction, stale }: { extraction: Structu
     <p className="text-xs text-slate dark:text-slate-300">AI-extracted statements from this source, separate from team assessments. “Reported” describes what the source says; “AI inference” is a model interpretation, not an independently verified fact.</p>
     {stale && <p role="status" className="text-sm text-amber-700 dark:text-amber-300">This extraction is from an earlier article revision. Review the current article before using it.</p>}
     {extraction.truncated && <p role="status" className="text-sm">Only part of the article fit in the model input. Unseen content may change these findings.</p>}
+    {extraction.coverage && <ArticleExtractionCoverage coverage={extraction.coverage} />}
     <details open>
       <summary className="cursor-pointer font-semibold">Entities and behaviors ({extraction.entities.length})</summary>
       {!extraction.entities.length && <p className="mt-2 text-sm">No supported entities or behaviors were extracted.</p>}

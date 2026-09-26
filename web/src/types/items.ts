@@ -1,4 +1,4 @@
-import type { StructuredExtraction } from './articleIntelligence'
+import type { ExtractionCoverage, StructuredExtraction } from './articleIntelligence'
 
 export interface ItemListEntry {
   id: string
@@ -74,6 +74,7 @@ export interface ItemDetail {
   ai_insight: {
     structured_extraction?: StructuredExtraction | null
     structured_extraction_stale?: boolean
+    extraction_progress?: ExtractionCoverage | null
     status: string
     summary_text: string | null
     relevance_score: number | null

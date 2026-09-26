@@ -19,3 +19,20 @@ describe('article evidence presentation', () => {
     expect(view.host.textContent).toContain('No independent validation')
   })
 })
+
+it('shows bounded section progress, uncovered evidence and output caps', async () => {
+  view = await mountIntel(<ArticleEvidenceView extraction={{ ...extractionFixture, coverage: {
+    planner_version: 1, source_hash: 'a'.repeat(64), normalized_text_chars: 16000,
+    processed_chars: 8000, uncovered_chars: 8000, reserved_tokens: 12000,
+    token_budget: 64000, call_limit: 8, output_limited: true,
+    sections: [
+      { index: 0, start: 0, end: 8000, status: 'completed' },
+      { index: 1, start: 8000, end: 16000, status: 'started' },
+    ],
+  } }} stale={false} />)
+  expect(view.host.textContent).toContain('1 of 2 planned sections')
+  expect(view.host.textContent).toContain('8,000 characters remain uncovered')
+  expect(view.host.textContent).toContain('awaiting a durable result')
+  expect(view.host.textContent).toContain('reached its entity or relationship limit')
+  expect(view.host.textContent).toContain('Summary and relevance use the first section')
+})

@@ -86,6 +86,26 @@ class VerifiedExtractedRelationship(ExtractedRelationship):
     evidence: list[VerifiedExtractionEvidence] = Field(min_length=1, max_length=3)
 
 
+class ExtractionSectionCoverage(BaseModel):
+    index: int = Field(ge=0)
+    start: int = Field(ge=0)
+    end: int = Field(ge=0)
+    status: Literal["pending", "started", "completed"]
+
+
+class ExtractionCoverage(BaseModel):
+    planner_version: Literal[1] = 1
+    source_hash: str
+    normalized_text_chars: int = Field(ge=0)
+    processed_chars: int = Field(ge=0)
+    uncovered_chars: int = Field(ge=0)
+    reserved_tokens: int = Field(ge=0)
+    token_budget: int = Field(ge=0)
+    call_limit: int = Field(ge=1)
+    output_limited: bool = False
+    sections: list[ExtractionSectionCoverage] = Field(max_length=8)
+
+
 class StructuredExtractionResponse(BaseModel):
     schema_version: Literal[1] = 1
     article_id: UUID
@@ -94,6 +114,7 @@ class StructuredExtractionResponse(BaseModel):
     source_hash: str
     input_sha256: str
     truncated: bool
+    coverage: ExtractionCoverage | None = None
     entities: list[VerifiedExtractedEntity]
     relationships: list[VerifiedExtractedRelationship]
     information_gaps: list[str]
