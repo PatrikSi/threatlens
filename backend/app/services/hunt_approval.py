@@ -9,7 +9,14 @@ def hunt_approval_fingerprint(row, hunt: dict) -> str:
         key: value
         for key, value in hunt.items()
         if key
-        not in {"review_status", "review_note", "investigation_id", "approval_id"}
+        not in {
+            "review_status",
+            "review_note",
+            "reviewed_by_user_id",
+            "reviewed_at",
+            "investigation_id",
+            "approval_id",
+        }
     }
     value = {
         "hunt": content,
