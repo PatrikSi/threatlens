@@ -59,8 +59,10 @@ hypotheses with supporting passages, telemetry requirements, benign explanations
 uncertainties and official ATT&CK references. Accept or reject each suggestion.
 An accepted, current suggestion can create a team investigation with the source
 article and a snapshot of the reviewed hypothesis. This requires
-`write:investigations` in addition to assessment access. Nothing executes a hunt
-or contacts an external security system automatically.
+`write:investigations` in addition to assessment access. Accepting a hunt also
+records a durable `hunt.approved` event. An explicitly enabled webhook subscription
+can deliver that approved revision to an external system; ThreatLens does not
+itself execute the suggested hunt or treat webhook acceptance as hunt completion.
 
 Investigation handoffs retain the supporting passages and analyst review before
 the other hunt fields. Long snapshots become numbered notes, each within the
@@ -123,3 +125,95 @@ Downgrades must preserve the migration's explicit protection checks. Export or
 remove newly owned resources before removing their schema; do not bypass a guard
 by changing ownership directly in SQL. Take a backup before a downgrade that
 removes team metadata, editorial history or organization policy fields.
+
+
+## Team indicator review and exclusions
+
+Expand **Indicators** on an article to inspect normalized values alongside their
+original spelling, normalization steps and source passages. Select a team to
+review an indicator. A review records a verdict, reason and optional expiry;
+current members with `read:items`, `read:teams` and `write:teams` can save it.
+History retains each saved revision, including retraction. Concurrent saves return
+a conflict and require refreshing the baseline rather than overwriting another
+analyst's decision.
+
+Extraction confidence describes the deterministic match. AI indicator roles,
+reported-versus-inferred assertions and supporting passages are separate fields.
+ThreatLens only attaches AI evidence when the entity's complete canonical value
+matches and the successful result still matches the current source provenance.
+The AI contract does not provide a calibrated maliciousness probability, so
+`maliciousness_confidence` remains null. A pattern confidence of 0.95 does not mean
+an indicator is 95% likely to be malicious.
+
+Reserved documentation/example addresses and current AI reference or benign
+assessments are excluded from action selection by default. A current analyst
+malicious verdict can override an AI reference/benign classification; it does not
+override reserved-example exclusions or a team suppression. Benign, reference,
+example and retracted analyst verdicts exclude the indicator for that team.
+Expiry or a changed source/extraction revision makes a verdict historical rather
+than a current decision. The API exposes both `expired` and `current` explicitly.
+
+Team managers can maintain exact-value **Indicator suppressions** with a reason,
+optional expiry, activation state and version history. Values use the same
+canonicalization as extraction, including defanged addresses. These rules apply
+only to that team; membership never grants access to a source handling label.
+Old assessment notes and evidence retain their captured label after a source is
+relabelled. An actor without that original access cannot read or overwrite them.
+
+A changed effective analyst verdict emits a team-scoped
+`intel.indicators.changed` event. Editing only its explanation does not resend an
+unchanged indicator set. Approved hunt payloads apply the team's current verdicts
+and suppression rules. Changing a suppression does not fan out across the entire
+article archive; it affects subsequent snapshots and invalidates queued actions
+whose effective indicator policy changed.
+
+Hunt approvals have a distinct action identity for each deliberate transition to
+accepted. Saving annotations on an already accepted hunt does not create another
+action. A rejection followed by a deliberate approval creates a new action.
+Queued delivery rechecks the accepted hunt's content/evidence fingerprint,
+article/extraction and team-context revisions, current team access and effective
+indicator policy. Annotation edits and investigation links do not change the hunt
+content fingerprint. Nonblocking source locks protect the final delivery check;
+busy sources produce a retryable result.
+
+If delivery history or the match preview reports that an accepted hunt's action
+was superseded, review the latest indicator evidence before sending again. The
+hunt can still display **Accepted** because its narrative/context is unchanged;
+that status does not mean the old automation action remains eligible. To request
+a new action deliberately, reject the suggestion and then accept it after review.
+This creates a new approval/action ID. Saving a note or retrying the superseded
+delivery cannot silently launch a replacement action.
+
+## Indicator storage and upgrades
+
+Migration `0107_intel_assessments` adds occurrence evidence, extraction revision
+state, team verdict/history and suppression/history tables. Existing normalized
+IoCs remain compatible. Their old rows have no invented evidence passages; run
+selected IOC extraction through the processing worklist to populate provenance
+before reviewing them. Deploy the API and processing/AI workers together before
+enabling the new automation subscriptions.
+
+Evidence retains at most three occurrence passages for each article/indicator.
+The API exposes `occurrences` and `evidence_truncated` so a selected excerpt list
+is not mistaken for every mention. Indicator pages are bounded to 100 rows.
+Automation snapshots contain at most 250 indicators and 256 KiB of event data.
+Larger sets are recorded with their count, `indicators_complete: false` and an
+explicit reason; automatic webhook delivery is withheld rather than sending an
+apparently complete partial indicator list.
+
+Occurrence passages and team review history are derived evidence. Like retained
+report and AI evidence, they are not erased by the article-content-only retention
+policy. Article or team deletion cascades the corresponding review records;
+outbox/delivery snapshots follow their existing integration-history retention
+policies. Raw-content purging invalidates the old extraction revision; a later
+extraction can use the remaining title/summary with fresh provenance.
+
+
+IOC and suppression uniqueness uses a stored UTF-8 SHA-256 key, preserving full
+URLs up to the supported 4,096 characters without exceeding PostgreSQL's btree
+entry-size limit. Exact canonical values remain available for comparison and
+export. The upgrade rebuilds the affected IOC indexes and may take longer on a
+large inventory. Downgrade refuses long retained values before removing schema;
+export and remove incompatible values first if rolling back to the older indexes.
+The digest is computed by PostgreSQL, so existing worker inserts continue to work
+without supplying the new column.

@@ -10,6 +10,7 @@ from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 import httpx
 
 from app.core.config import get_settings
+from app.core.outbound_headers import BLOCKED_REQUEST_HEADERS
 from app.schemas.notification import (
     NotificationWebhookField,
     NotificationWebhookTestResponse,
@@ -43,21 +44,17 @@ _delivery_redirect_chain_started: ContextVar[bool | None] = ContextVar(
     "notification_delivery_redirect_chain_started",
     default=None,
 )
-BLOCKED_REQUEST_HEADERS = frozenset(
-    {
-        "connection",
-        "content-length",
-        "expect",
-        "host",
-        "proxy-authenticate",
-        "proxy-authorization",
-        "proxy-connection",
-        "te",
-        "trailer",
-        "transfer-encoding",
-        "upgrade",
-    }
-)
+_request_credentials: ContextVar[Callable[[httpx.Request], None] | None] = ContextVar("webhook_request_credentials", default=None)
+
+
+@contextmanager
+def notification_request_credentials(callback: Callable[[httpx.Request], None] | None) -> Iterator[None]:
+    token = _request_credentials.set(callback)
+    try:
+        yield
+    finally:
+        _request_credentials.reset(token)
+
 
 
 class RenderedNotificationRequestLike(Protocol):
@@ -378,6 +375,9 @@ def send_request_with_redirects(
                 if current_form_body is not None
                 else current_raw_body,
             )
+            prepare_credentials = _request_credentials.get()
+            if prepare_credentials is not None:
+                prepare_credentials(request)
             _mark_notification_external_io_started()
             response = client.send(request, stream=True, follow_redirects=False)
         except (SafeFetchError, httpx.HTTPError, ValueError) as exc:

@@ -57,6 +57,7 @@ OperationLiteral: TypeAlias = tuple[str, str, str] | tuple[str, str, str, str]
 # security-sensitive contract changes.
 # fmt: off
 _CONTROL_PLANE_OPERATIONS: tuple[OperationLiteral, ...] = (
+    ('GET', '/v1/notifications/credential-profiles', 'list_credential_profiles'),
     ('GET', '/v1/teams', 'list_teams'),
     ('POST', '/v1/teams', 'create_team'),
     ('GET', '/v1/teams/admin', 'list_admin_teams'),
@@ -243,6 +244,17 @@ _PUBLIC_OPERATIONS: tuple[OperationLiteral, ...] = (
 )
 
 _REQUEST_CONTEXT_OPERATIONS: tuple[OperationLiteral, ...] = (
+    ('POST', '/v1/notifications/credential-profiles', 'create_credential_profile'),
+    ('PATCH', '/v1/notifications/credential-profiles/{profile_id}', 'update_credential_profile'),
+    ('GET', '/v1/notifications/webhooks/events', 'list_webhook_events'),
+    ('POST', '/v1/notifications/webhooks/preview', 'preview_webhook'),
+    ('GET', '/v1/items/{item_id}/indicators', 'get_item_indicators'),
+    ('PATCH', '/v1/items/{item_id}/indicators/{ioc_id}/assessment', 'patch_indicator_assessment'),
+    ('GET', '/v1/items/{item_id}/indicators/{ioc_id}/assessment/history', 'get_indicator_history'),
+    ('GET', '/v1/teams/{team_id}/indicator-suppressions', 'get_indicator_suppressions'),
+    ('POST', '/v1/teams/{team_id}/indicator-suppressions', 'create_indicator_suppression'),
+    ('PATCH', '/v1/teams/{team_id}/indicator-suppressions/{suppression_id}', 'patch_indicator_suppression'),
+    ('GET', '/v1/teams/{team_id}/indicator-suppressions/{suppression_id}/history', 'get_suppression_history'),
     ('GET', '/v1/items/{item_id}/team-assessment', 'get_team_assessment_route'),
     ('POST', '/v1/items/{item_id}/team-assessment', 'queue_team_assessment_route'),
     ('PATCH', '/v1/items/{item_id}/team-assessment/hunts/{hunt_id}', 'review_team_hunt_route'),
@@ -399,6 +411,15 @@ _EGRESS_FENCED_OPERATIONS: tuple[OperationLiteral, ...] = (
 # retained as useful operator evidence, but cannot by themselves detect a handler
 # replacement that reuses the same display name.
 _ENDPOINT_NAMES_BY_MODULE: Final[dict[str, tuple[str, ...]]] = {
+    'app.api.routes.indicator_assessments': (
+        'get_item_indicators', 'patch_indicator_assessment', 'get_indicator_history',
+        'get_indicator_suppressions', 'create_indicator_suppression',
+        'patch_indicator_suppression', 'get_suppression_history',
+    ),
+    'app.api.routes.webhook_automation': (
+        'list_credential_profiles', 'create_credential_profile', 'update_credential_profile',
+        'list_webhook_events', 'preview_webhook',
+    ),
     "app.api.routes.mcp": ("handle_mcp_request",),
     "app.api.routes.team_assessments": (
         "get_team_assessment_route", "queue_team_assessment_route",

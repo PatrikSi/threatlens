@@ -230,12 +230,127 @@ def lock_webhook_delivery_external_io_eligibility(
             "webhook_owner_not_authorized",
             "Webhook owner is no longer authorized to manage outbound deliveries.",
         )
+    _validate_automation_authority(db, webhook=webhook, delivery=generic, owner=owner)
     _enforce_webhook_delivery_data_policy(
         db,
         instance=instance,
         delivery=generic,
         policy_fence=policy_fence,
     )
+
+
+def _validate_automation_authority(
+    db: Session, *, webhook, delivery: IntegrationDelivery, owner: User
+) -> None:
+    generic = delivery
+    if webhook.conditions_json:
+        from pydantic import ValidationError
+        from app.schemas.webhook_automation import WebhookConditionGroup
+        from app.services.webhook_conditions import (
+            evaluate_conditions,
+            event_condition_values,
+        )
+
+        try:
+            conditions = WebhookConditionGroup.model_validate(webhook.conditions_json)
+        except ValidationError as exc:
+            raise WebhookDeliveryIneligibleError(
+                "webhook_conditions_invalid",
+                "Saved webhook conditions are invalid; edit the subscription before retrying",
+            ) from exc
+        created_at = db.scalar(
+            select(IntegrationEvent.created_at).where(
+                IntegrationEvent.id == generic.event_id
+            )
+        )
+        if (
+            created_at is None
+            or not evaluate_conditions(
+                conditions,
+                event_condition_values(
+                    generic.payload_json or {},
+                    created_at=created_at,
+                    event_type=generic.event_type,
+                ),
+            )[0]
+        ):
+            raise WebhookDeliveryIneligibleError(
+                "webhook_conditions_changed",
+                "Current subscription conditions or freshness limits no longer permit this delivery",
+            )
+    if generic.event_type in {
+        "intel.extraction.ready",
+        "intel.indicators.changed",
+        "hunt.approved",
+    }:
+        from app.services.intel_event_eligibility import (
+            automation_event_current,
+            IntelEventBusy,
+        )
+
+        try:
+            current = automation_event_current(
+                db, generic.payload_json or {}, generic.event_type, lock=True
+            )
+        except IntelEventBusy as exc:
+            raise WebhookDeliveryTemporarilyIneligibleError(
+                "intelligence_source_busy", str(exc)
+            ) from exc
+        if not current:
+            raise WebhookDeliveryIneligibleError(
+                "intelligence_event_superseded",
+                "The intelligence evidence or approved hunt revision has changed; this historical action was not sent",
+            )
+    if webhook.credential_profile_id is not None:
+        from app.services.webhook_credentials import load_credential
+
+        try:
+            load_credential(
+                db,
+                profile_id=webhook.credential_profile_id,
+                user_id=owner.id,
+                lock=True,
+            )
+        except ValueError as exc:
+            raise WebhookDeliveryIneligibleError(
+                "webhook_credential_unavailable", str(exc)
+            ) from exc
+    if generic.event_type in {
+        "intel.extraction.ready",
+        "intel.indicators.changed",
+        "hunt.approved",
+    }:
+        from app.services.authorization import authorization_context_for_user
+
+        authorization = authorization_context_for_user(db, owner)
+        permissions = ("read:items", "write:notifications")
+        if (
+            generic.event_type == "hunt.approved"
+            or (generic.payload_json or {}).get("team_id") is not None
+        ):
+            permissions += ("read:teams", "read:ai")
+        if not all(authorization.has_durable(permission) for permission in permissions):
+            raise WebhookDeliveryIneligibleError(
+                "webhook_owner_not_authorized",
+                "Current permissions do not permit this intelligence delivery",
+            )
+    if (
+        generic.event_type == "hunt.approved"
+        or (generic.payload_json or {}).get("team_id") is not None
+    ):
+        from app.services.team_access import team_access_predicate
+
+        try:
+            team_id = uuid.UUID(str((generic.payload_json or {}).get("team_id")))
+        except (ValueError, TypeError) as exc:
+            raise WebhookDeliveryIneligibleError(
+                "hunt_team_unavailable", "Hunt event team is unavailable"
+            ) from exc
+        if not db.scalar(select(team_access_predicate(team_id, owner.id))):
+            raise WebhookDeliveryIneligibleError(
+                "hunt_team_unavailable",
+                "Current team membership does not permit this hunt delivery",
+            )
 
 
 def _enforce_webhook_delivery_data_policy(

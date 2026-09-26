@@ -21,7 +21,7 @@ from app.services.webhook_delivery_locking import (
 )
 
 WEBHOOK_INTEGRATION_TYPE = "webhook"
-WEBHOOK_CONFIG_SCHEMA_VERSION = 1
+WEBHOOK_CONFIG_SCHEMA_VERSION = 2
 WEBHOOK_SUBSCRIPTION_KEY = "legacy-webhook"
 INTEGRATION_DIRECTION_DESTINATION = "destination"
 
@@ -219,7 +219,10 @@ def _sync_webhook_instance(instance: IntegrationInstance, webhook: NotificationW
     instance.integration_type = WEBHOOK_INTEGRATION_TYPE
     instance.direction = INTEGRATION_DIRECTION_DESTINATION
     instance.enabled = webhook.enabled
-    instance.schema_version = WEBHOOK_CONFIG_SCHEMA_VERSION
+    instance.schema_version = 2 if (
+        webhook.conditions_json or webhook.credential_profile_id
+        or (webhook.payload_mode or "template") != "template"
+    ) else 1
     instance.config_json = config
 
 
@@ -237,6 +240,8 @@ def _sync_webhook_subscription(
         "feed_scope": webhook.feed_scope,
         "feed_ids": list(webhook.feed_ids_json or []),
     }
+    if webhook.conditions_json is not None:
+        subscription.filter_json = {**subscription.filter_json, "conditions": webhook.conditions_json}
     subscription.transform_json = {"legacy_webhook_id": str(webhook.id)}
 
 

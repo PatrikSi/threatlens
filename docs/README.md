@@ -54,6 +54,7 @@ This documentation covers:
 - [Frontend Reference](./reference/frontend.md)
 - [Ingestion and Processing Pipeline](./reference/pipeline.md)
 - [Typed Feed Worker Boundaries](./reference/worker-pipeline-boundaries.md)
+- [Intelligence Automation and SIEM Webhooks](./pages/intelligence-automation.md)
 - [Integration Event and Delivery Platform ADR](./architecture/0001-integration-event-delivery-platform.md)
 - [Bounded AI Report Generation ADR](./architecture/0002-bounded-ai-report-generation.md)
 - [Operations, Investigations, Alerting V2, and IAM Hardening ADR](./architecture/0003-operations-investigations-alerting-iam.md)

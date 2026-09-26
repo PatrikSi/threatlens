@@ -162,6 +162,9 @@ def redact_notification_test_response(
 def notification_webhook_write_from_model(webhook: NotificationWebhook) -> NotificationWebhookWrite:
     upgrade_notification_webhook_secret_storage(webhook)
     return NotificationWebhookWrite(
+        payload_mode=webhook.payload_mode or "template",
+        conditions=webhook.conditions_json,
+        credential_profile_id=webhook.credential_profile_id,
         name=webhook.name,
         enabled=webhook.enabled,
         event_type=webhook.event_type,
@@ -190,6 +193,9 @@ def notification_webhook_response_from_model(
         visible = frozenset(accessible_feed_ids)
         feed_ids = [feed_id for feed_id in feed_ids if feed_id in visible]
     return NotificationWebhookResponse(
+        payload_mode=payload.payload_mode,
+        conditions=payload.conditions,
+        credential_profile_id=payload.credential_profile_id,
         id=webhook.id,
         user_id=webhook.user_id,
         name=payload.name,
@@ -254,6 +260,9 @@ def notification_webhook_delivery_response_from_model(
 
 def build_notification_webhook(user_id: uuid.UUID, payload: NotificationWebhookWrite) -> NotificationWebhook:
     return NotificationWebhook(
+        payload_mode=payload.payload_mode,
+        conditions_json=payload.conditions.model_dump(mode="json") if payload.conditions else None,
+        credential_profile_id=payload.credential_profile_id,
         user_id=user_id,
         name=payload.name,
         enabled=payload.enabled,
@@ -272,6 +281,12 @@ def build_notification_webhook(user_id: uuid.UUID, payload: NotificationWebhookW
 
 
 def apply_notification_webhook_updates(webhook: NotificationWebhook, payload: NotificationWebhookWrite) -> None:
+    if "payload_mode" in payload.model_fields_set:
+        webhook.payload_mode = payload.payload_mode
+    if "conditions" in payload.model_fields_set:
+        webhook.conditions_json = payload.conditions.model_dump(mode="json") if payload.conditions else None
+    if "credential_profile_id" in payload.model_fields_set:
+        webhook.credential_profile_id = payload.credential_profile_id
     webhook.name = payload.name
     webhook.enabled = payload.enabled
     webhook.event_type = payload.event_type

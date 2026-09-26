@@ -212,8 +212,8 @@ def test_webhook_test_concurrent_replay_never_sends_twice(
         ("integration", "Webhook integration is disabled."),
         (
             "schema",
-            "Webhook integration configuration uses schema version 2; this worker "
-            "supports through version 1. Delivery will retry after the worker is upgraded.",
+            "Webhook integration configuration uses schema version 3; this worker "
+            "supports through version 2. Delivery will retry after the worker is upgraded.",
         ),
     ],
 )
@@ -334,7 +334,7 @@ def test_webhook_delivery_rechecks_eligibility_after_concurrent_revocation(
                     if revocation == "integration":
                         instance.enabled = False
                     else:
-                        instance.schema_version = 2
+                        instance.schema_version = 3
                     revocation_db.add(instance)
                 revocation_db.commit()
             revocation_committed.set()
@@ -492,7 +492,7 @@ def test_first_webhook_heartbeat_schema_race_preserves_retry_budget(
                     .with_for_update()
                 )
                 assert instance is not None
-                instance.schema_version = 2
+                instance.schema_version = 3
                 update_db.add(instance)
                 update_db.commit()
             schema_updated.set()
@@ -748,7 +748,7 @@ def test_webhook_configuration_race_after_first_request_records_unknown_outcome(
                     )
                     assert instance is not None
                     if configuration_change == "schema":
-                        instance.schema_version = 2
+                        instance.schema_version = 3
                     else:
                         instance.enabled = False
                     update_db.add(instance)
@@ -928,7 +928,7 @@ def test_webhook_created_between_prepare_and_route_waits_for_compatible_worker(
                 instance, _subscription = ensure_webhook_integration(
                     writer_db, webhook
                 )
-                instance.schema_version = 2
+                instance.schema_version = 3
                 instance.config_json = {
                     **instance.config_json,
                     "future_option": True,
@@ -944,7 +944,7 @@ def test_webhook_created_between_prepare_and_route_waits_for_compatible_worker(
             assert first.status == "failed"
             assert event.routing_attempt_count == 0
             assert all(error.compatibility_wait for error in first.routing_errors)
-            assert "schema version 2" in (event.last_error or "")
+            assert "schema version 3" in (event.last_error or "")
             assert event.id in list_recoverable_integration_event_ids(
                 verify_db,
                 now=event.available_at + timedelta(seconds=1),

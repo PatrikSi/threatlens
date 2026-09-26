@@ -401,6 +401,7 @@ def reserve_webhook_failed_notification_deliveries(
     source_webhook: NotificationWebhook | None = None,
     user: User | None = None,
     feed: Feed | None = None,
+    webhooks: list[NotificationWebhook] | None = None,
 ) -> NotificationDeliveryReservationBatch:
     if (
         failed_delivery.success
@@ -447,11 +448,15 @@ def reserve_webhook_failed_notification_deliveries(
         attempted_at=failed_delivery.attempted_at,
     )
 
-    matched_webhooks = get_matching_notification_webhooks(
-        db,
-        event_type="webhook_failed",
-        feed_id=failed_delivery.feed_id,
-        user_id=failed_delivery.user_id,
+    matched_webhooks = (
+        webhooks
+        if webhooks is not None
+        else get_matching_notification_webhooks(
+            db,
+            event_type="webhook_failed",
+            feed_id=failed_delivery.feed_id,
+            user_id=failed_delivery.user_id,
+        )
     )
     reserved_delivery_ids: list[uuid.UUID] = []
     skipped = 0
@@ -776,12 +781,44 @@ def process_notification_webhook_delivery(
             claimed=recorded,
         )
     rendered = _rendered_request_from_delivery(delivery)
+    from app.models.integration import IntegrationDelivery
+    from app.services.webhook_credentials import credential_request_callback
+
+    generic = db.get(IntegrationDelivery, generic_delivery_id)
+    prepare_profile = credential_request_callback(
+        db,
+        webhook_id=delivery.webhook_id,
+        user_id=delivery.user_id,
+        event_id=str(
+            generic.event_id
+            if generic and generic.event_id
+            else delivery.source_delivery_id or delivery.id
+        ),
+        attempt_id=f"{generic_delivery_id}:{claimed_attempt_number}",
+    )
+
+    def prepare_credentials(request) -> None:
+        prepare_profile(request)
+        # DNS, request construction and credential locks may consume time after
+        # lease renewal. Recheck clock-based authority immediately before I/O,
+        # even when this subscription does not use a credential profile.
+        _lock_notification_webhook_external_io_eligibility(
+            db,
+            delivery=delivery,
+            expected_attempt_number=claimed_attempt_number,
+        )
+
     try:
-        with notification_webhook_http.notification_delivery_external_io_marker(
-            lambda: mark_notification_webhook_external_io_started(
-                delivery_id=generic_delivery_id,
-                expected_attempt_number=claimed_attempt_number,
-            )
+        with (
+            notification_webhook_http.notification_request_credentials(
+                prepare_credentials
+            ),
+            notification_webhook_http.notification_delivery_external_io_marker(
+                lambda: mark_notification_webhook_external_io_started(
+                    delivery_id=generic_delivery_id,
+                    expected_attempt_number=claimed_attempt_number,
+                )
+            ),
         ):
             result = notification_webhook_http.send_rendered_notification_request(
                 rendered

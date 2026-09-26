@@ -17,6 +17,7 @@ from app.models.data_policy import (
 )
 from app.models.feed import Feed
 from app.models.iam import IAMRole
+from app.models.intel_assessment import IndicatorAssessment, ItemIntelState
 from app.schemas.data_policy import (
     DataPolicyMode,
     DataPolicyModeUpdateResponse,
@@ -389,6 +390,15 @@ def set_handling_label_status(
             or 0
         )
         derived_reference_count += audit_history_reference_count
+        for model in (ItemIntelState, IndicatorAssessment):
+            derived_reference_count += int(
+                db.scalar(
+                    select(func.count()).select_from(model).where(
+                        model.handling_label_id == label.id
+                    )
+                )
+                or 0
+            )
         if derived_reference_count:
             raise DataPolicyConflict(
                 "This handling label is retained by derived intelligence. Keep it active or remove the derived records first.",

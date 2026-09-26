@@ -1,4 +1,5 @@
 """Replace one locked item's IOC snapshot with bounded, conflict-safe SQL batches."""
+
 from __future__ import annotations
 
 import uuid
@@ -21,6 +22,7 @@ class _Aggregate:
     sections: set[str] = field(default_factory=set)
     occurrences: int = 0
     confidence: float = 0.0
+    evidence: list[dict] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -55,27 +57,64 @@ def replace_item_iocs(
         aggregate.sections.add(match.source_section)
         aggregate.occurrences += 1
         aggregate.confidence = max(aggregate.confidence, match.confidence)
+        if len(aggregate.evidence) < 3:
+            aggregate.evidence.append(
+                {
+                    "source": match.source_section,
+                    "raw": match.value_raw,
+                    "start": getattr(match, "source_start", None),
+                    "end": getattr(match, "source_end", None),
+                    "quote": getattr(match, "evidence_text", None),
+                    "transformations": list(getattr(match, "transformations", ())),
+                }
+            )
 
     keys = sorted(aggregates)
     observed_at = now or datetime.now(timezone.utc)
     db.execute(delete(ItemIOC).where(ItemIOC.item_id == item_id))
     for offset in range(0, len(keys), IOC_WRITE_BATCH_SIZE):
-        batch = keys[offset:offset + IOC_WRITE_BATCH_SIZE]
-        statement = insert(IOC).values([
-            {"type": kind, "value_norm": value, "value_raw": aggregates[kind, value].value_raw,
-             "first_seen_at": observed_at, "last_seen_at": observed_at}
-            for kind, value in batch
-        ])
+        batch = keys[offset : offset + IOC_WRITE_BATCH_SIZE]
+        statement = insert(IOC).values(
+            [
+                {
+                    "type": kind,
+                    "value_norm": value,
+                    "value_raw": aggregates[kind, value].value_raw,
+                    "first_seen_at": observed_at,
+                    "last_seen_at": observed_at,
+                }
+                for kind, value in batch
+            ]
+        )
         statement = statement.on_conflict_do_update(
             constraint="uq_iocs_type_value_norm",
-            set_={"last_seen_at": func.greatest(IOC.last_seen_at, statement.excluded.last_seen_at)},
+            set_={
+                "last_seen_at": func.greatest(
+                    IOC.last_seen_at, statement.excluded.last_seen_at
+                )
+            },
+            where=IOC.value_norm == statement.excluded.value_norm,
         ).returning(IOC.id, IOC.type, IOC.value_norm)
         rows = db.execute(statement).all()
-        db.execute(insert(ItemIOC).values([
-            {"item_id": item_id, "ioc_id": row.id,
-             "source_section": ",".join(sorted(aggregates[row.type, row.value_norm].sections)),
-             "occurrences": aggregates[row.type, row.value_norm].occurrences,
-             "confidence": aggregates[row.type, row.value_norm].confidence}
-            for row in rows
-        ]))
+        if len(rows) != len(batch):
+            raise ValueError(
+                "Indicator digest conflict: distinct canonical values must not share an identity."
+            )
+        db.execute(
+            insert(ItemIOC).values(
+                [
+                    {
+                        "item_id": item_id,
+                        "ioc_id": row.id,
+                        "source_section": ",".join(
+                            sorted(aggregates[row.type, row.value_norm].sections)
+                        ),
+                        "occurrences": aggregates[row.type, row.value_norm].occurrences,
+                        "confidence": aggregates[row.type, row.value_norm].confidence,
+                        "evidence_json": aggregates[row.type, row.value_norm].evidence,
+                    }
+                    for row in rows
+                ]
+            )
+        )
     return StoredIOCs(len(keys), values_by_type)

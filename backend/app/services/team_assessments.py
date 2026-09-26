@@ -267,6 +267,9 @@ def review_hunt(
     archive_assessment_revision(
         db, row, actor_user_id=actor.user.id, change_kind="review"
     )
+    approving = payload.status == "accepted" and hunt.get("review_status") != "accepted"
+    if approving:
+        hunt["approval_id"] = uuid.uuid4().hex
     hunt["review_status"], hunt["review_note"] = payload.status, payload.note or None
     row.result_json = result
     row.version += 1
@@ -274,6 +277,10 @@ def review_hunt(
     _audit(db, row, actor, action=f"hunt_{payload.status}", hunt_id=hunt_id)
     fence_assessment_request(db, actor, write=True)
     assert_current_team_access(db, team_id=payload.team_id, user_id=actor.user.id)
+    if approving:
+        from app.services.intel_events import emit_hunt_approved
+
+        emit_hunt_approved(db, row=row, item=state.item, hunt=hunt, actor_user_id=actor.user.id)
     return assessment_envelope(
         state,
         actor=actor,

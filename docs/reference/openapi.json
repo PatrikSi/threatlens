@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "2.0.1",
-    "x-threatlens-contract-sha256": "62c5dabc7aff774b4c724fc84b5be8a049d9c30646cb672687d2f3c982b9f0cd"
+    "x-threatlens-contract-sha256": "769a529ef509225b062e2fc8a3227903ba7df4189330d7ddd41a0f288ac17c46"
   },
   "servers": [
     {
@@ -1521,6 +1521,1230 @@
           "read:teams",
           "write:teams",
           "write:investigations"
+        ]
+      }
+    },
+    "/v1/items/{item_id}/indicators": {
+      "get": {
+        "tags": [
+          "indicator intelligence"
+        ],
+        "summary": "Get Item Indicators",
+        "operationId": "get_item_indicators_v1_items__item_id__indicators_get",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Item Id"
+            }
+          },
+          {
+            "name": "team_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Team Id"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100000,
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Page Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndicatorPage"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "read:items"
+        ]
+      }
+    },
+    "/v1/items/{item_id}/indicators/{ioc_id}/assessment": {
+      "patch": {
+        "tags": [
+          "indicator intelligence"
+        ],
+        "summary": "Patch Indicator Assessment",
+        "operationId": "patch_indicator_assessment_v1_items__item_id__indicators__ioc_id__assessment_patch",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Item Id"
+            }
+          },
+          {
+            "name": "ioc_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Ioc Id"
+            }
+          },
+          {
+            "name": "team_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Team Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssessmentCommand"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssessmentResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "read:items",
+          "read:teams",
+          "write:teams"
+        ]
+      }
+    },
+    "/v1/items/{item_id}/indicators/{ioc_id}/assessment/history": {
+      "get": {
+        "tags": [
+          "indicator intelligence"
+        ],
+        "summary": "Get Indicator History",
+        "operationId": "get_indicator_history_v1_items__item_id__indicators__ioc_id__assessment_history_get",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Item Id"
+            }
+          },
+          {
+            "name": "ioc_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Ioc Id"
+            }
+          },
+          {
+            "name": "team_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Team Id"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100000,
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Page Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndicatorHistoryPage"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "read:items",
+          "read:teams"
+        ]
+      }
+    },
+    "/v1/teams/{team_id}/indicator-suppressions": {
+      "get": {
+        "tags": [
+          "indicator intelligence"
+        ],
+        "summary": "Get Indicator Suppressions",
+        "operationId": "get_indicator_suppressions_v1_teams__team_id__indicator_suppressions_get",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "team_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Team Id"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100000,
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Page Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuppressionPage"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "read:items",
+          "read:teams"
+        ]
+      },
+      "post": {
+        "tags": [
+          "indicator intelligence"
+        ],
+        "summary": "Create Indicator Suppression",
+        "operationId": "create_indicator_suppression_v1_teams__team_id__indicator_suppressions_post",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "team_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Team Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SuppressionCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuppressionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "read:items",
+          "read:teams",
+          "write:teams"
+        ]
+      }
+    },
+    "/v1/teams/{team_id}/indicator-suppressions/{suppression_id}": {
+      "patch": {
+        "tags": [
+          "indicator intelligence"
+        ],
+        "summary": "Patch Indicator Suppression",
+        "operationId": "patch_indicator_suppression_v1_teams__team_id__indicator_suppressions__suppression_id__patch",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "team_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Team Id"
+            }
+          },
+          {
+            "name": "suppression_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Suppression Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SuppressionUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuppressionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "read:items",
+          "read:teams",
+          "write:teams"
+        ]
+      }
+    },
+    "/v1/teams/{team_id}/indicator-suppressions/{suppression_id}/history": {
+      "get": {
+        "tags": [
+          "indicator intelligence"
+        ],
+        "summary": "Get Suppression History",
+        "operationId": "get_suppression_history_v1_teams__team_id__indicator_suppressions__suppression_id__history_get",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "team_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Team Id"
+            }
+          },
+          {
+            "name": "suppression_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Suppression Id"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100000,
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Page Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndicatorHistoryPage"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "read:items",
+          "read:teams"
+        ]
+      }
+    },
+    "/v1/notifications/credential-profiles": {
+      "get": {
+        "tags": [
+          "notifications"
+        ],
+        "summary": "List Credential Profiles",
+        "operationId": "list_credential_profiles_v1_notifications_credential_profiles_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/WebhookCredentialResponse"
+                  },
+                  "type": "array",
+                  "title": "Response List Credential Profiles V1 Notifications Credential Profiles Get"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "x-threatlens-required-token-scopes": [
+          "read:notifications"
+        ]
+      },
+      "post": {
+        "tags": [
+          "notifications"
+        ],
+        "summary": "Create Credential Profile",
+        "operationId": "create_credential_profile_v1_notifications_credential_profiles_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WebhookCredentialWrite"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookCredentialResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "x-threatlens-required-token-scopes": [
+          "write:notifications"
+        ]
+      }
+    },
+    "/v1/notifications/credential-profiles/{profile_id}": {
+      "patch": {
+        "tags": [
+          "notifications"
+        ],
+        "summary": "Update Credential Profile",
+        "operationId": "update_credential_profile_v1_notifications_credential_profiles__profile_id__patch",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Profile Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WebhookCredentialWrite"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookCredentialResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "write:notifications"
+        ]
+      }
+    },
+    "/v1/notifications/webhooks/events": {
+      "get": {
+        "tags": [
+          "notifications"
+        ],
+        "summary": "List Webhook Events",
+        "operationId": "list_webhook_events_v1_notifications_webhooks_events_get",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "event_type",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "enum": [
+                "rss_item_new",
+                "alert_match",
+                "feed_failing",
+                "webhook_failed",
+                "daily_digest",
+                "report_ready",
+                "intel.extraction.ready",
+                "intel.indicators.changed",
+                "hunt.approved"
+              ],
+              "type": "string",
+              "title": "Event Type"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 50,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "read:notifications"
+        ]
+      }
+    },
+    "/v1/notifications/webhooks/preview": {
+      "post": {
+        "tags": [
+          "notifications"
+        ],
+        "summary": "Preview Webhook",
+        "operationId": "preview_webhook_v1_notifications_webhooks_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WebhookPreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookPreviewResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication is required or the credential is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The authenticated principal is not allowed to perform this operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authorization policy could not be evaluated safely",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "x-threatlens-required-token-scopes": [
+          "read:notifications"
         ]
       }
     },
@@ -40019,6 +41243,135 @@
         ],
         "title": "ArticleResponse"
       },
+      "AssessmentCommand": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "expected_version": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Expected Version"
+          },
+          "source_revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Source Revision"
+          },
+          "extraction_revision": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Extraction Revision"
+          },
+          "verdict": {
+            "type": "string",
+            "enum": [
+              "unreviewed",
+              "malicious",
+              "benign",
+              "reference",
+              "example",
+              "retracted"
+            ],
+            "title": "Verdict"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "reason",
+          "expected_version",
+          "source_revision",
+          "extraction_revision",
+          "verdict"
+        ],
+        "title": "AssessmentCommand"
+      },
+      "AssessmentResponse": {
+        "properties": {
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "verdict": {
+            "type": "string",
+            "enum": [
+              "unreviewed",
+              "malicious",
+              "benign",
+              "reference",
+              "example",
+              "retracted"
+            ],
+            "title": "Verdict"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "source_revision": {
+            "type": "integer",
+            "title": "Source Revision"
+          },
+          "extraction_revision": {
+            "type": "integer",
+            "title": "Extraction Revision"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "expired": {
+            "type": "boolean",
+            "title": "Expired"
+          },
+          "current": {
+            "type": "boolean",
+            "title": "Current"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "version",
+          "verdict",
+          "reason",
+          "source_revision",
+          "extraction_revision",
+          "expires_at",
+          "expired",
+          "current",
+          "updated_at"
+        ],
+        "title": "AssessmentResponse"
+      },
       "AssignmentRequest": {
         "properties": {
           "expected_version": {
@@ -41442,6 +42795,9 @@
             "$ref": "#/components/schemas/EncryptedDataInventoryCategory"
           },
           "notification_webhooks": {
+            "$ref": "#/components/schemas/EncryptedDataInventoryCategory"
+          },
+          "webhook_credential_secrets": {
             "$ref": "#/components/schemas/EncryptedDataInventoryCategory"
           },
           "notification_delivery_snapshots": {
@@ -43324,6 +44680,322 @@
           "detection_strategy_ids"
         ],
         "title": "HuntSuggestionResponse"
+      },
+      "IndicatorAI": {
+        "properties": {
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "assertion": {
+            "type": "string",
+            "title": "Assertion"
+          },
+          "evidence": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Evidence"
+          },
+          "maliciousness_confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Maliciousness Confidence"
+          }
+        },
+        "type": "object",
+        "required": [
+          "role",
+          "assertion",
+          "evidence"
+        ],
+        "title": "IndicatorAI"
+      },
+      "IndicatorEvidence": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "raw": {
+            "type": "string",
+            "title": "Raw"
+          },
+          "start": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start"
+          },
+          "end": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End"
+          },
+          "quote": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quote"
+          },
+          "transformations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Transformations"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source",
+          "raw"
+        ],
+        "title": "IndicatorEvidence"
+      },
+      "IndicatorHistoryEntry": {
+        "properties": {
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "snapshot": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Snapshot"
+          },
+          "actor_user_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor User Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "version",
+          "snapshot",
+          "actor_user_id",
+          "created_at"
+        ],
+        "title": "IndicatorHistoryEntry"
+      },
+      "IndicatorHistoryPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/IndicatorHistoryEntry"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size"
+        ],
+        "title": "IndicatorHistoryPage"
+      },
+      "IndicatorPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/IndicatorResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size"
+          },
+          "source_revision": {
+            "type": "integer",
+            "title": "Source Revision"
+          },
+          "extraction_revision": {
+            "type": "integer",
+            "title": "Extraction Revision"
+          },
+          "extraction_current": {
+            "type": "boolean",
+            "title": "Extraction Current",
+            "default": false
+          },
+          "can_review": {
+            "type": "boolean",
+            "title": "Can Review",
+            "default": false
+          },
+          "can_manage_suppressions": {
+            "type": "boolean",
+            "title": "Can Manage Suppressions",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size",
+          "source_revision",
+          "extraction_revision"
+        ],
+        "title": "IndicatorPage"
+      },
+      "IndicatorResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "type": {
+            "type": "string",
+            "title": "Type"
+          },
+          "value": {
+            "type": "string",
+            "title": "Value"
+          },
+          "raw": {
+            "type": "string",
+            "title": "Raw"
+          },
+          "extraction_confidence": {
+            "type": "number",
+            "title": "Extraction Confidence"
+          },
+          "occurrences": {
+            "type": "integer",
+            "title": "Occurrences",
+            "default": 1
+          },
+          "evidence_truncated": {
+            "type": "boolean",
+            "title": "Evidence Truncated",
+            "default": false
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/IndicatorEvidence"
+            },
+            "type": "array",
+            "title": "Evidence"
+          },
+          "ai": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IndicatorAI"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ai_current": {
+            "type": "boolean",
+            "title": "Ai Current",
+            "default": false
+          },
+          "assessment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssessmentResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "excluded": {
+            "type": "boolean",
+            "title": "Excluded"
+          },
+          "exclusion_reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Exclusion Reasons"
+          },
+          "suppressed": {
+            "type": "boolean",
+            "title": "Suppressed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "type",
+          "value",
+          "raw",
+          "extraction_confidence",
+          "evidence",
+          "excluded",
+          "exclusion_reasons",
+          "suppressed"
+        ],
+        "title": "IndicatorResponse"
       },
       "IntegrationConnectorResponse": {
         "properties": {
@@ -46983,7 +48655,10 @@
               "feed_failing",
               "webhook_failed",
               "daily_digest",
-              "report_ready"
+              "report_ready",
+              "intel.extraction.ready",
+              "intel.indicators.changed",
+              "hunt.approved"
             ],
             "title": "Event Type"
           },
@@ -47248,7 +48923,10 @@
               "feed_failing",
               "webhook_failed",
               "daily_digest",
-              "report_ready"
+              "report_ready",
+              "intel.extraction.ready",
+              "intel.indicators.changed",
+              "hunt.approved"
             ],
             "title": "Event Type"
           },
@@ -47502,6 +49180,37 @@
       },
       "NotificationWebhookResponse": {
         "properties": {
+          "payload_mode": {
+            "type": "string",
+            "enum": [
+              "template",
+              "automation_v1"
+            ],
+            "title": "Payload Mode",
+            "default": "template"
+          },
+          "conditions": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WebhookConditionGroup-Output"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "credential_profile_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credential Profile Id"
+          },
           "id": {
             "type": "string",
             "format": "uuid",
@@ -47528,7 +49237,10 @@
               "feed_failing",
               "webhook_failed",
               "daily_digest",
-              "report_ready"
+              "report_ready",
+              "intel.extraction.ready",
+              "intel.indicators.changed",
+              "hunt.approved"
             ],
             "title": "Event Type"
           },
@@ -47791,6 +49503,37 @@
       },
       "NotificationWebhookWrite": {
         "properties": {
+          "payload_mode": {
+            "type": "string",
+            "enum": [
+              "template",
+              "automation_v1"
+            ],
+            "title": "Payload Mode",
+            "default": "template"
+          },
+          "conditions": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WebhookConditionGroup-Input"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "credential_profile_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credential Profile Id"
+          },
           "name": {
             "type": "string",
             "maxLength": 255,
@@ -47810,7 +49553,10 @@
               "feed_failing",
               "webhook_failed",
               "daily_digest",
-              "report_ready"
+              "report_ready",
+              "intel.extraction.ready",
+              "intel.indicators.changed",
+              "hunt.approved"
             ],
             "title": "Event Type",
             "default": "rss_item_new"
@@ -57209,6 +58955,208 @@
         ],
         "title": "StructuredExtractionResponse"
       },
+      "SuppressionCreate": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "ioc_type": {
+            "type": "string",
+            "enum": [
+              "hash_sha256",
+              "hash_sha1",
+              "hash_md5",
+              "ipv4",
+              "ipv6",
+              "domain",
+              "url",
+              "email",
+              "cve",
+              "vendor",
+              "program"
+            ],
+            "title": "Ioc Type"
+          },
+          "value": {
+            "type": "string",
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "Value"
+          },
+          "active": {
+            "type": "boolean",
+            "title": "Active",
+            "default": true
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "reason",
+          "ioc_type",
+          "value"
+        ],
+        "title": "SuppressionCreate"
+      },
+      "SuppressionPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SuppressionResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size"
+          },
+          "can_manage": {
+            "type": "boolean",
+            "title": "Can Manage"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size",
+          "can_manage"
+        ],
+        "title": "SuppressionPage"
+      },
+      "SuppressionResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "team_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Team Id"
+          },
+          "ioc_type": {
+            "type": "string",
+            "title": "Ioc Type"
+          },
+          "value": {
+            "type": "string",
+            "title": "Value"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "active": {
+            "type": "boolean",
+            "title": "Active"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "expired": {
+            "type": "boolean",
+            "title": "Expired"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "team_id",
+          "ioc_type",
+          "value",
+          "version",
+          "reason",
+          "active",
+          "expires_at",
+          "expired",
+          "updated_at"
+        ],
+        "title": "SuppressionResponse"
+      },
+      "SuppressionUpdate": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "expected_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Version"
+          },
+          "active": {
+            "type": "boolean",
+            "title": "Active"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "reason",
+          "expected_version",
+          "active"
+        ],
+        "title": "SuppressionUpdate"
+      },
       "SystemOperationRunListResponse": {
         "properties": {
           "runs": {
@@ -60007,6 +61955,377 @@
           "end"
         ],
         "title": "VerifiedExtractionEvidence"
+      },
+      "WebhookCondition": {
+        "properties": {
+          "field": {
+            "type": "string",
+            "enum": [
+              "feed_id",
+              "tag_id",
+              "tag",
+              "alert_rule_id",
+              "team_id",
+              "ioc_type",
+              "ioc_role",
+              "extraction_confidence",
+              "maliciousness_confidence",
+              "freshness_seconds",
+              "attack_technique",
+              "hunt_review_status"
+            ],
+            "title": "Field"
+          },
+          "operator": {
+            "type": "string",
+            "enum": [
+              "in",
+              "not_in",
+              "gte",
+              "lte"
+            ],
+            "title": "Operator"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "field",
+          "operator",
+          "value"
+        ],
+        "title": "WebhookCondition"
+      },
+      "WebhookConditionCheck": {
+        "properties": {
+          "field": {
+            "type": "string",
+            "title": "Field"
+          },
+          "matched": {
+            "type": "boolean",
+            "title": "Matched"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "field",
+          "matched",
+          "reason"
+        ],
+        "title": "WebhookConditionCheck"
+      },
+      "WebhookConditionGroup-Input": {
+        "properties": {
+          "op": {
+            "type": "string",
+            "enum": [
+              "all",
+              "any",
+              "not"
+            ],
+            "title": "Op"
+          },
+          "conditions": {
+            "items": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/WebhookCondition"
+                },
+                {
+                  "$ref": "#/components/schemas/WebhookConditionGroup-Input"
+                }
+              ]
+            },
+            "type": "array",
+            "maxItems": 32,
+            "minItems": 1,
+            "title": "Conditions"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "op",
+          "conditions"
+        ],
+        "title": "WebhookConditionGroup"
+      },
+      "WebhookConditionGroup-Output": {
+        "properties": {
+          "op": {
+            "type": "string",
+            "enum": [
+              "all",
+              "any",
+              "not"
+            ],
+            "title": "Op"
+          },
+          "conditions": {
+            "items": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/WebhookCondition"
+                },
+                {
+                  "$ref": "#/components/schemas/WebhookConditionGroup-Output"
+                }
+              ]
+            },
+            "type": "array",
+            "maxItems": 32,
+            "minItems": 1,
+            "title": "Conditions"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "op",
+          "conditions"
+        ],
+        "title": "WebhookConditionGroup"
+      },
+      "WebhookCredentialResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "auth_type": {
+            "type": "string",
+            "enum": [
+              "none",
+              "bearer",
+              "header"
+            ],
+            "title": "Auth Type"
+          },
+          "header_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Header Name"
+          },
+          "auth_configured": {
+            "type": "boolean",
+            "title": "Auth Configured"
+          },
+          "signing_configured": {
+            "type": "boolean",
+            "title": "Signing Configured"
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "enabled",
+          "auth_type",
+          "header_name",
+          "auth_configured",
+          "signing_configured",
+          "revision",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "WebhookCredentialResponse"
+      },
+      "WebhookCredentialWrite": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          },
+          "auth_type": {
+            "type": "string",
+            "enum": [
+              "none",
+              "bearer",
+              "header"
+            ],
+            "title": "Auth Type",
+            "default": "none"
+          },
+          "header_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Header Name"
+          },
+          "auth_secret": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 8000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auth Secret"
+          },
+          "clear_auth_secret": {
+            "type": "boolean",
+            "title": "Clear Auth Secret",
+            "default": false
+          },
+          "signing_secret": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4096,
+                "minLength": 32
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signing Secret"
+          },
+          "clear_signing_secret": {
+            "type": "boolean",
+            "title": "Clear Signing Secret",
+            "default": false
+          },
+          "expected_revision": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Revision"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "WebhookCredentialWrite"
+      },
+      "WebhookPreviewRequest": {
+        "properties": {
+          "webhook": {
+            "$ref": "#/components/schemas/NotificationWebhookWrite"
+          },
+          "event_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Event Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "webhook",
+          "event_id"
+        ],
+        "title": "WebhookPreviewRequest"
+      },
+      "WebhookPreviewResponse": {
+        "properties": {
+          "matches": {
+            "type": "boolean",
+            "title": "Matches"
+          },
+          "checks": {
+            "items": {
+              "$ref": "#/components/schemas/WebhookConditionCheck"
+            },
+            "type": "array",
+            "title": "Checks"
+          },
+          "missing_fields": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Missing Fields"
+          },
+          "automation_payload": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Automation Payload"
+          }
+        },
+        "type": "object",
+        "required": [
+          "matches",
+          "checks",
+          "missing_fields"
+        ],
+        "title": "WebhookPreviewResponse"
       },
       "WorkspaceDashboardPanelDefinitionResponse": {
         "properties": {
