@@ -113,6 +113,11 @@ refactor or weakened authorization check was introduced to make a test pass.
   took 19.46 seconds, peak sampled lock-wait query age was 25.26 ms, and
   application RSS increased by 40.72 MiB. It ran alongside other validation on
   the development host, so these are not comparative release-performance claims.
+- The separately enabled capacity recovery profile also passed every budget.
+  Accepted messages survived a forced Redis termination; the broker restarted
+  in 0.48 seconds. After terminating an active prefork task child, durable
+  article repair and task redelivery restored processing in 6.88 seconds without
+  restarting the producer. Its disposable services were cleaned up.
 - Whole backend application/test Ruff, Python compilation, source-size gates
   covering 887 production files, shell syntax, and generated API/preview-fixture
   consistency passed. All 26 coverage-gate tests passed after adding the new
