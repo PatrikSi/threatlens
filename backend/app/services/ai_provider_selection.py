@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 PROVIDER_SELECTION_KEY = "provider_selection"
 _FEATURE_FIELDS = {
     "item_enrichment": "item_enrichment_provider_id",
-    "team_assessment": "item_enrichment_provider_id",
+    "team_assessment": "team_assessment_provider_id",
     "daily_brief": "daily_brief_provider_id",
     "report": "report_provider_id",
 }
@@ -45,6 +45,8 @@ def _assigned_provider_id(db: Session, feature_type: str | None) -> uuid.UUID | 
         return None
     field_name = _FEATURE_FIELDS.get(feature_type or "")
     override = getattr(routing, field_name) if field_name else None
+    if feature_type == "team_assessment" and override is None:
+        override = routing.item_enrichment_provider_id
     return override or routing.default_provider_id
 
 

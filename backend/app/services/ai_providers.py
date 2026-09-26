@@ -32,6 +32,7 @@ PROVIDER_FIELDS = tuple(AIProviderFields.model_fields)
 ROUTING_FIELDS = (
     "default_provider_id",
     "item_enrichment_provider_id",
+    "team_assessment_provider_id",
     "daily_brief_provider_id",
     "report_provider_id",
 )
@@ -91,12 +92,14 @@ def resolve_provider(
     routing = get_provider_routing(db)
     field = {
         "item_enrichment": "item_enrichment_provider_id",
+        "team_assessment": "team_assessment_provider_id",
         "daily_brief": "daily_brief_provider_id",
         "report": "report_provider_id",
     }.get(feature_type or "")
-    provider_id = (
-        getattr(routing, field) if field else None
-    ) or routing.default_provider_id
+    provider_id = getattr(routing, field) if field else None
+    if feature_type == "team_assessment" and provider_id is None:
+        provider_id = routing.item_enrichment_provider_id
+    provider_id = provider_id or routing.default_provider_id
     return get_provider(db, provider_id) if provider_id is not None else None
 
 
@@ -232,9 +235,9 @@ def update_provider_routing(
 ) -> AIProviderRouting:
     routing = get_provider_routing(db, for_update=True)
     require_provider_version(routing.version, payload.version)
-    selected_ids = sorted(
-        {getattr(payload, field) for field in ROUTING_FIELDS} - {None}
-    )
+    changed_fields = [field for field in ROUTING_FIELDS
+        if field != "team_assessment_provider_id" or field in payload.model_fields_set]
+    selected_ids = sorted({getattr(payload, field) for field in changed_fields} - {None})
     for provider_id in selected_ids:
         provider = get_provider(db, provider_id, for_update=True)
         if not provider.enabled:
@@ -245,7 +248,7 @@ def update_provider_routing(
         _key, error = read_provider_api_key(provider)
         if error:
             raise AIProviderError("provider_credential_unreadable", error)
-    for field in ROUTING_FIELDS:
+    for field in changed_fields:
         setattr(routing, field, getattr(payload, field))
     routing.version += 1
     db.flush()

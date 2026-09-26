@@ -205,7 +205,7 @@ def run_ai_json_request(
         try:
             lock_selected_provider(db, active)
             completion = call_with_provider_budget(db, active, call=call_ai_json,
-                messages=messages, requested_tokens=request_max_tokens, call_kwargs=call_kwargs)
+                messages=messages, requested_tokens=request_max_tokens, call_kwargs=call_kwargs, task_run_id=task_run_id)
             completion = normalize_completion_metadata(active, completion)
             validate_feature_completion(active, feature_type=feature_type, completion=completion, messages=messages)
         except AIWorkflowDeferred as deferred:

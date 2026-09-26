@@ -92,6 +92,10 @@ class AIProviderRouting(Base):
         Uuid(as_uuid=True),
         ForeignKey("ai_provider_configurations.id", ondelete="RESTRICT"),
     )
+    team_assessment_provider_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("ai_provider_configurations.id", ondelete="RESTRICT"),
+    )
     daily_brief_provider_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey("ai_provider_configurations.id", ondelete="RESTRICT"),

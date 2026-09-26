@@ -109,6 +109,7 @@ class AIProviderRoutingResponse(BaseModel):
     version: int = Field(ge=1)
     default_provider_id: uuid.UUID | None = None
     item_enrichment_provider_id: uuid.UUID | None = None
+    team_assessment_provider_id: uuid.UUID | None = None
     daily_brief_provider_id: uuid.UUID | None = None
     report_provider_id: uuid.UUID | None = None
 

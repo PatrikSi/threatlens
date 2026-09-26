@@ -21,10 +21,13 @@ class AIProviderBudgetReservation(Base):
         Index("ix_ai_budget_created", "created_at"),
         Index("ix_ai_budget_provider_created", "provider_key", "created_at"),
         Index("ix_ai_budget_provider_active", "provider_key", "completed_at", "expires_at"),
+        Index("ix_ai_budget_group_created", "quota_group_key", "created_at"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     provider_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    quota_group_key: Mapped[str | None] = mapped_column(String(64))
+    team_key: Mapped[str | None] = mapped_column(String(64))
     reserved_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False)
     charged_tokens: Mapped[int | None] = mapped_column(BigInteger)
     outcome: Mapped[str | None] = mapped_column(String(32))

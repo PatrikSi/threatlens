@@ -7,6 +7,7 @@ import type { AiProviderConnectionsController } from './useAiProviderConnections
 import { AiProviderEndpointHelp } from './AiProviderEndpointHelp'
 import { AiCompletionTokenHelp } from './AiCompletionTokenHelp'
 import { AiProviderCapabilityFields } from './AiProviderCapabilityFields'
+import { AiQuotaGroups } from './AiQuotaGroups'
 import { AiProviderAdmissionFields } from './AiProviderAdmissionFields'
 
 const inputClass =
@@ -87,6 +88,7 @@ export function AiProviderConnections({ controller: c }: { controller: AiProvide
         <ProviderList c={c} focusEditor={focusEditor} addProviderButton={addProviderButton} />
         <ProviderEditor c={c} editorTitle={editorTitle} />
         <ProviderRouting c={c} onReload={() => setConfirmRoutingReload(true)} />
+        <AiQuotaGroups controller={c} />
       </fieldset>
       <ConfirmDialog
         open={c.pendingSelection !== null}
@@ -473,7 +475,7 @@ function ProviderRouting({ c, onReload }: { c: AiProviderConnectionsController; 
         {c.visibleRouting && (
           <div className="space-y-3">
             {ROUTING_FIELDS.map(({ key, label }) => {
-              const id = c.visibleRouting![key]
+              const id = c.visibleRouting![key] ?? null
               const inherited = key !== 'default_provider_id' && id === null
               return (
                 <div
@@ -484,7 +486,9 @@ function ProviderRouting({ c, onReload }: { c: AiProviderConnectionsController; 
                     <p className="text-sm font-semibold">{label}</p>
                     <p className="break-words text-sm">
                       {inherited
-                        ? `Default: ${c.providerName(c.visibleRouting!.default_provider_id)}`
+                        ? key === 'team_assessment_provider_id'
+                          ? `Article enrichment: ${c.providerName(c.visibleRouting!.item_enrichment_provider_id ?? c.visibleRouting!.default_provider_id)}`
+                          : `Default: ${c.providerName(c.visibleRouting!.default_provider_id)}`
                         : c.providerName(id)}
                     </p>
                   </div>
@@ -512,7 +516,7 @@ function ProviderRouting({ c, onReload }: { c: AiProviderConnectionsController; 
                       disabled={id === null || c.routing.isError}
                       onClick={() => c.assign(key, null)}
                     >
-                      {key === 'default_provider_id' ? 'Use legacy settings' : 'Use default'}
+                      {key === 'default_provider_id' ? 'Use legacy settings' : key === 'team_assessment_provider_id' ? 'Use article provider' : 'Use default'}
                     </button>
                   </div>
                 </div>

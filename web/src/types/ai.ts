@@ -29,7 +29,7 @@ export interface AISettings extends AIProviderCapabilities, AIProviderAdmissionL
   ai_configured: boolean
   api_key_configured: boolean
   provider_routing_supported?: boolean
-  effective_feature_configured?: { item_enrichment: boolean; daily_brief: boolean; report: boolean }
+  effective_feature_configured?: { item_enrichment: boolean; team_assessment?: boolean; daily_brief: boolean; report: boolean }
   provider_type: 'openai_compatible'
   base_url: string | null
   model: string | null
@@ -115,6 +115,7 @@ export interface AIProviderRouting {
   version: number
   default_provider_id: string | null
   item_enrichment_provider_id: string | null
+  team_assessment_provider_id?: string | null
   daily_brief_provider_id: string | null
   report_provider_id: string | null
 }
