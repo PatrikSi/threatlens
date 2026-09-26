@@ -4,6 +4,7 @@ import { buildApiUrl } from '../api/client'
 import { looksLikeHtml, parseArticleBlocks, sanitizeHtmlFragment, stripHtml } from './dashboardContent'
 import { resolveWindowRect, type DashboardWindow, type DashboardWindowType } from './dashboardSavedViews'
 import { OriginalArticleFrame } from './OriginalArticleFrame'
+import { useArticlePreviewFocus } from '../hooks/useArticlePreviewFocus'
 
 export interface ArticlePreviewState {
   itemId: string
@@ -37,11 +38,13 @@ export function ArticlePreviewDrawer({
   onClose: () => void
 }) {
   const [resourceOverride, setResourceOverride] = useState<boolean | null>(null)
+  const { panelRef, closeRef } = useArticlePreviewFocus()
   const externalResources = resourceOverride ?? defaultExternalResources
   const previewFrameUrl = buildApiUrl(`/items/${encodeURIComponent(preview.itemId)}/article-preview${externalResources ? '?external_resources=true' : ''}`)
 
   return (
     <aside
+      ref={panelRef}
       role="dialog"
       aria-labelledby="article-preview-title"
       className="fixed inset-y-0 right-0 z-50 flex max-w-full flex-col border-l border-slate/20 bg-white shadow-2xl dark:border-cyan-900/50 dark:bg-[#03130f]"
@@ -99,6 +102,7 @@ export function ArticlePreviewDrawer({
             Open Original
           </a>
           <button
+            ref={closeRef}
             type="button"
             className="rounded border border-slate/20 px-2.5 py-1.5 text-xs font-semibold dark:border-cyan-900/40"
             onClick={onClose}
