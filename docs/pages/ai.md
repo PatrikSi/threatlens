@@ -631,3 +631,7 @@ Statistics navigation is available with `read:stats`, or to administrators with
 boundary. AI-only administrators open directly into AI statistics; restricted
 section links keep the navigation visible so users can switch to an allowed
 section. Hidden organization navigation policy still takes precedence.
+
+## Extraction coverage and quality evaluation
+
+See [AI extraction coverage and quality evaluation](ai-quality-and-coverage.md) for bounded long-article processing, durable section recovery, coverage disclosures and the versioned evaluation workflow. The initial adversarial corpus is explicitly pending analyst review.
