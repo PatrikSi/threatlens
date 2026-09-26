@@ -87,6 +87,23 @@ class IndicatorAssessment(Base):
     )
 
 
+class IndicatorAssessmentLabel(Base):
+    """Immutable union of source labels observed across assessment revisions."""
+
+    __tablename__ = "indicator_assessment_labels"
+    assessment_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        ForeignKey("indicator_assessments.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    handling_label_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        ForeignKey("handling_labels.id", ondelete="RESTRICT"),
+        primary_key=True,
+        index=True,
+    )
+
+
 class IndicatorAssessmentHistory(Base):
     __tablename__ = "indicator_assessment_history"
     __table_args__ = (

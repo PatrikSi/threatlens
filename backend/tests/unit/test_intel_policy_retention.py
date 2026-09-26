@@ -11,7 +11,11 @@ from app.models.data_policy import (
 )
 from app.models.feed import Feed
 from app.models.iam import IAMGroup
-from app.models.intel_assessment import IndicatorAssessment, ItemIntelState
+from app.models.intel_assessment import (
+    IndicatorAssessment,
+    IndicatorAssessmentLabel,
+    ItemIntelState,
+)
 from app.models.ioc import IOC
 from app.models.item import Item
 from app.models.team import Team
@@ -59,7 +63,9 @@ def _retained_reference(db, *, label_id, assessment):
             team_id=team.id,
             item_id=item.id,
             ioc_id=indicator.id,
-            handling_label_id=label_id,
+            handling_label_id=UNRESTRICTED_HANDLING_LABEL_ID
+            if assessment == "lineage"
+            else label_id,
             source_revision=1,
             extraction_revision=1,
             verdict="malicious",
@@ -67,10 +73,16 @@ def _retained_reference(db, *, label_id, assessment):
         )
     db.add(row)
     db.flush()
+    if assessment == "lineage":
+        row = IndicatorAssessmentLabel(assessment_id=row.id, handling_label_id=label_id)
+        db.add(row)
+        db.flush()
     return row
 
 
-@pytest.mark.parametrize("assessment", [False, True], ids=["inventory", "assessment"])
+@pytest.mark.parametrize(
+    "assessment", [False, True, "lineage"], ids=["inventory", "assessment", "lineage"]
+)
 def test_retained_indicator_label_cannot_be_archived(
     db_session, seed_users, assessment
 ):
@@ -115,7 +127,9 @@ def test_retained_indicator_label_cannot_be_archived(
     assert result.label.is_active is False
 
 
-@pytest.mark.parametrize("assessment", [False, True], ids=["inventory", "assessment"])
+@pytest.mark.parametrize(
+    "assessment", [False, True, "lineage"], ids=["inventory", "assessment", "lineage"]
+)
 def test_preflight_reports_archived_retained_indicator_labels(
     db_session, seed_users, assessment
 ):

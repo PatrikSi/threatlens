@@ -212,6 +212,58 @@ def test_changed_ai_snapshot_supersedes_queued_extraction_event(
     )
 
 
+def test_hunt_approval_retains_old_source_labels_after_feed_relabel(
+    client,
+    db_session,
+    auth_headers,
+    assessment_setup,
+):
+    from app.models.data_policy import (
+        DataAccessEnvelope,
+        DataAccessEnvelopeLabel,
+        UNRESTRICTED_HANDLING_LABEL_ID,
+    )
+    from app.models.feed import Feed
+
+    _team, item, *_ = assessment_setup
+    _extract(db_session, item)
+    db_session.commit()
+    queued = _queue(client, assessment_setup, auth_headers["analyst"])
+    row, hunt_id = _ready(db_session, queued)
+    feed = db_session.get(Feed, item.feed_id)
+    original_label = feed.handling_label_id
+    assert original_label != UNRESTRICTED_HANDLING_LABEL_ID
+    feed.handling_label_id = UNRESTRICTED_HANDLING_LABEL_ID
+    db_session.commit()
+    approved = _review(
+        client,
+        assessment_setup,
+        auth_headers["admin"],
+        hunt_id,
+        version=row.version,
+    )
+    assert approved.status_code == 200, approved.text
+    event = db_session.scalar(
+        select(IntegrationEvent).where(IntegrationEvent.event_type == "hunt.approved")
+    )
+    assert event is not None
+    labels = set(
+        db_session.scalars(
+            select(DataAccessEnvelopeLabel.label_id)
+            .join(
+                DataAccessEnvelope,
+                DataAccessEnvelope.id == DataAccessEnvelopeLabel.envelope_id,
+            )
+            .where(
+                DataAccessEnvelope.resource_type == "integration_event",
+                DataAccessEnvelope.resource_id == event.id,
+            )
+        )
+    )
+    assert {original_label, UNRESTRICTED_HANDLING_LABEL_ID} <= labels
+    assert automation_event_current(db_session, event.payload_json, event.event_type)
+
+
 def test_malformed_retained_indicator_payloads_fail_closed_without_poisoning_transaction(
     db_session,
 ):

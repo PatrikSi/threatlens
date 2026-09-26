@@ -15,11 +15,8 @@ from app.db.base import Base
 from app.models.ioc import IOC
 
 
-def _migration(db, monkeypatch):
-    path = (
-        Path(__file__).resolve().parents[2]
-        / "alembic/versions/0107_intel_assessments.py"
-    )
+def _migration(db, monkeypatch, revision="0107_intel_assessments"):
+    path = Path(__file__).resolve().parents[2] / f"alembic/versions/{revision}.py"
     spec = importlib.util.spec_from_file_location("intel_migration", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -36,6 +33,10 @@ def test_migration_round_trip_preserves_existing_indicator_identity(
     db_session.add(row)
     db_session.flush()
     identity = row.id
+    lineage_migration = _migration(
+        db_session, monkeypatch, "0110_indicator_review_lineage"
+    )
+    lineage_migration.downgrade()
     migration = _migration(db_session, monkeypatch)
     migration.downgrade()
     assert (
@@ -45,6 +46,7 @@ def test_migration_round_trip_preserves_existing_indicator_identity(
         == "legacy.net"
     )
     migration.upgrade()
+    lineage_migration.upgrade()
     value = db_session.execute(
         text("SELECT id,value_digest FROM iocs WHERE id=:id"), {"id": identity}
     ).one()

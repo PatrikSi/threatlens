@@ -313,9 +313,6 @@ def emit_hunt_approved(
         indicators=indicators if current else [],
         source_revision=item.classification_required_version,
         extraction_revision=state.revision,
-        handling_label_id=db.scalar(
-            select(Feed.handling_label_id).where(Feed.id == item.feed_id)
-        ),
     )
     payload["team_indicator_policy_hash"] = policy_hash
     payload.update(
@@ -335,7 +332,6 @@ def emit_hunt_approved(
         payload["incomplete_reason"] = "extraction_not_current"
     elif count > MAX_EVENT_INDICATORS:
         payload["incomplete_reason"] = "indicator_count_limit"
-    _bound_payload(payload)
     payload["filter_metadata"].update(
         team_id=str(row.team_id),
         ioc_types=sorted({entry["type"] for entry in payload["indicators"]}),
@@ -359,6 +355,8 @@ def emit_hunt_approved(
     )
     key = f"hunt.approved:{row.id}:{hunt['id']}:{hunt['approval_id']}"
     payload["action_id"] = hashlib.sha256(key.encode()).hexdigest()
+    _apply_assessment_boundary(payload)
+    _bound_payload(payload)
     event = emit_integration_event(
         db,
         event_type="hunt.approved",
@@ -371,6 +369,7 @@ def emit_hunt_approved(
     )
     _retain_hunt_source_labels(db, event.id, row)
     _retain_extraction_label(db, event.id, item, state)
+    _retain_assessment_boundary(db, event.id, item, payload)
     return event.id
 
 
@@ -400,7 +399,8 @@ def _retain_hunt_source_labels(db: Session, event_id: uuid.UUID, row) -> None:
                 source_type="item",
                 source_id=str(source.item_id),
                 source_version=f"hunt:{row.id}:{row.version}",
-                source_feed_id=source.feed_id,
+                # Historical labels are independent snapshots. The event's
+                # direct item lineage already tracks the current feed label.
                 handling_label_id=source.captured_label_id,
                 captured_policy_revision=revision,
             )
@@ -431,7 +431,7 @@ def _retain_extraction_label(
                 source_type="item",
                 source_id=str(item.id),
                 source_version=f"extraction:{state.revision}",
-                source_feed_id=item.feed_id,
+                # The direct event source retains the live feed association.
                 handling_label_id=state.handling_label_id,
                 captured_policy_revision=lock_data_policy_revision_for_derivation(db),
             ),
@@ -456,9 +456,6 @@ def emit_team_indicator_change(
         indicators=indicators,
         source_revision=item.classification_required_version,
         extraction_revision=state.revision,
-        handling_label_id=db.scalar(
-            select(Feed.handling_label_id).where(Feed.id == item.feed_id)
-        ),
     )
     semantic = [
         {
@@ -471,6 +468,8 @@ def emit_team_indicator_change(
                 "analyst_verdict",
                 "excluded",
                 "reasons",
+                "assessment_label_ids",
+                "assessment_lineage_complete",
             )
         }
         for entry in indicators
@@ -512,9 +511,10 @@ def emit_team_indicator_change(
         ioc_types=sorted({entry["type"] for entry in indicators}),
         ioc_roles=sorted({entry["role"] for entry in indicators}),
     )
-    _bound_payload(payload)
     key = f"intel.indicators.changed:{team_id}:{item.id}:{team_state.revision}"
     payload["action_id"] = hashlib.sha256(key.encode()).hexdigest()
+    _apply_assessment_boundary(payload)
+    _bound_payload(payload)
     event = emit_integration_event(
         db,
         event_type="intel.indicators.changed",
@@ -526,4 +526,48 @@ def emit_team_indicator_change(
         actor_user_id=actor_user_id,
     )
     _retain_extraction_label(db, event.id, item, state)
+    _retain_assessment_boundary(db, event.id, item, payload)
     return event.id
+
+
+def _apply_assessment_boundary(payload: dict) -> None:
+    labels = set(payload["handling_label_ids"])
+    for indicator in payload["indicators"]:
+        labels.update(indicator.get("assessment_label_ids", []))
+        if indicator.get("assessment_lineage_complete") is False:
+            payload["indicators_complete"] = False
+            payload["incomplete_reason"] = "assessment_lineage_unavailable"
+    payload["handling_label_ids"] = sorted(labels)
+
+
+def _retain_assessment_boundary(
+    db: Session,
+    event_id: uuid.UUID,
+    item: Item,
+    payload: dict,
+) -> None:
+    """Keep review-derived actions protected even if their source is relabeled."""
+    from app.services.data_access_envelopes import (
+        DataAccessSourceInput,
+        merge_data_access_envelope_sources,
+    )
+    from app.services.data_access_runtime import (
+        lock_data_policy_revision_for_derivation,
+    )
+
+    revision = lock_data_policy_revision_for_derivation(db)
+    merge_data_access_envelope_sources(
+        db,
+        resource_type="integration_event",
+        resource_id=event_id,
+        sources=tuple(
+            DataAccessSourceInput(
+                source_type="item",
+                source_id=str(item.id),
+                source_version=f"indicator-review:{payload['extraction_revision']}:{label}",
+                handling_label_id=uuid.UUID(label),
+                captured_policy_revision=revision,
+            )
+            for label in payload["handling_label_ids"]
+        ),
+    )

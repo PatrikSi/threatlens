@@ -381,6 +381,235 @@ def test_verdict_events_are_team_scoped_and_reason_only_edits_do_not_reemit(
     )
 
 
+def test_assessment_history_retains_each_reviews_source_label(
+    client, db_session, seed_users, auth_headers, monkeypatch, intel_setup
+):
+    from app.models.data_policy import UNRESTRICTED_HANDLING_LABEL_ID
+    from app.models.feed import Feed
+    from tests.integration.test_data_policy_read_coverage import _enable_enforcement
+
+    team, item, *_ = intel_setup
+    restricted = _enable_enforcement(db_session, seed_users, monkeypatch)
+    feed = db_session.get(Feed, item.feed_id)
+    feed.handling_label_id = UNRESTRICTED_HANDLING_LABEL_ID
+    item.classification_required_version += 1
+    db_session.flush()
+    _extract(db_session, item)
+    db_session.commit()
+    page = _page(client, intel_setup, auth_headers["admin"])
+    indicator = next(row for row in page["items"] if row["value"] == "evil.net")
+    endpoint = (
+        f"/items/{item.id}/indicators/{indicator['id']}/assessment?team_id={team['id']}"
+    )
+    assert (
+        client.patch(
+            endpoint, json=_command(page), headers=auth_headers["admin"]
+        ).status_code
+        == 200
+    )
+    stored_review = db_session.scalar(
+        select(IndicatorAssessment).where(IndicatorAssessment.item_id == item.id)
+    )
+    assert stored_review.handling_label_id == UNRESTRICTED_HANDLING_LABEL_ID
+
+    feed.handling_label_id = restricted.id
+    item.classification_required_version += 1
+    db_session.flush()
+    _extract(db_session, item)
+    db_session.commit()
+    restricted_page = _page(client, intel_setup, auth_headers["admin"])
+    command = {
+        **_command(restricted_page, version=1),
+        "reason": "Restricted source details.",
+    }
+    saved = client.patch(endpoint, json=command, headers=auth_headers["admin"])
+    assert saved.status_code == 200, saved.text
+
+    feed.handling_label_id = UNRESTRICTED_HANDLING_LABEL_ID
+    item.classification_required_version += 1
+    db_session.flush()
+    _extract(db_session, item)
+    db_session.commit()
+    visible = _page(client, intel_setup, auth_headers["analyst"])
+    assert (
+        next(row for row in visible["items"] if row["id"] == indicator["id"])[
+            "assessment"
+        ]
+        is None
+    )
+
+    # A later public review must not lower the accumulated historical boundary.
+    public_page = _page(client, intel_setup, auth_headers["admin"])
+    saved = client.patch(
+        endpoint,
+        json=_command(public_page, version=2, verdict="retracted"),
+        headers=auth_headers["admin"],
+    )
+    assert saved.status_code == 200, saved.text
+    history = client.get(
+        endpoint.replace("?", "/history?"), headers=auth_headers["analyst"]
+    )
+    assert history.status_code == 200, history.text
+    assert history.json()["items"] == []
+    assert "Restricted source details." not in history.text
+    manager_history = client.get(
+        endpoint.replace("?", "/history?"), headers=auth_headers["admin"]
+    )
+    assert manager_history.status_code == 200, manager_history.text
+    assert [entry["version"] for entry in manager_history.json()["items"]] == [3, 2, 1]
+    assert (
+        client.patch(
+            endpoint,
+            json=_command(public_page, version=3),
+            headers=auth_headers["analyst"],
+        ).status_code
+        == 404
+    )
+
+    from app.models.data_policy import DataAccessEnvelope, DataAccessEnvelopeLabel
+    from app.services.intel_event_eligibility import automation_event_current
+
+    event = next(
+        event
+        for event in db_session.scalars(select(IntegrationEvent)).all()
+        if event.payload_json.get("team_id") == team["id"]
+        and event.payload_json.get("source_revision") == public_page["source_revision"]
+    )
+    assert str(restricted.id) in event.payload_json["handling_label_ids"]
+    excluded = next(
+        entry
+        for entry in event.payload_json["indicators"]
+        if entry["id"] == indicator["id"]
+    )
+    assert "analyst_retracted" in excluded["reasons"]
+    assert excluded["excluded"] is True
+    labels = set(
+        db_session.scalars(
+            select(DataAccessEnvelopeLabel.label_id)
+            .join(
+                DataAccessEnvelope,
+                DataAccessEnvelope.id == DataAccessEnvelopeLabel.envelope_id,
+            )
+            .where(
+                DataAccessEnvelope.resource_type == "integration_event",
+                DataAccessEnvelope.resource_id == event.id,
+            )
+        )
+    )
+    assert restricted.id in labels
+    assert automation_event_current(db_session, event.payload_json, event.event_type)
+
+    # Corrupt or incomplete retained lineage withholds automation; a restrictive
+    # verdict must never disappear and make its indicator actionable.
+    from app.models.intel_assessment import IndicatorAssessmentLabel
+
+    db_session.execute(
+        delete(IndicatorAssessmentLabel).where(
+            IndicatorAssessmentLabel.assessment_id == stored_review.id,
+        )
+    )
+    assert not automation_event_current(
+        db_session, event.payload_json, event.event_type
+    )
+
+
+def test_changed_article_fingerprint_marks_verdict_historical(
+    client, db_session, auth_headers, intel_setup
+):
+    from app.models.article import Article
+
+    team, item, *_ = intel_setup
+    page = _page(client, intel_setup, auth_headers["analyst"])
+    indicator = next(row for row in page["items"] if row["value"] == "evil.net")
+    endpoint = (
+        f"/items/{item.id}/indicators/{indicator['id']}/assessment?team_id={team['id']}"
+    )
+    saved = client.patch(
+        endpoint, json=_command(page, verdict="benign"), headers=auth_headers["analyst"]
+    )
+    assert saved.status_code == 200, saved.text
+    # Article fetch/purge metadata is independently included in provenance, even
+    # when the item classification version has not changed.
+    db_session.add(
+        Article(
+            item_id=item.id,
+            final_url=item.url,
+            http_status=200,
+            text="Refreshed evidence.",
+        )
+    )
+    db_session.commit()
+    stale = _page(client, intel_setup, auth_headers["analyst"])
+    assert stale["extraction_current"] is False
+    result = next(row for row in stale["items"] if row["id"] == indicator["id"])
+    assert result["assessment"]["current"] is False
+    assert result["excluded"] is False
+
+
+def test_legacy_edited_review_upgrade_restricts_history_and_queued_actions(
+    client, db_session, seed_users, auth_headers, monkeypatch, intel_setup
+):
+    from app.models.data_policy import UNRESTRICTED_HANDLING_LABEL_ID
+    from app.models.feed import Feed
+    from app.services.intel_event_eligibility import automation_event_current
+    from tests.integration.test_data_policy_read_coverage import _enable_enforcement
+    from tests.unit.test_migration_0107 import _migration
+
+    team, item, *_ = intel_setup
+    _enable_enforcement(db_session, seed_users, monkeypatch)
+    db_session.get(
+        Feed, item.feed_id
+    ).handling_label_id = UNRESTRICTED_HANDLING_LABEL_ID
+    item.classification_required_version += 1
+    db_session.flush()
+    _extract(db_session, item)
+    db_session.commit()
+    page = _page(client, intel_setup, auth_headers["analyst"])
+    indicator = next(row for row in page["items"] if row["value"] == "evil.net")
+    endpoint = (
+        f"/items/{item.id}/indicators/{indicator['id']}/assessment?team_id={team['id']}"
+    )
+    for version, verdict in ((0, "malicious"), (1, "benign")):
+        response = client.patch(
+            endpoint,
+            json=_command(page, version=version, verdict=verdict),
+            headers=auth_headers["analyst"],
+        )
+        assert response.status_code == 200, response.text
+    event = next(
+        row
+        for row in db_session.scalars(select(IntegrationEvent))
+        if row.payload_json.get("team_id") == team["id"]
+        and any(
+            entry.get("analyst_verdict") == "benign"
+            for entry in row.payload_json["indicators"]
+        )
+    )
+    assert automation_event_current(db_session, event.payload_json, event.event_type)
+    db_session.commit()
+
+    # Simulate upgrade from the pre-lineage schema with an edited review whose
+    # intermediate handling labels cannot be established from its old row.
+    migration = _migration(db_session, monkeypatch, "0110_indicator_review_lineage")
+    migration.downgrade()
+    migration.upgrade()
+    db_session.commit()
+    migrated = _page(client, intel_setup, auth_headers["analyst"])
+    assert (
+        next(row for row in migrated["items"] if row["id"] == indicator["id"])[
+            "assessment"
+        ]
+        is None
+    )
+    history = client.get(
+        endpoint.replace("?", "/history?"), headers=auth_headers["analyst"]
+    )
+    assert history.status_code == 200 and history.json()["items"] == []
+    assert not automation_event_current(
+        db_session, event.payload_json, event.event_type
+    )
+
+
 def test_full_length_urls_persist_and_can_be_suppressed_without_btree_overflow(
     client,
     db_session,
