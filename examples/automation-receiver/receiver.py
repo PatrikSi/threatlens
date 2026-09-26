@@ -4,6 +4,10 @@
 This example deliberately does not invoke a SIEM. Integrate a vendor adapter by
 looking up the existing remote action ID before launch, then record its job ID.
 Never turn an ambiguous launch into a second launch.
+
+For sync, THREATLENS_URL is the API base before /v1: use
+https://threatlens.example/api with the bundled web proxy, or the direct backend
+origin without /api. The client appends /v1. Set THREATLENS_API_TOKEN separately.
 """
 
 from __future__ import annotations
