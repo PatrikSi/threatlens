@@ -21,6 +21,10 @@ label. Token revocation and current permissions are checked before mutation.
 The execution ID alone grants no access. Personal ownership is unchanged; service
 account/team ownership of webhook destinations is a separate feature.
 
+Paths in this protocol are backend-relative (`/v1/...`). The bundled web proxy
+mounts them under `/api/v1/...`: prepend `/api` to the supplied `callback_path`
+when using that proxy. A custom ingress must preserve its configured API prefix.
+
 1. Verify the webhook signature over the **exact bytes** received.
 2. Persist `(webhook_id, action_id)` and the accepted request before returning HTTP
    202. Use a uniqueness constraint, not a process-local cache.
@@ -136,15 +140,20 @@ or threaded use. It listens only on `127.0.0.1:8091`, accepts bounded signed POS
 bodies, and allows five minutes of timestamp skew. Incoming requests and individual
 API transfers have a 15-second total deadline, including headers and body. A sync
 invocation has a 60-second network budget and applies policy withdrawals before
-uploading status receipts; pending work remains durable for the next invocation. Synchronize every minute using your
-scheduler, with `THREATLENS_URL` set to the server origin (without `/v1`) and
-`THREATLENS_API_TOKEN` set to the scoped owner token:
+uploading status receipts; pending work remains durable for the next invocation.
+Synchronize every minute using your scheduler. Set `THREATLENS_URL` to the API
+base **before `/v1`**, including the proxy prefix: for the bundled web proxy use
+`https://threatlens.example/api`; for a directly exposed backend use its origin,
+such as `http://127.0.0.1:8000`. The client appends `/v1` itself. Set
+`THREATLENS_API_TOKEN` to the scoped owner token:
 
 ```bash
 python3 examples/automation-receiver/receiver.py sync --database receiver.sqlite3
 ```
 
-After reconciling a vendor job, record a status with the execution ID. Deliver the
+`sync` retries locally pending callbacks and polls policy updates; it does not
+query a SIEM or discover remote job status. After your adapter reconciles a vendor
+job, record a status with the execution ID. Deliver the
 previous pending callback before advancing status:
 
 ```bash

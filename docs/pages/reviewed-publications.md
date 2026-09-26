@@ -24,9 +24,13 @@ source articles also withhold the artifact instead of making retained evidence
 public. Approval and withdrawal audit records retain the same access boundary.
 Consumers must stop using an approval when current access or source retention
 prevents validating it (including HTTP 403/404). A missing artifact is not proof
-that its last downloaded indicators remain approved. Use the separate automation
-control stream when a receiver needs durable, opaque withdrawal acknowledgements
-after evidence access is lost.
+that its last downloaded indicators remain approved.
+
+Downloaded publications do not create external execution receipts or automation
+control updates. The separate automation control stream applies to independently
+configured `automation_v1` webhook executions. Use that integration when a receiver
+needs durable, opaque withdrawal acknowledgements after evidence access is lost;
+reviewed artifacts still require polling and reimporting their own updates.
 
 The preview fingerprint covers the selected evidence and reviews. A changed
 source, verdict or filter produces a conflict and requires a new preview. Creation
@@ -61,8 +65,9 @@ Manual withdrawal requires the displayed revision and confirmation in the UI.
 
 **An already downloaded file cannot update itself.** Poll and reimport the latest
 artifact to apply withdrawals; this mode does not send files to MISP or a SIEM.
-For authenticated execution status and receiver acknowledgement use the separate
-[automation execution protocol](automation-execution.md). Preserve completed hunt
+For separately configured webhook executions, authenticated status and receiver
+acknowledgement use the [automation execution protocol](automation-execution.md).
+It does not acknowledge publication downloads. Preserve completed hunt
 results as history even when their supporting intelligence is withdrawn.
 
 ## Bounds and deployment
