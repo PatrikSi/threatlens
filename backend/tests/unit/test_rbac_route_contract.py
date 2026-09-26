@@ -46,6 +46,9 @@ PERMISSION_FREE_OPERATIONS = frozenset(
 
 ADMIN_ONLY_OPERATIONS = frozenset(
     {
+        ("GET", "/v1/ai/quota-groups"),
+        ("POST", "/v1/ai/quota-groups"),
+        ("PUT", "/v1/ai/quota-groups/{group_id}"),
         ("GET", "/v1/auth/oidc/provider"),
         ("PUT", "/v1/auth/oidc/provider"),
         ("POST", "/v1/auth/oidc/provider/test"),

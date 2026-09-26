@@ -1,3 +1,4 @@
+from pathlib import Path
 import pytest
 import subprocess
 import sys
@@ -122,7 +123,7 @@ text += ('https://sample.example/path' + ')' * 4000 + ' ') * 400
 matches = extract_iocs(title='', summary=None, article_text=text)
 assert len(matches) == 800
 assert all(entry.value_norm in {'https://sample.example/path', 'sample.example'} for entry in matches)
-"""], timeout=20, capture_output=True, text=True)
+"""], timeout=20, capture_output=True, text=True, cwd=Path(__file__).resolve().parents[2])
     assert result.returncode == 0, result.stderr
 
 
@@ -139,5 +140,5 @@ assert len(matches) == 50000
 assert all(entry.transformations == ('refang_dot',) for entry in matches)
 assert all(text[entry.source_start:entry.source_end] == entry.value_raw for entry in matches)
 assert resource.getrusage(resource.RUSAGE_SELF).ru_maxrss - baseline < 128 * 1024
-"""], timeout=20, capture_output=True, text=True)
+"""], timeout=20, capture_output=True, text=True, cwd=Path(__file__).resolve().parents[2])
     assert result.returncode == 0, result.stderr

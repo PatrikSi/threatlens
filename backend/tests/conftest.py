@@ -72,6 +72,8 @@ def _stabilize_settings_env(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("APP_DATA_ENCRYPTION_PREVIOUS_KEYS", "")
     monkeypatch.setenv("REQUIRE_EXPLICIT_DATA_ENCRYPTION_KEY", "false")
     monkeypatch.setenv("ALLOW_PRIVATE_NETWORK_FETCH", "false")
+    monkeypatch.setenv("ALLOW_PRIVATE_NETWORK_AI", "false")
+    monkeypatch.setenv("ALLOW_PRIVATE_NETWORK_WEBHOOKS", "false")
     monkeypatch.setenv("AI_ENABLED", "false")
     monkeypatch.setenv("AI_API_KEY", "")
     monkeypatch.setenv("AI_API_KEY_BASE_URL", "https://api.openai.com")

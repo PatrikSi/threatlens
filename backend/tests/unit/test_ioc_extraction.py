@@ -1,3 +1,4 @@
+from pathlib import Path
 import subprocess
 import sys
 
@@ -29,7 +30,7 @@ text = ' '.join(f'{index:064x}' for index in range(25000))
 matches = extract_iocs(title='', summary=None, article_text=text)
 assert len(matches) == 25000
 assert len({match.value_norm for match in matches}) == 25000
-"""], timeout=15, capture_output=True, text=True)
+"""], timeout=15, capture_output=True, text=True, cwd=Path(__file__).resolve().parents[2])
     assert result.returncode == 0, result.stderr
 
 
