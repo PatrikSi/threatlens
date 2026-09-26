@@ -98,7 +98,11 @@ def create_publication(db: Session, *, actor: AssessmentRequest, team_id: uuid.U
 def withdraw_publication(db: Session, *, actor: AssessmentRequest, team_id: uuid.UUID,
                          publication_id: uuid.UUID, expected_revision: int) -> IndicatorPublication:
     fence_indicator_request(db, actor, team_id=team_id, write=True)
-    row = load_publication(db, actor=actor, team_id=team_id, publication_id=publication_id)
+    # Full withdrawal needs the stored revision that accompanied the user's
+    # action. Reconciling first could invent a newer partial-withdrawal revision
+    # and then roll it back on conflict, making the same visible revision fail
+    # repeatedly until a background sweep or download happens to reconcile it.
+    row = load_publication(db, actor=actor, team_id=team_id, publication_id=publication_id, reconcile=False)
     if row.status == "withdrawn" and row.revision in {expected_revision, expected_revision + 1}:
         return row
     if row.revision != expected_revision:
@@ -114,16 +118,23 @@ def withdraw_publication(db: Session, *, actor: AssessmentRequest, team_id: uuid
     row.status = "withdrawn"
     row.revision += 1
     row.updated_at = now
+    # A new handling label can restrict this action even though the publication
+    # retains its original evidence labels. The request already holds policy,
+    # team and source fences, so capture both boundaries for the new audit event.
+    labels = {uuid.UUID(label) for entry in snapshot["indicators"] for label in entry["label_ids"]}
+    item_ids = {uuid.UUID(entry["item_id"]) for entry in snapshot["indicators"]}
+    labels.update(db.scalars(select(Feed.handling_label_id).join(Item, Item.feed_id == Feed.id).where(Item.id.in_(item_ids))))
     record_audit(db, actor_user_id=actor.user.id, action="intelligence.publication.withdraw",
                  resource_type="indicator_publication", resource_id=str(row.id),
                  data_access_governed=True,
-                 data_access_label_ids={label for entry in snapshot["indicators"] for label in entry["label_ids"]},
+                 data_access_label_ids=labels,
                  metadata={"team_id": str(team_id), "revision": row.revision})
     fence_indicator_request(db, actor, team_id=team_id, write=True)
     return row
 
 
-def load_publication(db: Session, *, actor: AssessmentRequest, team_id: uuid.UUID, publication_id: uuid.UUID) -> IndicatorPublication:
+def load_publication(db: Session, *, actor: AssessmentRequest, team_id: uuid.UUID,
+                     publication_id: uuid.UUID, reconcile: bool = True) -> IndicatorPublication:
     fence_indicator_request(db, actor, team_id=team_id)
     source_ids = list(db.scalars(select(IndicatorPublicationSource.item_id).join(
         IndicatorPublication, IndicatorPublication.id == IndicatorPublicationSource.publication_id,
@@ -138,7 +149,8 @@ def load_publication(db: Session, *, actor: AssessmentRequest, team_id: uuid.UUI
     ).with_for_update().execution_options(populate_existing=True))
     if row is None:
         raise publication_error("publication_not_found", "Publication not found or its retained evidence is no longer accessible.", 404)
-    refresh_publication(db, row)
+    if reconcile:
+        refresh_publication(db, row)
     fence_indicator_request(db, actor, team_id=team_id)
     return row
 
