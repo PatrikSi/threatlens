@@ -44,9 +44,20 @@ test('article preview consent persists per account and supports temporary overri
     .locator('article.tl-dashboard-rss-card')
     .filter({ hasText: item.title })
     .first()
-  await row
-    .getByRole('button', { name: 'Preview Original', exact: true })
-    .click()
+  const opener = row.getByRole('button', {
+    name: 'Preview Original',
+    exact: true,
+  })
+  await opener.focus()
+  await page.keyboard.press('Enter')
+  const close = page.getByRole('button', {
+    name: 'Close original article preview',
+    exact: true,
+  })
+  await expect(close).toBeFocused()
+  await expect(
+    page.getByRole('dialog', { name: 'Original article', exact: true }),
+  ).not.toHaveAttribute('aria-modal', 'true')
   const frame = page.getByTitle(`Original article preview: ${item.title}`, {
     exact: true,
   })
@@ -59,25 +70,18 @@ test('article preview consent persists per account and supports temporary overri
     name: 'Load external resources for this preview',
     exact: true,
   })
-  await temporary.uncheck()
+  await temporary.focus()
+  await page.keyboard.press('Space')
   await expect(frame).toHaveAttribute('src', /\/article-preview$/)
-  await page
-    .getByRole('button', {
-      name: 'Close original article preview',
-      exact: true,
-    })
-    .click()
-  await row
-    .getByRole('button', { name: 'Preview Original', exact: true })
-    .click()
+  await expect(temporary).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(opener).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(close).toBeFocused()
   await expect(temporary).toBeChecked()
   await expect(frame).toHaveAttribute('src', /external_resources=true$/)
-  await page
-    .getByRole('button', {
-      name: 'Close original article preview',
-      exact: true,
-    })
-    .click()
+  await close.click()
+  await expect(opener).toBeFocused()
 
   await page.goto('/settings/account')
   await preference.uncheck()

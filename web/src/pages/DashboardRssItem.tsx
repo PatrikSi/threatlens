@@ -95,7 +95,10 @@ return (
                 'sm:bg-white sm:px-2 sm:font-normal sm:text-inherit sm:hover:border-cyan',
                 'dark:sm:border-cyan-900/40 dark:sm:bg-[#041612]',
               ].join(' ')}
-              onClick={() =>
+              onClick={(event) => {
+                // Safari does not focus pointer-activated buttons by default.
+                // Establish the real opener before the preview moves focus.
+                event.currentTarget.focus()
                 handleOpenArticlePreview(
                   {
                     itemId: item.id,
@@ -105,7 +108,7 @@ return (
                   },
                   item.is_read,
                 )
-              }
+              }}
             >
               <span className="sm:hidden">Preview</span>
               <span className="hidden sm:inline">Preview Original</span>
