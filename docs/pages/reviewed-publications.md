@@ -22,6 +22,11 @@ access and every historical handling label are checked on each download. Losing
 membership, source access or a historical label withholds the artifact. Deleted
 source articles also withhold the artifact instead of making retained evidence
 public. Approval and withdrawal audit records retain the same access boundary.
+Consumers must stop using an approval when current access or source retention
+prevents validating it (including HTTP 403/404). A missing artifact is not proof
+that its last downloaded indicators remain approved. Use the separate automation
+control stream when a receiver needs durable, opaque withdrawal acknowledgements
+after evidence access is lost.
 
 The preview fingerprint covers the selected evidence and reviews. A changed
 source, verdict or filter produces a conflict and requires a new preview. Creation

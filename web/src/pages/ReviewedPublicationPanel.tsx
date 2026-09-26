@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { apiDownload, apiFetch } from '../api/client'
+import { ApiError, apiDownload, apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
 import { accessibleQueryData } from '../api/queryData'
 import { useCurrentUser } from '../hooks/useCurrentUser'
@@ -62,7 +62,6 @@ function PublicationWorkspace({ team, filters, writable }: {
       }),
     }),
   })
-  const currentPreview = preview.isSuccess && preview.data?.scope === scope ? preview.data.value : undefined
   const publish = useMutation({
     mutationFn: async (body: object) => {
       const signature = JSON.stringify(body)
@@ -101,6 +100,9 @@ function PublicationWorkspace({ team, filters, writable }: {
     },
   })
   const [withdrawal, setWithdrawal] = useState<IndicatorPublication | null>(null)
+  const accessLost = [preview.error, publish.error, history.error, download.error, withdraw.error]
+    .some((error) => error instanceof ApiError && [401, 403, 404].includes(error.status))
+  const currentPreview = !accessLost && preview.isSuccess && preview.data?.scope === scope ? preview.data.value : undefined
   const page = accessibleQueryData(history)
   const error = preview.error ?? publish.error ?? history.error ?? download.error ?? withdraw.error
   function save() {
@@ -163,7 +165,7 @@ function PublicationWorkspace({ team, filters, writable }: {
         {writable && row.status !== 'withdrawn' && <button className={TEAM_BUTTON}
           disabled={withdraw.isPending} onClick={() => setWithdrawal(row)}>Withdraw publication</button>}
       </div>)}
-      {withdrawal && <div className="rounded border border-amber-500 p-3" role="group" aria-label="Confirm publication withdrawal">
+      {withdrawal && !accessLost && <div className="rounded border border-amber-500 p-3" role="group" aria-label="Confirm publication withdrawal">
         <p>Withdraw all remaining indicators from this publication? This cannot be undone. Download and reimport the updated artifact to notify its consumers.</p>
         <button className={TEAM_BUTTON} disabled={withdraw.isPending} onClick={() => withdraw.mutate(withdrawal, {
           onSuccess: () => { if (mounted.current) setWithdrawal(null) },

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { apiFetch } from '../api/client'
+import { ApiError, apiFetch } from '../api/client'
 import { ReviewedPublicationPanel } from './ReviewedPublicationPanel'
 import { deferred, intelButton, mountIntel, settle } from './articleIntelligenceTestSupport'
 
@@ -35,6 +35,19 @@ async function open() {
 }
 
 describe('reviewed publication approval', () => {
+  it('hides an approved preview after the team history confirms lost access', async () => {
+    await open()
+    act(() => (view!.host.querySelector('input[type="checkbox"]') as HTMLInputElement).click())
+    expect(view!.host.textContent).toContain('evil.net')
+    const implementation = vi.mocked(apiFetch).getMockImplementation()!
+    vi.mocked(apiFetch).mockImplementation((path, init) => path.includes('/indicator-publications?')
+      ? Promise.reject(new ApiError('Team access removed', 403, path)) : implementation(path, init))
+    await act(async () => { await view!.client.invalidateQueries({ queryKey: ['reviewed-publications', 'team'] }) })
+    await settle()
+    expect(view!.host.textContent).not.toContain('evil.net')
+    expect(view!.host.textContent).not.toContain('Approve reviewed publication')
+  })
+
   it('invalidates old previews during refresh and after a failed refresh', async () => {
     await open()
     act(() => (view!.host.querySelector('input[type="checkbox"]') as HTMLInputElement).click())
