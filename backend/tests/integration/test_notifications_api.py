@@ -16,6 +16,7 @@ from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.user import User
 from app.schemas.notification import NotificationWebhookTestResponse, NotificationWebhookWrite
 from app.services import notification_webhook_http
+from app.services.export_job_contracts import ExportAuthorizationSnapshot
 from app.services.notification_webhook_test_policy import (
     NOTIFICATION_WEBHOOK_TEST_OUTCOME_ACTION,
     NOTIFICATION_WEBHOOK_TEST_RECEIPT_ACTION,
@@ -374,6 +375,8 @@ def test_notification_webhook_create_extracts_query_string_into_params(client: T
 
 def test_notification_webhook_test_endpoint_returns_render_result(client: TestClient, auth_headers, db_session, monkeypatch, seed_users):
     admin = seed_users["admin"]
+    token = db_session.scalar(select(ApiToken).where(ApiToken.user_id == admin.id))
+    assert token is not None
     feed = Feed(
         id=uuid.uuid4(),
         name="CISA",
@@ -396,7 +399,15 @@ def test_notification_webhook_test_endpoint_returns_render_result(client: TestCl
         data_access,
         authorization,
         operation_id,
+        credential_snapshot,
     ):
+        assert isinstance(credential_snapshot, ExportAuthorizationSnapshot)
+        assert credential_snapshot.credential_kind == "api_token"
+        assert credential_snapshot.credential_id == token.id
+        assert credential_snapshot.permissions == authorization.permissions
+        assert "write:notifications" in credential_snapshot.permissions
+        assert credential_snapshot.enforced == data_access.enforced
+        assert credential_snapshot.allowed_label_ids == data_access.allowed_label_ids
         captured["user_id"] = user.id
         captured["name"] = payload.name
         captured["sample_feed_id"] = sample_feed_id
