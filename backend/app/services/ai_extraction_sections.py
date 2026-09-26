@@ -109,6 +109,35 @@ def section_messages(messages: list[dict[str, str]], text: str, section: dict) -
     return result
 
 
+def section_plan_fingerprint(
+    active: ActiveAISettings, *, item_id: UUID, messages: list[dict[str, str]],
+    text: str, snapshot: dict,
+) -> str:
+    """Bind every planned request, including unsent sections, to one logical run."""
+    requests = []
+    for section in plan_sections(text):
+        prompt = section_messages(messages, text, section)
+        output_tokens = min(active.max_completion_tokens, SECTION_OUTPUT_LIMIT, provider_output_ceiling(active, prompt))
+        requests.append({
+            "section": section, "output_tokens": output_tokens,
+            "request_fingerprint": ai_request_fingerprint(
+                active=active, feature_type="item_enrichment", messages=prompt,
+                item_id=item_id, daily_brief_id=None, report_id=None,
+                requested_max_tokens=output_tokens,
+            ),
+        })
+    identity = {
+        "version": 1, "source_hash": snapshot["source_hash"],
+        "article_id": str(snapshot["article_id"]), "source_version": snapshot["source_version"],
+        "article_retrieved_at": snapshot["article_retrieved_at"].isoformat(),
+        "text_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+        "token_budget": TOTAL_TOKEN_BUDGET, "call_limit": MAX_SECTIONS,
+        "section_chars": SECTION_CHARS, "output_limit": SECTION_OUTPUT_LIMIT,
+        "requests": requests,
+    }
+    return hashlib.sha256(json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
 def _save_progress(db: Session, *, item_id: UUID, claim_updated_at: datetime,
                    progress: dict, checkpoint: Callable[[], None]) -> None:
     checkpoint()
@@ -143,13 +172,22 @@ def run_section_extraction(
     # Explicit new jobs can make a new attempt. Redeliveries of the same logical
     # task retain both successful sections and their conservative reservations.
     run_key = str(task_run_id) if task_run_id is not None else claim_updated_at.isoformat()
-    if (previous and previous.get("task_run_id") == run_key
-            and previous.get("source_hash") == snapshot["source_hash"]
-            and previous.get("article_retrieved_at") == snapshot["article_retrieved_at"].isoformat()):
+    plan_fingerprint = section_plan_fingerprint(
+        active, item_id=item_id, messages=messages, text=text, snapshot=snapshot,
+    )
+    if previous and previous.get("task_run_id") == run_key:
+        if previous.get("plan_fingerprint") != plan_fingerprint:
+            raise AIIntegrationError(
+                "The article extraction plan changed since this task started. "
+                "Its completed checkpoints and token reservations were retained. "
+                "Review the prior task outcome, then start a new reprocessing task for the current evidence and settings.",
+                provider_io_outcome="not_sent", failure_category="extraction_plan_changed", retryable=False,
+            )
         progress = copy.deepcopy(previous)
     else:
         progress = {
-            "task_run_id": run_key, "source_hash": snapshot["source_hash"],
+            "task_run_id": run_key, "plan_fingerprint": plan_fingerprint,
+            "source_hash": snapshot["source_hash"],
             "article_retrieved_at": snapshot["article_retrieved_at"].isoformat(),
             "text_chars": len(text), "reserved_tokens": 0, "sections": plan_sections(text),
         }

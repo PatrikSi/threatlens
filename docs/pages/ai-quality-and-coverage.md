@@ -46,7 +46,14 @@ still block unsafe I/O through the common runtime.
 Cancellation and replacement delivery ownership are checked before requests and
 checkpoint writes. Changing article evidence stops the owned attempt and keeps
 previously published extraction as historical. A source/model/prompt change does
-not relabel old checkpoints as current. Migration `0111_extraction_sections` adds
+not relabel old checkpoints as current. A fingerprint covers the complete rendered
+section plan, model settings, source revision and budgets. If that plan changes
+within the same logical task (including after a deployment), extraction stops
+before sending another request and retains its checkpoints and reservations.
+Review the task outcome before explicitly starting a new reprocessing task.
+Legacy checkpoints without that plan fingerprint also require a new task;
+recovery never silently resets their budget or repeats paid work.
+Migration `0111_extraction_sections` adds
 the nullable checkpoint column without rewriting existing results.
 
 ## Versioned evaluation corpus
