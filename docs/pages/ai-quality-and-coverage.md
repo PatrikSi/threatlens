@@ -125,3 +125,14 @@ judgments remain null. Entity fixture agreement is a regression signal;
 interpretation and claim accuracy depend on the separately recorded analyst
 review. Compare complete, equivalent coverage and retain dataset, prediction and
 comparison artifacts with the release evidence.
+
+## Database rollback
+
+The expansion migrations preserve existing summaries, provider selections and
+article identities. Downgrading deliberately refuses to discard retained section
+checkpoints, receiver receipts, shared-account reservation attribution, owned hunt
+claims, or reviewed publication history. Drain active work and archive the relevant
+records before explicitly clearing them or releasing claims. An upgrade does not
+perform that removal automatically, and a failed downgrade leaves these records
+intact. Shared-account reservation attribution remains protected after a profile
+leaves its group, including settled reservations retained for accounting.
