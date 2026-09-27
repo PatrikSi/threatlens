@@ -20,14 +20,16 @@ export function ArticleExtractionContinuation({ itemId, coverage, disabled }: {
     onSuccess: () => { void client.invalidateQueries({ queryKey: ['item', itemId] }) },
   })
   if (!coverage.progress_revision || coverage.uncovered_chars === 0) return null
+  const atCeiling = coverage.call_limit >= 32 && coverage.token_budget >= 256000
   const accepted = continuation.isSuccess && continuation.variables === coverage.progress_revision
   return <div className="space-y-2 rounded border border-slate/25 p-3">
     <p>Authorize up to 8 additional sections and 64,000 estimated input/output tokens. Completed sections are reused; the article and provider revision must still match. Overall ceiling: 32 sections and 256,000 tokens.</p>
-    <button className={TEAM_BUTTON} disabled={disabled || continuation.isPending || accepted}
+    <button className={TEAM_BUTTON} disabled={disabled || continuation.isPending || accepted || atCeiling}
       onClick={() => { if (coverage.progress_revision) continuation.mutate(coverage.progress_revision) }}>
       {continuation.isPending ? 'Authorizing sections…' : 'Authorize additional article sections'}
     </button>
+    {atCeiling && <p role="status">This article reached its authorized processing ceiling. Review the remaining source manually.</p>}
     {accepted && <p role="status">Additional processing was queued. Refresh evidence to follow its progress.</p>}
-    {continuation.isError && <p role="alert">{resolveApiErrorMessage(continuation.error, 'Additional sections could not be queued. Refresh evidence and retry.')}</p>}
+    {continuation.isError && continuation.variables === coverage.progress_revision && <p role="alert">{resolveApiErrorMessage(continuation.error, 'Additional sections could not be queued. Refresh evidence and retry.')}</p>}
   </div>
 }
