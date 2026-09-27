@@ -123,9 +123,10 @@ attachment is allowed only once and stale versions return HTTP 409.
 uses a durable SQLite WAL ledger, verifies ThreatLens HMAC signatures, deduplicates
 accepted actions across restarts, replays lost callback acknowledgements, and
 consumes/acknowledges withdrawals independently of failed execution callbacks.
-It is a protocol reference, **not a vendor SIEM connector**: acceptance records a
-queued job locally; it does not execute a hunt. Add vendor job lookup/launch and
-status reconciliation around its stable job/action ledger.
+The default `serve`/`sync` modes record queued jobs and protocol receipts locally.
+The explicit [OpenSearch connector](opensearch-connector.md) adds bounded approved
+hunt searches, status polling and withdrawal handling. Other vendors require an
+adapter with equivalent stable-action and ambiguity protections.
 
 Set `THREATLENS_SIGNING_SECRET` to the signing secret in the webhook's credential
 profile. Start behind your authenticated TLS reverse proxy:
@@ -145,7 +146,8 @@ Synchronize every minute using your scheduler. Set `THREATLENS_URL` to the API
 base **before `/v1`**, including the proxy prefix: for the bundled web proxy use
 `https://threatlens.example/api`; for a directly exposed backend use its origin,
 such as `http://127.0.0.1:8000`. The client appends `/v1` itself. Set
-`THREATLENS_API_TOKEN` to the scoped owner token:
+`THREATLENS_API_TOKEN` to a scoped owner token or a
+[team destination receiver credential](team-integrations.md):
 
 ```bash
 python3 examples/automation-receiver/receiver.py sync --database receiver.sqlite3

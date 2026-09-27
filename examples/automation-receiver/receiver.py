@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Vendor-neutral receiver ledger: durable acceptance, status replay and withdrawal.
 
-This example deliberately does not invoke a SIEM. Integrate a vendor adapter by
-looking up the existing remote action ID before launch, then record its job ID.
-Never turn an ambiguous launch into a second launch.
+The serve/sync modes are vendor-neutral. The explicit opensearch-sync mode runs
+approved indicator hunts using a durable remote action ledger. Neither mode turns
+an ambiguous launch into a second launch.
 
 For sync, THREATLENS_URL is the API base before /v1: use
 https://threatlens.example/api with the bundled web proxy, or the direct backend
@@ -62,6 +62,9 @@ def absolute_deadline(seconds: float):
 class Ledger:
     def __init__(self, path: str):
         self.db = sqlite3.connect(path)
+        if path != ":memory:":
+            os.chmod(path, 0o600)
+        self.policy_gate = None
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.execute("PRAGMA synchronous=FULL")
         self.db.executescript("""
@@ -87,6 +90,14 @@ class Ledger:
             ):
                 if name not in columns:
                     self.db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
+        for table, name, definition in (
+            ("jobs", "body", "TEXT"),
+            ("jobs", "vendor_next_at", "REAL NOT NULL DEFAULT 0"),
+            ("jobs", "vendor_last_at", "REAL NOT NULL DEFAULT 0"),
+            ("policy_receipts", "payload", "TEXT"),
+        ):
+            if name not in {row[1] for row in self.db.execute(f"PRAGMA table_info({table})")}:
+                self.db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
         self.db.execute("CREATE TABLE IF NOT EXISTS sync_state (key TEXT PRIMARY KEY, value TEXT)")
         self.db.execute("CREATE INDEX IF NOT EXISTS jobs_retry ON jobs(pending, next_attempt_at, last_attempt_at)")
         self.db.execute("CREATE INDEX IF NOT EXISTS policy_retry ON policy_receipts(acknowledged, next_attempt_at, last_attempt_at)")
@@ -139,12 +150,12 @@ class Ledger:
             callback = {
                 "callback_id": str(uuid.uuid4()),
                 "sequence": 1,
-                "external_job_id": str(uuid.uuid4()),
+                "external_job_id": "tl-action:" + hashlib.sha256(f"{webhook_id}:{action_id}".encode()).hexdigest(),
                 "status": "accepted",
                 "findings": None,
             }
             self.db.execute(
-                "INSERT INTO jobs (execution_id, webhook_id, action_id, body_hash, job_id, sequence, callback, pending, withdrawn) VALUES (?, ?, ?, ?, ?, 1, ?, 1, 0)",
+                "INSERT INTO jobs (execution_id, webhook_id, action_id, body_hash, job_id, sequence, callback, pending, withdrawn, body) VALUES (?, ?, ?, ?, ?, 1, ?, 1, 0, ?)",
                 (
                     execution_id,
                     webhook_id,
@@ -152,6 +163,7 @@ class Ledger:
                     digest,
                     callback["external_job_id"],
                     json.dumps(callback),
+                    body.decode("utf-8"),
                 ),
             )
         return callback
@@ -209,8 +221,8 @@ class Ledger:
                 (update["execution_id"],),
             )
             self.db.execute(
-                "INSERT INTO policy_receipts (id, digest, execution_id, acknowledged) VALUES (?, ?, ?, 0)",
-                (update["id"], digest, update["execution_id"]),
+                "INSERT INTO policy_receipts (id, digest, execution_id, acknowledged, payload) VALUES (?, ?, ?, 0, ?)",
+                (update["id"], digest, update["execution_id"], json.dumps(update)),
             )
             # Completed job and findings remain immutable history. A replacement
             # action must arrive through normal authorization/approval separately.
@@ -234,6 +246,8 @@ def api(base: str, token: str, path: str, payload=None, *, timeout_seconds: floa
         raise ValueError(
             "Use HTTPS for ThreatLens, or explicit loopback for local tests"
         )
+    if token.startswith("tlrecv_"):
+        path = path.replace("/notifications/automation/", "/notifications/automation/receivers/", 1)
     request = Request(
         base.rstrip("/") + "/v1" + path,
         data=json.dumps(payload).encode() if payload is not None else None,
@@ -321,6 +335,8 @@ def synchronize_policy(ledger: Ledger, request):
             break
         ledger.reserve_attempt("policy_receipts", identity, now=time.time())
         try:
+            if ledger.policy_gate is not None:
+                ledger.policy_gate(identity)
             request(f"/notifications/automation/updates/{identity}/ack", {})
         except (OSError, ValueError) as exc:
             failures.append(exc)
@@ -366,7 +382,7 @@ def verify_signature(body: bytes, headers, secret: str):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=["serve", "sync", "status"])
+    parser.add_argument("mode", choices=["serve", "sync", "status", "opensearch-sync", "opensearch-bind"])
     parser.add_argument("--database", default="receiver.sqlite3")
     parser.add_argument("--port", type=int, default=8091)
     parser.add_argument("--execution-id")
@@ -374,9 +390,11 @@ def main():
         "--status", choices=["running", "completed", "failed", "unknown"]
     )
     parser.add_argument("--findings")
+    parser.add_argument("--external-search-id")
+    parser.add_argument("--confirm-query-digest")
     args = parser.parse_args()
     ledger = Ledger(args.database)
-    if args.mode == "sync":
+    if args.mode in {"sync", "opensearch-sync"}:
         deadline = time.monotonic() + 60
 
         def request(path, payload=None):
@@ -388,7 +406,19 @@ def main():
                 timeout_seconds=deadline - time.monotonic(),
             )
 
-        synchronize(ledger, request)
+        if args.mode == "opensearch-sync":
+            from opensearch_connector import configured_connector
+            from opensearch_runner import run_connector
+            connector = configured_connector(lambda seconds: absolute_deadline(min(seconds, deadline - time.monotonic())))
+            run_connector(ledger, request, connector, synchronize)
+        else:
+            synchronize(ledger, request)
+    elif args.mode == "opensearch-bind":
+        from opensearch_connector import action_identity, configured_connector
+        job = ledger.db.execute("SELECT body FROM jobs WHERE execution_id=?", (args.execution_id,)).fetchone()
+        if not job or not job[0] or not args.external_search_id or not args.confirm_query_digest:
+            raise ValueError("Binding requires a known execution, confirmed query digest and external search ID")
+        configured_connector(absolute_deadline).bind(action_identity(json.loads(job[0])), args.external_search_id, args.confirm_query_digest)
     elif args.mode == "status":
         ledger.status(args.execution_id, args.status, args.findings)
     else:
