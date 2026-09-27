@@ -58,3 +58,33 @@ def test_output_limit_failure_is_reported_before_provider_io():
     with pytest.raises(AIIntegrationError, match="configured model limits") as caught:
         build_assessment_messages(active, context=_context(), source=_source(text="Evidence."), hunts_enabled=False)
     assert caught.value.provider_io_outcome == "not_sent"
+
+
+def test_context_fitting_metadata_describes_only_complete_passages_actually_sent():
+    from datetime import datetime, timezone
+    from app.services.ai_extraction import build_verified_extraction
+    from app.services.team_evidence_selection import select_assessment_passages
+    from tests.unit.test_ai_extraction import ARTICLE, extraction_payload, source_messages
+
+    article_id, retrieved = uuid.uuid4(), datetime.now(timezone.utc)
+    text = "Introduction. " * 7000 + ARTICLE
+    extraction = build_verified_extraction(extraction_payload(), messages=source_messages(), article_id=article_id,
+        article_retrieved_at=retrieved, source_version=1, source_hash="a" * 64, article_text_length=len(text))
+    offset = len(text) - len(ARTICLE)
+    for entry in [*extraction["entities"], *extraction["relationships"]]:
+        for evidence in entry["evidence"]:
+            evidence["start"] += offset
+            evidence["end"] += offset
+    evidence, selection = select_assessment_passages(extraction, source_version=1, article_id=str(article_id),
+        retrieved_at=retrieved.isoformat(), context=_context().model_dump(), prefix=text)
+    source = _source(text=evidence)
+    source.evidence_selection.update(selection)
+    assert len(selection["selected_passages"]) > 0
+    active = SimpleNamespace(model_context_window_tokens=4096, model_max_output_tokens=2048, max_completion_tokens=1024)
+    messages, truncated = build_assessment_messages(active, context=_context(), source=source, hunts_enabled=True)
+    sent = json.loads(messages[-1]["content"])
+    assert truncated
+    assert sent["evidence_selection"]["selected_passages"] == []
+    assert sent["evidence_selection"]["selection"] == "article_prefix"
+    assert selection["selected_passages"]  # The immutable source snapshot remains unchanged.
+    assert source.article_text.startswith(sent["item"]["article_text"])

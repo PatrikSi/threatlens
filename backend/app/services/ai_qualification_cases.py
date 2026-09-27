@@ -1,12 +1,14 @@
 """Small synthetic contract probes; successful probes are not quality approval."""
 import json
 import hashlib
+import re
+from markdown_it import MarkdownIt
 from app.services.ai_extraction import EXTRACTION_PROMPT, validate_structured_extraction
 from app.services.report_grounding import validate_stage_output
 from app.services.team_assessment_contract import ASSESSMENT_SYSTEM_PROMPT, validate_team_assessment_output
 
 SOURCE = "Example malware BeaconExample uses scheduled tasks for persistence. docs.example.org is a documentation reference, not malicious infrastructure."
-CASE_VERSION = "2026-09-contracts-v1"
+CASE_VERSION = "2026-09-contracts-v2"
 FEATURES = ("extraction", "report", "hunt")
 
 
@@ -22,7 +24,9 @@ def qualification_messages(feature: str) -> list[dict[str, str]]:
         system = ('Return JSON {body_markdown: string, citations: ["S1"], key_points: []}. '
                   'Write a short report paragraph and a numeric Markdown table. Every narrative paragraph and table data row '
                   'must contain [S1]. Use only supplied findings, with no invented incident counts.')
-        body = {"section": {"title": "Qualification section"}, "findings": [{"text": SOURCE, "citations": ["S1"]}]}
+        body = {"section": {"title": "Qualification section"}, "findings": [{
+            "text": SOURCE + " The synthetic sample contains 3 scheduled tasks.", "citations": ["S1"],
+        }]}
     elif feature == "hunt":
         system = ASSESSMENT_SYSTEM_PROMPT
         body = {"task": "team_assessment", "item": {"title": "Synthetic qualification", "summary": "", "article_text": SOURCE},
@@ -44,12 +48,30 @@ def validate_qualification(feature: str, payload: dict, messages: list[dict]) ->
             raise ValueError("The report probe returned no findings for explicit source facts.")
     elif feature == "report_section":
         validate_stage_output(payload, stage=body)
+        if not _has_numeric_table_row(payload["body_markdown"]):
+            raise ValueError("The report probe must include a numeric Markdown table data row with its source citation.")
     elif feature == "hunt":
         result = validate_team_assessment_output(payload, messages)
         if not result["hunts"]:
             raise ValueError("The hunt probe returned no reviewable hypothesis.")
     else:
         raise ValueError("Unknown qualification feature")
+
+
+def _has_numeric_table_row(body: str) -> bool:
+    in_data_cell = False
+    for token in MarkdownIt("commonmark").enable("table").parse(body):
+        if token.type == "td_open":
+            in_data_cell = True
+        elif token.type == "td_close":
+            in_data_cell = False
+        elif in_data_cell and token.type == "inline":
+            # Citation identifiers and HTML/link destinations are not values.
+            visible = " ".join(child.content for child in token.children or []
+                               if child.type in {"text", "code_inline"})
+            if re.search(r"\d", re.sub(r"\[S\d+\]", "", visible)):
+                return True
+    return False
 
 
 def qualification_plan_fingerprint(features: list[str]) -> str:

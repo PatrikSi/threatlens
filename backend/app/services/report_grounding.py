@@ -6,12 +6,14 @@ import re
 from dataclasses import dataclass
 
 from markdown_it import MarkdownIt
+from markdown_it.token import Token
 
 
 CITATION_PATTERN = re.compile(r"\[(S\d+)\]")
 SOURCE_HEADER = re.compile(r"^\[(S\d+)\]\s")
 NO_FINDINGS_BODY = "No supported findings were identified in the supplied evidence."
 _MARKDOWN = MarkdownIt("commonmark", {"html": True, "maxNesting": 32}).enable(["table", "strikethrough"])
+_CODE_CAPTION = re.compile(r"(?:Sources?|Evidence):\s*(?:\[S\d+\][\s,;]*)+\.?", re.IGNORECASE)
 
 
 class ReportGroundingError(ValueError):
@@ -139,11 +141,31 @@ def _claim_citations(body: str, known: set[str]) -> tuple[set[str], int]:
         count += 1
         used.update(citations)
 
-    for token in _MARKDOWN.parse(body):
+    tokens = _MARKDOWN.parse(body)
+    for index, token in enumerate(tokens):
         if token.type == "inline":
             for child in token.children or []:
                 if child.type in {"text", "code_inline"}:
                     _reject_unknown_markers(child.content, known)
+        if token.type in {"fence", "code_block"} and any(character.isalnum() for character in token.content):
+            # Literal code markers are not navigable citations. Require an
+            # explicit source caption, not an unrelated cited paragraph nearby.
+            captions = []
+            for start in (index - 3, index + 1):
+                if start < 0 or start + 2 >= len(tokens):
+                    continue
+                opening, inline, closing = tokens[start:start + 3]
+                if (opening.type == "paragraph_open" and closing.type == "paragraph_close"
+                        and opening.level == token.level and inline.type == "inline"):
+                    caption = _visible_inline_content(inline)
+                    if _CODE_CAPTION.fullmatch(caption):
+                        captions.append(caption)
+            if not captions:
+                raise ReportGroundingError(
+                    "Every fenced or indented code block must have an adjacent Source: [S1] caption "
+                    "with a valid source citation. Literal citations inside code are not source links."
+                )
+            check(" ".join(captions))
         if token.nesting == 1:
             stack.append(token.type)
         elif token.nesting == -1:
@@ -152,27 +174,28 @@ def _claim_citations(body: str, known: set[str]) -> tuple[set[str], int]:
                 row_text = []
             stack.pop()
         elif token.type == "inline" and not any(t in stack for t in ("heading_open", "thead_open")):
-            link_depth = 0
-            text: list[str] = []
-            for child in token.children or []:
-                if child.type == "link_open":
-                    link_depth += 1
-                elif child.type == "link_close":
-                    link_depth -= 1
-                elif child.type == "code_inline":
-                    # Inline code is visible content, but its literal markers
-                    # are not navigable source citations in any renderer.
-                    text.append(CITATION_PATTERN.sub("", child.content))
-                elif child.type == "text":
-                    # Link labels are visible claims, but their embedded markers
-                    # do not become source links in the report renderer.
-                    text.append(CITATION_PATTERN.sub("", child.content) if link_depth else child.content)
-            content = " ".join(text).strip()
+            content = _visible_inline_content(token)
             if "tr_open" in stack:
                 row_text.append(content)
             else:
                 check(content)
     return used, count
+
+
+def _visible_inline_content(token: Token) -> str:
+    """Retain visible claims while removing non-navigable citation markers."""
+    link_depth = 0
+    text: list[str] = []
+    for child in token.children or []:
+        if child.type == "link_open":
+            link_depth += 1
+        elif child.type == "link_close":
+            link_depth -= 1
+        elif child.type == "code_inline":
+            text.append(CITATION_PATTERN.sub("", child.content))
+        elif child.type == "text":
+            text.append(CITATION_PATTERN.sub("", child.content) if link_depth else child.content)
+    return " ".join(text).strip()
 
 
 def _citations(value: object, *, known: set[str]) -> list[str]:

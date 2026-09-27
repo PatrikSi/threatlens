@@ -81,6 +81,13 @@ or exhausted ceiling returns an actionable conflict. The accepted credential is
 stored encrypted and rechecked before each provider call and checkpoint. Revoked
 credentials cannot authorize later sections. Successful section and synthesis
 receipts need their exact durable checkpoints before recovery can resume.
+After two-person reconciliation confirms that an interrupted section was **not
+sent**, authorize continuation using the unchanged current progress revision.
+The new task retries only that unsent section and remaining work; it keeps completed
+checkpoints, receipt history, the accepted provider and prior conservative token
+reservations. Its calls reserve budget again within the displayed cumulative
+ceiling. Missing receipts, successful calls without checkpoints, or an acknowledgement
+that a call may have been sent do not authorize section replay.
 
 Hunt assessment prompts reserve space for exact verified quotations from across
 current extraction sections. Deterministic keyword ranking uses the team's context;
@@ -89,6 +96,11 @@ and published result disclose selected source coordinates, source version and
 extraction coverage. Missing/stale extraction falls back to current bounded primary
 text. Selection is bounded to 16,000 characters and does not claim exhaustive
 article coverage. Analysts can inspect the selection beneath the team assessment.
+If the model context needs a shorter input, fitting removes whole quotations and
+updates both the prompt and stored selection to the passages actually sent.
+Published source ranges also include their offsets in the assessment prompt's
+article text. Extraction coverage continues to describe the prior extraction;
+it does not claim that every extracted passage was sent to the assessment model.
 
 ## Versioned evaluation corpus
 
@@ -210,7 +222,11 @@ settings stop queued work. This exercises current request dialect, output limits
 structured evidence contracts and citations through the normal authorization,
 quota, deadline, usage and provider-receipt runtime.
 
-The report feature runs both evidence-finding and cited-section probes, including a numeric table. Each selected probe makes at most one provider attempt, uses at most 4,096 output
+The report feature runs both evidence-finding and cited-section probes, including a numeric table.
+The section fixture supplies an explicit numerical fact; qualification requires a
+parsed table data cell with a number and a valid citation on every data row.
+A paragraph-only response, numbers only in headers, or digits in citation IDs
+cannot satisfy the probe. Each selected probe makes at most one provider attempt, uses at most 4,096 output
 tokens (or a lower configured model/default ceiling), and has at most a 60-second
 request deadline. A job has at most 32,000 estimated input/output tokens. Two
 pending jobs per provider are admitted; larger submissions receive a retryable

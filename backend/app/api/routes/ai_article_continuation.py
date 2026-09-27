@@ -16,7 +16,9 @@ from app.models.feed import Feed
 from app.models.item import Item
 from app.models.item_ai_enrichment import ItemAIEnrichment
 from app.models.user import User
-from app.services.ai_article_continuation import MAX_AUTHORIZED_SECTIONS, MAX_AUTHORIZED_TOKENS, progress_digest
+from app.services.ai_article_continuation import (
+    MAX_AUTHORIZED_SECTIONS, MAX_AUTHORIZED_TOKENS, progress_digest, recover_unsent_sections,
+)
 from app.services.ai_extraction_sections import MAX_SECTIONS, TOTAL_TOKEN_BUDGET, extraction_progress_response
 from app.services.ai_ops import queue_ai_task_run
 from app.services.ai_provider_selection import PROVIDER_SELECTION_KEY
@@ -70,12 +72,14 @@ def continue_article_extraction(
             raise conflict("No uncovered section progress is available. Refresh article evidence.")
         if progress_digest(progress) != payload.progress_revision:
             raise conflict("Extraction progress changed. Refresh before authorizing additional sections.")
-        if any(section["status"] == "started" for section in progress["sections"]):
-            raise conflict("A section delivery is unresolved. Reconcile its provider receipt before continuing.")
         pending = db.scalar(select(AITaskRun.id).where(AITaskRun.item_id == item_id,
             AITaskRun.task_type == "item_enrichment", AITaskRun.status.in_(["queued", "running"])).limit(1))
         if pending is not None:
             raise conflict("Article enrichment is already queued or running. Wait for it to finish.")
+        try:
+            recover_unsent_sections(db, item_id=item_id, progress=progress)
+        except ValueError as exc:
+            raise conflict(str(exc)) from exc
         section_limit = min(MAX_AUTHORIZED_SECTIONS, coverage.call_limit + MAX_SECTIONS)
         token_budget = min(MAX_AUTHORIZED_TOKENS, coverage.token_budget + TOTAL_TOKEN_BUDGET)
         if section_limit == coverage.call_limit and token_budget == coverage.token_budget:

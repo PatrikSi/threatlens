@@ -71,7 +71,7 @@ def _provider_recorder(monkeypatch):
         calls.append(prompt)
         payload = (
             {
-                "body_markdown": "The source reports scheduled task persistence. [S1]",
+                "body_markdown": "The source reports scheduled task persistence. [S1]\n\n| Scheduled tasks | Source |\n| --- | --- |\n| 3 | [S1] |",
                 "citations": ["S1"], "key_points": [],
             }
             if "section" in prompt else
