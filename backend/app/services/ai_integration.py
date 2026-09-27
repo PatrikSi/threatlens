@@ -4,7 +4,6 @@ import random
 import time
 import uuid
 from collections.abc import Callable
-from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select, update
@@ -22,6 +21,7 @@ from app.models.item import Item
 from app.models.item_ai_enrichment import ItemAIEnrichment
 from app.models.item_classification import ItemClassification
 from app.schemas.ai import AITestConnectionResponse
+from app.services.ai_generation_results import AIItemEnrichmentResult, AIDailyBriefGenerationResult
 from app.services import ai_normalization as _ai_normalization
 from app.services import ai_prompting as _ai_prompting
 from app.services import ai_provider_client as _ai_provider_client
@@ -115,30 +115,6 @@ AI_PROVIDER_RETRY_BASE_DELAY_SECONDS = 0.5
 AI_PROVIDER_RETRY_MAX_DELAY_SECONDS = 8.0
 
 
-@dataclass(frozen=True)
-class AIItemEnrichmentResult:
-    enrichment: ItemAIEnrichment | None
-    status: str
-    reason: str | None
-    input_text_chars: int
-    prompt_char_count: int | None = None
-    response_char_count: int | None = None
-    error: str | None = None
-
-
-@dataclass(frozen=True)
-class AIDailyBriefGenerationResult:
-    brief: AIDailyBrief | None
-    status: str
-    reason: str | None
-    items_considered: int
-    items_selected: int
-    prompt_char_count: int | None = None
-    response_char_count: int | None = None
-    integration_event_id: uuid.UUID | None = None
-    error: str | None = None
-
-
 def is_stale_daily_brief_pending(brief: AIDailyBrief, *, now: datetime) -> bool:
     if brief.status != "pending":
         return False
@@ -210,6 +186,11 @@ def run_item_ai_enrichment(
             reason="no_article" if article is None else "no_article_text",
             input_text_chars=len((article.text or "")) if article is not None else 0,
         )
+
+    from app.services.ai_article_continuation import continuation_preflight_error
+    if error := continuation_preflight_error(db, task_run_id, active, article.text or ""):
+        return AIItemEnrichmentResult(enrichment=None, status="error", reason="extraction_plan_changed",
+            input_text_chars=len(article.text or ""), error=error)
 
     feed = db.scalar(select(Feed).where(Feed.id == item.feed_id))
     classification = db.scalar(

@@ -43,3 +43,18 @@ def test_changed_progress_conflicts_before_accepting_any_calls(client, auth_head
     response = client.post(f"/ai/articles/{item.id}/continue", json={**body, "progress_revision": "b" * 64}, headers=auth_headers["admin"])
     assert response.status_code == 409
     assert "progress changed" in response.text.lower()
+
+
+def test_changed_feature_does_not_fall_back_to_repeating_first_section(client, auth_headers, db_session, continuation, monkeypatch):
+    from app.services.ai_config import get_or_create_ai_settings
+    from app.services.ai_integration import run_item_ai_enrichment
+    item, body = continuation
+    response = client.post(f"/ai/articles/{item.id}/continue", json=body, headers=auth_headers["admin"])
+    assert response.status_code == 202
+    settings = get_or_create_ai_settings(db_session)
+    settings.structured_extraction_enabled = False
+    settings.summary_enabled = True
+    db_session.commit()
+    monkeypatch.setattr("app.services.ai_integration._call_ai_json", lambda *_a, **_kw: pytest.fail("must not run initial article call"))
+    result = run_item_ai_enrichment(db_session, item_id=item.id, force=True, task_run_id=uuid.UUID(response.json()["run_id"]))
+    assert result.reason == "extraction_plan_changed"

@@ -26,14 +26,19 @@ are inferred from a provider name.
 The article evidence panel shows completed and planned sections, processed and
 uncovered character counts, and output-limit disclosures. The planner stops when
 its section or token budget is exhausted; it never calls uncovered text processed.
-Summary and organizational relevance continue to describe the first section.
+When summaries are enabled, a final bounded synthesis combines every completed
+section and cites section numbers. It uses at most 2,048 output tokens and fits
+inside the same cumulative token budget. If it cannot fit, labeled per-section
+summaries remain available, with their coverage disclosed. Organizational relevance
+retains its initial assessment; team assessments independently select relevant
+primary evidence across completed sections.
 Shared extraction is merged across all completed sections. Equivalent entity
 identities are deduplicated; conflicting roles/assertions remain distinct.
 Combined results are bounded to 96 entities, 96 relationships, three passages per
 entry and eight information gaps. Quotes prove traceability, not factual truth.
 
 Checkpoints live in the item's existing enrichment row, inherit its access and
-retention boundary, and contain at most eight section results. Public progress
+retention boundary, and contain at most 32 explicitly authorized section results. Public progress
 omits provider payloads and task IDs. A redelivery of the same logical task and
 source revision reuses completed sections. Worker recovery accepts a successful
 receipt only when its exact request fingerprint has a validated durable section
@@ -55,6 +60,33 @@ Legacy checkpoints without that plan fingerprint also require a new task;
 recovery never silently resets their budget or repeats paid work.
 Migration `0111_extraction_sections` adds
 the nullable checkpoint column without rewriting existing results.
+
+## Explicit continuation and hunt evidence
+
+An administrator with `write:ai` and `read:items` can select **Authorize additional
+article sections** in the article evidence panel. Each acceptance adds at most
+eight sections and 64,000 estimated tokens, up to a cumulative ceiling of 32
+sections and 256,000 tokens. The button discloses that budget before sending.
+Completed calls are reused; a new normal reprocessing task deliberately starts a
+new plan. The original selected provider is retained, even if global routing was
+changed while the task waited. Model, prompt or evidence revision changes stop
+continuation instead of quietly combining incompatible outputs.
+
+`POST /ai/articles/{item_id}/continue` accepts a UUID `request_id` and the public
+`progress_revision`. Retries with identical input return the original run. A
+stale revision, unresolved section delivery, existing queued/running enrichment,
+or exhausted ceiling returns an actionable conflict. The accepted credential is
+stored encrypted and rechecked before each provider call and checkpoint. Revoked
+credentials cannot authorize later sections. Successful section and synthesis
+receipts need their exact durable checkpoints before recovery can resume.
+
+Hunt assessment prompts reserve space for exact verified quotations from across
+current extraction sections. Deterministic keyword ranking uses the team's context;
+AI entity descriptions are never substituted for primary quotations. The prompt
+and published result disclose selected source coordinates, source version and
+extraction coverage. Missing/stale extraction falls back to current bounded primary
+text. Selection is bounded to 16,000 characters and does not claim exhaustive
+article coverage. Analysts can inspect the selection beneath the team assessment.
 
 ## Versioned evaluation corpus
 
@@ -136,3 +168,63 @@ records before explicitly clearing them or releasing claims. An upgrade does not
 perform that removal automatically, and a failed downgrade leaves these records
 intact. Shared-account reservation attribution remains protected after a profile
 leaves its group, including settled reservations retained for accounting.
+
+## Strict promotion gates and analyst workflow
+
+The existing `claim_verdicts` list remains accepted for historical comparisons,
+but cannot satisfy a promotion gate. Comparison reports now include stable claim
+IDs derived from each exact entity/relationship object. An analyst records
+`review.claims: [{claim_id, verdict, rationale}]`, with reviewer, timezone-aware
+reviewed time and hunt usefulness. Every claim must have exactly one judgment;
+changing output invalidates those IDs. Do not have an AI mark itself approved.
+
+Approve one personally reviewed corpus case using
+`backend/scripts/review_ai_quality.py --dataset PATH --case CASE --reviewer NAME
+--expected-sha256 DIGEST --approve --output NEW_PATH`. The tool reports the current
+case digest when approval is missing/mismatched. Review the source, expected
+entities and rubric first. The stored approval includes `reviewed_sha256`, so later
+source or annotation edits invalidate it. Keep review artifacts in normal reviewed
+version control; this CLI records operator attestations, not independent identity
+verification. Seed cases remain unapproved in the repository.
+
+Use `evaluate_ai_quality.py --predictions PATH --output REPORT --gate` to enforce
+promotion requirements. It exits **3** for an unmet gate and writes all failures;
+invalid input exits 2. Default thresholds require 100% structural validation,
+95% entity precision, 90% recall, no unsupported reviewed claims, mean hunt
+usefulness at least 3/4, p95 latency at most 60 seconds, and known total cost at
+most USD 1. Supply a reviewed JSON policy via `--thresholds PATH` to change these
+thresholds. Missing dataset cases, exact approvals, claim judgments, cost or
+latency samples fail closed. The gate does not automatically change production
+routing. Promote a saved provider/prompt revision only after retaining this report
+and independently reviewing the evidence and deployment policy.
+
+## Asynchronous provider feature qualification
+
+Open a saved provider under **AI settings → Provider connections → Feature
+qualification**. Select extraction, report findings/sections and/or hunt output, review the
+estimated token ceiling, and explicitly authorize calls. Only synthetic fixture
+text is sent. Results are pinned to the saved provider revision; changed provider
+settings stop queued work. This exercises current request dialect, output limits,
+structured evidence contracts and citations through the normal authorization,
+quota, deadline, usage and provider-receipt runtime.
+
+The report feature runs both evidence-finding and cited-section probes, including a numeric table. Each selected probe makes at most one provider attempt, uses at most 4,096 output
+tokens (or a lower configured model/default ceiling), and has at most a 60-second
+request deadline. A job has at most 32,000 estimated input/output tokens. Two
+pending jobs per provider are admitted; larger submissions receive a retryable
+capacity response. Budget reservations are durable before I/O. Proven admission
+deferral releases only its unsent reservation. Completed probes are checkpointed;
+ambiguous delivery requires receipt review and is never repeated automatically.
+
+`POST /ai/providers/{provider_id}/qualifications` requires `request_id`, saved
+`provider_version`, `features`, `token_budget` and `authorize_provider_calls: true`.
+The GET returns the newest 20 jobs, states, per-feature outcomes, latency and usage;
+this scope is disclosed in the UI. Cancel through existing AI Operations. The
+receipts and accepted credential follow task retention and encrypted inventory.
+
+These small probes establish **contract compatibility only**. They do not prove
+long-report performance, semantic accuracy, target-hardware capacity or human
+approval. Their result always reports `semantic_quality_approved: false`. Real
+analyst-reviewed evaluation and production workload qualification remain required.
+Migrations 0117/0118 refuse downgrade while retained authorizations or qualification
+records exist; archive and explicitly clear them before a planned rollback.

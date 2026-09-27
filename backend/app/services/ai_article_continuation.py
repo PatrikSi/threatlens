@@ -41,3 +41,13 @@ def continuation_authority(db: Session, *, run_id: uuid.UUID | None) -> AIArticl
             "Sign in, review current evidence and authorize continuation again.", retryable=False,
         ) from exc
     return row
+
+
+def continuation_preflight_error(db: Session, run_id: uuid.UUID | None, active, article_text: str) -> str | None:
+    if run_id is None or db.get(AIArticleContinuation, run_id) is None:
+        return None
+    if not active.structured_extraction_enabled:
+        return "Structured extraction was disabled after continuation was authorized. Review current settings before reprocessing."
+    if len(" ".join(article_text.split())) <= 8000:
+        return "The article changed after continuation was authorized. Refresh its evidence before reprocessing."
+    return None
