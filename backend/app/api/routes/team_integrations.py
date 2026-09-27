@@ -5,7 +5,7 @@ import hashlib
 import secrets
 import uuid
 from pydantic import ValidationError
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from app.api.deps import (
@@ -51,7 +51,16 @@ from app.services.team_integrations import (
 )
 from app.services.webhook_request_authority import fence_webhook_request
 
-router = APIRouter(prefix="/teams/{team_id}/integrations", tags=["teams"])
+
+def _no_store(response: Response) -> None:
+    response.headers["Cache-Control"] = "no-store"
+
+
+router = APIRouter(
+    prefix="/teams/{team_id}/integrations",
+    tags=["teams"],
+    dependencies=[Depends(_no_store)],
+)
 
 
 def _manager(

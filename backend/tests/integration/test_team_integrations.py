@@ -78,6 +78,7 @@ def issue(client, headers, destination):
         },
     )
     assert response.status_code == 200, response.text
+    assert response.headers.get("cache-control") == "no-store"
     return response.json()
 
 
