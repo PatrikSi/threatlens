@@ -497,7 +497,7 @@ def test_receiver_applies_fresh_restore_withdrawal_below_retained_revision(
     ledger.db.close()
 
 
-@pytest.mark.parametrize("findings", ["", " \n\t", "bad\x00value", "bad\ud800value", "bad\udfffvalue", "x" * 8001])
+@pytest.mark.parametrize("findings", ["", " \n\t", "bad\x00value", "bad\ud800value", "bad\udfffvalue", "x" * 8001, 42, ["unexpected"]])
 def test_receiver_rejects_invalid_findings_before_changing_durable_state(tmp_path, findings):
     receiver = receiver_module()
     ledger = receiver.Ledger(str(tmp_path / "ledger.db"))
