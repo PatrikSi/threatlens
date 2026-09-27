@@ -134,8 +134,30 @@ from app.models.temporary_elevation import (
 )
 from app.models.user import User
 from app.models.workspace import WorkspaceRolePolicy, WorkspaceUserPreference
+from app.models.automation_receiver import AutomationReceiverCredential
+from app.models.ai_article_continuation import AIArticleContinuation
+from app.models.team_ai_governance import TeamAIGovernance
+
+from app.models.publication_consumer import PublicationConsumer, PublicationSubscription, PublicationChange
+
+from app.models.ai_qualification import AIQualification
+
+from app.models.team_hunt_view import TeamHuntView
+
+from app.models.mcp_oauth import MCPOAuthClient, MCPOAuthCode, MCPDelegation
 
 __all__ = [
+    "AutomationReceiverCredential",
+    "AIArticleContinuation",
+    "TeamAIGovernance",
+    "PublicationConsumer",
+    "PublicationSubscription",
+    "PublicationChange",
+    "AIQualification",
+    "TeamHuntView",
+    "MCPOAuthClient",
+    "MCPOAuthCode",
+    "MCPDelegation",
     "AIQuotaGroup", "AIQuotaGroupMember", "AIQuotaTeamTurn",
     "TeamHuntClaim",
     "IndicatorPublication", "IndicatorPublicationLabel", "IndicatorPublicationSource",
@@ -271,4 +293,3 @@ __all__ = [
     "WorkspaceRolePolicy",
     "WorkspaceUserPreference",
 ]
-

@@ -57,6 +57,33 @@ OperationLiteral: TypeAlias = tuple[str, str, str] | tuple[str, str, str, str]
 # security-sensitive contract changes.
 # fmt: off
 _CONTROL_PLANE_OPERATIONS: tuple[OperationLiteral, ...] = (
+    ('GET', '/v1/mcp/oauth/clients', 'list_mcp_oauth_clients'),
+    ('POST', '/v1/mcp/oauth/clients', 'register_mcp_oauth_client'),
+    ('DELETE', '/v1/mcp/oauth/clients/{client_id}', 'revoke_mcp_oauth_client'),
+    ('POST', '/v1/mcp/oauth/consent-preview', 'preview_mcp_consent'),
+    ('POST', '/v1/mcp/oauth/token', 'exchange_mcp_authorization_code'),
+
+    ('GET', '/v1/ai/providers/{provider_id}/qualifications', 'list_provider_qualifications'),
+
+    ('GET', '/v1/teams/{team_id}/hunts/views', 'get_team_hunt_views'),
+    ('PUT', '/v1/teams/{team_id}/hunts/views/{view_id}', 'save_team_hunt_view'),
+    ('DELETE', '/v1/teams/{team_id}/hunts/views/{view_id}', 'delete_team_hunt_view'),
+
+    ('GET', '/v1/publication-distribution/status', 'publication_consumer_status'),
+    ('GET', '/v1/publication-distribution/changes', 'publication_consumer_changes'),
+    ('POST', '/v1/publication-distribution/acknowledgements', 'acknowledge_publication_changes'),
+    ('POST', '/v1/publication-distribution/reset', 'reset_publication_consumer'),
+
+    ('GET', '/v1/teams/{team_id}/ai-governance', 'get_team_ai_governance'),
+    ('PATCH', '/v1/teams/{team_id}/ai-governance', 'select_team_ai_destination'),
+    ('GET', '/v1/ai/team-governance/{team_id}', 'get_admin_team_ai_governance'),
+    ('PUT', '/v1/ai/team-governance/{team_id}', 'approve_team_ai_governance'),
+
+    ("GET", "/v1/ai/quota-groups/{group_id}/utilization", "get_ai_quota_utilization"),
+    ('POST', '/v1/notifications/automation/receivers/executions/{execution_id}/callbacks', 'receive_machine_callback'),
+    ('GET', '/v1/notifications/automation/receivers/updates', 'machine_policy_updates'),
+    ('POST', '/v1/notifications/automation/receivers/updates/{update_id}/ack', 'machine_acknowledge_policy'),
+
     ('GET', '/v1/ai/quota-groups', 'list_ai_quota_groups'),
     ('POST', '/v1/ai/quota-groups', 'create_ai_quota_group'),
     ('PUT', '/v1/ai/quota-groups/{group_id}', 'update_ai_quota_group'),
@@ -247,6 +274,33 @@ _PUBLIC_OPERATIONS: tuple[OperationLiteral, ...] = (
 )
 
 _REQUEST_CONTEXT_OPERATIONS: tuple[OperationLiteral, ...] = (
+    ("POST", "/v1/teams/{team_id}/publication-consumers/{consumer_id}/retire", "retire_publication_consumer"),
+    ("POST", "/v1/teams/{team_id}/publication-consumers/{consumer_id}/archive", "archive_publication_consumer"),
+    ("POST", "/v1/mcp/oauth/authorize", "authorize_mcp_client"),
+
+    ('PATCH', '/v1/teams/{team_id}/hunts/{assessment_id}/{hunt_id}/schedule', 'update_hunt_review_schedule'),
+    ('POST', '/v1/teams/{team_id}/hunts/{assessment_id}/{hunt_id}/reminder-acknowledgement', 'acknowledge_hunt_review_reminder'),
+
+    ('POST', '/v1/teams/{team_id}/publication-consumers', 'register_publication_consumer'),
+    ('GET', '/v1/teams/{team_id}/publication-consumers', 'list_publication_consumers'),
+    ('POST', '/v1/teams/{team_id}/publication-consumers/{consumer_id}/subscriptions', 'subscribe_publication_consumer'),
+    ('POST', '/v1/teams/{team_id}/publication-consumers/{consumer_id}/rotate', 'rotate_publication_consumer'),
+    ('DELETE', '/v1/teams/{team_id}/publication-consumers/{consumer_id}', 'revoke_publication_consumer'),
+
+    ('POST', '/v1/ai/providers/{provider_id}/qualifications', 'queue_provider_qualification'),
+
+    ('POST', '/v1/ai/articles/{item_id}/continue', 'continue_article_extraction'),
+
+
+    ('GET', '/v1/teams/{team_id}/integrations', 'list_team_integrations'),
+    ('POST', '/v1/teams/{team_id}/integrations/{webhook_id}/adopt', 'adopt_team_integration'),
+    ('PATCH', '/v1/teams/{team_id}/integrations/{webhook_id}/enabled', 'set_team_integration_enabled'),
+    ('GET', '/v1/teams/{team_id}/integrations/{webhook_id}/receiver-credentials', 'list_receiver_credentials'),
+    ('POST', '/v1/teams/{team_id}/integrations/{webhook_id}/receiver-credentials', 'issue_receiver_credential'),
+    ('DELETE', '/v1/teams/{team_id}/integrations/{webhook_id}/receiver-credentials/{credential_id}', 'revoke_receiver_credential'),
+    ('GET', '/v1/teams/{team_id}/integrations/{webhook_id}/configuration', 'get_team_integration_configuration'),
+    ('PUT', '/v1/teams/{team_id}/integrations/{webhook_id}/configuration', 'update_team_integration_configuration'),
+
     ('GET', '/v1/teams/{team_id}/hunts', 'list_team_hunt_worklist'),
     ('POST', '/v1/teams/{team_id}/hunts/{assessment_id}/{hunt_id}/claim', 'update_team_hunt_claim'),
     ('POST', '/v1/teams/{team_id}/indicator-publications/preview', 'preview_indicator_publication'),
@@ -427,6 +481,35 @@ _EGRESS_FENCED_OPERATIONS: tuple[OperationLiteral, ...] = (
 # retained as useful operator evidence, but cannot by themselves detect a handler
 # replacement that reuses the same display name.
 _ENDPOINT_NAMES_BY_MODULE: Final[dict[str, tuple[str, ...]]] = {
+    "app.api.routes.mcp_oauth": ('list_mcp_oauth_clients', 'register_mcp_oauth_client', 'revoke_mcp_oauth_client', 'preview_mcp_consent', 'exchange_mcp_authorization_code', 'authorize_mcp_client'),
+    "app.api.routes.team_hunt_workflow": ('get_team_hunt_views', 'save_team_hunt_view', 'delete_team_hunt_view', 'update_hunt_review_schedule', 'acknowledge_hunt_review_reminder'),
+    "app.api.routes.publication_consumers": (
+        'register_publication_consumer',
+        'list_publication_consumers',
+        'subscribe_publication_consumer',
+        'rotate_publication_consumer',
+        'revoke_publication_consumer',
+        'publication_consumer_status',
+        'publication_consumer_changes',
+        'acknowledge_publication_changes',
+        'reset_publication_consumer',
+        'retire_publication_consumer',
+        'archive_publication_consumer',
+    ),
+    "app.api.routes.ai_qualification": ('queue_provider_qualification', 'list_provider_qualifications'),
+    "app.api.routes.ai_article_continuation": ('continue_article_extraction',),
+    "app.api.routes.team_ai_governance": ('get_team_ai_governance', 'select_team_ai_destination', 'get_admin_team_ai_governance', 'approve_team_ai_governance'),
+    "app.api.routes.automation_receivers": ('receive_machine_callback', 'machine_policy_updates', 'machine_acknowledge_policy'),
+    "app.api.routes.team_integrations": (
+        'list_team_integrations',
+        'adopt_team_integration',
+        'set_team_integration_enabled',
+        'list_receiver_credentials',
+        'issue_receiver_credential',
+        'revoke_receiver_credential',
+        'get_team_integration_configuration',
+        'update_team_integration_configuration',
+    ),
     'app.api.routes.indicator_assessments': (
         'get_item_indicators', 'patch_indicator_assessment', 'get_indicator_history',
         'get_indicator_suppressions', 'create_indicator_suppression',
@@ -443,7 +526,7 @@ _ENDPOINT_NAMES_BY_MODULE: Final[dict[str, tuple[str, ...]]] = {
         'acknowledge_automation_policy_update', 'reconcile_automation_executions',
     ),
     'app.api.routes.ai_quota_groups': (
-        'list_ai_quota_groups', 'create_ai_quota_group', 'update_ai_quota_group',
+        'list_ai_quota_groups', 'create_ai_quota_group', 'update_ai_quota_group', 'get_ai_quota_utilization',
     ),
     'app.api.routes.webhook_automation': (
         'list_credential_profiles', 'create_credential_profile', 'update_credential_profile',
@@ -872,6 +955,8 @@ def _entries(
     governance_class: RouteGovernanceClass,
     operations: tuple[OperationLiteral, ...],
 ) -> tuple[RouteGovernanceEntry, ...]:
+    if any(len(operation) not in {3, 4} for operation in operations):
+        raise ValueError("Route operations require method, path, name and optional raw path")
     return tuple(
         RouteGovernanceEntry(
             operation=RouteOperation(
