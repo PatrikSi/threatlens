@@ -16,8 +16,7 @@ from app.tasks.celery_app import celery_app
 @celery_app.task(name="app.tasks.publication_distribution_tasks.reconcile_distribution")
 def reconcile_distribution() -> dict[str, int]:
     # Select only identifiers; each consumer uses its own bounded transaction.
-    # last_reconciled_at also records maintenance attempts for fair scheduling. User
-    # polling naturally moves an already-reconciled consumer behind idle peers.
+    # Attempts drive fairness; only successful work advances freshness.
     with SessionLocal() as db, database_operation(db, operation="repair"):
         ids = list(
             db.scalars(
@@ -25,15 +24,15 @@ def reconcile_distribution() -> dict[str, int]:
                 .where(
                     PublicationConsumer.revoked_at.is_(None),
                     (
-                        PublicationConsumer.last_reconciled_at.is_(None)
+                        PublicationConsumer.last_reconcile_attempt_at.is_(None)
                         | (
-                            PublicationConsumer.last_reconciled_at
+                            PublicationConsumer.last_reconcile_attempt_at
                             < datetime.now(timezone.utc) - timedelta(minutes=1)
                         )
                     ),
                 )
                 .order_by(
-                    PublicationConsumer.last_reconciled_at.asc().nullsfirst(),
+                    PublicationConsumer.last_reconcile_attempt_at.asc().nullsfirst(),
                     PublicationConsumer.id,
                 )
                 .limit(10)
@@ -48,9 +47,9 @@ def reconcile_distribution() -> dict[str, int]:
                     PublicationConsumer.id == identifier,
                     PublicationConsumer.revoked_at.is_(None),
                     (
-                        PublicationConsumer.last_reconciled_at.is_(None)
+                        PublicationConsumer.last_reconcile_attempt_at.is_(None)
                         | (
-                            PublicationConsumer.last_reconciled_at
+                            PublicationConsumer.last_reconcile_attempt_at
                             < datetime.now(timezone.utc) - timedelta(minutes=1)
                         )
                     ),
@@ -59,7 +58,8 @@ def reconcile_distribution() -> dict[str, int]:
             )
             if row is None:
                 continue
-            row.last_reconciled_at = datetime.now(timezone.utc)
+            attempted_at = datetime.now(timezone.utc)
+            row.last_reconcile_attempt_at = attempted_at
             db.commit()
         # Persist the attempt before reconciliation so a malformed retained row
         # cannot monopolize every sweep. Other consumers continue on failure.
@@ -75,11 +75,35 @@ def reconcile_distribution() -> dict[str, int]:
                 )
                 if row is None:
                     continue
-                count += reconcile_consumer(db, row)
+                checked = reconcile_consumer(db, row)
                 prune_acknowledged_changes(db, row)
                 db.commit()
+                count += checked
         except Exception:
             logging.getLogger(__name__).exception(
                 "publication_consumer_reconciliation_failed consumer_id=%s", identifier
             )
+            # Keep retry fairness independently of success. A concurrent poll
+            # may have recovered already; never overwrite newer progress.
+            _record_failure(identifier, attempted_at)
     return {"subscriptions_checked": count}
+
+
+def _record_failure(identifier, attempted_at: datetime) -> None:
+    try:
+        with SessionLocal() as db, database_operation(db, operation="repair"):
+            row = db.scalar(select(PublicationConsumer).where(
+                PublicationConsumer.id == identifier,
+                PublicationConsumer.last_reconcile_attempt_at == attempted_at,
+                (PublicationConsumer.last_reconciled_at.is_(None)
+                 | (PublicationConsumer.last_reconciled_at < attempted_at)),
+            ).with_for_update(skip_locked=True))
+            if row is not None:
+                row.reconciliation_error_at = row.reconciliation_error_at or attempted_at
+                row.reconciliation_error_code = "publication_reconciliation_failed"
+                db.commit()
+    except Exception:
+        # Freshness already remains stale even if diagnostics cannot be saved.
+        logging.getLogger(__name__).exception(
+            "publication_consumer_failure_record_failed consumer_id=%s", identifier
+        )

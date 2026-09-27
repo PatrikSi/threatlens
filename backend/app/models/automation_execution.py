@@ -7,11 +7,13 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    Index,
     String,
     Text,
     UniqueConstraint,
     Uuid,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -24,6 +26,8 @@ class AutomationExecution(Base):
         UniqueConstraint(
             "webhook_id", "action_id", name="uq_automation_execution_action"
         ),
+        Index("ix_automation_execution_current_due", "next_check_at", "id",
+              postgresql_where=text("policy_state = 'current'")),
     )
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     # Destination identity is retained when configuration is deleted; receivers

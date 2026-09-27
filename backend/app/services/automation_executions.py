@@ -7,7 +7,7 @@ import uuid
 from typing import TYPE_CHECKING
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import Select, literal_column, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -141,6 +141,23 @@ def reserve_policy_update(
     return update
 
 
+def due_execution_query(
+    *, now: datetime, limit: int, owner_user_id: uuid.UUID | None = None,
+) -> Select[tuple[AutomationExecution]]:
+    """Indexed candidate selection; callers acquire the authorization fence first."""
+    query = select(AutomationExecution).where(
+        AutomationExecution.next_check_at <= now,
+        # Fixed predicate also enables the partial index for prepared generic
+        # plans. Never interpolate request values into this SQL literal.
+        AutomationExecution.policy_state == literal_column("'current'"),
+    )
+    if owner_user_id is not None:
+        query = query.where(AutomationExecution.owner_user_id == owner_user_id)
+    return query.order_by(AutomationExecution.next_check_at, AutomationExecution.id).limit(
+        min(max(limit, 1), 100)
+    ).with_for_update(skip_locked=True)
+
+
 def reconcile_executions(
     db: Session, *, limit: int = 100, owner_user_id: uuid.UUID | None = None
 ) -> int:
@@ -162,17 +179,7 @@ def reconcile_executions(
     # Preserve the same global lock order as routing and callback authorization.
     lock_integration_delivery_policy_fence(db)
     now = datetime.now(timezone.utc)
-    query = select(AutomationExecution).where(
-        AutomationExecution.next_check_at <= now,
-        AutomationExecution.policy_state == "current",
-    )
-    if owner_user_id is not None:
-        query = query.where(AutomationExecution.owner_user_id == owner_user_id)
-    rows = db.scalars(
-        query.order_by(AutomationExecution.next_check_at, AutomationExecution.id)
-        .limit(min(max(limit, 1), 100))
-        .with_for_update(skip_locked=True)
-    ).all()
+    rows = db.scalars(due_execution_query(now=now, limit=limit, owner_user_id=owner_user_id)).all()
     authority = ExecutionAuthorityBatch(db, rows)
     for row in rows:
         event = db.get(IntegrationEvent, row.event_id)

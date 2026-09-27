@@ -40,6 +40,8 @@ LATER_REVISIONS = (
     "0120_hunt_review_workflow",
     "0121_publication_distribution",
     "0122_mcp_delegation",
+    "0123_item_identity_indexes",
+    "0124_reconciliation_progress",
 )
 
 
@@ -94,13 +96,15 @@ def owner_team(db):
 def test_expansion_populated_round_trip_preserves_legacy_rows_and_matches_metadata(
     db_session, monkeypatch
 ):
+    # Create through the current mapper before rolling back its generated
+    # columns. The retained row then survives as an ordinary legacy item.
+    item = source(db_session)
     migrations = [
         _migration(db_session, monkeypatch, revision)
         for revision in (*REVISIONS, *LATER_REVISIONS)
     ]
     for migration in reversed(migrations):
         migration.downgrade()
-    item = source(db_session)
     db_session.execute(
         text("""INSERT INTO item_ai_enrichments
         (item_id, status, source_hash, summary_text, relevance_reasons_json)

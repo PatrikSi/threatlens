@@ -16,12 +16,14 @@ def upgrade():
           SELECT pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(value, 'UTF8')), 'hex')
         $$
     """))
-    for source, target in (("dedupe_key", "dedupe_digest"), ("source_guid", "source_guid_digest")):
-        op.add_column("items", sa.Column(
-            target, sa.String(64),
-            sa.Computed(f"threatlens_item_identity_digest({source})", persisted=True),
-            nullable=target != "dedupe_digest",
-        ))
+    # Populate both generated columns in one table rewrite on larger installs.
+    op.execute(sa.text("""
+        ALTER TABLE items
+        ADD COLUMN dedupe_digest varchar(64)
+          GENERATED ALWAYS AS (threatlens_item_identity_digest(dedupe_key)) STORED NOT NULL,
+        ADD COLUMN source_guid_digest varchar(64)
+          GENERATED ALWAYS AS (threatlens_item_identity_digest(source_guid)) STORED
+    """))
     op.drop_constraint("uq_items_dedupe_key", "items", type_="unique")
     op.create_unique_constraint("uq_items_dedupe_digest", "items", ["dedupe_digest"])
     op.drop_index("ix_items_feed_guid_unique_not_null", table_name="items")
