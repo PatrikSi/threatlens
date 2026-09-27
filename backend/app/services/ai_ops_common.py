@@ -29,6 +29,7 @@ AI_STATUS_SKIPPED = "skipped"
 AI_TERMINAL_STATUSES = {AI_STATUS_READY, AI_STATUS_ERROR, AI_STATUS_SKIPPED}
 
 AI_TASK_NAMES = {
+    "app.tasks.ai_qualification_tasks.generate_ai_qualification": AI_TASK_TYPE_CONNECTION_TEST,
     "app.tasks.team_assessment_tasks.generate_team_assessment": "team_assessment",
     "app.tasks.feed_tasks.generate_item_ai_enrichment": AI_TASK_TYPE_ITEM_ENRICHMENT,
     "app.tasks.feed_tasks.reprocess_recent_ai_items": AI_TASK_TYPE_REPROCESS,

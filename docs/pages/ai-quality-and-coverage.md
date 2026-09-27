@@ -217,6 +217,12 @@ pending jobs per provider are admitted; larger submissions receive a retryable
 capacity response. Budget reservations are durable before I/O. Proven admission
 deferral releases only its unsent reservation. Completed probes are checkpointed;
 ambiguous delivery requires receipt review and is never repeated automatically.
+Worker recovery checks active, reserved and scheduled deliveries before treating
+a qualification as lost. Once the normal stale-worker grace expires, it resumes
+only unsent probes, retaining the accepted provider, completed results and token
+reservations. A replacement delivery fences the old worker. An uncheckpointed
+successful call or unresolved receipt instead finishes the task with an error for
+operator review, releasing its pending-job slot without repeating the call.
 
 `POST /ai/providers/{provider_id}/qualifications` requires `request_id`, saved
 `provider_version`, `features`, `token_budget` and `authorize_provider_calls: true`.
