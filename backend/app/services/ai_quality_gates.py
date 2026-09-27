@@ -20,10 +20,17 @@ class QualityThresholds(BaseModel):
 
 def claim_inventory(prediction: dict) -> list[dict]:
     """Claim IDs bind the judgment to exact output content, independent of order."""
-    extraction = prediction.get("structured_extraction") or {}
+    extraction = prediction.get("structured_extraction")
+    if not isinstance(extraction, dict):
+        return []
     claims = []
     for kind in ("entities", "relationships"):
-        for entry in extraction.get(kind, []):
+        entries = extraction.get(kind, [])
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
             content = {"kind": kind, "claim": entry}
             digest = hashlib.sha256(json.dumps(content, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
             claims.append({"claim_id": digest, **content})

@@ -64,3 +64,11 @@ def test_forged_reviewed_status_and_future_review_time_do_not_qualify():
     prediction["review"]["reviewed_at"] = "2999-01-01T00:00:00Z"
     report = evaluate_predictions(dataset, digest, [prediction])
     assert not promotion_gate(dataset, [prediction], report, QualityThresholds())["passed"]
+
+
+def test_malformed_provider_shape_is_a_failed_evaluation_not_a_crash():
+    dataset, digest, prediction = approved()
+    prediction["structured_extraction"] = "Malformed provider text"
+    report = evaluate_predictions(dataset, digest, [prediction])
+    assert report["comparisons"][0]["validation_pass_rate"] == 0
+    assert not promotion_gate(dataset, [prediction], report, QualityThresholds())["passed"]

@@ -13,6 +13,7 @@ export function ArticleExtractionCoverage({ coverage }: { coverage: ExtractionCo
           ? ' The summary includes labeled contributions from processed sections; relevance retains its initial assessment.'
           : ' Summary and relevance use the first section.'}
     </p>
+    {coverage.summary_limited && <p role="status">Some section summaries exceeded their 900-character storage budget. Primary quotations and coverage remain available for review.</p>}
     {coverage.output_limited && <p role="status" className="mt-1">The combined output reached its entity or relationship limit. Review source evidence for additional findings.</p>}
     <ol className="mt-2 list-decimal pl-5">
       {coverage.sections.map((section) => <li key={section.index}>Characters {section.start.toLocaleString()}–{section.end.toLocaleString()}: {section.status === 'started' ? 'awaiting a durable result; delivery may require reconciliation' : section.status}</li>)}

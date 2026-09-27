@@ -29,7 +29,9 @@ its section or token budget is exhausted; it never calls uncovered text processe
 When summaries are enabled, a final bounded synthesis combines every completed
 section and cites section numbers. It uses at most 2,048 output tokens and fits
 inside the same cumulative token budget. If it cannot fit, labeled per-section
-summaries remain available, with their coverage disclosed. Organizational relevance
+summaries remain available, with their coverage disclosed. Stored section summaries
+are capped at 900 characters so every processed section fits the aggregate;
+truncation is disclosed, and verified primary quotations remain available. Organizational relevance
 retains its initial assessment; team assessments independently select relevant
 primary evidence across completed sections.
 Shared extraction is merged across all completed sections. Equivalent entity

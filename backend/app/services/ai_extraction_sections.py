@@ -95,7 +95,7 @@ def extraction_progress_response(progress: dict | None) -> ExtractionCoverage | 
             reserved_tokens=progress["reserved_tokens"], token_budget=progress.get("token_budget", TOTAL_TOKEN_BUDGET),
             call_limit=progress.get("section_limit", MAX_SECTIONS), sections=sections,
             progress_revision=progress_digest(progress), summary_scope=progress.get("summary_scope", "first_section"),
-            output_limited=progress.get("output_limited", False),
+            output_limited=progress.get("output_limited", False), summary_limited=progress.get("summary_limited", False),
         )
     except (KeyError, TypeError, ValueError):
         return None
@@ -159,9 +159,16 @@ def _completion_snapshot(completion: AICompletionResult, *, retain_content: bool
         "provider", "model", "latency_ms", "prompt_tokens", "completion_tokens",
         "total_tokens", "prompt_char_count", "response_char_count",
     )}
-    snapshot["payload"] = ({key: completion.payload.get(key) for key in (
-        "summary_text", "relevance_score", "relevance_reasons",
-    )} if retain_content else {})
+    snapshot["payload"] = {}
+    if retain_content:
+        summary = completion.payload.get("summary_text")
+        reasons = completion.payload.get("relevance_reasons")
+        snapshot["payload"] = {
+            "summary_text": summary[:900] if isinstance(summary, str) else None,
+            "relevance_score": completion.payload.get("relevance_score"),
+            "relevance_reasons": ([str(value)[:400] for value in reasons[:8] if isinstance(value, str)]
+                                  if isinstance(reasons, list) else reasons[:3200] if isinstance(reasons, str) else []),
+        }
     return snapshot
 
 
@@ -271,6 +278,9 @@ def run_section_extraction(
                 if passage["source"] == "article_text":
                     passage["start"] += section["start"]
                     passage["end"] += section["start"]
+        summary = completion.payload.get("summary_text")
+        if isinstance(summary, str) and len(summary) > 900:
+            progress["summary_limited"] = True
         section.update(status="completed", extraction=verified,
                        completion=_completion_snapshot(completion, retain_content=True))
         save()
