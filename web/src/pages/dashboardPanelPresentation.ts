@@ -32,12 +32,6 @@ export function selectVisibleItemTags(tags: string[], wideLayout: boolean) {
   return tags.slice(0, wideLayout ? 3 : 1)
 }
 
-export function resolveRssItemDetailClassName(wideLayout: boolean) {
-  return wideLayout
-    ? 'tl-rss-item-detail mt-3 border-t border-slate/20 pt-3 dark:border-cyan-900/40'
-    : 'tl-mobile-rss-detail fixed inset-0 z-50 overflow-y-auto bg-white px-3 pb-6 dark:bg-[#03130f]'
-}
-
 export function formatAlertMatchCount(count: number) {
   return `${count} ${count === 1 ? 'alert' : 'alerts'}`
 }

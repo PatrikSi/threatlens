@@ -21,6 +21,14 @@ All API paths on this page are relative to the published `/api/v1` base. Dashboa
   - delete views
   - thumbnail previews of saved window layouts with window-type counts
 
+## Article details on small screens
+
+Every article has a visible **Open article details** action, including read
+articles in compact mode. The title and original-preview action remain separate.
+On narrow screens, details open as a managed dialog: focus moves inside, the
+background is isolated, Escape closes the top dialog, and closing returns to the
+article action. Nested review confirmations use the same dialog stack.
+
 ## Window System
 
 ### Window types

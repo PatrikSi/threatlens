@@ -432,6 +432,7 @@ vi.mock('@tanstack/react-query', () => ({
 }))
 
 import { OperationsPage } from './OperationsPage'
+import { ApiError } from '../api/client'
 
 let root: Root | null = null
 let container: HTMLDivElement | null = null
@@ -544,6 +545,23 @@ describe('OperationsPage DOM workflows', () => {
     expect(view.textContent).toContain('PostgreSQL')
     expect(view.textContent).toContain('Last known · Degraded')
   })
+
+  it.each(['overviewError', 'workersError', 'historyError', 'runsError'] as const)(
+    'hides cached health and diagnostics after explicit denial from %s', (errorKey) => {
+      operationsDomMocks[errorKey] = new ApiError('Operations permission revoked.', 403, '/operations')
+      const view = renderPage('/settings/operations?view=trends')
+      expect(view.textContent).toContain('Operations permission revoked.')
+      expect(view.textContent).not.toContain('ThreatLens 1.7.0')
+      expect(view.textContent).not.toContain('Worker capacity and load')
+      expect(view.textContent).not.toContain('Last known')
+      const download = [...view.querySelectorAll('button')].find((button) => button.textContent === 'Download diagnostics')!
+      expect(download.disabled).toBe(true)
+      act(() => [...view.querySelectorAll('button')].find((button) => button.textContent === 'Retry health')!.click())
+      expect(operationsDomMocks.overviewRefetch).toHaveBeenCalledOnce()
+      if (errorKey === 'workersError') expect(operationsDomMocks.workersRefetch).toHaveBeenCalledOnce()
+      if (errorKey === 'runsError') expect(operationsDomMocks.runsRefetch).toHaveBeenCalledOnce()
+    },
+  )
 
   it('distinguishes a stopped canary dispatcher from a worker-side stall', () => {
     Object.assign(workerTopology, {

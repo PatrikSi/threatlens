@@ -45,6 +45,8 @@ test('inspects activity buckets and exact values with the keyboard on desktop an
   await info.attach('axe-ingestion-heatmap', { body: JSON.stringify(accessibility, null, 2), contentType: 'application/json' })
   expect(accessibility.violations).toEqual([])
   await page.setViewportSize({ width: 390, height: 844 })
+  const mobileAccessibility = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()
+  expect(mobileAccessibility.violations).toEqual([])
   const region = chart.getByRole('region', { name: 'Exact activity counts', exact: true })
   await region.focus()
   await page.keyboard.press('ArrowRight')

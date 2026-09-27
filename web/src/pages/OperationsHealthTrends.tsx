@@ -158,7 +158,7 @@ export function OperationsHealthTrends({
             </ol>
           </section>
 
-          <div className="mt-3 grid gap-3 xl:grid-cols-2">
+          <div className="mt-3 grid min-w-0 grid-cols-1 gap-3 xl:grid-cols-2">
             <OperationsCapacityTrends history={displayHistory} />
             <AccessibleTimeSeries
               title="Worker capacity and load"

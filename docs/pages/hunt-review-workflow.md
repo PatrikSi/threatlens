@@ -24,7 +24,11 @@ An unclaimed suggestion or a claim belonging to a former member can be scheduled
 by an eligible team editor. Every mutation rechecks current team membership,
 credential scopes, captured/current evidence access and assessment version under
 the existing assessment lock order. Conflicting edits return an actionable `409`.
-A background refresh does not silently advance the draft's version.
+A background refresh does not silently advance the draft's version. Unsaved
+priority/deadline edits require confirmation before changing filters, pages,
+teams or routes. If polling removes an edited hunt from the current page, its
+editor remains visible with actions paused. **Reload review schedule** deliberately
+discards that draft; current read-access denial hides the retained row.
 
 Scheduling stale evidence is allowed so it can be prioritized for regeneration;
 reviewing/approving stale evidence remains blocked. Accepted/rejected suggestions

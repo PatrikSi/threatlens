@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Download, RefreshCw } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
-import { apiFetch } from '../api/client'
+import { ApiError, apiFetch } from '../api/client'
+import { accessibleQueryData } from '../api/queryData'
 import { resolveApiErrorMessage } from '../api/errors'
 import { SettingsPageHeader } from '../components/SettingsPageHeader'
 import type {
@@ -48,6 +49,8 @@ export function OperationsPage() {
   const [operationStatus, setOperationStatus] = useState<SystemOperationStatus | ''>('')
   const [downloadMessage, setDownloadMessage] = useState('')
   const [downloadError, setDownloadError] = useState('')
+  const [accessFailure, setAccessFailure] = useState<unknown>(null)
+  const diagnosticsAllowed = useRef(true)
 
   const overviewQuery = useQuery({
     queryKey: ['operations', 'overview'],
@@ -56,7 +59,7 @@ export function OperationsPage() {
     refetchIntervalInBackground: false,
     staleTime: 15_000,
   })
-  const overview = overviewQuery.data
+  const overview = accessibleQueryData(overviewQuery)
   const signals = overview ? buildOperationsSignals(overview) : []
   const selectedSignalKey = requestedSignalKey && signals.some((signal) => signal.key === requestedSignalKey)
     ? requestedSignalKey
@@ -93,9 +96,17 @@ export function OperationsPage() {
     refetchInterval: activeView === 'activity' ? OVERVIEW_REFRESH_MS : false,
     refetchIntervalInBackground: false,
   })
+  const deniedQuery = [overviewQuery, workerQuery, historyQuery, runsQuery].find((query) => isAccessDenied(query.error))
+  const accessError = deniedQuery?.error ?? accessFailure
+  const accessDenied = Boolean(accessError)
+  useEffect(() => {
+    if (deniedQuery) setAccessFailure(deniedQuery.error)
+    diagnosticsAllowed.current = !accessDenied
+  }, [deniedQuery, accessDenied])
   const diagnostics = useMutation({
     mutationFn: () => apiFetch<OperationsDiagnosticsResponse>('/operations/diagnostics'),
     onSuccess: (payload) => {
+      if (!diagnosticsAllowed.current) return
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
       const objectUrl = URL.createObjectURL(blob)
       const anchor = document.createElement('a')
@@ -109,16 +120,19 @@ export function OperationsPage() {
       setDownloadMessage('Diagnostic snapshot downloaded.')
     },
     onError: (error) => {
+      if (isAccessDenied(error)) setAccessFailure(error)
       setDownloadMessage('')
       setDownloadError(resolveApiErrorMessage(error, 'Diagnostic snapshot could not be downloaded'))
     },
   })
 
-  const overviewError = overviewQuery.isError
+  const overviewError = accessError
+    ? resolveApiErrorMessage(accessError, "Access to system health is no longer available. Refresh after your access is restored.")
+    : overviewQuery.isError
     ? resolveApiErrorMessage(overviewQuery.error, overview ? 'System health could not be refreshed' : 'System health could not be loaded')
     : ''
   const snapshotAgeMs = overview ? Math.max(0, Date.now() - Date.parse(overview.generated_at)) : 0
-  const lastKnown = Boolean(overview && (overviewQuery.isError || snapshotAgeMs > OVERVIEW_STALE_AFTER_MS))
+  const lastKnown = isLastKnownSnapshot(overview, accessDenied, overviewQuery.isError, snapshotAgeMs)
   const totalRunPages = Math.max(1, Math.ceil((runsQuery.data?.total ?? 0) / RUN_PAGE_SIZE))
 
   useEffect(() => {
@@ -153,35 +167,35 @@ export function OperationsPage() {
     next.set('range', window)
     setSearchParams(next, { replace: true })
   }
+  const activeQueries = selectRefreshQueries(activeView, selectedSignalKey, {
+    overview: overviewQuery, workers: workerQuery, trends: historyQuery, activity: runsQuery,
+  })
   const refreshActiveView = () => {
-    void overviewQuery.refetch()
-    if (activeView === 'trends') void historyQuery.refetch()
-    else if (activeView === 'activity') void runsQuery.refetch()
-    else if (activeView === 'processing') void queryClient.invalidateQueries({ queryKey: ['processing'] })
-    else if (selectedSignalKey === 'workers') void workerQuery.refetch()
+    const queries = [...new Set([...activeQueries, ...[workerQuery, historyQuery, runsQuery].filter((query) => query.isError)])]
+    void refreshOperationsQueries(queries).then((verified) => { if (verified) setAccessFailure(null) })
+    if (activeView === 'processing') void queryClient.invalidateQueries({ queryKey: ['processing'] })
   }
-  const activeDatasetFetching = overviewQuery.isFetching ||
-    (activeView === 'trends' && historyQuery.isFetching) ||
-    (activeView === 'activity' && runsQuery.isFetching) ||
-    (activeView === 'live' && selectedSignalKey === 'workers' && workerQuery.isFetching)
+  const activeDatasetFetching = activeQueries.some((query) => query.isFetching)
+
 
   return (
     <div className="space-y-3">
       <OperationsPageHeader
-        overview={overview}
+        overview={accessDenied ? undefined : overview}
         loading={overviewQuery.isLoading}
         fetching={activeDatasetFetching}
-        unavailable={overviewQuery.isError}
+        unavailable={accessDenied || overviewQuery.isError}
         overviewError={overviewError}
         snapshotAgeMs={snapshotAgeMs}
         lastKnown={lastKnown}
         downloadError={downloadError}
         downloadMessage={downloadMessage}
         diagnosticsPending={diagnostics.isPending}
+        actionsUnavailable={accessDenied || overviewQuery.isError}
         onRefresh={refreshActiveView}
-        onDownload={() => diagnostics.mutate()}
+        onDownload={() => { if (!accessDenied && !overviewQuery.isError) diagnostics.mutate() }}
       />
-      <OperationsWorkspace
+      {!accessDenied && <OperationsWorkspace
         overview={overview}
         overviewLoading={overviewQuery.isLoading}
         overviewUnavailable={overviewQuery.isError}
@@ -189,15 +203,15 @@ export function OperationsPage() {
         activeView={activeView}
         selectedWindow={selectedWindow}
         selectedSignalKey={selectedSignalKey}
-        workerTopology={workerQuery.data}
+        workerTopology={accessibleQueryData(workerQuery)}
         workerLoading={workerQuery.isLoading}
         workerFetching={workerQuery.isFetching}
         workerError={workerQuery.isError ? resolveApiErrorMessage(workerQuery.error, 'Worker diagnostics could not be loaded') : ''}
-        history={historyQuery.data}
+        history={accessibleQueryData(historyQuery)}
         historyLoading={historyQuery.isLoading}
         historyFetching={historyQuery.isFetching}
         historyError={historyQuery.isError ? resolveApiErrorMessage(historyQuery.error, 'Observed health history could not be loaded') : ''}
-        runs={runsQuery.data?.runs ?? []}
+        runs={accessibleQueryData(runsQuery)?.runs ?? []}
         runsLoading={runsQuery.isLoading}
         runsUpdating={runsQuery.isFetching && Boolean(runsQuery.data)}
         runsError={runsQuery.isError ? resolveApiErrorMessage(runsQuery.error, 'Operation history could not be loaded') : ''}
@@ -215,8 +229,8 @@ export function OperationsPage() {
         onRunPageChange={setRunPage}
         onTypeChange={(value) => { setRunPage(1); setOperationType(value) }}
         onStatusChange={(value) => { setRunPage(1); setOperationStatus(value) }}
-      />
-      {overview && (
+      />}
+      {!accessDenied && overview && (
         <p className="sr-only" role="status" aria-live="polite">
           Current system health is {overview.overall_status}. {overview.issues.length} active findings.
         </p>
@@ -236,6 +250,7 @@ function OperationsPageHeader({
   downloadError,
   downloadMessage,
   diagnosticsPending,
+  actionsUnavailable,
   onRefresh,
   onDownload,
 }: {
@@ -249,6 +264,7 @@ function OperationsPageHeader({
   downloadError: string
   downloadMessage: string
   diagnosticsPending: boolean
+  actionsUnavailable: boolean
   onRefresh: () => void
   onDownload: () => void
 }) {
@@ -280,7 +296,7 @@ function OperationsPageHeader({
           <button
             type="button"
             className="inline-flex min-h-11 items-center justify-center gap-2 rounded bg-ink px-3 py-2 text-sm font-semibold text-white disabled:opacity-60 dark:bg-cyan dark:text-[#053c2e]"
-            disabled={diagnosticsPending}
+            disabled={diagnosticsPending || actionsUnavailable}
             onClick={onDownload}
           >
             <Download className="h-4 w-4" aria-hidden="true" />
@@ -451,4 +467,29 @@ function InlineMessage({ tone, children }: { tone: 'error' | 'status'; children:
       {children}
     </p>
   )
+}
+
+function isAccessDenied(error: unknown): boolean {
+  return error instanceof ApiError && [401, 403, 404].includes(error.status)
+}
+
+type RefreshQuery = { isFetching: boolean; refetch: () => Promise<{ isError: boolean }> }
+function selectRefreshQueries(
+  view: OperationsView,
+  signal: string,
+  queries: Record<'overview' | 'workers' | 'trends' | 'activity', RefreshQuery>,
+): RefreshQuery[] {
+  const selected = view === 'live' && signal === 'workers' ? 'workers' : view
+  return selected === 'workers' || selected === 'trends' || selected === 'activity'
+    ? [queries.overview, queries[selected]]
+    : [queries.overview]
+}
+
+async function refreshOperationsQueries(queries: RefreshQuery[]): Promise<boolean> {
+  const results = await Promise.allSettled(queries.map((query) => query.refetch()))
+  return results.every((result) => result.status === 'fulfilled' && result.value && !result.value.isError)
+}
+
+function isLastKnownSnapshot(overview: OperationsOverviewResponse | undefined, accessDenied: boolean, refreshFailed: boolean, ageMs: number): boolean {
+  return Boolean(!accessDenied && overview && (refreshFailed || ageMs > OVERVIEW_STALE_AFTER_MS))
 }

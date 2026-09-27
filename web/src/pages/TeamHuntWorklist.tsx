@@ -1,6 +1,6 @@
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { ApiError, apiFetch } from "../api/client";
 import { resolveApiErrorMessage } from "../api/errors";
 import { captureSessionLease } from "../api/sessionLifecycle";
@@ -31,6 +31,22 @@ export function TeamHuntWorklist({
   unavailable: boolean;
 }) {
   const [params, setParams] = useSearchParams();
+  const location = useLocation();
+  // Polling may remove a row while it is being edited. Keep that editor mounted
+  // until the analyst saves/discards it; explicit URL transitions are guarded.
+  const [retained, setRetained] = useState<{ scope: string; entries: Record<string, HuntEntry> }>({ scope: location.key, entries: {} });
+  const retainDraft = useCallback((entry: HuntEntry, dirty: boolean) => {
+    const key = `${entry.assessment_id}:${entry.hunt.id}`;
+    setRetained((current) => {
+      const entries = current.scope === location.key ? current.entries : {};
+      if (!dirty && !entries[key]) return current;
+      if (dirty && entries[key] === entry) return current;
+      const next = { ...entries };
+      if (dirty) next[key] = entry;
+      else delete next[key];
+      return { scope: location.key, entries: next };
+    });
+  }, [location.key]);
   const client = useQueryClient();
   const [review, setReview] = useState<HuntEntry | null>(null);
   const [notice, setNotice] = useState<{ error: boolean; text: string } | null>(
@@ -82,6 +98,10 @@ export function TeamHuntWorklist({
     query.error instanceof ApiError &&
     [401, 403, 404].includes(query.error.status);
   const blocked = unavailable || query.isError;
+  const visibleEntries = query.data?.items ?? [];
+  const retainedEntries = Object.values(retained.scope === location.key ? retained.entries : {}).filter(
+    (entry) => !visibleEntries.some((visible) => visible.assessment_id === entry.assessment_id && visible.hunt.id === entry.hunt.id),
+  );
   function updateFilter(key: string, value: string) {
     setReview(null);
     setParams((current) => {
@@ -277,8 +297,11 @@ export function TeamHuntWorklist({
             page. Evidence permissions may leave a page empty; continue when
             more pages are available.
           </p>
-          <div className="space-y-3">
-            {query.data.items.map((entry) => (
+          {retainedEntries.length > 0 && <p role="status" className="text-sm">
+            A hunt with an unsaved schedule left this page after a refresh. Its draft remains below; reload it to discard the draft. Actions for that hunt are paused until it returns to the queue.
+          </p>}
+          <div className="space-y-3" key={location.key}>
+            {[...visibleEntries, ...retainedEntries].map((entry) => (
               <article
                 key={`${entry.assessment_id}:${entry.hunt.id}`}
                 className="space-y-2 rounded border border-slate/25 p-3"
@@ -315,6 +338,8 @@ export function TeamHuntWorklist({
                 <HuntReviewSchedule
                   entry={entry}
                   disabled={blocked || !writable || action.isPending}
+                  paused={retainedEntries.includes(entry)}
+                  onDirtyChange={retainDraft}
                 />
                 {entry.investigation && (
                   <p className="text-sm">
@@ -334,7 +359,7 @@ export function TeamHuntWorklist({
                   <button
                     type="button"
                     className={TEAM_BUTTON}
-                    disabled={blocked || action.isPending}
+                    disabled={blocked || action.isPending || retainedEntries.includes(entry)}
                     onClick={() => setReview(entry)}
                   >
                     Review hunt evidence
@@ -343,7 +368,7 @@ export function TeamHuntWorklist({
                     <button
                       type="button"
                       className={TEAM_BUTTON}
-                      disabled={blocked || action.isPending}
+                      disabled={blocked || action.isPending || retainedEntries.includes(entry)}
                       onClick={() => run({ kind: "claim", entry })}
                     >
                       Claim hunt
@@ -353,7 +378,7 @@ export function TeamHuntWorklist({
                     <button
                       type="button"
                       className={TEAM_BUTTON}
-                      disabled={blocked || action.isPending}
+                      disabled={blocked || action.isPending || retainedEntries.includes(entry)}
                       onClick={() => run({ kind: "unclaim", entry })}
                     >
                       Release hunt
