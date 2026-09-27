@@ -47,10 +47,15 @@ from app.services.service_accounts import (
     hash_service_account_token,
 )
 
-AUTH_SESSION_BEARER = "session_bearer"
-AUTH_SESSION_COOKIE = "session_cookie"
-AUTH_API_TOKEN = "api_token"
-AUTH_SERVICE_ACCOUNT_TOKEN = "service_account_token"
+from app.core.credential_types import (
+    AUTH_SESSION_BEARER,
+    AUTH_SESSION_COOKIE,
+    AUTH_API_TOKEN,
+    AUTH_SERVICE_ACCOUNT_TOKEN,
+)
+from app.services.principal_authentication import (
+    ensure_user_can_authenticate as _ensure_user_can_authenticate,
+)
 
 AuthenticatedPrincipal = User | ServiceAccount
 
@@ -231,18 +236,6 @@ def require_roles(*roles: str):
 
     _checker._threatlens_required_roles = tuple(roles)
     return _checker
-
-
-def _ensure_user_can_authenticate(user: User) -> None:
-    if not user.is_approved:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Your account is pending admin approval.",
-        )
-    if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Account is inactive"
-        )
 
 
 get_operator_user = require_roles(ROLE_ADMIN, ROLE_ANALYST)

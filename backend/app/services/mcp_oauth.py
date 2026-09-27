@@ -18,19 +18,28 @@ from app.core.config import get_settings
 from app.models.api_token import ApiToken
 from app.models.mcp_oauth import MCPDelegation, MCPOAuthClient, MCPOAuthCode
 from app.models.user import User
+from app.schemas.mcp_oauth import OAuthAuthorization, OAuthConsent, OAuthTokenExchange
 from app.services.authorization import (
+    AuthorizationContext,
     authorization_context_for_user,
     fence_authorization_context,
 )
-from app.services.data_access_policy import fence_data_access_context
+from app.services.data_access_policy import DataAccessContext, fence_data_access_context
 from app.services.audit import record_audit
+from app.core.credential_types import AUTH_SESSION_COOKIE
+from app.services.credential_verification import (
+    CredentialVerificationContext,
+    enforce_browser_token_step_up,
+    enforce_delegable_token_scopes,
+)
+from app.services.principal_authentication import ensure_user_can_authenticate
 
 OAUTH_SCOPES = frozenset(
     {"read:mcp", "read:items", "read:teams", "read:reports", "read:investigations"}
 )
 
 
-def oauth_error(code: str, message: str, status: int = 400):
+def oauth_error(code: str, message: str, status: int = 400) -> ApiHTTPException:
     return ApiHTTPException(
         status_code=status,
         error_code=code,
@@ -85,7 +94,9 @@ def challenge_header() -> str:
     return f'Bearer resource_metadata="{issuer}/.well-known/oauth-protected-resource/api/v1/mcp", scope="read:mcp read:items"'
 
 
-def validate_authorization(db: Session, payload):
+def validate_authorization(
+    db: Session, payload: OAuthAuthorization
+) -> tuple[MCPOAuthClient, list[str], str]:
     issuer, resource = oauth_urls()
     client = db.get(MCPOAuthClient, payload.client_id)
     if client is None or client.revoked_at is not None:
@@ -110,17 +121,17 @@ def validate_authorization(db: Session, payload):
 
 
 def grant_code(
-    db: Session, *, request: Request, payload, user: User, authorization, access
-):
-    from app.api.deps import AUTH_SESSION_COOKIE
-    from app.api.routes.tokens import (
-        _enforce_browser_session_step_up,
-        _enforce_requested_token_scopes_authorized,
-    )
-    from app.schemas.token import ApiTokenCreateRequest
+    db: Session,
+    *,
+    credential: CredentialVerificationContext,
+    payload: OAuthConsent,
+    user: User,
+    authorization: AuthorizationContext,
+    access: DataAccessContext,
+) -> str:
     from app.services.auth_sessions import lock_user_auth_states
 
-    if getattr(request.state, "auth_credential_kind", None) != AUTH_SESSION_COOKIE:
+    if credential.credential_kind != AUTH_SESSION_COOKIE:
         raise oauth_error(
             "browser_consent_required",
             "Approve delegated MCP access from your signed-in browser.",
@@ -152,14 +163,14 @@ def grant_code(
                 {"error": "access_denied", "state": payload.state, "iss": issuer}
             )
         )
-    step_up = ApiTokenCreateRequest(
-        name="MCP delegation",
-        scopes=scopes,
+    enforce_browser_token_step_up(
+        db,
+        context=credential,
+        user=user,
         current_password=payload.current_password,
-        code=payload.mfa_code,
+        mfa_code=payload.mfa_code,
     )
-    _enforce_browser_session_step_up(request, step_up, user, db)
-    _enforce_requested_token_scopes_authorized(request, user, scopes)
+    enforce_delegable_token_scopes(credential, user, scopes)
     now = datetime.now(timezone.utc)
     from app.services.mcp_oauth_lifecycle import (
         MAX_RETAINED_USER_GRANTS,
@@ -245,7 +256,7 @@ def grant_code(
     )
 
 
-def exchange_code(db: Session, payload) -> dict:
+def exchange_code(db: Session, payload: OAuthTokenExchange) -> dict:
     _, resource = oauth_urls()
     if payload.resource != resource:
         raise oauth_error("invalid_target", "Incorrect MCP resource.")
@@ -346,8 +357,6 @@ def exchange_code(db: Session, payload) -> dict:
 
 
 def resolve_delegated_principal(request: Request, db: Session, raw: str) -> User:
-    from app.api.deps import _ensure_user_can_authenticate
-
     _, resource = oauth_urls()
     row = db.execute(
         select(ApiToken, MCPDelegation, MCPOAuthClient)
@@ -372,7 +381,7 @@ def resolve_delegated_principal(request: Request, db: Session, raw: str) -> User
     user = db.get(User, credential.user_id)
     if user is None:
         raise oauth_error("invalid_token", "MCP access is no longer available.", 401)
-    _ensure_user_can_authenticate(user)
+    ensure_user_can_authenticate(user)
     request.state.token_scopes = credential.scopes
     request.state.auth_via_api_token = True
     request.state.auth_via_service_account = False

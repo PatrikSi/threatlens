@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
+from app.api.credential_verification import credential_verification_context
 from app.api.deps import (
     get_admin_user,
     get_authorization_context,
@@ -113,7 +114,7 @@ def register_mcp_oauth_client(
 
     def run():
         lock_iam_policy_for_mutation(db)
-        fence_admin_request(db, request, user)
+        fence_admin_request(db, credential_verification_context(request), user)
         if (db.scalar(select(func.count()).select_from(MCPOAuthClient)) or 0) >= 100:
             raise service.oauth_error(
                 "client_capacity", "At most 100 MCP clients can be registered.", 429
@@ -152,7 +153,7 @@ def revoke_mcp_oauth_client(
         # Existing MCP reads retain a shared IAM fence through bounded transfer.
         # The exclusive policy fence therefore serializes bulk client revocation.
         lock_iam_policy_for_mutation(db)
-        fence_admin_request(db, request, user)
+        fence_admin_request(db, credential_verification_context(request), user)
         row = db.get(MCPOAuthClient, client_id)
         if row is None:
             raise service.oauth_error("client_not_found", "MCP client not found.", 404)
@@ -203,7 +204,7 @@ def authorize_mcp_client(
     def run():
         redirect = service.grant_code(
             db,
-            request=request,
+            credential=credential_verification_context(request),
             payload=payload,
             user=user,
             authorization=get_authorization_context(request),
