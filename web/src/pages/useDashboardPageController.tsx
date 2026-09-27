@@ -142,6 +142,13 @@ export function useDashboardPageController() {
     startArticlePreviewResize,
   } = useArticlePreview()
   const [isPhoneLayout, setIsPhoneLayout] = useState<boolean>(typeof window !== 'undefined' ? window.innerWidth < 640 : false)
+  const [rssPhoneLayout, setRssPhoneLayout] = useState(isPhoneLayout)
+  const hasExpandedArticle = Object.keys(expandedItemIdsByWindowId).length > 0
+  useEffect(() => {
+    // Changing the list query's page size can briefly remove its rows. Wait
+    // until inspectors close so resizing cannot destroy local review dialogs.
+    if (!hasExpandedArticle) setRssPhoneLayout(isPhoneLayout)
+  }, [hasExpandedArticle, isPhoneLayout])
 
   const [personalWindows, setPersonalWindows] = useState<DashboardWindow[]>(() => [createWindowLayout('rss', 1, 1380, 760, 'full')])
   const { windows, setWindows } = useEnforcedDashboardLayout({
@@ -492,7 +499,7 @@ export function useDashboardPageController() {
   const rssWindowQueries = useQueries({
     queries: rssWindows.map((windowLayout) => {
       const rssFilters = windowLayout.rss_filters ?? createDefaultRssWindowFilters()
-      const effectivePageSize = isPhoneLayout ? MOBILE_DASHBOARD_PAGE_SIZE : rssFilters.page_size
+      const effectivePageSize = rssPhoneLayout ? MOBILE_DASHBOARD_PAGE_SIZE : rssFilters.page_size
       const deferredSearchQuery = rssDeferredSearchTermsByWindowId[windowLayout.id] ?? rssFilters.q
       const selectedFeedIdsParam = rssFilters.selected_feed_ids.slice().sort().join(',')
       const selectedTagsParam = rssFilters.selected_tags

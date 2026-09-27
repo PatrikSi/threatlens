@@ -301,6 +301,28 @@ describe('team workspace asynchronous lifecycle', () => {
     expect(container.textContent).toContain('Page 1 of 3')
   })
 
+  it('keeps setup outside hunt work and guards shared-view drafts before changing sections', async () => {
+    vi.mocked(apiFetch).mockImplementation((path) => {
+      if (path === '/teams/team-1') return Promise.resolve(team)
+      if (path.startsWith('/teams?')) return Promise.resolve({ items: [team], total: 1, page: 1, page_size: 25 })
+      if (path.includes('/members')) return Promise.resolve({ items: [], total: 0, page: 1, page_size: 50 })
+      return Promise.resolve([])
+    })
+    await mount(<TeamsPage />, '/teams?team=team-1')
+    edit('Shared view name', 'Unsaved shared queue')
+    await act(async () => { void router.navigate('/teams?team=team-1&panel=hunts') })
+    expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain('unsaved shared monitoring view')
+    click('Cancel', document.querySelector('[role="alertdialog"]')!)
+    expect(control('Shared view name').value).toBe('Unsaved shared queue')
+    await act(async () => { void router.navigate('/teams?team=team-1&panel=hunts') })
+    click('Discard changes', document.querySelector('[role="alertdialog"]')!)
+    await settle()
+    expect(container.querySelector('section[aria-label="Team views"]')).toBeNull()
+    expect(container.querySelector('input[placeholder="Use the personal view name"]')).toBeNull()
+    expect(container.textContent).not.toContain('Shared monitoring views')
+    expect(container.querySelector('[aria-label="Team resources"] a[aria-current="page"]')?.textContent).toBe('Team hunt queue')
+  })
+
   it('hides previously cached team content when current membership is revoked', async () => {
     let revoked = false
     vi.mocked(apiFetch).mockImplementation((path) => {

@@ -85,7 +85,7 @@ describe('StatsPage filters', () => {
     expect(filters?.className).toContain('block')
   })
 
-  it('labels the time window and removes deleted feeds from the selection', () => {
+  it('labels the time window and preserves deleted feeds without broadening the selection', () => {
     const view = renderPage()
     const feedTwoCheckbox = Array.from(view.querySelectorAll('label'))
       .find((label) => label.textContent?.includes('Feed Two'))
@@ -104,6 +104,7 @@ describe('StatsPage filters', () => {
       root?.render(<MemoryRouter><StatsPage /></MemoryRouter>)
     })
 
-    expect(view.textContent).toContain('All feeds selected')
+    expect(view.textContent).toContain('1 selected')
+    expect(view.textContent).toContain('1 selected feeds are unavailable')
   })
 })

@@ -5,6 +5,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 
 import { ApiError, apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
+import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import type { SavedView } from '../types/savedViews'
 import type { Team, TeamPage } from '../types/teams'
@@ -202,6 +203,7 @@ function TeamWorkspaceResources({ team, permissions, panel, unavailable }: {
   panel: string | null
   unavailable: boolean
 }) {
+  const detailsPanel = showTeamDetails(false, panel)
   return (
     <>
       <nav
@@ -220,14 +222,15 @@ function TeamWorkspaceResources({ team, permissions, panel, unavailable }: {
         >
           Open team investigations
         </Link>
-        <Link className="font-semibold text-cyan" to={`/teams?team=${team.id}&panel=hunts`}>Team hunt queue</Link>
+        <Link className="font-semibold text-cyan" aria-current={panel === 'hunts' ? 'page' : undefined} to={`/teams?team=${team.id}&panel=hunts`}>Team hunt queue</Link>
         <Link className="font-semibold text-cyan" to={`/teams?team=${team.id}&panel=ai-governance`}>AI destinations</Link>
         {team.can_manage && hasRequiredPermissions(permissions, ['write:teams', 'write:notifications']) && <Link className="font-semibold text-cyan" to={`/teams?team=${team.id}&panel=integrations`}>Team integrations</Link>}
         <Link className="font-semibold text-cyan" to="/">
           Open dashboard views
         </Link>
       </nav>
-      {hasRequiredPermissions(permissions, ['read:views']) && (
+      <TeamIndicatorPanels teamId={team.id} panel={panel} permissions={permissions} unavailable={unavailable} />
+      {detailsPanel && hasRequiredPermissions(permissions, ['read:views']) && (
         <TeamSharedViews
           key={`views-${team.id}`}
           team={team}
@@ -245,11 +248,10 @@ function TeamWorkspaceResources({ team, permissions, panel, unavailable }: {
       )}
       {panel === 'integrations' && team.can_manage && hasRequiredPermissions(permissions, ['write:teams', 'write:notifications']) && <TeamIntegrations key={team.id} teamId={team.id} unavailable={unavailable} />}
       {panel === 'ai-governance' && <TeamAIGovernance key={team.id} teamId={team.id} unavailable={unavailable} />}
-      <TeamIndicatorPanels teamId={team.id} panel={panel} permissions={permissions} unavailable={unavailable} />
-      <TeamMembersPanel
+      {detailsPanel && <TeamMembersPanel
         key={`members-${team.id}`}
         teamId={team.id}
-      />
+      />}
     </>
   )
 }
@@ -292,8 +294,10 @@ function TeamSharedViews({
       void queryClient.invalidateQueries({ queryKey: ['views'] })
     },
   })
+  const confirmDiscard = useUnsavedChangesWarning(Boolean(sourceId || name || share.isPending), 'You have an unsaved shared monitoring view. Leave without saving?')
   return (
     <section className="space-y-3" aria-label="Team views">
+      {confirmDiscard.discardDialog}
       <h2 className="text-lg font-semibold">Shared monitoring views</h2>
       {views.isError ? (
         <p role="alert">

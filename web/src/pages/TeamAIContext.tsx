@@ -36,19 +36,21 @@ export function TeamAIContextTab({
   writable,
   unavailable,
   indicatorSelected = false,
+  detailsSelected = !selected && !indicatorSelected,
 }: {
   teamId: string
   selected: boolean
   writable: boolean
   unavailable: boolean
   indicatorSelected?: boolean
+  detailsSelected?: boolean
 }) {
   return (
     <>
       <nav aria-label="Team configuration" className="flex flex-wrap gap-4">
         <Link
           className="font-semibold text-cyan"
-          aria-current={!selected && !indicatorSelected ? 'page' : undefined}
+          aria-current={detailsSelected ? 'page' : undefined}
           to={`/teams?team=${teamId}`}
         >
           Team details

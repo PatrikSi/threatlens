@@ -23,6 +23,13 @@ window and backlog metrics.
 - `All feeds` reset
 - `Select all` shortcut
 
+Ingestion scope is shareable and survives section changes, Back navigation and
+reload through `ingestion_days` and `ingestion_feeds` URL parameters. The default
+30-day/all-accessible-feeds scope omits these parameters. An unavailable selected
+feed remains in the explicit scope, with a notice; losing the last selected feed
+never silently widens a saved URL to all accessible feeds. Clear the filter to
+make that choice deliberately.
+
 ## KPI Cards
 
 - Total Items

@@ -21,6 +21,7 @@ export function TeamIndicatorPanels({
       <TeamAIContextTab
         teamId={teamId}
         selected={panel === 'ai-context'}
+        detailsSelected={!['ai-context', 'ai-governance', 'indicator-suppressions', 'hunts', 'integrations'].includes(panel ?? '')}
         indicatorSelected={suppressions}
         writable={writable}
         unavailable={unavailable}
