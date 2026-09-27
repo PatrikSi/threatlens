@@ -185,3 +185,16 @@ ID and a sequence higher than both retained ledgers. Do not interpret `unknown`
 as permission to replay a hunt. A rollback may reuse numeric policy revisions:
 deduplicate policy updates by their UUID, apply every new withdrawal UUID, and
 retain tombstones rather than assuming a previously seen revision is an ACK.
+
+
+### Receiver retry scheduling
+
+The reference receiver upgrades existing SQLite ledgers in place. Callback and
+policy acknowledgement attempts have durable exponential backoff (five seconds
+through one hour, with stable jitter), oldest-attempt ordering and independent
+bounded batches/time slices. Attempts are recorded before network I/O, so a crash
+or lost response replays the same callback or acknowledgement after its delay.
+A failed first page does not block later withdrawals: control-feed traversal is
+persisted independently from acknowledgement success and wraps after the final
+page. Run `sync` periodically; one run processes at most 100 entries per lane.
+Neither retries nor timeout recovery authorize another hunt launch.

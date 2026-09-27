@@ -28,6 +28,9 @@ from urllib.parse import urlsplit
 import uuid
 
 MAX_BODY = 280_000
+RETRY_BASE_SECONDS = 5
+RETRY_MAX_SECONDS = 3600
+SYNC_BATCH_SIZE = 100
 
 
 @contextmanager
@@ -74,6 +77,36 @@ class Ledger:
             acknowledged INTEGER NOT NULL DEFAULT 0
           );
         """)
+        # Additive upgrades preserve ledgers from earlier receiver versions.
+        for table in ("jobs", "policy_receipts"):
+            columns = {row[1] for row in self.db.execute(f"PRAGMA table_info({table})")}
+            for name, definition in (
+                ("attempts", "INTEGER NOT NULL DEFAULT 0"),
+                ("next_attempt_at", "REAL NOT NULL DEFAULT 0"),
+                ("last_attempt_at", "REAL NOT NULL DEFAULT 0"),
+            ):
+                if name not in columns:
+                    self.db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
+        self.db.execute("CREATE TABLE IF NOT EXISTS sync_state (key TEXT PRIMARY KEY, value TEXT)")
+        self.db.execute("CREATE INDEX IF NOT EXISTS jobs_retry ON jobs(pending, next_attempt_at, last_attempt_at)")
+        self.db.execute("CREATE INDEX IF NOT EXISTS policy_retry ON policy_receipts(acknowledged, next_attempt_at, last_attempt_at)")
+        self.db.commit()
+
+    def reserve_attempt(self, table: str, identity: str, *, now: float) -> None:
+        """Persist backoff before I/O, including crashes after remote acceptance."""
+        if table not in {"jobs", "policy_receipts"}:
+            raise ValueError("Unsupported outbox")
+        key = "execution_id" if table == "jobs" else "id"
+        with self.db:
+            attempts = self.db.execute(
+                f"SELECT attempts FROM {table} WHERE {key}=?", (identity,)
+            ).fetchone()[0]
+            delay = min(RETRY_MAX_SECONDS, RETRY_BASE_SECONDS * 2 ** min(attempts, 10))
+            jitter = int(hashlib.sha256(identity.encode()).hexdigest()[:4], 16) / 65535
+            self.db.execute(
+                f"UPDATE {table} SET attempts=attempts+1, next_attempt_at=?, last_attempt_at=? WHERE {key}=?",
+                (now + delay * (1 + jitter / 4), now, identity),
+            )
 
     def accept(self, body: bytes) -> dict:
         envelope = json.loads(body)
@@ -111,7 +144,7 @@ class Ledger:
                 "findings": None,
             }
             self.db.execute(
-                "INSERT INTO jobs VALUES (?, ?, ?, ?, ?, 1, ?, 1, 0)",
+                "INSERT INTO jobs (execution_id, webhook_id, action_id, body_hash, job_id, sequence, callback, pending, withdrawn) VALUES (?, ?, ?, ?, ?, 1, ?, 1, 0)",
                 (
                     execution_id,
                     webhook_id,
@@ -153,7 +186,7 @@ class Ledger:
                 "findings": findings,
             }
             self.db.execute(
-                "UPDATE jobs SET sequence=?, callback=?, pending=1 WHERE execution_id=?",
+                "UPDATE jobs SET sequence=?, callback=?, pending=1, attempts=0, next_attempt_at=0, last_attempt_at=0 WHERE execution_id=?",
                 (callback["sequence"], json.dumps(callback), execution_id),
             )
 
@@ -176,7 +209,7 @@ class Ledger:
                 (update["execution_id"],),
             )
             self.db.execute(
-                "INSERT INTO policy_receipts VALUES (?, ?, ?, 0)",
+                "INSERT INTO policy_receipts (id, digest, execution_id, acknowledged) VALUES (?, ?, ?, 0)",
                 (update["id"], digest, update["execution_id"]),
             )
             # Completed job and findings remain immutable history. A replacement
@@ -227,18 +260,21 @@ def api(base: str, token: str, path: str, payload=None, *, timeout_seconds: floa
 
 
 def synchronize(ledger: Ledger, request):
-    """Drain a bounded receipt batch without one failing job starving withdrawals."""
+    """Each outbox receives a time slice; failed rows yield to untouched work."""
     failures = []
-    # Apply safety withdrawals before status uploads; slow callbacks must not
-    # consume the entire synchronization budget before control records are read.
     try:
         synchronize_policy(ledger, request)
     except (OSError, ValueError) as exc:
         failures.append(exc)
+    stop_at = time.monotonic() + 20
     rows = ledger.db.execute(
-        "SELECT execution_id, callback FROM jobs WHERE pending=1 ORDER BY execution_id LIMIT 100"
+        "SELECT execution_id, callback FROM jobs WHERE pending=1 AND next_attempt_at<=? "
+        "ORDER BY last_attempt_at, execution_id LIMIT ?", (time.time(), SYNC_BATCH_SIZE)
     ).fetchall()
     for identity, callback in rows:
+        if time.monotonic() >= stop_at:
+            break
+        ledger.reserve_attempt("jobs", identity, now=time.time())
         try:
             request(
                 f"/notifications/automation/executions/{identity}/callbacks",
@@ -258,12 +294,32 @@ def synchronize(ledger: Ledger, request):
 
 def synchronize_policy(ledger: Ledger, request):
     failures = []
-    # A receiver can crash after applying the update, or after the server accepted
-    # its ACK. Resume local receipts first; GET only returns unacknowledged rows.
+    # Traversal is independent from ACK success; wrap to discover new lower IDs.
+    cursor = ledger.db.execute("SELECT value FROM sync_state WHERE key='policy_cursor'").fetchone()
+    suffix = f"&after={str(uuid.UUID(cursor[0]))}" if cursor and cursor[0] else ""
+    try:
+        page = request(f"/notifications/automation/updates?limit=100{suffix}")
+        for update in page["items"]:
+            ledger.apply_policy(update)
+        next_cursor = page.get("next_cursor")
+        if next_cursor:
+            next_cursor = str(uuid.UUID(next_cursor))
+        with ledger.db:
+            ledger.db.execute(
+                "INSERT INTO sync_state VALUES ('policy_cursor', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (next_cursor,),
+            )
+    except (OSError, ValueError) as exc:
+        failures.append(exc)
+    stop_at = time.monotonic() + 15
     pending = ledger.db.execute(
-        "SELECT id FROM policy_receipts WHERE acknowledged=0 ORDER BY id LIMIT 100"
+        "SELECT id FROM policy_receipts WHERE acknowledged=0 AND next_attempt_at<=? "
+        "ORDER BY last_attempt_at, id LIMIT ?", (time.time(), SYNC_BATCH_SIZE)
     ).fetchall()
     for (identity,) in pending:
+        if time.monotonic() >= stop_at:
+            break
+        ledger.reserve_attempt("policy_receipts", identity, now=time.time())
         try:
             request(f"/notifications/automation/updates/{identity}/ack", {})
         except (OSError, ValueError) as exc:
@@ -272,18 +328,6 @@ def synchronize_policy(ledger: Ledger, request):
         with ledger.db:
             ledger.db.execute(
                 "UPDATE policy_receipts SET acknowledged=1 WHERE id=?", (identity,)
-            )
-    page = request("/notifications/automation/updates?limit=100")
-    for update in page["items"]:
-        try:
-            ledger.apply_policy(update)
-            request(f"/notifications/automation/updates/{update['id']}/ack", {})
-        except (OSError, ValueError) as exc:
-            failures.append(exc)
-            continue
-        with ledger.db:
-            ledger.db.execute(
-                "UPDATE policy_receipts SET acknowledged=1 WHERE id=?", (update["id"],)
             )
     if failures:
         raise failures[0]
