@@ -1,4 +1,5 @@
 import logging
+import hashlib
 import uuid
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
@@ -79,9 +80,11 @@ def upsert_item_from_parsed(db: Session, feed: Feed, parsed) -> tuple[Item, bool
     item_url = normalize_url(parsed.url) or ""
     item_domain = extract_url_domain(item_url)
     key = dedupe_key(str(feed.id), parsed.guid, item_url, parsed.title, parsed.published_at)
+    key_digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
     hash_value = content_hash(parsed.title, parsed.summary, item_url)
 
-    item = db.scalar(select(Item).where(Item.dedupe_key == key))
+    lookup = select(Item).where(Item.dedupe_digest == key_digest, Item.dedupe_key == key)
+    item = db.scalar(lookup)
     if item is None:
         candidate = Item(
             feed_id=feed.id,
@@ -99,9 +102,9 @@ def upsert_item_from_parsed(db: Session, feed: Feed, parsed) -> tuple[Item, bool
         if _insert_item_with_conflict_retry(db, candidate):
             return candidate, True, True
 
-        item = db.scalar(select(Item).where(Item.dedupe_key == key))
+        item = db.scalar(lookup)
         if item is None:
-            raise RuntimeError(f"item conflict recovery failed for dedupe key {key}")
+            raise RuntimeError(f"Item identity conflict could not be resolved for digest {key_digest}")
 
     if item.content_hash != hash_value:
         if item.title != parsed.title or item.summary != parsed.summary:
@@ -157,5 +160,5 @@ def _insert_item_with_conflict_retry(db: Session, item: Item) -> bool:
             db.flush()
         return True
     except IntegrityError:
-        logger.info("dedupe_conflict_detected dedupe_key=%s", item.dedupe_key)
+        logger.info("dedupe_conflict_detected feed_id=%s", item.feed_id)
         return False
