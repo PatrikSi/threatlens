@@ -133,6 +133,22 @@ def test_execution_ids_do_not_grant_other_owners_access(
     assert mine.json()["items"][0]["id"] == str(execution.id)
 
 
+def test_destination_filter_keeps_execution_ownership_boundary(
+    client, auth_headers, execution
+):
+    path = f"/notifications/automation/executions?webhook_id={execution.webhook_id}"
+    mine = client.get(path, headers=auth_headers["analyst"])
+    assert mine.status_code == 200, mine.text
+    assert [row["id"] for row in mine.json()["items"]] == [str(execution.id)]
+    unrelated = client.get(
+        f"/notifications/automation/executions?webhook_id={uuid.uuid4()}",
+        headers=auth_headers["analyst"],
+    )
+    assert unrelated.status_code == 200 and unrelated.json()["items"] == []
+    other_user = client.get(path, headers=auth_headers["admin"])
+    assert other_user.status_code == 200 and other_user.json()["items"] == []
+
+
 def test_source_change_emits_one_durable_withdrawal_and_keeps_completed_hunt(
     client, auth_headers, execution, db_session
 ):

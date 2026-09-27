@@ -290,3 +290,17 @@ def test_machine_auth_rejects_duplicate_headers_and_query_credentials(
         ).status_code
         == 401
     )
+
+
+def test_active_receiver_credentials_remain_visible_after_many_rotations(client, auth_headers, db_session, destination):
+    assert adopt(client, auth_headers, destination).status_code == 200
+    active = issue(client, auth_headers, destination)
+    team, webhook, _ = destination
+    now = datetime.now(timezone.utc)
+    db_session.add_all([AutomationReceiverCredential(webhook_id=webhook.id, team_id=team.id, name=f"Retired {index}", token_hash="0" * 64,
+        expires_at=now + timedelta(days=1), revoked_at=now, created_at=now + timedelta(seconds=index + 1)) for index in range(101)])
+    db_session.commit()
+    response = client.get(f"/teams/{team.id}/integrations/{webhook.id}/receiver-credentials", headers=auth_headers["admin"])
+    assert response.status_code == 200, response.text
+    assert len(response.json()["items"]) == 100
+    assert response.json()["items"][0]["id"] == active["id"]

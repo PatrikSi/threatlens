@@ -435,3 +435,11 @@ def test_receiver_upgrades_existing_ledger_without_losing_work(tmp_path):
     accepted = ledger.accept(body)
     ledger.db.close()
     assert receiver.Ledger(path).accept(body) == accepted
+
+
+@pytest.mark.parametrize("name", ["\ud800", "   ", "bad\x00name"])
+def test_receiver_credential_names_are_storage_safe(name):
+    from datetime import datetime, timezone
+    from app.schemas.team_integration import ReceiverCredentialWrite
+    with pytest.raises(ValidationError):
+        ReceiverCredentialWrite(name=name, expires_at=datetime.now(timezone.utc))

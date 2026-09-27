@@ -160,9 +160,11 @@ function Findings({
 export function AutomationExecutions({
   onClose,
   writable,
+  webhookId,
 }: {
   onClose: () => void
   writable: boolean
+  webhookId?: string
 }) {
   const [includeArchived, setIncludeArchived] = useState(false)
   const [cursors, setCursors] = useState<(string | null)[]>([null])
@@ -173,10 +175,11 @@ export function AutomationExecutions({
       'automation-executions',
       cursor,
       includeArchived,
+      webhookId,
     ],
     queryFn: ({ signal }) =>
       apiFetch<ExecutionPage>(
-        `/notifications/automation/executions?limit=25${includeArchived ? '&include_archived=true' : ''}${cursor ? `&after=${encodeURIComponent(cursor)}` : ''}`,
+        `/notifications/automation/executions?limit=25${webhookId ? `&webhook_id=${encodeURIComponent(webhookId)}` : ''}${includeArchived ? '&include_archived=true' : ''}${cursor ? `&after=${encodeURIComponent(cursor)}` : ''}`,
         { signal },
       ),
     refetchInterval: 30_000,

@@ -113,6 +113,7 @@ def list_automation_executions(
     request: Request,
     after: uuid.UUID | None = None,
     include_archived: bool = False,
+    webhook_id: uuid.UUID | None = None,
     limit: int = Query(default=25, ge=1, le=100),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
@@ -146,6 +147,8 @@ def list_automation_executions(
             team_visible,
         )
     )
+    if webhook_id is not None:
+        query = query.where(AutomationExecution.webhook_id == webhook_id)
     if not include_archived:
         query = query.where(AutomationExecution.archived_at.is_(None))
     if after:

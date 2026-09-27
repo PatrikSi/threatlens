@@ -225,7 +225,13 @@ def list_receiver_credentials(
             AutomationReceiverCredential.webhook_id == webhook_id,
             AutomationReceiverCredential.team_id == team_id,
         )
-        .order_by(AutomationReceiverCredential.created_at.desc())
+        .order_by(
+            (
+                AutomationReceiverCredential.revoked_at.is_(None)
+                & (AutomationReceiverCredential.expires_at > datetime.now(timezone.utc))
+            ).desc(),
+            AutomationReceiverCredential.created_at.desc(),
+        )
         .limit(100)
     ).all()
     return {
