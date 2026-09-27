@@ -27,6 +27,11 @@ export function AssessmentResults({ assessment, drafts, readOnly, pending, canCr
     </section>}
     {result && <>
     <p className="text-sm">Team relevance: {Math.round(result.relevance_score * 100)}% · Context revision {assessment.context_version} · Generated {formatPublishedAt(assessment.generated_at)}</p>
+    {result.evidence_selection && <details className="text-sm">
+      <summary className="cursor-pointer font-semibold">Assessment evidence selection</summary>
+      <p>{result.evidence_selection.selection === 'verified_section_passages' ? `${result.evidence_selection.selected_passages.length} exact passages selected across verified article sections using team priorities, alongside the introduction.` : 'This assessment used a bounded article prefix.'} Omitted evidence may change the interpretation.</p>
+      {result.evidence_selection.coverage && <p>{result.evidence_selection.coverage.uncovered_chars.toLocaleString()} normalized article characters were outside completed extraction coverage.</p>}
+    </details>}
     <IntelligenceList title="Relevance to this team" values={result.relevance_reasons} />
     {result.information_gaps.length > 0 && <IntelligenceList title="Assessment gaps" values={result.information_gaps} />}
     {result.hunts.length === 0 && <p className="text-sm">No supported hunt suggestions were generated.</p>}

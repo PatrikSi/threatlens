@@ -26,7 +26,8 @@ def build_assessment_messages(
 ) -> tuple[list[dict[str, str]], bool]:
     team = context.model_dump(include={"technology_stack", "priorities", "available_telemetry", "relevance_criteria"})
     item = {"title": source.title, "summary": source.summary, "article_text": source.article_text}
-    payload = {"task": FEATURE, "team_context": team, "item": item, "hunts_enabled": hunts_enabled}
+    payload = {"task": FEATURE, "team_context": team, "item": item, "hunts_enabled": hunts_enabled,
+               "evidence_selection": source.evidence_selection}
     messages = [
         {"role": "system", "content": ASSESSMENT_SYSTEM_PROMPT},
         {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
@@ -90,6 +91,7 @@ def generate_team_assessment(db: Session, *, run_id: uuid.UUID) -> AICompletionR
     # fences, including the logical delivery, before changing the canonical row.
     work, _context, _source, _hunts_enabled = fence_team_assessment(db, run_id=run_id)
     work.result_json = _reviewable_result(completion, messages, truncated=truncated)
+    work.result_json["evidence_selection"] = source.evidence_selection
     # Claims belong to the previous generated suggestions. Regeneration publishes
     # new identities atomically; the audit trail retains earlier coordination.
     db.execute(delete(TeamHuntClaim).where(TeamHuntClaim.assessment_id == work.id))
