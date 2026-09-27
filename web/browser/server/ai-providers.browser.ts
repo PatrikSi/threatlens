@@ -16,7 +16,10 @@ test('real AI provider settings preserve credentials and enforce versioned routi
   await signIn(page, identity)
   await page.goto('/settings/ai')
   await page.getByRole('tab', { name: 'Configuration', exact: true }).click()
+  const legacySettings = page.locator('#ai-legacy-settings > summary')
+  await legacySettings.click()
   await expect(page.getByRole('heading', { name: 'Legacy provider', exact: true })).toBeVisible()
+  await legacySettings.click()
   await page.getByRole('button', { name: 'Add provider', exact: true }).click()
   const providerName = `Browser provider ${identity.id}`
   await page.getByLabel('Provider name', { exact: true }).fill(providerName)
