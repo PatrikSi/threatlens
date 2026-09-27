@@ -1494,16 +1494,17 @@ describe('DashboardPage DOM workflows', () => {
       itemToggleButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    const itemDetail = view.querySelector<HTMLElement>('#rss-item-detail-item-1')
-    expect(itemDetail?.className).toContain('fixed')
-    expect(itemDetail?.textContent).toContain('Back')
+    const itemDetail = document.querySelector<HTMLElement>('#rss-item-detail-item-1')
+    const inspector = itemDetail?.closest('[role="dialog"]')
+    expect(inspector?.getAttribute('aria-modal')).toBe('true')
+    expect(inspector?.querySelector('[aria-label="Back to articles"]')).not.toBeNull()
 
     expect(dashboardPageDomMocks.readMutate).toHaveBeenCalledWith({
       itemId: 'item-1',
       isRead: true,
     })
 
-    const notesTextarea = view.querySelector<HTMLTextAreaElement>('[aria-label="Analyst notes for Critical vendor bulletin"]')
+    const notesTextarea = itemDetail?.querySelector<HTMLTextAreaElement>('[aria-label="Analyst notes for Critical vendor bulletin"]')
     expect(notesTextarea).not.toBeNull()
 
     act(() => {

@@ -134,7 +134,7 @@ export function HuntReviewSchedule({
           {entry.can_schedule && (
             <button
               className={TEAM_BUTTON}
-              disabled={disabled || save.isPending}
+              disabled={disabled || paused || save.isPending}
               onClick={() => submit(true)}
             >
               Acknowledge review reminder

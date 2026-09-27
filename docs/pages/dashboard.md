@@ -27,7 +27,9 @@ Every article has a visible **Open article details** action, including read
 articles in compact mode. The title and original-preview action remain separate.
 On narrow screens, details open as a managed dialog: focus moves inside, the
 background is isolated, Escape closes the top dialog, and closing returns to the
-article action. Nested review confirmations use the same dialog stack.
+article action. Nested review confirmations use the same dialog stack. An open
+inspector keeps its initial inline or dialog presentation until it closes, so
+resizing the window cannot discard a local evidence-review draft.
 
 ## Window System
 

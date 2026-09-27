@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
+import { useIngestionStatisticsScope } from './useIngestionStatisticsScope'
 import { AiStatisticsWorkspace } from './AiStatisticsWorkspace'
 import { ActivityHeatmapPanel } from './ActivityHeatmapPanel'
 import { PermissionRoute } from '../components/PermissionRoute'
@@ -75,8 +76,7 @@ function StatisticsSections() {
 }
 
 function IngestionStatistics() {
-  const [days, setDays] = useState(30)
-  const [selectedFeedIds, setSelectedFeedIds] = useState<string[]>([])
+  const { days, setDays, selectedFeedIds, setSelectedFeedIds } = useIngestionStatisticsScope()
   const [showAllFeedRows, setShowAllFeedRows] = useState(false)
   const [mobileFeedFiltersOpen, setMobileFeedFiltersOpen] = useState(false)
 
@@ -172,16 +172,12 @@ function IngestionStatistics() {
   const allFeedIds = useMemo(() => feedsQuery.data?.map((feed) => feed.id) ?? [], [feedsQuery.data])
   const selectedFeedLabel = selectedFeedIds.length ? `${selectedFeedIds.length} selected` : 'All feeds selected'
 
-  useEffect(() => {
-    if (!feedsQuery.data) {
-      return
-    }
-    const availableFeedIds = new Set(feedsQuery.data.map((feed) => feed.id))
-    setSelectedFeedIds((current) => {
-      const next = current.filter((feedId) => availableFeedIds.has(feedId))
-      return next.length === current.length ? current : next
-    })
-  }, [feedsQuery.data])
+  // Preserve an explicit scope when a selected feed disappears or loses access.
+  // Removing its last ID would otherwise silently widen a shared URL to all feeds.
+  const availableFeeds = feedsQuery.data
+  const missingSelectedFeeds = availableFeeds
+    ? selectedFeedIds.filter((id) => !availableFeeds.some((feed) => feed.id === id)).length
+    : 0
 
   const toggleFeedSelection = (feedId: string) => {
     setSelectedFeedIds((current) => {
@@ -246,6 +242,9 @@ function IngestionStatistics() {
             Use all accessible feeds
           </button>
           <p className="mt-1 text-xs text-slate dark:text-slate-300">All feeds includes newly added feeds. Choose individual feeds below to limit the statistics. Clearing the selection restores all accessible feeds.</p>
+          {missingSelectedFeeds > 0 && <p role="status" className="mt-2 text-sm text-amber-800 dark:text-amber-200">
+            {missingSelectedFeeds} selected feeds are unavailable. The explicit scope is preserved; clear the filter deliberately to include all accessible feeds.
+          </p>}
           <div className="mt-1 flex flex-wrap items-center justify-end gap-2 text-xs text-slate dark:text-slate-300">
             <span>{selectedFeedLabel}</span>
             <button type="button" className="underline text-slate-700 dark:text-slate-100" onClick={() => setSelectedFeedIds(allFeedIds)}>

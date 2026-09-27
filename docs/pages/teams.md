@@ -240,7 +240,10 @@ without supplying the new column.
 ## Team hunt queue
 
 Open **Teams → select a team → Team hunt queue** to review generated hunt cards
-across articles. Filter pending, stale, accepted or rejected suggestions and all,
+across articles. The hunt workspace shows queue controls and work without the
+shared-view copy form or member directory; those remain under **Team details**.
+Unsaved shared-view copies are protected when changing workspace sections.
+Filter pending, stale, accepted or rejected suggestions and all,
 owned or unclaimed work. Filters and encrypted continuation cursors stay in the
 URL. Pages contain up to 25 accessible suggestions; a bounded authorization
 scan can return an empty page with a next-page action. The queue does not expose

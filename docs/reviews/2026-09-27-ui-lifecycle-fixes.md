@@ -36,3 +36,25 @@ This implements NR04–NR08 and NR10 from the post-fix review.
 
 These are isolated browser fixtures, not live-provider, real-IdP or manual
 screen-reader qualification. No live application data or containers were changed.
+
+## Focused follow-up and independent review
+
+The hunt queue now keeps shared-view setup and membership on Team details, with
+correct selected-navigation semantics. Moving away from an unfinished shared-view
+copy prompts before discarding it. Ingestion day/feed scope lives in the URL and
+survives Back navigation, section changes and reload. Missing selected feeds stay
+in the explicit scope with a warning instead of silently switching to all feeds.
+
+Independent review identified local indicator-dialog state as an additional
+resize concern even though hunt notes are already stored in the session cache.
+An open inspector now keeps its initial presentation, and responsive RSS page-size
+changes wait until inspectors close. This prevents the enclosing list query from
+briefly removing the edited row during a breakpoint change. The browser regression
+keeps a locally held nested discard dialog open through resizing. Retained hunt
+rows also disable reminder acknowledgement while their actions are paused.
+
+Follow-up validation: 26 team/statistics DOM cases; 42 dashboard/schedule DOM
+cases; 15 cross-browser AI configuration/ingestion cases; and the strengthened
+nested-resize case in Chromium. The coordinating final suite covers the final
+combined source and remaining browser engines. TypeScript and targeted ESLint
+passed. No live stack changes were made.

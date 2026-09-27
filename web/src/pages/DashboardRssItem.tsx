@@ -1,4 +1,5 @@
-import { DialogSurface } from "../components/ConfirmDialog"
+import { useState } from 'react'
+import { DialogSurface } from '../components/ConfirmDialog'
 import { ArticleExtractionPanel } from './ArticleExtractionPanel'
 import { ArticleTeamAssessment } from './ArticleTeamAssessment'
 import { ArticleIndicatorsPanel } from './ArticleIndicatorsPanel'
@@ -177,6 +178,9 @@ function DashboardRssItemDetail({
   item: ItemListEntry
 }) {
   const { detailQueriesByWindowId, handleToggleItem, isWideLayout } = controller
+  // A breakpoint change must not remount local evidence/review editors or their
+  // nested dialogs. Choose the presentation when opening and keep it until close.
+  const [modalPresentation] = useState(() => !isWideLayout)
   const detailQuery = detailQueriesByWindowId[windowLayout.id]
   const detail = detailQuery?.data ?? null
 
@@ -193,7 +197,7 @@ function DashboardRssItemDetail({
       )}
     </>
   )
-  if (!isWideLayout) {
+  if (modalPresentation) {
     return (
       <DialogSurface
         open title={item.title} eyebrow="Article details" closeLabel="Back to articles"
