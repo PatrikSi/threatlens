@@ -1,8 +1,9 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../api/client";
 import { resolveApiErrorMessage } from "../api/errors";
 import { captureSessionLease } from "../api/sessionLifecycle";
+import { useUnsavedChangesWarning } from "../hooks/useUnsavedChangesWarning";
 import { TEAM_BUTTON } from "./teamPresentation";
 import type { HuntEntry } from "./teamHuntTypes";
 
@@ -25,9 +26,13 @@ function localTime(value: string | null) {
 export function HuntReviewSchedule({
   entry,
   disabled,
+  onDirtyChange,
+  paused = false,
 }: {
   entry: HuntEntry;
   disabled: boolean;
+  paused?: boolean;
+  onDirtyChange?: (entry: HuntEntry, dirty: boolean) => void;
 }) {
   const client = useQueryClient();
   const current = entry.review_schedule ?? empty;
@@ -95,8 +100,17 @@ export function HuntReviewSchedule({
       pending.current = false;
     },
   });
+  const dirty = priority !== baseline.priority || deadline !== localTime(baseline.due_at);
+  const confirmDiscard = useUnsavedChangesWarning(
+    dirty || save.isPending,
+    "You have an unsaved hunt review schedule. Leave without saving?",
+  );
+  useEffect(() => {
+    onDirtyChange?.(entry, dirty || save.isPending);
+  }, [entry, dirty, save.isPending, onDirtyChange]);
+  useEffect(() => () => onDirtyChange?.(entry, false), [entry, onDirtyChange]);
   const submit = (acknowledge: boolean) => {
-    if (pending.current || disabled || !entry.can_schedule) return;
+    if (pending.current || disabled || paused || !entry.can_schedule) return;
     pending.current = true;
     save.mutate({
       acknowledge,
@@ -108,6 +122,7 @@ export function HuntReviewSchedule({
   };
   return (
     <div className="space-y-2 text-sm">
+      {confirmDiscard.discardDialog}
       <p>
         Review priority: {current.priority} · Deadline:{" "}
         {current.due_at ? new Date(current.due_at).toLocaleString() : "Not set"}
@@ -178,18 +193,18 @@ export function HuntReviewSchedule({
                 onChange={(event) => setDeadline(event.target.value)}
               />
             </label>
-            <button className={TEAM_BUTTON} onClick={() => submit(false)}>
+            <button className={TEAM_BUTTON} disabled={paused} onClick={() => submit(false)}>
               Save review schedule
             </button>
             <button
               className={TEAM_BUTTON}
-              onClick={() => {
+              onClick={() => confirmDiscard(() => {
                 setBaseline(current);
                 setAssessmentVersion(entry.assessment_version);
                 setPriority(current.priority);
                 setDeadline(localTime(current.due_at));
                 save.reset();
-              }}
+              })}
             >
               Reload review schedule
             </button>

@@ -12,7 +12,7 @@ const entry = {
   assessment_id: 'assessment-1', assessment_version: 7, item_id: 'item-1', item_title: 'Source article',
   team_id: 'team-1', status: 'pending', generated_at: null, evidence_age_seconds: 100,
   hunt: assessmentFixture.assessment!.result!.hunts[0], claim: { version: 3, owner_user_id: null },
-  owner_name: null, reviewer_name: null, reviewed_at: null, can_claim: true, can_release: false, investigation: null,
+  owner_name: null, reviewer_name: null, reviewed_at: null, can_claim: true, can_release: false, can_schedule: true, investigation: null,
 }
 const page = { items: [entry], next_cursor: null, has_more: false, limit: 25 }
 let view: Awaited<ReturnType<typeof mountIntel>> | undefined
@@ -69,4 +69,47 @@ describe('team hunt queue lifecycle', () => {
     expect(view.host.textContent).not.toContain('Source article')
     expect(document.querySelector('[role="dialog"]')).toBeNull()
   })
+  it.each(['/?hunt_status=accepted', '/?hunt_cursor=next', '/?team=team-2', '/other'])(
+    'requires deliberate discard before leaving a schedule through %s', async (destination) => {
+      view = await mountIntel(queue)
+      const priority = [...view.host.querySelectorAll('label')].find((label) => label.textContent?.trim() === 'Review prioritylownormalhighurgent')!.querySelector('select')!
+      act(() => { priority.value = 'urgent'; priority.dispatchEvent(new Event('change', { bubbles: true })) })
+      act(() => { void view!.router.navigate(destination) })
+      await settle()
+      expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain('unsaved hunt review schedule')
+      act(() => intelButton(document, 'Cancel').click())
+      await settle()
+      expect(priority.value).toBe('urgent')
+      expect(view.router.state.location.pathname + view.router.state.location.search).not.toBe(destination)
+      act(() => { void view!.router.navigate(destination) })
+      await settle()
+      act(() => intelButton(document, 'Discard changes').click())
+      await settle()
+      expect(view.router.state.location.pathname + view.router.state.location.search).toBe(destination)
+    },
+  )
+
+  it('retains polling-removed drafts and their baseline, but hides them on explicit access loss', async () => {
+    view = await mountIntel(queue)
+    const input = view.host.querySelector('input[type="datetime-local"]')!
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '2026-10-01T12:00')
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    vi.mocked(apiFetch).mockResolvedValue({ ...page, items: [] })
+    await act(async () => { await view!.client.invalidateQueries({ queryKey: ['team-hunts'] }) })
+    await settle()
+    expect(view.host.textContent).toContain('unsaved schedule left this page')
+    expect((input as HTMLInputElement).value).toBe('2026-10-01T12:00')
+    expect(input.isConnected).toBe(true)
+    expect(intelButton(view.host, 'Save review schedule').disabled).toBe(true)
+    expect(intelButton(view.host, 'Reload review schedule').disabled).toBe(false)
+    vi.mocked(apiFetch).mockRejectedValue(new ApiError('Membership changed.', 403, '/teams/team-1/hunts'))
+    await act(async () => { await view!.client.invalidateQueries({ queryKey: ['team-hunts'] }) })
+    await settle()
+    expect(input.isConnected).toBe(false)
+    expect(view.host.textContent).not.toContain('Source article')
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull()
+  })
+
 })

@@ -253,7 +253,7 @@ function AuditMobileCollection({
   filtered,
 }: AuditCollectionProps) {
   return (
-    <div className="mt-2 space-y-2 sm:hidden" aria-label="Audit events">
+    <div className="mt-2 space-y-2 sm:hidden" role="group" aria-label="Audit events">
       {enabled && isLoading && <AuditLoadingState />}
       {enabled && isError && <AuditErrorState message={errorMessage} />}
       {enabled && !isLoading && !isError && logs.length === 0 && (

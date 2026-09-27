@@ -428,7 +428,7 @@ function IngestionStatistics() {
 
           <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
             <h3 className="font-display text-lg">Feed Contribution</h3>
-            <div className="mt-3 space-y-2 sm:hidden" aria-label="Feed contribution records">
+            <div className="mt-3 space-y-2 sm:hidden" role="group" aria-label="Feed contribution records">
               {visibleFeedBreakdown.map((feed) => (
                 <article key={feed.feed_id} className="rounded-lg border border-slate/20 bg-white/70 p-2.5 sm:p-3 dark:border-cyan-900/40 dark:bg-white/[0.03]">
                   <div className="flex items-start justify-between gap-3">

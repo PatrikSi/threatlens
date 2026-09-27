@@ -12,11 +12,11 @@ export function OperationsCapacityTrends({ history }: { history: OperationsHealt
   const latest = history.samples.at(-1)
   const backlogs = latest?.backlogs?.filter((entry) => ['classification', 'tagging', 'exports'].includes(entry.key)) ?? []
   return (
-    <section className="space-y-3 rounded border border-slate/15 p-3 xl:col-span-2 dark:border-white/10" aria-labelledby="capacity-trends-heading">
+    <section className="min-w-0 space-y-3 rounded border border-slate/15 p-3 xl:col-span-2 dark:border-white/10" aria-labelledby="capacity-trends-heading">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h3 id="capacity-trends-heading" className="font-semibold">Freshness and runtime pressure</h3>
-        <label className="text-sm font-semibold">Capacity trend
-          <select className="ml-2 min-h-11 max-w-full rounded border bg-white px-2 py-1 dark:bg-[#041612]" value={selected} onChange={(event) => setSelected(event.target.value)}>
+        <label className="flex min-w-0 max-w-full flex-wrap items-center gap-2 text-sm font-semibold">Capacity trend
+          <select className="min-h-11 min-w-0 max-w-full rounded border bg-white px-2 py-1 dark:bg-[#041612]" value={selected} onChange={(event) => setSelected(event.target.value)}>
             {CAPACITY_TRENDS.map((entry) => <option key={entry.key} value={entry.key}>{entry.title}</option>)}
           </select>
         </label>
