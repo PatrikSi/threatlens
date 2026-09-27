@@ -90,7 +90,7 @@ jobs:
         run: |
           python scripts/check-source-size.py
           cd backend
-          python -m ruff check app
+          python -m ruff check app tests scripts
 
       - name: Run backend tests
         working-directory: backend

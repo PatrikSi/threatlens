@@ -7,11 +7,14 @@ from sqlalchemy import delete, select
 
 from app.models.iam import IAMGroupMembership
 from app.models.publication_consumer import PublicationChange, PublicationConsumer
-from tests.integration.test_indicator_publications import reviewed, publish  # noqa: F401
+from tests.integration.test_indicator_publications import reviewed as reviewed_fixture, publish
 from tests.integration.test_indicator_intelligence import intel_setup  # noqa: F401
 
 
-def register(client, reviewed, auth_headers):  # noqa: F811
+reviewed = reviewed_fixture
+
+
+def register(client, reviewed, auth_headers):
     team = reviewed[0]
     path = f"/teams/{team['id']}/publication-consumers"
     response = client.post(
@@ -24,7 +27,7 @@ def register(client, reviewed, auth_headers):  # noqa: F811
     return path, row, {"Authorization": "Bearer " + row["token"]}
 
 
-def test_consumer_delivery_replay_and_idempotent_ack(client, reviewed, auth_headers):  # noqa: F811
+def test_consumer_delivery_replay_and_idempotent_ack(client, reviewed, auth_headers):
     _, _, publication = publish(client, reviewed, auth_headers)
     path, consumer, headers = register(client, reviewed, auth_headers)
     subscribe = f"{path}/{consumer['id']}/subscriptions"
@@ -66,7 +69,7 @@ def test_consumer_delivery_replay_and_idempotent_ack(client, reviewed, auth_head
 
 def test_membership_loss_produces_opaque_withdrawal_and_cannot_revive(
     client, reviewed, auth_headers, db_session, seed_users
-):  # noqa: F811
+):
     _, _, publication = publish(client, reviewed, auth_headers)
     path, consumer, headers = register(client, reviewed, auth_headers)
     assert (
@@ -112,7 +115,7 @@ def test_membership_loss_produces_opaque_withdrawal_and_cannot_revive(
 
 def test_cross_consumer_ack_and_rotated_credentials_are_rejected(
     client, reviewed, auth_headers
-):  # noqa: F811
+):
     _, _, publication = publish(client, reviewed, auth_headers)
     path, one, headers = register(client, reviewed, auth_headers)
     client.post(
@@ -149,7 +152,7 @@ def test_cross_consumer_ack_and_rotated_credentials_are_rejected(
 
 def test_replay_expiry_requires_explicit_discard_reset(
     client, reviewed, auth_headers, db_session
-):  # noqa: F811
+):
     _, _, publication = publish(client, reviewed, auth_headers)
     path, consumer, headers = register(client, reviewed, auth_headers)
     client.post(
