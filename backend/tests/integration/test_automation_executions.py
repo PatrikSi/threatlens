@@ -479,11 +479,14 @@ def test_restore_quarantines_remote_state_without_erasing_history(
     updates = db_session.scalars(select(AutomationPolicyUpdate)).all()
     assert len(updates) == 2 and all(row.acknowledged_at is None for row in updates)
     assert execution.policy_acknowledged_revision == 0
+    prior_ids = {row.id for row in updates}
     db_session.execute(command)
     db_session.commit()
     assert (
         db_session.scalar(select(func.count()).select_from(AutomationPolicyUpdate)) == 2
     )
+    updates = db_session.scalars(select(AutomationPolicyUpdate)).all()
+    assert prior_ids.isdisjoint(row.id for row in updates)
     own_update = next(row for row in updates if row.execution_id == execution.id)
     assert acknowledge_policy_update(execution, own_update)
     assert execution.policy_state == "withdrawn"

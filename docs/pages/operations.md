@@ -446,7 +446,7 @@ THREATLENS_RECOVERY_PHASE:
 | Phase | Required behavior |
 |---|---|
 | preflight | Read-only. Validate the manifest envelope, migrated restored schema, superuser fencing capability, and ability to perform every action below. |
-| apply | In one transaction, revoke browser sessions and API tokens, consume one-time MFA login challenges, rotate legacy JWT generations, disable integrations, subscriptions, legacy webhooks, feeds, AI automation, and report schedules, terminalize queued/running notification, AI, report, and alert-evaluation work, and write a system audit event. |
+| apply | In one transaction, revoke browser sessions, API tokens and machine credentials, consume one-time MFA login challenges, rotate legacy JWT generations, disable integrations, subscriptions, legacy webhooks, feeds, AI automation, and report schedules, terminalize queued/running notification, AI, report, and alert-evaluation work, withdraw reviewed indicator publications and retire their consumers, and write a system audit event. |
 | verify | Read-only. Fail unless every revocation and quarantine invariant is durably true. |
 
 The hook also receives:
@@ -469,7 +469,7 @@ production target before the hook runs, so historical archives use the current
 quarantine schema contract instead of brittle direct-schema branches. Exit zero
 is accepted only after the phase is complete.
 
-Completed publications keep their original approval and evidence pins, including
+Completed report publications keep their original approval and evidence pins, including
 the delivery intent captured in that revision. Quarantine suppresses their
 outbound work through disabled integrations and subscriptions and terminal
 events and deliveries; retaining historical delivery intent does not resume a
@@ -478,6 +478,27 @@ interrupted. A review or approval made stale by that change must return to draft
 and be reviewed again. Published reports remain readable and exportable without
 rewriting their approval history. Resuming any delivery remains an explicit
 operator action after recovery validation.
+
+Reviewed indicator publications have a different recovery contract: restoring an
+older database cannot prove that its approvals remain current. The hook withdraws
+every active STIX/MISP indicator in their stored snapshots, preserving evidence,
+external identities and prior withdrawal history. It revokes destination-scoped
+receiver credentials and publication-consumer credentials, retires every restored
+consumer, and creates withdrawals for its active subscriptions. All retained
+automation-policy and publication-change acknowledgement UUIDs are replaced;
+numeric revisions and generations alone cannot fence rollback. Reapplying the
+hook adds no duplicate withdrawal obligations, but replaces acknowledgement UUIDs
+again, so receivers must remain stopped until quarantine finishes.
+
+After controlled administrator login, issue fresh receiver credentials and rotate
+retired consumer credentials only to drain withdrawals. Clear old paging cursors
+and queued acknowledgements, obtain current consumer status, and process current
+withdrawal UUIDs regardless of lower restored revisions or generations. Retired
+consumers cannot reset away their obligations; acknowledge current change IDs and
+archive them, then deliberately register new consumers and approve new publications.
+Preserve remote job/action ledgers and never relaunch an ambiguous hunt. See
+[publication recovery](reviewed-publications.md#disaster-recovery) and
+[execution recovery](automation-execution.md#disaster-recovery).
 
 Override the default only with a reviewed hook using --quarantine-hook
 /absolute/path/to/hook or THREATLENS_POST_RESTORE_HOOK. Symlink hooks are

@@ -397,10 +397,17 @@ def consumer_feed(
     generation: int,
     limit: int,
 ) -> dict:
+    retired_guidance = (
+        "This consumer is retired. Discard imported publications, read /publication-distribution/status "
+        "for the current generation and replay floor, then replay and acknowledge the current change "
+        "and withdrawal IDs before archiving. Retired consumers cannot reset."
+    )
     if generation != consumer.generation or after < consumer.replay_floor:
         raise error(
             "consumer_replay_expired",
-            "Replay history is no longer available. Discard all previously imported publications, acknowledge a reset, and reimport the current feed.",
+            retired_guidance
+            if consumer.retired_at is not None
+            else "Replay history is no longer available. Discard all previously imported publications, acknowledge a reset, and reimport the current feed.",
             410,
         )
     if after > consumer.sequence:
@@ -451,7 +458,9 @@ def consumer_feed(
         "retained_changes": retained,
         "unacknowledged_changes": unacknowledged,
         "retention_backpressure": retained >= MAX_PENDING_CHANGES,
-        "retention_guidance": "Acknowledge the oldest changes. If replay expired, discard all imported publications and explicitly reset before reimporting.",
+        "retention_guidance": retired_guidance
+        if consumer.retired_at is not None
+        else "Acknowledge the oldest changes. If replay expired, discard all imported publications and explicitly reset before reimporting.",
         "evidence_access": "Use a current scoped API credential to download publications; this feed grants no evidence access.",
     }
 
@@ -493,6 +502,11 @@ def reset_consumer(
     expected_generation: int,
     discarded: bool,
 ) -> dict:
+    if consumer.retired_at is not None:
+        raise error(
+            "consumer_retired_reset_forbidden",
+            "Retired consumers must acknowledge their retained changes and withdrawals by current change ID. Read current status, restart from the replay floor, and drain acknowledgements before archiving.",
+        )
     if not discarded:
         raise error(
             "consumer_reset_requires_discard",
@@ -657,7 +671,7 @@ def archive_consumer(
     if active or pending:
         raise error(
             "consumer_acknowledgements_pending",
-            "The receiver must acknowledge every retained change and withdrawal, or explicitly discard and reset, before this consumer can be archived.",
+            "The receiver must acknowledge every retained change and withdrawal by its current change ID before this retired consumer can be archived.",
         )
     identifier = consumer.id
     record_audit(
