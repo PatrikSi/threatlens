@@ -198,6 +198,8 @@ def notification_webhook_response_from_model(
         credential_profile_id=payload.credential_profile_id,
         id=webhook.id,
         user_id=webhook.user_id,
+        team_id=webhook.team_id,
+        ownership_revision=webhook.ownership_revision,
         name=payload.name,
         enabled=payload.enabled,
         event_type=payload.event_type,

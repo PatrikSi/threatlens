@@ -28,9 +28,18 @@ from app.services.integration_delivery import (
     DELIVERY_RETRY_WAIT,
     DELIVERY_SENDING,
 )
+from app.services.automation_health import (
+    AUTOMATION_BACKLOG_LABELS,
+    AUTOMATION_FRESHNESS_SECONDS,
+    automation_backlog,
+)
 from app.services.operations_common import issue, safe_db_probe, seconds_since
 from app.services.operations_runs import system_operation_run_response
-from app.services.operations_freshness import BACKLOG_LABELS, load_export_backlog, load_processing_backlog
+from app.services.operations_freshness import (
+    BACKLOG_LABELS,
+    load_export_backlog,
+    load_processing_backlog,
+)
 
 
 @dataclass(frozen=True)
@@ -65,7 +74,20 @@ def collect_backlog_snapshots(
                 "integration_deliveries", "Integration deliveries", delivery_threshold
             ),
             _unknown_backlog("reports", "Report generation", report_threshold),
-            *(_unknown_backlog(key, BACKLOG_LABELS[key], threshold) for key, threshold in freshness.items()),
+            *(
+                _unknown_backlog(key, BACKLOG_LABELS[key], threshold)
+                for key, threshold in freshness.items()
+            ),
+            *(
+                _unknown_backlog(
+                    key,
+                    label,
+                    300
+                    if key == "publication_reconciliation"
+                    else AUTOMATION_FRESHNESS_SECONDS,
+                )
+                for key, label in AUTOMATION_BACKLOG_LABELS.items()
+            ),
         ]
 
     delivery = safe_db_probe(
@@ -87,14 +109,45 @@ def collect_backlog_snapshots(
     backlogs = [delivery, report]
     for key, threshold in freshness.items():
         backlog = safe_db_probe(
-            db, f"{key}_backlog",
+            db,
+            f"{key}_backlog",
             lambda key=key: (
-                load_export_backlog(db, settings=settings, now=now) if key == "exports"
+                load_export_backlog(db, settings=settings, now=now)
+                if key == "exports"
                 else load_processing_backlog(db, stage=key, settings=settings, now=now)
             ),
             _unknown_backlog(key, BACKLOG_LABELS[key], threshold),
         )
         _append_backlog_issue(backlog, issues)
+        backlogs.append(backlog)
+    for key, label in AUTOMATION_BACKLOG_LABELS.items():
+        backlog = safe_db_probe(
+            db,
+            f"{key}_backlog",
+            lambda key=key: automation_backlog(db, key=key, now=now),
+            _unknown_backlog(
+                key,
+                label,
+                300
+                if key == "publication_reconciliation"
+                else AUTOMATION_FRESHNESS_SECONDS,
+            ),
+        )
+        if backlog.status == "degraded":
+            issues.append(
+                issue(
+                    f"{key}_delayed",
+                    "warning",
+                    key,
+                    f"{label} exceeded its freshness objective.",
+                    "External execution or policy state is not confirmed.",
+                    "Inspect the publication consumer and reconciliation worker. Replay pending changes; only reset the receiver after an explicit replay-gap response."
+                    if key.startswith("publication_")
+                    else "Inspect receiver connectivity, its durable retry queue and SIEM status. Reconcile the existing action ID; never launch a replacement merely because a receipt is late.",
+                )
+            )
+        else:
+            _append_backlog_issue(backlog, issues)
         backlogs.append(backlog)
     return backlogs
 
@@ -386,12 +439,16 @@ def _append_backlog_issue(
             )
         )
     elif backlog.failed_count and backlog.status == "degraded":
-        issues.append(issue(
-            f"{backlog.key}_needs_attention", "warning", backlog.key,
-            f"{backlog.label} has failed work requiring attention.",
-            "Automatic attempts may have stopped before processing completed.",
-            "Inspect the processing worklist or export job history, resolve the cause, and retry selected eligible work.",
-        ))
+        issues.append(
+            issue(
+                f"{backlog.key}_needs_attention",
+                "warning",
+                backlog.key,
+                f"{backlog.label} has failed work requiring attention.",
+                "Automatic attempts may have stopped before processing completed.",
+                "Inspect the processing worklist or export job history, resolve the cause, and retry selected eligible work.",
+            )
+        )
     elif backlog.status == "degraded":
         issues.append(
             issue(

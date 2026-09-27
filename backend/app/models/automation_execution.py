@@ -29,9 +29,11 @@ class AutomationExecution(Base):
     # Destination identity is retained when configuration is deleted; receivers
     # can still acknowledge withdrawals and completed hunt history survives.
     webhook_id: Mapped[uuid.UUID] = mapped_column(Uuid, index=True)
-    owner_user_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("users.id", ondelete="CASCADE"), index=True
+    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="SET NULL"), index=True
     )
+    team_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("teams.id", ondelete="RESTRICT"), index=True)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     event_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("integration_events.id", ondelete="RESTRICT")
     )

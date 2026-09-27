@@ -135,7 +135,7 @@ def list_notification_webhooks(
 ):
     webhooks = db.scalars(
         select(NotificationWebhook)
-        .where(NotificationWebhook.user_id == user.id)
+        .where(NotificationWebhook.user_id == user.id, NotificationWebhook.team_id.is_(None))
         .order_by(NotificationWebhook.created_at.asc())
     ).all()
     can_read_secrets = _can_read_webhook_secrets(request, user)
@@ -203,7 +203,7 @@ def update_notification_webhook(
         select(NotificationWebhook)
         .where(
             NotificationWebhook.id == webhook_id,
-            NotificationWebhook.user_id == user.id,
+            NotificationWebhook.user_id == user.id, NotificationWebhook.team_id.is_(None),
         )
         .with_for_update()
         .execution_options(populate_existing=True)
@@ -278,7 +278,7 @@ def delete_notification_webhook(
 ):
     webhook = db.scalar(
         select(NotificationWebhook).where(
-            NotificationWebhook.id == webhook_id, NotificationWebhook.user_id == user.id
+            NotificationWebhook.id == webhook_id, NotificationWebhook.user_id == user.id, NotificationWebhook.team_id.is_(None)
         )
     )
     if webhook is None:
@@ -325,7 +325,7 @@ def list_notification_webhook_deliveries(
     fence_data_access_context(db, data_access)
     webhook = db.scalar(
         select(NotificationWebhook).where(
-            NotificationWebhook.id == webhook_id, NotificationWebhook.user_id == user.id
+            NotificationWebhook.id == webhook_id, NotificationWebhook.user_id == user.id, NotificationWebhook.team_id.is_(None)
         )
     )
     if webhook is None:
@@ -409,7 +409,7 @@ def retry_notification_webhook_delivery_route(
         )
     webhook = db.scalar(
         select(NotificationWebhook).where(
-            NotificationWebhook.id == webhook_id, NotificationWebhook.user_id == user.id
+            NotificationWebhook.id == webhook_id, NotificationWebhook.user_id == user.id, NotificationWebhook.team_id.is_(None)
         )
     )
     if webhook is None:

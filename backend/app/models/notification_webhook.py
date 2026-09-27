@@ -23,7 +23,9 @@ class NotificationWebhook(Base):
         nullable=True,
         unique=True,
     )
-    user_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    team_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, ForeignKey("teams.id", ondelete="RESTRICT"), index=True)
+    ownership_revision: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     event_type: Mapped[str] = mapped_column(String(64), nullable=False, default="rss_item_new", server_default="rss_item_new")

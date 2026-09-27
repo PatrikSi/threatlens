@@ -54,6 +54,13 @@ def _fence(
     )
 
 
+def _owner_predicate(user: User, authorization: AuthorizationContext):
+    personal = (AutomationExecution.owner_user_id == user.id) & AutomationExecution.team_id.is_(None)
+    if not authorization.has("read:teams"):
+        return personal
+    return or_(personal, team_access_predicate(AutomationExecution.team_id, user.id))
+
+
 def _execution(
     db: Session,
     identity: uuid.UUID,
@@ -67,7 +74,7 @@ def _execution(
         raise HTTPException(403, "Reading automation evidence requires read:items")
     query = select(AutomationExecution).where(
         AutomationExecution.id == identity,
-        AutomationExecution.owner_user_id == user.id,
+        _owner_predicate(user, authorization),
         data_access_envelope_predicate(
             "integration_event", AutomationExecution.event_id, access
         ),
@@ -76,9 +83,10 @@ def _execution(
     if row is None:
         raise HTTPException(404, "Automation execution not found or unavailable")
     event = db.get(IntegrationEvent, row.event_id)
-    team_id = (event.payload_json or {}).get("team_id") if event else None
+    event_team_id = (event.payload_json or {}).get("team_id") if event else None
+    team_id = event_team_id or (str(row.team_id) if row.team_id else None)
     if team_id:
-        if not authorization.has("read:teams") or not authorization.has("read:ai"):
+        if not authorization.has("read:teams") or (event_team_id and not authorization.has("read:ai")):
             raise HTTPException(404, "Automation execution not found or unavailable")
         if (
             lock_team_for_current_access(
@@ -104,6 +112,7 @@ def _execution(
 def list_automation_executions(
     request: Request,
     after: uuid.UUID | None = None,
+    include_archived: bool = False,
     limit: int = Query(default=25, ge=1, le=100),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
@@ -130,13 +139,15 @@ def list_automation_executions(
         select(AutomationExecution)
         .join(IntegrationEvent)
         .where(
-            AutomationExecution.owner_user_id == user.id,
+            _owner_predicate(user, authorization),
             data_access_envelope_predicate(
                 "integration_event", AutomationExecution.event_id, access
             ),
             team_visible,
         )
     )
+    if not include_archived:
+        query = query.where(AutomationExecution.archived_at.is_(None))
     if after:
         query = query.where(AutomationExecution.id > after)
     rows = db.scalars(query.order_by(AutomationExecution.id).limit(limit + 1)).all()
@@ -291,7 +302,7 @@ def list_automation_policy_updates(
             AutomationExecution.id == AutomationPolicyUpdate.execution_id,
         )
         .where(
-            AutomationExecution.owner_user_id == user.id,
+            _owner_predicate(user, authorization),
             AutomationPolicyUpdate.acknowledged_at.is_(None),
         )
     )
@@ -331,7 +342,7 @@ def acknowledge_automation_policy_update(
         .join(AutomationExecution)
         .where(
             AutomationPolicyUpdate.id == update_id,
-            AutomationExecution.owner_user_id == user.id,
+            _owner_predicate(user, authorization),
         )
     )
     if row is None:
