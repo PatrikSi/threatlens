@@ -54,12 +54,19 @@
     "rationale": "Empty ordered-list markers and numeric column labels are structure, not data; the row contains only decorative punctuation."
   },
   {
-    "name": "literal numeric code sample",
+    "name": "uncited literal numeric code sample",
     "body": "Observed evidence [S1].\n\n```\n12345\n```",
-    "accepted": true,
+    "accepted": false,
     "source_links": 1,
-    "claim_blocks": 1,
-    "rationale": "Fenced examples remain literal code rather than narrative claim blocks."
+    "rationale": "Visible numeric code requires an explicit adjacent source caption; an unrelated cited paragraph is insufficient."
+  },
+  {
+    "name": "explicitly captioned numeric code sample",
+    "body": "Observed evidence [S1].\n\nSource: [S1]\n\n```\n12345\n```",
+    "accepted": true,
+    "source_links": 2,
+    "claim_blocks": 3,
+    "rationale": "The standalone caption provides a navigable source link for the literal code block."
   },
   {
     "name": "GFM URL consumes marker",

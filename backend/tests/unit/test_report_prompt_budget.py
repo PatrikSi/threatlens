@@ -1,3 +1,7 @@
+import json
+
+import pytest
+
 from app.services.ai_context_budget import build_context_budget, estimate_tokens
 from app.services.report_prompt_budget import (
     build_evidence_messages,
@@ -192,3 +196,38 @@ def test_section_plan_bounds_context_instructions_metrics_and_findings():
     serialized = plan.messages[1]["content"]
     assert "S1" in serialized
     assert "S30" in serialized
+
+
+@pytest.mark.parametrize("extra_instructions", [0, 6])
+def test_section_planner_compacts_optional_metrics_before_losing_evidence_diversity(monkeypatch, extra_instructions):
+    from app.services import report_prompt_budget
+
+    monkeypatch.setattr(report_prompt_budget, "SECTION_SYSTEM_PROMPT",
+        report_prompt_budget.SECTION_SYSTEM_PROMPT + " Preserve source uncertainty." * extra_instructions)
+    budget = build_context_budget(context_window_tokens=2048, reserved_output_tokens=256, safety_percent=5)
+    report = {"title": "Source diversity", "metrics": {
+        "article_count": 30,
+        "feeds": {f"feed-{index}-" + "x" * 50: index for index in range(10)},
+        "top_tags": {f"tag-{index}-" + "x" * 50: index for index in range(10)},
+    }}
+    section = {"key": "analysis", "title": "Analysis"}
+    findings = [{
+        "text": f"Finding {index} " + "Observed authentication failures. " * 20,
+        "citations": [f"S{index}"],
+        "evidence_quotes": [{"citation": f"S{index}", "quote": "Observed authentication failures."}],
+    } for index in range(1, 31)]
+    plan = build_section_message_plan(section=section, report=report, findings=findings, budget=budget)
+    payload = json.loads(plan.messages[-1]["content"])
+    assert payload["report"]["metrics"] == {"article_count": 30}
+    assert plan.context_compacted  # Metric reductions need the same disclosure as textual context.
+    assert plan.included_findings >= 2 and plan.omitted_findings > 0
+    assert payload["findings"][0]["citations"] == ["S1"]
+    assert payload["findings"][1]["citations"] == ["S30"]
+    by_citation = {finding["citations"][0]: finding for finding in findings}
+    for finding in payload["findings"]:
+        assert finding["evidence_quotes"] == by_citation[finding["citations"][0]]["evidence_quotes"]
+    assert estimate_message_tokens(plan.messages) <= budget.usable_input_tokens
+    # With no findings to fit, retain the optional metrics whenever they fit.
+    empty = build_section_message_plan(section=section, report=report, findings=[], budget=budget)
+    assert json.loads(empty.messages[-1]["content"])["report"]["metrics"] == report["metrics"]
+    assert not empty.context_compacted
