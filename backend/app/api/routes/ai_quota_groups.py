@@ -14,6 +14,7 @@ from app.db.session import get_db
 from app.models.ai_quota_group import AIQuotaGroup
 from app.models.user import User
 from app.schemas.ai_quota_groups import (
+    AIQuotaUtilization,
     AIQuotaGroupCreate,
     AIQuotaGroupPage,
     AIQuotaGroupResponse,
@@ -25,6 +26,7 @@ from app.services.ai_quota_groups import (
     save_quota_group,
 )
 from app.services.audit import record_audit
+from app.services.ai_quota_utilization import quota_utilization
 
 router = APIRouter(
     prefix="/ai/quota-groups", tags=["ai"], dependencies=[Depends(require_ai_enabled)]
@@ -97,3 +99,14 @@ def update_ai_quota_group(
     _scope: User = Depends(require_token_scopes(SCOPE_WRITE_AI)),
 ) -> AIQuotaGroupResponse:
     return _save(db, request, actor, payload, group_id)
+
+
+@router.get("/{group_id}/utilization", response_model=AIQuotaUtilization)
+def get_ai_quota_utilization(
+    group_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(get_admin_user),
+    _scope: User = Depends(require_token_scopes(SCOPE_READ_AI)),
+) -> AIQuotaUtilization:
+    with provider_operation(db):
+        return quota_utilization(db, group_id)

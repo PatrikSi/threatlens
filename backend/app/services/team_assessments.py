@@ -17,7 +17,7 @@ from app.schemas.team_assessments import (
     TeamAssessmentCommand,
     TeamAssessmentEnvelope,
 )
-from app.services.ai_config import load_active_ai_settings
+from app.services.team_ai_governance import load_team_assessment_settings
 from app.services.ai_ops import queue_ai_task_run
 from app.services.audit import record_audit
 from app.services.team_assessment_audit import assessment_audit_labels
@@ -57,7 +57,7 @@ def get_assessment(
     return assessment_envelope(
         state,
         actor=actor,
-        active=load_active_ai_settings(db, feature_type="team_assessment"),
+        active=load_team_assessment_settings(db, team_id=team_id, item_id=item_id),
     )
 
 
@@ -147,12 +147,12 @@ def queue_assessment(
     )
     _require_version(state, payload.expected_version)
     _require_idle(state)
-    active = load_active_ai_settings(db, feature_type="team_assessment")
+    active = load_team_assessment_settings(db, team_id=payload.team_id, item_id=item_id)
     if not active.ai_enabled or not active.ai_configured:
         raise ApiHTTPException(
             status_code=409,
             error_code="team_assessment_ai_unavailable",
-            detail="Team assessments require enabled AI and a configured team assessment provider. Ask an administrator to check AI settings.",
+            detail=active.configuration_error or "Team assessments require enabled AI and a configured team assessment provider. Ask an administrator to check AI settings.",
         )
     row = state.assessment
     if row is None:
@@ -291,7 +291,7 @@ def review_hunt(
     return assessment_envelope(
         state,
         actor=actor,
-        active=load_active_ai_settings(db, feature_type="team_assessment"),
+        active=load_team_assessment_settings(db, team_id=payload.team_id, item_id=item_id),
     )
 
 
@@ -316,7 +316,7 @@ def create_hunt_investigation(
     row, result, hunt = _mutable_hunt(
         state, hunt_id=hunt_id, expected_version=payload.expected_version
     )
-    active = load_active_ai_settings(db, feature_type="team_assessment")
+    active = load_team_assessment_settings(db, team_id=payload.team_id, item_id=item_id)
     assert_hunt_claim_access(db, row=row, hunt_id=hunt_id, actor=actor)
     if hunt.get("investigation_id"):
         return assessment_envelope(state, actor=actor, active=active)

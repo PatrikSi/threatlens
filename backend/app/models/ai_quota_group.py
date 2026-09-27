@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    JSON,
     BigInteger,
     CheckConstraint,
     DateTime,
@@ -14,6 +15,7 @@ from sqlalchemy import (
     Uuid,
     func,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -24,7 +26,7 @@ class AIQuotaGroup(Base):
     __table_args__ = (
         CheckConstraint("version >= 1", name="ck_ai_quota_group_version"),
         CheckConstraint(
-            "max_concurrent_requests >= 0 AND hourly_token_budget >= 0 AND max_concurrent_per_team >= 0",
+            "max_concurrent_requests >= 0 AND hourly_token_budget >= 0 AND max_concurrent_per_team >= 0 AND minute_request_budget >= 0 AND minute_token_budget >= 0",
             name="ck_ai_quota_group_limits",
         ),
     )
@@ -47,6 +49,18 @@ class AIQuotaGroup(Base):
     )
     max_concurrent_per_team: Mapped[int] = mapped_column(
         Integer, nullable=False, default=1, server_default="1"
+    )
+    minute_request_budget: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    minute_token_budget: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default="0"
+    )
+    team_hourly_token_budgets: Mapped[dict[str, int]] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql"),
+        nullable=False,
+        default=dict,
+        server_default="{}",
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -80,3 +94,4 @@ class AIQuotaTeamTurn(Base):
     waiting_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     waiting_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_served_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_denial_reason: Mapped[str | None] = mapped_column(String(80))

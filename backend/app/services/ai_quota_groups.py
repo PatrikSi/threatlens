@@ -60,6 +60,9 @@ def quota_responses(
             max_concurrent_requests=group.max_concurrent_requests,
             hourly_token_budget=group.hourly_token_budget,
             max_concurrent_per_team=group.max_concurrent_per_team,
+            minute_request_budget=group.minute_request_budget,
+            minute_token_budget=group.minute_token_budget,
+            team_hourly_token_budgets=group.team_hourly_token_budgets,
         )
         for group in groups
     ]
@@ -122,6 +125,18 @@ def save_quota_group(
             "quota_provider_missing",
             "A selected provider no longer exists. Reload the provider list.",
         )
+    from app.models.team import Team
+
+    team_ids = {
+        uuid.UUID(key[5:])
+        for key in payload.team_hourly_token_budgets
+        if key.startswith("team:")
+    }
+    if set(db.scalars(select(Team.id).where(Team.id.in_(team_ids)))) != team_ids:
+        raise AIProviderError(
+            "quota_team_missing",
+            "A team allocation refers to a removed team. Reload the team list.",
+        )
     assigned = db.scalar(
         select(AIQuotaGroupMember.provider_key)
         .where(
@@ -141,6 +156,17 @@ def save_quota_group(
     else:
         group.version += 1
     for name in AIQuotaGroupFields.model_fields:
+        if (
+            name
+            in {
+                "minute_request_budget",
+                "minute_token_budget",
+                "team_hourly_token_budgets",
+            }
+            and not creating
+            and name not in payload.model_fields_set
+        ):
+            continue  # Older clients must not erase newer limits on unrelated saves.
         if name != "provider_keys":
             setattr(group, name, getattr(payload, name))
     group.normalized_name = group.name.casefold()

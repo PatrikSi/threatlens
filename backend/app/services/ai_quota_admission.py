@@ -22,6 +22,8 @@ class BudgetScope:
     predicate: object
     concurrent_limit: int
     token_limit: int
+    minute_request_limit: int = 0
+    minute_token_limit: int = 0
 
 
 def group_scope(
@@ -43,16 +45,23 @@ def group_scope(
     row = AIProviderBudgetReservation
     predicate = or_(row.quota_group_key == key, row.provider_key.in_(members))
     return group, BudgetScope(
-        key, predicate, group.max_concurrent_requests, group.hourly_token_budget
+        key,
+        predicate,
+        group.max_concurrent_requests,
+        group.hourly_token_budget,
+        group.minute_request_budget,
+        group.minute_token_budget,
     )
 
 
 def check_scope(
     db: Session, scope: BudgetScope, *, now: datetime, estimated: int
 ) -> AIWorkflowDeferred | None:
-    if scope.token_limit and estimated > scope.token_limit:
+    if (scope.token_limit and estimated > scope.token_limit) or (
+        scope.minute_token_limit and estimated > scope.minute_token_limit
+    ):
         raise AIIntegrationError(
-            "This request exceeds the entire hourly token allowance for its provider or shared account. Reduce its input/output allowance or increase the budget.",
+            "This request exceeds the entire token allowance for its provider or shared account. Reduce its input/output allowance or increase the budget.",
             retryable=False,
             provider_io_outcome="not_sent",
             failure_category="budget_request_too_large",
@@ -62,7 +71,42 @@ def check_scope(
     active_count, first_expiry = db.execute(
         select(func.count(), func.min(row.expires_at)).where(scope.predicate, live)
     ).one()
-    reason_prefix = "shared_account" if scope.key.startswith("account:") else "provider"
+    reason_prefix = (
+        "shared_account_team"
+        if scope.key.startswith("team-account:")
+        else "shared_account"
+        if scope.key.startswith("account:")
+        else "provider"
+    )
+    minute = now - timedelta(minutes=1)
+    charge = func.coalesce(row.charged_tokens, row.reserved_tokens)
+    if scope.minute_request_limit or scope.minute_token_limit:
+        requests, tokens, oldest = db.execute(
+            select(
+                func.count(),
+                func.coalesce(func.sum(charge), 0),
+                func.min(row.created_at),
+            ).where(
+                scope.predicate,
+                row.created_at > minute,
+                or_(row.outcome.is_(None), row.outcome != "not_sent"),
+            )
+        ).one()
+        reason = (
+            "minute_request_budget"
+            if scope.minute_request_limit and requests >= scope.minute_request_limit
+            else "minute_token_budget"
+            if scope.minute_token_limit
+            and tokens + estimated > scope.minute_token_limit
+            else None
+        )
+        if reason:
+            delay = (
+                max(1.0, (oldest + timedelta(minutes=1) - now).total_seconds())
+                if oldest
+                else 60.0
+            )
+            return AIWorkflowDeferred(f"{reason_prefix}_{reason}", delay)
     if scope.concurrent_limit and active_count >= scope.concurrent_limit:
         return AIWorkflowDeferred(
             f"{reason_prefix}_concurrency_budget",
@@ -137,6 +181,9 @@ def fair_team_turn(
     ):
         turn.waiting_since = now
     turn.waiting_until = now + timedelta(seconds=TURN_LIFETIME_SECONDS)
+    # This contender has just rechecked its own limits. Old deferrals never
+    # postpone a newly eligible retry after an administrator raises a budget.
+    turn.last_denial_reason = None
     db.flush()
     if not capacity_available:
         return None
@@ -158,7 +205,13 @@ def fair_team_turn(
         if own_count >= group.max_concurrent_per_team:
             return AIWorkflowDeferred("shared_account_team_concurrency", 5)
     waiting = select(row.team_key).where(
-        row.group_id == group.id, row.waiting_until > now
+        row.group_id == group.id,
+        row.waiting_until > now,
+        or_(
+            row.last_denial_reason.is_(None),
+            (~row.last_denial_reason.like("provider_%"))
+            & (row.last_denial_reason != "shared_account_team_hourly_token_budget"),
+        ),
     )
     if group.max_concurrent_per_team:
         live_count = (
@@ -181,6 +234,7 @@ def fair_team_turn(
     if next_team != team_key:
         return AIWorkflowDeferred("shared_account_team_turn", 5)
     turn.last_served_at, turn.waiting_since, turn.waiting_until = now, None, None
+    turn.last_denial_reason = None
     return None
 
 
