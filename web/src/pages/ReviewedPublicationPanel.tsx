@@ -108,7 +108,7 @@ function PublicationWorkspace({ team, filters, writable }: {
   const accessLost = [preview.error, publish.error, history.error]
     .some((error) => error instanceof ApiError && [401, 403, 404].includes(error.status))
     || [download.error, withdraw.error].some((error) => error instanceof ApiError && [401, 403].includes(error.status))
-  const currentPreview = !accessLost && preview.isSuccess && preview.data?.scope === scope ? preview.data.value : undefined
+  const currentPreview = currentPublicationPreview(preview, scope, accessLost)
   const page = accessibleQueryData(history)
   const error = preview.error ?? publish.error ?? history.error ?? download.error ?? withdraw.error
   useEffect(() => {
@@ -153,20 +153,8 @@ function PublicationWorkspace({ team, filters, writable }: {
       {preview.data && preview.data.scope !== scope && <p role="status">The article filters changed. Refresh the reviewed preview before publishing.</p>}
       {currentPreview && <>
         <p role="status">{currentPreview.indicators.length} reviewed indicators in {currentPreview.matched_articles} articles; {currentPreview.excluded_or_unreviewed} observations excluded or unreviewed.</p>
-        <div className="max-h-80 overflow-auto" tabIndex={0} aria-label="Reviewed indicators">
-          <table className="w-full text-left text-sm">
-            <thead><tr><th>Indicator</th><th>Article</th><th>Review</th><th>Expiry</th></tr></thead>
-            <tbody>{currentPreview.indicators.map((row) => <tr key={`${row.item_id}:${row.ioc_id}`}>
-              <td className="break-all p-2">{row.type}: {row.value}</td><td>{row.title}</td>
-              <td>
-                <p>Version {row.assessment_version} · {row.evidence_count} passages</p>
-                <button type="button" className={TEAM_BUTTON} aria-label={`Review evidence for ${row.value}`}
-                  onClick={() => setEvidence({ preview: currentPreview, row })}>Review evidence</button>
-              </td>
-              <td>{row.expires_at ? new Date(row.expires_at).toLocaleString() : 'No expiry'}</td>
-            </tr>)}</tbody>
-          </table>
-        </div>
+        <ReviewedIndicatorsTable preview={currentPreview}
+          onReview={(row) => setEvidence({ preview: currentPreview, row })} />
         <div className="flex flex-wrap gap-3">
           <label>Reviewed format <select className={INPUT} value={format} onChange={(event) => { setApproved(false); setFormat(event.target.value as 'stix' | 'misp') }}>
             <option value="stix">STIX 2.1</option><option value="misp">MISP</option>
@@ -221,4 +209,32 @@ function PublicationWorkspace({ team, filters, writable }: {
       </div>
     </div>
   </div>
+}
+
+function ReviewedIndicatorsTable({ preview, onReview }: {
+  preview: ReviewedPublicationPreview; onReview: (row: ReviewedIndicator) => void
+}) {
+  return <div className="max-h-80 overflow-auto" tabIndex={0} aria-label="Reviewed indicators">
+    <table className="w-full text-left text-sm">
+      <thead><tr><th>Indicator</th><th>Article</th><th>Review</th><th>Expiry</th></tr></thead>
+      <tbody>{preview.indicators.map((row) => <tr key={`${row.item_id}:${row.ioc_id}`}>
+        <td className="break-all p-2">{row.type}: {row.value}</td><td>{row.title}</td>
+        <td>
+          <p>Version {row.assessment_version} · {row.evidence_count} passages</p>
+          <button type="button" className={TEAM_BUTTON} aria-label={`Review evidence for ${row.value}`}
+            onClick={() => onReview(row)}>Review evidence</button>
+        </td>
+        <td>{row.expires_at ? new Date(row.expires_at).toLocaleString() : 'No expiry'}</td>
+      </tr>)}</tbody>
+    </table>
+  </div>
+}
+
+function currentPublicationPreview(
+  preview: { isSuccess: boolean; data?: { scope: string; value: ReviewedPublicationPreview } },
+  scope: string,
+  accessLost: boolean,
+): ReviewedPublicationPreview | undefined {
+  if (accessLost || !preview.isSuccess || preview.data?.scope !== scope) return undefined
+  return preview.data.value
 }
