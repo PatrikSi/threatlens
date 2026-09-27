@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import hashlib
 
-from fastapi import HTTPException
+from starlette.exceptions import HTTPException
 from types import SimpleNamespace
 
 from sqlalchemy import String, and_, case, cast, func, or_, select
@@ -181,11 +181,16 @@ def call_read_tool(
             if exc.status_code == 404
             else "access_denied"
             if exc.status_code in {401, 403}
+            else "invalid_arguments"
+            if exc.status_code in {400, 422}
             else "read_unavailable"
         )
-        raise MCPReadError(
-            code, "The requested data is unavailable; check access and retry."
-        ) from exc
+        message = (
+            "The read arguments or cursor are invalid. Correct them or restart from the first page."
+            if code == "invalid_arguments"
+            else "The requested data is unavailable; check access and retry."
+        )
+        raise MCPReadError(code, message) from exc
     bounded = bounded_result(result, max_bytes=max_response_bytes)
     previous_count = len(result.data.get("articles", ()))
     while (
@@ -437,7 +442,7 @@ def _search_articles(db, context, args, base):
 
 def _article_evidence(db, context, args, base):
     position = decode_bound_cursor(context, args)
-    offset = position["offset"] if position else 0
+    offset = position.get("offset") if position is not None else 0
     if (
         not isinstance(offset, int)
         or isinstance(offset, bool)

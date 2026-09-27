@@ -1,5 +1,16 @@
 """MCP adapters over the same current-access projections used by the team UI."""
 
+from typing import Any
+
+from sqlalchemy.orm import Session
+
+from app.schemas.mcp_reads import (
+    IndicatorArguments,
+    HuntQueueArguments,
+    PublicationArguments,
+    TechniqueArguments,
+    MCPReadResult,
+)
 from app.services.indicator_assessments import list_indicators
 from app.services.indicator_publications import list_publications
 from app.services.mcp_read_contracts import MCPReadContext
@@ -16,19 +27,23 @@ def _actor(context: MCPReadContext) -> AssessmentRequest:
     )
 
 
-def _result(context, data, base, team_id, kind):
+def _result(
+    context: MCPReadContext, data: dict[str, Any], link: str, kind: str
+) -> MCPReadResult:
     from app.services.mcp_read_service import _result as build_result
 
     return build_result(
         context,
         data=data,
-        link=f"{base}/teams/{team_id}" if team_id else f"{base}/",
+        link=link,
         kind=kind,
         next_cursor=data.get("next_cursor"),
     )
 
 
-def read_indicator_assessments(db, context, args, base):
+def read_indicator_assessments(
+    db: Session, context: MCPReadContext, args: IndicatorArguments, base: str
+) -> MCPReadResult:
     page = list_indicators(
         db,
         actor=_actor(context),
@@ -40,10 +55,15 @@ def read_indicator_assessments(db, context, args, base):
     data = page.model_dump(mode="json")
     data["has_more"] = args.page * args.limit < page.total
     data["next_page"] = args.page + 1 if data["has_more"] else None
-    return _result(context, data, base, args.team_id, "indicator_assessments")
+    link = f"{base}/api/v1/items/{args.item_id}/indicators"
+    if args.team_id is not None:
+        link += f"?team_id={args.team_id}"
+    return _result(context, data, link, "indicator_assessments")
 
 
-def read_hunt_queue(db, context, args, base):
+def read_hunt_queue(
+    db: Session, context: MCPReadContext, args: HuntQueueArguments, base: str
+) -> MCPReadResult:
     page = list_team_hunts(
         db,
         actor=_actor(context),
@@ -57,11 +77,16 @@ def read_hunt_queue(db, context, args, base):
         limit=args.limit,
     )
     return _result(
-        context, page.model_dump(mode="json"), base, args.team_id, "hunt_queue"
+        context,
+        page.model_dump(mode="json"),
+        f"{base}/teams?team={args.team_id}&panel=hunts",
+        "hunt_queue",
     )
 
 
-def read_publications(db, context, args, base):
+def read_publications(
+    db: Session, context: MCPReadContext, args: PublicationArguments, base: str
+) -> MCPReadResult:
     page = list_publications(
         db,
         actor=_actor(context),
@@ -72,13 +97,14 @@ def read_publications(db, context, args, base):
     return _result(
         context,
         page.model_dump(mode="json"),
-        base,
-        args.team_id,
+        f"{base}/api/v1/teams/{args.team_id}/indicator-publications",
         "reviewed_publications",
     )
 
 
-def read_technique(db, context, args, base):
+def read_technique(
+    db: Session, context: MCPReadContext, args: TechniqueArguments, base: str
+) -> MCPReadResult:
     from app.services.attack_catalog import (
         load_attack_catalog,
         detection_strategies_for_techniques,
@@ -101,7 +127,6 @@ def read_technique(db, context, args, base):
             },
             "detection_strategies": detection_strategies_for_techniques([technique.id]),
         },
-        base,
-        None,
+        technique.url,
         "attack_technique",
     )
