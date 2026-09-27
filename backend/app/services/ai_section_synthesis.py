@@ -32,6 +32,8 @@ def validate_section_synthesis(payload: dict, messages: list[dict]) -> None:
     body = json.loads(messages[-1]["content"])
     known = {row["citation"] for row in body["sections"]}
     text = payload.get("summary_text")
+    if not isinstance(text, str) or len(text) > 24000:
+        raise ValueError("Section synthesis must contain at most 24,000 characters.")
     import re
     citations = sorted(set(re.findall(r"\[(S\d+)\]", text or ""))) if isinstance(text, str) else []
     validate_section({"body_markdown": text, "citations": citations}, known_citations=known)

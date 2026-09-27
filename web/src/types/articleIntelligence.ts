@@ -32,6 +32,7 @@ export interface ExtractionCoverage {
   token_budget: number
   call_limit: number
   output_limited: boolean
+  summary_limited?: boolean
   progress_revision?: string | null
   summary_scope?: 'first_section' | 'processed_sections' | 'section_synthesis'
   sections: { index: number; start: number; end: number; status: 'pending' | 'started' | 'completed' }[]

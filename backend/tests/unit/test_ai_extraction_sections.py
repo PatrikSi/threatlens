@@ -241,3 +241,21 @@ def test_continuation_does_not_reuse_modified_source_or_provider(db_session, ext
     with pytest.raises(AIIntegrationError, match="Provider settings"):
         run_section_extraction(db_session, active, request=lambda *_a, **_kw: pytest.fail("must not send"), **arguments)
     assert db_session.get(ItemAIEnrichment, item.id).extraction_progress_json == previous
+
+
+def test_checkpoint_summary_storage_is_bounded_without_losing_section_membership(db_session, extraction_item):  # noqa: F811
+    item, article = extraction_item
+    arguments = setup_run(db_session, item, article, "x" * 64000)
+    active = SimpleNamespace(provider_type="openai_compatible", model="test", max_completion_tokens=128)
+    def request(_db, _active, **kwargs):
+        result = empty_completion()
+        result.payload.update(summary_text=kwargs["provider_operation_scope"] + " " + "large " * 5000,
+            relevance_reasons=["r" * 5000] * 1000)
+        return result
+    completion, extraction = run_section_extraction(db_session, active, request=request, **arguments)
+    assert "item_extraction_section:7" in completion.payload["summary_text"]
+    assert len(completion.payload["summary_text"]) < 8000
+    assert extraction["coverage"]["summary_limited"]
+    progress = db_session.get(ItemAIEnrichment, item.id).extraction_progress_json
+    assert all(len(section["completion"]["payload"]["summary_text"]) <= 900 for section in progress["sections"])
+    assert all(len(section["completion"]["payload"]["relevance_reasons"]) <= 8 for section in progress["sections"])
