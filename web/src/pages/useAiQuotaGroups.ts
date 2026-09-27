@@ -13,6 +13,9 @@ export interface AiQuotaGroup {
   max_concurrent_requests: number;
   hourly_token_budget: number;
   max_concurrent_per_team: number;
+  minute_request_budget?: number;
+  minute_token_budget?: number;
+  team_hourly_token_budgets?: Record<string, number>;
 }
 type Page = {
   items: AiQuotaGroup[];
@@ -26,6 +29,9 @@ type Draft = {
   max_concurrent_requests: string;
   hourly_token_budget: string;
   max_concurrent_per_team: string;
+  minute_request_budget: string;
+  minute_token_budget: string;
+  team_hourly_token_budgets: string;
 };
 const draftFor = (group?: AiQuotaGroup): Draft => ({
   name: group?.name ?? "",
@@ -33,6 +39,13 @@ const draftFor = (group?: AiQuotaGroup): Draft => ({
   max_concurrent_requests: String(group?.max_concurrent_requests ?? 0),
   hourly_token_budget: String(group?.hourly_token_budget ?? 0),
   max_concurrent_per_team: String(group?.max_concurrent_per_team ?? 1),
+  minute_request_budget: String(group?.minute_request_budget ?? 0),
+  minute_token_budget: String(group?.minute_token_budget ?? 0),
+  team_hourly_token_budgets: JSON.stringify(
+    group?.team_hourly_token_budgets ?? {},
+    null,
+    2,
+  ),
 });
 
 export function useAiQuotaGroups(enabled: boolean) {
@@ -66,6 +79,8 @@ export function useAiQuotaGroups(enabled: boolean) {
           "max_concurrent_requests",
           "hourly_token_budget",
           "max_concurrent_per_team",
+          "minute_request_budget",
+          "minute_token_budget",
         ] as const
       ).some((key) => {
         const value = editor.draft[key].trim();
@@ -73,7 +88,12 @@ export function useAiQuotaGroups(enabled: boolean) {
           !value ||
           !Number.isSafeInteger(Number(value)) ||
           Number(value) < 0 ||
-          Number(value) > (key === "hourly_token_budget" ? 1e12 : 1000)
+          Number(value) >
+            (key.includes("token")
+              ? 1e12
+              : key === "minute_request_budget"
+                ? 1e6
+                : 1000)
         );
       }));
   const save = useMutation({
@@ -90,6 +110,13 @@ export function useAiQuotaGroups(enabled: boolean) {
               submitted.draft.max_concurrent_requests,
             ),
             hourly_token_budget: Number(submitted.draft.hourly_token_budget),
+            minute_request_budget: Number(
+              submitted.draft.minute_request_budget,
+            ),
+            minute_token_budget: Number(submitted.draft.minute_token_budget),
+            team_hourly_token_budgets: JSON.parse(
+              submitted.draft.team_hourly_token_budgets,
+            ) as unknown,
             max_concurrent_per_team: Number(
               submitted.draft.max_concurrent_per_team,
             ),

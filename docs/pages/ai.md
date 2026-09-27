@@ -671,3 +671,11 @@ its recent historical charges, and its old account retains already attributed
 reservations until they age out. Account edits do not alter credentials or
 invalidate queued provider selections. Account budgets measure this ThreatLens
 installation only, not other clients' upstream usage or monetary billing.
+
+### Team destination policies and short-window capacity
+
+See [Team AI destinations and capacity](team-ai-governance.md) for approved team
+provider overrides, handling-label restrictions, rolling-minute request/token
+limits, team token allocations and current reservation/wait diagnostics. Existing
+unconfigured teams retain installation routing; queued work keeps its accepted
+provider and is checked against current destination policy before sending.

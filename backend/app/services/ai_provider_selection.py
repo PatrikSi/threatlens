@@ -79,6 +79,14 @@ def provider_selection_metadata(
         # The existing connection test deliberately tests the legacy settings.
         return result
     selected_id = _assigned_provider_id(db, feature)
+    if feature == "team_assessment" and result.get("team_id"):
+        from app.services.team_ai_governance import team_selected_provider
+
+        selected_key = team_selected_provider(db, uuid.UUID(str(result["team_id"])))
+        if selected_key is not None:
+            selected_id = (
+                None if selected_key == "legacy" else uuid.UUID(selected_key[8:])
+            )
     provider = db.get(AIProviderConfiguration, selected_id) if selected_id else None
     result[PROVIDER_SELECTION_KEY] = {
         "provider_id": str(selected_id) if selected_id else None,

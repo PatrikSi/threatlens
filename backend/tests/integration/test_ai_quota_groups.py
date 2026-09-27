@@ -244,7 +244,10 @@ def test_profile_denied_team_does_not_hold_the_accounts_next_turn(
         first = reserve(db, profiles[0], "team:a")
         with pytest.raises(AIWorkflowDeferred, match="provider_concurrency_budget"):
             reserve(db, profiles[0], "team:b")
-        assert db.get(AIQuotaTeamTurn, (group_id, "team:b")) is None
+        assert (
+            db.get(AIQuotaTeamTurn, (group_id, "team:b")).last_denial_reason
+            == "provider_concurrency_budget"
+        )
         assert reserve(db, profiles[1], "team:c")
         settle(db, first)
 

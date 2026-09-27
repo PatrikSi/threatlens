@@ -1,3 +1,4 @@
+import { AiQuotaUtilization } from "./AiQuotaUtilization";
 import { useState } from "react";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { resolveApiErrorMessage } from "../api/errors";
@@ -105,6 +106,11 @@ export function AiQuotaGroups({
                 ["max_concurrent_requests", "Account concurrent requests"],
                 ["hourly_token_budget", "Account tokens per rolling hour"],
                 ["max_concurrent_per_team", "Concurrent requests per team"],
+                [
+                  "minute_request_budget",
+                  "Account requests per rolling minute",
+                ],
+                ["minute_token_budget", "Account tokens per rolling minute"],
               ] as const
             ).map(([key, label]) => (
               <label className="text-sm" key={key}>
@@ -112,7 +118,13 @@ export function AiQuotaGroups({
                 <input
                   type="number"
                   min={0}
-                  max={key === "hourly_token_budget" ? 1e12 : 1000}
+                  max={
+                    key.includes("token")
+                      ? 1e12
+                      : key === "minute_request_budget"
+                        ? 1e6
+                        : 1000
+                  }
                   step={1}
                   className="mt-1 block w-full rounded border p-2 dark:bg-[#072019]"
                   value={draft[key]}
@@ -125,6 +137,23 @@ export function AiQuotaGroups({
             Use 0 for unlimited. Unknown provider outcomes retain their reserved
             token estimate. Fairness waits expire after three minutes without a
             retry.
+          </p>
+          <label className="block text-sm">
+            Team token allocations (JSON)
+            <textarea
+              className="mt-1 block w-full rounded border p-2 dark:bg-[#072019]"
+              rows={4}
+              maxLength={65536}
+              value={draft.team_hourly_token_budgets}
+              onChange={(event) =>
+                q.update("team_hourly_token_budgets", event.target.value)
+              }
+            />
+          </label>
+          <p className="text-xs">
+            Map team:&lt;team UUID&gt; or shared to tokens per rolling hour.
+            Omitted teams and 0 have no additional team token limit. Account and
+            profile limits still apply.
           </p>
           <ul className="space-y-2">
             {draft.provider_keys.map((key) => (
@@ -211,6 +240,7 @@ export function AiQuotaGroups({
           </div>
         </fieldset>
       )}
+      {q.editor?.baseline && <AiQuotaUtilization groupId={q.editor.id} />}
       <ConfirmDialog
         open={discard}
         title="Discard account quota changes?"
