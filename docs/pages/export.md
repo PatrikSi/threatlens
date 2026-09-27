@@ -93,6 +93,14 @@ The readable bundle is a ZIP with `manifest.json` and one PDF per article under 
 - Full article text is format-specific and opt-in except for the default JSONL and ThreatLens bundle presets.
 - Export filters, format, item count, size, duration, and outcome are audited. Search text, article contents, and private notes are not written to audit metadata.
 - Synchronous export artifacts are generated in temporary files and removed after the response. Background jobs retain encrypted artifact chunks for their configured lifetime; download materialization uses temporary files that are removed after the response.
+- Background rendering scratch is private to the effective database connection
+  (endpoint, database, role and connection options) and execution claim. Cleanup
+  never scans another database's namespace. Password rotation retains the same
+  namespace. Legacy flat `threatlens-export-job-*` directories are not adopted:
+  restart an isolated export container to clear its temporary filesystem, or
+  remove those old directories only after all workers sharing that host storage
+  have stopped. Changing database identity can leave an old namespace requiring
+  the same deliberate cleanup. Backend test runs use independent temporary roots.
 
 ## Operational Limits
 

@@ -5,6 +5,7 @@ import math
 import os
 import shutil
 import subprocess
+import tempfile
 import time
 import uuid
 import warnings
@@ -39,6 +40,20 @@ _TEST_REDIS_IMAGE_ENV = "THREATLENS_TEST_REDIS_IMAGE"
 _DEFAULT_TEST_POSTGRES_IMAGE = "postgres:16"
 _DEFAULT_TEST_REDIS_IMAGE = "redis:7-alpine"
 _DOCKER_STARTUP_TIMEOUT_SECONDS = 60
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _isolate_test_temporary_storage():
+    """Keep concurrent suites' scratch, subprocesses and cleanup independent."""
+    previous = tempfile.tempdir
+    with tempfile.TemporaryDirectory(prefix="threatlens-pytest-") as directory:
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setenv("TMPDIR", directory)
+            tempfile.tempdir = directory
+            try:
+                yield
+            finally:
+                tempfile.tempdir = previous
 
 
 @pytest.fixture(scope="session", autouse=True)
