@@ -54,7 +54,9 @@ keeps a locally held nested discard dialog open through resizing. Retained hunt
 rows also disable reminder acknowledgement while their actions are paused.
 
 Follow-up validation: 26 team/statistics DOM cases; 42 dashboard/schedule DOM
-cases; 15 cross-browser AI configuration/ingestion cases; and the strengthened
-nested-resize case in Chromium. The coordinating final suite covers the final
-combined source and remaining browser engines. TypeScript and targeted ESLint
-passed. No live stack changes were made.
+cases; and 15 cross-browser AI configuration/ingestion cases. The complete
+intercepted-API browser suite then passed all 132 cases in 19 files across
+Chromium, Firefox and WebKit (44 per engine), including the strengthened nested
+resize regression, publication evidence and qualification navigation. It ran
+serially in 6.2 minutes without retries or longer per-test deadlines. TypeScript
+and targeted ESLint passed. No live stack changes were made.
