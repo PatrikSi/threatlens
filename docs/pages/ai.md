@@ -66,6 +66,14 @@ remain unchanged.
 
 ### Completion Budgets
 
+Configuration is grouped into providers/routing, features/briefs, report budgets,
+company context, prompts and the legacy provider. Expand only the section you
+need; collapsing it preserves its draft. The shared **Save changes** control
+stays available while scrolling and shows unsaved state. Named providers and
+feature assignments retain their separate save actions. **Review fields needing
+attention** opens the first invalid field; the saved-budget link opens and
+focuses report controls without changing any values.
+
 **Default completion tokens** sets the initial output allowance for article
 enrichment, team assessments and daily briefs. Both legacy settings and named providers accept
 128–131,072 tokens. **Initial report completion tokens**, under **Report context
