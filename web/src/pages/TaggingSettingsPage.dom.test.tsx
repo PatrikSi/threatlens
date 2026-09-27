@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { TestDataRouter } from '../../tests/helpers/TestDataRouter'
 
 import { act } from 'react'
 import { createRoot, Root } from 'react-dom/client'
@@ -210,7 +211,7 @@ function renderPage() {
   document.body.appendChild(container)
   root = createRoot(container)
   act(() => {
-    root?.render(<TaggingSettingsPage />)
+    root?.render(<TestDataRouter><TaggingSettingsPage /></TestDataRouter>)
   })
   return container
 }
@@ -313,7 +314,7 @@ describe('TaggingSettingsPage DOM workflows', () => {
       rules: taggingPageDomMocks.bundleData.rules.map((rule) => ({ ...rule })),
     }
     act(() => {
-      root?.render(<TaggingSettingsPage />)
+      root?.render(<TestDataRouter><TaggingSettingsPage /></TestDataRouter>)
     })
 
     expect(view.querySelector<HTMLInputElement>('#tagging-auto-confidence')?.value).toBe('0.73')

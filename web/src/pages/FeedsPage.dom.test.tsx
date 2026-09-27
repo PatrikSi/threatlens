@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { TestDataRouter, testRouter } from '../../tests/helpers/TestDataRouter'
 
 import { act } from 'react'
 import { createRoot, Root } from 'react-dom/client'
@@ -296,7 +297,7 @@ function renderPage({ clearSessionStorage = true }: { clearSessionStorage?: bool
   }
   root = createRoot(container)
   act(() => {
-    root?.render(<FeedsPage />)
+    root?.render(<TestDataRouter><FeedsPage /></TestDataRouter>)
   })
   return container
 }
@@ -307,7 +308,7 @@ function pageText() {
 
 function rerenderPage() {
   act(() => {
-    root?.render(<FeedsPage />)
+    root?.render(<TestDataRouter><FeedsPage /></TestDataRouter>)
   })
 }
 
@@ -636,8 +637,7 @@ describe('FeedsPage DOM workflows', () => {
       setInputValue(urlInput!, 'https://example.com/new-feed.xml')
     })
 
-    routerMocks.blocker.state = 'blocked'
-    rerenderPage()
+    act(() => { void testRouter().navigate('/test-away') })
 
     expect(pageText()).toContain('Discard unsaved changes?')
     expect(pageText()).toContain('You have unsaved feed changes. Leave without saving?')

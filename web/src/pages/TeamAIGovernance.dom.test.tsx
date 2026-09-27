@@ -104,17 +104,25 @@ describe("team AI destination governance", () => {
     expect(view.host.textContent).not.toContain("Legacy provider settings");
     expect(view.host.textContent).toContain("Membership changed");
   });
-  it("keeps malformed policy JSON local and displays an actionable failure", async () => {
+  it("edits named handling restrictions without parsing JSON and validates removed destinations", async () => {
+    vi.mocked(apiFetch).mockImplementation(async (path) => path === '/iam/data-policies'
+      ? { labels: [{ id: 'label-1', name: 'Restricted', is_active: true }] } : policy);
     view = await mountIntel(<TeamAIGovernance teamId="team-1" admin />);
-    editIntel(view.host, "Handling destination restrictions", "{invalid");
-    act(() => intelButton(view!.host, "Approve destination policy").click());
+    await act(async () => {
+      await vi.waitFor(() => expect(view!.host.querySelector('option[value="label-1"]')).not.toBeNull());
+    });
+    const select = [...view.host.querySelectorAll('label')].find((label) => label.textContent?.startsWith('Restrict a handling label'))!.control as HTMLSelectElement;
+    act(() => { select.value = 'label-1'; select.dispatchEvent(new Event('change', { bubbles: true })); });
+    const restriction = [...view.host.querySelectorAll('fieldset')].find((fieldset) => fieldset.querySelector('legend')?.textContent === 'Restricted')!;
+    expect(restriction.textContent).toContain('Legacy provider settings');
+    act(() => (restriction.querySelector('input') as HTMLInputElement).click());
+    expect(restriction.textContent).toContain('AI requests are blocked for this label.');
+    act(() => intelButton(view!.host, 'Approve destination policy').click());
     await settle();
-    expect(
-      vi.mocked(apiFetch).mock.calls.filter(([, init]) => init?.method),
-    ).toHaveLength(0);
-    expect(view.host.querySelector('[role="alert"]')).not.toBeNull();
-    expect(
-      intelField(view.host, "Handling destination restrictions").value,
-    ).toBe("{invalid");
+    const sent = vi.mocked(apiFetch).mock.calls.find(([, init]) => init?.method === 'PUT')!;
+    expect(JSON.parse(String(sent[1]?.body)).label_destinations).toEqual({ 'label-1': [] });
+    editIntel(view.host, 'Approved provider keys', 'invalid provider');
+    expect(intelButton(view.host, 'Approve destination policy').disabled).toBe(true);
+    expect(view.host.textContent).toContain('valid legacy/profile provider key');
   });
 });

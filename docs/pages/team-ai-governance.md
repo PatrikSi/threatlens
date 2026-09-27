@@ -26,6 +26,14 @@ Membership grants neither AI administration nor article access.
 - Provider secrets stay in AI settings. Team readers see approved names/IDs and
   availability, not credentials or provider configuration.
 
+Use **Restrict a handling label** to choose a named label, then select its allowed
+destinations. Clearing every destination explicitly blocks AI for that label;
+**Use all approved destinations** removes the additional restriction. Label
+choices require `read:iam`. If choices cannot be loaded, existing restrictions
+remain visible and are preserved. The editor rejects malformed provider keys,
+unapproved selected routes, and label restrictions containing removed providers
+before saving. The API continues accepting the existing UUID-keyed policy format.
+
 Policy updates use their own optimistic version. Drafts retain the version they
 were opened against, disable editing while submitting, and expose conflicts
 without overwriting unsaved changes. Current permissions are checked again after

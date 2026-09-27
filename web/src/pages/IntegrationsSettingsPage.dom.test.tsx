@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { TestDataRouter } from '../../tests/helpers/TestDataRouter'
 
 import { act } from 'react'
 import { createRoot, Root } from 'react-dom/client'
@@ -393,7 +394,7 @@ function renderPage() {
   document.body.appendChild(container)
   root = createRoot(container)
   act(() => {
-    root?.render(<IntegrationsSettingsPage />)
+    root?.render(<TestDataRouter><IntegrationsSettingsPage /></TestDataRouter>)
   })
   return container
 }

@@ -186,3 +186,52 @@ describe('team destination lifecycle', () => {
     ).toContain('Discard unsaved team destination changes?')
   })
 })
+
+it('reloads the current configuration revision after pausing a destination', async () => {
+  let revision = 2
+  let enabled = true
+  const attempted: string[] = []
+  vi.mocked(apiFetch).mockImplementation(async (path) => {
+    const row = { ...destination, enabled, ownership_revision: revision }
+    if (path === '/notifications/webhooks' || path === '/feeds') return []
+    if (path === '/teams/team/integrations') return { items: [row] }
+    if (path.endsWith('/enabled')) {
+      revision += 1
+      enabled = false
+      return { ...row, enabled, ownership_revision: revision }
+    }
+    if (path.endsWith('/configuration')) return {
+      ...createRequestFromDraft(createDefaultDraft()), ...row,
+      user_id: 'analyst', team_id: 'team', created_at: '2026-09-27T00:00:00Z', updated_at: '2026-09-27T00:00:00Z',
+    }
+    if (path.includes('/configuration?')) {
+      attempted.push(path)
+      throw new ApiError('Reload and adopt this destination before editing its configuration', 409, path)
+    }
+    throw new Error(`Unexpected request: ${path}`)
+  })
+  view = await mountIntel(<TeamIntegrations teamId="team" unavailable={false} />)
+  act(() => intelButton(view!.host, 'Edit destination configuration').click())
+  await settle()
+  act(() => intelButton(view!.host, 'Pause destination').click())
+  await settle()
+  await settle()
+  expect(intelButton(view.host, 'Enable destination')).toBeTruthy()
+  edit(field('Destination name'), 'Draft change')
+  act(() => intelButton(view!.host, 'Save team destination').click())
+  await settle()
+  expect(view.host.textContent).toContain('Reload and adopt')
+  act(() => intelButton(view!.host, 'Reload saved destination').click())
+  await settle()
+  act(() => intelButton(document.body, 'Discard changes').click())
+  await settle()
+  expect(field('Destination name').value).toBe('SIEM')
+  edit(field('Destination name'), 'Retry')
+  act(() => intelButton(view!.host, 'Save team destination').click())
+  await settle()
+  expect(attempted).toEqual([
+    '/teams/team/integrations/dest/configuration?expected_revision=2',
+    '/teams/team/integrations/dest/configuration?expected_revision=3',
+  ])
+  expect(vi.mocked(apiFetch).mock.calls.filter(([path]) => path.endsWith('/configuration'))).toHaveLength(3)
+})

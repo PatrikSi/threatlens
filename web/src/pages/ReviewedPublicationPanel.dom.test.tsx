@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ApiError, apiFetch } from '../api/client'
+import { ApiError, apiFetch, apiDownload } from '../api/client'
 import { ReviewedPublicationPanel } from './ReviewedPublicationPanel'
 import { deferred, intelButton, mountIntel, settle } from './articleIntelligenceTestSupport'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
-vi.mock('../api/client', async (original) => ({ ...(await original<object>()), apiFetch: vi.fn() }))
+vi.mock('../api/client', async (original) => ({ ...(await original<object>()), apiFetch: vi.fn(), apiDownload: vi.fn() }))
 vi.mock('../hooks/useCurrentUser', () => ({ useCurrentUser: () => ({ isError: false, data: { access: { permissions: ['read:items', 'read:teams', 'write:teams'] } } }) }))
 const preview = { fingerprint: 'exact-revision', matched_articles: 1, excluded_or_unreviewed: 2,
   indicators: [{ item_id: 'item', ioc_id: 'ioc', type: 'domain', value: 'evil.net', title: 'Article', assessment_version: 1, evidence_count: 2 }] }
@@ -79,4 +79,71 @@ describe('reviewed publication approval', () => {
     expect(requests[0][1]?.body).toBe(requests[1][1]?.body)
     expect(JSON.parse(String(requests[0][1]?.body))).toMatchObject({ preview_fingerprint: 'exact-revision', format: 'stix', marking: 'TLP:AMBER' })
   })
+})
+
+it('keeps publishing available after an artifact 404 and clears the error after refresh', async () => {
+  const publication = { id: 'gone', format: 'stix', status: 'active', revision: 1,
+    withdrawn_count: 0, indicator_count: 1, created_at: '2026-09-12T00:00:00Z' }
+  let missing = false
+  const implementation = vi.mocked(apiFetch).getMockImplementation()!
+  vi.mocked(apiFetch).mockImplementation((path, init) => path.includes('/indicator-publications?')
+    ? Promise.resolve({ items: missing ? [] : [publication], has_more: false, next_cursor: null })
+    : implementation(path, init))
+  vi.mocked(apiDownload).mockRejectedValue(new ApiError('Publication unavailable', 404, '/download'))
+  await open()
+  expect(view!.host.textContent).toContain('Approve reviewed publication')
+  act(() => intelButton(view!.host, 'Download publication').click())
+  await settle()
+  expect(view!.host.textContent).toContain('Approve reviewed publication')
+  expect(view!.host.textContent).toContain('Publication consumers')
+  missing = true
+  act(() => intelButton(view!.host, 'Refresh publications').click())
+  await settle()
+  expect(view!.host.textContent).toContain('No accessible reviewed publications on this page')
+  expect(view!.host.textContent).toContain('Approve reviewed publication')
+  expect(view!.host.textContent).toContain('evil.net')
+  expect(view!.host.textContent).not.toContain('Publication unavailable')
+})
+
+it('does not restore approval when recovering team access', async () => {
+  await open()
+  act(() => (view!.host.querySelector('input[type="checkbox"]') as HTMLInputElement).click())
+  const implementation = vi.mocked(apiFetch).getMockImplementation()!
+  vi.mocked(apiFetch).mockImplementation((path, init) => path.includes('/indicator-publications?')
+    ? Promise.reject(new ApiError('Team access removed', 403, path)) : implementation(path, init))
+  await act(async () => { await view!.client.invalidateQueries({ queryKey: ['reviewed-publications', 'team'] }) })
+  await settle()
+  expect(view!.host.textContent).not.toContain('Approve reviewed publication')
+  vi.mocked(apiFetch).mockImplementation(implementation)
+  act(() => intelButton(view!.host, 'Refresh publications').click())
+  await settle()
+  expect(view!.host.textContent).not.toContain('Approve reviewed publication')
+  act(() => intelButton(view!.host, 'Preview reviewed indicators').click())
+  await settle()
+  expect(intelButton(view!.host, 'Approve reviewed publication').disabled).toBe(true)
+  expect((view!.host.querySelector('input[type="checkbox"]') as HTMLInputElement).checked).toBe(false)
+})
+
+it('keeps a newer publication pending when an older history refresh completes', async () => {
+  await open()
+  const history = deferred<object>()
+  const publish = deferred<object>()
+  const implementation = vi.mocked(apiFetch).getMockImplementation()!
+  vi.mocked(apiFetch).mockImplementation((path, init) => {
+    if (path.includes('/indicator-publications?')) return history.promise
+    if (path.endsWith('/indicator-publications') && init?.method === 'POST') return publish.promise
+    return implementation(path, init)
+  })
+  act(() => intelButton(view!.host, 'Refresh publications').click())
+  await settle()
+  act(() => (view!.host.querySelector('input[type="checkbox"]') as HTMLInputElement).click())
+  act(() => intelButton(view!.host, 'Approve reviewed publication').click())
+  await settle()
+  expect(intelButton(view!.host, 'Saving publication…').matches(':disabled')).toBe(true)
+  await act(async () => history.resolve({ items: [], has_more: false, next_cursor: null }))
+  await settle()
+  expect(intelButton(view!.host, 'Saving publication…').matches(':disabled')).toBe(true)
+  await act(async () => publish.reject(new Error('Publication interrupted')))
+  await settle()
+  expect(view!.host.textContent).toContain('Publication interrupted')
 })

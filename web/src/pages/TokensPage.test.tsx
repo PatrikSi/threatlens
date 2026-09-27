@@ -1,3 +1,4 @@
+import { TestDataRouter } from '../../tests/helpers/TestDataRouter'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
@@ -82,7 +83,8 @@ vi.mock('../hooks/useCurrentUser', () => ({
   useCurrentUser: () => tokensPageMocks.currentUser,
 }))
 
-vi.mock('react-router-dom', () => ({
+vi.mock('react-router-dom', async (original) => ({
+  ...(await original<typeof import('react-router-dom')>()),
   useBlocker: () => ({
     state: 'unblocked',
     proceed: vi.fn(),
@@ -186,7 +188,7 @@ describe('reduceTokenCreateFormState', () => {
 
 describe('TokensPage rendered workflow', () => {
   it('renders explicit token-creation controls and warns on legacy unscoped tokens', () => {
-    const markup = renderToStaticMarkup(createElement(TokensPage))
+    const markup = renderToStaticMarkup(createElement(TestDataRouter, { children: createElement(TokensPage) }))
 
     expect(markup).toContain('API tokens')
     expect(markup).toContain('Create API token')

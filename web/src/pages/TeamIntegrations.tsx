@@ -181,6 +181,7 @@ function DestinationCard({
   onAdopt: () => void
   onChanged: () => void
 }) {
+  const cache = useQueryClient()
   const [credentialsOpen, setCredentialsOpen] = useState(false)
   const [configurationOpen, setConfigurationOpen] = useState(false)
   const [executionsOpen, setExecutionsOpen] = useState(false)
@@ -193,7 +194,10 @@ function DestinationCard({
           enabled: !row.enabled,
         }),
       }),
-    onSuccess: onChanged,
+    onSuccess: () => {
+      onChanged()
+      void cache.invalidateQueries({ queryKey: ['teams', 'integration-configuration', `${base}/${row.id}`] })
+    },
   })
   return (
     <article className="space-y-2 rounded border border-slate/30 p-3">

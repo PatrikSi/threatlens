@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { TestDataRouter, testRouter } from '../../tests/helpers/TestDataRouter'
 
 import { act } from 'react'
 import { createRoot, Root } from 'react-dom/client'
@@ -377,7 +378,7 @@ function renderPage() {
   document.body.appendChild(container)
   root = createRoot(container)
   act(() => {
-    root?.render(<UsersPage />)
+    root?.render(<TestDataRouter><UsersPage /></TestDataRouter>)
   })
   return container
 }
@@ -398,7 +399,7 @@ function flushPromises() {
 
 function rerenderPage() {
   act(() => {
-    root?.render(<UsersPage />)
+    root?.render(<TestDataRouter><UsersPage /></TestDataRouter>)
   })
 }
 
@@ -1642,8 +1643,7 @@ describe('UsersPage DOM workflows', () => {
       setSelectValue(roleSelect!, 'admin')
     })
 
-    routerMocks.blocker.state = 'blocked'
-    rerenderPage()
+    act(() => { void testRouter().navigate('/test-away') })
 
     expect(pageText()).toContain('Discard unsaved changes?')
     expect(pageText()).toContain('Discard unsaved user changes?')
@@ -1657,10 +1657,9 @@ describe('UsersPage DOM workflows', () => {
       cancelButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    expect(routerMocks.blocker.reset).toHaveBeenCalledTimes(1)
+    expect(testRouter().state.location.pathname).not.toBe('/test-away')
 
-    routerMocks.blocker.state = 'blocked'
-    rerenderPage()
+    act(() => { void testRouter().navigate('/test-away') })
 
     const discardButton = Array.from(document.querySelectorAll('button')).find(
       (button) => button.textContent?.includes('Discard changes'),
@@ -1671,7 +1670,7 @@ describe('UsersPage DOM workflows', () => {
       discardButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    expect(routerMocks.blocker.proceed).toHaveBeenCalledTimes(1)
+    expect(testRouter().state.location.pathname).toBe('/test-away')
   })
 
   it('treats a dirty create-user form as unsaved work before navigation', () => {
@@ -1685,8 +1684,7 @@ describe('UsersPage DOM workflows', () => {
       setInputValue(emailInput!, 'new-analyst@example.com')
     })
 
-    routerMocks.blocker.state = 'blocked'
-    rerenderPage()
+    act(() => { void testRouter().navigate('/test-away') })
 
     expect(pageText()).toContain('Discard unsaved changes?')
     expect(pageText()).toContain('Discard unsaved user changes?')
@@ -1723,8 +1721,7 @@ describe('UsersPage DOM workflows', () => {
         ?.value,
     ).toBe('temporary-password')
 
-    routerMocks.blocker.state = 'blocked'
-    rerenderPage()
+    act(() => { void testRouter().navigate('/test-away') })
 
     expect(pageText()).toContain('Discard unsaved user changes?')
   })

@@ -265,6 +265,9 @@ export function useAlertsPageController(triageDirty = false) {
   const confirmDiscardUnsavedAlertChanges = useUnsavedChangesWarning(
     hasUnsavedAlertDraftChanges || triageDirty,
     'Discard unsaved alert changes?',
+    // Rule editors stay mounted across tab/filter changes. Occurrence changes
+    // may replace a triage draft, so those still require confirmation.
+    { ignoreSearchChanges: !triageDirty },
   )
 
   const resetForm = (force = false) => {

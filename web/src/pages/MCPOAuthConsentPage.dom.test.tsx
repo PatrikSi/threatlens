@@ -14,7 +14,7 @@ const preview = { client_name: 'Client A', scopes: ['read:mcp', 'read:items'], r
 it('does not reuse a cached preview when a duplicate-parameter URL is visited', async () => {
   vi.mocked(apiFetch).mockResolvedValue(preview)
   view = await mountIntel(<MCPOAuthConsentPage />, '/' + query)
-  expect(view.host.textContent).toContain('Allow read access')
+  await act(async () => { await vi.waitFor(() => expect(view!.host.textContent).toContain('Allow read access')) })
   await act(async () => { await view!.router.navigate('/' + query + '&client_id=client-a') })
   await settle()
   expect(view.host.textContent).toContain('duplicate parameters')
@@ -25,6 +25,7 @@ it('a changed consent request clears password and cannot inherit a late completi
   const accepted = deferred<unknown>()
   vi.mocked(apiFetch).mockImplementation((path) => path.endsWith('/authorize') ? accepted.promise : Promise.resolve(preview))
   view = await mountIntel(<MCPOAuthConsentPage />, '/' + query)
+  await act(async () => { await vi.waitFor(() => expect(view!.host.querySelector('input[type=password]')).not.toBeNull()) })
   const password = view.host.querySelector('input[type=password]') as HTMLInputElement
   act(() => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(password, 'temporary-password')

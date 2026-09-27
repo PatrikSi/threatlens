@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { MemoryRouter } from 'react-router-dom'
+import { TestDataRouter, testRouter } from '../../tests/helpers/TestDataRouter'
 
 import { act } from 'react'
 import { createRoot, Root } from 'react-dom/client'
@@ -514,7 +514,7 @@ function renderPage() {
   document.body.appendChild(container)
   root = createRoot(container)
   act(() => {
-    root?.render(<MemoryRouter><AiSettingsPage /></MemoryRouter>)
+    root?.render(<TestDataRouter><AiSettingsPage /></TestDataRouter>)
   })
   return container
 }
@@ -662,7 +662,7 @@ describe('AiSettingsPage DOM workflows', () => {
       report_reserved_output_tokens: 32768,
       report_context_window_tokens: 262144,
     }
-    act(() => root!.render(<MemoryRouter><AiSettingsPage /></MemoryRouter>))
+    act(() => root!.render(<TestDataRouter><AiSettingsPage /></TestDataRouter>))
     expect(summary.textContent).toContain('32,768 tokens')
     expect(summary.textContent).toContain('262,144 tokens')
     expect(summary.querySelector('[role="status"]')).toBeNull()
@@ -720,7 +720,7 @@ describe('AiSettingsPage DOM workflows', () => {
     expect(fields.every((field) => field.matches(':disabled'))).toBe(true)
     expect(pageText()).toContain('Saving AI settings. Editing resumes')
     aiSettingsPageDomMocks.savePending = false
-    act(() => root?.render(<MemoryRouter><AiSettingsPage /></MemoryRouter>))
+    act(() => root?.render(<TestDataRouter><AiSettingsPage /></TestDataRouter>))
     expect(view.querySelector('fieldset input')?.matches(':disabled')).toBe(false)
     const endpoint = view.querySelector<HTMLInputElement>('input[aria-label="Base URL"]')!
     expect(endpoint.getAttribute('aria-describedby')).toBe('legacy-provider-endpoint-help')
@@ -986,26 +986,21 @@ describe('AiSettingsPage DOM workflows', () => {
       setInputValue(startTimeInput!, '2026-04-21T08:30')
     })
 
-    expect(routerMocks.useBlocker).toHaveBeenLastCalledWith(true)
+    act(() => { void testRouter().navigate('/test-away') })
+    expect(document.querySelector('[role="alertdialog"]')).not.toBeNull()
+    act(() => getButton('Cancel')!.click())
 
     act(() => {
       queueButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
     expect(aiSettingsPageDomMocks.reprocessMutate).toHaveBeenCalledTimes(1)
-    expect(routerMocks.useBlocker).toHaveBeenLastCalledWith(false)
+    act(() => { void testRouter().navigate('/test-away') })
+    expect(testRouter().state.location.pathname).toBe('/test-away')
     expect(view.textContent).not.toContain('Discard unsaved changes?')
   })
 
   it('warns on blocked navigation when a reprocess scope is in progress', () => {
-    const proceed = vi.fn()
-    const reset = vi.fn()
-    routerMocks.useBlocker.mockReturnValue({
-      state: 'blocked' as const,
-      proceed,
-      reset,
-    })
-
     renderPage()
 
     act(() => {
@@ -1015,10 +1010,12 @@ describe('AiSettingsPage DOM workflows', () => {
     const startTimeInput = getLabeledInput('Start time') as HTMLInputElement | null
     expect(startTimeInput).not.toBeNull()
 
+
     act(() => {
       setInputValue(startTimeInput!, '2026-04-21T08:30')
     })
 
+    act(() => { void testRouter().navigate('/test-away') })
     expect(pageText()).toContain('Discard unsaved changes?')
     expect(pageText()).toContain('You have a reprocess scope in progress. Leave without queueing or clearing it?')
 
@@ -1026,8 +1023,7 @@ describe('AiSettingsPage DOM workflows', () => {
       getButton('Discard changes')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    expect(proceed).toHaveBeenCalledTimes(1)
-    expect(reset).not.toHaveBeenCalled()
+    expect(testRouter().state.location.pathname).toBe('/test-away')
   })
 
   it('confirms before clearing a built reprocess scope', () => {

@@ -60,6 +60,10 @@ test('rejects a stale schedule draft and adopts a newer version only after reope
     await row.getByRole('button', { name: 'Edit', exact: true }).click()
     const name = row.getByLabel('Name', { exact: true })
     await name.fill('My local draft')
+    await page.getByRole('button', { name: 'Templates', exact: true }).click()
+    await expect(name).toBeHidden()
+    await page.getByRole('button', { name: 'Schedules', exact: true }).click()
+    await expect(name).toHaveValue('My local draft')
     await row.getByRole('button', { name: 'Run now', exact: true }).click()
     await expect(row.getByText(/Your draft keeps its original version/)).toBeVisible()
     await row.getByRole('button', { name: 'Save schedule', exact: true }).click()
@@ -70,6 +74,7 @@ test('rejects a stale schedule draft and adopts a newer version only after reope
     await expect(name).toBeEditable()
     await expect(name).toHaveValue('My local draft')
     await row.getByRole('button', { name: 'Cancel', exact: true }).click()
+    await page.getByRole('alertdialog').getByRole('button', { name: 'Discard changes', exact: true }).click()
     await row.getByRole('button', { name: 'Edit', exact: true }).click()
     await row.getByRole('button', { name: 'Save schedule', exact: true }).click()
     await expect.poll(() => writes).toEqual([

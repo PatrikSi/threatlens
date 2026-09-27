@@ -6,6 +6,7 @@ import { captureSessionLease } from "../api/sessionLifecycle";
 import { useUnsavedChangesWarning } from "../hooks/useUnsavedChangesWarning";
 import { TEAM_BUTTON } from "./teamPresentation";
 import { TeamAIProviderPicker } from "./TeamAIProviderPicker";
+import { TeamAIHandlingRestrictions } from './TeamAIHandlingRestrictions';
 
 type Policy = {
   team_id: string;
@@ -22,7 +23,7 @@ const fieldClass = "mt-1 block w-full rounded border p-2 dark:bg-[#072019]";
 const draftFor = (policy: Policy) => ({
   selected: policy.selected_provider_key ?? "",
   approved: policy.approved_provider_keys.join("\n"),
-  labels: JSON.stringify(policy.label_destinations, null, 2),
+  labels: structuredClone(policy.label_destinations),
 });
 
 export function TeamAIGovernance({
@@ -95,6 +96,11 @@ function PolicyEditor({
   const [baseline, setBaseline] = useState(policy);
   const [draft, setDraft] = useState(() => draftFor(policy));
   const [notice, setNotice] = useState("");
+  const approved = [...new Set(draft.approved.split('\n').map((key) => key.trim()).filter(Boolean))];
+  const invalidKey = approved.some((key) => !/^(legacy|profile:[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12})$/i.test(key));
+  const validation = admin && (invalidKey ? 'Choose a configured provider or enter a valid legacy/profile provider key.'
+    : draft.selected && !approved.includes(draft.selected) ? 'The assessment destination must be approved. Choose another destination or inherit the installation route.'
+      : Object.values(draft.labels).some((keys) => keys.some((key) => !approved.includes(key))) ? 'Remove unapproved providers from handling restrictions before saving.' : null);
   const dirty = JSON.stringify(draft) !== JSON.stringify(draftFor(baseline));
   const discard = useUnsavedChangesWarning(
     dirty,
@@ -102,6 +108,7 @@ function PolicyEditor({
   );
   const save = useMutation({
     mutationFn: async () => {
+      if (validation) throw new Error(validation);
       const lease = captureSessionLease();
       const saved = await apiFetch<Policy>(path, {
         method: admin ? "PUT" : "PATCH",
@@ -110,11 +117,8 @@ function PolicyEditor({
           selected_provider_key: draft.selected || null,
           ...(admin
             ? {
-                approved_provider_keys: draft.approved
-                  .split("\n")
-                  .map((key) => key.trim())
-                  .filter(Boolean),
-                label_destinations: JSON.parse(draft.labels) as unknown,
+                approved_provider_keys: approved,
+                label_destinations: draft.labels,
               }
             : {}),
         }),
@@ -200,38 +204,12 @@ function PolicyEditor({
               provider IDs from AI settings. Removing a key stops future
               requests from pending work using it.
             </p>
-            <label className="block text-sm">
-              Handling destination restrictions (JSON)
-              <textarea
-                className={fieldClass}
-                rows={5}
-                maxLength={65536}
-                value={draft.labels}
-                onChange={(event) =>
-                  setDraft({ ...draft, labels: event.target.value })
-                }
-              />
-            </label>
-            <p className="text-xs">
-              Map handling-label UUIDs to approved provider-key arrays. An empty
-              array denies AI for that label. Omitted labels use the approved
-              list. Both captured and current labels apply.
-            </p>
+            <TeamAIHandlingRestrictions value={draft.labels} approved={approved} destinations={policy.destinations}
+              onChange={(labels) => setDraft({ ...draft, labels })} />
           </>
         )}
         <label className="block text-sm">
           Assessment destination
-          {admin ? (
-            <input
-              className={fieldClass}
-              value={draft.selected}
-              maxLength={64}
-              placeholder="Inherit installation route"
-              onChange={(event) =>
-                setDraft({ ...draft, selected: event.target.value })
-              }
-            />
-          ) : (
             <select
               className={fieldClass}
               value={draft.selected}
@@ -242,18 +220,17 @@ function PolicyEditor({
               <option value="">
                 Inherit installation route (subject to approval)
               </option>
-              {policy.destinations.map((destination) => (
-                <option key={destination.key} value={destination.key}>
-                  {destination.name}
-                  {destination.available ? "" : " — unavailable"}
+              {[...new Set([...(admin ? approved : policy.destinations.map((entry) => entry.key)), ...(draft.selected ? [draft.selected] : [])])].map((key) => (
+                <option key={key} value={key}>
+                  {policy.destinations.find((entry) => entry.key === key)?.name ?? (key === 'legacy' ? 'Legacy provider settings' : key)}
+                  {policy.destinations.find((entry) => entry.key === key)?.available === false ? ' — unavailable' : ''}
                 </option>
               ))}
             </select>
-          )}
         </label>
         <button
           className={TEAM_BUTTON}
-          disabled={!dirty && policy.configured}
+          disabled={Boolean(validation) || (!dirty && policy.configured)}
           onClick={() => save.mutate()}
         >
           {save.isPending
@@ -263,6 +240,7 @@ function PolicyEditor({
               : "Save assessment destination"}
         </button>
       </fieldset>
+      {validation && <p role="alert">{validation}</p>}
       {(dirty || baseline.version !== policy.version) && (
         <button
           className={TEAM_BUTTON}

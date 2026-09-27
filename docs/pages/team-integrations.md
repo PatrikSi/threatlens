@@ -7,6 +7,12 @@ both `write:teams` and `write:notifications`, current manager-group membership a
 an eligible operator account. Installation administration alone does not grant
 team membership.
 
+Configuration drafts retain their original ownership revision while you edit.
+Pausing, enabling or transferring the destination can make that draft stale.
+After a conflict, review or copy your draft and choose **Reload saved destination**:
+after confirming discard, this fetches the current configuration and revision.
+A failed reload preserves the draft and explains how to retry.
+
 ## Ownership and source authority
 
 The team owns the destination and its execution history. Its delivery custodian
