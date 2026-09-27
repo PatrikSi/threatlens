@@ -31,7 +31,9 @@ let root: Root | undefined
 let client: QueryClient
 let host: HTMLDivElement
 function input(label: string) {
-  const field = [...host.querySelectorAll('label')].find((node) => node.textContent?.startsWith(label))
+  const named = host.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)
+  if (named) return named
+  const field = [...host.querySelectorAll('label')].find((node) => node.querySelector(':scope > span')?.textContent === label)
   return field!.querySelector('input')!
 }
 function change(label: string, value: string) {

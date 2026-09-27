@@ -127,8 +127,7 @@ function AiSettingsNoticeBanner({ notice }: { notice: AiSettingsNotice | null })
 function AiSettingsNavigation({
   activeTab,
   setActiveTab,
-  settings,
-}: Pick<AiSettingsPageViewProps, 'activeTab' | 'setActiveTab' | 'settings'>) {
+}: Pick<AiSettingsPageViewProps, 'activeTab' | 'setActiveTab'>) {
   const handleKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, currentTab: AiTab) => {
     const nextTab = getAdjacentTab(currentTab, event.key)
     if (!nextTab || nextTab === currentTab) {
@@ -143,8 +142,8 @@ function AiSettingsNavigation({
 
   return (
     <aside className="rounded-xl border border-slate/20 bg-white/80 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/90">
-      <h2 className="text-sm font-semibold">Sections</h2>
-      <div className="mt-2 grid gap-3 md:grid-cols-[minmax(180px,0.75fr)_minmax(0,1.25fr)] xl:block">
+      <h2 className="sr-only">AI automation sections</h2>
+      <div className="min-w-0">
         <label htmlFor="mobile-ai-settings-section" className="block xl:hidden">
           <span className="sr-only">Section</span>
           <select
@@ -158,7 +157,7 @@ function AiSettingsNavigation({
             ))}
           </select>
         </label>
-        <nav className="hidden grid-cols-1 gap-1 xl:grid" role="tablist" aria-label="AI automation sections">
+        <nav className="hidden grid-cols-3 gap-2 xl:grid" role="tablist" aria-label="AI automation sections">
           {AI_TABS.map((tab) => (
             <TabButton
               key={tab.value}
@@ -173,16 +172,6 @@ function AiSettingsNavigation({
             </TabButton>
           ))}
         </nav>
-        <dl className="grid gap-2 rounded border border-cyan/20 bg-cyan/10 px-3 py-2 text-xs sm:grid-cols-2 xl:mt-3 xl:grid-cols-1 dark:border-cyan-800/40 dark:bg-cyan-950/40">
-          <div>
-            <dt className="font-semibold">Legacy model</dt>
-            <dd className="mt-0.5 text-cyan-800 dark:text-cyan-200">{settings?.model || 'Not configured'}</dd>
-          </div>
-          <div>
-            <dt className="font-semibold">Legacy endpoint</dt>
-            <dd className="mt-0.5 break-all text-cyan-800 dark:text-cyan-200">{settings?.base_url || 'Not configured'}</dd>
-          </div>
-        </dl>
       </div>
     </aside>
   )
@@ -266,8 +255,8 @@ export function AiSettingsPageView(props: AiSettingsPageViewProps) {
     <div className="space-y-3">
       <AiSettingsHeader settings={props.settings} />
       <AiSettingsNoticeBanner notice={props.notice} />
-      <div className="grid gap-3 xl:grid-cols-[280px_minmax(0,1fr)]">
-        <AiSettingsNavigation activeTab={props.activeTab} setActiveTab={props.setActiveTab} settings={props.settings} />
+      <div className="min-w-0 space-y-3">
+        <AiSettingsNavigation activeTab={props.activeTab} setActiveTab={props.setActiveTab} />
         <AiSettingsTabContent {...props} />
       </div>
       <AiSettingsDialogs {...props} />
