@@ -91,7 +91,12 @@ def reconcile_publications(db: Session, *, limit: int = 50) -> int:
         refresh_publication(db, row)
     # A long withdrawal horizon gives polling consumers time to apply updates.
     # Active publications are never removed by this history cleanup.
+    from app.models.publication_consumer import PublicationSubscription
+    retained_subscription = select(PublicationSubscription.publication_id).where(
+        PublicationSubscription.publication_id == IndicatorPublication.id,
+    ).exists()
     expired = select(IndicatorPublication.id).where(
+        ~retained_subscription,
         IndicatorPublication.status == "withdrawn",
         IndicatorPublication.updated_at < datetime.now(timezone.utc) - timedelta(days=180),
     ).order_by(IndicatorPublication.updated_at, IndicatorPublication.id).limit(10).with_for_update(skip_locked=True)

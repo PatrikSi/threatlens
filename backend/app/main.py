@@ -38,6 +38,13 @@ from app.api.routes import (
     ai_quota_groups,
     team_hunt_worklist,
     indicator_publications,
+    team_hunt_workflow,
+    publication_consumers,
+    ai_qualification,
+    automation_receivers,
+    team_integrations,
+    ai_article_continuation,
+    team_ai_governance,
     ai_provider_usage,
     alerts,
     audit,
@@ -56,6 +63,7 @@ from app.api.routes import (
     items,
     lifecycle,
     mcp,
+    mcp_oauth,
     notifications,
     webhook_automation,
     automation_executions,
@@ -115,6 +123,7 @@ SAVED_VIEW_QUERY_INPUT_SCHEMA = "SavedViewQueryPayload-Input"
 SAVED_VIEW_QUERY_OUTPUT_SCHEMA = "SavedViewQueryPayload-Output"
 API_ROUTERS: tuple[APIRouter, ...] = (
     mcp.router,
+    mcp_oauth.router,
     teams.router,
     team_assessments.router,
     indicator_assessments.router,
@@ -144,6 +153,13 @@ API_ROUTERS: tuple[APIRouter, ...] = (
     ai_quota_groups.router,
     team_hunt_worklist.router,
     indicator_publications.router,
+    team_hunt_workflow.router,
+    publication_consumers.router,
+    ai_qualification.router,
+    automation_receivers.router,
+    team_integrations.router,
+    ai_article_continuation.router,
+    team_ai_governance.router,
     ai_provider_usage.router,
     stats.router,
     lifecycle.router,
@@ -323,6 +339,8 @@ def _mount_api_routers(application: FastAPI, *, include_legacy_aliases: bool) ->
 _mount_api_routers(
     app, include_legacy_aliases=_should_mount_legacy_api_aliases(settings)
 )
+app.include_router(mcp_oauth.discovery_router)
+
 DATA_POLICY_ROUTE_GOVERNANCE_ATTESTATION = validate_route_governance_manifest(app)
 install_route_governance_attestation(DATA_POLICY_ROUTE_GOVERNANCE_ATTESTATION)
 

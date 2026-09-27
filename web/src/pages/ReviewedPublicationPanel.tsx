@@ -10,6 +10,7 @@ import { hasRequiredPermissions } from '../workspace/workspaceModel'
 import { createSecureRequestId } from '../utils/secureRandomId'
 import { AssessmentTeamPicker } from './AssessmentTeamPicker'
 import { triggerBrowserDownload } from './exportPageModel'
+import { PublicationConsumers } from './PublicationConsumers'
 import { TEAM_BUTTON } from './teamPresentation'
 
 const INPUT = 'rounded border border-slate/30 bg-white p-2 dark:bg-[#072019]'
@@ -154,6 +155,7 @@ function PublicationWorkspace({ team, filters, writable }: {
     {error && <p role="alert">{resolveApiErrorMessage(error, 'The publication request could not be completed. Retry or refresh its preview.')}</p>}
     {publish.isSuccess && <p role="status">Publication saved. Download it from the list below.</p>}
     <div className="space-y-2">
+      {writable && !accessLost && <PublicationConsumers teamId={team} publications={page?.items ?? []} />}
       <h3 className="font-semibold">Publication history</h3>
       <p className="text-xs">Withdrawals are checked periodically and on download. Reimport updated artifacts to apply revoked/deleted indicators; a downloaded file cannot update itself.</p>
       <button className={TEAM_BUTTON} onClick={() => void history.refetch()}>Refresh publications</button>

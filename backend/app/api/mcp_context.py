@@ -27,11 +27,12 @@ _QUERY_CREDENTIAL_NAMES = frozenset(
 
 
 def _unauthenticated() -> ApiHTTPException:
+    from app.services.mcp_oauth import challenge_header
     return ApiHTTPException(
         status_code=401,
         detail="MCP requires a scoped personal or service-account bearer token.",
         error_code="mcp_bearer_token_required",
-        headers={"WWW-Authenticate": "Bearer"},
+        headers={"WWW-Authenticate": challenge_header()},
     )
 
 
@@ -46,7 +47,7 @@ def parse_mcp_bearer_token(request: Request) -> str:
     if len(parts) != 2 or parts[0].lower() != "bearer":
         raise _unauthenticated()
     token = parts[1]
-    if len(token) > _MAX_CREDENTIAL_CHARS or not token.startswith(("tlp_", "tlsa_")):
+    if len(token) > _MAX_CREDENTIAL_CHARS or not token.startswith(("tlp_", "tlsa_", "tlmcp_")):
         raise _unauthenticated()
     return token
 
@@ -59,7 +60,11 @@ def resolve_mcp_read_context(
 ) -> MCPReadContext:
     """Authenticate every request and capture a current, scoped local principal."""
     token = parse_mcp_bearer_token(request)
-    principal = get_current_principal(request, db, token)
+    if token.startswith("tlmcp_"):
+        from app.services.mcp_oauth import resolve_delegated_principal
+        principal = resolve_delegated_principal(request, db, token)
+    else:
+        principal = get_current_principal(request, db, token)
     kind = getattr(request.state, "auth_credential_kind", None)
     # Rollback expires mapped attributes. Capture primitives before any scope
     # denial so a separate failure audit never refreshes the read session.
@@ -78,6 +83,8 @@ def resolve_mcp_read_context(
         authorization, scopes=getattr(request.state, "token_scopes", None),
     )
     data_access = get_data_access_context(request, principal, db)
+    from app.services.mcp_oauth import cap_delegated_access
+    data_access = cap_delegated_access(data_access, getattr(request.state, "mcp_label_cap", None))
     snapshot = capture_export_authorization(request, authorization, data_access)
     context = MCPReadContext(
         principal=principal,

@@ -16,10 +16,16 @@ from app.services.ai_workflow_dispatch import register_ai_workflow
 def adopt_legacy_workflows(db, *, limit: int):
     from app.services.data_access_runtime import lock_data_policy_revision_for_derivation
     lock_data_policy_revision_for_derivation(db)
+    workflow_type = AITaskRun.task_type.in_(
+        ["item_enrichment", "team_assessment", "daily_brief", "reprocess"]
+    ) | (
+        (AITaskRun.task_type == "connection_test")
+        & AITaskRun.metadata_json["qualification"].as_boolean().is_(True)
+    )
     runs = db.scalars(select(AITaskRun).outerjoin(
         AIWorkflowDispatch, AIWorkflowDispatch.run_id == AITaskRun.id
     ).where(
-        AITaskRun.task_type.in_(["item_enrichment", "team_assessment", "daily_brief", "reprocess"]),
+        workflow_type,
         AITaskRun.status.in_(["queued", "running"]), AITaskRun.finished_at.is_(None),
         AIWorkflowDispatch.run_id.is_(None),
         (AITaskRun.task_type != "daily_brief") | AITaskRun.parent_run_id.is_(None),
@@ -87,6 +93,9 @@ def recover_stale_workflow(db, run: AITaskRun) -> str | None:
     from app.services.ai_extraction_sections import checkpointed_receipt_fingerprints
     checkpointed = (checkpointed_receipt_fingerprints(resource, run_id=run.id)
                     if run.task_type == "item_enrichment" else None)
+    if (run.metadata_json or {}).get("qualification") is True:
+        from app.services.ai_qualification import qualification_checkpointed_fingerprints
+        checkpointed = qualification_checkpointed_fingerprints(db, run.id)
     if not receipts and (run.metadata_json or {}).get("provider_claim") and checkpointed is None:
         return None  # Legacy provider work without a receipt has no safe replay proof.
     unresolved = [receipt for receipt in receipts if not (

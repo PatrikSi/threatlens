@@ -42,6 +42,7 @@
 | `JWT_EXPIRES_MINUTES` (`jwt_expires_minutes`) | `1440` | Access token TTL in minutes. |
 | `ALLOW_LEGACY_UNSCOPED_TOKENS` (`allow_legacy_unscoped_tokens`) | `false` | Whether API tokens with empty scope lists are accepted. |
 | `MCP_ENABLED` (`mcp_enabled`) | `false` | Enables the optional read-only MCP endpoint at `/api/v1/mcp` through the web proxy. Requires explicitly scoped local bearer credentials; see [MCP setup](../pages/mcp.md). |
+| `MCP_OAUTH_ENABLED` (`mcp_oauth_enabled`) | `false` | Enable pre-registered public OAuth clients, explicit browser consent and short-lived MCP-only access tokens. Requires a public HTTPS application origin in `PUBLIC_APP_URL`. |
 | `MCP_ALLOWED_ORIGINS` (`mcp_allowed_origins`) | empty | Comma-separated exact HTTP(S) Origin allowlist for MCP browser clients, separate from `CORS_ORIGINS`. Empty rejects all requests carrying Origin. |
 | `MCP_REQUEST_MAX_BYTES` (`mcp_request_max_bytes`) | `16384` | Maximum MCP request-body bytes; range 1,024–65,536. |
 | `MCP_RESPONSE_MAX_BYTES` (`mcp_response_max_bytes`) | `65536` | Maximum complete MCP JSON-response bytes; range 16,384–65,536, including text and structured-content copies. |

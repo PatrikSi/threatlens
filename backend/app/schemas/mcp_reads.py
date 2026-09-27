@@ -108,7 +108,7 @@ class HuntQueueArguments(ReadArguments):
     status: Literal["pending", "stale", "accepted", "rejected"] | None = None
     ownership: Literal["all", "mine", "unclaimed"] = "all"
     order: Literal["newest", "oldest", "due"] = "oldest"
-    priority: Literal["low", "normal", "high", "critical"] | None = None
+    priority: Literal["low", "normal", "high", "urgent"] | None = None
     overdue: bool = False
     limit: int = Field(default=10, ge=1, le=25, strict=True)
     cursor: str | None = Field(default=None, max_length=4096)

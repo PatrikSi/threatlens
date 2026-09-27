@@ -216,6 +216,10 @@ TASK_ROUTES = {
     "app.tasks.lifecycle_tasks.run_lifecycle_housekeeping": {
         "queue": QUEUE_LIFECYCLE
     },
+    "app.tasks.ai_qualification_tasks.generate_ai_qualification": {"queue": QUEUE_AI},
+    "app.tasks.team_hunt_review_tasks.dispatch_hunt_review_reminders": {"queue": QUEUE_MAINTENANCE},
+    "app.tasks.publication_distribution_tasks.reconcile_distribution": {"queue": QUEUE_MAINTENANCE},
+    "app.tasks.mcp_oauth_tasks.maintain_mcp_authorization": {"queue": QUEUE_MAINTENANCE},
     "app.tasks.ai_workflow_tasks.dispatch_pending_ai_workflows": {"queue": QUEUE_MAINTENANCE},
     "app.tasks.alert_tasks.process_alert_evaluation": {"queue": QUEUE_PROCESSING},
     "app.tasks.alert_tasks.dispatch_pending_alert_evaluations": {
@@ -232,6 +236,10 @@ celery_app = Celery(
     broker=settings.redis_url,
     backend=settings.redis_url,
     include=[
+        "app.tasks.mcp_oauth_tasks",
+        "app.tasks.publication_distribution_tasks",
+        "app.tasks.team_hunt_review_tasks",
+        "app.tasks.ai_qualification_tasks",
         "app.tasks.export_tasks",
         "app.tasks.processing_tasks",
         "app.tasks.feed_tasks",
@@ -280,6 +288,13 @@ celery_app.conf.update(
     },
     visibility_timeout=settings.celery_visibility_timeout_seconds,
     beat_schedule={
+        "mcp-authorization-retention": {
+            "task": "app.tasks.mcp_oauth_tasks.maintain_mcp_authorization",
+            "schedule": 60.0,
+            "options": {"queue": QUEUE_MAINTENANCE},
+        },
+        "publication-distribution": {"task": "app.tasks.publication_distribution_tasks.reconcile_distribution", "schedule": 60.0, "options": {"queue": QUEUE_MAINTENANCE}},
+        "hunt-review-reminders": {"task": "app.tasks.team_hunt_review_tasks.dispatch_hunt_review_reminders", "schedule": 60.0, "options": {"queue": QUEUE_MAINTENANCE}},
         "reconcile-reviewed-publications": {
             "task": "app.tasks.indicator_publication_tasks.reconcile_publications",
             "schedule": 60.0,

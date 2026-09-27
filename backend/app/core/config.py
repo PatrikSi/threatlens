@@ -186,6 +186,7 @@ class Settings(BaseSettings):
     expose_api_docs_in_production: bool = False
     expose_openapi_schema_in_production: bool = True
     mcp_enabled: bool = False
+    mcp_oauth_enabled: bool = False
     mcp_allowed_origins: Annotated[list[str], NoDecode] = []
     mcp_request_max_bytes: int = Field(default=16_384, ge=1024, le=65_536)
     mcp_response_max_bytes: int = Field(default=65_536, ge=16_384, le=65_536)

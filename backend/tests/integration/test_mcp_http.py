@@ -101,7 +101,7 @@ def test_discovery_and_catalogue_respect_the_current_credential_scope(mcp_http_e
     response = _request(env)
     assert response.status_code == 200, response.text
     result = response.json()["result"]
-    assert {tool["name"] for tool in result["tools"]} == {"search_articles", "get_article_evidence"}
+    assert {tool["name"] for tool in result["tools"]} == {"search_articles", "get_article_evidence", "get_indicator_assessments", "lookup_attack_technique"}
     assert all(tool["annotations"]["readOnlyHint"] for tool in result["tools"])
     assert result["cacheScope"] == "private"
     assert "no-store" in response.headers["cache-control"]
@@ -223,7 +223,7 @@ def test_supported_service_account_tokens_expose_only_article_tools(mcp_http_env
     response = _request(env, token=credential.value)
     assert response.status_code == 200, response.text
     assert {tool["name"] for tool in response.json()["result"]["tools"]} == {
-        "search_articles", "get_article_evidence",
+        "search_articles", "get_article_evidence", "lookup_attack_technique",
     }
     evidence = _request(env, "tools/call", name="get_article_evidence", token=credential.value, arguments={"item_id": str(env.item_id)})
     assert evidence.status_code == 200, evidence.text
