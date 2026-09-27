@@ -1,0 +1,6 @@
+{
+  "same_database_running_claim_preserved": true,
+  "other_database_cleanup_removed_active_artifact": true,
+  "original_job_still_running": true,
+  "test_root_only": true
+}
