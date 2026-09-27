@@ -304,8 +304,8 @@ particular hosted assistant's configuration/OAuth flow or production capacity.
 
 Authorization and retrieval tests cover additional application boundaries
 separately. See the [qualification record](../reviews/2026-09-17-mcp.md) and
-[ADR 0006](../architecture/0006-ai-provider-profiles-and-mcp-boundary.md) for the
-implementation boundary and deferred features.
+[ADR 0007](../architecture/0007-delegated-mcp-authorization.md) for the
+current authorization boundary and deferred features.
 
 
 ## Delegated authorization

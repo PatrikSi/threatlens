@@ -3,6 +3,8 @@
 - Status: Accepted for provider profiles, routing, and the first read-only MCP scope
 - Date: 2026-09-11
 - MCP decision updated: 2026-09-17
+- The initial MCP catalogue and local-token-only scope below are superseded by
+  [ADR 0007](0007-delegated-mcp-authorization.md). Provider decisions remain in force.
 
 ## Context
 

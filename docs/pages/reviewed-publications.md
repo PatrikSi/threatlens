@@ -86,6 +86,16 @@ preparation uses the interactive operation and lock budgets. Migration
 Upgrade API, maintenance worker and frontend together after running migrations.
 Downgrade refuses to discard retained publications.
 
+Consumer reconciliation distinguishes `last_reconcile_attempt_at` from
+`last_reconciled_at`, which advances only with committed successful work.
+`reconciliation_error_at` and `reconciliation_error_code` identify a failing
+consumer without exposing its evidence. The operations backlog also includes
+overdue subscriptions left behind by a successful bounded batch. Repeated
+failed attempts therefore cannot turn the backlog healthy. Inspect the consumer,
+its retained subscriptions and maintenance-worker logs; retrying the sweep does
+not launch a hunt or resend an unchanged publication. Successful reconciliation
+clears its previous error.
+
 API paths below are relative to `/api/v1`:
 
 - `POST /teams/{team_id}/indicator-publications/preview`

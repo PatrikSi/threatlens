@@ -5,7 +5,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ## Published Contract
 
 - Schema version: `2.0.1`
-- OpenAPI contract anchor: `openapi-sha256:50c2b3d38c91ab6e6ec0ed766a5cbb387aca2642eb084ad2e86f26b297f3c578`
+- OpenAPI contract anchor: `openapi-sha256:66b1b227b2885470c048740a1822f064f34f3508a8e37f6d4e4e5e99cd850748`
 - API service base path: `/v1`
 - Web proxy base path: `/api/v1`
 - Bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`.

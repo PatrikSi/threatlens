@@ -70,6 +70,7 @@ This documentation covers:
 - [Access Governance and Workspace Policy ADR](./architecture/0004-access-governance-and-workspace-policy.md)
 - [Policy-Driven Data Lifecycle Management ADR](./architecture/0005-data-lifecycle-management.md)
 - [AI Provider Profiles and Read-only MCP Boundary ADR](./architecture/0006-ai-provider-profiles-and-mcp-boundary.md)
+- [Delegated MCP Authorization ADR](./architecture/0007-delegated-mcp-authorization.md)
 - [Bundled OFL Text](./licenses/OFL-1.1.txt)
 - [Bundled MIT Text](./licenses/MIT.txt)
 - [Bundled BSD-2-Clause Text](./licenses/BSD-2-Clause.txt)

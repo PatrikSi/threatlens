@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "2.0.1",
-    "x-threatlens-contract-sha256": "50c2b3d38c91ab6e6ec0ed766a5cbb387aca2642eb084ad2e86f26b297f3c578"
+    "x-threatlens-contract-sha256": "66b1b227b2885470c048740a1822f064f34f3508a8e37f6d4e4e5e99cd850748"
   },
   "servers": [
     {
@@ -47654,6 +47654,53 @@
             ],
             "title": "Last Poll At"
           },
+          "last_reconciled_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Reconciled At"
+          },
+          "last_reconcile_attempt_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Reconcile Attempt At"
+          },
+          "reconciliation_error_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reconciliation Error At"
+          },
+          "reconciliation_error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reconciliation Error Code"
+          },
           "token": {
             "type": "string",
             "title": "Token"
@@ -47776,6 +47823,53 @@
               }
             ],
             "title": "Last Poll At"
+          },
+          "last_reconciled_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Reconciled At"
+          },
+          "last_reconcile_attempt_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Reconcile Attempt At"
+          },
+          "reconciliation_error_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reconciliation Error At"
+          },
+          "reconciliation_error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reconciliation Error Code"
           }
         },
         "type": "object",
@@ -65679,6 +65773,30 @@
             "type": "integer",
             "exclusiveMinimum": 0.0,
             "title": "End"
+          },
+          "prompt_start": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Start"
+          },
+          "prompt_end": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt End"
           }
         },
         "type": "object",
