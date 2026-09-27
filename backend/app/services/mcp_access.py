@@ -1,8 +1,9 @@
 """Bearer-only MCP access and response publication fences.
 
-This is the scoped local-token compatibility mode, not an OAuth authorization
-server. The caller owns the database session through the bounded response send.
-Neither these helpers nor the read services may commit that transaction.
+These fences apply to scoped compatibility credentials and delegated MCP grants.
+OAuth consent and exchange live in mcp_oauth. The caller owns the database session
+through the bounded response send. Neither these helpers nor the read services
+may commit that transaction.
 """
 
 from __future__ import annotations
