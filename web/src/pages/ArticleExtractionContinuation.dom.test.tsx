@@ -84,3 +84,25 @@ it('displays server reconciliation conflicts and lets the operator retry after r
   expect(view.host.querySelector('[role="alert"]')?.textContent).toContain('Reconcile its provider receipt')
   expect(intelButton(view.host, 'Retry reconciled section').disabled).toBe(false)
 })
+
+
+it('offers synthesis-only recovery after all sections are covered without offering a larger plan', async () => {
+  vi.mocked(apiFetch).mockResolvedValue({ run_id: 'synthesis-run', section_limit: 8, token_budget: 64000 })
+  view = await mountIntel(<ArticleExtractionContinuation itemId="article-1" coverage={{
+    ...coverage, uncovered_chars: 0, synthesis_status: 'failed',
+  }} disabled={false} />)
+  expect(view.host.textContent).toContain('no additional sections or tokens')
+  expect(view.host.textContent).not.toContain('Authorize up to 8')
+  act(() => intelButton(view!.host, 'Retry combined summary').click())
+  await settle()
+  expect(apiFetch).toHaveBeenCalledTimes(1)
+  expect(intelButton(view.host, 'Retry combined summary').disabled).toBe(true)
+})
+
+it('does not authorize synthesis when the accepted budget is exhausted', async () => {
+  view = await mountIntel(<ArticleExtractionContinuation itemId="article-1" coverage={{
+    ...coverage, uncovered_chars: 0, synthesis_status: 'failed', reserved_tokens: 64000,
+  }} disabled={false} />)
+  expect(intelButton(view.host, 'Retry combined summary').disabled).toBe(true)
+  expect(view.host.textContent).toContain('No authorized token budget remains')
+})

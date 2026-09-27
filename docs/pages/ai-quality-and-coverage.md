@@ -46,7 +46,13 @@ source revision reuses completed sections. Worker recovery accepts a successful
 receipt only when its exact request fingerprint has a validated durable section
 checkpoint. A crash between provider success and checkpoint publication, a
 reserved receipt or ambiguous transport still requires the existing receipt
-reconciliation workflow. Automatic recovery never repeats those requests. An
+reconciliation workflow. Automatic recovery never repeats those requests. Repair
+sweeps also preserve the existing logical task, provider selection,
+continuation authorization, completed sections and token allocation. They resume
+only receipt-safe work, with at most three automatic recovery deliveries. Settled
+nonretryable failures, missing legacy proof and cancellation require operator
+review; a sweep never authorizes a fresh plan. Short-article work follows the same
+receipt safety checks even though it has no section checkpoints. An
 explicitly accepted new task has a new bounded plan; prior ambiguous receipts
 still block unsafe I/O through the common runtime.
 
@@ -62,6 +68,21 @@ Legacy checkpoints without that plan fingerprint also require a new task;
 recovery never silently resets their budget or repeats paid work.
 Migration `0111_extraction_sections` adds
 the nullable checkpoint column without rewriting existing results.
+
+If optional combined-summary synthesis fails, verified section extraction and
+labeled section summaries are still published, with `synthesis_status` and an
+information-gap disclosure. Authorization loss, cancellation, changed evidence
+and superseded execution still block publication. A provider-success receipt
+without valid synthesis, or an ambiguous receipt, never grants another call.
+
+When all sections are covered, **Retry combined summary** uses the existing
+continuation endpoint to authorize only synthesis. It reuses every completed
+section and grants no additional section or token allocation. Acceptance requires
+settled receipts proving the prior synthesis was not sent and sufficient remaining
+budget for the complete request. If delivery is uncertain, first reconcile the
+receipt; if the budget is exhausted or settings changed, review the retained
+results before deliberately starting a new reprocessing task. Older interrupted
+synthesis checkpoints are matched through their durable operation identity.
 
 ## Explicit continuation and hunt evidence
 

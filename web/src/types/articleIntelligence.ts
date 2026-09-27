@@ -34,6 +34,7 @@ export interface ExtractionCoverage {
   output_limited: boolean
   summary_limited?: boolean
   progress_revision?: string | null
+  synthesis_status?: 'not_requested' | 'pending' | 'completed' | 'failed' | 'budget_limited'
   summary_scope?: 'first_section' | 'processed_sections' | 'section_synthesis'
   sections: { index: number; start: number; end: number; status: 'pending' | 'started' | 'completed' }[]
 }

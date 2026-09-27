@@ -36,13 +36,15 @@ def recover_unsent_sections(db: Session, *, item_id: uuid.UUID, progress: dict) 
     """
     recovered = copy.deepcopy(progress)
     started = [section for section in recovered["sections"] if section["status"] == "started"]
-    if not started:
+    synthesis = recovered.get("synthesis") or {}
+    recovering_synthesis = synthesis.get("status") in {"started", "failed"}
+    if not started and not recovering_synthesis:
         return recovered
     try:
         prior_run_id = uuid.UUID(progress["task_run_id"])
     except (KeyError, ValueError, TypeError) as exc:
         raise ValueError("The previous section task is unavailable. Review its provider receipts.") from exc
-    prior_run = db.execute(select(AITaskRun.status, AITaskRun.item_id).where(AITaskRun.id == prior_run_id)).one_or_none()
+    prior_run = db.execute(select(AITaskRun.status, AITaskRun.item_id, AITaskRun.metadata_json).where(AITaskRun.id == prior_run_id)).one_or_none()
     if prior_run is None or prior_run.item_id != item_id or prior_run.status not in {"ready", "error", "skipped"}:
         raise ValueError("The previous section task is not settled. Wait for it to finish before continuing.")
     receipts = list(db.scalars(select(AIProviderAttemptReceipt).where(
@@ -50,9 +52,6 @@ def recover_unsent_sections(db: Session, *, item_id: uuid.UUID, progress: dict) 
         AIProviderAttemptReceipt.feature_type == "item_enrichment",
         AIProviderAttemptReceipt.resource_type == "item",
         AIProviderAttemptReceipt.resource_id == item_id,
-        AIProviderAttemptReceipt.request_fingerprint.in_([
-            section.get("request_fingerprint", "") for section in started
-        ]),
     )))
     for section in started:
         matching = [receipt for receipt in receipts
@@ -61,6 +60,22 @@ def recover_unsent_sections(db: Session, *, item_id: uuid.UUID, progress: dict) 
                                or receipt.io_outcome != "not_sent" for receipt in matching):
             raise ValueError("A section delivery is unresolved. Reconcile its provider receipt before continuing.")
         section.update(status="pending", previous_attempt_receipts=[str(receipt.id) for receipt in matching])
+    if recovering_synthesis:
+        # Older checkpoints did not store a fingerprint until synthesis succeeded.
+        # The operation identity still binds their receipts to this exact stage.
+        root_id = (prior_run.metadata_json or {}).get("provider_operation_root_id")
+        try:
+            operation_id = uuid.uuid5(uuid.UUID(root_id), f"item_section_synthesis:{len(synthesis['completed_sections'])}") if root_id else None
+        except (ValueError, KeyError, TypeError) as exc:
+            raise ValueError("The previous synthesis task is unavailable. Review its provider receipts.") from exc
+        matching = [receipt for receipt in receipts if (
+            receipt.request_fingerprint == synthesis.get("request_fingerprint")
+            if synthesis.get("request_fingerprint") else receipt.operation_id == operation_id
+        )]
+        if not matching or any(receipt.state not in {"failed", "voided"}
+                               or receipt.io_outcome != "not_sent" for receipt in matching):
+            raise ValueError("Synthesis delivery is unresolved. Reconcile its provider receipt before retrying synthesis.")
+        synthesis.update(status="pending", previous_attempt_receipts=[str(receipt.id) for receipt in matching])
     return recovered
 
 
@@ -86,10 +101,17 @@ def continuation_authority(db: Session, *, run_id: uuid.UUID | None) -> AIArticl
 
 
 def continuation_preflight_error(db: Session, run_id: uuid.UUID | None, active, article_text: str) -> str | None:
-    if run_id is None or db.get(AIArticleContinuation, run_id) is None:
+    if run_id is None:
+        return None
+    from app.models.item_ai_enrichment import ItemAIEnrichment
+    run = db.get(AITaskRun, run_id)
+    progress = db.scalar(select(ItemAIEnrichment.extraction_progress_json).where(
+        ItemAIEnrichment.item_id == run.item_id)) if run and run.item_id else None
+    owns_plan = isinstance(progress, dict) and progress.get("task_run_id") == str(run_id)
+    if not owns_plan and db.get(AIArticleContinuation, run_id) is None:
         return None
     if not active.structured_extraction_enabled:
-        return "Structured extraction was disabled after continuation was authorized. Review current settings before reprocessing."
+        return "Structured extraction was disabled after section processing was accepted. Review current settings before reprocessing."
     if len(" ".join(article_text.split())) <= 8000:
-        return "The article changed after continuation was authorized. Refresh its evidence before reprocessing."
+        return "The article changed after section processing was accepted. Refresh its evidence before reprocessing."
     return None
