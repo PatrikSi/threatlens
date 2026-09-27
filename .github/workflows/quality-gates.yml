@@ -441,6 +441,17 @@ jobs:
       - name: Test independent fleet monitoring and recovery evidence
         run: timeout 2m python -m unittest discover --start-directory tests/operations --pattern 'test_*.py' --verbose
 
+      - name: Evaluate monitoring alerts with pinned Prometheus tooling
+        run: >-
+          timeout 3m docker run --rm --network none --read-only
+          --cap-drop ALL --security-opt no-new-privileges
+          --memory 256m --cpus 1 --pids-limit 64
+          --tmpfs /tmp:rw,nosuid,nodev,size=64m,mode=1777
+          --mount type=bind,src=${{ github.workspace }},dst=/work,readonly
+          --workdir /work --entrypoint /bin/promtool
+          prom/prometheus:v3.13.3@sha256:6976aa8a60fec930796ce5772b8d12da7a318a5daa8d40d69c5c7819a05eeed7
+          test rules tests/operations/prometheus-alerts.test.yml
+
   recovery_docker:
     name: Disposable PostgreSQL recovery drill
     needs:

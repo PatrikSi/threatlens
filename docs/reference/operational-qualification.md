@@ -27,9 +27,27 @@ Fleet observations include aggregate memory, limits, the maximum individual repl
 
 The monitor preserves previous fleet incidents while Docker is unavailable. It does not manufacture recovery from a failed observation. Restart incidents describe increases between observations; a later stable observation resolves that incident. Replacing a container resets its Docker restart counter, so retain historical metric/incident records externally.
 
+The last observed restart time is retained separately per configured service in
+private monitor state and exported as
+`threatlens_host_last_restart_timestamp_seconds`. Stable samples, container
+replacement and observation failures do not refresh or erase an existing event.
+An initial counter, a decreased counter, or a new container identity establishes
+a baseline; historical restarts are not invented as current events. Changing
+the deployment identity clears the old baseline and event times. Removed
+services no longer emit event metrics.
+
 ## Independent alerting and optional delivery
 
 The Prometheus textfile is replaced atomically. `threatlens_host_observation_timestamp_seconds` is the external freshness signal; missing metric values mean unknown, not zero. Import `scripts/operations/examples/prometheus-alerts.yml` into an independently hosted Prometheus/Alertmanager installation and create a missing-observation rule for **each expected deployment identity**. A single fleet-wide `absent()` misses one disappeared host if another still reports.
+
+`ThreatLensContainerRestarted` fires without a pending period for five minutes
+after an observed restart. This catches isolated restarts even after their
+one-sample incident resolves or a scrape is briefly delayed. Repeated observed
+restarts refresh that window. Persistent health/recovery incidents keep their
+separate two-minute pending period. Scrape/evaluation intervals and Alertmanager
+delivery delays must fit the event window; longer observation outages belong to
+the independent missing-monitor alert. Deploy both the updated monitor and rule
+file; old monitors do not emit the new timestamp metric.
 
 A monitor running on a failed host cannot announce its own disappearance. External scraping with a deadman alert, or an external receiver that alarms on missing heartbeat, is required. Independent infrastructure and alert delivery must be tested by the deployment owner.
 
@@ -126,7 +144,18 @@ Use a freshly built image or a source-only overlay on an existing image with ide
 backend/.venv/bin/python -m unittest discover \
   --start-directory tests/operations --pattern 'test_*.py' --verbose
 backend/.venv/bin/ruff check scripts/operations tests/operations
+docker run --rm --network none --read-only --tmpfs /tmp:rw,size=64m \
+  --mount type=bind,src="$PWD",dst=/work,readonly --workdir /work \
+  --entrypoint /bin/promtool \
+  prom/prometheus:v3.13.3@sha256:6976aa8a60fec930796ce5772b8d12da7a318a5daa8d40d69c5c7819a05eeed7 \
+  test rules tests/operations/prometheus-alerts.test.yml
 ```
+
+The rule fixtures use [Prometheus's rule test format](https://prometheus.io/docs/prometheus/latest/configuration/unit_testing_rules/)
+and cover immediate firing, incident resolution, expiry, repeated events, delayed
+or missing scrapes, and future timestamps. Python tests cover counter resets,
+container replacement, deployment changes and unavailable fleet observations.
+CI runs both checks.
 
 The lightweight operations checks run in the existing CI recovery job. The reconstruction test is opt-in locally and explicitly enabled in the existing CI disposable recovery job; the local sustained runner produces reviewable evidence and is not silently run against a developer's live stack.
 

@@ -163,6 +163,12 @@ def send_receiver(receiver: dict, payload: dict) -> bool:
 
 def collect(config: dict, previous: dict, *, now: datetime, fleet=observe_fleet,
             storage=observe_storage, recovery=check_recovery) -> tuple[dict, dict]:
+    if previous.get("deployment") != config["deployment"]:
+        previous = {}
+    # A restart is an event, not a persistent unhealthy state. Retain when it
+    # was observed so a later scrape can alert after the incident has resolved.
+    last_restarts = {service: observed for service, observed in previous.get("last_restarts", {}).items()
+                     if service in config["services"]}
     incidents, unknown = [], set()
     try:
         fleet_metrics, fleet_incidents, counters = fleet(config)
@@ -171,6 +177,7 @@ def collect(config: dict, previous: dict, *, now: datetime, fleet=observe_fleet,
         for identity, counter in counters.items():
             if identity in old_counters and counter["restarts"] > old_counters[identity]["restarts"]:
                 incidents.append({"scope": "fleet", "entity": counter["service"], "code": "container_restarted"})
+                last_restarts[counter["service"]] = now.timestamp()
         fleet_available = True
     except (OSError, ValueError, RuntimeError, KeyError, TypeError, subprocess.SubprocessError):
         fleet_metrics, counters, fleet_available = {}, previous.get("container_counters", {}), False
@@ -182,10 +189,12 @@ def collect(config: dict, previous: dict, *, now: datetime, fleet=observe_fleet,
     incidents.extend(recovery_incidents)
     state, events = reconcile(config, previous, incidents, now=now, unknown_scopes=unknown)
     state["container_counters"] = counters
+    state["last_restarts"] = last_restarts
     report = {"schema_version": 1, "deployment": config["deployment"], "observed_at": now.isoformat(),
         "fleet_available": fleet_available, "fleet": fleet_metrics, "storage": storage_metrics,
         "recovery": recovery_metrics, "active_incidents": state["active"], "events": events,
         "pending_delivery_count": len(state["pending"]), "dropped_event_count": state["dropped_events"],
+        "last_restarts": last_restarts,
         "application_health_inferred": False}
     return report, state
 
@@ -198,6 +207,8 @@ def prometheus(report: dict) -> str:
               f'threatlens_host_active_incidents{{{labels}}} {len(report["active_incidents"])}',
               f'threatlens_host_pending_deliveries{{{labels}}} {report["pending_delivery_count"]}']
     lines.append(f'threatlens_host_dropped_events{{{labels}}} {report.get("dropped_event_count", 0)}')
+    for service, observed in report.get("last_restarts", {}).items():
+        lines.append(f'threatlens_host_last_restart_timestamp_seconds{{{labels},entity={json.dumps(service)}}} {observed}')
     if "receiver_delivered" in report:
         lines.append(f'threatlens_host_receiver_available{{{labels}}} {int(report["receiver_delivered"])}')
     for group in ("fleet", "storage", "recovery"):
