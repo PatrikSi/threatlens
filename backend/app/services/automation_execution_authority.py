@@ -33,6 +33,8 @@ class OwnerAuthority:
 
 
 def _owner_authority(db: Session, owner_user_id: uuid.UUID) -> OwnerAuthority | None:
+    if owner_user_id is None:
+        return None
     owner = db.get(User, owner_user_id)
     if owner is None:
         return None

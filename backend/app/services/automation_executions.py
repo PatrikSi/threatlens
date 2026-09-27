@@ -43,6 +43,7 @@ def register_execution(
             id=uuid.uuid4(),
             webhook_id=webhook.id,
             owner_user_id=webhook.user_id,
+            team_id=getattr(webhook, "team_id", None),
             event_id=event.id,
             action_id=action_id,
         )
@@ -180,6 +181,9 @@ def reconcile_executions(
             owner_eligible = event is not None and authority.eligible(
                 owner_user_id=row.owner_user_id, event=event
             )
+            if owner_eligible and row.team_id:
+                from app.services.team_access import team_access_predicate
+                owner_eligible = bool(db.scalar(select(team_access_predicate(row.team_id, row.owner_user_id))))
             current = owner_eligible and automation_event_current(
                 db, event.payload_json, event.event_type
             )

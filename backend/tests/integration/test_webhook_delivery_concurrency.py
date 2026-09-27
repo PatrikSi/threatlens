@@ -2364,3 +2364,65 @@ def test_webhook_claim_and_delete_use_parent_first_lock_order(database_engine):
             if owner is not None:
                 cleanup_db.delete(owner)
             cleanup_db.commit()
+
+
+def test_team_editor_and_worker_lock_custodian_before_destination(database_engine):
+    """An editor holding the custodian cannot cycle against a sending worker."""
+    from app.models.iam import IAMGroup, IAMGroupMembership
+    from app.models.team import Team
+    owner_id, legacy_id, generic_id = _persist_webhook_delivery(database_engine, email_prefix="team-owner-lock", dead_letter=False)
+    group_id, team_id = uuid.uuid4(), uuid.uuid4()
+    with Session(database_engine) as db:
+        legacy = db.get(NotificationWebhookDelivery, legacy_id)
+        webhook_id = legacy.webhook_id
+        db.add(IAMGroup(id=group_id, key=f"team-lock-{group_id.hex}", name="Managers"))
+        db.flush()
+        db.add_all([Team(id=team_id, key=f"team-lock-{team_id.hex}", name="Response", membership_group_id=group_id, manager_group_id=group_id), IAMGroupMembership(group_id=group_id, user_id=owner_id)])
+        db.flush()
+        db.get(NotificationWebhook, webhook_id).team_id = team_id
+        db.commit()
+        claimed = claim_notification_webhook_delivery(db, delivery_id=legacy_id)
+        assert claimed is not None
+        attempt = claimed.attempt_count
+    editor_locked_owner = Event()
+    worker_waiting_for_owner = Event()
+    worker_thread = []
+
+    def notice_owner_wait(_conn, _cursor, statement, _params, _ctx, _many):
+        if worker_thread and threading.get_ident() == worker_thread[0] and "from users" in statement.lower() and "for update" in statement.lower():
+            worker_waiting_for_owner.set()
+
+    def edit():
+        with Session(database_engine) as db:
+            db.scalar(select(User.id).where(User.id == owner_id).with_for_update(read=True))
+            db.scalar(select(Team.id).where(Team.id == team_id).with_for_update())
+            editor_locked_owner.set()
+            assert worker_waiting_for_owner.wait(10)
+            webhook = db.scalar(select(NotificationWebhook).where(NotificationWebhook.id == webhook_id).with_for_update())
+            webhook.name = "Edited concurrently"
+            db.commit()
+
+    def fence():
+        assert editor_locked_owner.wait(10)
+        worker_thread.append(threading.get_ident())
+        with Session(database_engine) as db:
+            lock_webhook_delivery_external_io_eligibility(db, webhook_id=webhook_id, legacy_delivery_id=legacy_id, integration_delivery_id=generic_id, expected_attempt_number=attempt)
+            db.commit()
+
+    event.listen(database_engine, "before_cursor_execute", notice_owner_wait)
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            editor, worker = executor.submit(edit), executor.submit(fence)
+            editor.result(timeout=15)
+            worker.result(timeout=15)
+    finally:
+        event.remove(database_engine, "before_cursor_execute", notice_owner_wait)
+        with Session(database_engine) as db:
+            webhook = db.get(NotificationWebhook, webhook_id)
+            if webhook:
+                delete_webhook_integration(db, webhook)
+            db.flush()
+            db.execute(delete(Team).where(Team.id == team_id))
+            db.execute(delete(IAMGroup).where(IAMGroup.id == group_id))
+            db.execute(delete(User).where(User.id == owner_id))
+            db.commit()

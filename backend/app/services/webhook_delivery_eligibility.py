@@ -84,6 +84,17 @@ def lock_webhook_delivery_external_io_eligibility(
     must invoke this function again before the next request or redirect.
     """
     policy_fence = _lock_webhook_delivery_data_policy_fence(db)
+    # Policy -> custodian -> team -> destination is shared with administration.
+    # Capture IDs without locks, acquire final lock modes, then reject a changed
+    # snapshot after the destination wait instead of upgrading locks out of order.
+    from app.models.notification_webhook import NotificationWebhook
+    from app.models.team import Team
+    ownership = db.execute(select(NotificationWebhook.user_id, NotificationWebhook.team_id).where(NotificationWebhook.id == webhook_id)).first()
+    if ownership is not None:
+        if ownership.user_id:
+            db.scalar(select(User.id).where(User.id == ownership.user_id).with_for_update())
+        if ownership.team_id:
+            db.scalar(select(Team.id).where(Team.id == ownership.team_id).with_for_update(read=True))
     webhook = lock_notification_webhook(
         db,
         webhook_id,
@@ -93,6 +104,9 @@ def lock_webhook_delivery_external_io_eligibility(
         raise WebhookDeliveryIneligibleError(
             "webhook_missing", "Webhook configuration no longer exists."
         )
+
+    if ownership is None or (webhook.user_id, webhook.team_id) != (ownership.user_id, ownership.team_id):
+        raise WebhookDeliveryTemporarilyIneligibleError("webhook_ownership_changed", "Destination ownership changed while waiting; retry after reauthorization")
 
     legacy = db.scalar(
         select(NotificationWebhookDelivery)
@@ -243,6 +257,10 @@ def _validate_automation_authority(
     db: Session, *, webhook, delivery: IntegrationDelivery, owner: User
 ) -> None:
     generic = delivery
+    if getattr(webhook, "team_id", None):
+        from app.services.team_access import team_access_predicate
+        if not db.scalar(select(team_access_predicate(webhook.team_id, owner.id))):
+            raise WebhookDeliveryIneligibleError("team_custodian_unavailable", "The team delivery custodian no longer has current team access; a manager must adopt the destination")
     if webhook.conditions_json:
         from pydantic import ValidationError
         from app.schemas.webhook_automation import WebhookConditionGroup

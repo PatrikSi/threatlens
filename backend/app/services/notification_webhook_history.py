@@ -896,6 +896,10 @@ def get_active_notification_webhook_user(
             select(User).where(User.id == webhook.user_id)
         )
     user = user_cache[webhook.user_id]
+    if getattr(webhook, "team_id", None):
+        from app.services.team_access import team_access_predicate
+        if not db.scalar(select(team_access_predicate(webhook.team_id, webhook.user_id))):
+            return None
     if user is None or not user.is_active or not user.is_approved:
         return None
     return user

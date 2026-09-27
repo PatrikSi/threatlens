@@ -15,7 +15,9 @@ export type NotificationEventType = 'rss_item_new' | 'alert_match' | 'feed_faili
 
 export interface NotificationWebhook {
   id: string
-  user_id: string
+  user_id: string | null
+  team_id?: string | null
+  ownership_revision?: number
   name: string
   enabled: boolean
   event_type: NotificationEventType

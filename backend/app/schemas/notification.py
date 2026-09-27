@@ -102,13 +102,15 @@ class NotificationWebhookWrite(BaseModel):
 
 
 class NotificationWebhookResponse(BaseModel):
+    team_id: uuid.UUID | None = None
+    ownership_revision: int = 1
     model_config = ConfigDict(from_attributes=True)
     payload_mode: Literal["template", "automation_v1"] = "template"
     conditions: WebhookConditionGroup | None = None
     credential_profile_id: uuid.UUID | None = None
 
     id: uuid.UUID
-    user_id: uuid.UUID
+    user_id: uuid.UUID | None
     name: str
     enabled: bool
     event_type: NotificationEventType
