@@ -32,6 +32,28 @@ REVISIONS = (
     "0114_hunt_worklist",
     "0115_reviewed_publications",
 )
+LATER_REVISIONS = (
+    "0116_team_integrations",
+    "0117_article_continuations",
+    "0118_ai_qualification",
+    "0119_team_ai_governance",
+    "0120_hunt_review_workflow",
+    "0121_publication_distribution",
+    "0122_mcp_delegation",
+)
+
+
+def _round_trip_legacy(db, monkeypatch, revision):
+    # Dependent head tables must be removed first, just as Alembic traverses the
+    # graph. Rebuilding one historical table in isolation loses later columns.
+    later = [_migration(db, monkeypatch, name) for name in LATER_REVISIONS]
+    for entry in reversed(later):
+        entry.downgrade()
+    migration = _migration(db, monkeypatch, revision)
+    migration.downgrade()
+    migration.upgrade()
+    for entry in later:
+        entry.upgrade()
 
 
 def source(db):
@@ -73,7 +95,8 @@ def test_expansion_populated_round_trip_preserves_legacy_rows_and_matches_metada
     db_session, monkeypatch
 ):
     migrations = [
-        _migration(db_session, monkeypatch, revision) for revision in REVISIONS
+        _migration(db_session, monkeypatch, revision)
+        for revision in (*REVISIONS, *LATER_REVISIONS)
     ]
     for migration in reversed(migrations):
         migration.downgrade()
@@ -156,8 +179,7 @@ def test_checkpoint_downgrade_requires_explicit_clear_and_accepts_json_null(
     )
     row.extraction_progress_json = None
     db_session.flush()
-    migration.downgrade()
-    migration.upgrade()
+    _round_trip_legacy(db_session, monkeypatch, REVISIONS[0])
 
 
 @pytest.mark.parametrize("completed", [False, True])
@@ -183,8 +205,7 @@ def test_quota_downgrade_preserves_reservation_attribution_without_current_membe
     assert row.quota_group_key and row.reserved_tokens == 1000
     row.quota_group_key = None  # Explicit fixture-only archival/clear.
     db_session.flush()
-    migration.downgrade()
-    migration.upgrade()
+    _round_trip_legacy(db_session, monkeypatch, REVISIONS[2])
 
 
 def test_receiver_and_publication_history_require_explicit_removal(
@@ -234,9 +255,7 @@ def test_receiver_and_publication_history_require_explicit_removal(
     db_session.delete(publication)
     db_session.flush()
     for index in (4, 1):
-        migration = _migration(db_session, monkeypatch, REVISIONS[index])
-        migration.downgrade()
-        migration.upgrade()
+        _round_trip_legacy(db_session, monkeypatch, REVISIONS[index])
 
 
 def test_hunt_claim_downgrade_requires_release(db_session, monkeypatch):
@@ -265,8 +284,7 @@ def test_hunt_claim_downgrade_requires_release(db_session, monkeypatch):
     assert claim.owner_user_id == owner.id
     claim.owner_user_id = None
     db_session.flush()
-    migration.downgrade()
-    migration.upgrade()
+    _round_trip_legacy(db_session, monkeypatch, REVISIONS[3])
 
 
 def test_alembic_check_matches_complete_head_metadata(database_engine):
