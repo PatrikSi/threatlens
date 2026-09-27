@@ -260,6 +260,30 @@ BEGIN
     ('automation_policy_updates', 'revision'),
     ('automation_policy_updates', 'reason'),
     ('automation_policy_updates', 'acknowledged_at'),
+    ('automation_policy_updates', 'id'),
+    ('automation_receiver_credentials', 'revoked_at'),
+    ('publication_consumers', 'id'),
+    ('publication_consumers', 'revoked_at'),
+    ('publication_consumers', 'retired_at'),
+    ('publication_consumers', 'generation'),
+    ('publication_consumers', 'sequence'),
+    ('publication_subscriptions', 'consumer_id'),
+    ('publication_subscriptions', 'publication_id'),
+    ('publication_subscriptions', 'last_revision'),
+    ('publication_subscriptions', 'withdrawn_at'),
+    ('publication_changes', 'id'),
+    ('publication_changes', 'consumer_id'),
+    ('publication_changes', 'sequence'),
+    ('publication_changes', 'publication_id'),
+    ('publication_changes', 'revision'),
+    ('publication_changes', 'kind'),
+    ('publication_changes', 'acknowledged_at'),
+    ('indicator_publications', 'id'),
+    ('indicator_publications', 'status'),
+    ('indicator_publications', 'snapshot_json'),
+    ('indicator_publications', 'revision'),
+    ('indicator_publications', 'withdrawn_count'),
+    ('indicator_publications', 'updated_at'),
     ('integration_events', 'routing_state'),
     ('integration_events', 'claimed_at'),
     ('integration_events', 'last_error'),
@@ -363,6 +387,13 @@ BEGIN
      AND to_regclass('public.automation_policy_updates') IS NULL THEN
     RAISE EXCEPTION 'automation executions require the policy update ledger';
   END IF;
+  IF to_regclass('public.publication_consumers') IS NOT NULL AND (
+      to_regclass('public.publication_subscriptions') IS NULL
+      OR to_regclass('public.publication_changes') IS NULL
+      OR to_regclass('public.indicator_publications') IS NULL
+  ) THEN
+    RAISE EXCEPTION 'publication consumers require their complete withdrawal ledger';
+  END IF;
   IF to_regclass('public.integration_instances') IS NOT NULL AND NOT EXISTS (
     SELECT 1 FROM information_schema.columns
     WHERE table_schema = 'public' AND table_name = 'integration_instances' AND column_name = 'enabled'
@@ -458,6 +489,11 @@ DO $quarantine$
 DECLARE
   affected_users bigint := 0;
   revoked_api_tokens bigint := 0;
+  revoked_receiver_credentials bigint := 0;
+  retired_publication_consumers bigint := 0;
+  withdrawn_indicator_publications bigint := 0;
+  consumers_with_new_withdrawals bigint := 0;
+  rekeyed_publication_changes bigint := 0;
   revoked_service_account_credentials bigint := 0;
   disabled_service_accounts bigint := 0;
   revoked_sessions bigint := 0;
@@ -506,6 +542,14 @@ BEGIN
   SET revoked_at = COALESCE(revoked_at, clock_timestamp())
   WHERE revoked_at IS NULL;
   GET DIAGNOSTICS revoked_api_tokens = ROW_COUNT;
+
+  -- BEGIN MACHINE CREDENTIAL QUARANTINE
+  IF to_regclass('public.automation_receiver_credentials') IS NOT NULL THEN
+    EXECUTE $sql$UPDATE automation_receiver_credentials
+      SET revoked_at = clock_timestamp() WHERE revoked_at IS NULL$sql$;
+    GET DIAGNOSTICS revoked_receiver_credentials = ROW_COUNT;
+  END IF;
+  -- END MACHINE CREDENTIAL QUARANTINE
 
   IF to_regclass('public.service_account_credentials') IS NOT NULL THEN
     EXECUTE $sql$UPDATE service_account_credentials
@@ -624,6 +668,11 @@ BEGIN
   END IF;
 
   -- BEGIN AUTOMATION RECEIPT QUARANTINE
+  IF to_regclass('public.automation_policy_updates') IS NOT NULL THEN
+    -- Numeric revisions may roll back. Rotate acknowledgement identities, not
+    -- stable execution/action identities, including retained terminal history.
+    EXECUTE 'UPDATE automation_policy_updates SET id = gen_random_uuid()';
+  END IF;
   IF to_regclass('public.automation_executions') IS NOT NULL THEN
     -- A restored database cannot prove the current state of a remote job.
     -- Terminal receipts remain immutable history. No remote work is relaunched.
@@ -647,6 +696,69 @@ BEGIN
     GET DIAGNOSTICS withdrawn_automation_executions = ROW_COUNT;
   END IF;
   -- END AUTOMATION RECEIPT QUARANTINE
+
+  -- BEGIN PUBLICATION QUARANTINE
+  IF to_regclass('public.indicator_publications') IS NOT NULL THEN
+    -- Export serializers read each indicator, not just the publication status.
+    -- Keep exact approved evidence and identities, but withdraw its authority.
+    EXECUTE $sql$UPDATE indicator_publications AS publication
+      SET snapshot_json = jsonb_set(
+            jsonb_set(publication.snapshot_json::jsonb, '{indicators}', (
+              SELECT COALESCE(jsonb_agg(
+                CASE WHEN COALESCE(entry->>'withdrawn_at', '') <> '' THEN entry
+                  ELSE entry || jsonb_build_object(
+                    'withdrawn_at', statement_timestamp(),
+                    'withdrawal_reason', 'restore_quarantine') END ORDER BY ordinal
+              ), '[]'::jsonb)
+              FROM jsonb_array_elements(publication.snapshot_json::jsonb->'indicators')
+                WITH ORDINALITY AS entries(entry, ordinal)
+            )), '{misp_timestamp}', to_jsonb(GREATEST(
+              floor(extract(epoch FROM statement_timestamp()))::bigint,
+              COALESCE((publication.snapshot_json->>'misp_timestamp')::bigint, 0) + 1
+            ))),
+          status = 'withdrawn', revision = revision + 1,
+          withdrawn_count = jsonb_array_length(publication.snapshot_json::jsonb->'indicators'),
+          updated_at = statement_timestamp()
+      WHERE status <> 'withdrawn' OR EXISTS (
+        SELECT 1 FROM jsonb_array_elements(publication.snapshot_json::jsonb->'indicators') AS entry
+        WHERE COALESCE(entry->>'withdrawn_at', '') = ''
+      )$sql$;
+    GET DIAGNOSTICS withdrawn_indicator_publications = ROW_COUNT;
+  END IF;
+  IF to_regclass('public.publication_consumers') IS NOT NULL THEN
+    EXECUTE $sql$UPDATE publication_consumers
+      SET revoked_at = COALESCE(revoked_at, statement_timestamp()),
+          retired_at = COALESCE(retired_at, statement_timestamp()),
+          generation = CASE WHEN generation < 2147483647 THEN generation + 1 ELSE 1 END$sql$;
+    GET DIAGNOSTICS retired_publication_consumers = ROW_COUNT;
+    -- The generation is a paging hint, not the restore replay fence. A later
+    -- database state may already have used this number. Fresh UUIDs invalidate
+    -- every pre-restore ACK, including ACKs for already-withdrawn subscriptions.
+    EXECUTE 'UPDATE publication_changes SET id = gen_random_uuid()';
+    GET DIAGNOSTICS rekeyed_publication_changes = ROW_COUNT;
+    EXECUTE $sql$WITH withdrawn AS (
+      UPDATE publication_subscriptions AS subscription
+      SET withdrawn_at = statement_timestamp(), last_revision = publication.revision
+      FROM indicator_publications AS publication
+      WHERE publication.id = subscription.publication_id
+        AND subscription.withdrawn_at IS NULL
+      RETURNING subscription.consumer_id, subscription.publication_id, subscription.last_revision
+    ), numbered AS (
+      SELECT withdrawn.*, consumer.sequence + row_number() OVER (
+        PARTITION BY withdrawn.consumer_id ORDER BY withdrawn.publication_id
+      ) AS next_sequence
+      FROM withdrawn JOIN publication_consumers AS consumer ON consumer.id = withdrawn.consumer_id
+    ), inserted AS (
+      INSERT INTO publication_changes (id, consumer_id, sequence, publication_id, revision, kind)
+      SELECT gen_random_uuid(), consumer_id, next_sequence, publication_id, last_revision, 'withdrawn'
+      FROM numbered RETURNING consumer_id, sequence
+    ) UPDATE publication_consumers AS consumer
+      SET sequence = latest.sequence
+      FROM (SELECT consumer_id, max(sequence) AS sequence FROM inserted GROUP BY consumer_id) AS latest
+      WHERE consumer.id = latest.consumer_id$sql$;
+    GET DIAGNOSTICS consumers_with_new_withdrawals = ROW_COUNT;
+  END IF;
+  -- END PUBLICATION QUARANTINE
 
   IF to_regclass('public.integration_events') IS NOT NULL THEN
     EXECUTE $sql$UPDATE integration_events
@@ -846,6 +958,11 @@ BEGIN
       'reapplied', audit_already_recorded,
       'affected_users', affected_users,
       'revoked_api_tokens', revoked_api_tokens,
+      'revoked_receiver_credentials', revoked_receiver_credentials,
+      'retired_publication_consumers', retired_publication_consumers,
+      'withdrawn_indicator_publications', withdrawn_indicator_publications,
+      'consumers_with_new_withdrawals', consumers_with_new_withdrawals,
+      'rekeyed_publication_changes', rekeyed_publication_changes,
       'revoked_service_account_credentials', revoked_service_account_credentials,
       'disabled_service_accounts', disabled_service_accounts,
       'revoked_sessions', revoked_sessions,
@@ -901,6 +1018,28 @@ DECLARE
 BEGIN
   IF EXISTS (SELECT 1 FROM api_tokens WHERE revoked_at IS NULL) THEN
     RAISE EXCEPTION 'active API tokens remain after restore quarantine';
+  END IF;
+  IF to_regclass('public.automation_receiver_credentials') IS NOT NULL THEN
+    IF EXISTS (SELECT 1 FROM automation_receiver_credentials WHERE revoked_at IS NULL) THEN
+      RAISE EXCEPTION 'active receiver credentials remain after restore quarantine';
+    END IF;
+  END IF;
+  IF to_regclass('public.publication_consumers') IS NOT NULL THEN
+    IF EXISTS (SELECT 1 FROM publication_consumers WHERE revoked_at IS NULL OR retired_at IS NULL)
+       OR EXISTS (SELECT 1 FROM publication_subscriptions WHERE withdrawn_at IS NULL) THEN
+      RAISE EXCEPTION 'active publication distribution remains after restore quarantine';
+    END IF;
+  END IF;
+  IF to_regclass('public.indicator_publications') IS NOT NULL THEN
+    IF EXISTS (SELECT 1 FROM indicator_publications AS publication
+      WHERE status <> 'withdrawn'
+        OR withdrawn_count <> jsonb_array_length(publication.snapshot_json::jsonb->'indicators')
+        OR EXISTS (
+          SELECT 1 FROM jsonb_array_elements(publication.snapshot_json::jsonb->'indicators') AS entry
+          WHERE COALESCE(entry->>'withdrawn_at', '') = ''
+        )) THEN
+      RAISE EXCEPTION 'active reviewed publication indicators remain after restore quarantine';
+    END IF;
   END IF;
   IF to_regclass('public.service_account_credentials') IS NOT NULL THEN
     IF EXISTS (

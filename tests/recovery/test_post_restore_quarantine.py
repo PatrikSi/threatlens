@@ -177,6 +177,13 @@ class PostRestoreQuarantineTests(unittest.TestCase):
         self.assertIn("pg_advisory_xact_lock", sql)
         self.assertIn("UPDATE users", sql)
         self.assertIn("UPDATE api_tokens", sql)
+        self.assertIn("UPDATE automation_receiver_credentials", sql)
+        self.assertIn("UPDATE publication_consumers", sql)
+        self.assertIn("UPDATE publication_subscriptions", sql)
+        self.assertIn("UPDATE publication_changes SET id = gen_random_uuid()", sql)
+        self.assertIn("UPDATE automation_policy_updates SET id = gen_random_uuid()", sql)
+        self.assertIn("UPDATE indicator_publications", sql)
+        self.assertIn("'withdrawal_reason', 'restore_quarantine'", sql)
         self.assertIn("UPDATE service_account_credentials", sql)
         self.assertIn("UPDATE service_accounts", sql)
         self.assertIn("UPDATE auth_sessions", sql)
@@ -220,6 +227,10 @@ class PostRestoreQuarantineTests(unittest.TestCase):
         sql = (self.sql_directory / "verify.sql").read_text(encoding="utf-8")
         for invariant in (
             "api_tokens",
+            "automation_receiver_credentials",
+            "publication_consumers",
+            "publication_subscriptions",
+            "indicator_publications",
             "service_account_credentials",
             "service_accounts",
             "auth_sessions",

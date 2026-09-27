@@ -273,7 +273,7 @@ def test_retirement_keeps_acknowledgement_authority_until_history_can_be_archive
     )
 
 
-def test_retired_receiver_can_discard_and_reset_without_reviving_publications(
+def test_retired_receiver_must_acknowledge_current_withdrawal_ids_before_archiving(
     client, reviewed, auth_headers, db_session
 ):  # noqa: F811
     row, _, path, headers = _history(
@@ -289,11 +289,23 @@ def test_retired_receiver_can_discard_and_reset_without_reviving_publications(
         headers=headers,
         json={"expected_generation": 1, "discarded_previous_publications": True},
     )
-    assert reset.status_code == 200, reset.text
-    feed = client.get(
-        "/publication-distribution/changes", headers=headers, params=reset.json()
+    assert reset.status_code == 409, reset.text
+    assert "consumer_retired_reset_forbidden" in reset.text
+    feed = client.get("/publication-distribution/changes", headers=headers)
+    assert feed.status_code == 200 and len(feed.json()["changes"]) == 2
+    assert (
+        client.post(f"{manage}/archive", headers=auth_headers["admin"]).status_code
+        == 409
     )
-    assert feed.status_code == 200 and feed.json()["changes"] == []
+    ack = client.post(
+        "/publication-distribution/acknowledgements",
+        headers=headers,
+        json={
+            "generation": 1,
+            "change_ids": [entry["id"] for entry in feed.json()["changes"]],
+        },
+    )
+    assert ack.status_code == 200, ack.text
     assert (
         client.post(f"{manage}/archive", headers=auth_headers["admin"]).status_code
         == 204

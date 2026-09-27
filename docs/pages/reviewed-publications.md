@@ -170,12 +170,16 @@ must discard all locally imported publications from that consumer, then POST
 `/api/v1/publication-distribution/reset` with its `expected_generation` and
 `discarded_previous_publications:true`. Persist the returned generation/after
 position and reimport the current feed. Reset is explicit; it never assumes a receiver
-has removed intelligence merely because it was offline. Restored old checkpoints
-must perform the same recovery, and delayed acknowledgements from the old generation
-are rejected.
+has removed intelligence merely because it was offline. A receiver restoring its
+own old checkpoint must perform the same recovery. Delayed acknowledgements from
+the old generation are rejected. Server backup restoration has the separate
+quarantine procedure below.
 
 **Retire and withdraw** permanently withdraws the consumer's subscriptions while
-leaving its credential valid for the final acknowledgements. After all withdrawals
+leaving its credential valid for the final acknowledgements. Retired consumers
+cannot reset: a reset body can survive a server rollback and reuse a numeric
+generation without proving a fresh discard. Drain and acknowledge the current
+change IDs instead. After all withdrawals
 are acknowledged, **Archive acknowledged consumer** removes the bounded consumer
 ledger, records an audit event and frees a registration slot. Publication evidence
 and publication history remain governed separately. Revoke a credential immediately
@@ -187,3 +191,33 @@ If a registration response is lost, retrying its identity returns an actionable
 conflict; refresh the consumer list and rotate that consumer’s credential.
 The secret appears only once, is never retained in the query cache, and is cleared
 on navigation, session change or confirmed access loss.
+
+### Disaster recovery
+
+Restoring the server revokes every consumer credential and permanently retires
+the restored registrations. Active reviewed-publication snapshots are withdrawn,
+including their STIX `revoked` and MISP `deleted`/`to_ids` fields. The approved
+evidence and external IDs remain historical. Every active subscription receives
+a fresh withdrawal; all retained change UUIDs are replaced so an old queued ACK
+cannot acknowledge restored obligations, even if a generation number is reused.
+
+Keep receivers stopped during restoration and quarantine. After validation, a
+team manager can rotate a retired consumer's credential to complete withdrawals:
+
+1. Replace its credential and discard queued ACK/reset requests and paging cursors.
+   Keep the imported-publication ledger and tombstones until withdrawals are applied.
+2. Read `/api/v1/publication-distribution/status`. Use its current `generation` and
+   `replay_floor` as the starting `after`, even when the receiver previously saw a
+   higher generation or sequence. A restored sequence does not prove freshness.
+3. Replay the retained changes and apply every new withdrawal UUID. Older `available`
+   records are historical; downloads of those publications contain withdrawn
+   indicators. Never reactivate an existing tombstone from those records.
+4. Acknowledge the current change IDs. Old IDs return `404`; retired-consumer reset
+   returns `409 consumer_retired_reset_forbidden` even when the number matches.
+5. Archive after all acknowledgements, then explicitly register a new consumer and
+   review new publications. Rotation does not revive the retired delegation.
+
+Publications or consumers created after the selected backup may be absent from
+the restored server. Receivers must discard those unmatched imports using their
+own retained ledger; the restored server cannot enumerate records it never retained.
+Do not erase remote hunt outcomes or stable action identities during this recovery.
