@@ -38,6 +38,7 @@ def validate_findings(status: str, findings: str | None) -> None:
     """Match the server's text contract before making a callback durable."""
     if findings is not None and (
         status != "completed"
+        or not isinstance(findings, str)
         or len(findings) > 8000
         or not findings.strip()
         or "\x00" in findings
