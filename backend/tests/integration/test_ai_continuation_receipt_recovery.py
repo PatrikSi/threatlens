@@ -49,10 +49,37 @@ def interrupted_sections(db_session, extraction_item, monkeypatch):
     return item, run, receipt, progress, calls
 
 
+@pytest.mark.parametrize("at_ceiling", [False, True], ids=["additional-budget", "existing-ceiling-budget"])
 def test_reconcile_then_authorize_continuation_preserves_completed_calls_and_receipt_history(
-    client, auth_headers, db_session, interrupted_sections, monkeypatch,
+    client, auth_headers, db_session, interrupted_sections, monkeypatch, at_ceiling,
 ):
     item, original, receipt, progress, calls = interrupted_sections
+    if at_ceiling:
+        # Reach the real cumulative ceiling through three previously authorized
+        # continuations. The synthetic provider leaves the same section uncertain
+        # each time, and each new acceptance follows explicit receipt settlement.
+        for index in range(3):
+            reconcile_ai_provider_attempt(db_session, receipt_id=receipt.id, expected_revision=receipt.revision,
+                action="confirmed_not_sent", actor_user_id=uuid.uuid4())
+            db_session.commit()
+            accepted = client.post(f"/ai/articles/{item.id}/continue", headers=auth_headers["admin"], json={
+                "request_id": str(uuid.uuid4()), "progress_revision": progress_digest(progress),
+            })
+            assert accepted.status_code == 202, accepted.text
+            prior_id = uuid.UUID(accepted.json()["run_id"])
+            ai_ops.start_ai_task_run(db_session, run_id=prior_id, celery_task_id=f"earlier-continuation-{index}")
+            db_session.commit()
+            result = run_item_ai_enrichment(db_session, item_id=item.id, force=True, task_run_id=prior_id)
+            assert result.status == "error"
+            ai_ops.finish_ai_task_run(db_session, run_id=prior_id, status="error", reason="provider_error")
+            db_session.commit()
+            original = db_session.get(AITaskRun, prior_id)
+            receipt = db_session.scalar(select(AIProviderAttemptReceipt).where(
+                AIProviderAttemptReceipt.task_run_id_snapshot == prior_id,
+                AIProviderAttemptReceipt.state == "ambiguous",
+            ))
+            progress = copy.deepcopy(db_session.get(ItemAIEnrichment, item.id).extraction_progress_json)
+        assert progress["section_limit"] == 32 and progress["token_budget"] == 256000
     body = {"request_id": str(uuid.uuid4()), "progress_revision": progress_digest(progress)}
     blocked = client.post(f"/ai/articles/{item.id}/continue", json=body, headers=auth_headers["admin"])
     assert blocked.status_code == 409 and "Reconcile" in blocked.text
@@ -61,6 +88,8 @@ def test_reconcile_then_authorize_continuation_preserves_completed_calls_and_rec
     db_session.commit()
     accepted = client.post(f"/ai/articles/{item.id}/continue", json=body, headers=auth_headers["admin"])
     assert accepted.status_code == 202, accepted.text
+    if at_ceiling:
+        assert accepted.json()["section_limit"] == 32 and accepted.json()["token_budget"] == 256000
     again = client.post(f"/ai/articles/{item.id}/continue", json=body, headers=auth_headers["admin"])
     assert again.json()["run_id"] == accepted.json()["run_id"]
     run_id = uuid.UUID(accepted.json()["run_id"])
@@ -75,7 +104,7 @@ def test_reconcile_then_authorize_continuation_preserves_completed_calls_and_rec
     result = run_item_ai_enrichment(db_session, item_id=item.id, force=True, task_run_id=run_id)
     assert result.status == "ready", result.reason
     current = result.enrichment.extraction_progress_json
-    assert calls == [0, 1, 1, 2]
+    assert calls == [0, *([1] * (5 if at_ceiling else 2)), 2]
     assert current["sections"][0] == progress["sections"][0]
     assert current["sections"][1]["previous_attempt_receipts"] == [str(receipt.id)]
     assert progress["reserved_tokens"] < current["reserved_tokens"] <= current["token_budget"]
@@ -85,6 +114,28 @@ def test_reconcile_then_authorize_continuation_preserves_completed_calls_and_rec
     assert receipt.state == "failed" and receipt.reconciliation_action == "confirmed_not_sent"
     assert receipt.task_run_id_snapshot == original.id
     assert db_session.get(AITaskRun, run_id).metadata_json["provider_selection"] == original.metadata_json["provider_selection"]
+
+
+@pytest.mark.parametrize("remaining", ["no_tokens", "uncovered_tail_only"])
+def test_existing_ceiling_cannot_authorize_calls_without_recoverable_work_and_remaining_budget(
+    client, auth_headers, db_session, interrupted_sections, remaining,
+):
+    item, _, receipt, progress, _ = interrupted_sections
+    reconcile_ai_provider_attempt(db_session, receipt_id=receipt.id, expected_revision=receipt.revision,
+        action="confirmed_not_sent", actor_user_id=uuid.uuid4())
+    progress.update(section_limit=32, token_budget=256000)
+    if remaining == "no_tokens":
+        progress["reserved_tokens"] = 256000
+    else:
+        progress["sections"][1]["status"] = "pending"
+    db_session.get(ItemAIEnrichment, item.id).extraction_progress_json = progress
+    db_session.commit()
+    response = client.post(f"/ai/articles/{item.id}/continue", headers=auth_headers["admin"], json={
+        "request_id": str(uuid.uuid4()), "progress_revision": progress_digest(progress),
+    })
+    assert response.status_code == 409 and "authorization ceiling" in response.text
+    assert db_session.scalar(select(AITaskRun.id).where(AITaskRun.item_id == item.id,
+        AITaskRun.status.in_(["queued", "running"]))) is None
 
 
 @pytest.mark.parametrize("change", [

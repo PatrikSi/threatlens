@@ -77,12 +77,16 @@ def continue_article_extraction(
         if pending is not None:
             raise conflict("Article enrichment is already queued or running. Wait for it to finish.")
         try:
-            recover_unsent_sections(db, item_id=item_id, progress=progress)
+            recovered = recover_unsent_sections(db, item_id=item_id, progress=progress)
         except ValueError as exc:
             raise conflict(str(exc)) from exc
         section_limit = min(MAX_AUTHORIZED_SECTIONS, coverage.call_limit + MAX_SECTIONS)
         token_budget = min(MAX_AUTHORIZED_TOKENS, coverage.token_budget + TOTAL_TOKEN_BUDGET)
-        if section_limit == coverage.call_limit and token_budget == coverage.token_budget:
+        can_retry_unsent = any(
+            previous["status"] == "started" and current["status"] == "pending"
+            for previous, current in zip(progress["sections"], recovered["sections"], strict=True)
+        ) and coverage.reserved_tokens < token_budget
+        if section_limit == coverage.call_limit and token_budget == coverage.token_budget and not can_retry_unsent:
             raise conflict("This article reached the 32-section / 256,000-token authorization ceiling. Review the remaining source manually.")
         try:
             previous = db.get(AITaskRun, uuid.UUID(progress["task_run_id"]))
