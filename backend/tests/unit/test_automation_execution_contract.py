@@ -443,3 +443,55 @@ def test_receiver_credential_names_are_storage_safe(name):
     from app.schemas.team_integration import ReceiverCredentialWrite
     with pytest.raises(ValidationError):
         ReceiverCredentialWrite(name=name, expires_at=datetime.now(timezone.utc))
+
+
+@pytest.mark.parametrize("resume_mode", ["wrap", "reset"])
+def test_receiver_applies_fresh_restore_withdrawal_below_retained_revision(
+    tmp_path, monkeypatch, resume_mode
+):
+    receiver = receiver_module()
+    monkeypatch.setattr(receiver.time, "time", lambda: 1000.0)
+    path = str(tmp_path / "restored-receiver.db")
+    ledger = receiver.Ledger(path)
+    body = receiver_body()
+    accepted = ledger.accept(body)
+    execution_id = json.loads(body)["data"]["execution"]["id"]
+    old = {
+        "id": str(uuid.UUID(int=2**128 - 1)),
+        "execution_id": execution_id,
+        "event_type": "intel.withdrawn",
+        "revision": 9,
+    }
+    fresh = {**old, "id": str(uuid.UUID(int=1)), "revision": 2}
+    ledger.apply_policy(old)
+    with ledger.db:
+        ledger.db.execute("UPDATE jobs SET pending=0")
+        ledger.db.execute("INSERT INTO sync_state VALUES ('policy_cursor', ?)", (old["id"],))
+    ledger.db.close()
+    ledger = receiver.Ledger(path)
+    if resume_mode == "reset":
+        with ledger.db:
+            ledger.db.execute("UPDATE sync_state SET value=NULL WHERE key='policy_cursor'")
+    acknowledgements = []
+
+    def restored_server(path, payload=None):
+        if payload is None:
+            return {"items": [] if "&after=" in path else [fresh], "next_cursor": None}
+        if old["id"] in path:
+            raise OSError("404: old receipt identity was replaced during restore")
+        acknowledgements.append(path)
+        return {}
+
+    # A permanently obsolete ACK is isolated from fresh withdrawal application.
+    with pytest.raises(OSError, match="old receipt"):
+        receiver.synchronize_policy(ledger, restored_server)
+    if resume_mode == "wrap":
+        receiver.synchronize_policy(ledger, restored_server)
+    assert acknowledgements == [f"/notifications/automation/updates/{fresh['id']}/ack"]
+    assert ledger.db.execute("SELECT acknowledged FROM policy_receipts WHERE id=?", (fresh["id"],)).fetchone()[0] == 1
+    assert ledger.db.execute("SELECT count(*) FROM policy_receipts").fetchone()[0] == 2
+    assert ledger.accept(body) == accepted
+    assert ledger.db.execute("SELECT count(*) FROM jobs").fetchone()[0] == 1
+    with pytest.raises(ValueError, match="Withdrawn intelligence"):
+        ledger.status(execution_id, "running")
+    ledger.db.close()

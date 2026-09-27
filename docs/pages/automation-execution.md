@@ -18,8 +18,11 @@ Use a personal scoped API token belonging to the webhook owner. Callbacks requir
 `write:notifications` and `read:items`; team-derived evidence also requires
 `read:teams` and `read:ai`, current team membership, and every captured handling
 label. Token revocation and current permissions are checked before mutation.
-The execution ID alone grants no access. Personal ownership is unchanged; service
-account/team ownership of webhook destinations is a separate feature.
+The execution ID alone grants no access. For team-owned destinations, prefer a
+[scoped receiver credential](team-integrations.md), which reports only that
+destination's execution receipts and consumes its opaque withdrawal stream.
+Current authorized team members can also use the ordinary personal-token paths;
+evidence reads still require their current source and feature permissions.
 
 Paths in this protocol are backend-relative (`/v1/...`). The bundled web proxy
 mounts them under `/api/v1/...`: prepend `/api` to the supplied `callback_path`
@@ -101,10 +104,11 @@ The frontend displays pending policy acknowledgement separately from external
 execution status. Receivers should alert on prolonged polling/callback failures.
 Deleting webhook configuration retains its execution receipts and source event;
 normal event cleanup skips source events referenced by these receipts. Deleting
-the personal owner removes their receipts. Plan offboarding and receiver cleanup
-before revoking the last working token. These receipts currently require explicit
-administrative retention planning; they are not silently expired with ordinary
-HTTP-delivery history.
+a personal destination's owner removes its personal receipts. Team-owned
+receipts survive custodian offboarding. Plan receiver cleanup before revoking the
+last working token. Bounded maintenance archives completed or failed receipts
+only after their withdrawal obligations have been settled for at least 180 days;
+archival retains evidence, callback digests and action deduplication identities.
 
 ## Findings and investigations
 
@@ -174,19 +178,51 @@ For subscription matching, see [same-indicator conditions](indicator-conditions.
 ## Disaster recovery
 
 A restored database may be behind the receiver's durable ledger. The recovery
-quarantine hook therefore changes nonterminal receipts to `unknown`, preserves
-completed/failed history and findings, and issues a fresh withdrawal ID for every
-previously current action. Existing policy acknowledgement records remain
-historical; an acknowledgement for an older update cannot acknowledge the new
-withdrawal. Reapplying quarantine is idempotent and never launches remote work.
+quarantine hook revokes restored receiver credentials, changes nonterminal
+receipts to `unknown`, preserves completed/failed history and findings, and issues
+a withdrawal for every previously current action. It assigns fresh UUIDs to
+**all retained policy updates**, including older withdrawal history. This prevents
+pre-restore acknowledgements from acknowledging restored obligations even if
+numeric revisions roll back. Stable execution, action and external job identities
+are preserved. Reapplying quarantine rekeys acknowledgement identities again and
+never launches remote work.
 
-After recovery, rotate the revoked integration credentials, poll and apply the
-withdrawal stream, then reconcile each existing job by its stable action/job ID
-against the receiver or SIEM. Submit newly observed status using a new callback
-ID and a sequence higher than both retained ledgers. Do not interpret `unknown`
-as permission to replay a hunt. A rollback may reuse numeric policy revisions:
-deduplicate policy updates by their UUID, apply every new withdrawal UUID, and
-retain tombstones rather than assuming a previously seen revision is an ACK.
+After confirming recovery, stop normal receiver launch processing while restoring
+its control stream:
+
+1. Issue a replacement receiver credential for the existing team destination, or
+   use a newly issued scoped personal token with current authorization. Keep the
+   receiver's durable action/job ledger and withdrawal tombstones.
+2. Restart policy traversal from the first page. The reference receiver can finish
+   its persisted page traversal and wrap to the beginning; for immediate recovery,
+   stop its process and clear only the `policy_cursor` value in its SQLite
+   `sync_state` table. Never reset the jobs table or create new action identities.
+3. Apply every fresh withdrawal UUID, even when its numeric revision is below one
+   already seen. Old acknowledgement IDs now return 404. After confirming those
+   IDs were superseded by this restore, retire their queued ACK attempts locally
+   while preserving their withdrawal tombstones. For the reference ledger,
+   setting only those `policy_receipts.acknowledged` flags to `1` stops obsolete
+   retries; this is local retirement, not a new server acknowledgement. Fresh
+   updates remain independently applicable while old attempts back off.
+4. Reconcile each existing job by its stable action/job ID against the receiver or
+   SIEM. Submit newly observed status with a new callback ID and a sequence higher
+   than both retained ledgers. `unknown` never authorizes a replacement hunt.
+
+A team destination whose configuration was removed cannot issue a new machine
+credential. Its retained withdrawal obligations can still be drained through the
+ordinary `GET /v1/notifications/automation/updates` and
+`POST /v1/notifications/automation/updates/{id}/ack` routes by a current team member
+using a new personal token with `read:teams`, `read:notifications` and
+`write:notifications`. These routes use retained team ownership and return only
+opaque receipts; they do not require the deleted webhook or access to the original
+evidence. Apply each withdrawal at the receiver before acknowledging it. No new
+destination or action should be created merely to drain history.
+
+Actions accepted after the backup may be absent from restored PostgreSQL and
+therefore cannot receive a per-record withdrawal from it. Before resuming,
+reconcile or discard that post-backup external state using the receiver/SIEM's
+own durable ledger. Draining restored records alone does not prove every remote
+action or imported indicator has been withdrawn.
 
 
 ### Receiver retry scheduling
