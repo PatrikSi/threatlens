@@ -13,47 +13,53 @@ from sqlalchemy import select
 from app.api.mcp_context import resolve_mcp_read_context
 from app.core.api_errors import ApiHTTPException
 from app.core.config import get_settings
+from app.core.logging_config import reset_log_context, set_log_context
 from app.models.api_token import ApiToken
 from app.models.mcp_oauth import MCPOAuthCode
 
 
 @pytest.fixture()
 def oauth_env(client, auth_headers, monkeypatch):
-    monkeypatch.setenv("MCP_ENABLED", "true")
-    monkeypatch.setenv("MCP_OAUTH_ENABLED", "true")
-    monkeypatch.setenv("PUBLIC_APP_URL", "https://threatlens.example")
-    get_settings.cache_clear()
-    result = client.post(
-        "/mcp/oauth/clients",
-        json={
-            "name": "Analyst client",
-            "redirect_uris": ["http://127.0.0.1:8123/callback"],
-        },
-        headers=auth_headers["admin"],
-    )
-    assert result.status_code == 201, result.text
-    verifier = "x" * 43
-    request = {
-        "client_id": result.json()["client_id"],
-        "redirect_uri": "http://127.0.0.1:8123/callback",
-        "resource": "https://threatlens.example/api/v1/mcp",
-        "response_type": "code",
-        "state": "a-state-at-least-16-chars",
-        "code_challenge_method": "S256",
-        "code_challenge": base64.urlsafe_b64encode(
-            hashlib.sha256(verifier.encode()).digest()
+    # Direct resolver probes bypass the request middleware that resets logging.
+    context_token = set_log_context()
+    try:
+        monkeypatch.setenv("MCP_ENABLED", "true")
+        monkeypatch.setenv("MCP_OAUTH_ENABLED", "true")
+        monkeypatch.setenv("PUBLIC_APP_URL", "https://threatlens.example")
+        get_settings.cache_clear()
+        result = client.post(
+            "/mcp/oauth/clients",
+            json={
+                "name": "Analyst client",
+                "redirect_uris": ["http://127.0.0.1:8123/callback"],
+            },
+            headers=auth_headers["admin"],
         )
-        .decode()
-        .rstrip("="),
-        "scope": "read:mcp read:items",
-    }
-    login = client.post(
-        "/auth/login",
-        json={"email": "analyst@example.com", "password": "AnalystPass123!"},
-    )
-    assert login.status_code == 200, login.text
-    headers = {"X-CSRF-Token": client.cookies.get("threatlens_csrf")}
-    return request, verifier, headers
+        assert result.status_code == 201, result.text
+        verifier = "x" * 43
+        request = {
+            "client_id": result.json()["client_id"],
+            "redirect_uri": "http://127.0.0.1:8123/callback",
+            "resource": "https://threatlens.example/api/v1/mcp",
+            "response_type": "code",
+            "state": "a-state-at-least-16-chars",
+            "code_challenge_method": "S256",
+            "code_challenge": base64.urlsafe_b64encode(
+                hashlib.sha256(verifier.encode()).digest()
+            )
+            .decode()
+            .rstrip("="),
+            "scope": "read:mcp read:items",
+        }
+        login = client.post(
+            "/auth/login",
+            json={"email": "analyst@example.com", "password": "AnalystPass123!"},
+        )
+        assert login.status_code == 200, login.text
+        headers = {"X-CSRF-Token": client.cookies.get("threatlens_csrf")}
+        yield request, verifier, headers
+    finally:
+        reset_log_context(context_token)
 
 
 def authorize(client, env):
