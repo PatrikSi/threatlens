@@ -110,6 +110,9 @@ missing findings. The report view displays checked finding/claim-block counts
 and incomplete synthesis. Existing reports remain readable without claiming
 these newer checks were performed. Optional context and findings compaction
 remain visible through coverage warnings.
+Section planning reserves input space for evidence before fitting optional
+metadata, so small contexts retain representative findings. Reductions in metric
+detail are disclosed too; verified quotations remain intact.
 
 If section prompt compaction removes every verified finding, that section gets
 an explicit context-budget warning and makes no provider request. Increase the
@@ -188,6 +191,10 @@ Administrators can schedule weekly or monthly reports with:
 - optional integration delivery and content mode
 
 A schedule editor keeps the resource version captured when editing starts.
+Open schedule drafts remain available when switching reporting tabs. Leaving the
+workspace or cancelling an edited schedule requires confirmation; cancelling the
+confirmation keeps the draft and keyboard focus available. A late report deletion
+or retry response cannot redirect a user who has left its originating view.
 Background list refreshes cannot advance that version underneath unsaved fields.
 If another administrator changes the schedule, the editor warns about the newer
 version, and the server rejects a stale save. The draft remains available after
