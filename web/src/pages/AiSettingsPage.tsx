@@ -89,7 +89,7 @@ const DEFAULT_RUN_FILTERS: RunFilters = {
 const DEFAULT_REPROCESS_DAYS = '7'
 const DEFAULT_REPROCESS_LIMIT = '100'
 const DEFAULT_DAILY_BRIEF_REPROCESS_DAYS = '1'
-const INVALID_RUN_LINK_MESSAGE = 'This AI run link is invalid. Choose a run from Activity instead.'
+const INVALID_RUN_LINK_MESSAGE = 'This AI run link is invalid. Choose a run from Jobs instead.'
 
 type RunsQueryArgs = {
   days: number

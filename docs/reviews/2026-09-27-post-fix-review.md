@@ -1,5 +1,9 @@
 # Comprehensive post-fix review — 2026-09-27
 
+Remediation: all NR01–NR11 findings are addressed in the subsequent
+[corrections and validation report](2026-09-27-remediation.md). The findings below
+retain their original reviewed revision and reproduction evidence.
+
 Reviewed source revision: `5e847a8` on `main`. Three independent reviewers
 covered resilience, security and UI/UX, with a coordinating pass over code,
 deployment, monitoring, recovery and validation. This review adds evidence and

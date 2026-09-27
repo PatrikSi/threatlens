@@ -1,5 +1,9 @@
 # ThreatLens security review — 2026-09-27
 
+Remediation: SEC01/NR09 and SEC02/NR05 are addressed in the subsequent
+[corrections and validation report](docs/reviews/2026-09-27-remediation.md).
+The assessment below records the original reviewed revision.
+
 Reviewed revision: `5e847a8`. This supplements the [comprehensive review](docs/reviews/2026-09-27-post-fix-review.md); SEC01 maps to NR09 and SEC02 to NR05. This was a read-only source and disposable-test review. No application code, live services, credentials, or live data were changed.
 
 No new confirmed authentication bypass, cross-team read, arbitrary code execution, SQL/command injection, or default-policy SSRF defect was demonstrated in the reviewed paths. That is a scoped review result, not proof that the entire product is vulnerability-free. One concrete scratch-ownership defect was confirmed during tests, and the UI reviewer independently reproduced an access-denial presentation defect.
