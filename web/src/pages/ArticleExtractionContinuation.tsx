@@ -34,6 +34,11 @@ export function ArticleExtractionContinuation({ itemId, coverage, disabled }: {
     </button>
     {atCeiling && !canRequestRecovery && <p role="status">This article reached its authorized processing ceiling. Review the remaining source manually.</p>}
     {accepted && <p role="status">Additional processing was queued. Refresh evidence to follow its progress.</p>}
-    {continuation.isError && continuation.variables === coverage.progress_revision && <p role="alert">{resolveApiErrorMessage(continuation.error, canRequestRecovery ? 'The reconciled section could not be queued. Refresh evidence and retry.' : 'Additional sections could not be queued. Refresh evidence and retry.')}</p>}
+    {continuation.isError && continuation.variables === coverage.progress_revision && <p role="alert">{resolveApiErrorMessage(
+      continuation.error,
+      canRequestRecovery
+        ? 'The reconciled section could not be queued. Refresh evidence and retry.'
+        : 'Additional sections could not be queued. Refresh evidence and retry.',
+    )}</p>}
   </div>
 }
