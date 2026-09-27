@@ -12,6 +12,8 @@ import { hasRequiredPermissions } from '../workspace/workspaceModel'
 import { TeamCreateForm } from './TeamCreateForm'
 import { TeamListPanel } from './TeamListPanel'
 import { TeamMembersPanel } from './TeamMembersPanel'
+import { TeamAIGovernance } from './TeamAIGovernance'
+import { TeamIntegrations } from './TeamIntegrations'
 import { TeamHuntWorklist } from './TeamHuntWorklist'
 import { TeamIndicatorPanels } from './TeamIndicatorPanels'
 import { TeamSettingsEditor, type TeamGroupChoice } from './TeamSettingsEditor'
@@ -21,7 +23,7 @@ function accessLost(error: unknown) {
 }
 
 function showTeamDetails(adminMode: boolean, panel: string | null) {
-  return adminMode || !['ai-context', 'indicator-suppressions', 'hunts'].includes(panel ?? '')
+  return adminMode || !['ai-context', 'ai-governance', 'indicator-suppressions', 'hunts', 'integrations'].includes(panel ?? '')
 }
 
 export function TeamsPage() {
@@ -175,6 +177,7 @@ export function TeamsPage() {
                     onSaved={updateTeam}
                   />
                 )}
+                <AdminTeamAIGovernance teamId={team.id} enabled={adminMode} permissions={permissions} unavailable={user.isError || detail.isError} />
                 {adminMode && (
                   <p className="text-sm">
                     Administration shows team configuration. Reading team
@@ -218,6 +221,8 @@ function TeamWorkspaceResources({ team, permissions, panel, unavailable }: {
           Open team investigations
         </Link>
         <Link className="font-semibold text-cyan" to={`/teams?team=${team.id}&panel=hunts`}>Team hunt queue</Link>
+        <Link className="font-semibold text-cyan" to={`/teams?team=${team.id}&panel=ai-governance`}>AI destinations</Link>
+        {team.can_manage && hasRequiredPermissions(permissions, ['write:teams', 'write:notifications']) && <Link className="font-semibold text-cyan" to={`/teams?team=${team.id}&panel=integrations`}>Team integrations</Link>}
         <Link className="font-semibold text-cyan" to="/">
           Open dashboard views
         </Link>
@@ -238,6 +243,8 @@ function TeamWorkspaceResources({ team, permissions, panel, unavailable }: {
           canInvestigate={hasRequiredPermissions(permissions, ['write:investigations'])}
           unavailable={unavailable} />
       )}
+      {panel === 'integrations' && team.can_manage && hasRequiredPermissions(permissions, ['write:teams', 'write:notifications']) && <TeamIntegrations key={team.id} teamId={team.id} unavailable={unavailable} />}
+      {panel === 'ai-governance' && <TeamAIGovernance key={team.id} teamId={team.id} unavailable={unavailable} />}
       <TeamIndicatorPanels teamId={team.id} panel={panel} permissions={permissions} unavailable={unavailable} />
       <TeamMembersPanel
         key={`members-${team.id}`}
@@ -372,4 +379,8 @@ function TeamSharedViews({
       )}
     </section>
   )
+}
+
+function AdminTeamAIGovernance({ teamId, enabled, permissions, unavailable }: { teamId: string; enabled: boolean; permissions: string[]; unavailable: boolean }) {
+  return enabled && permissions.includes('write:ai') ? <TeamAIGovernance key={teamId} teamId={teamId} admin unavailable={unavailable} /> : null
 }

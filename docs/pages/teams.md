@@ -262,3 +262,10 @@ use the investigation workspace. Review drafts retain their original assessment
 version through background refresh; edits are disabled during submission and
 conflicts require deliberate reload. Approval still describes the exact reviewed
 evidence and does not itself establish that a hypothesis is true.
+
+### Review priorities and approved AI destinations
+
+The [hunt review workflow](hunt-review-workflow.md) adds oldest-first and overdue
+views, versioned priorities/deadlines, durable in-app reminders and shared team
+filters. [Team AI governance](team-ai-governance.md) lets administrators approve
+destinations and handling restrictions before managers select an assessment route.
