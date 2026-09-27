@@ -16,14 +16,15 @@ const entry = {
 }
 const page = { items: [entry], next_cursor: null, has_more: false, limit: 25 }
 let view: Awaited<ReturnType<typeof mountIntel>> | undefined
-beforeEach(() => { vi.mocked(apiFetch).mockResolvedValue(page) })
+const views = { items: [], can_manage: false }
+beforeEach(() => { vi.mocked(apiFetch).mockImplementation((path) => Promise.resolve(path.endsWith('/hunts/views') ? views : page)) })
 afterEach(() => { view?.close(); view = undefined; vi.clearAllMocks() })
 const queue = <TeamHuntWorklist teamId="team-1" writable canInvestigate unavailable={false} />
 
 describe('team hunt queue lifecycle', () => {
   it('pins both claim and assessment versions and blocks duplicate pending actions', async () => {
     const pending = deferred<unknown>()
-    vi.mocked(apiFetch).mockImplementation((_path, init) => init?.method ? pending.promise : Promise.resolve(page))
+    vi.mocked(apiFetch).mockImplementation((path, init) => init?.method ? pending.promise : Promise.resolve(path.endsWith('/hunts/views') ? views : page))
     view = await mountIntel(queue)
     act(() => {
       intelButton(view!.host, 'Claim hunt').click()
@@ -41,7 +42,7 @@ describe('team hunt queue lifecycle', () => {
   })
 
   it('continues empty permission-filtered pages and exposes recovery from a stale cursor', async () => {
-    vi.mocked(apiFetch).mockImplementation((path) => path.includes('cursor=next')
+    vi.mocked(apiFetch).mockImplementation((path) => path.endsWith('/hunts/views') ? Promise.resolve(views) : path.includes('cursor=next')
       ? Promise.reject(new ApiError('This hunt page cursor is invalid.', 422, path))
       : Promise.resolve({ ...page, items: [], next_cursor: 'next', has_more: true }))
     view = await mountIntel(queue, '/?panel=hunts&hunt_status=pending&other=retained')
