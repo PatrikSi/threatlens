@@ -6,7 +6,7 @@ context row, because context writes first take the team's exclusive lock.
 """
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 from sqlalchemy import func, select
@@ -45,6 +45,7 @@ class AssessmentSource:
     article_retrieved_at: datetime | None
     source_version: int
     truncated: bool
+    evidence_selection: dict = field(default_factory=dict)
 
 
 def _blocked(message: str) -> AIEgressPolicyError:
@@ -135,8 +136,16 @@ def fence_team_assessment(
         authorize_export_job(db, work, lock=True, required_permissions=REQUIRED_PERMISSIONS)
     except ExportJobAccessDenied as exc:
         raise _blocked("The accepting session or token expired while waiting. Sign in and generate again.") from exc
+    from app.models.item_ai_enrichment import ItemAIEnrichment
+    from app.services.team_evidence_selection import select_assessment_passages
+    extraction = db.scalar(select(ItemAIEnrichment.structured_extraction_json).where(
+        ItemAIEnrichment.item_id == work.item_id, ItemAIEnrichment.status == "ready"))
+    evidence_text, evidence_selection = select_assessment_passages(extraction,
+        source_version=item.classification_required_version, article_id=str(article_id),
+        retrieved_at=retrieved_at.isoformat() if retrieved_at else "",
+        context=context.model_dump(), prefix=(article.text or "") if article else "")
     return work, context, AssessmentSource(
-        title=item.title or "", summary=item.summary or "", article_text=(article.text or "") if article else "",
+        title=item.title or "", summary=item.summary or "", article_text=evidence_text, evidence_selection=evidence_selection,
         article_id=article_id, article_retrieved_at=retrieved_at,
         source_version=item.classification_required_version,
         truncated=bool(article and (article.length or 0) > 16000),

@@ -42,6 +42,8 @@ def section_execution_checkpoint(
     snapshot: dict, observe_stop: Callable[..., str | None],
 ) -> Callable[[], None]:
     def checkpoint() -> None:
+        from app.services.ai_article_continuation import continuation_authority
+        continuation_authority(db, run_id=task_run_id)
         reason = observe_stop(db, task_run_id=task_run_id, stage="extraction_section_checkpoint", lock=True)
         if reason is not None:
             raise AITaskRunStoppedError(reason)
@@ -62,11 +64,11 @@ def section_execution_checkpoint(
     return checkpoint
 
 
-def plan_sections(text: str) -> list[dict]:
+def plan_sections(text: str, *, section_limit: int = MAX_SECTIONS) -> list[dict]:
     """Use sentence boundaries where available without leaving holes or looping."""
     sections = []
     start = 0
-    while start < len(text) and len(sections) < MAX_SECTIONS:
+    while start < len(text) and len(sections) < section_limit:
         end = min(len(text), start + SECTION_CHARS)
         if end < len(text):
             boundary = text.rfind(". ", start + SECTION_CHARS * 3 // 4, end)
@@ -81,6 +83,7 @@ def extraction_progress_response(progress: dict | None) -> ExtractionCoverage | 
     """Never expose checkpoint provider payloads or task IDs in public progress."""
     if not progress:
         return None
+    from app.services.ai_article_continuation import progress_digest
     try:
         sections = [{key: section[key] for key in ("index", "start", "end", "status")}
                     for section in progress["sections"]]
@@ -89,8 +92,9 @@ def extraction_progress_response(progress: dict | None) -> ExtractionCoverage | 
         return ExtractionCoverage(
             source_hash=progress["source_hash"], normalized_text_chars=progress["text_chars"],
             processed_chars=processed, uncovered_chars=max(0, progress["text_chars"] - processed),
-            reserved_tokens=progress["reserved_tokens"], token_budget=TOTAL_TOKEN_BUDGET,
-            call_limit=MAX_SECTIONS, sections=sections,
+            reserved_tokens=progress["reserved_tokens"], token_budget=progress.get("token_budget", TOTAL_TOKEN_BUDGET),
+            call_limit=progress.get("section_limit", MAX_SECTIONS), sections=sections,
+            progress_revision=progress_digest(progress), summary_scope=progress.get("summary_scope", "first_section"),
             output_limited=progress.get("output_limited", False),
         )
     except (KeyError, TypeError, ValueError):
@@ -111,11 +115,11 @@ def section_messages(messages: list[dict[str, str]], text: str, section: dict) -
 
 def section_plan_fingerprint(
     active: ActiveAISettings, *, item_id: UUID, messages: list[dict[str, str]],
-    text: str, snapshot: dict,
+    text: str, snapshot: dict, section_limit: int = MAX_SECTIONS, token_budget: int = TOTAL_TOKEN_BUDGET,
 ) -> str:
     """Bind every planned request, including unsent sections, to one logical run."""
     requests = []
-    for section in plan_sections(text):
+    for section in plan_sections(text, section_limit=section_limit):
         prompt = section_messages(messages, text, section)
         output_tokens = min(active.max_completion_tokens, SECTION_OUTPUT_LIMIT, provider_output_ceiling(active, prompt))
         requests.append({
@@ -131,7 +135,7 @@ def section_plan_fingerprint(
         "article_id": str(snapshot["article_id"]), "source_version": snapshot["source_version"],
         "article_retrieved_at": snapshot["article_retrieved_at"].isoformat(),
         "text_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
-        "token_budget": TOTAL_TOKEN_BUDGET, "call_limit": MAX_SECTIONS,
+        "token_budget": token_budget, "call_limit": section_limit,
         "section_chars": SECTION_CHARS, "output_limit": SECTION_OUTPUT_LIMIT,
         "requests": requests,
     }
@@ -172,8 +176,13 @@ def run_section_extraction(
     # Explicit new jobs can make a new attempt. Redeliveries of the same logical
     # task retain both successful sections and their conservative reservations.
     run_key = str(task_run_id) if task_run_id is not None else claim_updated_at.isoformat()
+    from app.services.ai_article_continuation import continuation_authority, progress_digest
+    authority = continuation_authority(db, run_id=task_run_id)
+    section_limit = authority.section_limit if authority else MAX_SECTIONS
+    token_budget = authority.token_budget if authority else TOTAL_TOKEN_BUDGET
     plan_fingerprint = section_plan_fingerprint(
         active, item_id=item_id, messages=messages, text=text, snapshot=snapshot,
+        section_limit=section_limit, token_budget=token_budget,
     )
     if previous and previous.get("task_run_id") == run_key:
         if previous.get("plan_fingerprint") != plan_fingerprint:
@@ -184,12 +193,32 @@ def run_section_extraction(
                 provider_io_outcome="not_sent", failure_category="extraction_plan_changed", retryable=False,
             )
         progress = copy.deepcopy(previous)
+    elif authority is not None:
+        if (not previous or progress_digest(previous) != authority.expected_progress_digest
+                or previous.get("source_hash") != snapshot["source_hash"]
+                or previous.get("article_retrieved_at") != snapshot["article_retrieved_at"].isoformat()
+                or any(section["status"] == "started" for section in previous["sections"])):
+            raise AIIntegrationError("The extraction evidence or checkpoint changed after continuation was authorized. "
+                "Refresh and authorize current progress again.", provider_io_outcome="not_sent", retryable=False)
+        prior_limit = previous.get("section_limit", MAX_SECTIONS)
+        prior_budget = previous.get("token_budget", TOTAL_TOKEN_BUDGET)
+        prior_plan = section_plan_fingerprint(active, item_id=item_id, messages=messages, text=text,
+            snapshot=snapshot, section_limit=prior_limit, token_budget=prior_budget)
+        if previous.get("plan_fingerprint") != prior_plan:
+            raise AIIntegrationError("Provider settings or extraction prompts changed. Existing checkpoints were retained; "
+                "start a new reprocessing task for the current configuration.", provider_io_outcome="not_sent", retryable=False)
+        progress = copy.deepcopy(previous)
+        planned = plan_sections(text, section_limit=section_limit)
+        progress["sections"].extend(planned[len(progress["sections"]):])
+        progress.update(task_run_id=run_key, plan_fingerprint=plan_fingerprint,
+                        section_limit=section_limit, token_budget=token_budget)
     else:
         progress = {
             "task_run_id": run_key, "plan_fingerprint": plan_fingerprint,
             "source_hash": snapshot["source_hash"],
             "article_retrieved_at": snapshot["article_retrieved_at"].isoformat(),
             "text_chars": len(text), "reserved_tokens": 0, "sections": plan_sections(text),
+            "section_limit": section_limit, "token_budget": token_budget,
         }
     def save() -> None:
         _save_progress(db, item_id=item_id, claim_updated_at=claim_updated_at,
@@ -197,13 +226,14 @@ def run_section_extraction(
     save()
     for section in progress["sections"]:
         checkpoint()
+        continuation_authority(db, run_id=task_run_id)
         if section["status"] == "completed":
             continue
         prompt = section_messages(messages, text, section)
         output_tokens = min(active.max_completion_tokens, SECTION_OUTPUT_LIMIT, provider_output_ceiling(active, prompt))
         reservation = estimate_message_tokens(prompt) + max(output_tokens, 0)
         if section["status"] == "pending":
-            if output_tokens < 128 or progress["reserved_tokens"] + reservation > TOTAL_TOKEN_BUDGET:
+            if output_tokens < 128 or progress["reserved_tokens"] + reservation > token_budget:
                 break
             progress["reserved_tokens"] += reservation
             section["status"] = "started"
@@ -242,7 +272,7 @@ def run_section_extraction(
                     passage["start"] += section["start"]
                     passage["end"] += section["start"]
         section.update(status="completed", extraction=verified,
-                       completion=_completion_snapshot(completion, retain_content=section["index"] == 0))
+                       completion=_completion_snapshot(completion, retain_content=True))
         save()
     completed = [section for section in progress["sections"] if section["status"] == "completed"]
     if not completed:
@@ -252,7 +282,11 @@ def run_section_extraction(
         )
     merged, limited = merge_extractions([section["extraction"] for section in completed])
     progress["output_limited"] = limited
+    progress["summary_scope"] = "processed_sections"
     save()
+    from app.services.ai_section_synthesis import synthesize_sections
+    synthesis = synthesize_sections(db, active, progress=progress, completed=completed, item_id=item_id,
+        task_run_id=task_run_id, checkpoint=checkpoint, save=save, request=request)
     coverage = extraction_progress_response(progress)
     assert coverage is not None
     merged["coverage"] = coverage.model_dump(mode="json")
@@ -266,9 +300,17 @@ def run_section_extraction(
             *merged["information_gaps"],
         ][:8]
     first = AICompletionResult(**completed[0]["completion"])
+    # Preserve section attribution. Concatenation deliberately does not collapse
+    # contradictory interpretations into a new unsupported whole-article claim.
+    summaries = [f"Section {section['index'] + 1}: {section['completion']['payload'].get('summary_text', '')}".strip()
+                 for section in completed if section['completion']['payload'].get('summary_text')]
+    if summaries:
+        first = replace(first, payload={**first.payload, "summary_text": synthesis or "\n\n".join(summaries)[:32000]})
     totals = {}
     for key in ("latency_ms", "prompt_tokens", "completion_tokens", "total_tokens", "prompt_char_count", "response_char_count"):
         values = [section["completion"][key] for section in completed]
+        if synthesis and progress.get("synthesis", {}).get("usage"):
+            values.append(progress["synthesis"]["usage"].get(key))
         totals[key] = sum(values) if all(value is not None for value in values) else None
     return replace(first, **totals), merged
 
@@ -342,4 +384,12 @@ def checkpointed_receipt_fingerprints(resource: ItemAIEnrichment | None, *, run_
             fingerprints.add(fingerprint)
     except (TypeError, ValueError, KeyError):
         return None
+    synthesis = progress.get("synthesis") or {}
+    if synthesis.get("status") == "completed" and isinstance(synthesis.get("summary_text"), str):
+        fingerprint = synthesis.get("request_fingerprint")
+        if isinstance(fingerprint, str) and len(fingerprint) == 64:
+            fingerprints.add(fingerprint)
+    for fingerprint in progress.get("previous_synthesis_fingerprints", []):
+        if isinstance(fingerprint, str) and len(fingerprint) == 64:
+            fingerprints.add(fingerprint)
     return fingerprints

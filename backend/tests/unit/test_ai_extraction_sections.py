@@ -196,3 +196,48 @@ def test_progress_excludes_private_provider_payloads_and_handles_invalid_history
     assert "private" not in value.model_dump_json()
     assert "secret" not in value.model_dump_json()
     assert extraction_progress_response({"sections": []}) is None
+
+
+def test_authorized_continuation_reuses_all_completed_sections(db_session, extraction_item, monkeypatch):  # noqa: F811
+    from app.services.ai_article_continuation import progress_digest
+    item, article = extraction_item
+    arguments = setup_run(db_session, item, article, "x" * 100000)
+    active = SimpleNamespace(provider_type="openai_compatible", model="test", max_completion_tokens=128)
+    calls = []
+    def request(_db, _active, **kwargs):
+        calls.append(kwargs["provider_operation_scope"])
+        result = empty_completion()
+        result.payload["summary_text"] = f"Summary for {calls[-1]}"
+        return result
+    run_section_extraction(db_session, active, request=request, **arguments)
+    previous = db_session.get(ItemAIEnrichment, item.id).extraction_progress_json
+    assert len(calls) == 8
+    authority = SimpleNamespace(section_limit=16, token_budget=128000,
+        expected_progress_digest=progress_digest(previous))
+    monkeypatch.setattr("app.services.ai_article_continuation.continuation_authority", lambda *_args, **_kwargs: authority)
+    arguments["task_run_id"] = uuid4()
+    completion, extraction = run_section_extraction(db_session, active, request=request, **arguments)
+    assert len(calls) == 13
+    assert len(set(calls)) == 13
+    assert extraction["coverage"]["uncovered_chars"] == 0
+    assert extraction["coverage"]["reserved_tokens"] > previous["reserved_tokens"]
+    assert "item_extraction_section:12" in completion.payload["summary_text"]
+    # Redelivery of the same continuation sends no completed provider call.
+    run_section_extraction(db_session, active, request=request, **arguments)
+    assert len(calls) == 13
+
+
+def test_continuation_does_not_reuse_modified_source_or_provider(db_session, extraction_item, monkeypatch):  # noqa: F811
+    from app.services.ai_article_continuation import progress_digest
+    item, article = extraction_item
+    arguments = setup_run(db_session, item, article, "x" * 100000)
+    active = SimpleNamespace(provider_type="openai_compatible", model="test", max_completion_tokens=128)
+    run_section_extraction(db_session, active, request=lambda *_args, **_kwargs: empty_completion(), **arguments)
+    previous = db_session.get(ItemAIEnrichment, item.id).extraction_progress_json
+    authority = SimpleNamespace(section_limit=16, token_budget=128000, expected_progress_digest=progress_digest(previous))
+    monkeypatch.setattr("app.services.ai_article_continuation.continuation_authority", lambda *_args, **_kwargs: authority)
+    arguments["task_run_id"] = uuid4()
+    active.model = "changed"
+    with pytest.raises(AIIntegrationError, match="Provider settings"):
+        run_section_extraction(db_session, active, request=lambda *_a, **_kw: pytest.fail("must not send"), **arguments)
+    assert db_session.get(ItemAIEnrichment, item.id).extraction_progress_json == previous

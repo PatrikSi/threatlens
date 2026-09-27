@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.schemas.ai_extraction import EvidenceSource
+from app.schemas.ai_extraction import EvidenceSource, ExtractionCoverage
 from app.schemas.storage_text import validate_storage_text
 
 
@@ -49,11 +49,25 @@ class HuntSuggestionResponse(BaseModel):
     reviewed_at: datetime | None = None
 
 
+class SelectedEvidenceRange(BaseModel):
+    start: int = Field(ge=0)
+    end: int = Field(gt=0)
+
+
+class AssessmentEvidenceSelection(BaseModel):
+    selection: Literal["article_prefix", "verified_section_passages"]
+    selected_passages: list[SelectedEvidenceRange] = Field(default_factory=list, max_length=576)
+    source_hash: str | None = None
+    source_version: int | None = None
+    coverage: ExtractionCoverage | None = None
+
+
 class TeamAssessmentResultResponse(BaseModel):
     relevance_score: float = Field(ge=0, le=1, allow_inf_nan=False)
     relevance_reasons: list[str]
     information_gaps: list[str]
     hunts: list[HuntSuggestionResponse]
+    evidence_selection: AssessmentEvidenceSelection | None = None
 
 
 class TeamAssessmentResponse(BaseModel):

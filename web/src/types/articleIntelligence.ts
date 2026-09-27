@@ -32,6 +32,8 @@ export interface ExtractionCoverage {
   token_budget: number
   call_limit: number
   output_limited: boolean
+  progress_revision?: string | null
+  summary_scope?: 'first_section' | 'processed_sections' | 'section_synthesis'
   sections: { index: number; start: number; end: number; status: 'pending' | 'started' | 'completed' }[]
 }
 export interface StructuredExtraction {
@@ -77,6 +79,7 @@ export interface TeamAssessment {
     relevance_reasons: string[]
     information_gaps: string[]
     hunts: HuntSuggestion[]
+    evidence_selection?: { selection: 'article_prefix' | 'verified_section_passages'; selected_passages: { start: number; end: number }[]; coverage?: ExtractionCoverage | null } | null
   } | null
 }
 export interface TeamAssessmentResponse {

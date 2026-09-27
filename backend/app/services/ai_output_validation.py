@@ -54,6 +54,19 @@ def _invalid_feature_fields(
 ) -> list[str]:
     invalid_fields: list[str] = []
     if feature_type == "item_enrichment":
+        import json
+        if messages:
+            try:
+                envelope = json.loads(messages[-1]["content"])
+            except (ValueError, KeyError, TypeError):
+                envelope = {}
+            if isinstance(envelope, dict) and envelope.get("task") == "item_section_synthesis":
+                from app.services.ai_section_synthesis import validate_section_synthesis
+                try:
+                    validate_section_synthesis(payload, messages)
+                except (ValueError, TypeError, KeyError) as error:
+                    invalid_fields.append(str(error))
+                return invalid_fields
         if active.summary_enabled and not _has_text(payload.get("summary_text")):
             invalid_fields.append("summary_text (nonempty text)")
         if active.relevance_enabled and coerce_score(payload.get("relevance_score")) is None:

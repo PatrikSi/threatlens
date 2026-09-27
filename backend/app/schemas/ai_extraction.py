@@ -103,7 +103,9 @@ class ExtractionCoverage(BaseModel):
     token_budget: int = Field(ge=0)
     call_limit: int = Field(ge=1)
     output_limited: bool = False
-    sections: list[ExtractionSectionCoverage] = Field(max_length=8)
+    progress_revision: str | None = None
+    summary_scope: Literal["first_section", "processed_sections", "section_synthesis"] = "first_section"
+    sections: list[ExtractionSectionCoverage] = Field(max_length=32)
 
 
 class StructuredExtractionResponse(BaseModel):
