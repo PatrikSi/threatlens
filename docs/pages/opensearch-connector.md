@@ -121,5 +121,14 @@ targets. This validates vendor API contracts, not your TLS, roles, index mapping
 production volume, backup recovery or SIEM outcome quality; qualify those in the
 intended deployment before enabling automatic hunts.
 
+The `OpenSearch connector vendor contract` quality gate repeats this test against
+pinned OpenSearch 3.8.0 on each quality-gate run. Its disposable service exposes
+only loopback HTTP, with a 512 MiB Java heap, 2 GiB memory limit, two CPUs and a
+512-process limit. The standard-library-only harness has a two-minute deadline;
+GitHub removes the service when the job ends. Qualification output and service
+logs are retained for 14 days, including failed runs. This checks the vendor API
+contract and duplicate-launch safeguards; it does not establish production
+security or sustained capacity.
+
 API references: [asynchronous search](https://docs.opensearch.org/latest/search-plugins/async/index/)
 and [document create](https://docs.opensearch.org/latest/api-reference/document-apis/index-document/).

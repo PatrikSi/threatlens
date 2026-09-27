@@ -179,6 +179,67 @@ jobs:
           env -u THREATLENS_TEST_DATABASE_URL -u THREATLENS_TEST_REDIS_URL
           timeout 3m python -m pytest tests/integration/test_mcp_sdk_http.py
 
+  opensearch-contract:
+    name: OpenSearch connector vendor contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    services:
+      opensearch:
+        image: opensearchproject/opensearch:3.8.0
+        env:
+          discovery.type: single-node
+          node.store.allow_mmap: "false"
+          DISABLE_SECURITY_PLUGIN: "true"
+          DISABLE_INSTALL_DEMO_CONFIG: "true"
+          OPENSEARCH_JAVA_OPTS: -Xms512m -Xmx512m
+        ports:
+          - 127.0.0.1:9200:9200
+        options: >-
+          --memory 2g --memory-swap 2g --cpus 2 --pids-limit 512
+          --ulimit nofile=65536:65536
+          --health-cmd "curl --fail --silent --max-time 5 http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow"
+          --health-interval 5s --health-timeout 6s
+          --health-start-period 30s --health-retries 18
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up standard-library-only qualification Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Qualify durable launch, polling and ambiguous response recovery
+        timeout-minutes: 3
+        # This contract uses synthetic local evidence. It does not qualify
+        # production TLS, authorization, index mappings or sustained capacity.
+        run: |
+          mkdir -p opensearch-contract-evidence
+          timeout --signal=TERM --kill-after=10s 2m python scripts/operations/qualify_opensearch.py \
+            --url http://127.0.0.1:9200 \
+            --output opensearch-contract-evidence/qualification.json \
+            > opensearch-contract-evidence/qualification.log 2>&1
+
+      - name: Capture disposable service diagnostics
+        if: always()
+        env:
+          OPENSEARCH_CONTAINER_ID: ${{ job.services.opensearch.id }}
+        run: |
+          mkdir -p opensearch-contract-evidence
+          timeout 20s docker logs "$OPENSEARCH_CONTAINER_ID" \
+            > opensearch-contract-evidence/opensearch.log 2>&1
+          timeout 20s docker inspect --format '{{json .State}}' "$OPENSEARCH_CONTAINER_ID" \
+            > opensearch-contract-evidence/container-state.json
+
+      - name: Retain connector qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: opensearch-connector-contract
+          path: opensearch-contract-evidence/
+          if-no-files-found: warn
+          retention-days: 14
+
   frontend:
     name: Frontend tests and build
     runs-on: ubuntu-latest
