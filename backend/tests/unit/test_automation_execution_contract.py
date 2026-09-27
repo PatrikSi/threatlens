@@ -495,3 +495,110 @@ def test_receiver_applies_fresh_restore_withdrawal_below_retained_revision(
     with pytest.raises(ValueError, match="Withdrawn intelligence"):
         ledger.status(execution_id, "running")
     ledger.db.close()
+
+
+@pytest.mark.parametrize("findings", ["", " \n\t", "bad\x00value", "bad\ud800value", "bad\udfffvalue", "x" * 8001])
+def test_receiver_rejects_invalid_findings_before_changing_durable_state(tmp_path, findings):
+    receiver = receiver_module()
+    ledger = receiver.Ledger(str(tmp_path / "ledger.db"))
+    body = receiver_body()
+    execution_id = json.loads(body)["data"]["execution"]["id"]
+    accepted = ledger.accept(body)
+    receiver.synchronize(ledger, lambda *args: {"items": []})
+    with pytest.raises(ValueError, match="storage-safe"):
+        ledger.status(execution_id, "completed", findings)
+    stored, sequence, pending = ledger.db.execute("SELECT callback, sequence, pending FROM jobs").fetchone()
+    assert json.loads(stored) == accepted
+    assert (sequence, pending) == (1, 0)
+    ledger.status(execution_id, "completed", "Corrected evidence")
+    ExecutionCallback.model_validate_json(ledger.db.execute("SELECT callback FROM jobs").fetchone()[0])
+
+
+def legacy_invalid_callback(ledger):
+    body = receiver_body()
+    execution_id = json.loads(body)["data"]["execution"]["id"]
+    callback = ledger.accept(body)
+    callback.update(sequence=2, status="completed", findings="   ")
+    with ledger.db:
+        ledger.db.execute("UPDATE jobs SET callback=?, sequence=2 WHERE execution_id=?", (json.dumps(callback), execution_id))
+    return execution_id, callback
+
+
+def test_legacy_invalid_callback_repair_requires_rejection_and_preserves_identity_and_history(tmp_path):
+    from urllib.error import HTTPError
+
+    receiver = receiver_module()
+    database = str(tmp_path / "legacy.db")
+    ledger = receiver.Ledger(database)
+    execution_id, original = legacy_invalid_callback(ledger)
+    with pytest.raises(ValueError, match="HTTP 422"):
+        ledger.repair_findings(execution_id, "Corrected evidence")
+
+    def reject(path, payload=None):
+        if path.endswith("/callbacks"):
+            raise HTTPError(path, 422, "Request validation failed", {}, None)
+        return {"items": []}
+
+    with pytest.raises(HTTPError):
+        receiver.synchronize(ledger, reject)
+    ledger.db.close()
+    ledger = receiver.Ledger(database)  # Proof of rejection survives a restart.
+    ledger.repair_findings(execution_id, "Corrected evidence")
+    repaired = json.loads(ledger.db.execute("SELECT callback FROM jobs").fetchone()[0])
+    assert repaired == {**original, "callback_id": repaired["callback_id"], "findings": "Corrected evidence"}
+    assert repaired["callback_id"] != original["callback_id"]
+    ExecutionCallback.model_validate(repaired)
+    recorded = ledger.db.execute("SELECT rejected_callback, replacement_callback FROM callback_repairs").fetchone()
+    assert tuple(map(json.loads, recorded)) == (original, repaired)
+    delivered = []
+
+    def success(path, payload=None):
+        if path.endswith("/callbacks"):
+            delivered.append(payload)
+        return {"items": []}
+
+    receiver.synchronize(ledger, success)
+    assert delivered == [repaired]
+    assert ledger.db.execute("SELECT pending FROM jobs").fetchone()[0] == 0
+    with pytest.raises(ValueError, match="HTTP 422"):
+        ledger.repair_findings(execution_id, "Cannot rewrite accepted history")
+
+
+@pytest.mark.parametrize("failure", [OSError("Response lost"), 400, 409, 500])
+def test_callback_repair_refuses_ambiguous_or_nonvalidation_failures(tmp_path, failure):
+    from urllib.error import HTTPError
+
+    receiver = receiver_module()
+    ledger = receiver.Ledger(str(tmp_path / "ledger.db"))
+    execution_id, original = legacy_invalid_callback(ledger)
+
+    def request(path, payload=None):
+        if path.endswith("/callbacks"):
+            raise failure if isinstance(failure, Exception) else HTTPError(path, failure, "Rejected", {}, None)
+        return {"items": []}
+
+    with pytest.raises(OSError):
+        receiver.synchronize(ledger, request)
+    with pytest.raises(ValueError, match="HTTP 422"):
+        ledger.repair_findings(execution_id, "Changed evidence")
+    assert json.loads(ledger.db.execute("SELECT callback FROM jobs").fetchone()[0]) == original
+
+
+def test_callback_repair_cannot_change_a_valid_callback_despite_422(tmp_path):
+    from urllib.error import HTTPError
+
+    receiver = receiver_module()
+    ledger = receiver.Ledger(str(tmp_path / "ledger.db"))
+    body = receiver_body()
+    execution_id = json.loads(body)["data"]["execution"]["id"]
+    ledger.accept(body)
+
+    def request(path, payload=None):
+        if path.endswith("/callbacks"):
+            raise HTTPError(path, 422, "Rejected", {}, None)
+        return {"items": []}
+
+    with pytest.raises(HTTPError):
+        receiver.synchronize(ledger, request)
+    with pytest.raises(ValueError, match="Only invalid findings"):
+        ledger.repair_findings(execution_id, None)

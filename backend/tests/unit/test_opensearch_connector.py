@@ -304,3 +304,118 @@ def test_incomplete_policy_traversal_blocks_new_vendor_launch(tmp_path):
         Adapter(),
         receiver.synchronize,
     )
+
+
+def test_finished_stale_cursor_cannot_launch_before_lower_withdrawal_is_applied(tmp_path):
+    receiver, runner = module("receiver"), module("opensearch_runner")
+    ledger = receiver.Ledger(str(tmp_path / "receiver.db"))
+    envelope = event()
+    ledger.accept(json.dumps(envelope).encode())
+    update = {
+        "id": str(uuid.UUID(int=1)),
+        "execution_id": envelope["data"]["execution"]["id"],
+        "event_type": "intel.withdrawn",
+        "revision": 1,
+    }
+    with ledger.db:
+        ledger.db.execute("UPDATE jobs SET pending=0")
+        ledger.db.execute("INSERT INTO sync_state VALUES ('policy_cursor', ?)", (str(uuid.UUID(int=1000)),))
+    calls = []
+
+    class Adapter:
+        def advance(self, _envelope):
+            raise AssertionError("A withdrawal already pending before this run must prevent launch")
+
+        def withdraw(self, _envelope):
+            calls.append("withdraw")
+
+    def request(path, payload=None):
+        calls.append(path)
+        if path.endswith("/ack") or path.endswith("/callbacks"):
+            return {}
+        return {"items": [] if "after=" in path else [update], "next_cursor": None}
+
+    runner.run_connector(ledger, request, Adapter(), receiver.synchronize)
+    assert "/notifications/automation/updates?limit=1" in calls
+    assert "withdraw" in calls
+    assert ledger.db.execute("SELECT withdrawn FROM jobs").fetchone()[0] == 1
+    assert len([path for path in calls if "/updates?" in path]) == 3
+
+
+@pytest.mark.parametrize("reply", [{}, {"items": None}, {"items": [1, 2]}, "unavailable", OSError("Policy unavailable")])
+def test_invalid_or_unavailable_fresh_policy_head_never_advances_job(tmp_path, reply):
+    receiver, runner = module("receiver"), module("opensearch_runner")
+    ledger = receiver.Ledger(str(tmp_path / "receiver.db"))
+    ledger.accept(json.dumps(event()).encode())
+
+    class Adapter:
+        def advance(self, _envelope):
+            raise AssertionError("A failed policy freshness check must never authorize launch")
+
+    def request(path, payload=None):
+        if path.endswith("?limit=1"):
+            if isinstance(reply, Exception):
+                raise reply
+            return reply
+        return {"items": []}
+
+    with pytest.raises((OSError, ValueError)):
+        runner.run_connector(ledger, request, Adapter(), receiver.synchronize)
+    assert ledger.db.execute("SELECT vendor_last_at FROM jobs").fetchone()[0] == 0
+
+
+def test_every_vendor_job_checks_fresh_policy_without_unbounded_traversal(tmp_path):
+    receiver, runner = module("receiver"), module("opensearch_runner")
+    ledger = receiver.Ledger(str(tmp_path / "receiver.db"))
+    for _ in range(5):
+        ledger.accept(json.dumps(event()).encode())
+    calls = []
+
+    class Adapter:
+        def advance(self, _envelope):
+            calls.append("advance")
+            return "running", None
+
+    def request(path, payload=None):
+        if path.endswith("?limit=1"):
+            calls.append("head")
+        return {"items": []}
+
+    runner.run_connector(ledger, request, Adapter(), receiver.synchronize)
+    assert calls == ["head", "advance"] * 3
+
+
+def test_callback_failures_leave_time_for_unrelated_vendor_polling(tmp_path, monkeypatch):
+    receiver, runner = module("receiver"), module("opensearch_runner")
+    ledger = receiver.Ledger(str(tmp_path / "receiver.db"))
+    clock = [1000.0]
+    monkeypatch.setattr(receiver.time, "time", lambda: clock[0])
+    monkeypatch.setattr(receiver.time, "monotonic", lambda: clock[0])
+    for _ in range(200):
+        ledger.accept(json.dumps(event()).encode())
+    healthy = event()
+    identity = healthy["data"]["execution"]["id"]
+    callback = ledger.accept(json.dumps(healthy).encode())
+    callback.update(sequence=2, status="running")
+    with ledger.db:
+        ledger.db.execute("UPDATE jobs SET pending=0, sequence=2, callback=? WHERE execution_id=?", (json.dumps(callback), identity))
+    polls = []
+
+    class Adapter:
+        def advance(self, envelope):
+            polls.append(envelope["data"]["execution"]["id"])
+            return "running", None
+
+    def request(path, payload=None):
+        if path.endswith("/callbacks") and identity not in path:
+            clock[0] += 15  # One slow callback must yield the rest of its lane.
+            raise OSError("Unrelated callback remains unavailable")
+        return {"items": []}
+
+    for tick in range(1440):
+        clock[0] = 1000.0 + tick * 60
+        with pytest.raises(OSError, match="Unrelated callback"):
+            runner.run_connector(ledger, request, Adapter(), receiver.synchronize)
+    assert polls == [identity] * 1440
+    assert ledger.db.execute("SELECT pending FROM jobs WHERE execution_id=?", (identity,)).fetchone()[0] == 0
+    assert ledger.db.execute("SELECT count(*) FROM jobs WHERE attempts>0 AND execution_id!=?", (identity,)).fetchone()[0] == 200

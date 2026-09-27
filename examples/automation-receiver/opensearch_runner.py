@@ -29,17 +29,38 @@ def run_connector(ledger, request, connector, synchronize):
         connector.withdraw(envelope)
 
     ledger.policy_gate = policy_gate
-    # A failed withdrawal or unavailable policy feed must stop new launches.
-    synchronize(ledger, request)
+    # Policy failures stop vendor work. Unrelated callback failures remain visible
+    # after the vendor lane has received its independent bounded time slice.
+    callback_errors = []
+    synchronize(ledger, request, callback_errors=callback_errors, callback_budget_seconds=5)
     cursor = ledger.db.execute(
         "SELECT value FROM sync_state WHERE key='policy_cursor'"
     ).fetchone()
-    if cursor and cursor[0]:
-        return  # Finish the bounded control-feed traversal before any launch.
-    if ledger.db.execute(
+    unacknowledged = ledger.db.execute(
         "SELECT 1 FROM policy_receipts WHERE acknowledged=0 LIMIT 1"
-    ).fetchone():
-        return
+    ).fetchone()
+    if not (cursor and cursor[0]) and not unacknowledged:
+        _advance_ready_jobs(ledger, request, connector)
+        synchronize(ledger, request, callback_errors=callback_errors, callback_budget_seconds=5)
+    if callback_errors:
+        raise callback_errors[0]
+
+
+def _policy_head_is_clear(request) -> bool:
+    """An old UUID cursor finishing is not proof that the control feed is empty.
+
+    Read the current pending head before every possible launch. Any outstanding
+    update defers work to the bounded traversal; never drain unbounded pages here.
+    """
+    page = request("/notifications/automation/updates?limit=1")
+    if not isinstance(page, dict) or not isinstance(page.get("items"), list):
+        raise ValueError("Invalid policy response; vendor work remains deferred")
+    if len(page["items"]) > 1:
+        raise ValueError("Policy response exceeded the requested limit")
+    return not page["items"] and not page.get("next_cursor")
+
+
+def _advance_ready_jobs(ledger, request, connector):
     cancelled = ledger.db.execute(
         "SELECT execution_id FROM jobs WHERE pending=0 AND withdrawn=1 "
         "AND json_extract(callback, '$.status') NOT IN ('completed', 'failed') "
@@ -54,6 +75,8 @@ def run_connector(ledger, request, connector, synchronize):
         (time.time(),),
     ).fetchall()
     for identity, body, previous in rows:
+        if not _policy_head_is_clear(request):
+            return
         now = time.time()
         with ledger.db:
             ledger.db.execute(
@@ -66,4 +89,3 @@ def run_connector(ledger, request, connector, synchronize):
             status, findings = "unknown", None
         if json.loads(previous)["status"] != status:
             ledger.status(identity, status, findings)
-    synchronize(ledger, request)
