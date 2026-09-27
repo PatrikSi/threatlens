@@ -119,7 +119,7 @@ def load_indicator_item(
     revision_query = select(ItemIntelState).where(ItemIntelState.item_id == item_id)
     if write:
         revision_query = revision_query.with_for_update(read=True)
-    state = db.scalar(revision_query)
+    state = db.scalar(revision_query.execution_options(populate_existing=True))
     if (
         state is not None
         and state.handling_label_id is not None
@@ -183,7 +183,14 @@ def list_indicators(
     ioc_id: uuid.UUID | None = None,
 ) -> IndicatorPage:
     fence_indicator_request(db, actor, team_id=team_id)
-    item, _feed, revision = load_indicator_item(db, actor, item_id)
+    # A selected publication's evidence must belong to the returned revisions.
+    # Under READ COMMITTED, independent reads could otherwise pair refreshed
+    # occurrences with an older source/state and a still-current-looking review.
+    # Reuse the shared Item -> intel-state fences after policy/team locks; these
+    # block source replacement and AI publication without requiring write scope.
+    item, _feed, revision = load_indicator_item(
+        db, actor, item_id, write=ioc_id is not None
+    )
     extraction_current = extraction_is_current(db, item)
     predicates = [ItemIOC.item_id == item_id]
     if ioc_id is not None:
