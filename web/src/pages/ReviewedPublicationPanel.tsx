@@ -101,11 +101,34 @@ function PublicationWorkspace({ team, filters, writable }: {
     },
   })
   const [withdrawal, setWithdrawal] = useState<IndicatorPublication | null>(null)
-  const accessLost = [preview.error, publish.error, history.error, download.error, withdraw.error]
+  const latestMutations = useRef({ preview, publish, download, withdraw })
+  latestMutations.current = { preview, publish, download, withdraw }
+  const accessLost = [preview.error, publish.error, history.error]
     .some((error) => error instanceof ApiError && [401, 403, 404].includes(error.status))
+    || [download.error, withdraw.error].some((error) => error instanceof ApiError && [401, 403].includes(error.status))
   const currentPreview = !accessLost && preview.isSuccess && preview.data?.scope === scope ? preview.data.value : undefined
   const page = accessibleQueryData(history)
   const error = preview.error ?? publish.error ?? history.error ?? download.error ?? withdraw.error
+  useEffect(() => {
+    if (!accessLost) return
+    setApproved(false)
+    if (preview.isSuccess) preview.reset()
+  }, [accessLost, preview])
+  function clearCompletedErrors() {
+    // This closure captures the errors visible when recovery began. A later
+    // refresh must never reset a newer request, result, or failure.
+    const captured = { preview, publish, download, withdraw }
+    for (const name of ['preview', 'publish', 'download', 'withdraw'] as const) {
+      const current = latestMutations.current[name]
+      if (current.isError && current.error === captured[name].error) current.reset()
+    }
+  }
+  async function refresh() {
+    setApproved(false)
+    const result = await history.refetch()
+    if (!mounted.current || result.isError) return
+    clearCompletedErrors()
+  }
   function save() {
     if (!currentPreview || !filters) return
     const body = { filters, preview_fingerprint: currentPreview.fingerprint, format, marking, misp_distribution: distribution }
@@ -116,7 +139,7 @@ function PublicationWorkspace({ team, filters, writable }: {
       <legend className="font-semibold">Review the current article filters</legend>
       <p className="text-sm">At most 100 articles and 250 approved indicators per publication. Stale reviews, examples and team suppressions are excluded. Evidence stays pinned to the reviewed revisions.</p>
       <button type="button" className={TEAM_BUTTON} disabled={!filters || preview.isPending}
-        onClick={() => { if (filters) { setApproved(false); preview.mutate({ scope, filters }) } }}>
+        onClick={() => { if (filters) { setApproved(false); preview.mutate({ scope, filters }, { onSuccess: clearCompletedErrors }) } }}>
         {preview.isPending ? 'Loading reviewed indicators…' : 'Preview reviewed indicators'}
       </button>
       {preview.data && preview.data.scope !== scope && <p role="status">The article filters changed. Refresh the reviewed preview before publishing.</p>}
@@ -158,7 +181,7 @@ function PublicationWorkspace({ team, filters, writable }: {
       {writable && !accessLost && <PublicationConsumers teamId={team} publications={page?.items ?? []} />}
       <h3 className="font-semibold">Publication history</h3>
       <p className="text-xs">Withdrawals are checked periodically and on download. Reimport updated artifacts to apply revoked/deleted indicators; a downloaded file cannot update itself.</p>
-      <button className={TEAM_BUTTON} onClick={() => void history.refetch()}>Refresh publications</button>
+      <button className={TEAM_BUTTON} disabled={history.isFetching} onClick={() => void refresh()}>Refresh publications</button>
       {history.isPending && <p role="status">Loading publications…</p>}
       {page?.items.length === 0 && <p>No accessible reviewed publications on this page.</p>}
       {page?.items.map((row) => <div key={row.id} className="flex flex-wrap items-center justify-between gap-2 rounded border p-2 text-sm">

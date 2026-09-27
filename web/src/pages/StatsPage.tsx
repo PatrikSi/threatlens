@@ -241,6 +241,11 @@ function IngestionStatistics() {
           className={`${mobileFeedFiltersOpen ? 'block' : 'hidden'} mt-2 rounded-lg border border-slate/20 bg-white/45 p-3 sm:mt-4 sm:block dark:border-cyan-900/40 dark:bg-white/[0.02]`}
         >
           <legend className="px-1 text-xs font-bold uppercase text-slate dark:text-slate-300">Feeds</legend>
+          <button type="button" className="rounded border px-2 py-1 text-sm font-semibold disabled:opacity-50"
+            disabled={selectedFeedIds.length === 0} onClick={() => setSelectedFeedIds([])}>
+            Use all accessible feeds
+          </button>
+          <p className="mt-1 text-xs text-slate dark:text-slate-300">All feeds includes newly added feeds. Choose individual feeds below to limit the statistics. Clearing the selection restores all accessible feeds.</p>
           <div className="mt-1 flex flex-wrap items-center justify-end gap-2 text-xs text-slate dark:text-slate-300">
             <span>{selectedFeedLabel}</span>
             <button type="button" className="underline text-slate-700 dark:text-slate-100" onClick={() => setSelectedFeedIds(allFeedIds)}>

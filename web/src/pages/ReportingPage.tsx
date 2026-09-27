@@ -119,8 +119,10 @@ function ReportingContent({ controller }: { controller: ReportingController }) {
       {controller.capabilitiesQuery.data && controller.activeTab === 'templates' && (
         <ReportTemplatesPanel controller={controller} />
       )}
-      {controller.capabilitiesQuery.data && controller.activeTab === 'schedules' && controller.isAdmin && (
-        <ReportSchedulesPanel controller={controller} />
+      {controller.capabilitiesQuery.data && controller.isAdmin && (
+        <div hidden={controller.activeTab !== 'schedules'}>
+          <ReportSchedulesPanel controller={controller} />
+        </div>
       )}
     </div>
   )

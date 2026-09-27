@@ -5,6 +5,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
+import { CopyableIdentifier } from '../components/CopyableIdentifier'
 import type { Team } from '../types/teams'
 
 export interface TeamGroupChoice {
@@ -157,7 +158,7 @@ export function TeamSettingsEditor({
                 onChange={(event) => setMemberGroup(event.target.value)}
               >
                 <option value={baseline.membership_group_id}>
-                  Current member group
+                  {groups.find((group) => group.id === baseline.membership_group_id)?.name ?? 'Unavailable member group'}
                 </option>
                 {groups
                   .filter(
@@ -172,6 +173,7 @@ export function TeamSettingsEditor({
                   ))}
               </select>
             </label>
+            <CopyableIdentifier label="Member group ID" value={memberGroup} />
             <label className="block text-sm">
               Manager group
               <select
@@ -182,7 +184,7 @@ export function TeamSettingsEditor({
                 <option value="">No delegated manager</option>
                 {baseline.manager_group_id && (
                   <option value={baseline.manager_group_id}>
-                    Current manager group
+                    {groups.find((group) => group.id === baseline.manager_group_id)?.name ?? 'Unavailable manager group'}
                   </option>
                 )}
                 {groups
@@ -198,6 +200,7 @@ export function TeamSettingsEditor({
                   ))}
               </select>
             </label>
+            {managerGroup && <CopyableIdentifier label="Manager group ID" value={managerGroup} />}
             <label className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"

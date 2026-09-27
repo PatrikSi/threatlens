@@ -120,6 +120,7 @@ describe('AlertsPage rendered workflow', () => {
     expect(alertsPageMocks.useUnsavedChangesWarning).toHaveBeenCalledWith(
       false,
       'Discard unsaved alert changes?',
+      { ignoreSearchChanges: true },
     )
   })
 })

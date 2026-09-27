@@ -68,6 +68,11 @@ export function TeamIntegrationConfiguration({
               onChanged()
               void query.refetch()
             }}
+            onReload={async () => {
+              const latest = await query.refetch({ throwOnError: true })
+              if (!latest.data || latest.data.secrets_redacted) throw new Error('The destination is no longer editable under your current access.')
+              return latest.data
+            }}
           />
         )
       )}
@@ -80,11 +85,13 @@ function ConfigurationEditor({
   saved,
   disabled,
   onChanged,
+  onReload,
 }: {
   base: string
   saved: NotificationWebhook
   disabled: boolean
   onChanged: () => void
+  onReload: () => Promise<NotificationWebhook>
 }) {
   const [baseline, setBaseline] = useState(saved)
   const [draft, setDraft] = useState(() => createDraftFromWebhook(saved))
@@ -110,7 +117,15 @@ function ConfigurationEditor({
       onChanged()
     },
   })
-  const busy = disabled || save.isPending
+  const reload = useMutation({
+    mutationFn: onReload,
+    onSuccess: (latest) => {
+      setBaseline(latest)
+      setDraft(createDraftFromWebhook(latest))
+      save.reset()
+    },
+  })
+  const busy = disabled || save.isPending || reload.isPending
   const validation = validateConditions(draft.conditions ?? null)
   const change = <K extends keyof typeof draft>(
     key: K,
@@ -342,17 +357,14 @@ function ConfigurationEditor({
           className={TEAM_BUTTON}
           disabled={busy}
           onClick={() =>
-            discard(() => {
-              setBaseline(saved)
-              setDraft(createDraftFromWebhook(saved))
-              save.reset()
-            })
+            discard(() => reload.mutate())
           }
         >
-          Reload saved destination
+          {reload.isPending ? 'Reloading destination…' : 'Reload saved destination'}
         </button>
       </div>
       {validation && <p role="alert">{validation}</p>}
+      {reload.isError && <p role="alert">{resolveApiErrorMessage(reload.error, 'The current destination could not be loaded. Your draft is preserved; retry reload.')}</p>}
       {save.isError && (
         <p role="alert">
           {resolveApiErrorMessage(

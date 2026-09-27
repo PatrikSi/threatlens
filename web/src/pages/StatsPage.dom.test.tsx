@@ -56,6 +56,19 @@ afterEach(() => {
 })
 
 describe('StatsPage filters', () => {
+  it('makes the all-feeds scope explicit and restores it from a selected subset', () => {
+    const view = renderPage()
+    const all = [...view.querySelectorAll('button')].find((button) => button.textContent?.trim() === 'Use all accessible feeds')!
+    expect(all.disabled).toBe(true)
+    const one = [...view.querySelectorAll('label')].find((label) => label.textContent?.includes('Feed One'))!.querySelector('input')!
+    act(() => one.click())
+    expect(all.disabled).toBe(false)
+    expect(view.textContent).toContain('1 selected')
+    act(() => all.click())
+    expect(all.disabled).toBe(true)
+    expect(view.textContent).toContain('All feeds selected')
+  })
+
   it('keeps the mobile feed filter collapsed until requested', () => {
     const view = renderPage()
     const toggle = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.includes('Feed filter'))

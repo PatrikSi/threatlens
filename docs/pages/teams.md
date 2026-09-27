@@ -23,6 +23,12 @@ memberships remain valid until changed; OIDC memberships require a current,
 unexpired assertion. Disabled or unapproved accounts cannot use team resources.
 Disabling a team removes access while retaining its records.
 
+Team settings show the current group names and copyable group IDs. Missing group
+names are identified as unavailable rather than replaced with a generic current
+group label. When several editors are open, leaving the workspace asks once
+before discarding any unsaved changes; a clean editor cannot suppress another
+editor's warning. Canceling the dialog preserves the drafts and keyboard access.
+
 ## Shared work
 
 - Save dashboard views with a team owner. Eligible team members can use the view;

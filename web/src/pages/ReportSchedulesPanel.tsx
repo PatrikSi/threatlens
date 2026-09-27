@@ -2,6 +2,7 @@ import { useIsMutating } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
 
 import { resolveApiErrorMessage } from '../api/errors'
+import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import type {
   ArticleExportFilters,
   ReportSchedule,
@@ -27,10 +28,10 @@ export function ReportSchedulesPanel({ controller }: { controller: ReportingCont
         <button
           type="button"
           className="rounded bg-ink px-3 py-1.5 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]"
-          disabled={controller.createScheduleMutation.isPending}
-          onClick={() => setShowCreate((current) => !current)}
+          disabled={controller.createScheduleMutation.isPending || showCreate || templates.length === 0}
+          onClick={() => setShowCreate(true)}
         >
-          {controller.createScheduleMutation.isPending ? 'Creating...' : showCreate ? 'Close' : 'New schedule'}
+          {controller.createScheduleMutation.isPending ? 'Creating...' : showCreate ? 'Editing new schedule' : 'New schedule'}
         </button>
       </header>
 
@@ -90,7 +91,7 @@ function ScheduleEditor({
   onSubmit: (payload: ReportScheduleWrite) => void
   onCancel: () => void
 }) {
-  const defaults = createScheduleEditorDefaults(templates, initial)
+  const [defaults] = useState(() => createScheduleEditorDefaults(templates, initial))
   const [templateId, setTemplateId] = useState(defaults.templateId)
   const [filters, setFilters] = useState<ArticleExportFilters>(defaults.filters)
   const [name, setName] = useState(defaults.name)
@@ -108,6 +109,13 @@ function ScheduleEditor({
   const [deliveryMode, setDeliveryMode] = useState<ReportSchedule['delivery_mode']>(defaults.deliveryMode)
   const [skipEmpty, setSkipEmpty] = useState(defaults.skipEmpty)
   const [missedRunPolicy, setMissedRunPolicy] = useState<ReportSchedule['missed_run_policy']>(defaults.missedRunPolicy)
+  const draft = { templateId, filters, name, enabled, cadence, dayOfWeek, dayOfMonth, time, timezone, windowType,
+    rollingDays, customInstructions, reviewRequired, deliveryEnabled, deliveryMode, skipEmpty, missedRunPolicy }
+  const discard = useUnsavedChangesWarning(
+    JSON.stringify(draft) !== JSON.stringify(defaults),
+    'Discard unsaved report schedule changes?',
+    { ignoreSearchChanges: true },
+  )
 
   const payload = useMemo<ReportScheduleWrite>(() => {
     const [hour, minute] = time.split(':').map(Number)
@@ -140,6 +148,7 @@ function ScheduleEditor({
 
   return (
     <form aria-busy={isSubmitting} onSubmit={(event) => { event.preventDefault(); if (!isSubmitting) onSubmit(payload) }}>
+      {discard.discardDialog}
       <fieldset disabled={isSubmitting} className="m-0 grid min-w-0 gap-3 border-0 border-b border-slate/15 p-3 dark:border-white/10 sm:grid-cols-2 lg:grid-cols-4">
         <label className="text-xs font-semibold">
           Name
@@ -227,7 +236,7 @@ function ScheduleEditor({
           </label>
         </div>
         <div className="flex gap-1.5 sm:col-span-2 lg:col-span-4 lg:justify-end">
-          <button type="button" className="min-h-10 rounded border border-slate/20 px-3 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10" disabled={isSubmitting} onClick={onCancel}>Cancel</button>
+          <button type="button" className="min-h-10 rounded border border-slate/20 px-3 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10" disabled={isSubmitting} onClick={() => discard(onCancel)}>Cancel</button>
           <button type="submit" className="min-h-10 rounded bg-ink px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]" disabled={isSubmitting}>{isSubmitting ? submittingLabel : submitLabel}</button>
         </div>
       </fieldset>
@@ -282,9 +291,9 @@ function ScheduleRow({ schedule, templates, controller }: { schedule: ReportSche
             type="button"
             className="rounded border border-slate/20 px-2.5 py-1.5 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10"
             disabled={actionPending}
-            onClick={() => setEditingBaseline((current) => current ? null : schedule)}
+            onClick={() => { if (!editing) setEditingBaseline(schedule) }}
           >
-            {editing ? 'Close' : 'Edit'}
+            {editing ? 'Editing' : 'Edit'}
           </button>
           <button
             type="button"

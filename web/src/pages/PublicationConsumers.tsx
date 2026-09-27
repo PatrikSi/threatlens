@@ -13,6 +13,8 @@ interface Consumer {
   id: string; name: string; expires_at: string; retired_at: string | null
   revoked_at: string | null; sequence: number; replay_floor: number
   generation: number; last_poll_at: string | null
+  last_reconciled_at?: string | null; last_reconcile_attempt_at?: string | null
+  reconciliation_error_at?: string | null; reconciliation_error_code?: string | null
 }
 type Command = { path: string; method: 'POST' | 'DELETE'; body?: object }
 type Confirmation = { row: Consumer; operation: 'retire' | 'archive' | 'revoke' }
@@ -116,6 +118,11 @@ function ConsumerManager({ teamId, publications }: { teamId: string; publication
         <strong>{row.name}</strong>
         {' · '}{row.retired_at ? 'Retired · ' : ''}{row.revoked_at ? 'Revoked' : `Expires ${new Date(row.expires_at).toLocaleDateString()}`} · {row.sequence} changes
         {' · last receiver poll '}{row.last_poll_at ? new Date(row.last_poll_at).toLocaleString() : 'Never'}
+        <p>Last successful reconciliation: {row.last_reconciled_at ? new Date(row.last_reconciled_at).toLocaleString() : 'Not completed'}</p>
+        {row.reconciliation_error_at && <p role="status" className="text-amber-800 dark:text-amber-200">
+          Reconciliation failed at {new Date(row.reconciliation_error_at).toLocaleString()}. Pending updates remain outstanding; automatic retry will continue.
+          {row.reconciliation_error_code && <> Reference: {row.reconciliation_error_code}.</>}
+        </p>}
         <div className="flex flex-wrap gap-2">
           <button type="button" className={TEAM_BUTTON} disabled={blocked || !!row.retired_at}
             onClick={() => setConfirmation({ row, operation: 'retire' })}>Retire and withdraw</button>
