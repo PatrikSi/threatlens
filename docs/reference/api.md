@@ -5,7 +5,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ## Published Contract
 
 - Schema version: `2.0.1`
-- OpenAPI contract anchor: `openapi-sha256:974ffa23f00ef5546926c045f3284dfe42cf24c098b157a26c3a67e59ff0b140`
+- OpenAPI contract anchor: `openapi-sha256:50c2b3d38c91ab6e6ec0ed766a5cbb387aca2642eb084ad2e86f26b297f3c578`
 - API service base path: `/v1`
 - Web proxy base path: `/api/v1`
 - Bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`.
@@ -30,6 +30,54 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Token scopes: `read:mcp`
 - Request body: `application/json` -> object
 - Responses: `200` `application/json` -> object, `202`, `400` `application/json` -> object, `401` `application/json` -> object, `403` `application/json` -> object, `404` `application/json` -> object, `405` `application/json` -> object, `406` `application/json` -> object, `413` `application/json` -> object, `415` `application/json` -> object, `429` `application/json` -> object, `500` `application/json` -> object, `503` `application/json` -> object, `504` `application/json` -> object
+
+## Mcp Authorization
+
+### `POST /v1/mcp/oauth/authorize`
+- Summary: Authorize Mcp Client
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:tokens`, `read:mcp`, `read:items`
+- Request body: `application/json` -> OAuthConsent
+- Responses: `200` `application/json` -> unspecified, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `GET /v1/mcp/oauth/clients`
+- Summary: List Mcp Oauth Clients
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:tokens`
+- Responses: `200` `application/json` -> unspecified, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/mcp/oauth/clients`
+- Summary: Register Mcp Oauth Client
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:tokens`
+- Request body: `application/json` -> OAuthClientCreate
+- Responses: `201` `application/json` -> unspecified, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `DELETE /v1/mcp/oauth/clients/{client_id}`
+- Summary: Revoke Mcp Oauth Client
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:tokens`
+- Parameters:
+  - `client_id` (path, required): string
+- Responses: `204`, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/mcp/oauth/consent-preview`
+- Summary: Preview Mcp Consent
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:mcp`, `read:items`
+- Request body: `application/json` -> OAuthAuthorization
+- Responses: `200` `application/json` -> unspecified, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/mcp/oauth/token`
+- Summary: Exchange Mcp Authorization Code
+- Auth: none
+- Responses: `200` `application/json` -> unspecified
+
+## Mcp Authorization Discovery
+
+### `GET /.well-known/oauth-authorization-server`
+- Summary: Mcp Authorization Metadata
+- Auth: none
+- Responses: `200` `application/json` -> unspecified
+### `GET /.well-known/oauth-protected-resource/api/v1/mcp`
+- Summary: Mcp Protected Resource Metadata
+- Auth: none
+- Responses: `200` `application/json` -> unspecified
 
 ## Access Reviews
 
@@ -194,6 +242,14 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 
 ## Ai
 
+### `POST /v1/ai/articles/{item_id}/continue`
+- Summary: Continue Article Extraction
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:ai`, `read:items`
+- Parameters:
+  - `item_id` (path, required): string
+- Request body: `application/json` -> ContinuationRequest
+- Responses: `202` `application/json` -> ContinuationResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/ai/daily-brief/backfill`
 - Summary: Queue Daily Brief Backfill
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -351,6 +407,21 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `provider_id` (path, required): string
 - Request body: `application/json` -> AIProviderUpdate
 - Responses: `200` `application/json` -> AIProviderResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `GET /v1/ai/providers/{provider_id}/qualifications`
+- Summary: List Provider Qualifications
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:ai`
+- Parameters:
+  - `provider_id` (path, required): string
+- Responses: `200` `application/json` -> array[QualificationResponse], `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/ai/providers/{provider_id}/qualifications`
+- Summary: Queue Provider Qualification
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:ai`
+- Parameters:
+  - `provider_id` (path, required): string
+- Request body: `application/json` -> QualificationRequest
+- Responses: `202` `application/json` -> QualificationResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/ai/providers/{provider_id}/test-connection`
 - Summary: Test Ai Provider Connection
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -381,6 +452,13 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `group_id` (path, required): string
 - Request body: `application/json` -> AIQuotaGroupUpdate
 - Responses: `200` `application/json` -> AIQuotaGroupResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `GET /v1/ai/quota-groups/{group_id}/utilization`
+- Summary: Get Ai Quota Utilization
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:ai`
+- Parameters:
+  - `group_id` (path, required): string
+- Responses: `200` `application/json` -> AIQuotaUtilization, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/ai/reprocess`
 - Summary: Reprocess Ai For Recent Items
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -1740,6 +1818,8 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Token scopes: `read:notifications`, `read:items`
 - Parameters:
   - `after` (query, optional): After
+  - `include_archived` (query, optional): boolean
+  - `webhook_id` (query, optional): Webhook Id
   - `limit` (query, optional): integer
 - Responses: `200` `application/json` -> unspecified, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/notifications/automation/executions/{execution_id}/callbacks`
@@ -1758,6 +1838,26 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `execution_id` (path, required): string
 - Request body: `application/json` -> AttachFindings
 - Responses: `200` `application/json` -> ExecutionResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/notifications/automation/receivers/executions/{execution_id}/callbacks`
+- Summary: Receive Machine Callback
+- Auth: none
+- Parameters:
+  - `execution_id` (path, required): string
+- Request body: `application/json` -> ExecutionCallback
+- Responses: `200` `application/json` -> unspecified, `422` `application/json` -> ApiErrorResponse
+### `GET /v1/notifications/automation/receivers/updates`
+- Summary: Machine Policy Updates
+- Auth: none
+- Parameters:
+  - `after` (query, optional): After
+  - `limit` (query, optional): integer
+- Responses: `200` `application/json` -> unspecified, `422` `application/json` -> ApiErrorResponse
+### `POST /v1/notifications/automation/receivers/updates/{update_id}/ack`
+- Summary: Machine Acknowledge Policy
+- Auth: none
+- Parameters:
+  - `update_id` (path, required): string
+- Responses: `200` `application/json` -> PolicyUpdateResponse, `422` `application/json` -> ApiErrorResponse
 ### `POST /v1/notifications/automation/reconcile`
 - Summary: Reconcile Automation Executions
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -2165,6 +2265,94 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Request body: `application/json` -> PublicationWithdraw
 - Responses: `200` `application/json` -> PublicationResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 
+## Reviewed Intelligence Distribution
+
+### `POST /v1/publication-distribution/acknowledgements`
+- Summary: Acknowledge Publication Changes
+- Auth: none
+- Parameters:
+  - `authorization` (header, optional): Authorization
+- Request body: `application/json` -> ConsumerAcknowledgement
+- Responses: `200` `application/json` -> unspecified, `422` `application/json` -> ApiErrorResponse
+### `GET /v1/publication-distribution/changes`
+- Summary: Publication Consumer Changes
+- Auth: none
+- Parameters:
+  - `after` (query, optional): integer
+  - `generation` (query, optional): integer
+  - `limit` (query, optional): integer
+  - `authorization` (header, optional): Authorization
+- Responses: `200` `application/json` -> unspecified, `422` `application/json` -> ApiErrorResponse
+### `POST /v1/publication-distribution/reset`
+- Summary: Reset Publication Consumer
+- Auth: none
+- Parameters:
+  - `authorization` (header, optional): Authorization
+- Request body: `application/json` -> ConsumerReset
+- Responses: `200` `application/json` -> unspecified, `422` `application/json` -> ApiErrorResponse
+### `GET /v1/publication-distribution/status`
+- Summary: Publication Consumer Status
+- Auth: none
+- Parameters:
+  - `authorization` (header, optional): Authorization
+- Responses: `200` `application/json` -> unspecified, `422` `application/json` -> ApiErrorResponse
+### `GET /v1/teams/{team_id}/publication-consumers`
+- Summary: List Publication Consumers
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:items`, `read:teams`, `write:teams`
+- Parameters:
+  - `team_id` (path, required): string
+- Responses: `200` `application/json` -> array[ConsumerResponse], `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/teams/{team_id}/publication-consumers`
+- Summary: Register Publication Consumer
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:items`, `read:teams`, `write:teams`
+- Parameters:
+  - `team_id` (path, required): string
+- Request body: `application/json` -> ConsumerCreate
+- Responses: `201` `application/json` -> ConsumerCreated, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `DELETE /v1/teams/{team_id}/publication-consumers/{consumer_id}`
+- Summary: Revoke Publication Consumer
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:items`, `read:teams`, `write:teams`
+- Parameters:
+  - `team_id` (path, required): string
+  - `consumer_id` (path, required): string
+- Responses: `204`, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/teams/{team_id}/publication-consumers/{consumer_id}/archive`
+- Summary: Archive Publication Consumer
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:items`, `read:teams`, `write:teams`
+- Parameters:
+  - `team_id` (path, required): string
+  - `consumer_id` (path, required): string
+- Responses: `204`, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/teams/{team_id}/publication-consumers/{consumer_id}/retire`
+- Summary: Retire Publication Consumer
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:items`, `read:teams`, `write:teams`
+- Parameters:
+  - `team_id` (path, required): string
+  - `consumer_id` (path, required): string
+- Responses: `204`, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/teams/{team_id}/publication-consumers/{consumer_id}/rotate`
+- Summary: Rotate Publication Consumer
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:items`, `read:teams`, `write:teams`
+- Parameters:
+  - `team_id` (path, required): string
+  - `consumer_id` (path, required): string
+- Responses: `200` `application/json` -> ConsumerCreated, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/teams/{team_id}/publication-consumers/{consumer_id}/subscriptions`
+- Summary: Subscribe Publication Consumer
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:items`, `read:teams`, `write:teams`
+- Parameters:
+  - `team_id` (path, required): string
+  - `consumer_id` (path, required): string
+- Request body: `application/json` -> SubscriptionCommand
+- Responses: `204`, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+
 ## Service-Accounts
 
 ### `GET /v1/iam/service-accounts`
@@ -2371,6 +2559,39 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Request body: `application/json` -> TagCreate
 - Responses: `201` `application/json` -> TagResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 
+## Team Ai Governance
+
+### `GET /v1/ai/team-governance/{team_id}`
+- Summary: Get Admin Team Ai Governance
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:ai`
+- Parameters:
+  - `team_id` (path, required): string
+- Responses: `200` `application/json` -> TeamAIGovernanceResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `PUT /v1/ai/team-governance/{team_id}`
+- Summary: Approve Team Ai Governance
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:ai`
+- Parameters:
+  - `team_id` (path, required): string
+- Request body: `application/json` -> TeamAIGovernancePolicy
+- Responses: `200` `application/json` -> TeamAIGovernanceResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `GET /v1/teams/{team_id}/ai-governance`
+- Summary: Get Team Ai Governance
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:teams`
+- Parameters:
+  - `team_id` (path, required): string
+- Responses: `200` `application/json` -> TeamAIGovernanceResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `PATCH /v1/teams/{team_id}/ai-governance`
+- Summary: Select Team Ai Destination
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:teams`
+- Parameters:
+  - `team_id` (path, required): string
+- Request body: `application/json` -> TeamAISelection
+- Responses: `200` `application/json` -> TeamAIGovernanceResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+
 ## Team Assessments
 
 ### `GET /v1/items/{item_id}/team-assessment`
@@ -2418,9 +2639,37 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `team_id` (path, required): string
   - `status` (query, optional): Status
   - `ownership` (query, optional): string ('all', 'mine', 'unclaimed')
+  - `order` (query, optional): string ('newest', 'oldest', 'due')
+  - `priority` (query, optional): Priority
+  - `overdue` (query, optional): boolean
   - `cursor` (query, optional): Cursor
   - `limit` (query, optional): integer
 - Responses: `200` `application/json` -> HuntWorklistPage, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `GET /v1/teams/{team_id}/hunts/views`
+- Summary: Get Team Hunt Views
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:teams`
+- Parameters:
+  - `team_id` (path, required): string
+- Responses: `200` `application/json` -> HuntViewPage, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `DELETE /v1/teams/{team_id}/hunts/views/{view_id}`
+- Summary: Delete Team Hunt View
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:teams`
+- Parameters:
+  - `team_id` (path, required): string
+  - `view_id` (path, required): string
+  - `expected_version` (query, required): integer
+- Responses: `204`, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `PUT /v1/teams/{team_id}/hunts/views/{view_id}`
+- Summary: Save Team Hunt View
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:teams`
+- Parameters:
+  - `team_id` (path, required): string
+  - `view_id` (path, required): string
+- Request body: `application/json` -> HuntViewWrite
+- Responses: `200` `application/json` -> HuntViewResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/teams/{team_id}/hunts/{assessment_id}/{hunt_id}/claim`
 - Summary: Update Team Hunt Claim
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -2431,6 +2680,26 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `hunt_id` (path, required): string
 - Request body: `application/json` -> HuntClaimCommand
 - Responses: `200` `application/json` -> HuntClaimResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/teams/{team_id}/hunts/{assessment_id}/{hunt_id}/reminder-acknowledgement`
+- Summary: Acknowledge Hunt Review Reminder
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:items`, `read:teams`, `write:teams`
+- Parameters:
+  - `team_id` (path, required): string
+  - `assessment_id` (path, required): string
+  - `hunt_id` (path, required): string
+- Request body: `application/json` -> HuntReminderAcknowledgement
+- Responses: `200` `application/json` -> HuntReviewSchedule, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `PATCH /v1/teams/{team_id}/hunts/{assessment_id}/{hunt_id}/schedule`
+- Summary: Update Hunt Review Schedule
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:items`, `read:teams`, `write:teams`
+- Parameters:
+  - `team_id` (path, required): string
+  - `assessment_id` (path, required): string
+  - `hunt_id` (path, required): string
+- Request body: `application/json` -> HuntReviewScheduleCommand
+- Responses: `200` `application/json` -> HuntReviewSchedule, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 
 ## Teams
 
@@ -2501,6 +2770,75 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `team_id` (path, required): string
 - Request body: `application/json` -> TeamBindingsUpdate
 - Responses: `200` `application/json` -> TeamResponse, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `GET /v1/teams/{team_id}/integrations`
+- Summary: List Team Integrations
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:teams`, `write:notifications`
+- Parameters:
+  - `team_id` (path, required): string
+- Responses: `200` `application/json` -> unspecified, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/teams/{team_id}/integrations/{webhook_id}/adopt`
+- Summary: Adopt Team Integration
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:teams`, `write:notifications`
+- Parameters:
+  - `team_id` (path, required): string
+  - `webhook_id` (path, required): string
+- Request body: `application/json` -> AdoptIntegration
+- Responses: `200` `application/json` -> unspecified, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `GET /v1/teams/{team_id}/integrations/{webhook_id}/configuration`
+- Summary: Get Team Integration Configuration
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:teams`, `write:notifications`
+- Parameters:
+  - `team_id` (path, required): string
+  - `webhook_id` (path, required): string
+- Responses: `200` `application/json` -> unspecified, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `PUT /v1/teams/{team_id}/integrations/{webhook_id}/configuration`
+- Summary: Update Team Integration Configuration
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:teams`, `write:notifications`
+- Parameters:
+  - `team_id` (path, required): string
+  - `webhook_id` (path, required): string
+  - `expected_revision` (query, required): integer
+- Request body: `application/json` -> NotificationWebhookWrite
+- Responses: `200` `application/json` -> unspecified, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `PATCH /v1/teams/{team_id}/integrations/{webhook_id}/enabled`
+- Summary: Set Team Integration Enabled
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:teams`, `write:notifications`
+- Parameters:
+  - `team_id` (path, required): string
+  - `webhook_id` (path, required): string
+- Request body: `application/json` -> IntegrationEnabled
+- Responses: `200` `application/json` -> unspecified, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `GET /v1/teams/{team_id}/integrations/{webhook_id}/receiver-credentials`
+- Summary: List Receiver Credentials
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:teams`, `write:notifications`
+- Parameters:
+  - `team_id` (path, required): string
+  - `webhook_id` (path, required): string
+- Responses: `200` `application/json` -> unspecified, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `POST /v1/teams/{team_id}/integrations/{webhook_id}/receiver-credentials`
+- Summary: Issue Receiver Credential
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:teams`, `write:notifications`
+- Parameters:
+  - `team_id` (path, required): string
+  - `webhook_id` (path, required): string
+- Request body: `application/json` -> ReceiverCredentialWrite
+- Responses: `200` `application/json` -> unspecified, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
+### `DELETE /v1/teams/{team_id}/integrations/{webhook_id}/receiver-credentials/{credential_id}`
+- Summary: Revoke Receiver Credential
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:teams`, `write:notifications`
+- Parameters:
+  - `team_id` (path, required): string
+  - `webhook_id` (path, required): string
+  - `credential_id` (path, required): string
+- Responses: `200` `application/json` -> unspecified, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `GET /v1/teams/{team_id}/members`
 - Summary: List Team Members
 - Auth: ApiTokenBearer or SessionCookieAuth
