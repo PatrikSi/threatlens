@@ -8,6 +8,9 @@ No tool fetches URLs, runs providers, queues work or changes domain records.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import hashlib
+
+from fastapi import HTTPException
 from types import SimpleNamespace
 
 from sqlalchemy import String, and_, case, cast, func, or_, select
@@ -26,6 +29,7 @@ from app.models.investigation import (
     InvestigationNote,
 )
 from app.models.item import Item
+from app.models.ioc import IOC, ItemIOC
 from app.models.item_ai_enrichment import ItemAIEnrichment
 from app.models.report import Report
 from app.models.report_section import ReportSection
@@ -34,6 +38,10 @@ from app.models.team_item_assessment import TeamItemAssessment
 from app.models.user import User
 from app.schemas.mcp_reads import (
     ArticleEvidenceArguments,
+    IndicatorArguments,
+    HuntQueueArguments,
+    PublicationArguments,
+    TechniqueArguments,
     InvestigationArguments,
     MCPReadResult,
     ReadTruncation,
@@ -64,6 +72,8 @@ from app.services.mcp_read_contracts import (
     MCPReadError,
     bounded_result,
     decode_cursor,
+    decode_bound_cursor,
+    encode_bound_cursor,
     encode_cursor,
 )
 from app.services.report_read_access import get_accessible_report
@@ -81,6 +91,10 @@ _ARGUMENTS = {
     "get_team_assessment": TeamAssessmentArguments,
     "get_investigation": InvestigationArguments,
     "get_report": ReportArguments,
+    "get_indicator_assessments": IndicatorArguments,
+    "get_hunt_queue": HuntQueueArguments,
+    "get_reviewed_publications": PublicationArguments,
+    "lookup_attack_technique": TechniqueArguments,
 }
 _PERMISSIONS = {
     "search_articles": ("read:mcp", "read:items"),
@@ -88,8 +102,20 @@ _PERMISSIONS = {
     "get_team_assessment": ("read:mcp", "read:items", "read:teams"),
     "get_investigation": ("read:mcp", "read:investigations"),
     "get_report": ("read:mcp", "read:reports"),
+    "get_indicator_assessments": ("read:mcp", "read:items"),
+    "get_hunt_queue": ("read:mcp", "read:items", "read:teams"),
+    "get_reviewed_publications": ("read:mcp", "read:items", "read:teams"),
+    "lookup_attack_technique": ("read:mcp", "read:items"),
 }
-_HUMAN_TOOLS = frozenset({"get_team_assessment", "get_investigation"})
+_HUMAN_TOOLS = frozenset(
+    {
+        "get_team_assessment",
+        "get_investigation",
+        "get_indicator_assessments",
+        "get_hunt_queue",
+        "get_reviewed_publications",
+    }
+)
 
 
 def tool_input_schema(name: str) -> dict:
@@ -126,17 +152,40 @@ def call_read_tool(
         raise MCPReadError("unknown_tool", "Unknown read tool.")
     payload = _ARGUMENTS[tool_name].model_validate(arguments)
     _authorize(db, context, tool_name)
+    from app.services.mcp_team_reads import (
+        read_hunt_queue,
+        read_indicator_assessments,
+        read_publications,
+        read_technique,
+    )
+
     handlers = {
         "search_articles": _search_articles,
         "get_article_evidence": _article_evidence,
         "get_team_assessment": _team_assessment,
         "get_investigation": _investigation,
         "get_report": _report,
+        "get_indicator_assessments": read_indicator_assessments,
+        "get_hunt_queue": read_hunt_queue,
+        "get_reviewed_publications": read_publications,
+        "lookup_attack_technique": read_technique,
     }
-    with db.no_autoflush:
-        result = handlers[tool_name](
-            db, context, payload, canonical_base_url.rstrip("/")
+    try:
+        with db.no_autoflush:
+            result = handlers[tool_name](
+                db, context, payload, canonical_base_url.rstrip("/")
+            )
+    except HTTPException as exc:
+        code = (
+            "not_found"
+            if exc.status_code == 404
+            else "access_denied"
+            if exc.status_code in {401, 403}
+            else "read_unavailable"
         )
+        raise MCPReadError(
+            code, "The requested data is unavailable; check access and retry."
+        ) from exc
     bounded = bounded_result(result, max_bytes=max_response_bytes)
     previous_count = len(result.data.get("articles", ()))
     while (
@@ -158,6 +207,38 @@ def call_read_tool(
         bounded = bounded_result(
             MCPReadResult.model_validate(bounded), max_bytes=max_response_bytes
         )
+    if tool_name == "get_article_evidence":
+        # Byte limiting may shorten the excerpt; advance only over delivered text.
+        while True:
+            data = bounded["data"]
+            end = data["text_offset"] + len(data.get("article_text") or "")
+            bounded["next_cursor"] = (
+                encode_bound_cursor(
+                    context,
+                    payload,
+                    {"offset": end, "revision": data["source_revision"]},
+                )
+                if end < data["text_length"]
+                else None
+            )
+            new = bounded_result(
+                MCPReadResult.model_validate(bounded), max_bytes=max_response_bytes
+            )
+            if new["data"].get("article_text") == data.get("article_text"):
+                bounded = new
+                break
+            bounded = new
+    elif tool_name in {
+        "get_hunt_queue",
+        "get_reviewed_publications",
+        "get_indicator_assessments",
+    }:
+        # Never silently truncate a page while retaining a cursor past omitted rows.
+        if bounded["data"] != result.model_dump(mode="json")["data"]:
+            raise MCPReadError(
+                "response_too_large",
+                "This page exceeds the response budget. Retry with a smaller limit.",
+            )
     return bounded
 
 
@@ -281,6 +362,24 @@ def _search_articles(db, context, args, base):
                 func.lower(func.coalesce(Item.summary, "")).like(f"%{q}%", escape="\\"),
             )
         )
+    if args.indicator_type is not None:
+        from app.services.ioc_extraction import normalize_ioc_search_value
+
+        normalized = normalize_ioc_search_value(args.indicator_value)
+        if normalized is None or normalized[0] != args.indicator_type:
+            raise MCPReadError(
+                "invalid_arguments", "The indicator value does not match its type."
+            )
+        statement = statement.where(
+            select(ItemIOC.item_id)
+            .join(IOC, IOC.id == ItemIOC.ioc_id)
+            .where(
+                ItemIOC.item_id == Item.id,
+                IOC.type == args.indicator_type,
+                IOC.value_norm == normalized[1],
+            )
+            .exists()
+        )
     if args.feed_id:
         statement = statement.where(Item.feed_id == args.feed_id)
     if args.since:
@@ -337,10 +436,21 @@ def _search_articles(db, context, args, base):
 
 
 def _article_evidence(db, context, args, base):
+    position = decode_bound_cursor(context, args)
+    offset = position["offset"] if position else 0
+    if (
+        not isinstance(offset, int)
+        or isinstance(offset, bool)
+        or not 0 <= offset <= 100_000_000
+    ):
+        raise MCPReadError("invalid_cursor", "Invalid evidence position.")
     row = db.execute(
         _article_query(context)
         .add_columns(
-            _project(Article.text, "article_text", args.text_limit),
+            func.substr(Article.text, offset + 1, args.text_limit + 1).label(
+                "article_text"
+            ),
+            func.length(Article.text).label("text_length"),
             Article.content_purged_at,
             Article.extraction_method,
             Item.classification_required_version.label("source_version"),
@@ -349,6 +459,14 @@ def _article_evidence(db, context, args, base):
     ).one_or_none()
     if row is None:
         raise _missing()
+    revision = hashlib.sha256(
+        f"{row.article_id}:{row.article_retrieved_at}:{row.source_version}".encode()
+    ).hexdigest()
+    if position and position.get("revision") != revision:
+        raise MCPReadError(
+            "source_revision_changed",
+            "The article changed. Restart evidence pagination to avoid mixing revisions.",
+        )
     cuts = []
     data = _record(
         row,
@@ -356,7 +474,10 @@ def _article_evidence(db, context, args, base):
         prefix="data",
         cuts=cuts,
     )
-    data["content_available"] = bool(data["article_text"])
+    data.update(
+        text_offset=offset, text_length=row.text_length or 0, source_revision=revision
+    )
+    data["content_available"] = bool(row.text_length)
     extraction, stale, omitted, omission_reason, generated_at = _article_extraction(
         db, row, data
     )
