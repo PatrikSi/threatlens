@@ -18,6 +18,7 @@ from starlette.responses import JSONResponse, Response
 from app.api.deps import resolve_client_ip
 from app.api.mcp_context import parse_mcp_bearer_token, resolve_mcp_read_context
 from app.core.config import get_settings
+from app.core.api_errors import ApiHTTPException
 from app.core.token_scopes import SCOPE_READ_MCP
 from app.db import session as db_session
 from app.db.budgets import DatabaseDeadlineExceeded
@@ -27,6 +28,7 @@ from app.services.mcp_access import (
     fence_mcp_read_context, mcp_transfer_timeout_seconds, record_mcp_audit,
 )
 from app.services.mcp_dispatch import dispatch_mcp_read, mcp_audit_operation
+from app.services.mcp_challenges import bearer_challenge
 from app.services.mcp_protocol import MCPProtocolError, MCPRequest, error_response, parse_json, parse_request
 from app.services.mcp_read_contracts import MCPReadContext, json_bytes
 from app.services.mcp_read_service import tool_required_permissions
@@ -43,7 +45,7 @@ logger = logging.getLogger("threatlens.mcp")
     description=(
         "Stateless MCP Streamable HTTP supporting protocol revisions 2026-07-28 and 2025-11-25. "
         "Requires MCP_ENABLED and a personal or service-account bearer token explicitly containing read:mcp. "
-        "Each tool also requires its ordinary resource permissions. Cookie sessions and OAuth discovery are not supported. "
+        "Each tool also requires its ordinary resource permissions. Cookie sessions are not supported; OAuth discovery and delegated access require MCP_OAUTH_ENABLED. "
         "Requests and responses use MCP JSON-RPC envelopes, rather than the REST error contract."
     ),
     openapi_extra={
@@ -90,7 +92,7 @@ def _prepare_response(request: Request, rpc: MCPRequest, resources: ExitStack) -
     try:
         enforce_mcp_rate_limit(bucket=f"source:{resolve_client_ip(request)}",
                                limit=settings.mcp_rate_limit_per_minute * 5, deadline=deadline)
-        parse_mcp_bearer_token(request)
+        token = parse_mcp_bearer_token(request)
         # Acquire both connections before taking any policy/credential locks.
         # Pin them across credential-use commits so auditing cannot wait on an
         # exhausted pool while the response holds authorization fences.
@@ -109,6 +111,8 @@ def _prepare_response(request: Request, rpc: MCPRequest, resources: ExitStack) -
                 bucket=f"principal:{context.authorization.principal_type}:{context.principal.id}",
                 limit=settings.mcp_rate_limit_per_minute, deadline=deadline,
             )
+            if token.startswith("tlmcp_"):
+                _require_delegated_tool_scopes(context, rpc)
             payload, failed = dispatch_mcp_read(
                 db, context=context, request=rpc,
                 response_limit=settings.mcp_response_max_bytes,
@@ -173,6 +177,25 @@ def _audit_failure(
         logger.warning("mcp_audit_unavailable error_type=%s", type(exc).__name__)
 
 
+def _required_scopes(rpc: MCPRequest) -> tuple[str, ...]:
+    if rpc.method != "tools/call":
+        return ()
+    try:
+        return tool_required_permissions(rpc.params.get("name", ""))
+    except (KeyError, TypeError):
+        return ()
+
+
+def _require_delegated_tool_scopes(context: MCPReadContext, rpc: MCPRequest) -> None:
+    required = _required_scopes(rpc)
+    if any(not context.authorization.has(scope) for scope in required):
+        raise ApiHTTPException(
+            status_code=403,
+            error_code="mcp_insufficient_scope",
+            detail="This operation requires additional read scopes. Reauthorize your MCP client with the requested scopes.",
+        )
+
+
 def _error_response(rpc: MCPRequest, exc: Exception) -> Response:
     headers = {"Cache-Control": "no-store"}
     database_failure = database_failure_code(exc)
@@ -201,7 +224,13 @@ def _error_response(rpc: MCPRequest, exc: Exception) -> Response:
                                  request_id=rpc.request_id, data={"code": "mcp_unavailable"})
     if error.status_code in {429, 503}:
         headers.setdefault("Retry-After", "5")
-    if error.status_code == 401:
-        headers.setdefault("WWW-Authenticate", 'Bearer realm="ThreatLens MCP"')
+    scope_denied = error.status_code == 403 and (
+        (error.data or {}).get("code") in {"mcp_scope_required", "mcp_insufficient_scope"}
+        or 'error="insufficient_scope"' in headers.get("WWW-Authenticate", "")
+    )
+    if error.status_code == 401 or scope_denied:
+        headers["WWW-Authenticate"] = bearer_challenge(
+            required_scopes=_required_scopes(rpc), insufficient_scope=scope_denied
+        )
     logger.warning("mcp_request_rejected error_code=%s status=%s", (error.data or {}).get("code", "mcp_protocol_error"), error.status_code)
     return JSONResponse(error_response(error), status_code=error.status_code, headers=headers)
