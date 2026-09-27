@@ -5,12 +5,13 @@ import { resolveApiErrorMessage } from '../api/errors'
 import { accessibleQueryData } from '../api/queryData'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import type { ArticleExportFilters, ArticleExportTLPMarking } from '../types/exports'
-import type { IndicatorPublication, IndicatorPublicationPage, ReviewedPublicationPreview } from '../types/indicatorPublications'
+import type { IndicatorPublication, IndicatorPublicationPage, ReviewedPublicationPreview, ReviewedIndicator } from '../types/indicatorPublications'
 import { hasRequiredPermissions } from '../workspace/workspaceModel'
 import { createSecureRequestId } from '../utils/secureRandomId'
 import { AssessmentTeamPicker } from './AssessmentTeamPicker'
 import { triggerBrowserDownload } from './exportPageModel'
 import { PublicationConsumers } from './PublicationConsumers'
+import { ReviewedIndicatorEvidenceDialog } from './ReviewedIndicatorEvidenceDialog'
 import { TEAM_BUTTON } from './teamPresentation'
 
 const INPUT = 'rounded border border-slate/30 bg-white p-2 dark:bg-[#072019]'
@@ -52,6 +53,7 @@ function PublicationWorkspace({ team, filters, writable }: {
   const [distribution, setDistribution] = useState(0)
   const [cursor, setCursor] = useState<string | null>(null)
   const [approved, setApproved] = useState(false)
+  const [evidence, setEvidence] = useState<{ preview: ReviewedPublicationPreview; row: ReviewedIndicator } | null>(null)
   const requestIdentity = useRef<{ body: string; id: string } | null>(null)
   const scope = JSON.stringify({ team, filters })
   const endpoint = `/teams/${team}/indicator-publications`
@@ -129,6 +131,12 @@ function PublicationWorkspace({ team, filters, writable }: {
     if (!mounted.current || result.isError) return
     clearCompletedErrors()
   }
+  function loadPreview() {
+    if (!filters) return
+    setEvidence(null)
+    setApproved(false)
+    preview.mutate({ scope, filters }, { onSuccess: clearCompletedErrors })
+  }
   function save() {
     if (!currentPreview || !filters) return
     const body = { filters, preview_fingerprint: currentPreview.fingerprint, format, marking, misp_distribution: distribution }
@@ -139,7 +147,7 @@ function PublicationWorkspace({ team, filters, writable }: {
       <legend className="font-semibold">Review the current article filters</legend>
       <p className="text-sm">At most 100 articles and 250 approved indicators per publication. Stale reviews, examples and team suppressions are excluded. Evidence stays pinned to the reviewed revisions.</p>
       <button type="button" className={TEAM_BUTTON} disabled={!filters || preview.isPending}
-        onClick={() => { if (filters) { setApproved(false); preview.mutate({ scope, filters }, { onSuccess: clearCompletedErrors }) } }}>
+        onClick={loadPreview}>
         {preview.isPending ? 'Loading reviewed indicators…' : 'Preview reviewed indicators'}
       </button>
       {preview.data && preview.data.scope !== scope && <p role="status">The article filters changed. Refresh the reviewed preview before publishing.</p>}
@@ -150,7 +158,11 @@ function PublicationWorkspace({ team, filters, writable }: {
             <thead><tr><th>Indicator</th><th>Article</th><th>Review</th><th>Expiry</th></tr></thead>
             <tbody>{currentPreview.indicators.map((row) => <tr key={`${row.item_id}:${row.ioc_id}`}>
               <td className="break-all p-2">{row.type}: {row.value}</td><td>{row.title}</td>
-              <td>Version {row.assessment_version} · {row.evidence_count} passages</td>
+              <td>
+                <p>Version {row.assessment_version} · {row.evidence_count} passages</p>
+                <button type="button" className={TEAM_BUTTON} aria-label={`Review evidence for ${row.value}`}
+                  onClick={() => setEvidence({ preview: currentPreview, row })}>Review evidence</button>
+              </td>
               <td>{row.expires_at ? new Date(row.expires_at).toLocaleString() : 'No expiry'}</td>
             </tr>)}</tbody>
           </table>
@@ -175,6 +187,9 @@ function PublicationWorkspace({ team, filters, writable }: {
         </button>
       </>}
     </fieldset>
+    {evidence && currentPreview === evidence.preview && <ReviewedIndicatorEvidenceDialog
+      teamId={team} previewFingerprint={currentPreview.fingerprint} reviewed={evidence.row}
+      onClose={() => setEvidence(null)} onRefresh={loadPreview} />}
     {error && <p role="alert">{resolveApiErrorMessage(error, 'The publication request could not be completed. Retry or refresh its preview.')}</p>}
     {publish.isSuccess && <p role="status">Publication saved. Download it from the list below.</p>}
     <div className="space-y-2">
@@ -185,7 +200,10 @@ function PublicationWorkspace({ team, filters, writable }: {
       {history.isPending && <p role="status">Loading publications…</p>}
       {page?.items.length === 0 && <p>No accessible reviewed publications on this page.</p>}
       {page?.items.map((row) => <div key={row.id} className="flex flex-wrap items-center justify-between gap-2 rounded border p-2 text-sm">
-        <span>{row.format.toUpperCase()} · {row.status.replaceAll('_', ' ')} · revision {row.revision} · {row.withdrawn_count}/{row.indicator_count} withdrawn · {new Date(row.created_at).toLocaleString()}</span>
+        <div>
+          <p>{row.format.toUpperCase()} · {row.status.replaceAll('_', ' ')} · revision {row.revision} · {row.withdrawn_count}/{row.indicator_count} withdrawn · {new Date(row.created_at).toLocaleString()}</p>
+          <p className="break-all text-xs">Publication ID: <code className="select-all">{row.id}</code></p>
+        </div>
         <button className={TEAM_BUTTON} disabled={download.isPending} onClick={() => download.mutate(row.id)}>Download publication</button>
         {writable && row.status !== 'withdrawn' && <button className={TEAM_BUTTON}
           disabled={withdraw.isPending} onClick={() => setWithdrawal(row)}>Withdraw publication</button>}
