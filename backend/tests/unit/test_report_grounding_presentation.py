@@ -118,6 +118,8 @@ def test_valid_visible_citations_agree_with_html_and_pdf_source_links(body, clai
     "Visible point <!-- [S1] -->",
     "`Visible point [S1]`",
     "Visible point [S1] [S&#50;]",
+    "![927 affected organizations](https://example.test/chart.png)",
+    "![927 affected organizations [S1]](https://example.test/chart.png)",
 ])
 def test_key_points_obey_the_same_visible_citation_contract(point):
     with pytest.raises(ReportGroundingError):

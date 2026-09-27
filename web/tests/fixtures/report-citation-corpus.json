@@ -171,5 +171,165 @@
     "accepted": true,
     "source_links": 1,
     "claim_blocks": 1
+  },
+  {
+    "name": "uncited image claim after cited paragraph",
+    "body": "Observed evidence [S1].\n\n![The attack compromised 927 customer organizations.](https://example.test/chart.png)",
+    "accepted": false,
+    "source_links": 1,
+    "visible_text": "The attack compromised 927 customer organizations."
+  },
+  {
+    "name": "image claim with external source citation",
+    "body": "![The attack compromised 927 customer organizations.](https://example.test/chart.png) [S1]",
+    "accepted": true,
+    "source_links": 1,
+    "claim_blocks": 1,
+    "visible_text": "The attack compromised 927 customer organizations."
+  },
+  {
+    "name": "literal image citation cannot support description",
+    "body": "![927 customer organizations [S1]](https://example.test/chart.png)",
+    "accepted": false,
+    "source_links": 0,
+    "visible_text": "927 customer organizations [S1]"
+  },
+  {
+    "name": "literal image citation plus navigable citation",
+    "body": "![927 customer organizations [S1]](https://example.test/chart.png) [S1]",
+    "accepted": true,
+    "source_links": 1,
+    "claim_blocks": 1,
+    "visible_text": "927 customer organizations [S1]"
+  },
+  {
+    "name": "image citation cannot support surrounding claim",
+    "body": "927 customer organizations ![[S1]](https://example.test/chart.png)",
+    "accepted": false,
+    "source_links": 0,
+    "visible_text": "[S1]"
+  },
+  {
+    "name": "unknown encoded image citation",
+    "body": "![927 organizations [S&#50;]](https://example.test/chart.png) [S1]",
+    "accepted": false,
+    "source_links": 1
+  },
+  {
+    "name": "nested image claim requires citation",
+    "body": "Observed evidence [S1].\n\n![![927 organizations](https://example.test/inner.png)](https://example.test/outer.png)",
+    "accepted": false,
+    "source_links": 1,
+    "visible_text": "927 organizations"
+  },
+  {
+    "name": "image claim in list requires own citation",
+    "body": "- ![927 organizations](https://example.test/chart.png)\n- Observed evidence [S1].",
+    "accepted": false,
+    "source_links": 1,
+    "visible_text": "927 organizations"
+  },
+  {
+    "name": "image claim in table may use row citation",
+    "body": "| Chart | Source |\n| --- | --- |\n| ![927 organizations](https://example.test/chart.png) | [S1] |",
+    "accepted": true,
+    "source_links": 1,
+    "claim_blocks": 1,
+    "visible_text": "927 organizations"
+  },
+  {
+    "name": "image claim in table requires row citation",
+    "body": "Observed evidence [S1].\n\n| Chart |\n| --- |\n| ![927 organizations](https://example.test/chart.png) |",
+    "accepted": false,
+    "source_links": 1,
+    "visible_text": "927 organizations"
+  },
+  {
+    "name": "image claim in heading requires citation",
+    "body": "# ![927 organizations](https://example.test/chart.png)\n\nObserved evidence [S1].",
+    "accepted": false,
+    "source_links": 1,
+    "visible_text": "927 organizations"
+  },
+  {
+    "name": "image claim in heading with source citation",
+    "body": "# ![927 organizations](https://example.test/chart.png) [S1]",
+    "accepted": true,
+    "source_links": 1,
+    "claim_blocks": 1,
+    "visible_text": "927 organizations"
+  },
+  {
+    "name": "image claim in table header requires citation",
+    "body": "| ![927 organizations](https://example.test/chart.png) |\n| --- |\n| Observed evidence [S1]. |",
+    "accepted": false,
+    "source_links": 1,
+    "visible_text": "927 organizations"
+  },
+  {
+    "name": "linked image citation is not navigable evidence",
+    "body": "[![927 organizations](https://example.test/chart.png) [S1]](https://example.test/reference)",
+    "accepted": false,
+    "source_links": 0,
+    "visible_text": "927 organizations"
+  },
+  {
+    "name": "adjacent image caption in another paragraph is insufficient",
+    "body": "![927 organizations](https://example.test/chart.png)\n\nSource: [S1]",
+    "accepted": false,
+    "source_links": 1,
+    "visible_text": "927 organizations"
+  },
+  {
+    "name": "image javascript destination cannot supply citation",
+    "body": "![927 organizations [S1]](javascript:alert%281%29)",
+    "accepted": false,
+    "source_links": 0,
+    "visible_text": "927 organizations [S1]"
+  },
+  {
+    "name": "image javascript destination with navigable citation",
+    "body": "![927 organizations [S1]](javascript:alert%281%29) [S1]",
+    "accepted": true,
+    "source_links": 1,
+    "visible_text": "927 organizations [S1]",
+    "claim_blocks": 1
+  },
+  {
+    "name": "image file destination cannot supply citation",
+    "body": "![927 organizations [S1]](file:///example)",
+    "accepted": false,
+    "source_links": 0,
+    "visible_text": "927 organizations [S1]"
+  },
+  {
+    "name": "image file destination with navigable citation",
+    "body": "![927 organizations [S1]](file:///example) [S1]",
+    "accepted": true,
+    "source_links": 1,
+    "visible_text": "927 organizations [S1]",
+    "claim_blocks": 1
+  },
+  {
+    "name": "image data destination cannot supply citation",
+    "body": "![927 organizations [S1]](data:text/html,example)",
+    "accepted": false,
+    "source_links": 0,
+    "visible_text": "927 organizations [S1]"
+  },
+  {
+    "name": "image data destination with navigable citation",
+    "body": "![927 organizations [S1]](data:text/html,example) [S1]",
+    "accepted": true,
+    "source_links": 1,
+    "visible_text": "927 organizations [S1]",
+    "claim_blocks": 1
+  },
+  {
+    "name": "unsafe external link cannot supply citation",
+    "body": "[927 organizations [S1]](javascript:alert%281%29)",
+    "accepted": false,
+    "source_links": 0,
+    "visible_text": "927 organizations [S1]"
   }
 ]

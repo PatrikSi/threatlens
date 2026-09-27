@@ -93,6 +93,13 @@ code do not become source links and cannot provide attribution. This applies to
 factual prose inside fences as well as genuine code examples; an unrelated cited
 paragraph elsewhere does not satisfy the requirement.
 
+Image descriptions remain visible when images are omitted. Generated descriptions
+must have a source citation outside the image syntax in the same paragraph or
+table data row, for example `![Observed infrastructure](https://example.test/chart.png) [S1]`.
+A literal `[S1]` inside the description is not a navigable source link and cannot
+provide attribution. Descriptions in headings and table headers also require a
+visible citation; placing a claim there does not exempt it from validation.
+
 New generations reject unknown citations and quotations absent from the exact
 bounded excerpt. Each finding must include `evidence_quotes` objects with a
 `citation` and an exact 12–2,000 character `quote`; whitespace differences are
