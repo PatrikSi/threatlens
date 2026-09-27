@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { apiFetch } from '../api/client'
 import { accessibleQueryData } from '../api/queryData'
 import { resolveApiErrorMessage } from '../api/errors'
+import { AutomationExecutions } from './AutomationExecutions'
 import { TeamIntegrationConfiguration } from './TeamIntegrationConfiguration'
 import { TEAM_BUTTON } from './teamPresentation'
 
@@ -182,6 +183,7 @@ function DestinationCard({
 }) {
   const [credentialsOpen, setCredentialsOpen] = useState(false)
   const [configurationOpen, setConfigurationOpen] = useState(false)
+  const [executionsOpen, setExecutionsOpen] = useState(false)
   const toggle = useMutation({
     mutationFn: () =>
       apiFetch(`${base}/${row.id}/enabled`, {
@@ -239,6 +241,20 @@ function DestinationCard({
           base={`${base}/${row.id}`}
           unavailable={unavailable}
           onChanged={onChanged}
+        />
+      )}
+      <button
+        className={TEAM_BUTTON}
+        disabled={unavailable}
+        onClick={() => setExecutionsOpen(true)}
+      >
+        Execution history
+      </button>
+      {executionsOpen && (
+        <AutomationExecutions
+          webhookId={row.id}
+          writable={!unavailable}
+          onClose={() => setExecutionsOpen(false)}
         />
       )}
       {toggle.isError && (
