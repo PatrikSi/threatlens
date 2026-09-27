@@ -184,6 +184,10 @@ def dispatch_items_missing_ai_enrichment(
             seconds=max(0, int(settings.dispatch_items_failed_ai_enrichment_after_seconds))
         )
 
+        latest_enrichment_run = (select(AITaskRun.id).where(AITaskRun.item_id == Item.id,
+            AITaskRun.task_type == AI_TASK_TYPE_ITEM_ENRICHMENT)
+            .order_by(AITaskRun.created_at.desc(), AITaskRun.id.desc()).limit(1)
+            .correlate(Item).scalar_subquery())
         in_flight_enrichment_run = exists(
             select(AITaskRun.id).where(
                 AITaskRun.item_id == Item.id,
@@ -209,6 +213,13 @@ def dispatch_items_missing_ai_enrichment(
                     and_(
                         ItemAIEnrichment.status == "error",
                         ItemAIEnrichment.updated_at <= error_recovery_cutoff,
+                        exists(select(AITaskRun.id).where(
+                            AITaskRun.item_id == Item.id,
+                            AITaskRun.task_type == AI_TASK_TYPE_ITEM_ENRICHMENT,
+                            AITaskRun.status == "error",
+                            AITaskRun.id == latest_enrichment_run,
+                            ~AITaskRun.metadata_json["automatic_recovery_blocked"].as_boolean().is_(True),
+                        )),
                     ),
                 ),
                 ~in_flight_enrichment_run,

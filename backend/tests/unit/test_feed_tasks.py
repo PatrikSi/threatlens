@@ -2212,7 +2212,7 @@ def test_dispatch_items_missing_ai_enrichment_recovers_stale_inflight_runs_witho
     get_settings.cache_clear()
 
 
-def test_dispatch_items_missing_ai_enrichment_requeues_failed_rows_after_backoff(db_session, monkeypatch):
+def test_dispatch_items_missing_ai_enrichment_does_not_replay_legacy_errors_without_receipts(db_session, monkeypatch):
     monkeypatch.setenv("AI_ENABLED", "true")
     monkeypatch.setenv("AI_API_KEY", "")
     get_settings.cache_clear()
@@ -2307,8 +2307,8 @@ def test_dispatch_items_missing_ai_enrichment_requeues_failed_rows_after_backoff
         )
     ).all()
 
-    assert result == {"queued": 1}
-    assert len(queued_runs) == 1
+    assert result == {"queued": 0}
+    assert len(queued_runs) == 0
     get_settings.cache_clear()
 
 

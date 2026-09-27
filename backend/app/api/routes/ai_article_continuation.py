@@ -68,7 +68,9 @@ def continue_article_extraction(
         row = db.scalar(select(ItemAIEnrichment).where(ItemAIEnrichment.item_id == item_id).with_for_update())
         progress = row.extraction_progress_json if row else None
         coverage = extraction_progress_response(progress)
-        if not progress or not coverage or coverage.uncovered_chars == 0:
+        synthesis_only = bool(coverage and coverage.uncovered_chars == 0
+                              and coverage.synthesis_status in {"failed", "pending"})
+        if not progress or not coverage or (coverage.uncovered_chars == 0 and not synthesis_only):
             raise conflict("No uncovered section progress is available. Refresh article evidence.")
         if progress_digest(progress) != payload.progress_revision:
             raise conflict("Extraction progress changed. Refresh before authorizing additional sections.")
@@ -80,13 +82,23 @@ def continue_article_extraction(
             recovered = recover_unsent_sections(db, item_id=item_id, progress=progress)
         except ValueError as exc:
             raise conflict(str(exc)) from exc
-        section_limit = min(MAX_AUTHORIZED_SECTIONS, coverage.call_limit + MAX_SECTIONS)
-        token_budget = min(MAX_AUTHORIZED_TOKENS, coverage.token_budget + TOTAL_TOKEN_BUDGET)
+        if synthesis_only:
+            from app.services.ai_section_synthesis import synthesis_retry_reservation
+            try:
+                reservation = synthesis_retry_reservation(recovered)
+            except ValueError as exc:
+                raise conflict(str(exc)) from exc
+            if coverage.reserved_tokens + reservation > coverage.token_budget:
+                raise conflict("The remaining authorized token budget cannot fit synthesis recovery. "
+                               "Verified section results remain available; no additional budget was granted.")
+        section_limit = coverage.call_limit if synthesis_only else min(MAX_AUTHORIZED_SECTIONS, coverage.call_limit + MAX_SECTIONS)
+        token_budget = coverage.token_budget if synthesis_only else min(MAX_AUTHORIZED_TOKENS, coverage.token_budget + TOTAL_TOKEN_BUDGET)
         can_retry_unsent = any(
             previous["status"] == "started" and current["status"] == "pending"
             for previous, current in zip(progress["sections"], recovered["sections"], strict=True)
         ) and coverage.reserved_tokens < token_budget
-        if section_limit == coverage.call_limit and token_budget == coverage.token_budget and not can_retry_unsent:
+        can_retry_synthesis = (recovered.get("synthesis") or {}).get("status") == "pending" and coverage.reserved_tokens < token_budget
+        if section_limit == coverage.call_limit and token_budget == coverage.token_budget and not can_retry_unsent and not can_retry_synthesis:
             raise conflict("This article reached the 32-section / 256,000-token authorization ceiling. Review the remaining source manually.")
         try:
             previous = db.get(AITaskRun, uuid.UUID(progress["task_run_id"]))
@@ -99,7 +111,7 @@ def continue_article_extraction(
         except ExportJobAccessDenied as exc:
             raise conflict("A current durable credential is required for continuation.") from exc
         run = queue_ai_task_run(db, task_type="item_enrichment", trigger_source="manual", actor_user_id=admin.id,
-            item_id=item_id, metadata={"force": True, "extraction_continuation": True,
+            item_id=item_id, metadata={"force": True, "extraction_continuation": True, "synthesis_only": synthesis_only,
                 PROVIDER_SELECTION_KEY: previous.metadata_json[PROVIDER_SELECTION_KEY]})
         db.add(AIArticleContinuation(run_id=run.id, item_id=item_id, request_id=payload.request_id,
             principal_type="user", principal_id=admin.id, authorization_encrypted=encrypt_json(authorization.model_dump(mode="json")),

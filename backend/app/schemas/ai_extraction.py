@@ -106,6 +106,7 @@ class ExtractionCoverage(BaseModel):
     summary_limited: bool = False
     progress_revision: str | None = None
     summary_scope: Literal["first_section", "processed_sections", "section_synthesis"] = "first_section"
+    synthesis_status: Literal["not_requested", "pending", "completed", "failed", "budget_limited"] = "not_requested"
     sections: list[ExtractionSectionCoverage] = Field(max_length=32)
 
 

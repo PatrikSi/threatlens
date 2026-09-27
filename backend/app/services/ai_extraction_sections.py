@@ -95,6 +95,9 @@ def extraction_progress_response(progress: dict | None) -> ExtractionCoverage | 
             reserved_tokens=progress["reserved_tokens"], token_budget=progress.get("token_budget", TOTAL_TOKEN_BUDGET),
             call_limit=progress.get("section_limit", MAX_SECTIONS), sections=sections,
             progress_revision=progress_digest(progress), summary_scope=progress.get("summary_scope", "first_section"),
+            synthesis_status=("budget_limited" if progress.get("synthesis_deferred") else
+                              {"started": "pending", "pending": "pending", "completed": "completed", "failed": "failed"}
+                              .get((progress.get("synthesis") or {}).get("status"), "not_requested")),
             output_limited=progress.get("output_limited", False), summary_limited=progress.get("summary_limited", False),
         )
     except (KeyError, TypeError, ValueError):
@@ -306,6 +309,11 @@ def run_section_extraction(
     merged["input_sha256"] = hashlib.sha256("".join(
         section["extraction"]["input_sha256"] for section in completed
     ).encode("ascii")).hexdigest()
+    if coverage.synthesis_status in {"failed", "pending", "budget_limited"}:
+        merged["information_gaps"] = [
+            "A combined summary is unavailable; verified extraction and labeled section summaries remain available.",
+            *merged["information_gaps"],
+        ][:8]
     if coverage.uncovered_chars or limited:
         merged["information_gaps"] = [
             "Extraction coverage or output was limited by the bounded section budget; review uncovered evidence.",

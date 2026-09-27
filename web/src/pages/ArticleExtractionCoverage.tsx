@@ -13,6 +13,8 @@ export function ArticleExtractionCoverage({ coverage }: { coverage: ExtractionCo
           ? ' The summary includes labeled contributions from processed sections; relevance retains its initial assessment.'
           : ' Summary and relevance use the first section.'}
     </p>
+    {(coverage.synthesis_status === 'failed' || coverage.synthesis_status === 'pending') && <p role="status">Combined summary unavailable. Verified extraction and labeled section summaries remain available. Review provider receipts before requesting synthesis recovery.</p>}
+    {coverage.synthesis_status === 'budget_limited' && <p role="status">Combined summary did not fit the authorized token budget. Verified section results remain available.</p>}
     {coverage.summary_limited && <p role="status">Some section summaries exceeded their 900-character storage budget. Primary quotations and coverage remain available for review.</p>}
     {coverage.output_limited && <p role="status" className="mt-1">The combined output reached its entity or relationship limit. Review source evidence for additional findings.</p>}
     <ol className="mt-2 list-decimal pl-5">

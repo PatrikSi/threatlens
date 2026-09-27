@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "2.0.1",
-    "x-threatlens-contract-sha256": "66b1b227b2885470c048740a1822f064f34f3508a8e37f6d4e4e5e99cd850748"
+    "x-threatlens-contract-sha256": "a6891206556ef454d3e40921e89431d19755086a1ab37d734c1a0b0da5a0a273"
   },
   "servers": [
     {
@@ -49318,6 +49318,18 @@
             ],
             "title": "Summary Scope",
             "default": "first_section"
+          },
+          "synthesis_status": {
+            "type": "string",
+            "enum": [
+              "not_requested",
+              "pending",
+              "completed",
+              "failed",
+              "budget_limited"
+            ],
+            "title": "Synthesis Status",
+            "default": "not_requested"
           },
           "sections": {
             "items": {
