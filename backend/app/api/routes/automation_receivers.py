@@ -4,7 +4,7 @@ import uuid
 from contextlib import contextmanager
 from sqlalchemy.exc import OperationalError
 from app.db.budgets import DatabaseDeadlineExceeded, database_operation
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from app.db.session import get_db
@@ -16,7 +16,16 @@ from app.services.automation_receiver_auth import (
 )
 from app.services.automation_executions import apply_callback, acknowledge_policy_update
 
-router = APIRouter(prefix="/notifications/automation/receivers", tags=["notifications"])
+
+def _no_store(response: Response) -> None:
+    response.headers["Cache-Control"] = "no-store"
+
+
+router = APIRouter(
+    prefix="/notifications/automation/receivers",
+    tags=["notifications"],
+    dependencies=[Depends(_no_store)],
+)
 
 
 @contextmanager
