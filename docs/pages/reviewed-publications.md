@@ -26,11 +26,10 @@ Consumers must stop using an approval when current access or source retention
 prevents validating it (including HTTP 403/404). A missing artifact is not proof
 that its last downloaded indicators remain approved.
 
-Downloaded publications do not create external execution receipts or automation
-control updates. The separate automation control stream applies to independently
-configured `automation_v1` webhook executions. Use that integration when a receiver
-needs durable, opaque withdrawal acknowledgements after evidence access is lost;
-reviewed artifacts still require polling and reimporting their own updates.
+Standalone downloads do not create receipts. Register a publication consumer for
+durable change feeds and opaque withdrawal acknowledgements after evidence access
+is lost, as described below. The separate automation control stream continues to
+track `automation_v1` webhook executions and their SIEM outcomes.
 
 The preview fingerprint covers the selected evidence and reviews. A changed
 source, verdict or filter produces a conflict and requires a new preview. Creation
@@ -98,3 +97,93 @@ API paths below are relative to `/api/v1`:
 See the generated OpenAPI document for request and error contracts. Conflicts
 require refreshed evidence or revision; unavailable capacity and transient lock
 contention can be retried using the same request identity.
+
+## Acknowledged consumer distribution
+
+In **Exports → Reviewed team publications → Publication consumers**, a current
+team manager can register a named consumer, subscribe approved publications and
+rotate its credential. A consumer is a durable delegation capped by the registering
+manager's permissions and handling access. A browser-session expiry does not erase
+it. Loss of that custodian's account, team membership or required access generates
+opaque withdrawals; it never silently adopts another member's clearance.
+
+Registration returns a one-time `tlpc_` secret. Store it in the receiver's secret
+manager. Send exactly one Authorization bearer header; query credentials and
+duplicate authorization headers are rejected. It can only use
+`/api/v1/publication-distribution/` controls. It cannot
+read article text, download publications, access another consumer, or launch work.
+Use a separate current scoped API credential for publication downloads. Approval
+and evidence permissions are checked by the existing download endpoint.
+
+The API registration request is
+`POST /api/v1/teams/{team_id}/publication-consumers` with `name`, `expires_days`
+(1–365; default90), and a stable UUID `idempotency_key`. Reusing the same key after
+a lost response does not create a second registration: refresh the consumer list
+and rotate its credential to obtain a new one-time secret. Reusing a key with
+changed fields returns a conflict. Subscribe with
+`POST /api/v1/teams/{team_id}/publication-consumers/{consumer_id}/subscriptions`
+and `{"publication_id":"<UUID>"}`. Subscription retries are idempotent; withdrawn
+subscriptions cannot be revived.
+
+### Receiver protocol
+
+1. Read `GET /api/v1/publication-distribution/status` using the consumer bearer
+   token to obtain its current `generation` and `replay_floor`.
+2. Persist the generation and sequence cursor locally. Initially request
+   `GET /api/v1/publication-distribution/changes?generation=1&after=0&limit=25`.
+   Continue using `next_after` while `has_more` is true. Pages contain stable change
+   IDs, monotonically increasing sequence numbers, publication IDs/revisions and
+   `available`, `changed` or `withdrawn` kinds. They contain no indicators or passages.
+3. For `available` or `changed`, fetch the publication through its ordinary team
+   download endpoint with current read credentials. Import its current complete
+   state, including revoked STIX objects or deleted MISP attributes. A change
+   notification is not independent evidence permission. Stop using a publication
+   if download permission or evidence availability is lost.
+4. Apply `withdrawn` by the already-known publication identity without fetching
+   evidence. Preserve completed hunt outcomes as history; withdrawal does not
+   authorize a new hunt or deletion of historical investigations.
+5. After durable local application, POST
+   `/api/v1/publication-distribution/acknowledgements` with
+   `{"generation":1,"change_ids":["<change UUID>"]}`. Repeated acknowledgements of
+   retained changes are safe. Store the cursor only after durable local receipt;
+   a lost acknowledgement response must not cause a duplicate external action.
+
+Background reconciliation checks bounded oldest-due batches; polling also checks
+up to 50 subscriptions. Publication evidence refresh and consumer reconciliation
+are eventual processes, normally on a minute schedule with five-minute source
+checks. Monitor reconciliation age and unacknowledged withdrawal age; large fleets
+must qualify their actual recovery capacity. A full reconciliation batch is disclosed
+in the feed instead of implying every subscription was checked synchronously.
+
+### Replay, capacity and retirement
+
+Each team retains at most 20 consumers; each consumer retains at most 1,000
+subscriptions. Acknowledged history is normally replayable for 90 days. Under capacity
+pressure, contiguous acknowledged history can compact earlier above 9,000 retained
+changes. The returned `replay_floor` describes the actual boundary. Unacknowledged
+changes are never silently pruned. At 10,000 retained changes ordinary updates pause,
+while terminal withdrawals remain admissible and fair reconciliation continues.
+The feed exposes retention backpressure and recovery guidance.
+
+A cursor below the retained floor returns `410 consumer_replay_expired`. The receiver
+must discard all locally imported publications from that consumer, then POST
+`/api/v1/publication-distribution/reset` with its `expected_generation` and
+`discarded_previous_publications:true`. Persist the returned generation/after
+position and reimport the current feed. Reset is explicit; it never assumes a receiver
+has removed intelligence merely because it was offline. Restored old checkpoints
+must perform the same recovery, and delayed acknowledgements from the old generation
+are rejected.
+
+**Retire and withdraw** permanently withdraws the consumer's subscriptions while
+leaving its credential valid for the final acknowledgements. After all withdrawals
+are acknowledged, **Archive acknowledged consumer** removes the bounded consumer
+ledger, records an audit event and frees a registration slot. Publication evidence
+and publication history remain governed separately. Revoke a credential immediately
+when compromised; rotate it for a trusted receiver to finish outstanding withdrawals.
+Revocation alone does not mean remote intelligence has been withdrawn.
+
+The manager asks for confirmation before revocation, retirement or archival.
+If a registration response is lost, retrying its identity returns an actionable
+conflict; refresh the consumer list and rotate that consumer’s credential.
+The secret appears only once, is never retained in the query cache, and is cleared
+on navigation, session change or confirmed access loss.
