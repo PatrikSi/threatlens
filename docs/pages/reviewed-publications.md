@@ -22,6 +22,11 @@ access and every historical handling label are checked on each download. Losing
 membership, source access or a historical label withholds the artifact. Deleted
 source articles also withhold the artifact instead of making retained evidence
 public. Approval and withdrawal audit records retain the same access boundary.
+An unavailable individual download does not disable publishing other accessible
+evidence or administering the team's consumers. Use **Refresh publications** to
+reload accessible history after an error. Following a loss of workspace access,
+restored access requires a fresh preview and explicit approval; a previous
+approval is not silently reused. Refreshing cannot reset a newer pending save.
 Consumers must stop using an approval when current access or source retention
 prevents validating it (including HTTP 403/404). A missing artifact is not proof
 that its last downloaded indicators remain approved.
