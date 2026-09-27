@@ -304,14 +304,20 @@ def build_section_message_plan(
             },
         ]
 
+    # Optional context must leave space for evidence, not merely fit an empty
+    # section. Otherwise a small instruction change can silently reduce a
+    # representative source set to one finding. Exact evidence quotes remain
+    # indivisible; the final fitter still enforces the full serialized budget.
+    evidence_reserve = min(256, budget.usable_input_tokens // 4) if findings else 0
+    fixed_input_limit = budget.usable_input_tokens - evidence_reserve
     empty_messages = messages_for([])
-    if estimate_message_tokens(empty_messages) > budget.usable_input_tokens:
+    if estimate_message_tokens(empty_messages) > fixed_input_limit:
         compact_report["metrics"] = _scalar_metrics(compact_report["metrics"])
         empty_messages = messages_for([])
-    if estimate_message_tokens(empty_messages) > budget.usable_input_tokens:
+    if estimate_message_tokens(empty_messages) > fixed_input_limit:
         compact_report["metrics"] = {}
         empty_messages = messages_for([])
-    if estimate_message_tokens(empty_messages) > budget.usable_input_tokens:
+    if estimate_message_tokens(empty_messages) > fixed_input_limit:
         bounded = compact_report_context(
             dict(report.get("prompt") or {}),
             dict(report.get("generation_context") or {}),
@@ -320,7 +326,7 @@ def build_section_message_plan(
         compact_report["prompt"] = bounded.prompt
         compact_report["generation_context"] = bounded.generation_context
         empty_messages = messages_for([])
-    if estimate_message_tokens(empty_messages) > budget.usable_input_tokens:
+    if estimate_message_tokens(empty_messages) > fixed_input_limit:
         bounded_section.pop("instructions", None)
         empty_messages = messages_for([])
     if estimate_message_tokens(empty_messages) > budget.usable_input_tokens:
@@ -340,6 +346,7 @@ def build_section_message_plan(
         omitted_findings=max(0, len(findings) - len(selected)),
         context_compacted=(
             bounded.compacted or bounded_section != _clean(dict(section or {}))
+            or compact_report["metrics"] != _clean(dict(report.get("metrics") or {}))
         ),
     )
 
