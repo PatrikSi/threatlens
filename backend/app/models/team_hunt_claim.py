@@ -8,6 +8,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    Index,
     String,
     Uuid,
     func,
@@ -21,6 +22,11 @@ class TeamHuntClaim(Base):
     __tablename__ = "team_hunt_claims"
     __table_args__ = (
         CheckConstraint("version >= 1", name="ck_team_hunt_claim_version"),
+        CheckConstraint(
+            "review_version >= 0 AND priority IN ('low', 'normal', 'high', 'urgent')",
+            name="ck_team_hunt_review_metadata",
+        ),
+        Index("ix_team_hunt_review_due", "review_due_at", "reminded_at"),
     )
 
     assessment_id: Mapped[uuid.UUID] = mapped_column(
@@ -34,6 +40,17 @@ class TeamHuntClaim(Base):
     )
     version: Mapped[int] = mapped_column(
         Integer, nullable=False, default=1, server_default="1"
+    )
+    review_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    priority: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="normal", server_default="normal"
+    )
+    review_due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reminded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reminder_acknowledged_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

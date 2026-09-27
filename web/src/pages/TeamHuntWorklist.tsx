@@ -5,33 +5,12 @@ import { ApiError, apiFetch } from "../api/client";
 import { resolveApiErrorMessage } from "../api/errors";
 import { captureSessionLease } from "../api/sessionLifecycle";
 import { DialogSurface } from "../components/ConfirmDialog";
-import type { HuntSuggestion } from "../types/articleIntelligence";
+import type { HuntEntry } from "./teamHuntTypes";
+import { HuntReviewSchedule } from "./HuntReviewSchedule";
+import { TeamHuntSavedViews, type HuntFilters } from "./TeamHuntSavedViews";
 import { AssessmentWorkspace } from "./ArticleTeamAssessment";
 import { TEAM_BUTTON } from "./teamPresentation";
 
-interface HuntEntry {
-  assessment_id: string;
-  assessment_version: number;
-  item_id: string;
-  item_title: string;
-  team_id: string;
-  status: "pending" | "stale" | "accepted" | "rejected";
-  generated_at: string | null;
-  evidence_age_seconds: number | null;
-  hunt: HuntSuggestion;
-  claim: { version: number; owner_user_id: string | null };
-  owner_name: string | null;
-  reviewer_name: string | null;
-  reviewed_at: string | null;
-  can_claim: boolean;
-  can_release: boolean;
-  investigation: {
-    id: string;
-    status: string;
-    disposition: string | null;
-    assignee_user_id: string | null;
-  } | null;
-}
 interface HuntPage {
   items: HuntEntry[];
   next_cursor: string | null;
@@ -68,13 +47,33 @@ export function TeamHuntWorklist({
   )
     ? params.get("hunt_owner")!
     : "all";
+  const order = ["newest", "oldest", "due"].includes(
+    params.get("hunt_order") ?? "",
+  )
+    ? params.get("hunt_order")!
+    : "oldest";
+  const priority = ["low", "normal", "high", "urgent"].includes(
+    params.get("hunt_priority") ?? "",
+  )
+    ? params.get("hunt_priority")!
+    : "";
+  const overdue = params.get("hunt_overdue") === "true";
   const cursor = params.get("hunt_cursor") ?? "";
   const query = useQuery({
-    queryKey: ["team-hunts", teamId, status, ownership, cursor],
+    queryKey: [
+      "team-hunts",
+      teamId,
+      status,
+      ownership,
+      cursor,
+      order,
+      priority,
+      overdue,
+    ],
     enabled: !unavailable,
     queryFn: ({ signal }) =>
       apiFetch<HuntPage>(
-        `/teams/${teamId}/hunts?${new URLSearchParams({ limit: "25", ownership, ...(status ? { status } : {}), ...(cursor ? { cursor } : {}) })}`,
+        `/teams/${teamId}/hunts?${new URLSearchParams({ limit: "25", ownership, order, ...(priority ? { priority } : {}), ...(overdue ? { overdue: "true" } : {}), ...(status ? { status } : {}), ...(cursor ? { cursor } : {}) })}`,
         { signal },
       ),
     refetchInterval: 30_000,
@@ -90,6 +89,24 @@ export function TeamHuntWorklist({
       if (value) next.set(key, value);
       else next.delete(key);
       if (key !== "hunt_cursor") next.delete("hunt_cursor");
+      return next;
+    });
+  }
+  function applyView(filters: HuntFilters) {
+    setReview(null);
+    setParams((current) => {
+      const next = new URLSearchParams(current);
+      for (const [key, value] of Object.entries({
+        hunt_status: filters.status ?? "",
+        hunt_owner: filters.ownership,
+        hunt_order: filters.order,
+        hunt_priority: filters.priority ?? "",
+        hunt_overdue: String(filters.overdue),
+      })) {
+        if (value) next.set(key, value);
+        else next.delete(key);
+      }
+      next.delete("hunt_cursor");
       return next;
     });
   }
@@ -146,6 +163,18 @@ export function TeamHuntWorklist({
           the investigation workspace.
         </p>
       </header>
+      <TeamHuntSavedViews
+        teamId={teamId}
+        unavailable={blocked || action.isPending}
+        filters={{
+          status: status || null,
+          ownership,
+          order,
+          priority: priority || null,
+          overdue,
+        }}
+        onApply={applyView}
+      />
       <fieldset disabled={action.isPending} className="flex flex-wrap gap-4">
         <label className="text-sm">
           Hunt status
@@ -174,6 +203,45 @@ export function TeamHuntWorklist({
             <option value="mine">Claimed by me</option>
             <option value="unclaimed">Unclaimed or former member</option>
           </select>
+        </label>
+        <label className="text-sm">
+          Review order
+          <select
+            className="ml-2 rounded border p-2 dark:bg-[#072019]"
+            value={order}
+            onChange={(event) => updateFilter("hunt_order", event.target.value)}
+          >
+            <option value="oldest">Oldest evidence first</option>
+            <option value="newest">Newest evidence first</option>
+            <option value="due">Earliest deadline first</option>
+          </select>
+        </label>
+        <label className="text-sm">
+          Priority
+          <select
+            className="ml-2 rounded border p-2 dark:bg-[#072019]"
+            value={priority}
+            onChange={(event) =>
+              updateFilter("hunt_priority", event.target.value)
+            }
+          >
+            <option value="">All priorities</option>
+            {["low", "normal", "high", "urgent"].map((value) => (
+              <option key={value} value={value}>
+                {value}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="text-sm">
+          <input
+            type="checkbox"
+            checked={overdue}
+            onChange={(event) =>
+              updateFilter("hunt_overdue", event.target.checked ? "true" : "")
+            }
+          />{" "}
+          Overdue reviews only
         </label>
       </fieldset>
       {notice && <p role={notice.error ? "alert" : "status"}>{notice.text}</p>}
@@ -244,6 +312,10 @@ export function TeamHuntWorklist({
                     assessment from the article before acting.
                   </p>
                 )}
+                <HuntReviewSchedule
+                  entry={entry}
+                  disabled={blocked || !writable || action.isPending}
+                />
                 {entry.investigation && (
                   <p className="text-sm">
                     <Link

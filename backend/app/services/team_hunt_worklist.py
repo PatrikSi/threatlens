@@ -20,6 +20,7 @@ from app.models.team_item_assessment import TeamItemAssessment
 from app.models.user import User
 from app.schemas.team_assessments import HuntSuggestionResponse
 from app.schemas.team_hunt_worklist import (
+    HuntReviewSchedule,
     HuntClaimResponse,
     HuntInvestigationOutcome,
     HuntWorklistEntry,
@@ -134,6 +135,9 @@ def list_team_hunts(
     ownership: str,
     cursor: str | None,
     limit: int,
+    order: str = "newest",
+    priority: str | None = None,
+    overdue: bool = False,
 ) -> HuntWorklistPage:
     fence_assessment_request(db, actor, write=False)
     if lock_team_for_current_access(db, team_id=team_id, user_id=actor.user.id) is None:
@@ -146,6 +150,8 @@ def list_team_hunts(
         db.scalar(select(team_access_predicate(team_id, actor.user.id, manage=True)))
     )
     scope = [str(team_id), status or "all", ownership]
+    if order != "newest" or priority or overdue:
+        scope.extend([order, priority or "all", str(overdue)])
     row = TeamItemAssessment
     raw_hunts = cast(row.result_json, JSONB).op("->")("hunts")
     safe_hunts = case(
@@ -156,6 +162,10 @@ def list_team_hunts(
     value = cast(hunts.c.value, JSONB)
     hunt_id = value["id"].astext
     ordering_time = func.coalesce(row.generated_at, row.created_at)
+    if order == "due":
+        ordering_time = func.coalesce(
+            TeamHuntClaim.review_due_at, datetime(9999, 1, 1, tzinfo=timezone.utc)
+        )
     stale = or_(
         row.result_context_version.is_distinct_from(
             func.coalesce(TeamAIContext.version, 0)
@@ -186,6 +196,11 @@ def list_team_hunts(
             effective_status.label("effective_status"),
             claim.owner_user_id,
             claim.version.label("claim_version"),
+            claim.review_version,
+            claim.priority,
+            claim.review_due_at,
+            claim.reminded_at,
+            claim.reminder_acknowledged_at,
             owner_current.label("owner_current"),
         )
         .join(Item, Item.id == row.item_id)
@@ -222,16 +237,26 @@ def list_team_hunts(
         query = query.where(claim.owner_user_id == actor.user.id)
     elif ownership == "unclaimed":
         query = query.where(or_(claim.owner_user_id.is_(None), ~owner_current))
-    if cursor:
+    if priority:
+        query = query.where(func.coalesce(claim.priority, "normal") == priority)
+    if overdue:
         query = query.where(
-            tuple_(ordering_time, row.id, hunt_id)
-            < tuple_(*_read_cursor(cursor, scope))
+            claim.review_due_at <= func.clock_timestamp(),
+            effective_status.in_(["pending", "stale"]),
         )
+    if cursor:
+        position = tuple_(*_read_cursor(cursor, scope))
+        key = tuple_(ordering_time, row.id, hunt_id)
+        query = query.where(key < position if order == "newest" else key > position)
     scan_limit = limit * 4
     candidates = db.execute(
-        query.order_by(ordering_time.desc(), row.id.desc(), hunt_id.desc()).limit(
-            scan_limit + 1
-        )
+        query.order_by(
+            *(
+                [ordering_time.desc(), row.id.desc(), hunt_id.desc()]
+                if order == "newest"
+                else [ordering_time.asc(), row.id.asc(), hunt_id.asc()]
+            )
+        ).limit(scan_limit + 1)
     ).all()
     entries: list[HuntWorklistEntry] = []
     last = None
@@ -287,6 +312,22 @@ def list_team_hunts(
                 and can_control
                 and owner is not None,
                 investigation=None,
+                review_schedule=HuntReviewSchedule(
+                    version=candidate.review_version or 0,
+                    priority=candidate.priority or "normal",
+                    due_at=candidate.review_due_at,
+                    overdue=bool(
+                        candidate.review_due_at
+                        and candidate.review_due_at <= now
+                        and candidate.effective_status in {"pending", "stale"}
+                    ),
+                    reminded_at=candidate.reminded_at,
+                    reminder_acknowledged_at=candidate.reminder_acknowledged_at,
+                ),
+                can_schedule=actor.authorization.has("write:teams")
+                and can_control
+                and hunt.investigation_id is None
+                and candidate.effective_status in {"pending", "stale"},
             )
         )
         if len(entries) == limit:

@@ -12,6 +12,8 @@ from app.db.budgets import database_operation
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.team_hunt_worklist import (
+    HuntOrder,
+    HuntPriority,
     HuntClaimCommand,
     HuntClaimResponse,
     HuntWorklistPage,
@@ -30,6 +32,9 @@ def list_team_hunt_worklist(
     request: Request,
     status: HuntWorklistStatus | None = None,
     ownership: Literal["all", "mine", "unclaimed"] = "all",
+    order: HuntOrder = "newest",
+    priority: HuntPriority | None = None,
+    overdue: bool = False,
     cursor: str | None = Query(default=None, max_length=4000),
     limit: int = Query(default=25, ge=1, le=100),
     db: Session = Depends(get_db),
@@ -45,6 +50,9 @@ def list_team_hunt_worklist(
             ownership=ownership,
             cursor=cursor,
             limit=limit,
+            order=order,
+            priority=priority,
+            overdue=overdue,
         )
 
 
