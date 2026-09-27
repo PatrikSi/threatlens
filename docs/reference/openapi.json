@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "2.0.1",
-    "x-threatlens-contract-sha256": "a6891206556ef454d3e40921e89431d19755086a1ab37d734c1a0b0da5a0a273"
+    "x-threatlens-contract-sha256": "6f8a70c74b5c002d51fa80475010bc5e95147b104fa12af1b76352fcb5e11754"
   },
   "servers": [
     {
@@ -1962,6 +1962,23 @@
                 }
               ],
               "title": "Team Id"
+            }
+          },
+          {
+            "name": "ioc_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ioc Id"
             }
           },
           {

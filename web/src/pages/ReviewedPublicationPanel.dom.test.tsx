@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-import { act } from 'react'
+import { act, useState } from 'react'
+import type { ArticleExportFilters } from '../types/exports'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError, apiFetch, apiDownload } from '../api/client'
 import { ReviewedPublicationPanel } from './ReviewedPublicationPanel'
@@ -9,8 +10,10 @@ import { deferred, intelButton, mountIntel, settle } from './articleIntelligence
 vi.mock('../api/client', async (original) => ({ ...(await original<object>()), apiFetch: vi.fn(), apiDownload: vi.fn() }))
 vi.mock('../hooks/useCurrentUser', () => ({ useCurrentUser: () => ({ isError: false, data: { access: { permissions: ['read:items', 'read:teams', 'write:teams'] } } }) }))
 const preview = { fingerprint: 'exact-revision', matched_articles: 1, excluded_or_unreviewed: 2,
-  indicators: [{ item_id: 'item', ioc_id: 'ioc', type: 'domain', value: 'evil.net', title: 'Article', assessment_version: 1, evidence_count: 2 }] }
+  indicators: [{ item_id: 'item', ioc_id: 'ioc', type: 'domain', value: 'evil.net', title: 'Article', assessment_version: 1, source_revision: 2, extraction_revision: 3, expires_at: null, evidence_count: 2 }] }
 let view: Awaited<ReturnType<typeof mountIntel>> | undefined
+let changeFilters: ((filters: ArticleExportFilters) => void) | undefined
+let currentFilters: ArticleExportFilters
 let refresh: ReturnType<typeof deferred<typeof preview>> | undefined
 beforeEach(() => {
   refresh = undefined
@@ -22,9 +25,15 @@ beforeEach(() => {
 })
 afterEach(() => { view?.close(); view = undefined; vi.clearAllMocks() })
 async function open() {
-  view = await mountIntel(<ReviewedPublicationPanel filters={{ q: null, feed_ids: [], tag_ids: [], tags_mode: 'any',
+  currentFilters = { q: null, feed_ids: [], tag_ids: [], tags_mode: 'any',
     classifications: [], ai_relevance_labels: [], ai_score_min: null, ai_score_max: null, is_read: null,
-    is_starred: null, has_article_text: null, since: null, until: null, date_basis: 'first_seen_at', sort: 'first_seen_desc' }} />)
+    is_starred: null, has_article_text: null, since: null, until: null, date_basis: 'first_seen_at', sort: 'first_seen_desc' }
+  function Workspace() {
+    const [filters, setFilters] = useState(currentFilters)
+    changeFilters = setFilters
+    return <ReviewedPublicationPanel filters={filters} />
+  }
+  view = await mountIntel(<Workspace />)
   act(() => intelButton(view!.host, 'Reviewed team publications ▸').click())
   await settle()
   const select = view.host.querySelector('select')!
@@ -146,4 +155,46 @@ it('keeps a newer publication pending when an older history refresh completes', 
   await act(async () => publish.reject(new Error('Publication interrupted')))
   await settle()
   expect(view!.host.textContent).toContain('Publication interrupted')
+})
+
+
+it.each(['scope', 'denial'])('closes selected evidence on %s changes and ignores late responses', async (change) => {
+  await open()
+  const pending = deferred<object>()
+  const implementation = vi.mocked(apiFetch).getMockImplementation()!
+  vi.mocked(apiFetch).mockImplementation((path, init) => path.includes('/indicators?')
+    ? pending.promise : implementation(path, init))
+  act(() => intelButton(view!.host, 'Review evidence').click())
+  await settle()
+  expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+  if (change === 'scope') {
+    act(() => changeFilters!({ ...currentFilters, q: 'updated scope' }))
+  } else {
+    vi.mocked(apiFetch).mockImplementation((path, init) => path.includes('/indicator-publications?')
+      ? Promise.reject(new ApiError('Membership removed', 403, path)) : implementation(path, init))
+    await act(async () => { await view!.client.invalidateQueries({ queryKey: ['reviewed-publications', 'team'] }) })
+  }
+  await settle()
+  expect(document.querySelector('[role="dialog"]')).toBeNull()
+  await act(async () => pending.resolve({ items: [], total: 0 }))
+  await settle()
+  expect(document.querySelector('[role="dialog"]')).toBeNull()
+})
+
+it('closes evidence when a changed revision requires a new preview', async () => {
+  await open()
+  const implementation = vi.mocked(apiFetch).getMockImplementation()!
+  vi.mocked(apiFetch).mockImplementation((path, init) => path.includes('/indicators?')
+    ? Promise.resolve({ items: [], source_revision: 20, extraction_revision: 30 }) : implementation(path, init))
+  act(() => intelButton(view!.host, 'Review evidence').click())
+  await settle()
+  expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+  refresh = deferred()
+  act(() => intelButton(document, 'Refresh publication preview').click())
+  await settle()
+  expect(document.querySelector('[role="dialog"]')).toBeNull()
+  await act(async () => refresh!.resolve(preview))
+  await settle()
+  expect(document.querySelector('[role="dialog"]')).toBeNull()
+  expect(intelButton(view!.host, 'Approve reviewed publication').disabled).toBe(true)
 })

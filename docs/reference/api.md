@@ -5,7 +5,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ## Published Contract
 
 - Schema version: `2.0.1`
-- OpenAPI contract anchor: `openapi-sha256:a6891206556ef454d3e40921e89431d19755086a1ab37d734c1a0b0da5a0a273`
+- OpenAPI contract anchor: `openapi-sha256:6f8a70c74b5c002d51fa80475010bc5e95147b104fa12af1b76352fcb5e11754`
 - API service base path: `/v1`
 - Web proxy base path: `/api/v1`
 - Bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`.
@@ -1390,6 +1390,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `item_id` (path, required): string
   - `team_id` (query, optional): Team Id
+  - `ioc_id` (query, optional): Ioc Id
   - `page` (query, optional): integer
   - `page_size` (query, optional): integer
 - Responses: `200` `application/json` -> IndicatorPage, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse

@@ -268,3 +268,37 @@ def test_relabeling_never_removes_publication_historical_access_boundary(
     admin = client.get(f"{path}/{published['id']}/download", headers=auth_headers["admin"])
     assert admin.status_code == 200, admin.text
     assert next(entry for entry in admin.json()["objects"] if entry["type"] == "indicator")["revoked"] is True
+
+
+def test_publication_evidence_lookup_filters_both_records_and_count(client, reviewed, intel_setup, auth_headers):  # noqa: F811
+    team, item, indicator, original = reviewed
+    assert original["total"] > 1
+    path = f"/items/{item.id}/indicators"
+    params = {"team_id": team["id"], "ioc_id": indicator["id"], "page_size": 1}
+    response = client.get(path, params=params, headers=auth_headers["analyst"])
+    assert response.status_code == 200, response.text
+    page = response.json()
+    assert page["total"] == 1
+    assert [row["id"] for row in page["items"]] == [indicator["id"]]
+    assert page["items"][0]["evidence"]
+    assert page["items"][0]["assessment"]["current"] is True
+    assert page["source_revision"] == original["source_revision"]
+    assert page["extraction_revision"] == original["extraction_revision"]
+    second = client.get(path, params={**params, "page": 2}, headers=auth_headers["analyst"]).json()
+    assert second["total"] == 1 and second["items"] == []
+    missing = client.get(path, params={**params, "ioc_id": str(uuid.uuid4())}, headers=auth_headers["analyst"]).json()
+    assert missing["total"] == 0 and missing["items"] == []
+    assert _page(client, intel_setup, auth_headers["analyst"])["total"] == original["total"]
+    assert client.get(path, params={**params, "ioc_id": "not-a-uuid"}, headers=auth_headers["analyst"]).status_code == 422
+
+
+def test_filtered_evidence_still_requires_current_team_membership(client, reviewed, auth_headers, db_session, seed_users):
+    team, item, indicator, _ = reviewed
+    path = f"/items/{item.id}/indicators"
+    params = {"team_id": team["id"], "ioc_id": indicator["id"], "page_size": 1}
+    assert client.get(path, params=params, headers=auth_headers["viewer"]).status_code == 200
+    db_session.execute(delete(IAMGroupMembership).where(IAMGroupMembership.user_id == seed_users["viewer"].id))
+    db_session.commit()
+    response = client.get(path, params=params, headers=auth_headers["viewer"])
+    assert response.status_code in {403, 404}
+    assert "evil.net" not in response.text

@@ -5,6 +5,14 @@ Choose a team, preview the current article filters, inspect the indicators, and
 explicitly approve the selection and its distribution marking. This creates a
 retained STIX 2.1 or MISP artifact. Raw exports keep their existing behavior.
 
+Select **Review evidence** beside a preview row to load only that indicator's
+retained passages and analyst rationale. Evidence is shown only while its source,
+extraction and assessment revisions still match the preview and the verdict is
+current, malicious and unsuppressed. Changed evidence requires a new preview;
+access errors hide retained passages. Changing filters, teams or the preview
+closes the evidence dialog. Publication history also displays selectable IDs for
+reconciliation with consumer receipts.
+
 Only supported network and hash indicators with a current **malicious** analyst
 verdict qualify. A current review must reference the exact source and extraction
 revisions and retain supporting evidence. Expired reviews, stale extraction,

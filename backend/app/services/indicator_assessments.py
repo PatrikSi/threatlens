@@ -180,20 +180,24 @@ def list_indicators(
     team_id: uuid.UUID | None,
     page: int,
     page_size: int,
+    ioc_id: uuid.UUID | None = None,
 ) -> IndicatorPage:
     fence_indicator_request(db, actor, team_id=team_id)
     item, _feed, revision = load_indicator_item(db, actor, item_id)
     extraction_current = extraction_is_current(db, item)
+    predicates = [ItemIOC.item_id == item_id]
+    if ioc_id is not None:
+        predicates.append(ItemIOC.ioc_id == ioc_id)
     total = (
         db.scalar(
-            select(func.count()).select_from(ItemIOC).where(ItemIOC.item_id == item_id)
+            select(func.count()).select_from(ItemIOC).where(*predicates)
         )
         or 0
     )
     rows = db.execute(
         select(IOC, ItemIOC)
         .join(ItemIOC, ItemIOC.ioc_id == IOC.id)
-        .where(ItemIOC.item_id == item_id)
+        .where(*predicates)
         .order_by(IOC.type, IOC.value_norm, IOC.id)
         .offset((page - 1) * page_size)
         .limit(page_size)

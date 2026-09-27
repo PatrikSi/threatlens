@@ -53,6 +53,7 @@ def get_item_indicators(
     item_id: uuid.UUID,
     request: Request,
     team_id: uuid.UUID | None = None,
+    ioc_id: uuid.UUID | None = None,
     page: int = Query(default=1, ge=1, le=100000),
     page_size: int = Query(default=50, ge=1, le=100),
     db: Session = Depends(get_db),
@@ -64,6 +65,7 @@ def get_item_indicators(
         actor=_actor(request, user, access),
         item_id=item_id,
         team_id=team_id,
+        ioc_id=ioc_id,
         page=page,
         page_size=page_size,
     )
