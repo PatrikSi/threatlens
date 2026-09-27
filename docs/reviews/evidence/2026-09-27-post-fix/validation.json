@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "reviewed_revision": "5e847a80f31345d576fac4470d1e37f13ce4320d",
+  "backend": {
+    "passed": 4359,
+    "skipped": 5,
+    "duration_seconds": 1400.12,
+    "coverage": {
+      "covered_lines": 57177,
+      "num_statements": 63648,
+      "percent_covered": 86.85237047409481,
+      "percent_covered_display": "87",
+      "missing_lines": 6471,
+      "excluded_lines": 97,
+      "percent_statements_covered": 89.8331447963801,
+      "percent_statements_covered_display": "90",
+      "num_branches": 16336,
+      "num_partial_branches": 3275,
+      "covered_branches": 12291,
+      "missing_branches": 4045,
+      "percent_branches_covered": 75.23873653281098,
+      "percent_branches_covered_display": "75"
+    },
+    "critical_coverage_gates_passed": true,
+    "reporting_combined_coverage_percent": 87.08
+  },
+  "frontend": {
+    "files_passed": 158,
+    "tests_passed": 1278,
+    "lint_passed": true,
+    "build_passed": true,
+    "production_bundle_smoke_passed": true
+  },
+  "review_browsers": {
+    "existing_chromium_workflows_passed": 11,
+    "desktop_mobile_states_inspected": 22,
+    "defect_demonstration_probes": 15,
+    "engines": [
+      "chromium",
+      "firefox",
+      "webkit"
+    ],
+    "http_source": "synthetic_fixtures"
+  },
+  "audits": {
+    "npm_vulnerabilities": 0,
+    "python_known_vulnerabilities": 0,
+    "os_images_scanned_this_pass": false
+  },
+  "static": {
+    "ruff_passed": true,
+    "source_size_passed": true,
+    "production_files_checked": 987,
+    "generated_api_contract_matches": true
+  },
+  "recovery": {
+    "unit_tests_run": 125,
+    "unit_skipped": 4,
+    "operations_tests_run": 20,
+    "operations_skipped": 1,
+    "explicit_current_source_host_loss_passed": true,
+    "host_loss_wrapper_exit_code": 0
+  },
+  "new_behavioral_findings": {
+    "p2": 9,
+    "p3": 2
+  },
+  "production_qualified": false
+}
