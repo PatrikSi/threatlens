@@ -45,3 +45,42 @@ it('does not submit another authorization once the cumulative ceiling is reached
   expect(view.host.textContent).toContain('Review the remaining source manually')
   expect(apiFetch).not.toHaveBeenCalled()
 })
+
+it('allows deliberate reconciled retry within remaining budget at the ceiling', async () => {
+  vi.mocked(apiFetch).mockResolvedValue({ run_id: 'retry-run', section_limit: 32, token_budget: 256000 })
+  view = await mountIntel(<ArticleExtractionContinuation itemId="article-1" coverage={{
+    ...coverage, call_limit: 32, token_budget: 256000,
+    sections: [{ index: 1, start: 8000, end: 16000, status: 'started' }],
+  }} disabled={false} />)
+  expect(view.host.textContent).toContain('confirmed not sent')
+  expect(view.host.textContent).toContain('grants no additional sections or tokens')
+  expect(intelButton(view.host, 'Retry reconciled section').disabled).toBe(false)
+  act(() => intelButton(view!.host, 'Retry reconciled section').click())
+  await settle()
+  expect(apiFetch).toHaveBeenCalledTimes(1)
+  expect(JSON.parse(String(vi.mocked(apiFetch).mock.calls[0][1]?.body))).toMatchObject({ progress_revision: coverage.progress_revision })
+  expect(intelButton(view.host, 'Retry reconciled section').disabled).toBe(true)
+  expect(view.host.textContent).toContain('Additional processing was queued')
+})
+
+it('keeps started sections blocked when no authorized token budget remains', async () => {
+  view = await mountIntel(<ArticleExtractionContinuation itemId="article-1" coverage={{
+    ...coverage, call_limit: 32, token_budget: 256000, reserved_tokens: 256000,
+    sections: [{ index: 1, start: 8000, end: 16000, status: 'started' }],
+  }} disabled={false} />)
+  expect(intelButton(view.host, 'Authorize additional article sections').disabled).toBe(true)
+  expect(view.host.textContent).toContain('Review the remaining source manually')
+  expect(apiFetch).not.toHaveBeenCalled()
+})
+
+it('displays server reconciliation conflicts and lets the operator retry after review', async () => {
+  vi.mocked(apiFetch).mockRejectedValueOnce(new Error('A section delivery is unresolved. Reconcile its provider receipt before continuing.'))
+  view = await mountIntel(<ArticleExtractionContinuation itemId="article-1" coverage={{
+    ...coverage, call_limit: 32, token_budget: 256000,
+    sections: [{ index: 1, start: 8000, end: 16000, status: 'started' }],
+  }} disabled={false} />)
+  act(() => intelButton(view!.host, 'Retry reconciled section').click())
+  await settle()
+  expect(view.host.querySelector('[role="alert"]')?.textContent).toContain('Reconcile its provider receipt')
+  expect(intelButton(view.host, 'Retry reconciled section').disabled).toBe(false)
+})

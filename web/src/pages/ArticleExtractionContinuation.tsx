@@ -21,15 +21,19 @@ export function ArticleExtractionContinuation({ itemId, coverage, disabled }: {
   })
   if (!coverage.progress_revision || coverage.uncovered_chars === 0) return null
   const atCeiling = coverage.call_limit >= 32 && coverage.token_budget >= 256000
+  const canRequestRecovery = atCeiling && coverage.reserved_tokens < coverage.token_budget
+    && coverage.sections.some((section) => section.status === 'started')
   const accepted = continuation.isSuccess && continuation.variables === coverage.progress_revision
   return <div className="space-y-2 rounded border border-slate/25 p-3">
-    <p>Authorize up to 8 additional sections and 64,000 estimated input/output tokens. Completed sections are reused; the article and provider revision must still match. Overall ceiling: 32 sections and 256,000 tokens.</p>
-    <button className={TEAM_BUTTON} disabled={disabled || continuation.isPending || accepted || atCeiling}
+    {canRequestRecovery
+      ? <p>Retry an interrupted section only after its provider receipt is reconciled as confirmed not sent. This uses the remaining authorized token budget and grants no additional sections or tokens. Completed sections are reused; delivery history is checked before the retry is accepted.</p>
+      : <p>Authorize up to 8 additional sections and 64,000 estimated input/output tokens. Completed sections are reused; the article and provider revision must still match. Overall ceiling: 32 sections and 256,000 tokens.</p>}
+    <button className={TEAM_BUTTON} disabled={disabled || continuation.isPending || accepted || (atCeiling && !canRequestRecovery)}
       onClick={() => { if (coverage.progress_revision) continuation.mutate(coverage.progress_revision) }}>
-      {continuation.isPending ? 'Authorizing sections…' : 'Authorize additional article sections'}
+      {continuation.isPending ? 'Authorizing sections…' : canRequestRecovery ? 'Retry reconciled section' : 'Authorize additional article sections'}
     </button>
-    {atCeiling && <p role="status">This article reached its authorized processing ceiling. Review the remaining source manually.</p>}
+    {atCeiling && !canRequestRecovery && <p role="status">This article reached its authorized processing ceiling. Review the remaining source manually.</p>}
     {accepted && <p role="status">Additional processing was queued. Refresh evidence to follow its progress.</p>}
-    {continuation.isError && continuation.variables === coverage.progress_revision && <p role="alert">{resolveApiErrorMessage(continuation.error, 'Additional sections could not be queued. Refresh evidence and retry.')}</p>}
+    {continuation.isError && continuation.variables === coverage.progress_revision && <p role="alert">{resolveApiErrorMessage(continuation.error, canRequestRecovery ? 'The reconciled section could not be queued. Refresh evidence and retry.' : 'Additional sections could not be queued. Refresh evidence and retry.')}</p>}
   </div>
 }

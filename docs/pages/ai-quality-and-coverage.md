@@ -88,6 +88,9 @@ checkpoints, receipt history, the accepted provider and prior conservative token
 reservations. Its calls reserve budget again within the displayed cumulative
 ceiling. Missing receipts, successful calls without checkpoints, or an acknowledgement
 that a call may have been sent do not authorize section replay.
+At the cumulative ceiling, a proven-unsent section can still be retried within
+the unused token budget. This grants no extra sections or tokens; exhausted
+reservations or an uncovered tail without a recoverable section remain blocked.
 
 Hunt assessment prompts reserve space for exact verified quotations from across
 current extraction sections. Deterministic keyword ranking uses the team's context;
