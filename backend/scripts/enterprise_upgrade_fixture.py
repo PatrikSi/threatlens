@@ -12,6 +12,7 @@ import uuid
 
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import MetaData, Table, create_engine, text
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.orm import Session
@@ -21,8 +22,21 @@ from upgrade_compatibility_fixture import FIXTURE_USER_ID, FIXTURE_VIEW_ID
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 BASELINE = "0100_ai_evidence_provenance"
-HEAD = "0105_workspace_enforcement"
 NOW = datetime(2026, 9, 1, 12, tzinfo=timezone.utc)
+
+
+def migration_config() -> Config:
+    backend = Path(__file__).resolve().parents[1]
+    config = Config(str(backend / "alembic.ini"))
+    config.set_main_option("script_location", str(backend / "alembic"))
+    return config
+
+
+def migration_head(config: Config | None = None) -> str:
+    heads = ScriptDirectory.from_config(config or migration_config()).get_heads()
+    if len(heads) != 1:
+        raise RuntimeError(f"Enterprise upgrade verification requires exactly one migration head; found {len(heads)}")
+    return heads[0]
 
 
 def identity(number: int) -> uuid.UUID:
@@ -195,9 +209,10 @@ def verify(engine: Engine) -> None:
     from app.models.integration import IntegrationEvent
     from app.services.report_event_compatibility import report_ready_event_owner_id
 
+    expected_head = migration_head()
     with engine.connect() as connection:
         assert (
-            connection.scalar(text("SELECT version_num FROM alembic_version")) == HEAD
+            connection.scalar(text("SELECT version_num FROM alembic_version")) == expected_head
         )
         export = connection.execute(
             text(
@@ -273,6 +288,7 @@ def verify(engine: Engine) -> None:
 
 
 def _expect_guard(engine: Engine, config: Config, message: str) -> None:
+    expected_head = migration_head(config)
     try:
         command.downgrade(config, "0101_export_dispatch_progress")
     except RuntimeError as error:
@@ -282,7 +298,7 @@ def _expect_guard(engine: Engine, config: Config, message: str) -> None:
     with engine.connect() as connection:
         # DDL/version changes made by later downgrade steps must roll back too.
         assert (
-            connection.scalar(text("SELECT version_num FROM alembic_version")) == HEAD
+            connection.scalar(text("SELECT version_num FROM alembic_version")) == expected_head
         )
         assert (
             connection.scalar(
@@ -299,10 +315,7 @@ def verify_guards(engine: Engine) -> None:
     from app.models.saved_view import SavedView
     from app.models.team import Team
 
-    config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
-    config.set_main_option(
-        "script_location", str(Path(__file__).resolve().parents[1] / "alembic")
-    )
+    config = migration_config()
     with engine.begin() as connection:
         connection.execute(
             text(
