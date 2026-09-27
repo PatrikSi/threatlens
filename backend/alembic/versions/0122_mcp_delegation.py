@@ -9,6 +9,12 @@ branch_labels = depends_on = None
 
 
 def upgrade():
+    op.create_index(
+        "ix_api_tokens_mcp_terminal",
+        "api_tokens",
+        [sa.text("coalesce(least(expires_at, revoked_at), created_at)"), "id"],
+        postgresql_where=sa.text("token_prefix LIKE 'tlmcp_%'"),
+    )
     op.create_table(
         "mcp_oauth_clients",
         sa.Column("id", sa.Uuid(), primary_key=True),
@@ -74,6 +80,7 @@ def downgrade():
         )
     ):
         raise RuntimeError("Revoke active MCP delegated credentials before downgrade")
+    op.drop_index("ix_api_tokens_mcp_terminal", table_name="api_tokens")
     op.drop_table("mcp_delegations")
     op.drop_table("mcp_oauth_codes")
     op.drop_table("mcp_oauth_clients")

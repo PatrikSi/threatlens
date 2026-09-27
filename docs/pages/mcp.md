@@ -1,16 +1,16 @@
 # Read-only MCP access
 
 ThreatLens can expose saved intelligence to an external Model Context Protocol
-(MCP) client. The optional endpoint supports five bounded read tools. Reading
+(MCP) client. The optional endpoint supports nine bounded read tools. Reading
 through MCP does not run a model, generate a report, refresh an assessment, or
 require an AI provider key. Existing processing determines which saved evidence
 is available.
 
-This release uses **ThreatLens personal API tokens or service-account
-credentials supplied as bearer tokens**. Choose a client that supports a custom
-Authorization header. OAuth-only clients are unsupported: the endpoint does not
-publish OAuth protected-resource metadata or implement authorization-server
-discovery. ThreatLens's OIDC browser login does not change this limitation.
+Existing **personal API tokens and service-account bearer credentials** remain
+supported. Optional delegated OAuth access adds pre-registered public clients,
+explicit browser consent and short-lived MCP-only tokens. See
+[delegated authorization](#delegated-authorization) below. Browser OIDC login
+can provide the consenting user's identity; provider API keys are never MCP credentials.
 
 ## Enable and connect
 
@@ -113,14 +113,19 @@ that every record is accessible.
 | Tool | Additional permissions | Arguments and behavior |
 | --- | --- | --- |
 | `search_articles` | `read:items` | Optional `q` (up to 200 characters), `feed_id`, `since`, `until`, `limit`, `cursor`. Matches stored titles/summaries. Dates use `first_seen_at` and require timezone-qualified ISO 8601 timestamps. |
-| `get_article_evidence` | `read:items` | Required `item_id`; optional `text_limit` defaults to 12,000 characters and cannot exceed 16,000. Returns stored article text, bounded saved extraction when available, and freshness/availability metadata. |
+| `get_article_evidence` | `read:items` | Required `item_id`; optional `text_limit` defaults to 12,000 characters and cannot exceed 16,000. Accepts a continuation `cursor`; returns stored article text, source revision, character offset, bounded extraction and freshness metadata. A changed source requires restarting pagination. |
 | `get_team_assessment` | `read:items`, `read:teams` | Required `item_id` and `team_id`. Reads an existing assessment for a current member of the team; no generation or refresh. Human users only. |
 | `get_investigation` | `read:investigations` | Required `investigation_id`; optional `limit`. Existing ownership, collaborator/team membership, and source-access checks apply. Human users only. |
 | `get_report` | `read:reports` | Required `report_id`; optional `limit`. Reads an accessible saved report and bounded source metadata under the shared report export checks. |
+| `get_indicator_assessments` | `read:items`; `read:teams` when `team_id` is supplied | Human credentials only. Article `item_id`, optional `team_id`, bounded `page`/`limit`. Current verdict, expiry, suppression, evidence and stale-result flags use the same permissions as the UI. |
+| `get_hunt_queue` | `read:items`, `read:teams` | Human team membership; `team_id`, status/ownership, oldest/newest/due ordering, priority/overdue filters and bounded cursor pagination. No review or launch side effects. |
+| `get_reviewed_publications` | `read:items`, `read:teams` | Human team membership; current accessible publication revisions and withdrawal status. This does not grant approval or subscribe a consumer. |
+| `lookup_attack_technique` | `read:items` | Exact ATT&CK identifier, such as `T1059`; returns the installed catalog's official technique and detection-strategy references. |
+
 
 IDs are UUID strings. Unknown argument fields are rejected. Collection limits
 default to 20 and range from 1 to 50. Service-account credentials can use only
-`search_articles` and `get_article_evidence` when their current roles and
+`search_articles`, `get_article_evidence` and `lookup_attack_technique` when their current roles and
 credential scopes permit them. The service-account permission allowlist excludes
 `read:reports`, so report retrieval requires a personal token. Team-assessment and
 investigation tools also require a human user.
@@ -301,3 +306,82 @@ Authorization and retrieval tests cover additional application boundaries
 separately. See the [qualification record](../reviews/2026-09-17-mcp.md) and
 [ADR 0006](../architecture/0006-ai-provider-profiles-and-mcp-boundary.md) for the
 implementation boundary and deferred features.
+
+
+## Delegated authorization
+
+Set `MCP_ENABLED=true`, `MCP_OAUTH_ENABLED=true`, and `PUBLIC_APP_URL` to the
+public HTTPS application origin, for example `https://threatlens.example`.
+Loopback HTTP is allowed for development. This OAuth configuration targets the
+bundled web ingress and its `/api/v1/mcp` resource URI. Existing direct-API bearer
+clients remain supported; a separate custom OAuth resource path is not configurable.
+
+Administrators pre-register a public client through
+`POST /api/v1/mcp/oauth/clients` with `name` and `redirect_uris` (one to five exact
+HTTPS URLs, or loopback HTTP callbacks with explicit ports). The returned
+`client_id` is public. Configure it in the MCP client; registration does not grant
+any user access. Redirect queries/fragments and wildcard callbacks are rejected.
+Client registration requires administrator access and `write:tokens`. The
+corresponding GET lists registrations; DELETE by client ID revokes all its
+outstanding delegated credentials. At most 100 registrations are retained.
+Client creation and revocation recheck the accepting account and exact browser
+session or API credential after waiting for the IAM policy lock. Legacy session
+bearers cannot administer clients; use a current browser session or scoped token.
+
+Discovery is served at `/.well-known/oauth-authorization-server` and
+`/.well-known/oauth-protected-resource/api/v1/mcp`. The bundled nginx proxy forwards
+these routes. Custom ingress must forward them to the API as well as `/api/v1/`.
+Metadata and `WWW-Authenticate` use the configured public origin, never a supplied
+Host header. Browser-based external clients also need their exact origin in
+`CORS_ORIGINS` for discovery/token requests; `MCP_ALLOWED_ORIGINS` only controls
+the MCP transport and does not grant OAuth CORS access. Keep both origin lists
+explicit. Follow the [MCP authorization specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization).
+
+The authorization endpoint is `/mcp/authorize`. The client supplies `response_type=code`,
+its exact `client_id`, `redirect_uri` and `resource`, `scope`, a random `state` of at
+least 16 characters, and `code_challenge_method=S256` with its PKCE challenge.
+The signed-in user reviews the named client, callback and requested scopes.
+Approval requires the same local password/MFA or recent OIDC assurance used for
+API-token creation. Denial returns `access_denied` to the validated callback.
+The response includes `iss`; clients must verify issuer and state before exchange.
+
+Authorization codes expire after five minutes and can be used once. The token
+endpoint accepts bounded form-encoded authorization-code exchanges with the
+original client, callback, resource and verifier. Access tokens expire after
+15 minutes. Only `read:mcp`, `read:items`, `read:teams`, `read:reports` and
+`read:investigations` can be delegated, capped by durable user permissions and
+captured handling access. Current membership, policy and token revocation remain
+checked on every read. Delegated `tlmcp_` tokens cannot authenticate ordinary APIs.
+Revoke individual grants in **Settings → API Tokens**.
+
+The `maintenance` queue sweeps OAuth retention every minute. Each transaction
+removes at most 100 delegated tokens terminal for at least 24 hours, 100 expired
+authorization codes and 20 revoked client registrations with no remaining codes
+or grants. Ordinary API tokens and audit records are retained. Active MCP response
+fences complete before cleanup can remove a credential boundary. A busy database
+leaves cleanup for a later sweep; expiry/revocation still denies authorization.
+Registrations with retained grants continue to occupy their slot until that
+history clears. Each user can retain at most 1,000 delegated tokens plus live
+unexchanged codes; reaching that bound returns `delegation_capacity`. Revoke unused
+grants and let the retention sweep clear terminal history before authorizing again.
+Upgrade API, beat and maintenance workers together after migration `0122_mcp_delegation`;
+missing beat/maintenance workers prevent cleanup but cannot extend token lifetimes.
+
+Refresh tokens, dynamic client registration and remote client metadata documents
+are not implemented. Clients must support pre-registration and reauthorization.
+This does not assert compatibility with every hosted assistant: qualify the exact
+client, ingress and identity-provider configuration before rollout.
+
+## Evidence continuation and exact lookup
+
+`search_articles` accepts `indicator_type` and `indicator_value` together for exact
+normalized matching. Defanged input is normalized; it does not turn substring
+matches into indicator matches. The normal title/summary query remains available.
+
+For `get_article_evidence`, send the returned `next_cursor` with the same `item_id`
+and `text_limit`. Cursors are signed, expire after 30 minutes and bind the caller's
+credential and policy revision. `data.text_offset`, `data.text_length` and
+`data.source_revision` describe each page. Byte-limit truncation advances only
+over characters actually returned. `source_revision_changed` means discard the
+partial assembled text and start from the first page. Stored extracted evidence
+retains its original quote offsets; partial article pages never imply whole-source coverage.
