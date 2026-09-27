@@ -208,9 +208,11 @@ def test_batch_rechecks_team_activation_and_does_not_cache_unavailable_policy(
     assert not batch.eligible(owner_user_id=execution.owner_user_id, event=stored)
 
 
-def test_due_query_skips_retained_withdrawn_history(db_session, execution):
+@pytest.mark.parametrize("prepared", [False, True], ids=["literal", "generic-prepared"])
+def test_due_query_skips_retained_withdrawn_history(db_session, execution, prepared):
     from datetime import datetime, timezone
-    from sqlalchemy import text
+    from sqlalchemy import literal, text
+    from sqlalchemy.dialects.postgresql import dialect
     from app.services.automation_executions import due_execution_query
 
     db_session.execute(text('''
@@ -221,8 +223,29 @@ def test_due_query_skips_retained_withdrawn_history(db_session, execution):
     '''), {'webhook': execution.webhook_id, 'event': execution.event_id})
     db_session.execute(text('ANALYZE automation_executions'))
     query = due_execution_query(now=datetime.now(timezone.utc), limit=100)
-    sql = str(query.compile(db_session.bind, compile_kwargs={'literal_binds': True}))
-    plan = db_session.scalar(text('EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ' + sql))[0]['Plan']
+    if prepared:
+        compiled = query.compile(dialect=dialect(paramstyle='numeric_dollar'))
+        # Exercise the actual SQL with bound deadline/limit under the plan a
+        # pooled prepared statement eventually adopts, rather than literalizing
+        # the predicate and accidentally hiding an unusable partial index.
+        assert compiled.positiontup
+        name = 'review_due_' + uuid.uuid4().hex
+        db_session.execute(text("SET LOCAL plan_cache_mode = force_generic_plan"))
+        db_session.execute(text(f'PREPARE {name} AS {compiled}'))
+        try:
+            arguments = ', '.join(str(literal(compiled.params[key]).compile(
+                dialect=db_session.bind.dialect, compile_kwargs={'literal_binds': True},
+            )) for key in compiled.positiontup)
+            plan = db_session.scalar(text(f'EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) EXECUTE {name}({arguments})'))[0]['Plan']
+            uses = db_session.execute(text('SELECT generic_plans,custom_plans FROM pg_prepared_statements WHERE name=:name'),
+                {'name': name}).one()
+            assert uses.generic_plans == 1 and uses.custom_plans == 0
+        finally:
+            db_session.execute(text(f'DEALLOCATE {name}'))
+            db_session.execute(text('SET LOCAL plan_cache_mode = DEFAULT'))
+    else:
+        sql = str(query.compile(db_session.bind, compile_kwargs={'literal_binds': True}))
+        plan = db_session.scalar(text('EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ' + sql))[0]['Plan']
 
     def nodes(node):
         yield node
