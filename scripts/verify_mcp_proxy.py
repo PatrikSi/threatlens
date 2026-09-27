@@ -13,6 +13,9 @@ an interpreter with mcp==2.2.0 and httpx2 installed.
 from __future__ import annotations
 
 import argparse
+import base64
+import hashlib
+from http.cookiejar import CookieJar
 import json
 from pathlib import Path
 import secrets
@@ -20,7 +23,8 @@ import subprocess
 import tempfile
 import time
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.parse import parse_qs, urlencode, urlsplit
+from urllib.request import HTTPCookieProcessor, Request, build_opener, urlopen
 import uuid
 
 
@@ -29,7 +33,8 @@ LEGACY = "2025-11-25"
 SEED = """
 from datetime import datetime, timedelta, timezone
 import json
-from app.core.security import generate_api_token
+import secrets
+from app.core.security import generate_api_token, get_password_hash
 from app.db.session import SessionLocal
 from app.models.api_token import ApiToken
 from app.models.article import Article
@@ -37,17 +42,20 @@ from app.models.data_policy import UNRESTRICTED_HANDLING_LABEL_ID
 from app.models.feed import Feed
 from app.models.item import Item
 from app.models.user import User
+from app.models.mcp_oauth import MCPOAuthClient
 with SessionLocal() as db:
-    user = User(email='proxy-smoke@example.test', password_hash='!', role='viewer', is_active=True, is_approved=True)
+    password = secrets.token_urlsafe(32)
+    user = User(email='proxy-smoke@example.com', password_hash=get_password_hash(password), role='analyst', is_active=True, is_approved=True)
+    client = MCPOAuthClient(name='Disposable proxy client', redirect_uris=['http://127.0.0.1:8123/callback'])
     feed = Feed(name='Proxy smoke source', url='https://feed.example.test/synthetic.xml', enabled=False, handling_label_id=UNRESTRICTED_HANDLING_LABEL_ID)
-    db.add_all([user, feed]); db.flush()
+    db.add_all([user, feed, client]); db.flush()
     item = Item(feed_id=feed.id, url='https://article.example.test/synthetic', title='Synthetic proxy evidence', summary='Stored defensive evidence.', dedupe_key='mcp-proxy-smoke', content_hash='a'*64)
     db.add(item); db.flush()
     db.add(Article(item_id=item.id, final_url=item.url, http_status=200, text='Synthetic stored evidence through nginx.', extraction_method='fixture'))
     value, prefix, digest = generate_api_token()
     token = ApiToken(user_id=user.id, name='Proxy qualification', token_prefix=prefix, token_hash=digest, scopes=['read:mcp', 'read:items'], expires_at=datetime.now(timezone.utc)+timedelta(hours=1))
     db.add(token); db.commit()
-    print(json.dumps({'token':value, 'token_id':str(token.id), 'item_id':str(item.id)}))
+    print(json.dumps({'token':value, 'token_id':str(token.id), 'item_id':str(item.id), 'client_id':str(client.id), 'password':password}))
 """
 SDK = """
 import asyncio, json, sys
@@ -165,6 +173,8 @@ def qualify(url, values):
         assert {tool["name"] for tool in body["result"]["tools"]} == {
             "search_articles",
             "get_article_evidence",
+            "get_indicator_assessments",
+            "lookup_attack_technique",
         }
         assert headers["Access-Control-Allow-Origin"] == "https://client.example"
         assert headers.get("X-Request-ID") and "no-store" in headers["Cache-Control"]
@@ -204,6 +214,94 @@ def qualify(url, values):
     assert status == 403 and body["error"]["data"]["code"] == "mcp_origin_denied"
     print("Origin denial and allowed-origin CORS passed", flush=True)
 
+    origin = url.removesuffix("/api/v1/mcp")
+    for path, key, expected in (
+        (
+            "/.well-known/oauth-authorization-server",
+            "issuer",
+            "https://threatlens.example",
+        ),
+        (
+            "/.well-known/oauth-protected-resource/api/v1/mcp",
+            "resource",
+            "https://threatlens.example/api/v1/mcp",
+        ),
+    ):
+        with urlopen(origin + path, timeout=10) as response:
+            assert "no-store" in response.headers["Cache-Control"]
+            assert json.load(response)[key] == expected
+    status, headers, _, _ = rpc(url, "invalid-token")
+    assert status == 401
+    assert "resource_metadata=" in headers["WWW-Authenticate"]
+    print("OAuth discovery and credential challenge through nginx passed", flush=True)
+
+
+def qualify_oauth(url: str, values: dict) -> None:
+    """Use real cookies, CSRF, consent and PKCE through the bundled ingress."""
+    origin = url.removesuffix("/api/v1/mcp")
+    browser = build_opener(HTTPCookieProcessor(CookieJar()))
+
+    def browser_json(path: str, payload: dict, *, csrf: str | None = None) -> dict:
+        headers = {"Content-Type": "application/json"}
+        if csrf:
+            headers["X-CSRF-Token"] = csrf
+        request = Request(
+            origin + "/api/v1" + path,
+            data=json.dumps(payload).encode(),
+            headers=headers,
+        )
+        try:
+            with browser.open(request, timeout=20) as response:
+                return json.load(response)
+        except HTTPError as exc:
+            # Never print a browser session, code, credential or token response.
+            raise RuntimeError(f"Proxy browser operation {path} returned {exc.code}") from None
+
+    login = browser_json("/auth/login", {
+        "email": "proxy-smoke@example.com", "password": values["password"],
+    })
+    assert login["token_type"] == "session_cookie"
+    verifier = secrets.token_urlsafe(48)
+    authorization = {
+        "client_id": values["client_id"],
+        "redirect_uri": "http://127.0.0.1:8123/callback",
+        "resource": "https://threatlens.example/api/v1/mcp",
+        "response_type": "code",
+        "state": secrets.token_urlsafe(24),
+        "code_challenge_method": "S256",
+        "code_challenge": base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip("="),
+        "scope": "read:mcp read:items",
+    }
+    preview = browser_json("/mcp/oauth/consent-preview", authorization, csrf=login["csrf_token"])
+    assert preview["client_name"] == "Disposable proxy client"
+    result = browser_json("/mcp/oauth/authorize", {
+        **authorization, "approve": True, "current_password": values["password"],
+    }, csrf=login["csrf_token"])
+    callback = parse_qs(urlsplit(result["redirect_uri"]).query)
+    assert callback["state"] == [authorization["state"]]
+    exchange = Request(origin + "/api/v1/mcp/oauth/token", data=urlencode({
+        "grant_type": "authorization_code", "client_id": values["client_id"],
+        "code": callback["code"][0], "redirect_uri": authorization["redirect_uri"],
+        "resource": authorization["resource"], "code_verifier": verifier,
+    }).encode(), headers={"Content-Type": "application/x-www-form-urlencoded"})
+    with urlopen(exchange, timeout=20) as response:
+        assert "no-store" in response.headers["Cache-Control"]
+        credential = json.load(response)["access_token"]
+    try:
+        urlopen(exchange, timeout=20)
+        raise AssertionError("Authorization code replay succeeded")
+    except HTTPError as exc:
+        assert exc.code == 400
+    status, _, body, _ = rpc(url, credential)
+    assert status == 200 and "result" in body
+    try:
+        urlopen(Request(origin + "/api/v1/items", headers={"Authorization": "Bearer " + credential}), timeout=20)
+        raise AssertionError("MCP-only credential reached ordinary API")
+    except HTTPError as exc:
+        assert exc.code == 401
+    browser_json("/auth/logout", {}, csrf=login["csrf_token"])
+    print("Real cookie/CSRF consent, PKCE exchange, replay denial and MCP-only audience passed", flush=True)
+
 
 def verify(args):
     root = Path(__file__).resolve().parents[1]
@@ -236,6 +334,7 @@ def verify(args):
             "DATABASE_URL": f"postgresql+psycopg://mcp_smoke:{password}@db:5432/mcp_smoke",
             "REDIS_URL": "redis://redis:6379/0",
             "MCP_ENABLED": "true",
+            "MCP_OAUTH_ENABLED": "true",
             "MCP_ALLOWED_ORIGINS": "https://client.example",
             "MCP_RATE_LIMIT_PER_MINUTE": "1000",
             "AI_ENABLED": "false",
@@ -416,6 +515,7 @@ def verify(args):
                 lambda: urlopen(f"http://127.0.0.1:{port}/", timeout=2).status == 200
             )
             qualify(url, values)
+            qualify_oauth(url, values)
             if args.sdk_python:
                 print(
                     run(
