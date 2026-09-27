@@ -8,7 +8,9 @@ retained STIX 2.1 or MISP artifact. Raw exports keep their existing behavior.
 Select **Review evidence** beside a preview row to load only that indicator's
 retained passages and analyst rationale. Evidence is shown only while its source,
 extraction and assessment revisions still match the preview and the verdict is
-current, malicious and unsuppressed. Changed evidence requires a new preview;
+current, malicious and unsuppressed. The dialog shows the deterministic passages
+and team review included in the publication; supplemental AI assessments are
+outside that snapshot. Changed evidence requires a new preview;
 access errors hide retained passages. Changing filters, teams or the preview
 closes the evidence dialog. Publication history also displays selectable IDs for
 reconciliation with consumer receipts.
