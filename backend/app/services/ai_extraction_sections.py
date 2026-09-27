@@ -183,7 +183,7 @@ def run_section_extraction(
     # Explicit new jobs can make a new attempt. Redeliveries of the same logical
     # task retain both successful sections and their conservative reservations.
     run_key = str(task_run_id) if task_run_id is not None else claim_updated_at.isoformat()
-    from app.services.ai_article_continuation import continuation_authority, progress_digest
+    from app.services.ai_article_continuation import continuation_authority, progress_digest, recover_unsent_sections
     authority = continuation_authority(db, run_id=task_run_id)
     section_limit = authority.section_limit if authority else MAX_SECTIONS
     token_budget = authority.token_budget if authority else TOTAL_TOKEN_BUDGET
@@ -203,8 +203,7 @@ def run_section_extraction(
     elif authority is not None:
         if (not previous or progress_digest(previous) != authority.expected_progress_digest
                 or previous.get("source_hash") != snapshot["source_hash"]
-                or previous.get("article_retrieved_at") != snapshot["article_retrieved_at"].isoformat()
-                or any(section["status"] == "started" for section in previous["sections"])):
+                or previous.get("article_retrieved_at") != snapshot["article_retrieved_at"].isoformat()):
             raise AIIntegrationError("The extraction evidence or checkpoint changed after continuation was authorized. "
                 "Refresh and authorize current progress again.", provider_io_outcome="not_sent", retryable=False)
         prior_limit = previous.get("section_limit", MAX_SECTIONS)
@@ -214,7 +213,10 @@ def run_section_extraction(
         if previous.get("plan_fingerprint") != prior_plan:
             raise AIIntegrationError("Provider settings or extraction prompts changed. Existing checkpoints were retained; "
                 "start a new reprocessing task for the current configuration.", provider_io_outcome="not_sent", retryable=False)
-        progress = copy.deepcopy(previous)
+        try:
+            progress = recover_unsent_sections(db, item_id=item_id, progress=previous)
+        except ValueError as exc:
+            raise AIIntegrationError(str(exc), provider_io_outcome="not_sent", retryable=False) from exc
         planned = plan_sections(text, section_limit=section_limit)
         progress["sections"].extend(planned[len(progress["sections"]):])
         progress.update(task_run_id=run_key, plan_fingerprint=plan_fingerprint,

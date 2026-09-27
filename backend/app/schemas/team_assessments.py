@@ -52,6 +52,8 @@ class HuntSuggestionResponse(BaseModel):
 class SelectedEvidenceRange(BaseModel):
     start: int = Field(ge=0)
     end: int = Field(gt=0)
+    prompt_start: int | None = Field(default=None, ge=0)
+    prompt_end: int | None = Field(default=None, gt=0)
 
 
 class AssessmentEvidenceSelection(BaseModel):

@@ -38,11 +38,27 @@ def select_assessment_passages(extraction: dict | None, *, source_version: int, 
     for (start, end, quote), _score in sorted(passages.items(), key=lambda pair: (-pair[1], pair[0][0])):
         if used + len(quote) + 2 > limit:
             continue
+        prompt_start = used + 2
         parts.append(quote)
         used += len(quote) + 2
-        selected.append({"start": start, "end": end})
+        selected.append({"start": start, "end": end, "prompt_start": prompt_start, "prompt_end": used})
     if not selected:
         return fallback
     return "\n\n".join(parts), {"selection": "verified_section_passages", "selected_passages": selected,
         "source_hash": parsed.source_hash, "source_version": parsed.source_version,
         "coverage": parsed.coverage.model_dump(mode="json") if parsed.coverage else None}
+
+
+def trim_assessment_passages(text: str, selection: dict, *, limit: int) -> tuple[str, dict]:
+    """Trim at whole-passage boundaries and account only for supplied evidence."""
+    passages = selection.get("selected_passages", [])
+    for passage in passages:
+        if passage.get("prompt_start", len(text)) < limit < passage.get("prompt_end", len(text)):
+            limit = max(0, passage["prompt_start"] - 2)
+            break
+    retained = [passage for passage in passages if passage.get("prompt_end", len(text) + 1) <= limit]
+    return text[:limit], {
+        **selection,
+        "selection": "verified_section_passages" if retained else "article_prefix",
+        "selected_passages": retained,
+    }

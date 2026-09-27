@@ -1,5 +1,6 @@
 """Generate team-specific interpretation without changing shared article facts."""
 
+import copy
 import json
 import uuid
 from datetime import datetime, timezone
@@ -18,6 +19,7 @@ from app.services.ai_provider_protocol import provider_output_ceiling, validate_
 from app.services.attack_catalog import detection_strategies_for_techniques
 from app.services.team_assessment_contract import ASSESSMENT_SYSTEM_PROMPT, validate_team_assessment_output
 from app.services.team_assessment_execution import FEATURE, AssessmentSource, fence_team_assessment
+from app.services.team_evidence_selection import trim_assessment_passages
 
 
 def build_assessment_messages(
@@ -27,7 +29,7 @@ def build_assessment_messages(
     team = context.model_dump(include={"technology_stack", "priorities", "available_telemetry", "relevance_criteria"})
     item = {"title": source.title, "summary": source.summary, "article_text": source.article_text}
     payload = {"task": FEATURE, "team_context": team, "item": item, "hunts_enabled": hunts_enabled,
-               "evidence_selection": source.evidence_selection}
+               "evidence_selection": copy.deepcopy(source.evidence_selection)}
     messages = [
         {"role": "system", "content": ASSESSMENT_SYSTEM_PROMPT},
         {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
@@ -37,7 +39,9 @@ def build_assessment_messages(
     if context_limit is not None:
         while active.max_completion_tokens > provider_output_ceiling(active, messages) and item["article_text"]:
             # Shrink only evidence, preserving the complete bounded team profile.
-            item["article_text"] = item["article_text"][:len(item["article_text"]) * 3 // 4]
+            item["article_text"], payload["evidence_selection"] = trim_assessment_passages(
+                item["article_text"], payload["evidence_selection"], limit=len(item["article_text"]) * 3 // 4,
+            )
             messages[1]["content"] = json.dumps(payload, ensure_ascii=False)
             truncated = True
     validate_provider_request(active, messages, active.max_completion_tokens)
@@ -91,7 +95,7 @@ def generate_team_assessment(db: Session, *, run_id: uuid.UUID) -> AICompletionR
     # fences, including the logical delivery, before changing the canonical row.
     work, _context, _source, _hunts_enabled = fence_team_assessment(db, run_id=run_id)
     work.result_json = _reviewable_result(completion, messages, truncated=truncated)
-    work.result_json["evidence_selection"] = source.evidence_selection
+    work.result_json["evidence_selection"] = json.loads(messages[-1]["content"])["evidence_selection"]
     # Claims belong to the previous generated suggestions. Regeneration publishes
     # new identities atomically; the audit trail retains earlier coordination.
     db.execute(delete(TeamHuntClaim).where(TeamHuntClaim.assessment_id == work.id))

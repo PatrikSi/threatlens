@@ -87,6 +87,12 @@ Reporting does not place the full corpus into one prompt. It:
 10. retries truncated structured output only within the exact unused context headroom for that call
 11. validates each evidence quote against its supplied batch and requires citations on narrative paragraphs, list items, table rows, and key points
 
+Fenced and indented code blocks also require an immediately adjacent, standalone
+`Source: [S1]` caption (or `Sources: [S1], [S2]`). Literal citation markers inside
+code do not become source links and cannot provide attribution. This applies to
+factual prose inside fences as well as genuine code examples; an unrelated cited
+paragraph elsewhere does not satisfy the requirement.
+
 New generations reject unknown citations and quotations absent from the exact
 bounded excerpt. Each finding must include `evidence_quotes` objects with a
 `citation` and an exact 12–2,000 character `quote`; whitespace differences are

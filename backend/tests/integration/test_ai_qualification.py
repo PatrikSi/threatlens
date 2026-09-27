@@ -70,7 +70,7 @@ def test_completed_contract_probe_survives_redelivery_without_another_call(db_se
     def provider(_active, **kwargs):
         calls.append(kwargs)
         if "section" in json.loads(kwargs["messages"][-1]["content"]):
-            return AICompletionResult(payload={"body_markdown": "The source reports scheduled task persistence. [S1]", "citations": ["S1"], "key_points": []},
+            return AICompletionResult(payload={"body_markdown": "The source reports scheduled task persistence. [S1]\n\n| Scheduled tasks | Source |\n| --- | --- |\n| 3 | [S1] |", "citations": ["S1"], "key_points": []},
                 provider="openai_compatible", model="fixture", latency_ms=10, prompt_tokens=100, completion_tokens=50, total_tokens=150)
         return AICompletionResult(payload={"findings": [{"text": "The source reports scheduled task persistence.", "citations": ["S1"],
             "evidence_quotes": [{"citation": "S1", "quote": SOURCE}]}]}, provider="openai_compatible", model="fixture",

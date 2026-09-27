@@ -293,3 +293,45 @@ def test_cancellation_after_provider_response_does_not_publish(db_session, accep
     assert state["run"].status == "skipped"
     assert state["run"].reason == "canceled"
     assert state["row"].result_json is None
+
+
+def test_published_evidence_selection_matches_budgeted_prompt_after_removing_late_quotes(
+    db_session, accepted_assessment, monkeypatch, client, auth_headers,
+):
+    from app.models.item_ai_enrichment import ItemAIEnrichment
+    from app.services.ai_extraction import build_verified_extraction
+    from tests.unit.test_ai_extraction import ARTICLE, extraction_payload, source_messages
+
+    state = accepted_assessment
+    article, item = state["article"], state["item"]
+    article.text = EVIDENCE + " " + "Introduction. " * 7000 + ARTICLE
+    state["settings"].model_context_window_tokens = 4096
+    state["settings"].max_completion_tokens = 1024
+    extraction = build_verified_extraction(extraction_payload(), messages=source_messages(), article_id=article.id,
+        article_retrieved_at=article.retrieved_at, source_version=item.classification_required_version,
+        source_hash="a" * 64, article_text_length=len(article.text))
+    offset = len(article.text) - len(ARTICLE)
+    for entry in [*extraction["entities"], *extraction["relationships"]]:
+        for evidence in entry["evidence"]:
+            evidence["start"] += offset
+            evidence["end"] += offset
+    db_session.add(ItemAIEnrichment(item_id=item.id, status="ready", source_hash="a" * 64,
+        structured_extraction_json=extraction))
+    db_session.commit()
+    sent = []
+
+    def provider(_active, **kwargs):
+        sent.append(json.loads(kwargs["messages"][-1]["content"]))
+        return _completion()
+
+    monkeypatch.setattr("app.services.ai_integration._call_ai_json", provider)
+    result = invoke_worker(db_session, monkeypatch, state["run"].id)
+    assert result == {"status": "ready"}
+    assert sent[0]["evidence_selection"]["selected_passages"] == []
+    assert sent[0]["evidence_selection"]["selection"] == "article_prefix"
+    assert EVIDENCE in sent[0]["item"]["article_text"]
+    db_session.refresh(state["row"])
+    assert state["row"].result_json["evidence_selection"] == sent[0]["evidence_selection"]
+    response = client.get(f"/items/{item.id}/team-assessment?team_id={state['team_id']}", headers=auth_headers["viewer"])
+    assert response.status_code == 200, response.text
+    assert response.json()["assessment"]["result"]["evidence_selection"]["selected_passages"] == []
