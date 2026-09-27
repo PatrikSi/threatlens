@@ -10,10 +10,10 @@ from dataclasses import dataclass
 from html import escape
 from urllib.parse import urlsplit
 
-from markdown_it import MarkdownIt
 from markdown_it.tree import SyntaxTreeNode
 
 from app.schemas.reports import ReportDetailResponse, ReportSourceResponse
+from app.services.report_markdown_parser import report_markdown_parser
 
 MAX_RENDER_BYTES = 4 * 1024 * 1024
 MAX_RENDER_NODES = 100_000
@@ -53,7 +53,7 @@ def parse_report(report: ReportDetailResponse) -> ReportMarkdown:
         remaining -= len(value.encode("utf-8"))
         if remaining < 0:
             raise ReportRenderingLimitError("Report text exceeds the structured export limit.")
-    parser = MarkdownIt("commonmark", {"html": True, "maxNesting": 32}).enable(["table", "strikethrough"])
+    parser = report_markdown_parser()
     sections = []
     for section in report.sections:
         tree = SyntaxTreeNode(parser.parse(section.body_markdown or "_No content generated._"))

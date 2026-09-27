@@ -44,3 +44,12 @@ def test_report_citation_acceptance_and_export_anchors(case):
                      if "/Dest" in annotation.get_object()]
     assert len(html.select('a[href="#report-source-S1"]')) == case["source_links"]
     assert len(pdf_citations) == case["source_links"]
+    assert html.find_all(["img", "script", "iframe", "object", "embed"]) == []
+    assert all(link["href"].startswith(("https://", "#report-source-")) for link in html.select("a[href]"))
+    pdf_links = [annotation.get_object() for page in pdf.pages for annotation in page.get("/Annots", [])]
+    assert all(str(link["/A"]["/URI"]).startswith("https://") for link in pdf_links if "/A" in link)
+    if visible_text := case.get("visible_text"):
+        assert visible_text in html.get_text()
+        pdf_text = " ".join(" ".join(page.extract_text() for page in pdf.pages).split())
+        assert visible_text in pdf_text
+        assert all("/XObject" not in page["/Resources"] for page in pdf.pages)

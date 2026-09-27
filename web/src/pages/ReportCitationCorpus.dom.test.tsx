@@ -13,6 +13,14 @@ it.each(corpus)('renders the shared citation contract: $name', (entry) => {
     act(() => root.render(<ReportMarkdownText value={entry.body} citationTargets={new Map([['S1', 'source-S1']])} />))
     expect(host.querySelectorAll('a[href="#source-S1"]')).toHaveLength(entry.source_links)
     expect(host.querySelector('a a')).toBeNull()
+    expect(host.querySelector('img, script, iframe, object, embed')).toBeNull()
+    for (const link of host.querySelectorAll('a[href]')) {
+      expect(link.getAttribute('href')).toMatch(/^(https:\/\/|#source-)/)
+    }
+    if ('visible_text' in entry && entry.visible_text) {
+      expect(host.textContent).toContain(entry.visible_text)
+      expect(host.querySelector('img')).toBeNull()
+    }
     if (entry.name === 'ordinary autolink and separate citation') {
       expect(host.querySelector('a[href="https://example.test/advisory"]')).not.toBeNull()
     }
