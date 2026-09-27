@@ -32,7 +32,8 @@ def transport_error(status: int, code: str, message: str, *, retry_after: int | 
     if retry_after is not None:
         headers["Retry-After"] = str(retry_after)
     if status == 401:
-        headers["WWW-Authenticate"] = 'Bearer realm="ThreatLens MCP"'
+        from app.services.mcp_challenges import bearer_challenge
+        headers["WWW-Authenticate"] = bearer_challenge()
     if status == 405:
         headers["Allow"] = "POST, OPTIONS"
     return JSONResponse(
@@ -94,7 +95,7 @@ class MCPTransportMiddleware:
                 if allowed_origin:
                     response_headers.extend([
                         (b"access-control-allow-origin", allowed_origin.encode("ascii")),
-                        (b"access-control-expose-headers", b"X-Request-ID, Retry-After, MCP-Protocol-Version"),
+                        (b"access-control-expose-headers", b"X-Request-ID, Retry-After, MCP-Protocol-Version, WWW-Authenticate"),
                         (b"vary", b"Origin"),
                     ])
                     if scope["method"] == "OPTIONS" and status == 204:
