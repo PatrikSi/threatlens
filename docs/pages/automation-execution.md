@@ -168,6 +168,25 @@ python3 examples/automation-receiver/receiver.py status --database receiver.sqli
   --findings 'Analyst-reviewed result summary'
 ```
 
+Findings must be nonblank, valid Unicode without NUL characters, and at most
+8,000 characters. Omit findings when there is no summary. Invalid text is rejected
+before the local job changes. Earlier receiver versions could persist an invalid
+terminal callback. Run `sync` once with the upgraded receiver so it records the
+server's explicit HTTP 422 rejection, then repair only that invalid findings field:
+
+```bash
+python3 examples/automation-receiver/receiver.py repair-findings --database receiver.sqlite3 \
+  --execution-id 2efdf73a-4d89-49ed-a396-d383f71d1ee7 \
+  --findings 'Corrected analyst-reviewed result summary'
+```
+
+Omit `--findings` to remove invalid findings. Repair preserves the execution,
+external job, status and sequence, assigns a fresh callback ID, and records both
+payloads in the private ledger's `callback_repairs` audit table. It cannot rewrite
+accepted history, a valid callback, or one whose delivery is uncertain. Timeouts,
+lost responses, conflicts and other errors are not proof that repair is safe;
+those callbacks must be reconciled or replayed unchanged.
+
 Keep the SQLite database on persistent private storage. Run one receiver process
 for this reference implementation; a production clustered receiver should use a
 shared transactional database and vendor-specific reconciliation. API redirects
@@ -236,3 +255,11 @@ A failed first page does not block later withdrawals: control-feed traversal is
 persisted independently from acknowledgement success and wraps after the final
 page. Run `sync` periodically; one run processes at most 100 entries per lane.
 Neither retries nor timeout recovery authorize another hunt launch.
+In `opensearch-sync`, callback failures are reported after eligible vendor work
+gets a separate turn; they do not stop unrelated running jobs from being polled.
+Policy failures still defer vendor work. Before every vendor advance, a fresh
+one-row read from the start of the pending policy feed must be empty: completing
+a saved UUID traversal is insufficient because newer withdrawals can sort before
+its cursor. Outstanding policy work globally defers launches and polling until
+drained. At most three such freshness reads occur per invocation; the normal
+bounded traversal performs the actual withdrawal and acknowledgement work.

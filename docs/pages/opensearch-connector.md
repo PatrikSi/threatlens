@@ -59,8 +59,12 @@ python3 examples/automation-receiver/receiver.py opensearch-sync --database rece
 
 Each run synchronizes policy and callbacks, then checks at most three eligible
 jobs with independent next-check times. It finishes the bounded policy-feed
-traversal before launching, and pending withdrawal acknowledgements block new
-launches. Existing legacy SQLite jobs without captured payloads are not
+traversal and checks the fresh pending-policy head before each vendor advance;
+new withdrawals cannot hide below a persisted UUID cursor. Any pending policy
+work or policy retrieval failure defers vendor work. Callback failures for
+unrelated jobs are reported after the vendor lane receives its turn, with a
+short initial callback time slice preserving the invocation's network budget.
+Existing legacy SQLite jobs without captured payloads are not
 retroactively launched. Duplicate signed deliveries reuse their original action.
 
 ## Crash and withdrawal semantics
