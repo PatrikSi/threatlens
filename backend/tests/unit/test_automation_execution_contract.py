@@ -108,7 +108,7 @@ def receiver_body():
     ).encode()
 
 
-def test_receiver_crash_after_accept_reuses_job_and_replays_lost_callback(tmp_path):
+def test_receiver_crash_after_accept_reuses_job_and_replays_lost_callback(tmp_path, monkeypatch):
     receiver = receiver_module()
     path = str(tmp_path / "receiver.sqlite3")
     body = receiver_body()
@@ -131,6 +131,8 @@ def test_receiver_crash_after_accept_reuses_job_and_replays_lost_callback(tmp_pa
             assert payload == accepted
         return {"items": []}
 
+    due = restarted.db.execute("SELECT next_attempt_at FROM jobs").fetchone()[0]
+    monkeypatch.setattr(receiver.time, "time", lambda: due)
     receiver.synchronize(restarted, successful)
     assert restarted.db.execute("SELECT count(*) FROM jobs").fetchone()[0] == 1
     assert restarted.db.execute("SELECT pending FROM jobs").fetchone()[0] == 0
@@ -359,3 +361,77 @@ def test_receiver_reads_policy_before_uploading_status(tmp_path):
     receiver.synchronize(ledger, request)
     assert "/updates?" in calls[0]
     assert calls[-1].endswith("/callbacks")
+
+
+def test_receiver_retries_are_durable_and_do_not_starve_callback_101(tmp_path, monkeypatch):
+    receiver = receiver_module()
+    monkeypatch.setattr(receiver.time, "time", lambda: 1000.0)
+    path = str(tmp_path / "fair.db")
+    ledger = receiver.Ledger(path)
+    for _ in range(101):
+        ledger.accept(receiver_body())
+    attempted = []
+
+    def failed(path, payload=None):
+        if path.endswith("/callbacks"):
+            attempted.append(path)
+            raise OSError("Unavailable")
+        return {"items": []}
+
+    with pytest.raises(OSError):
+        receiver.synchronize(ledger, failed)
+    assert len(set(attempted)) == 100
+    ledger.db.close()
+    ledger = receiver.Ledger(path)
+    with pytest.raises(OSError):
+        receiver.synchronize(ledger, failed)
+    assert len(set(attempted)) == 101
+    assert len(attempted) == 101
+    # A rapid sweep never burns attempts or bypasses persisted backoff.
+    receiver.synchronize(ledger, failed)
+    assert len(attempted) == 101
+
+
+def test_receiver_failed_ack_page_does_not_hide_later_withdrawals(tmp_path, monkeypatch):
+    receiver = receiver_module()
+    monkeypatch.setattr(receiver.time, "time", lambda: 1000.0)
+    ledger = receiver.Ledger(str(tmp_path / "policies.db"))
+    updates = [{"id": str(uuid.UUID(int=index)), "execution_id": str(uuid.uuid4()),
+                "event_type": "intel.withdrawn", "revision": 1} for index in range(1, 102)]
+    requests = []
+
+    def request(path, payload=None):
+        requests.append(path)
+        if path.endswith("/ack"):
+            raise OSError("Unavailable")
+        return {"items": updates[100:] if "after=" in path else updates[:100],
+                "next_cursor": None if "after=" in path else updates[99]["id"]}
+
+    with pytest.raises(OSError):
+        receiver.synchronize(ledger, request)
+    with pytest.raises(OSError):
+        receiver.synchronize(ledger, request)
+    assert ledger.db.execute("SELECT count(*) FROM policy_receipts").fetchone()[0] == 101
+    assert any(updates[100]["id"] in path and path.endswith("/ack") for path in requests)
+    assert len([path for path in requests if path.endswith("/ack")]) == 101
+
+
+def test_receiver_upgrades_existing_ledger_without_losing_work(tmp_path):
+    import sqlite3
+    path = str(tmp_path / "legacy.db")
+    db = sqlite3.connect(path)
+    db.executescript("""
+        CREATE TABLE jobs (execution_id TEXT PRIMARY KEY, webhook_id TEXT NOT NULL,
+          action_id TEXT NOT NULL, body_hash TEXT NOT NULL, job_id TEXT NOT NULL,
+          sequence INTEGER NOT NULL, callback TEXT NOT NULL, pending INTEGER NOT NULL,
+          withdrawn INTEGER NOT NULL DEFAULT 0, UNIQUE(webhook_id, action_id));
+        CREATE TABLE policy_receipts (id TEXT PRIMARY KEY, digest TEXT NOT NULL,
+          execution_id TEXT NOT NULL, acknowledged INTEGER NOT NULL DEFAULT 0);
+    """)
+    db.close()
+    receiver = receiver_module()
+    ledger = receiver.Ledger(path)
+    body = receiver_body()
+    accepted = ledger.accept(body)
+    ledger.db.close()
+    assert receiver.Ledger(path).accept(body) == accepted
