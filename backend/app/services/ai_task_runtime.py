@@ -302,11 +302,12 @@ def _flatten_live_tasks(
     entries: list[AILiveTaskResponse] = []
     for worker_name, tasks in raw_tasks.items():
         for raw in tasks or []:
-            name = raw.get("name")
+            request = raw.get("request") or {}
+            # Celery scheduled inspection wraps the task in a request object.
+            name = raw.get("name") or request.get("name")
             if name not in AI_TASK_NAMES:
                 continue
             kwargs = raw.get("kwargs") or {}
-            request = raw.get("request") or {}
             args = _coerce_live_args(raw.get("args") or request.get("args"))
             task_run_id = _extract_uuid(
                 kwargs.get("task_run_id")
@@ -356,6 +357,11 @@ def _coerce_live_args(value: Any) -> list[Any]:
 
 
 def _extract_positional_task_run_id(task_name: str, args: list[Any]) -> Any:
+    if task_name in {
+        "app.tasks.ai_qualification_tasks.generate_ai_qualification",
+        "app.tasks.team_assessment_tasks.generate_team_assessment",
+    } and args:
+        return args[0]
     if (
         task_name == "app.tasks.feed_tasks.dispatch_daily_ai_brief_generation"
         and len(args) > 1

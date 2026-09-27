@@ -769,13 +769,19 @@ def _reconcile_stale_ai_runs(
         db.scalars(
             select(AITaskRun)
             .where(
-                AITaskRun.task_type.in_(
-                    [
-                        AI_TASK_TYPE_ITEM_ENRICHMENT,
-                        "team_assessment",
-                        AI_TASK_TYPE_DAILY_BRIEF,
-                        AI_TASK_TYPE_REPORT,
-                    ]
+                or_(
+                    AITaskRun.task_type.in_(
+                        [
+                            AI_TASK_TYPE_ITEM_ENRICHMENT,
+                            "team_assessment",
+                            AI_TASK_TYPE_DAILY_BRIEF,
+                            AI_TASK_TYPE_REPORT,
+                        ]
+                    ),
+                    # Only durable qualification probes run in Celery. Inline
+                    # connection diagnostics must retain their own lifecycle.
+                    (AITaskRun.task_type == AI_TASK_TYPE_CONNECTION_TEST)
+                    & AITaskRun.metadata_json["qualification"].as_boolean().is_(True),
                 ),
                 AITaskRun.finished_at.is_(None),
                 AITaskRun.status == AI_STATUS_RUNNING,
