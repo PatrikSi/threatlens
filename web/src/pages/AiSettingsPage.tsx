@@ -8,6 +8,7 @@ import {
   useState,
 } from 'react'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useLocation } from 'react-router-dom'
 
 import { apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
@@ -88,6 +89,7 @@ const DEFAULT_RUN_FILTERS: RunFilters = {
 const DEFAULT_REPROCESS_DAYS = '7'
 const DEFAULT_REPROCESS_LIMIT = '100'
 const DEFAULT_DAILY_BRIEF_REPROCESS_DAYS = '1'
+const INVALID_RUN_LINK_MESSAGE = 'This AI run link is invalid. Choose a run from Activity instead.'
 
 type RunsQueryArgs = {
   days: number
@@ -129,8 +131,13 @@ function isConnectionTestBlockingRun(run: AITaskRunResponse) {
 
 export function AiSettingsPage() {
   const queryClient = useQueryClient()
+  const location = useLocation()
+  const linkedRun = new URLSearchParams(location.search).get('run')
+  const linkedRunId = linkedRun && /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(linkedRun)
+    ? linkedRun.toLowerCase() : null
+  const previousLinkedRun = useRef<string | null>(null)
   const currentUserQuery = useCurrentUser()
-  const [activeTab, setActiveTab] = useState<AiTab>('overview')
+  const [activeTab, setActiveTab] = useState<AiTab>(linkedRunId ? 'activity' : 'overview')
   const [days, setDays] = useState(30)
   const [draft, setDraftState] = useState<AISettingsDraft>(DEFAULT_DRAFT)
   const [draftDirty, setDraftDirty] = useState(false)
@@ -151,13 +158,37 @@ export function AiSettingsPage() {
   const [selectedModel, setSelectedModel] = useState('all')
   const [runPage, setRunPage] = useState(0)
   const [runFilters, setRunFilters] = useState<RunFilters>(DEFAULT_RUN_FILTERS)
-  const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
-  const [pinnedRunId, setPinnedRunId] = useState<string | null>(null)
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(linkedRunId)
+  const [pinnedRunId, setPinnedRunId] = useState<string | null>(linkedRunId)
   const [pendingRunNavigation, setPendingRunNavigation] = useState<string | null>(null)
   const [settledActiveTab, setSettledActiveTab] = useState<AiTab>('overview')
   const activityTabRef = useRef<HTMLElement | null>(null)
   const selectedRunSectionRef = useRef<HTMLDivElement | null>(null)
   const providerConnections = useAiProviderConnections(Boolean(currentUserQuery.data?.features.ai_enabled) && activeTab === 'configuration')
+
+  useEffect(() => {
+    // A location change also handles repeated links to the same run and browser
+    // Back. Local tab changes keep the mounted configuration draft intact.
+    if (linkedRunId) {
+      setSelectedModel('all')
+      setRunFilters(DEFAULT_RUN_FILTERS)
+      setRunPage(0)
+      setPinnedRunId(linkedRunId)
+      setSelectedRunId(linkedRunId)
+      setPendingRunNavigation(linkedRunId)
+      setActiveTab('activity')
+    } else if (previousLinkedRun.current) {
+      setPinnedRunId(null)
+      setSelectedRunId(null)
+      setActiveTab('overview')
+    }
+    if (linkedRun && !linkedRunId) {
+      setNotice({ tone: 'error', message: INVALID_RUN_LINK_MESSAGE })
+    } else {
+      setNotice((current) => current?.message === INVALID_RUN_LINK_MESSAGE ? null : current)
+    }
+    previousLinkedRun.current = linkedRunId
+  }, [linkedRun, linkedRunId, location.key])
 
   const setDraft: Dispatch<SetStateAction<AISettingsDraft>> = (value) => {
     setDraftDirty(true)
@@ -208,6 +239,7 @@ export function AiSettingsPage() {
   const confirmDiscardUnsavedAiSettingsChanges = useUnsavedChangesWarning(
     draftDirty || providerConnections.dirty || reprocessScopeDirty,
     unsavedAiSettingsMessage,
+    { ignoreSearchChanges: true },
   )
 
   const queryEnablement = deriveAiQueryEnablement(currentUserQuery.data, activeTab, settledActiveTab)

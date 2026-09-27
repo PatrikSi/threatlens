@@ -129,6 +129,7 @@ function RunSummary({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="text-sm font-semibold">{formatRunTaskLabel(run)}</p>
+          <Link className="block break-all text-xs underline" to={`/settings/ai?run=${encodeURIComponent(run.id)}`}>Run {run.id}</Link>
           <p className="text-xs text-slate dark:text-white/60">
             {formatTriggerLabel(run.trigger_source)} · {run.actor_email || run.worker_name || 'system'}
           </p>

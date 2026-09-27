@@ -8,7 +8,8 @@ vi.mock('../api/client', async (original) => ({ ...await original<typeof import(
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 let view: Awaited<ReturnType<typeof mountIntel>> | undefined
 afterEach(() => { view?.close(); view = undefined; vi.resetAllMocks() })
-const input = () => ({ run_id: 'run-1', status: 'queued', provider_version: 3, token_budget: 24000, reserved_tokens: 0, features: ['report'], results: [], error: null })
+const runId = 'a855d5bd-8cba-41a6-a314-cc18027dfe96'
+const input = () => ({ run_id: runId, status: 'queued', provider_version: 3, token_budget: 24000, reserved_tokens: 0, features: ['report'], results: [], error: null })
 
 describe('provider feature qualification', () => {
   it('requires explicit call authorization and disables editing while pending', async () => {
@@ -28,7 +29,17 @@ describe('provider feature qualification', () => {
     await act(async () => pending.resolve(input()))
     await settle()
     expect(view.host.textContent).toContain('Qualification queued')
+    expect(view.host.querySelector('a')?.getAttribute('href')).toBe(`/settings/ai?run=${runId}`)
     expect(view.host.textContent).toContain('does not establish semantic quality')
+  })
+
+  it('links each stored qualification to its exact run', async () => {
+    vi.mocked(apiFetch).mockResolvedValue([input()])
+    view = await mountIntel(<AiProviderQualification providerId="provider-1" version={3} />)
+    act(() => intelButton(view!.host, 'Feature qualification ▸').click())
+    await settle()
+    expect(view.host.querySelector('article a')?.getAttribute('href')).toBe(`/settings/ai?run=${runId}`)
+    expect(view.host.querySelector('article a')?.textContent).toContain(runId)
   })
 
   it('retries an uncertain queue response with the same request ID', async () => {

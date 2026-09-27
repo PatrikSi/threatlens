@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
 import { apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
 import { accessibleQueryData } from '../api/queryData'
@@ -52,12 +53,15 @@ function QualificationControls({ providerId, version }: { providerId: string; ve
         {queue.isPending ? 'Queuing qualification…' : 'Queue feature qualification'}
       </button>
     </fieldset>
-    {queue.isSuccess && <p role="status">Qualification queued. Cancel or inspect delivery receipts in AI Operations. Close and reopen this panel to authorize another run.</p>}
+    {queue.isSuccess && <p role="status">Qualification queued. <Link className="underline" to={`/settings/ai?run=${encodeURIComponent(queue.data.run_id)}`}>
+      Inspect this run and its delivery receipts
+    </Link>. Close and reopen this panel to authorize another run.</p>}
     {(queue.error || history.error) && <p role="alert">{resolveApiErrorMessage(queue.error ?? history.error, 'Qualification could not be loaded or queued. Refresh and retry.')}</p>}
     <button type="button" className={TEAM_BUTTON} onClick={() => void history.refetch()}>Refresh qualifications</button>
     <p>Showing the newest 20 qualifications. A timeout or unknown delivery does not authorize a repeated provider call.</p>
     {rows?.map((row) => <article className="rounded border border-slate/20 p-2" key={row.run_id}>
       <p className="font-semibold">Version {row.provider_version} · {row.status} · {row.reserved_tokens.toLocaleString()} / {row.token_budget.toLocaleString()} tokens reserved</p>
+      <Link className="block break-all underline" to={`/settings/ai?run=${encodeURIComponent(row.run_id)}`}>Inspect run {row.run_id}</Link>
       {row.error && <p role="alert">{row.error}</p>}
       <ul>{row.results.map((result) => <li key={result.feature}>
         {result.feature === 'report_section' ? 'Report section' : result.feature}: {result.state === 'completed'
