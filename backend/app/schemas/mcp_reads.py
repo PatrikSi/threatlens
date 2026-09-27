@@ -1,7 +1,7 @@
 """Closed, bounded contracts for the read-only MCP retrieval tools."""
 
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 import uuid
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -14,6 +14,8 @@ class ReadArguments(BaseModel):
 class SearchArticlesArguments(ReadArguments):
     q: str | None = Field(default=None, max_length=200, strict=True)
     feed_id: uuid.UUID | None = None
+    indicator_type: str | None = Field(default=None, max_length=32)
+    indicator_value: str | None = Field(default=None, max_length=4096)
     since: datetime | None = None
     until: datetime | None = None
     limit: int = Field(default=20, ge=1, le=50, strict=True)
@@ -40,11 +42,17 @@ class SearchArticlesArguments(ReadArguments):
             try:
                 return value.astimezone(timezone.utc)
             except OverflowError as exc:
-                raise ValueError("Timestamp is outside the supported UTC range.") from exc
+                raise ValueError(
+                    "Timestamp is outside the supported UTC range."
+                ) from exc
         return value
 
     @model_validator(mode="after")
     def ordered_dates(self):
+        if (self.indicator_type is None) != (self.indicator_value is None):
+            raise ValueError(
+                "indicator_type and indicator_value must be supplied together"
+            )
         if self.since and self.until and self.since > self.until:
             raise ValueError("since must not be later than until")
         return self
@@ -53,6 +61,7 @@ class SearchArticlesArguments(ReadArguments):
 class ArticleEvidenceArguments(ReadArguments):
     item_id: uuid.UUID
     text_limit: int = Field(default=12000, ge=1, le=16000, strict=True)
+    cursor: str | None = Field(default=None, max_length=2048, strict=True)
 
 
 class TeamAssessmentArguments(ReadArguments):
@@ -85,3 +94,31 @@ class MCPReadResult(BaseModel):
     canonical_link: str
     truncation: ReadTruncation = Field(default_factory=ReadTruncation)
     next_cursor: str | None = None
+
+
+class IndicatorArguments(ReadArguments):
+    item_id: uuid.UUID
+    team_id: uuid.UUID | None = None
+    page: int = Field(default=1, ge=1, le=1000, strict=True)
+    limit: int = Field(default=20, ge=1, le=50, strict=True)
+
+
+class HuntQueueArguments(ReadArguments):
+    team_id: uuid.UUID
+    status: Literal["pending", "stale", "accepted", "rejected"] | None = None
+    ownership: Literal["all", "mine", "unclaimed"] = "all"
+    order: Literal["newest", "oldest", "due"] = "oldest"
+    priority: Literal["low", "normal", "high", "critical"] | None = None
+    overdue: bool = False
+    limit: int = Field(default=10, ge=1, le=25, strict=True)
+    cursor: str | None = Field(default=None, max_length=4096)
+
+
+class PublicationArguments(ReadArguments):
+    team_id: uuid.UUID
+    limit: int = Field(default=20, ge=1, le=50, strict=True)
+    cursor: str | None = Field(default=None, max_length=512)
+
+
+class TechniqueArguments(ReadArguments):
+    technique_id: str = Field(pattern=r"^T[0-9]{4}(?:\.[0-9]{3})?$")

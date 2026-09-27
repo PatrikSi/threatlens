@@ -175,3 +175,56 @@ def _shrinkable(value, path):
             yield len(json_bytes(child)), value, key, child_path
         if isinstance(child, (dict, list)):
             yield from _shrinkable(child, child_path)
+
+
+def encode_bound_cursor(context: MCPReadContext, arguments, position: dict) -> str:
+    """Sign opaque evidence positions with the same credential/policy binding."""
+    if len(context.cursor_secret) < 32:
+        raise MCPReadError("mcp_unavailable", "Cursor signing is unavailable.")
+    payload = json_bytes(
+        {
+            "v": 1,
+            "binding": _cursor_binding(context, arguments),
+            "issued": datetime.now(timezone.utc).isoformat(),
+            "position": position,
+        }
+    )
+    return (
+        base64.urlsafe_b64encode(
+            payload + hmac.digest(context.cursor_secret, payload, "sha256")
+        )
+        .rstrip(b"=")
+        .decode("ascii")
+    )
+
+
+def decode_bound_cursor(context: MCPReadContext, arguments) -> dict | None:
+    if arguments.cursor is None:
+        return None
+    try:
+        raw = base64.b64decode(
+            arguments.cursor + "=" * (-len(arguments.cursor) % 4),
+            altchars=b"-_",
+            validate=True,
+        )
+        payload, signature = raw[:-32], raw[-32:]
+        if len(context.cursor_secret) < 32 or not hmac.compare_digest(
+            signature, hmac.digest(context.cursor_secret, payload, "sha256")
+        ):
+            raise ValueError("signature")
+        value = json.loads(payload)
+        age = datetime.now(timezone.utc) - datetime.fromisoformat(value["issued"])
+        if (
+            value["v"] != 1
+            or value["binding"] != _cursor_binding(context, arguments)
+            or not timedelta(seconds=-30) <= age <= timedelta(minutes=30)
+        ):
+            raise ValueError("binding or expiry")
+        if not isinstance(value["position"], dict):
+            raise ValueError("position")
+        return value["position"]
+    except (ValueError, KeyError, TypeError, UnicodeError) as exc:
+        raise MCPReadError(
+            "invalid_cursor",
+            "The evidence cursor is invalid or expired. Start from the first page.",
+        ) from exc
