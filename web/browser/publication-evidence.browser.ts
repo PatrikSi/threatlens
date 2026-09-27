@@ -12,7 +12,9 @@ async function publicationRoutes(page: Page) {
   const evidence: IndicatorPage = {
     ...indicatorPageFixture,
     page_size: 1,
-    items: [{ ...indicatorFixture, assessment: {
+    items: [{ ...indicatorFixture,
+      ai: { ...indicatorFixture.ai!, evidence: [{ source: 'article', quote: 'Supplemental AI passage outside the publication.' }] },
+      assessment: {
       version: 2, verdict: 'malicious', reason, source_revision: 7, extraction_revision: 4,
       expires_at: null, expired: false, current: true, updated_at: '2026-09-27T00:00:00Z',
     } }],
@@ -68,6 +70,8 @@ test('reviews exact evidence with a bounded request, keyboard containment and re
   const dialog = page.getByRole('dialog', { name: 'Reviewed indicator evidence' })
   await expect(dialog.getByText(quote, { exact: true })).toBeVisible()
   await expect(dialog.getByText(`Analyst review: ${reason}`, { exact: true })).toBeVisible()
+  await expect(dialog.getByText('Supplemental AI passage outside the publication.', { exact: true })).toHaveCount(0)
+  await expect(dialog.getByText(/Supplemental AI assessments are outside this publication/)).toBeVisible()
   expect(state.evidenceRequests.length).toBeGreaterThan(0)
   for (const request of state.evidenceRequests) {
     expect(Object.fromEntries(request.searchParams)).toEqual({ team_id: 'team-1', ioc_id: 'ioc-1', page_size: '1' })

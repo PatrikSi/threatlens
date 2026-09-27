@@ -58,7 +58,8 @@ export function ReviewedIndicatorEvidenceDialog({ teamId, previewFingerprint, re
       <p>{reviewed.title}</p>
       <p className="text-xs">Source revision {reviewed.source_revision} · extraction revision {reviewed.extraction_revision} · review version {reviewed.assessment_version}</p>
       <p className="whitespace-pre-wrap break-words">Analyst review: {assessment?.reason}</p>
-      <IndicatorEvidence indicator={indicator} />
+      <p className="text-sm">The publication includes these retained extraction passages and your team's review. Supplemental AI assessments are outside this publication.</p>
+      <IndicatorEvidence indicator={indicator} includeAi={false} />
     </>}
   </DialogSurface>
 }

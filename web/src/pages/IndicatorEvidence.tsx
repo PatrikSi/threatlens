@@ -1,6 +1,6 @@
 import type { Indicator } from '../types/indicators'
 
-export function IndicatorEvidence({ indicator }: { indicator: Indicator }) {
+export function IndicatorEvidence({ indicator, includeAi = true }: { indicator: Indicator; includeAi?: boolean }) {
   return (
     <div className="space-y-2 text-sm">
       {indicator.evidence_truncated && <p>Showing {indicator.evidence.length} retained passages from {indicator.occurrences} occurrences. Additional passages were not retained.</p>}
@@ -9,7 +9,7 @@ export function IndicatorEvidence({ indicator }: { indicator: Indicator }) {
         {Math.round(indicator.extraction_confidence * 100)}%. This measures
         extraction, not maliciousness.
       </p>
-      {indicator.ai ? (
+      {includeAi && (indicator.ai ? (
         <>
           <p>
             AI role: {indicator.ai.role.replaceAll('_', ' ')} ·{' '}
@@ -28,7 +28,7 @@ export function IndicatorEvidence({ indicator }: { indicator: Indicator }) {
         </>
       ) : (
         <p>No linked AI assessment is available.</p>
-      )}
+      ))}
       {indicator.evidence.length === 0 && (
         <p>No retained passage is available for this extraction.</p>
       )}
@@ -51,7 +51,7 @@ export function IndicatorEvidence({ indicator }: { indicator: Indicator }) {
           )}
         </figure>
       ))}
-      {indicator.ai?.evidence.map((entry, index) => (
+      {includeAi && indicator.ai?.evidence.map((entry, index) => (
         <figure key={`ai-${index}`} className="border-l-2 border-slate/30 pl-3">
           <blockquote className="whitespace-pre-wrap break-words">
             {entry.quote}

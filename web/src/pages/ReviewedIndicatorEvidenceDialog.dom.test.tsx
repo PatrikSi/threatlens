@@ -41,6 +41,23 @@ it('fetches only the selected observation and displays matching evidence', async
   expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Analyst verified campaign infrastructure.')
 })
 
+it('shows publication passages without including unpinned supplemental AI evidence', async () => {
+  const current = structuredClone(page)
+  current.items[0].ai = {
+    role: 'malicious_infrastructure', assertion: 'inferred', maliciousness_confidence: null,
+    evidence: [{ source: 'article', quote: 'A newer AI supporting passage outside this publication.' }],
+  }
+  current.items[0].ai_current = true
+  vi.mocked(apiFetch).mockResolvedValue(current)
+  await open()
+  const text = document.querySelector('[role="dialog"]')?.textContent
+  expect(text).toContain('A retained reviewed passage.')
+  expect(text).toContain('Analyst verified campaign infrastructure.')
+  expect(text).toContain('Supplemental AI assessments are outside this publication.')
+  expect(text).not.toContain('A newer AI supporting passage outside this publication.')
+  expect(text).not.toContain('AI role:')
+})
+
 it.each(['source', 'extraction', 'assessment', 'verdict', 'expired', 'stale', 'suppressed', 'excluded', 'missing'])(
   'withholds changed %s evidence and requests a new preview', async (change) => {
     const updated = structuredClone(page)
