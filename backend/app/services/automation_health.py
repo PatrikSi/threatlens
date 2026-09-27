@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from app.models.automation_execution import AutomationExecution, AutomationPolicyUpdate
-from app.models.publication_consumer import PublicationChange, PublicationConsumer
+from app.models.publication_consumer import PublicationChange, PublicationConsumer, PublicationSubscription
 from app.schemas.operations import OperationsBacklogSnapshot
 from app.services.operations_common import seconds_since
 
@@ -35,8 +35,16 @@ def automation_backlog(
             )
         ).one()
     elif key == "publication_reconciliation":
-        required = func.coalesce(
-            PublicationConsumer.last_reconciled_at, PublicationConsumer.created_at
+        # Successful bounded batches must not hide older subscriptions still
+        # waiting for their turn. Attempts alone never advance freshness.
+        oldest_subscription = select(func.min(PublicationSubscription.next_check_at)).where(
+            PublicationSubscription.consumer_id == PublicationConsumer.id,
+            PublicationSubscription.withdrawn_at.is_(None),
+        ).correlate(PublicationConsumer).scalar_subquery()
+        required = func.least(
+            func.coalesce(PublicationConsumer.last_reconciled_at, PublicationConsumer.created_at),
+            oldest_subscription,
+            PublicationConsumer.reconciliation_error_at,
         )
         count, oldest = db.execute(
             select(func.count(PublicationConsumer.id), func.min(required)).where(

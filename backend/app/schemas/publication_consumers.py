@@ -36,6 +36,10 @@ class ConsumerResponse(BaseModel):
     replay_floor: int
     generation: int
     last_poll_at: datetime | None
+    last_reconciled_at: datetime | None = None
+    last_reconcile_attempt_at: datetime | None = None
+    reconciliation_error_at: datetime | None = None
+    reconciliation_error_code: str | None = None
 
 
 class ConsumerCreated(ConsumerResponse):

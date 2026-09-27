@@ -385,6 +385,9 @@ def reconcile_consumer(
             _append(db, consumer, subscription, revision=revision, kind=kind)
             pending += 1
         subscription.next_check_at = now + timedelta(minutes=5)
+    consumer.last_reconciled_at = now
+    consumer.reconciliation_error_at = None
+    consumer.reconciliation_error_code = None
     db.flush()
     return len(subscriptions)
 
@@ -417,7 +420,6 @@ def consumer_feed(
             400,
         )
     reconciled = reconcile_consumer(db, consumer)
-    consumer.last_reconciled_at = datetime.now(timezone.utc)
     rows = db.scalars(
         select(PublicationChange)
         .where(

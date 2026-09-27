@@ -206,3 +206,30 @@ def test_batch_rechecks_team_activation_and_does_not_cache_unavailable_policy(
     db_session.get(Team, uuid.UUID(team["id"])).active = False
     db_session.flush()
     assert not batch.eligible(owner_user_id=execution.owner_user_id, event=stored)
+
+
+def test_due_query_skips_retained_withdrawn_history(db_session, execution):
+    from datetime import datetime, timezone
+    from sqlalchemy import text
+    from app.services.automation_executions import due_execution_query
+
+    db_session.execute(text('''
+        INSERT INTO automation_executions(id,webhook_id,event_id,action_id,policy_state,next_check_at)
+        SELECT md5(('retained-' || i)::text)::uuid, :webhook, :event,
+          'retained-' || i, 'withdrawn', now() - interval '1 year'
+        FROM generate_series(1,30000) i
+    '''), {'webhook': execution.webhook_id, 'event': execution.event_id})
+    db_session.execute(text('ANALYZE automation_executions'))
+    query = due_execution_query(now=datetime.now(timezone.utc), limit=100)
+    sql = str(query.compile(db_session.bind, compile_kwargs={'literal_binds': True}))
+    plan = db_session.scalar(text('EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ' + sql))[0]['Plan']
+
+    def nodes(node):
+        yield node
+        for child in node.get('Plans', []):
+            yield from nodes(child)
+
+    scans = list(nodes(plan))
+    assert any(node.get('Index Name') == 'ix_automation_execution_current_due' for node in scans)
+    assert sum(node.get('Rows Removed by Filter', 0) for node in scans) <= 1
+    assert plan['Actual Rows'] == 1

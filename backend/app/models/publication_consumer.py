@@ -25,7 +25,7 @@ class PublicationConsumer(Base):
         UniqueConstraint(
             "team_id", "idempotency_key", name="uq_publication_consumer_request"
         ),
-        Index("ix_publication_consumer_reconcile", "last_reconciled_at", "id"),
+        Index("ix_publication_consumer_reconcile", "last_reconcile_attempt_at", "id"),
     )
     idempotency_key: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
     request_digest: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -48,6 +48,9 @@ class PublicationConsumer(Base):
     replay_floor: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     generation: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     last_reconciled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_reconcile_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reconciliation_error_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reconciliation_error_code: Mapped[str | None] = mapped_column(String(64))
     last_poll_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
