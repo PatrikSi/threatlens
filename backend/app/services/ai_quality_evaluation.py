@@ -80,12 +80,14 @@ def evaluate_predictions(dataset: dict, dataset_sha256: str, predictions: list[d
         known_cost = all(value is not None for value in (prompt_tokens, completion_tokens, input_price, output_price))
         cost = (prompt_tokens * input_price + completion_tokens * output_price) / 1_000_000 if known_cost else None
         review = _review(prediction.get("review"))
+        from app.services.ai_quality_gates import claim_inventory
+        claims = claim_inventory(prediction)
         groups[(model, prompt)].append({
             "case_id": case_id, "categories": case.get("categories", []),
             "validation_passed": not validation_error,
             "matched_entities": len(actual & expected), "expected_entities": len(expected),
             "predicted_entities": len(actual), "unexpected_entities": len(actual - expected),
-            "latency_ms": latency, "cost_usd": cost, "review": review,
+            "latency_ms": latency, "cost_usd": cost, "review": review, "claims": claims,
         })
     comparisons = []
     for (model, prompt), rows in sorted(groups.items()):
@@ -154,7 +156,10 @@ def _review(value: object) -> dict | None:
         return None
     if not isinstance(value, dict) or not value.get("reviewer") or not value.get("reviewed_at"):
         raise ValueError("Analyst scores require reviewer and reviewed_at provenance.")
-    verdicts = value.get("claim_verdicts", [])
+    identified = value.get("claims")
+    if identified is not None and (not isinstance(identified, list) or not all(isinstance(entry, dict) for entry in identified)):
+        raise ValueError("Identified claim judgments must be objects.")
+    verdicts = [entry.get("verdict") for entry in identified] if identified is not None else value.get("claim_verdicts", [])
     if not isinstance(verdicts, list) or not all(verdict in ("supported", "unsupported", "uncertain") for verdict in verdicts):
         raise ValueError("Claim verdicts must be supported, unsupported or uncertain.")
     usefulness = _number(value.get("hunt_usefulness"), "hunt_usefulness", integer=True)

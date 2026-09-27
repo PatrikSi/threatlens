@@ -7,6 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.services.ai_quality_evaluation import evaluate_predictions, load_dataset, load_predictions  # noqa: E402
+from app.services.ai_quality_gates import QualityThresholds, promotion_gate  # noqa: E402
 
 
 def main() -> int:
@@ -16,7 +17,10 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--require-reviewed", action="store_true", help="Reject any corpus case lacking analyst approval.")
     parser.add_argument("--prepare", action="store_true", help="Write case input/template JSONL instead of scoring.")
+    parser.add_argument("--gate", action="store_true", help="Fail closed unless exact dataset/claim approvals and thresholds pass.")
+    parser.add_argument("--thresholds", type=Path, help="JSON QualityThresholds; unknown settings are rejected.")
     args = parser.parse_args()
+    gate_failed = False
     try:
         dataset, digest = load_dataset(args.dataset, require_reviewed=args.require_reviewed)
         if args.prepare:
@@ -29,12 +33,17 @@ def main() -> int:
         else:
             if args.predictions is None:
                 parser.error("--predictions is required unless --prepare is selected")
-            result = evaluate_predictions(dataset, digest, load_predictions(args.predictions))
+            predictions = load_predictions(args.predictions)
+            result = evaluate_predictions(dataset, digest, predictions)
+            if args.gate:
+                thresholds = QualityThresholds.model_validate_json(args.thresholds.read_text()) if args.thresholds else QualityThresholds()
+                result["promotion_gate"] = promotion_gate(dataset, predictions, result, thresholds)
+                gate_failed = not result["promotion_gate"]["passed"]
             args.output.write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     except (OSError, ValueError, TypeError, KeyError) as error:
         print(f"Evaluation failed: {error}", file=sys.stderr)
         return 2
-    return 0
+    return 3 if gate_failed else 0
 
 
 if __name__ == "__main__":

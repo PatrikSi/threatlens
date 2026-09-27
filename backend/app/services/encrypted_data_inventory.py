@@ -10,6 +10,9 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
 from app.models.feed import Feed
+from app.models.ai_article_continuation import AIArticleContinuation
+from app.models.ai_qualification import AIQualification
+from app.models.publication_consumer import PublicationConsumer
 from app.models.ai_provider import AIProviderConfiguration
 from app.models.integration import IntegrationInstance
 from app.models.mfa import UserRecoveryCode, UserTOTPCredential
@@ -164,6 +167,10 @@ def _scan_encrypted_data_inventory(
     )
     recovery_hashes = _scan_recovery_code_hashes(db, settings=settings, bounds=bounds)
     team_assessment_authorizations = _scan_team_assessment_authorizations(db, bounds=bounds)
+    durable_ai_authorizations = _scan_durable_authorizations(db, models=(AIArticleContinuation, AIQualification),
+        category_name="durable_ai_authorizations", bounds=bounds)
+    publication_consumer_authorizations = _scan_durable_authorizations(db, models=(PublicationConsumer,),
+        category_name="publication_consumer_authorizations", bounds=bounds)
     summary = _build_summary(
         feeds,
         integration_secrets,
@@ -175,6 +182,7 @@ def _scan_encrypted_data_inventory(
         ai_provider_secrets,
         team_assessment_authorizations,
         webhook_credential_secrets,
+        extra_categories=(durable_ai_authorizations, publication_consumer_authorizations),
     )
 
     warnings: list[str] = []
@@ -214,6 +222,8 @@ def _scan_encrypted_data_inventory(
         integration_secrets=integration_secrets,
         ai_provider_secrets=ai_provider_secrets,
         team_assessment_authorizations=team_assessment_authorizations,
+        durable_ai_authorizations=durable_ai_authorizations,
+        publication_consumer_authorizations=publication_consumer_authorizations,
         notification_webhooks=notification_webhooks,
         webhook_credential_secrets=webhook_credential_secrets,
         notification_delivery_snapshots=notification_delivery_snapshots,
@@ -612,6 +622,7 @@ def _build_summary(
     ai_provider_secrets: EncryptedDataInventoryCategory,
     team_assessment_authorizations: EncryptedDataInventoryCategory,
     webhook_credential_secrets: EncryptedDataInventoryCategory,
+    extra_categories: tuple[EncryptedDataInventoryCategory, ...] = (),
 ) -> EncryptedDataInventorySummary:
     categories = (
         feeds,
@@ -623,6 +634,7 @@ def _build_summary(
         ai_provider_secrets,
         team_assessment_authorizations,
         webhook_credential_secrets,
+        *extra_categories,
     )
     return EncryptedDataInventorySummary(
         total_records=sum(category.total_records for category in categories),
@@ -641,3 +653,19 @@ def _resolve_inventory_status(
     if warnings:
         return "warning"
     return "healthy"
+
+
+def _scan_durable_authorizations(db: Session, *, models: tuple, category_name: str,
+                                 bounds: _InventoryScanBounds | None) -> EncryptedDataInventoryCategory:
+    category = EncryptedDataInventoryCategory()
+    candidates = union_all(*(select(model.authorization_encrypted.label("authorization"),
+        model.created_at.label("created_at"), getattr(model, "run_id", None).label("id")
+        if hasattr(model, "run_id") else model.id.label("id"), literal(index).label("kind"))
+        for index, model in enumerate(models))).subquery()
+    rows = _inventory_rows(db, select(candidates.c.authorization), category_name=category_name,
+        order_columns=(candidates.c.created_at, candidates.c.id, candidates.c.kind), bounds=bounds)
+    for (value,) in rows:
+        category.total_records += 1
+        _apply_record_counts(category, encrypted_fields=_count_json_field(value),
+            unreadable_fields=_count_unreadable_json_field(value) if is_encrypted_json(value) else 1)
+    return category

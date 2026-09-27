@@ -1,3 +1,4 @@
+import { AiProviderQualification } from './AiProviderQualification'
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import { resolveApiErrorMessage } from '../api/errors'
 import { ConfirmDialog } from '../components/ConfirmDialog'
@@ -89,6 +90,7 @@ export function AiProviderConnections({ controller: c }: { controller: AiProvide
         <ProviderEditor c={c} editorTitle={editorTitle} />
         <ProviderRouting c={c} onReload={() => setConfirmRoutingReload(true)} />
         <AiQuotaGroups controller={c} />
+        {c.editor?.baseline && <AiProviderQualification key={c.editor.baseline.id} providerId={c.editor.baseline.id} version={c.editor.baseline.version} />}
       </fieldset>
       <ConfirmDialog
         open={c.pendingSelection !== null}
