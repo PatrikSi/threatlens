@@ -19,6 +19,15 @@ groups:
         annotations:
           summary: ThreatLens host or recovery objectives need operator attention
           description: Inspect the monitor JSON incident codes and receipt policy. Backup failures are separate from application health.
+      - alert: ThreatLensContainerRestarted
+        # The monitor persists the event time independently of incident lifetime.
+        # No pending period: an isolated restart remains visible for five minutes.
+        expr: (time() - threatlens_host_last_restart_timestamp_seconds >= 0) and (time() - threatlens_host_last_restart_timestamp_seconds < 300)
+        labels:
+          severity: warning
+        annotations:
+          summary: ThreatLens observed a container restart
+          description: Inspect the affected service logs and resource limits. Repeated restarts refresh the five-minute observation window.
       - alert: ThreatLensMonitorReceiverBacklog
         expr: threatlens_host_pending_deliveries > 0 or threatlens_host_receiver_available == 0 or increase(threatlens_host_dropped_events[1h]) > 0
         for: 5m
