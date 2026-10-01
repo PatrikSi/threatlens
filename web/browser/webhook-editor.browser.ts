@@ -34,7 +34,7 @@ test('builds AI relevance routing and includes extracted article text without re
   await page.getByLabel('Event type', { exact: true }).selectOption('article.ai.ready')
   await page.getByLabel('JSON body fields row 1 key').fill('routing')
   await page.getByLabel('JSON body fields row 1 value').fill('endpoint-triage')
-  await page.getByLabel('Search payload fields', { exact: true }).fill('full extracted')
+  await page.getByLabel('Search payload fields', { exact: true }).fill('full text')
   await page.getByRole('combobox', { name: 'Payload field', exact: true }).selectOption('item.full_text')
   await page.getByRole('button', { name: 'Add payload field', exact: true }).focus()
   await page.keyboard.press('Enter')
@@ -61,9 +61,12 @@ test('builds AI relevance routing and includes extracted article text without re
   expect(accessibility.violations).toEqual([])
   const overflow = await page.evaluate(() => ({
     width: window.innerWidth, documentWidth: document.documentElement.scrollWidth,
-    elements: [...document.querySelectorAll('main *')].filter((element) => element.getBoundingClientRect().right > window.innerWidth + 1).map((element) => ({ tag: element.tagName, className: element.className, right: element.getBoundingClientRect().right, text: element.textContent?.slice(0, 80) })).slice(-20),
+    elements: Array.from(document.querySelectorAll('main *')).filter((element) => element.getBoundingClientRect().right > window.innerWidth + 1).map((element) => ({ tag: element.tagName, className: element.className, right: element.getBoundingClientRect().right, text: element.textContent?.slice(0, 80) })).slice(-20),
   }))
-  await info.attach('soc-webhook-mobile', { body: await page.screenshot({ fullPage: true }), contentType: 'image/png' })
+  await page.screenshot({ path: info.outputPath('soc-webhook-mobile.png'), fullPage: true })
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await page.screenshot({ path: info.outputPath('soc-webhook-desktop.png'), fullPage: true })
+  await page.setViewportSize({ width: 390, height: 844 })
   expect(overflow.documentWidth, JSON.stringify(overflow)).toBeLessThanOrEqual(overflow.width + 1)
   await page.getByRole('button', { name: 'Create webhook', exact: true }).click()
   await expect(page.getByText('Webhook created.', { exact: true })).toBeVisible()

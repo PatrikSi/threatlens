@@ -32,7 +32,7 @@ describe('SOC webhook payload selection', () => {
   it('searches fields, adds full text without replacing custom fields, and prevents duplicate keys', async () => {
     vi.mocked(apiFetch).mockResolvedValue(variables)
     view = await mountIntel(<PayloadHarness />)
-    editAutomation(view.host, 'Search payload fields', 'full extracted')
+    editAutomation(view.host, 'Search payload fields', 'full text')
     expect(automationField(view.host, 'Payload field').querySelector('option[value="brief.text"]')).toBeNull()
     editAutomation(view.host, 'Payload field', 'item.full_text')
     act(() => intelButton(view!.host, 'Add payload field').click())
