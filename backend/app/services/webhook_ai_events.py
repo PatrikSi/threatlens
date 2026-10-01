@@ -141,26 +141,40 @@ def current_relevance_snapshot(
 def capture_relevance_metadata(db: Session, *, event_type: str, payload: dict) -> None:
     if event_type not in RELEVANCE_EVENT_TYPES:
         return
+    accepted = payload.get("ai_relevance")
+    has_accepted = "ai_relevance" in payload
+    item = payload.get("item")
+    payload["ai_relevance"] = None
+    if isinstance(item, dict):
+        item["ai_relevance"] = None
     try:
         item_id = uuid.UUID(str(payload.get("item_id")))
     except (ValueError, TypeError):
         return
-    snapshot = current_relevance_snapshot(db, item_id, include_text=event_type == AI_READY_EVENT)
-    payload["ai_relevance"] = snapshot
-    if snapshot is None:
+    # The completion emitter already hashed this exact accepted result into its
+    # action ID. Never upgrade it during outbox creation, even if another result
+    # has become current. Routing and delivery suppress superseded snapshots.
+    snapshot = accepted if event_type == AI_READY_EVENT and has_accepted else (
+        current_relevance_snapshot(db, item_id, include_text=event_type == AI_READY_EVENT)
+    )
+    if not isinstance(snapshot, dict) or snapshot.get("verified") is not True:
         return
-    proof = snapshot["provenance"]
+    proof = snapshot.get("provenance")
+    if not isinstance(proof, dict) or not all(
+        key in proof for key in ("source_version", "article_id")
+    ) or "article_retrieved_at" not in snapshot:
+        return
     # An event already pinned to another revision must not inherit newer AI.
     if (
         payload.get("source_revision", proof["source_version"]) != proof["source_version"]
         or payload.get("article_id", proof["article_id"]) != proof["article_id"]
+        or payload.get("article_retrieved_at", snapshot["article_retrieved_at"]) != snapshot["article_retrieved_at"]
     ):
-        payload["ai_relevance"] = None
         return
+    payload["ai_relevance"] = snapshot
     payload.setdefault("source_revision", proof["source_version"])
     payload.setdefault("article_id", proof["article_id"])
     payload.setdefault("article_retrieved_at", snapshot["article_retrieved_at"])
-    item = payload.get("item")
     if isinstance(item, dict):
         item["ai_relevance"] = snapshot
 
@@ -187,9 +201,15 @@ def emit_article_ai_ready(db: Session, *, item_id: uuid.UUID) -> uuid.UUID | Non
         .join(Article, Article.item_id == Item.id)
         .join(Feed, Feed.id == Item.feed_id)
         .where(Item.id == item_id)
-    ).one()
-    # Recheck by the common capture hook before persistence. A concurrent source
-    # update can suppress this historical event, never upgrade its evidence.
+    ).one_or_none()
+    if row is None or (
+        row.classification_required_version != snapshot["provenance"]["source_version"]
+        or str(row.article_id) != snapshot["provenance"]["article_id"]
+        or row.retrieved_at.isoformat() != snapshot["article_retrieved_at"]
+    ):
+        return None
+    # Capture the payload once. Common metadata capture preserves this result;
+    # later routing and delivery recheck currentness without replacing evidence.
     from app.services.integration_events import emit_integration_event
     from app.services.feed_storage import try_decrypt_feed_url
     from app.services.url_utils import redact_feed_url

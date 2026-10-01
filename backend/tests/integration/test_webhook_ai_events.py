@@ -24,6 +24,7 @@ from app.services.notification_webhook_storage import build_notification_webhook
 from app.services.webhook_ai_events import (
     AI_READY_EVENT, ai_event_current, condition_values_with_current_ai,
     current_relevance_snapshot, emit_article_ai_ready,
+    capture_relevance_metadata,
 )
 from app.services.webhook_conditions import evaluate_conditions
 from tests.integration.test_ai_feature_output_validation import (
@@ -160,6 +161,81 @@ def test_legacy_events_keep_compact_relevance_even_with_large_successful_metadat
     enrichment.result_provenance_json = {**enrichment.result_provenance_json, "model": "changed"}
     db_session.flush()
     assert not ai_event_current(db_session, event.payload_json)
+
+
+def test_result_replacement_before_outbox_capture_never_upgrades_action_identity(db_session, monkeypatch):
+    from app.services import webhook_event_metadata
+
+    item, _article, enrichment = _ready_article(db_session)
+    initial = current_relevance_snapshot(db_session, item.id, include_text=True)
+    capture = webhook_event_metadata.add_routing_metadata
+    replaced = False
+
+    def replace_before_capture(db, **kwargs):
+        nonlocal replaced
+        if not replaced:
+            replaced = True
+            enrichment.generated_at += timedelta(seconds=1)
+            enrichment.relevance_score = 0.3
+            enrichment.relevance_label = "low"
+            db.flush()
+        return capture(db, **kwargs)
+
+    monkeypatch.setattr(webhook_event_metadata, "add_routing_metadata", replace_before_capture)
+    first_id = emit_article_ai_ready(db_session, item_id=item.id)
+    first = db_session.get(IntegrationEvent, first_id)
+    assert first.payload_json["ai_relevance"] == initial
+    assert first.payload_json["item"]["ai_relevance"] == initial
+    assert not ai_event_current(db_session, first.payload_json)
+    second_id = emit_article_ai_ready(db_session, item_id=item.id)
+    second = db_session.get(IntegrationEvent, second_id)
+    assert second_id != first_id
+    assert second.payload_json["ai_relevance"]["score"] == 0.3
+    assert second.payload_json["action_id"] != first.payload_json["action_id"]
+    assert ai_event_current(db_session, second.payload_json)
+    assert emit_article_ai_ready(db_session, item_id=item.id) == second_id
+
+
+def test_source_refresh_between_result_and_article_capture_does_not_emit(db_session, monkeypatch):
+    from app.services import webhook_ai_events
+
+    item, _article, _enrichment = _ready_article(db_session)
+    current = webhook_ai_events.current_relevance_snapshot
+
+    def refresh_after_result(db, item_id, **kwargs):
+        snapshot = current(db, item_id, **kwargs)
+        item.classification_required_version += 1
+        db.flush()
+        return snapshot
+
+    monkeypatch.setattr(webhook_ai_events, "current_relevance_snapshot", refresh_after_result)
+    assert emit_article_ai_ready(db_session, item_id=item.id) is None
+    assert db_session.scalar(select(IntegrationEvent.id).where(
+        IntegrationEvent.event_type == AI_READY_EVENT, IntegrationEvent.source_id == str(item.id),
+    )) is None
+
+
+@pytest.mark.parametrize("change", ["source", "article", "retrieved", "failed", "invalid_item"])
+def test_unavailable_capture_clears_root_and_nested_template_relevance(db_session, change):
+    item, article, enrichment = _ready_article(db_session)
+    snapshot = current_relevance_snapshot(db_session, item.id)
+    payload = {"item_id": str(item.id), "source_revision": item.classification_required_version,
+               "article_id": str(article.id), "article_retrieved_at": article.retrieved_at.isoformat(),
+               "ai_relevance": snapshot, "item": {"ai_relevance": snapshot}}
+    if change == "source":
+        payload["source_revision"] += 1
+    elif change == "article":
+        payload["article_id"] = str(uuid.uuid4())
+    elif change == "retrieved":
+        payload["article_retrieved_at"] = (article.retrieved_at + timedelta(seconds=1)).isoformat()
+    elif change == "failed":
+        enrichment.status = "error"
+        db_session.flush()
+    else:
+        payload["item_id"] = "invalid"
+    capture_relevance_metadata(db_session, event_type="rss_item_new", payload=payload)
+    assert payload["ai_relevance"] is None
+    assert payload["item"]["ai_relevance"] is None
 
 
 @pytest.mark.parametrize("change", ["source", "article", "purge", "failed", "replacement", "feed", "proof"])
