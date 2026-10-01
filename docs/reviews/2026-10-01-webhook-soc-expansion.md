@@ -80,7 +80,44 @@ Run migration `0125_webhook_article_text` and upgrade the API and workers togeth
 New snapshot variables, AI routing and article-text configurations use schema v3;
 older workers defer these subscriptions. Existing templates remain compatible,
 and omitted optional fields preserve saved values when older clients update a
-webhook. No live stack deployment is part of this change.
+webhook. The initial implementation was validated in isolated services; the
+follow-up below records activation in the local stack.
 
 Configuration and operating examples are in the
 [intelligence automation guide](../pages/intelligence-automation.md).
+
+## Follow-up review and local activation
+
+A second pass used three agents to check the requested workflow against both the
+source and the deployed build. The local containers still ran `13a46b5`, so the
+implemented controls were not yet available in that application. This pass also
+corrected three remaining workflow gaps:
+
+- New AI-ready criteria now start with relevance at least 0.8. Non-indicator
+  notifications start with a one-day age bound. Existing criteria are preserved,
+  with advisory explanations when the selected event lacks their evidence.
+- Editable team destinations now use the same non-sending preview component as
+  personal destinations. Disabled or inaccessible editors withhold preview data;
+  changed drafts invalidate pending results. The copy identifies its scope as
+  current-access condition/body evaluation, with delivery policy checked at send.
+- Revalidating a cached successful AI result after an unchanged article refetch
+  now publishes the current evidence revision. The guarded update must still own
+  the result. Repeated validation deduplicates without another provider call.
+
+Follow-up validation passed: **48 PostgreSQL integration tests**, **41 AI unit
+tests**, **33 condition/editor tests** and **13 preview/lifecycle tests**. The two
+frontend groups overlap. **Six real-server workflows** and **three editor browser
+workflows** passed across Chromium, Firefox and WebKit, including the new AI
+condition default, keyboard interaction, accessibility checks and mobile layout.
+The final preview result-rendering extraction was followed by its focused DOM,
+TypeScript and lint checks. Global frontend lint, backend Ruff, source-size and
+whitespace checks passed, and both Docker images built successfully.
+
+The local stack was rebuilt from **`5f44f3c`** and its API, scheduler, web and all
+five workers were verified on that revision. Migration
+`0124_reconciliation_progress` → `0125_webhook_article_text` completed, every
+long-running service reported healthy, and the web proxy returned HTTP 200 with
+`ok: true` for both API liveness and readiness. The served frontend bundle contains
+the AI-ready editor option. An online PostgreSQL archive was created and verified
+before migration; the preceding images were retained locally. Archive verification
+was not a restore drill. This was a local deployment, not a remote push or release.
