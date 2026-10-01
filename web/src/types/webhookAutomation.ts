@@ -9,6 +9,8 @@ export type WebhookConditionField =
   | 'analyst_verdict'
   | 'extraction_confidence'
   | 'maliciousness_confidence'
+  | 'ai_relevance_score'
+  | 'ai_relevance_label'
   | 'freshness_seconds'
   | 'attack_technique'
   | 'hunt_review_status'
@@ -47,6 +49,8 @@ export interface WebhookMatchPreview {
   }[]
   missing_fields: string[]
   automation_payload: Record<string, unknown> | null
+  template_body?: string | null
+  template_body_error?: string | null
 }
 
 export interface WebhookPreviewEvent {

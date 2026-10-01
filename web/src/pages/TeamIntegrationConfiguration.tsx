@@ -17,6 +17,8 @@ import {
   applyBodyMode,
 } from './notificationWebhookDraft'
 import { KeyValueEditor } from './NotificationWebhookShared'
+import { WebhookArticleTextOption } from './WebhookArticleTextOption'
+import { WebhookPayloadFieldPicker } from './WebhookPayloadFieldPicker'
 import { WebhookConditionBuilder } from './WebhookConditionBuilder'
 import { validateConditions } from './webhookConditionModel'
 import { TEAM_BUTTON } from './teamPresentation'
@@ -177,7 +179,8 @@ function ConfigurationEditor({
           HTTP method
           <select
             className={INPUT}
-            value={draft.method}
+            value={draft.payload_mode === 'automation_v1' ? 'POST' : draft.method}
+            disabled={draft.payload_mode === 'automation_v1'}
             onChange={(event) =>
               change(
                 'method',
@@ -196,10 +199,7 @@ function ConfigurationEditor({
             className={INPUT}
             value={draft.payload_mode ?? 'template'}
             onChange={(event) =>
-              change(
-                'payload_mode',
-                event.target.value as 'template' | 'automation_v1',
-              )
+              setDraft((current) => ({ ...current, payload_mode: event.target.value as 'template' | 'automation_v1', method: event.target.value === 'automation_v1' ? 'POST' : current.method }))
             }
           >
             <option value="template">Notification template</option>
@@ -271,6 +271,7 @@ function ConfigurationEditor({
           )}
         </p>
       )}
+      {draft.payload_mode === 'automation_v1' && <WebhookArticleTextOption checked={draft.include_article_text ?? false} disabled={busy} onChange={(value) => change('include_article_text', value)} />}
       <WebhookConditionBuilder
         value={draft.conditions ?? null}
         onChange={(value) => change('conditions', value)}
@@ -291,6 +292,7 @@ function ConfigurationEditor({
       ))}
       {draft.payload_mode !== 'automation_v1' && (
         <>
+          <WebhookPayloadFieldPicker draft={draft} onChange={setDraft} disabled={busy} />
           <label>
             Body format
             <select

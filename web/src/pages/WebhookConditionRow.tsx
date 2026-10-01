@@ -2,6 +2,7 @@ import type {
   WebhookCondition,
   WebhookConditionGroup,
 } from '../types/webhookAutomation'
+import { WebhookConditionValues } from './WebhookConditionValues'
 import { CONDITION_FIELDS, INDICATOR_FIELDS } from './webhookConditionModel'
 
 const INPUT =
@@ -19,11 +20,11 @@ export function ConditionRow({
   const field = CONDITION_FIELDS.find((entry) => entry.value === value.field)!
   return (
     <div className="space-y-1">
-      <div className="grid gap-2 md:grid-cols-[1fr_1fr_2fr]">
-        <label className="text-xs">
+      <div className="grid min-w-0 gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,2fr)]">
+        <label className="min-w-0 text-xs">
           Field
           <select
-            className={`${INPUT} block w-full`}
+            className={`${INPUT} block w-full min-w-0`}
             value={value.field}
             onChange={(event) => {
               const selected = CONDITION_FIELDS.find(
@@ -31,8 +32,8 @@ export function ConditionRow({
               )!
               onChange({
                 field: selected.value,
-                operator: selected.numeric ? 'gte' : 'in',
-                value: selected.numeric ? 0 : [''],
+                operator: selected.value === 'freshness_seconds' ? 'lte' : selected.numeric ? 'gte' : 'in',
+                value: selected.value === 'freshness_seconds' ? 86400 : selected.numeric ? 0.8 : [],
               })
             }}
           >
@@ -43,10 +44,10 @@ export function ConditionRow({
             ))}
           </select>
         </label>
-        <label className="text-xs">
+        <label className="min-w-0 text-xs">
           Comparison
           <select
-            className={`${INPUT} block w-full`}
+            className={`${INPUT} block w-full min-w-0`}
             value={value.operator}
             onChange={(event) =>
               onChange({
@@ -68,39 +69,23 @@ export function ConditionRow({
             )}
           </select>
         </label>
-        <label className="text-xs">
-          {field.numeric ? 'Threshold' : 'Values'}
+        {field.numeric ? <label className="min-w-0 text-xs">
+          Threshold
           <input
-            className={`${INPUT} block w-full`}
-            type={field.numeric ? 'number' : 'text'}
+            className={`${INPUT} block w-full min-w-0`}
+            type="number"
             min={0}
-            max={
-              field.numeric
-                ? value.field === 'freshness_seconds'
-                  ? 31_536_000
-                  : 1
-                : undefined
-            }
+            max={value.field === 'freshness_seconds' ? 31_536_000 : 1}
             step="any"
-            value={
-              Array.isArray(value.value)
-                ? value.value.join(',')
-                : Number.isFinite(value.value)
-                  ? value.value
-                  : ''
-            }
-            onChange={(event) =>
-              onChange({
-                ...value,
-                value: field.numeric
-                  ? event.target.value === ''
-                    ? Number.NaN
-                    : Number(event.target.value)
-                  : event.target.value.split(','),
-              })
-            }
+            value={typeof value.value === 'number' && Number.isFinite(value.value) ? value.value : ''}
+            onChange={(event) => onChange({ ...value, value: event.target.value === '' ? Number.NaN : Number(event.target.value) })}
           />
-        </label>
+        </label> : <WebhookConditionValues
+          key={value.field}
+          field={value.field}
+          values={Array.isArray(value.value) ? value.value : []}
+          onChange={(values) => onChange({ ...value, value: values })}
+        />}
       </div>
       <p className="text-xs text-slate dark:text-slate-300">{indicatorScope && field.numeric ? '0–1 for this individual indicator; missing confidence does not match.' : field.hint}</p>
     </div>

@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { resolveApiErrorMessage } from '../api/errors'
 import { describeEventType } from './notificationWebhookDraft'
 import { describeFeedScope } from './notificationWebhookPresentation'
@@ -63,6 +64,7 @@ export function SavedWebhooksCard({ controller }: { controller: NotificationWebh
 }
 
 export function TestResultAndVariables({ controller }: { controller: NotificationWebhooksController }) {
+  const [search, setSearch] = useState('')
   const {
     mobileVariablesOpen,
     setMobileVariablesOpen,
@@ -70,6 +72,7 @@ export function TestResultAndVariables({ controller }: { controller: Notificatio
     variables,
     variablesQuery,
   } = controller
+  const matchingVariables = variables.filter((variable) => `${variable.key} ${variable.description}`.toLowerCase().includes(search.toLowerCase().trim()))
   return (
     <section className={`grid gap-3 ${testResult ? 'xl:grid-cols-[1.2fr_0.8fr]' : ''}`}>
       {testResult && (
@@ -129,7 +132,7 @@ export function TestResultAndVariables({ controller }: { controller: Notificatio
           <div>
             <h2 className="font-display text-lg">Available variables</h2>
             <p className="mt-1 text-sm text-slate dark:text-white/75">
-              Use these placeholders anywhere in the URL, headers, query parameters, or body.
+              Search placeholders for request templates. Full article text is available only in body values.
             </p>
           </div>
           <button
@@ -146,13 +149,17 @@ export function TestResultAndVariables({ controller }: { controller: Notificatio
           id="webhook-template-variables"
           className={`${mobileVariablesOpen ? 'block' : 'hidden'} mt-3 space-y-0 overflow-hidden rounded border border-slate/20 sm:block sm:space-y-2 sm:overflow-visible sm:rounded-none sm:border-0 dark:border-cyan-900/40`}
         >
-          {variables.map((variable) => (
+          <label className="block text-sm">Search variable reference
+            <input type="search" className="mt-1 w-full rounded border border-slate/30 bg-white p-2 dark:bg-[#072019]" value={search} onChange={(event) => setSearch(event.target.value)} />
+          </label>
+          {matchingVariables.map((variable) => (
             <div key={variable.key} className="border-b border-slate/15 p-2.5 last:border-b-0 sm:rounded-lg sm:border sm:border-slate/20 sm:p-3 dark:border-cyan-900/40">
               <code className="text-xs font-semibold">{`{{ ${variable.key} }}`}</code>
               <p className="mt-1 text-xs sm:text-sm">{variable.description}</p>
               <p className="mt-1 text-xs text-slate dark:text-white/60">Example: {variable.example}</p>
             </div>
           ))}
+          {!variablesQuery.isLoading && !variablesQuery.isError && matchingVariables.length === 0 && <p className="text-sm">No matching variables.</p>}
           {variablesQuery.isLoading && <p className="text-sm text-slate dark:text-white/70">Loading variables...</p>}
           {variablesQuery.isError && (
             <p className="text-sm text-red-600">
