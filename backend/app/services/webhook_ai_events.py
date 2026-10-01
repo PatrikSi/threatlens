@@ -12,7 +12,7 @@ import math
 import uuid
 from datetime import datetime
 
-from sqlalchemy import case, func, select
+from sqlalchemy import String, case, cast, func, select
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
@@ -84,14 +84,28 @@ def relevance_snapshot_values(payload: dict) -> dict:
     return {"ai_relevance_score": score, "ai_relevance_label": label}
 
 
-def current_relevance_snapshot(db: Session, item_id: uuid.UUID) -> dict | None:
+def current_relevance_snapshot(
+    db: Session, item_id: uuid.UUID, *, include_text: bool = False,
+) -> dict | None:
     """One bounded SQL projection verifies the result and its complete inputs."""
+    text_columns = (
+        func.left(ItemAIEnrichment.summary_text, 8000).label("summary"),
+        (func.char_length(ItemAIEnrichment.summary_text) > 8000).label("summary_truncated"),
+        case((func.octet_length(cast(ItemAIEnrichment.relevance_reasons_json, String)) <= 8192,
+              ItemAIEnrichment.relevance_reasons_json), else_=None).label("reasons"),
+    ) if include_text else ()
+    proof = ItemAIEnrichment.result_provenance_json
     row = db.execute(
         select(
             ItemAIEnrichment.relevance_score, ItemAIEnrichment.relevance_label,
             ItemAIEnrichment.generated_at, ItemAIEnrichment.source_hash,
-            ItemAIEnrichment.result_provenance_json,
+            func.json_build_object(
+                "version", proof["version"], "source_hash", proof["source_hash"],
+                "source_version", proof["source_version"], "article_id", proof["article_id"],
+            ).label("proof"),
+            func.encode(func.sha256(func.convert_to(cast(proof, String), "UTF8")), "hex").label("proof_digest"),
             Article.retrieved_at,
+            *text_columns,
         )
         .select_from(Item)
         .join(Feed, Feed.id == Item.feed_id)
@@ -103,12 +117,25 @@ def current_relevance_snapshot(db: Session, item_id: uuid.UUID) -> dict | None:
     ).one_or_none()
     if row is None or row.generated_at is None:
         return None
-    return {
+    snapshot = {
         "verified": True, "score": row.relevance_score,
         "label": row.relevance_label, "generated_at": row.generated_at.isoformat(),
-        "source_hash": row.source_hash, "provenance": row.result_provenance_json,
+        "source_hash": row.source_hash, "provenance": row.proof,
+        "provenance_digest": row.proof_digest,
         "article_retrieved_at": row.retrieved_at.isoformat(),
     }
+    if include_text:
+        reasons = row.reasons if isinstance(row.reasons, list) else []
+        valid_reasons = [value for value in reasons if isinstance(value, str)]
+        snapshot.update(
+            summary=row.summary, summary_truncated=bool(row.summary_truncated),
+            relevance_reasons=[value[:500] for value in valid_reasons[:4]],
+            relevance_reasons_truncated=(
+                not isinstance(row.reasons, list) or len(valid_reasons) != len(reasons)
+                or len(reasons) > 4 or any(len(value) > 500 for value in valid_reasons)
+            ),
+        )
+    return snapshot
 
 
 def capture_relevance_metadata(db: Session, *, event_type: str, payload: dict) -> None:
@@ -118,7 +145,7 @@ def capture_relevance_metadata(db: Session, *, event_type: str, payload: dict) -
         item_id = uuid.UUID(str(payload.get("item_id")))
     except (ValueError, TypeError):
         return
-    snapshot = current_relevance_snapshot(db, item_id)
+    snapshot = current_relevance_snapshot(db, item_id, include_text=event_type == AI_READY_EVENT)
     payload["ai_relevance"] = snapshot
     if snapshot is None:
         return
@@ -140,7 +167,7 @@ def capture_relevance_metadata(db: Session, *, event_type: str, payload: dict) -
 
 def emit_article_ai_ready(db: Session, *, item_id: uuid.UUID) -> uuid.UUID | None:
     """Publish once per accepted result even when the indicator set is unchanged."""
-    snapshot = current_relevance_snapshot(db, item_id)
+    snapshot = current_relevance_snapshot(db, item_id, include_text=True)
     if snapshot is None:
         return None
     row = db.execute(
@@ -222,7 +249,7 @@ def ai_event_current(db: Session, payload: dict, *, lock: bool = False) -> bool:
                 or source.retrieved_at != expected_retrieved
             ):
                 return False
-            return current_relevance_snapshot(db, item_id) == snapshot
+            return current_relevance_snapshot(db, item_id, include_text="summary" in snapshot) == snapshot
     except DBAPIError as exc:
         code = getattr(exc.orig, "sqlstate", None) or getattr(exc.orig, "pgcode", None)
         if code in {"55P03", "40P01", "40001"}:
