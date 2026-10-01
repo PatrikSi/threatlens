@@ -96,6 +96,10 @@ For granular subscriptions, typed intelligence events, reusable credentials and 
   - `webhook_failed`
   - `daily_digest` (backward-compatible API identifier for the AI Daily Brief)
   - `report_ready`
+  - `article.ai.ready` (successful shared article AI analysis)
+  - `intel.extraction.ready`
+  - `intel.indicators.changed`
+  - `hunt.approved`
 - The AI Daily Brief event is only offered when AI is enabled, configured, and daily briefing is enabled.
 - The report event is only offered when AI reporting is enabled and configured; stored inactive selections remain visible.
 - AI Daily Brief delivery uses the persisted system-wide brief; a hook's RSS feed scope does not rebuild or filter the generated brief.
@@ -116,9 +120,18 @@ For granular subscriptions, typed intelligence events, reusable credentials and 
   - body mode (`json`, `form`, `raw`, `none`)
   - timeout
   - any feed or selected feeds
+  - AND/OR/exclusion conditions, including shared AI relevance score or label
+  - template or structured automation payloads, with opt-in extracted article text
 - URL query strings entered directly in the URL field are automatically moved into query parameter fields
 - Template variables use `{{ item.title }}` style placeholders
+- Searchable payload-field choices add placeholders to JSON/form fields or raw
+  templates. JSON output-key conflicts are explained before insertion. Full-text
+  fields expose availability, source revision and truncation metadata.
+- Feed/tag/rule/team condition choices expose names where the caller has access;
+  enumerated conditions use dropdown choices. Unavailable lookups preserve the
+  existing draft and offer retry or exact-value entry.
 - Delivery tooling:
+  - non-sending matching and payload preview using a captured article/event
   - test send against a selected sample feed
   - rendered request/response preview
   - recent delivery history per webhook
