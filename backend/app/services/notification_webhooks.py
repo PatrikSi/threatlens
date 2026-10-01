@@ -527,6 +527,7 @@ def reserve_notification_webhook_delivery(
     queued_at = datetime.now(timezone.utc)
 
     try:
+        from app.services.webhook_article_text import article_text_for_item
         rendered = render_notification_request(
             payload,
             user=user,
@@ -539,6 +540,7 @@ def reserve_notification_webhook_delivery(
             alert_context=alert_context,
             failed_webhook_context=failed_webhook_context,
             digest_context=digest_context,
+            article_text=article_text_for_item(db, item=item, payload=payload),
         )
     except (TemplateRenderError, ValueError) as exc:
         return _create_pending_notification_webhook_delivery_from_render_failure(
@@ -570,7 +572,7 @@ def reserve_notification_webhook_delivery(
             error=f"{RENDER_FAILURE_ERROR_PREFIX}{exc}",
         )
 
-    return _create_pending_notification_webhook_delivery(
+    delivery = _create_pending_notification_webhook_delivery(
         db,
         delivery_id=delivery_id,
         webhook=webhook,
@@ -588,6 +590,13 @@ def reserve_notification_webhook_delivery(
         attempted_at=queued_at,
         not_before=not_before,
     )
+    from app.models.integration import IntegrationDelivery
+    from app.services.webhook_article_text import ARTICLE_TEXT_SNAPSHOT_KEY, uses_snapshot_context
+    if uses_snapshot_context(payload) and delivery.integration_delivery_id:
+        generic = db.get(IntegrationDelivery, delivery.integration_delivery_id)
+        if generic is not None:
+            generic.payload_json = {**generic.payload_json, ARTICLE_TEXT_SNAPSHOT_KEY: True}
+    return delivery
 
 
 def reserve_notification_webhook_delivery_from_saved_request(

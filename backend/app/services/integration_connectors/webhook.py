@@ -602,8 +602,17 @@ class WebhookIntegrationConnector:
                 execution = register_execution(db, event=event, webhook=webhook)
                 if execution is not None:
                     generic.payload_json["execution"] = {"id": str(execution.id), "webhook_id": str(webhook.id), "callback_path": f"/v1/notifications/automation/executions/{execution.id}/callbacks"}
+                from app.services.webhook_article_text import automation_payload_with_article_text
+                generic.payload_json = automation_payload_with_article_text(
+                    db, event=event, payload=generic.payload_json,
+                    include=bool(webhook.include_article_text),
+                )
                 store_automation_snapshot(legacy_delivery, event, payload=generic.payload_json)
             generic.payload_json[PAYLOAD_MODE_SNAPSHOT_KEY] = payload_mode
+            from app.services.webhook_article_text import ARTICLE_TEXT_SNAPSHOT_KEY, uses_snapshot_context
+            from app.services.notification_webhook_storage import notification_webhook_write_from_model
+            if uses_snapshot_context(notification_webhook_write_from_model(webhook)):
+                generic.payload_json[ARTICLE_TEXT_SNAPSHOT_KEY] = True
             generic.payload_json["legacy_webhook_delivery_id"] = str(legacy_delivery.id)
             db.add(generic)
             generic_ids.append(generic.id)

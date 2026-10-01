@@ -304,3 +304,27 @@ def test_active_receiver_credentials_remain_visible_after_many_rotations(client,
     assert response.status_code == 200, response.text
     assert len(response.json()["items"]) == 100
     assert response.json()["items"][0]["id"] == active["id"]
+
+
+def test_team_configuration_retains_article_text_opt_in_for_older_editor(
+    client, auth_headers, db_session, destination
+):
+    team, webhook, _execution = destination
+    webhook.include_article_text = True
+    db_session.commit()
+    response = adopt(client, auth_headers, destination)
+    assert response.status_code == 200, response.text
+    revision = response.json()["ownership_revision"]
+    path = f"/teams/{team.id}/integrations/{webhook.id}/configuration"
+    response = client.get(path, headers=auth_headers["analyst"])
+    assert response.status_code == 200, response.text
+    assert response.json()["include_article_text"] is True
+    body = {
+        "name": "Renamed by old editor",
+        "url_template": "https://receiver.example/hunt",
+        "event_type": "intel.extraction.ready",
+        "payload_mode": "automation_v1",
+    }
+    response = client.put(path, params={"expected_revision": revision}, headers=auth_headers["analyst"], json=body)
+    assert response.status_code == 200, response.text
+    assert response.json()["include_article_text"] is True

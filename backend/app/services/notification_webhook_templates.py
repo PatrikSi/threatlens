@@ -18,6 +18,7 @@ from app.schemas.notification import (
     NotificationWebhookWrite,
 )
 from app.services.url_utils import normalize_url, redact_feed_url
+from app.services.webhook_article_text import ArticleTextSnapshot
 
 
 class TemplateRenderError(ValueError):
@@ -100,6 +101,23 @@ TEMPLATE_VARIABLES: tuple[NotificationTemplateVariable, ...] = (
     NotificationTemplateVariable(key="item.url", description="Original item URL.", example="https://example.com/articles/campaign"),
     NotificationTemplateVariable(key="item.canonical_url", description="Canonical item URL when known.", example="https://example.com/articles/campaign"),
     NotificationTemplateVariable(key="item.summary", description="Feed summary text.", example="Researchers observed a fresh wave of exploitation."),
+    NotificationTemplateVariable(
+        key="item.full_text",
+        description="Extracted article plain text from the event's exact source revision, up to 128 KiB UTF-8. Empty if unavailable or changed. Body values only; early RSS events may precede article retrieval.",
+        example="Researchers observed exploitation of exposed edge devices...",
+    ),
+    NotificationTemplateVariable(key="item.full_text_status", description="Extracted text availability: available, truncated, unavailable, or source_changed.", example="available"),
+    NotificationTemplateVariable(key="item.full_text_characters", description="Original extracted article character count before the delivery text limit.", example="24560"),
+    NotificationTemplateVariable(key="item.full_text_included_bytes", description="UTF-8 bytes included in item.full_text.", example="24612"),
+    NotificationTemplateVariable(key="item.source_revision", description="Source revision associated with the extracted text snapshot.", example="3"),
+    NotificationTemplateVariable(key="item.article_retrieved_at", description="Retrieval timestamp of the extracted article snapshot.", example="2026-10-01T12:30:00+00:00"),
+    NotificationTemplateVariable(key="ai.relevance_score", description="Successful, current AI relevance score captured with the event, from 0 to 1. Empty if unavailable.", example="0.85"),
+    NotificationTemplateVariable(key="ai.relevance_label", description="AI relevance label captured with the event: high, medium, or low. Empty if unavailable.", example="high"),
+    NotificationTemplateVariable(key="ai.generated_at", description="Generation timestamp of the AI relevance result captured with the event.", example="2026-10-01T12:30:00+00:00"),
+    NotificationTemplateVariable(key="ai.summary", description="Successful shared AI summary captured with the event, up to 8,000 characters. Empty if unavailable.", example="The campaign targets exposed edge devices."),
+    NotificationTemplateVariable(key="ai.summary_truncated", description="Whether the shared AI summary exceeded the retained event limit; true or false.", example="false"),
+    NotificationTemplateVariable(key="ai.relevance_reasons", description="Newline-separated shared AI relevance reasons, up to four reasons of 500 characters each.", example="Active exploitation\nExposed perimeter systems"),
+    NotificationTemplateVariable(key="ai.relevance_reasons_truncated", description="Whether relevance reasons exceeded the retained event limit; true or false.", example="false"),
     NotificationTemplateVariable(key="item.status", description="ThreatLens item status.", example="new"),
     NotificationTemplateVariable(key="item.published_at", description="Published timestamp when provided by the feed.", example="2026-03-25T09:15:00+00:00"),
     NotificationTemplateVariable(key="item.first_seen_at", description="First time ThreatLens saw the item.", example="2026-03-25T09:16:02+00:00"),
@@ -240,7 +258,11 @@ def build_template_context(
     alert_context: AlertMatchContext | None = None,
     failed_webhook_context: FailedWebhookContext | None = None,
     digest_context: DailyDigestContext | None = None,
+    article_text: ArticleTextSnapshot | None = None,
 ) -> dict[str, str]:
+    text = article_text or ArticleTextSnapshot()
+    ai = getattr(item, "ai_relevance", None)
+    ai = ai if isinstance(ai, dict) else {}
     return {
         "event.type": event_type,
         "event.triggered_at": isoformat(triggered_at),
@@ -260,6 +282,19 @@ def build_template_context(
         "item.url": normalize_url(getattr(item, "url", "") or ""),
         "item.canonical_url": normalize_url(getattr(item, "canonical_url", "") or ""),
         "item.summary": getattr(item, "summary", "") or "",
+        "item.full_text": text.text,
+        "item.full_text_status": text.status,
+        "item.full_text_characters": str(text.original_characters),
+        "item.full_text_included_bytes": str(text.included_bytes),
+        "item.source_revision": str(text.source_revision) if text.source_revision is not None else "",
+        "item.article_retrieved_at": text.article_retrieved_at or "",
+        "ai.relevance_score": str(ai["score"]) if ai.get("score") is not None else "",
+        "ai.relevance_label": str(ai.get("label") or ""),
+        "ai.generated_at": str(ai.get("generated_at") or ""),
+        "ai.summary": str(ai.get("summary") or ""),
+        "ai.summary_truncated": str(bool(ai.get("summary_truncated"))).lower(),
+        "ai.relevance_reasons": "\n".join(ai.get("relevance_reasons") or []),
+        "ai.relevance_reasons_truncated": str(bool(ai.get("relevance_reasons_truncated"))).lower(),
         "item.status": getattr(item, "status", "") or "",
         "item.published_at": isoformat(getattr(item, "published_at", None)),
         "item.first_seen_at": isoformat(getattr(item, "first_seen_at", None)),
@@ -306,14 +341,30 @@ def render_field(field: NotificationWebhookField, context: dict[str, str]) -> No
     )
 
 
-def render_template(template: str, context: dict[str, str]) -> str:
-    def replace(match: re.Match[str]) -> str:
+def render_template(template: str, context: dict[str, str], *, max_bytes: int | None = None) -> str:
+    def replacement(match: re.Match[str]) -> str:
         variable_name = match.group(1).strip()
         if variable_name not in context:
             raise TemplateRenderError(f"Unknown template variable: {variable_name}")
         return context[variable_name]
 
-    return TEMPLATE_PATTERN.sub(replace, template)
+    if max_bytes is None:
+        return TEMPLATE_PATTERN.sub(replacement, template)
+    fragments: list[str] = []
+    position = 0
+    remaining = max_bytes
+    for match in TEMPLATE_PATTERN.finditer(template):
+        for value in (template[position:match.start()], replacement(match)):
+            remaining -= len(value.encode("utf-8"))
+            if remaining < 0:
+                raise TemplateRenderError("Rendered webhook body exceeds 264 KiB; include fewer or smaller fields")
+            fragments.append(value)
+        position = match.end()
+    tail = template[position:]
+    if len(tail.encode("utf-8")) > remaining:
+        raise TemplateRenderError("Rendered webhook body exceeds 264 KiB; include fewer or smaller fields")
+    fragments.append(tail)
+    return "".join(fragments)
 
 
 def assign_nested_json_value(target: dict, key_path: str, value: str) -> None:

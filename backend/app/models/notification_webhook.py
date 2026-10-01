@@ -40,6 +40,7 @@ class NotificationWebhook(Base):
     body_template: Mapped[str | None] = mapped_column(Text, nullable=True)
     timeout_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=10, server_default="10")
     payload_mode: Mapped[str] = mapped_column(String(32), nullable=False, default="template", server_default="template")
+    include_article_text: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     conditions_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     credential_profile_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("webhook_credential_profiles.id", ondelete="RESTRICT"), nullable=True, index=True

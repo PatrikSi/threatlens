@@ -382,6 +382,7 @@ def update_team_integration_configuration(
             409, "Reload and adopt this destination before editing its configuration"
         )
     retained = {
+        "include_article_text": row.include_article_text,
         "payload_mode": row.payload_mode,
         "conditions": row.conditions_json,
         "credential_profile_id": row.credential_profile_id,

@@ -216,6 +216,7 @@ def update_notification_webhook(
     # Older clients omit new automation fields. Retain them and validate the
     # effective configuration, including method/payload compatibility.
     retained = {
+        "include_article_text": bool(webhook.include_article_text),
         "payload_mode": webhook.payload_mode or "template",
         "conditions": webhook.conditions_json,
         "credential_profile_id": webhook.credential_profile_id,

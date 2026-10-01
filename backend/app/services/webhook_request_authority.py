@@ -35,6 +35,7 @@ def reauthorize_webhook_test_credential(
     authorization: AuthorizationContext,
     data_access: DataAccessContext,
     snapshot: ExportAuthorizationSnapshot,
+    required_permissions: tuple[str, ...] = ("write:notifications",),
 ) -> tuple[AuthorizationContext, DataAccessContext]:
     """Recheck the accepting credential after policy fences and before source locks."""
     current_authorization, current_access = authorize_export_job(
@@ -42,7 +43,7 @@ def reauthorize_webhook_test_credential(
         _RequestPrincipal(authorization.principal_id, authorization.principal_type),
         lock=True,
         snapshot=snapshot,
-        required_permissions=("write:notifications",),
+        required_permissions=required_permissions,
     )
     if current_authorization.policy_revision != authorization.policy_revision:
         raise ExportJobAccessDenied("Webhook test authorization changed")
@@ -63,6 +64,7 @@ def fence_webhook_request(
     data_access: DataAccessContext,
     permission: str,
     exclusive_owner: bool = False,
+    additional_permissions: tuple[str, ...] = (),
 ) -> None:
     """Use the common policy→owner→credential ordering; retain locks until response/commit."""
     try:
@@ -83,7 +85,7 @@ def fence_webhook_request(
             authorization,
             data_access,
             snapshot=snapshot,
-            required_permissions=(permission,),
+            required_permissions=(permission, *additional_permissions),
         )
     except ExportJobAccessDenied as exc:
         raise HTTPException(

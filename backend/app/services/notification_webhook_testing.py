@@ -71,6 +71,12 @@ def test_notification_webhook(
     operation_id: str | None = None,
     credential_snapshot: ExportAuthorizationSnapshot | None = None,
 ) -> NotificationWebhookTestResponse:
+    from app.services.webhook_article_text import uses_snapshot_context
+    requires_item_read = uses_snapshot_context(payload)
+    if requires_item_read and authorization is not None and not authorization.has("read:items"):
+        raise NotificationWebhookTestCredentialChanged(
+            "Webhook article content requires read:items permission."
+        )
     if payload.event_type == "article.ai.ready":
         raise ValueError(
             "AI article notifications require a stored-event preview; synthetic AI sample sends are disabled"
@@ -144,6 +150,8 @@ def test_notification_webhook(
                 ],
             )
 
+    from app.services.webhook_article_text import article_text_for_item
+
     rendered = render_notification_request(
         payload,
         user=user,
@@ -153,6 +161,7 @@ def test_notification_webhook(
         alert_context=alert_context,
         failed_webhook_context=failed_webhook_context,
         digest_context=digest_context,
+        article_text=article_text_for_item(db, item=item, payload=payload),
     )
     try:
         validate_notification_actor_for_delivery(user)
@@ -192,6 +201,7 @@ def test_notification_webhook(
                 ),
             },
             source_refs=NotificationWebhookTestSourceRefs(
+                required_permissions=("read:items",) if requires_item_read else (),
                 feed_id=feed.id if isinstance(feed, Feed) else None,
                 item_id=item.id if isinstance(item, Item) else None,
                 daily_brief_id=daily_brief_id,
