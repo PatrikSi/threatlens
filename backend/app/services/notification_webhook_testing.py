@@ -71,6 +71,10 @@ def test_notification_webhook(
     operation_id: str | None = None,
     credential_snapshot: ExportAuthorizationSnapshot | None = None,
 ) -> NotificationWebhookTestResponse:
+    if payload.event_type == "article.ai.ready":
+        raise ValueError(
+            "AI article notifications require a stored-event preview; synthetic AI sample sends are disabled"
+        )
     if payload.payload_mode == "automation_v1":
         raise ValueError(
             "Automation webhooks require a stored-event preview; sample test sends are disabled to avoid starting a synthetic hunt"

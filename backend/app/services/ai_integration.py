@@ -464,6 +464,9 @@ def run_item_ai_enrichment(
         # The outbox commits with the successful provider result; its recovery
         # sweeper routes it even if the worker stops before any broker delivery.
         emit_intel_events(db, item_id=item_id, deterministic=False)
+    from app.services.webhook_ai_events import emit_article_ai_ready
+
+    emit_article_ai_ready(db, item_id=item_id)
     return AIItemEnrichmentResult(
         enrichment=enrichment,
         status="ready",

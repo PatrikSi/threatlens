@@ -70,6 +70,7 @@ class WebhookIntegrationConnector:
         "intel.extraction.ready",
         "intel.indicators.changed",
         "hunt.approved",
+        "article.ai.ready",
     )
     definition = IntegrationConnectorDefinition(
         integration_type="webhook",
@@ -202,7 +203,7 @@ class WebhookIntegrationConnector:
     ) -> NotificationDeliveryReservationBatch:
         from app.services.webhook_automation import AUTOMATION_EVENTS, event_matches_webhook, reserve_automation_deliveries
 
-        if event.event_type in AUTOMATION_EVENTS:
+        if event.event_type in AUTOMATION_EVENTS or event.event_type == "article.ai.ready":
             webhooks = self._matching_webhooks(db, event_type=event.event_type,
                 feed_id=_payload_uuid(event, "feed_id"), owner_user_id=None)
             return reserve_automation_deliveries(db, event=event, webhooks=webhooks)

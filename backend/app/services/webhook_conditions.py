@@ -47,6 +47,7 @@ def event_condition_values(
         "intel.extraction.ready",
         "intel.indicators.changed",
         "hunt.approved",
+        "article.ai.ready",
     }:
         try:
             retrieved = datetime.fromisoformat(payload["article_retrieved_at"])
@@ -98,6 +99,11 @@ def event_condition_values(
         values["tag"] = values["tag_id"] = None
     if metadata.get("alert_rules_complete") is False:
         values["alert_rule_id"] = None
+    # Shared relevance is captured from a verified result at event creation.
+    # Metadata or a current database lookup must never retrofit an older event.
+    from app.services.webhook_ai_events import relevance_snapshot_values
+
+    values.update(relevance_snapshot_values(payload))
     # Internal evidence cannot be supplied through filter metadata. Keep excluded
     # entries for preview, but never allow them to satisfy an indicator predicate.
     snapshot = payload.get("indicators")
@@ -219,6 +225,7 @@ def _condition_value_available(field: str, value: object) -> bool:
         "extraction_confidence",
         "maliciousness_confidence",
         "freshness_seconds",
+        "ai_relevance_score",
     }:
         return (
             isinstance(value, (float, int))

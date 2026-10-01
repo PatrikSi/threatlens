@@ -26,9 +26,11 @@ ConditionField = Literal[
     "freshness_seconds",
     "attack_technique",
     "hunt_review_status",
+    "ai_relevance_score",
+    "ai_relevance_label",
 ]
 NUMERIC_FIELDS = frozenset(
-    {"extraction_confidence", "maliciousness_confidence", "freshness_seconds"}
+    {"extraction_confidence", "maliciousness_confidence", "freshness_seconds", "ai_relevance_score"}
 )
 INDICATOR_FIELDS = frozenset({
     "ioc_type", "ioc_role", "analyst_verdict",
@@ -62,6 +64,10 @@ class WebhookCondition(BaseModel):
         if isinstance(self.value, list):
             for value in self.value:
                 validate_storage_text(value)
+            if self.field == "ai_relevance_label" and any(
+                value not in {"low", "medium", "high"} for value in self.value
+            ):
+                raise ValueError("AI relevance labels must be low, medium, or high")
         return self
 
 
