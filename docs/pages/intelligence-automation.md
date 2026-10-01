@@ -45,7 +45,7 @@ All hooks retain their existing **all feeds / selected feeds** selection. Option
 | `extraction_confidence`, `maliciousness_confidence` | `gte`, `lte` | Separate scores in `[0, 1]`. Extraction confidence measures extraction, not maliciousness. |
 | `ai_relevance_score` | `gte`, `lte` | Shared article AI relevance in `[0, 1]`, captured only from a successful result with verified current source provenance. |
 | `ai_relevance_label` | `in`, `not_in` | Captured shared article relevance: `low`, `medium` or `high`. Labels use the AI relevance thresholds applied when the result was generated. |
-| `freshness_seconds` | `gte`, `lte` | For intelligence/hunt events, age of the retained article retrieval; unavailable if that timestamp is missing, invalid or in the future. Legacy events use event age. Configuration is capped at one year. This is not the article's publication age. |
+| `freshness_seconds` | `gte`, `lte` | For AI-ready, intelligence and hunt events, age of the retained article retrieval; unavailable if that timestamp is missing, invalid or in the future. Legacy events use event age. Configuration is capped at one year. This is not the article's publication age. |
 
 Set matching is case-insensitive. Conditions select events; they do not trim the event payload to a matching indicator. In particular, `ioc_type` and `ioc_role` are set-level conditions and can match different indicators. A receiver must inspect each indicator's own role, confidence and exclusions before using it.
 
@@ -62,6 +62,8 @@ yet; adding an AI condition to that early event does not delay it until AI finis
 AI processing must be enabled and complete successfully to produce the AI-ready
 event. Creating a subscription does not analyze historical articles or invoke a
 provider.
+Use this signal for triage or enrichment. A high relevance score does not approve
+a hunt; `hunt.approved` remains the trigger for analyst-approved execution.
 
 Relevance is the shared assessment against the installation's AI context. It is
 separate from a team's assessment, indicator maliciousness and analyst approval.
@@ -70,7 +72,9 @@ condition. Existing historical events are not retroactively enriched. A replaced
 AI result or changed source prevents its old AI-ready action from being sent.
 AI-ready payloads can also include the captured shared AI summary and relevance
 reasons through `{{ ai.summary }}` and `{{ ai.relevance_reasons }}`. Their truncation
-fields disclose the bounded representation. `{{ item.summary }}` remains the RSS
+fields (`ai.summary_truncated` and `ai.relevance_reasons_truncated`) disclose the
+bounded representation: 8,000 summary characters and four reasons of up to 500
+characters each. `{{ item.summary }}` remains the RSS
 summary. Rich AI narrative belongs to the AI-ready event; existing intelligence
 events carry the smaller relevance metadata without duplicating that narrative.
 
@@ -192,6 +196,14 @@ Subsequent URL, template or payload-mode edits do not rewrite those saved reques
 Current authorization, conditions and credentials still apply before sending.
 Ordinary template-to-template retries retain their existing context-refresh behavior;
 switching to Automation v1 does not convert an already queued template request.
+
+A rendering failure has no accepted request to replay. Frozen article-text/AI
+requests and generic replays return HTTP 409 instead of sending unexpanded
+placeholders or an empty body. Correct or reduce the template, verify it with a
+stored-event preview, and use a future matching event. Ordinary legacy template
+retries can still render corrected configuration from their current context.
+The rendering outcome is retained separately from later policy diagnostics, so
+another failure cannot accidentally make an unrendered request sendable.
 
 ## Verify signatures and deduplicate actions
 
