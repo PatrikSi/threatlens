@@ -220,7 +220,13 @@ def run_item_ai_enrichment(
                     feed_name=feed.name if feed is not None else "", tag_names=tag_names,
                     source_hash=source_hash, generated_at=enrichment.generated_at or enrichment.updated_at,
                 )
-                refresh_verified_provenance(db, enrichment=enrichment, provenance=provenance)
+                if refresh_verified_provenance(db, enrichment=enrichment, provenance=provenance):
+                    from app.services.webhook_ai_events import emit_article_ai_ready
+
+                    # Re-fetching unchanged text can advance its source revision.
+                    # Replace any now-stale outbox evidence without another model
+                    # call; identical accepted revisions remain deduplicated.
+                    emit_article_ai_ready(db, item_id=item_id)
             return AIItemEnrichmentResult(
                 enrichment=enrichment,
                 status="skipped",
