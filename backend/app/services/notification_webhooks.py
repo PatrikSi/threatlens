@@ -18,6 +18,7 @@ from app.schemas.notification import (
     NotificationEventType,
     NotificationTemplateVariable,
     NotificationWebhookTestResponse,
+    NotificationWebhookWrite,
 )
 from app.services import notification_webhook_http
 from app.services.integration_compat import WebhookConfigurationCompatibilityError
@@ -523,13 +524,18 @@ def reserve_notification_webhook_delivery(
     not_before: datetime | None = None,
 ) -> NotificationWebhookDelivery:
     payload = notification_webhook_write_from_model(webhook)
+    render_payload = payload
+    if payload.payload_mode == "automation_v1":
+        # Typed events supply their body after routing. Only their configured
+        # destination, query and headers need template rendering here.
+        render_payload = payload.model_copy(update={"body_mode": "none", "body_fields": [], "body_template": None})
     delivery_id = uuid.uuid4()
     queued_at = datetime.now(timezone.utc)
 
     try:
         from app.services.webhook_article_text import article_text_for_item
         rendered = render_notification_request(
-            payload,
+            render_payload,
             user=user,
             feed=feed,
             item=item,
@@ -540,10 +546,10 @@ def reserve_notification_webhook_delivery(
             alert_context=alert_context,
             failed_webhook_context=failed_webhook_context,
             digest_context=digest_context,
-            article_text=article_text_for_item(db, item=item, payload=payload),
+            article_text=article_text_for_item(db, item=item, payload=render_payload),
         )
     except (TemplateRenderError, ValueError) as exc:
-        return _create_pending_notification_webhook_delivery_from_render_failure(
+        failed = _create_pending_notification_webhook_delivery_from_render_failure(
             db,
             delivery_id=delivery_id,
             webhook=webhook,
@@ -571,6 +577,8 @@ def reserve_notification_webhook_delivery(
             not_before=not_before,
             error=f"{RENDER_FAILURE_ERROR_PREFIX}{exc}",
         )
+        _retain_snapshot_context_marker(db, delivery=failed, payload=payload)
+        return failed
 
     delivery = _create_pending_notification_webhook_delivery(
         db,
@@ -590,13 +598,17 @@ def reserve_notification_webhook_delivery(
         attempted_at=queued_at,
         not_before=not_before,
     )
+    _retain_snapshot_context_marker(db, delivery=delivery, payload=payload)
+    return delivery
+
+
+def _retain_snapshot_context_marker(db: Session, *, delivery: NotificationWebhookDelivery, payload: NotificationWebhookWrite) -> None:
     from app.models.integration import IntegrationDelivery
     from app.services.webhook_article_text import ARTICLE_TEXT_SNAPSHOT_KEY, uses_snapshot_context
     if uses_snapshot_context(payload) and delivery.integration_delivery_id:
         generic = db.get(IntegrationDelivery, delivery.integration_delivery_id)
         if generic is not None:
             generic.payload_json = {**generic.payload_json, ARTICLE_TEXT_SNAPSHOT_KEY: True}
-    return delivery
 
 
 def reserve_notification_webhook_delivery_from_saved_request(
@@ -614,6 +626,8 @@ def reserve_notification_webhook_delivery_from_saved_request(
     )
     if rerendered is not None:
         return rerendered
+    from app.services.webhook_request_state import require_rendered_request
+    require_rendered_request(db, delivery=delivery)
     return _create_pending_notification_webhook_delivery(
         db,
         delivery_id=uuid.uuid4(),
@@ -767,7 +781,13 @@ def process_notification_webhook_delivery(
             error=exc,
             commit_outcome=commit_outcome,
         )
-    if _delivery_has_presend_render_failure(delivery):
+    from app.services.webhook_request_state import (
+        RENDER_FAILURE_RETRY_MESSAGE,
+        request_failed_rendering,
+    )
+    if request_failed_rendering(db, delivery=delivery):
+        if not _delivery_has_presend_render_failure(delivery):
+            delivery.error = f"{RENDER_FAILURE_ERROR_PREFIX}{RENDER_FAILURE_RETRY_MESSAGE}"
         current_result = _delivery_result_from_model(delivery)
         result = NotificationWebhookTestResponse(
             success=False,

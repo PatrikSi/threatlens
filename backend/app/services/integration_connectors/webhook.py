@@ -591,10 +591,14 @@ class WebhookIntegrationConnector:
             generic.idempotency_key = (
                 f"event:{event.id}:subscription:{generic.subscription_id}:live"
             )
+            from app.services.webhook_request_state import REQUEST_RENDERED_KEY
+            render_failed = (generic.payload_json or {}).get(REQUEST_RENDERED_KEY) is False
             generic.payload_json = delivery_payload_for_owner(
                 event,
                 owner_user_id=legacy_delivery.user_id,
             )
+            if render_failed:
+                generic.payload_json[REQUEST_RENDERED_KEY] = False
             from app.services.webhook_automation import PAYLOAD_MODE_SNAPSHOT_KEY, store_automation_snapshot
             payload_mode = webhook.payload_mode or "template"
             if payload_mode == "automation_v1":
