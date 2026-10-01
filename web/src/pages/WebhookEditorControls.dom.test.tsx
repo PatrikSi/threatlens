@@ -6,6 +6,7 @@ import { WebhookPayloadFieldPicker } from './WebhookPayloadFieldPicker'
 import { WebhookConditionBuilder } from './WebhookConditionBuilder'
 import { createDefaultDraft, createRequestFromDraft } from './notificationWebhookDraft'
 import type { WebhookConditionGroup } from '../types/webhookAutomation'
+import type { NotificationEventType } from '../types/notifications'
 import { automationField, editAutomation } from './indicatorAutomationTestSupport'
 import { deferred, intelButton, mountIntel, settle } from './articleIntelligenceTestSupport'
 
@@ -26,6 +27,19 @@ function PayloadHarness({ scalar = false }: { scalar?: boolean }) {
 function Conditions({ initial }: { initial: WebhookConditionGroup }) {
   const [conditions, setConditions] = useState<WebhookConditionGroup | null>(initial)
   return <><WebhookConditionBuilder value={conditions} onChange={setConditions} disabled={false} /><output>{JSON.stringify(conditions)}</output></>
+}
+function EventConditions({ initial = null, event = 'article.ai.ready' }: { initial?: WebhookConditionGroup | null; event?: NotificationEventType }) {
+  const [eventType, setEventType] = useState(event)
+  const [conditions, setConditions] = useState(initial)
+  return <>
+    <label>Event type<select value={eventType} onChange={(event) => setEventType(event.target.value as NotificationEventType)}>
+      <option value="article.ai.ready">AI article analysis ready</option>
+      <option value="rss_item_new">New RSS item</option>
+      <option value="feed_failing">Feed failing</option>
+    </select></label>
+    <WebhookConditionBuilder value={conditions} onChange={setConditions} eventType={eventType} disabled={false} />
+    <output>{JSON.stringify(conditions)}</output>
+  </>
 }
 
 describe('SOC webhook payload selection', () => {
@@ -76,6 +90,49 @@ describe('SOC webhook payload selection', () => {
 })
 
 describe('SOC webhook condition selection', () => {
+  it('creates usable AI conditions and preserves them with guidance when the event changes', async () => {
+    vi.mocked(apiFetch).mockResolvedValue([])
+    view = await mountIntel(<EventConditions />)
+    act(() => intelButton(view!.host, 'Add event conditions').click())
+    expect(automationField(view.host, 'Field').value).toBe('ai_relevance_score')
+    expect(automationField(view.host, 'Threshold').value).toBe('0.8')
+    editAutomation(view.host, 'Threshold', '0.93')
+    act(() => intelButton(view!.host, 'Add group').click())
+    const accepted = JSON.parse(view.host.querySelector('output')!.textContent!)
+    expect(accepted).toMatchObject({ conditions: [
+      { field: 'ai_relevance_score', value: 0.93 },
+      { op: 'all', conditions: [{ field: 'ai_relevance_score', value: 0.8 }] },
+    ] })
+    editAutomation(view.host, 'Event type', 'feed_failing')
+    expect(view.host.querySelector('[role="status"]')?.textContent).toContain('Choose AI article analysis ready')
+    expect(view.host.textContent).toContain('Your condition is preserved.')
+    expect(JSON.parse(view.host.querySelector('output')!.textContent!)).toEqual(accepted)
+    expect(view.host.querySelector('[role="alert"]')).toBeNull()
+    editAutomation(view.host, 'Event type', 'article.ai.ready')
+    expect(view.host.textContent).not.toContain('This event does not carry shared article relevance')
+  })
+  it('starts RSS conditions with event age and explains unsupported indicator evidence', async () => {
+    vi.mocked(apiFetch).mockResolvedValue([])
+    view = await mountIntel(<EventConditions event="rss_item_new" />)
+    act(() => intelButton(view!.host, 'Add event conditions').click())
+    expect(automationField(view.host, 'Field').value).toBe('freshness_seconds')
+    expect(automationField(view.host, 'Comparison').value).toBe('lte')
+    expect(automationField(view.host, 'Threshold').value).toBe('86400')
+    editAutomation(view.host, 'Field', 'ioc_role')
+    expect(view.host.querySelector('[role="status"]')?.textContent).toContain('does not carry indicator or ATT&CK evidence')
+    expect(automationField(view.host, 'Field').value).toBe('ioc_role')
+  })
+  it('keeps new nested predicates inside a same-indicator group in indicator scope', async () => {
+    vi.mocked(apiFetch).mockResolvedValue([])
+    view = await mountIntel(<EventConditions initial={{ op: 'indicators_any', conditions: [{ field: 'ioc_type', operator: 'in', value: ['domain'] }] }} />)
+    act(() => intelButton(view!.host, 'Add group').click())
+    expect(JSON.parse(view.host.querySelector('output')!.textContent!)).toMatchObject({ conditions: [
+      { field: 'ioc_type', value: ['domain'] },
+      { op: 'all', conditions: [{ field: 'ioc_role', value: ['malicious_infrastructure'] }] },
+    ] })
+    expect(view.host.querySelector('[role="alert"]')).toBeNull()
+    expect(view.host.textContent).toContain('This event does not carry indicator or ATT&CK evidence')
+  })
   it('selects shared AI relevance with a bounded numeric threshold and named levels', async () => {
     vi.mocked(apiFetch).mockResolvedValue([])
     view = await mountIntel(<Conditions initial={{ op: 'all', conditions: [{ field: 'ioc_role', operator: 'in', value: ['unknown'] }] }} />)

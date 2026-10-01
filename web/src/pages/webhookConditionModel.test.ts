@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createDefaultDraft, createRequestFromDraft, createDraftFromWebhook } from './notificationWebhookDraft'
-import { countConditions, normalizeConditions, validateConditions } from './webhookConditionModel'
+import { conditionEventWarning, countConditions, newCondition, normalizeConditions, validateConditions } from './webhookConditionModel'
 import type { NotificationWebhook } from '../types/notifications'
 import type { WebhookConditionGroup } from '../types/webhookAutomation'
 
@@ -57,5 +57,35 @@ describe('bounded webhook condition drafts', () => {
     expect(validateConditions({ ...scoped, conditions: [scoped] })).toMatch(/cannot contain another/)
     const draft = { ...createDefaultDraft(), conditions: scoped }
     expect(createRequestFromDraft(draft).conditions?.op).toBe('indicators_any')
+  })
+  it('starts with evidence available on the selected event while keeping indicator scope valid', () => {
+    expect(newCondition('article.ai.ready')).toEqual({ field: 'ai_relevance_score', operator: 'gte', value: 0.8 })
+    for (const event of ['rss_item_new', 'alert_match', 'feed_failing', 'webhook_failed', 'daily_digest', 'report_ready'] as const)
+      expect(newCondition(event)).toEqual({ field: 'freshness_seconds', operator: 'lte', value: 86400 })
+    for (const event of ['intel.extraction.ready', 'intel.indicators.changed', 'hunt.approved'] as const)
+      expect(newCondition(event)).toEqual(newCondition())
+    const sameIndicator: WebhookConditionGroup = { op: 'indicators_any', conditions: [newCondition('article.ai.ready', true)] }
+    expect(sameIndicator.conditions[0]).toMatchObject({ field: 'ioc_role' })
+    expect(validateConditions(sameIndicator)).toBeNull()
+  })
+  it('warns about incompatible evidence without turning advisory guidance into validation', () => {
+    expect(conditionEventWarning('ioc_role', 'article.ai.ready')).toContain('Indicator extraction ready')
+    expect(conditionEventWarning('ai_relevance_score', 'feed_failing')).toContain('AI article analysis ready')
+    expect(conditionEventWarning('alert_rule_id', 'article.ai.ready')).toContain('Alert match')
+    expect(conditionEventWarning('team_id', 'rss_item_new')).toContain('Team ownership')
+    expect(conditionEventWarning('hunt_review_status', 'intel.extraction.ready')).toContain('Hunt approved')
+    expect(conditionEventWarning('tag', 'daily_digest')).toContain('article tags')
+    expect(conditionEventWarning('feed_id', 'report_ready')).toContain('single feed')
+    for (const field of ['ai_relevance_score', 'ai_relevance_label', 'tag', 'feed_id', 'freshness_seconds'] as const)
+      expect(conditionEventWarning(field, 'article.ai.ready')).toBeNull()
+    for (const field of ['ioc_role', 'attack_technique', 'team_id', 'hunt_review_status'] as const)
+      expect(conditionEventWarning(field, 'hunt.approved')).toBeNull()
+    expect(conditionEventWarning('alert_rule_id', 'alert_match')).toBeNull()
+    expect(conditionEventWarning('team_id', 'intel.indicators.changed')).toBeNull()
+    expect(conditionEventWarning('hunt_review_status', 'intel.indicators.changed')).toContain('Hunt approved')
+    expect(conditionEventWarning('ioc_type')).toBeNull()
+    const condition: WebhookConditionGroup = { op: 'any', conditions: [newCondition(), newCondition('article.ai.ready')] }
+    expect(validateConditions(condition)).toBeNull()
+    expect(createRequestFromDraft({ ...createDefaultDraft(), event_type: 'article.ai.ready', conditions: condition }).conditions).toEqual(condition)
   })
 })

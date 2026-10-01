@@ -80,7 +80,12 @@ events carry the smaller relevance metadata without duplicating that narrative.
 
 The editor offers named, searchable choices for source identifiers and dropdowns
 for enumerated values. Existing selections remain in the draft when their lookup
-is unavailable. Preview a recent event before enabling the destination: the event
+is unavailable. New AI-ready conditions start at relevance `0.8`; other events without
+indicator evidence start with an editable one-day event-age limit. Changing the
+event type preserves existing conditions and explains fields unavailable on that
+event, including a suitable event type to use instead. These warnings do not alter
+AND/OR or exclusion semantics. Preview a recent event before enabling the
+destination: the event
 picker includes its captured article title and feed, and the result explains each
 condition and unavailable field. Preview sends no request to the receiver.
 

@@ -1,4 +1,5 @@
 import { useId, useRef } from 'react'
+import type { NotificationEventType } from '../types/notifications'
 import type {
   WebhookCondition,
   WebhookConditionGroup,
@@ -20,10 +21,12 @@ export function WebhookConditionBuilder({
   value,
   onChange,
   disabled,
+  eventType,
 }: {
   value: WebhookConditionGroup | null
   onChange: (value: WebhookConditionGroup | null) => void
   disabled: boolean
+  eventType?: NotificationEventType
 }) {
   const validation = validateConditions(value)
   return (
@@ -40,6 +43,7 @@ export function WebhookConditionBuilder({
             onChange={onChange}
             depth={1}
             remaining={32 - countConditions(value)}
+            eventType={eventType}
           />
           <button
             type="button"
@@ -53,7 +57,7 @@ export function WebhookConditionBuilder({
         <button
           type="button"
           className={BUTTON}
-          onClick={() => onChange({ op: 'all', conditions: [newCondition()] })}
+          onClick={() => onChange({ op: 'all', conditions: [newCondition(eventType)] })}
         >
           Add event conditions
         </button>
@@ -73,12 +77,14 @@ function ConditionGroup({
   depth,
   remaining,
   indicatorScope = false,
+  eventType,
 }: {
   value: WebhookConditionGroup
   onChange: (value: WebhookConditionGroup) => void
   depth: number
   remaining: number
   indicatorScope?: boolean
+  eventType?: NotificationEventType
 }) {
   const id = useId()
   const groupRef = useRef<HTMLDivElement>(null)
@@ -149,10 +155,12 @@ function ConditionGroup({
               depth={depth + 1}
               remaining={remaining}
               indicatorScope={indicatorScope || isIndicatorGroup(value)}
+              eventType={eventType}
             />
           ) : (
             <ConditionRow
               indicatorScope={indicatorScope || isIndicatorGroup(value)}
+              eventType={eventType}
               value={node}
               onChange={(next) => replace(index, next)}
             />
@@ -179,7 +187,7 @@ function ConditionGroup({
           onClick={() =>
             onChange({
               ...value,
-              conditions: [...value.conditions, newCondition()],
+              conditions: [...value.conditions, newCondition(eventType, indicatorScope || isIndicatorGroup(value))],
             })
           }
         >
@@ -198,7 +206,7 @@ function ConditionGroup({
               ...value,
               conditions: [
                 ...value.conditions,
-                { op: 'all', conditions: [newCondition()] },
+                { op: 'all', conditions: [newCondition(eventType, indicatorScope || isIndicatorGroup(value))] },
               ],
             })
           }
