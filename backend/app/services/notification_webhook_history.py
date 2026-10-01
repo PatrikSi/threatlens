@@ -713,7 +713,9 @@ def create_pending_notification_webhook_delivery(
     )
     db.add(delivery)
     db.flush()
-    ensure_webhook_delivery(db, webhook=webhook, legacy_delivery=delivery)
+    generic = ensure_webhook_delivery(db, webhook=webhook, legacy_delivery=delivery)
+    from app.services.webhook_request_state import REQUEST_RENDERED_KEY
+    generic.payload_json = {**generic.payload_json, REQUEST_RENDERED_KEY: True}
     return delivery
 
 
@@ -773,7 +775,9 @@ def create_pending_notification_webhook_delivery_from_render_failure(
     )
     db.add(delivery)
     db.flush()
-    ensure_webhook_delivery(db, webhook=webhook, legacy_delivery=delivery)
+    generic = ensure_webhook_delivery(db, webhook=webhook, legacy_delivery=delivery)
+    from app.services.webhook_request_state import REQUEST_RENDERED_KEY
+    generic.payload_json = {**generic.payload_json, REQUEST_RENDERED_KEY: False}
     return delivery
 
 

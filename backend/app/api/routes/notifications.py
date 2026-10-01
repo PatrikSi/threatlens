@@ -68,6 +68,7 @@ from app.services.notification_webhooks import (
     test_notification_webhook,
     validate_notification_webhook_payload_for_actor,
 )
+from app.services.webhook_request_state import WebhookRequestNotRendered
 from app.services.notification_webhook_test_policy import (
     NotificationWebhookTestPolicyError,
 )
@@ -444,7 +445,7 @@ def retry_notification_webhook_delivery_route(
         retried = retry_notification_webhook_delivery(
             db, webhook=webhook, delivery=delivery
         )
-    except NotificationWebhookRetryInProgressError as exc:
+    except (NotificationWebhookRetryInProgressError, WebhookRequestNotRendered) as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=str(exc)
         ) from exc

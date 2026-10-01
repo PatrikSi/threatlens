@@ -63,6 +63,8 @@ def lock_webhook_replay_context(
         and _legacy_delivery_id_from_payload(source) != legacy.id
     ):
         raise _missing_history_error()
+    from app.services.webhook_request_state import require_rendered_request
+    require_rendered_request(db, delivery=legacy, generic=source)
     return source, legacy
 
 
@@ -71,6 +73,10 @@ def clone_webhook_replay(
     source: NotificationWebhookDelivery,
     replay_id: uuid.UUID,
 ) -> NotificationWebhookDelivery:
+    from app.services.webhook_request_state import RENDER_FAILURE_RETRY_MESSAGE, WebhookRequestNotRendered
+    from app.services.notification_webhook_storage import RENDER_FAILURE_ERROR_PREFIX
+    if (source.error or "").startswith(RENDER_FAILURE_ERROR_PREFIX):
+        raise WebhookRequestNotRendered(RENDER_FAILURE_RETRY_MESSAGE)
     return NotificationWebhookDelivery(
         id=replay_id,
         integration_delivery_id=replay_id,
