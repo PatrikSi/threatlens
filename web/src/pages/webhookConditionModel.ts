@@ -3,6 +3,14 @@ import type {
   WebhookConditionField,
   WebhookConditionGroup,
 } from '../types/webhookAutomation'
+import type { NotificationEventType } from '../types/notifications'
+
+const INDICATOR_EVENTS = new Set<NotificationEventType>([
+  'intel.extraction.ready', 'intel.indicators.changed', 'hunt.approved',
+])
+const ARTICLE_EVENTS = new Set<NotificationEventType>([
+  ...INDICATOR_EVENTS, 'rss_item_new', 'alert_match', 'article.ai.ready',
+])
 
 export const INDICATOR_FIELDS = new Set<WebhookConditionField>([
   'ioc_type', 'ioc_role', 'analyst_verdict', 'extraction_confidence', 'maliciousness_confidence',
@@ -109,12 +117,36 @@ export function countConditions(condition: WebhookCondition | null): number {
     : 0
 }
 
-export function newCondition(): WebhookCondition {
+export function newCondition(eventType?: NotificationEventType, indicatorScope = false): WebhookCondition {
+  if (!indicatorScope && eventType === 'article.ai.ready')
+    return { field: 'ai_relevance_score', operator: 'gte', value: 0.8 }
+  if (!indicatorScope && eventType && !INDICATOR_EVENTS.has(eventType))
+    return { field: 'freshness_seconds', operator: 'lte', value: 86400 }
   return {
     field: 'ioc_role',
     operator: 'in',
     value: ['malicious_infrastructure'],
   }
+}
+
+/** Advisory only: preserve saved predicates and OR/NOT semantics when the event changes. */
+export function conditionEventWarning(field: WebhookConditionField, eventType?: NotificationEventType): string | null {
+  if (!eventType) return null
+  if ((INDICATOR_FIELDS.has(field) || field === 'attack_technique') && !INDICATOR_EVENTS.has(eventType))
+    return 'This event does not carry indicator or ATT&CK evidence. Choose Indicator extraction ready, Indicators changed or Hunt approved, or change this condition.'
+  if ((field === 'ai_relevance_score' || field === 'ai_relevance_label') && !ARTICLE_EVENTS.has(eventType))
+    return 'This event does not carry shared article relevance. Choose AI article analysis ready, or change this condition.'
+  if (field === 'alert_rule_id' && eventType !== 'alert_match')
+    return 'Alert rule evidence is available on Alert match events. Choose that event type, or change this condition.'
+  if (field === 'team_id' && eventType !== 'hunt.approved' && eventType !== 'intel.indicators.changed')
+    return 'Team evidence is available on Hunt approved and team-specific Indicators changed events. Team ownership of a destination does not add team evidence to other events. Change this condition or choose an event carrying team evidence.'
+  if (field === 'hunt_review_status' && eventType !== 'hunt.approved')
+    return 'Hunt review evidence is available on Hunt approved events. Choose that event type, or change this condition.'
+  if ((field === 'tag' || field === 'tag_id') && !ARTICLE_EVENTS.has(eventType))
+    return 'This event does not carry article tags. Choose an article event, or change this condition.'
+  if (field === 'feed_id' && (eventType === 'daily_digest' || eventType === 'report_ready'))
+    return 'Brief and report events do not identify a single feed. Change this condition or choose an event for an individual article or feed.'
+  return null
 }
 
 export function normalizeConditions(

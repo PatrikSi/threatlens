@@ -2,8 +2,9 @@ import type {
   WebhookCondition,
   WebhookConditionGroup,
 } from '../types/webhookAutomation'
+import type { NotificationEventType } from '../types/notifications'
 import { WebhookConditionValues } from './WebhookConditionValues'
-import { CONDITION_FIELDS, INDICATOR_FIELDS } from './webhookConditionModel'
+import { CONDITION_FIELDS, INDICATOR_FIELDS, conditionEventWarning } from './webhookConditionModel'
 
 const INPUT =
   'rounded border border-slate/30 bg-white p-2 text-sm dark:bg-[#072019]'
@@ -12,12 +13,15 @@ export function ConditionRow({
   value,
   onChange,
   indicatorScope = false,
+  eventType,
 }: {
   value: Exclude<WebhookCondition, WebhookConditionGroup>
   onChange: (value: WebhookCondition) => void
   indicatorScope?: boolean
+  eventType?: NotificationEventType
 }) {
   const field = CONDITION_FIELDS.find((entry) => entry.value === value.field)!
+  const warning = conditionEventWarning(value.field, eventType)
   return (
     <div className="space-y-1">
       <div className="grid min-w-0 gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,2fr)]">
@@ -88,6 +92,7 @@ export function ConditionRow({
         />}
       </div>
       <p className="text-xs text-slate dark:text-slate-300">{indicatorScope && field.numeric ? '0–1 for this individual indicator; missing confidence does not match.' : field.hint}</p>
+      {warning && <p role="status" className="text-xs text-amber-700 dark:text-amber-300">{warning} Missing evidence cannot match, including exclusions. Your condition is preserved.</p>}
     </div>
   )
 }

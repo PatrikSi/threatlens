@@ -76,7 +76,7 @@ describe('condition editor bounds and keyboard recovery', () => {
     const initial: WebhookConditionGroup = {
       op: 'all',
       conditions: [
-        { op: 'all', conditions: Array.from({ length: 30 }, newCondition) },
+        { op: 'all', conditions: Array.from({ length: 30 }, () => newCondition()) },
       ],
     }
     view = await mountIntel(<Conditions initial={initial} />)
