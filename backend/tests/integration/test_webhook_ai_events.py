@@ -1,6 +1,7 @@
 """Exercise AI completion routing, source provenance and delivery lock fences."""
 
 from datetime import datetime, timedelta, timezone
+import hashlib
 from types import SimpleNamespace
 import uuid
 
@@ -75,6 +76,33 @@ def test_completion_emits_without_indicators_and_deduplicates_same_result(db_ses
     ))) == [event.id]
 
 
+def test_ai_ready_can_combine_relevance_with_captured_tags(db_session):
+    from app.models.tag import ItemTag, Tag
+
+    item, _article, enrichment = _ready_article(db_session)
+    tag = Tag(name="Endpoint")
+    db_session.add(tag)
+    db_session.flush()
+    db_session.add(ItemTag(item_id=item.id, tag_id=tag.id))
+    enrichment.result_provenance_json = {
+        **enrichment.result_provenance_json,
+        "tag_fingerprint": hashlib.sha256(b"8:Endpoint").hexdigest(),
+    }
+    db_session.flush()
+    event_id = emit_article_ai_ready(db_session, item_id=item.id)
+    event = db_session.get(IntegrationEvent, event_id)
+    condition = WebhookConditionGroup.model_validate({"op": "all", "conditions": [
+        {"field": "ai_relevance_score", "operator": "gte", "value": 0.8},
+        {"field": "tag_id", "operator": "in", "value": [str(tag.id)]},
+    ]})
+    values = condition_values_with_current_ai(
+        db_session, payload=event.payload_json, created_at=event.created_at,
+        event_type=event.event_type, conditions=condition,
+    )
+    assert evaluate_conditions(condition, values)[0]
+    assert event.payload_json["filter_metadata"]["tags"] == ["Endpoint"]
+
+
 def test_successful_relevance_only_provider_run_publishes_transactional_event(
     db_session, configured_item, monkeypatch,
 ):
@@ -91,6 +119,47 @@ def test_successful_relevance_only_provider_run_publishes_transactional_event(
     assert len(events) == 1
     assert events[0].payload_json["ai_relevance"]["score"] == 0.9
     assert ai_event_current(db_session, events[0].payload_json)
+
+
+@pytest.mark.parametrize("oversized_reasons", [False, True])
+def test_shared_summary_and_rationale_are_bounded_and_revision_pinned(db_session, oversized_reasons):
+    item, _article, enrichment = _ready_article(db_session)
+    enrichment.summary_text = "A" * 12000
+    enrichment.relevance_reasons_json = ["R" * (10000 if oversized_reasons else 600)] * 5
+    db_session.flush()
+    event_id = emit_article_ai_ready(db_session, item_id=item.id)
+    event = db_session.get(IntegrationEvent, event_id)
+    snapshot = event.payload_json["ai_relevance"]
+    assert len(snapshot["summary"]) == 8000 and snapshot["summary_truncated"]
+    assert snapshot["relevance_reasons_truncated"]
+    assert snapshot["relevance_reasons"] == ([] if oversized_reasons else ["R" * 500] * 4)
+    assert ai_event_current(db_session, event.payload_json)
+    enrichment.summary_text = "A corrected synthesis"
+    db_session.flush()
+    assert not ai_event_current(db_session, event.payload_json)
+    assert snapshot["summary"] == "A" * 8000
+
+
+def test_legacy_events_keep_compact_relevance_even_with_large_successful_metadata(db_session):
+    item, _article, enrichment = _ready_article(db_session)
+    enrichment.summary_text = "A" * 12000
+    enrichment.relevance_reasons_json = ["R" * 5000]
+    enrichment.result_provenance_json = {
+        **enrichment.result_provenance_json, "model": "M" * 100000,
+    }
+    db_session.flush()
+    event = emit_integration_event(
+        db_session, event_type="rss_item_new", source_type="item", source_id=item.id,
+        idempotency_key=str(uuid.uuid4()), payload={"item_id": str(item.id), "feed_id": str(item.feed_id)},
+    )
+    snapshot = event.payload_json["ai_relevance"]
+    assert "summary" not in snapshot and "relevance_reasons" not in snapshot
+    assert "model" not in snapshot["provenance"]
+    assert len(snapshot["provenance_digest"]) == 64
+    assert ai_event_current(db_session, event.payload_json)
+    enrichment.result_provenance_json = {**enrichment.result_provenance_json, "model": "changed"}
+    db_session.flush()
+    assert not ai_event_current(db_session, event.payload_json)
 
 
 @pytest.mark.parametrize("change", ["source", "article", "purge", "failed", "replacement", "feed", "proof"])
