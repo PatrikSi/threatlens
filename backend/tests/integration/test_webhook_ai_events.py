@@ -122,6 +122,92 @@ def test_successful_relevance_only_provider_run_publishes_transactional_event(
     assert ai_event_current(db_session, events[0].payload_json)
 
 
+@pytest.mark.parametrize("changed_reference", ["retrieved_at", "source_revision"])
+def test_cached_result_republishes_reverified_source_without_provider_io(
+    db_session, configured_item, monkeypatch, changed_reference,
+):
+    from app.services import ai_integration
+
+    item, _settings = configured_item
+    _provider(monkeypatch, [{"summary_text": "Current evidence", "relevance_score": 0.9}])
+    _run_id, result, _resource = _run(db_session, feature="item_enrichment", item=item)
+    assert result.status == "ready"
+    statement = select(IntegrationEvent).where(
+        IntegrationEvent.event_type == AI_READY_EVENT,
+        IntegrationEvent.source_id == str(item.id),
+    )
+    original = db_session.scalars(statement).one()
+    assert original.routing_state == "pending"
+    if changed_reference == "retrieved_at":
+        article = db_session.scalar(select(Article).where(Article.item_id == item.id))
+        article.retrieved_at += timedelta(seconds=1)
+    else:
+        item.classification_required_version += 1
+    db_session.commit()
+    assert not ai_event_current(db_session, original.payload_json)
+    monkeypatch.setattr(
+        ai_integration, "_request_json_with_usage",
+        lambda *_args, **_kwargs: pytest.fail("unchanged evidence must not call the provider"),
+    )
+
+    refreshed = ai_integration.run_item_ai_enrichment(db_session, item_id=item.id)
+    db_session.commit()
+    assert refreshed.reason == "source_hash_unchanged"
+    events = list(db_session.scalars(statement))
+    assert len(events) == 2
+    replacement = next(event for event in events if event.id != original.id)
+    assert replacement.routing_state == "pending"
+    assert replacement.payload_json["action_id"] != original.payload_json["action_id"]
+    assert ai_event_current(db_session, replacement.payload_json)
+    assert not ai_event_current(db_session, original.payload_json)
+
+    repeated = ai_integration.run_item_ai_enrichment(db_session, item_id=item.id)
+    db_session.commit()
+    assert repeated.reason == "source_hash_unchanged"
+    assert len(list(db_session.scalars(statement))) == 2
+    assert ai_event_current(db_session, replacement.payload_json)
+
+
+def test_cached_result_does_not_publish_after_losing_enrichment_update(
+    db_session, configured_item, monkeypatch,
+):
+    from sqlalchemy import update
+    from app.services import ai_integration
+
+    item, _settings = configured_item
+    _provider(monkeypatch, [{"summary_text": "Current evidence", "relevance_score": 0.9}])
+    _run_id, result, _resource = _run(db_session, feature="item_enrichment", item=item)
+    assert result.status == "ready"
+    article = db_session.scalar(select(Article).where(Article.item_id == item.id))
+    article.retrieved_at += timedelta(seconds=1)
+    db_session.commit()
+    refresh = ai_integration.refresh_verified_provenance
+
+    def replacement_before_update(db, **kwargs):
+        db.execute(update(ItemAIEnrichment).where(ItemAIEnrichment.item_id == item.id)
+                   .values(status="pending").execution_options(synchronize_session=False))
+        return refresh(db, **kwargs)
+
+    monkeypatch.setattr(ai_integration, "refresh_verified_provenance", replacement_before_update)
+    monkeypatch.setattr(
+        "app.services.webhook_ai_events.emit_article_ai_ready",
+        lambda *_args, **_kwargs: pytest.fail("a replaced result must not publish completion"),
+    )
+    monkeypatch.setattr(
+        ai_integration, "_request_json_with_usage",
+        lambda *_args, **_kwargs: pytest.fail("cached evidence must not call the provider"),
+    )
+    refreshed = ai_integration.run_item_ai_enrichment(db_session, item_id=item.id)
+    db_session.commit()
+    assert refreshed.reason == "source_hash_unchanged"
+    events = list(db_session.scalars(select(IntegrationEvent).where(
+        IntegrationEvent.event_type == AI_READY_EVENT,
+        IntegrationEvent.source_id == str(item.id),
+    )))
+    assert len(events) == 1
+    assert not ai_event_current(db_session, events[0].payload_json)
+
+
 @pytest.mark.parametrize("oversized_reasons", [False, True])
 def test_shared_summary_and_rationale_are_bounded_and_revision_pinned(db_session, oversized_reasons):
     item, _article, enrichment = _ready_article(db_session)

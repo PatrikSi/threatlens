@@ -82,16 +82,18 @@ def refresh_verified_provenance(
     *,
     enrichment: ItemAIEnrichment,
     provenance: dict,
-) -> None:
+) -> bool:
     """Refresh identical evidence only if the loaded successful row still owns it.
 
     The caller fences worker ownership first and holds that lock until commit.
     Source changes after the snapshot continue to fail the SQL reuse predicate.
+    Return whether this result still owned the update so callers cannot publish
+    completion events on behalf of a replacement worker.
     """
     proof = enrichment.result_provenance_json
     if not isinstance(proof, dict) or proof.get("version") != 1:
-        return
-    db.execute(
+        return False
+    updated = db.execute(
         update(ItemAIEnrichment)
         .where(
             ItemAIEnrichment.item_id == enrichment.item_id,
@@ -103,6 +105,7 @@ def refresh_verified_provenance(
         .execution_options(synchronize_session=False)
     )
     db.expire(enrichment, ["result_provenance_json", "updated_at"])
+    return updated.rowcount == 1
 
 
 def current_enrichment_predicate() -> ColumnElement[bool]:
