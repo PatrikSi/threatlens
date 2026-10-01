@@ -266,8 +266,9 @@ def _validate_automation_authority(
         from app.schemas.webhook_automation import WebhookConditionGroup
         from app.services.webhook_conditions import (
             evaluate_conditions,
-            event_condition_values,
         )
+        from app.services.webhook_ai_events import condition_values_with_current_ai
+        from app.services.intel_event_eligibility import IntelEventBusy
 
         try:
             conditions = WebhookConditionGroup.model_validate(webhook.conditions_json)
@@ -281,17 +282,18 @@ def _validate_automation_authority(
                 IntegrationEvent.id == generic.event_id
             )
         )
-        if (
-            created_at is None
-            or not evaluate_conditions(
-                conditions,
-                event_condition_values(
-                    generic.payload_json or {},
-                    created_at=created_at,
-                    event_type=generic.event_type,
+        try:
+            matches = created_at is not None and evaluate_conditions(
+                conditions, condition_values_with_current_ai(
+                    db, payload=generic.payload_json or {}, created_at=created_at,
+                    event_type=generic.event_type, conditions=conditions, lock=True,
                 ),
             )[0]
-        ):
+        except IntelEventBusy as exc:
+            raise WebhookDeliveryTemporarilyIneligibleError(
+                "article_ai_source_busy", str(exc)
+            ) from exc
+        if not matches:
             raise WebhookDeliveryIneligibleError(
                 "webhook_conditions_changed",
                 "Current subscription conditions or freshness limits no longer permit this delivery",
@@ -319,6 +321,21 @@ def _validate_automation_authority(
                 "intelligence_event_superseded",
                 "The intelligence evidence or approved hunt revision has changed; this historical action was not sent",
             )
+    if generic.event_type == "article.ai.ready":
+        from app.services.webhook_ai_events import ai_event_current
+        from app.services.intel_event_eligibility import IntelEventBusy
+
+        try:
+            current = ai_event_current(db, generic.payload_json or {}, lock=True)
+        except IntelEventBusy as exc:
+            raise WebhookDeliveryTemporarilyIneligibleError(
+                "article_ai_source_busy", str(exc)
+            ) from exc
+        if not current:
+            raise WebhookDeliveryIneligibleError(
+                "article_ai_event_superseded",
+                "The article or successful AI result changed; this historical analysis was not sent",
+            )
     if webhook.credential_profile_id is not None:
         from app.services.webhook_credentials import load_credential
 
@@ -333,11 +350,14 @@ def _validate_automation_authority(
             raise WebhookDeliveryIneligibleError(
                 "webhook_credential_unavailable", str(exc)
             ) from exc
+    from app.services.webhook_ai_events import condition_uses_ai_relevance
+
     if generic.event_type in {
         "intel.extraction.ready",
         "intel.indicators.changed",
         "hunt.approved",
-    }:
+        "article.ai.ready",
+    } or condition_uses_ai_relevance(webhook.conditions_json):
         from app.services.authorization import authorization_context_for_user
 
         authorization = authorization_context_for_user(db, owner)

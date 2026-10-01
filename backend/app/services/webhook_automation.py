@@ -11,7 +11,7 @@ from pydantic import ValidationError
 
 from app.models.integration import IntegrationEvent
 from app.schemas.webhook_automation import WebhookConditionGroup
-from app.services.webhook_conditions import evaluate_conditions, event_condition_values
+from app.services.webhook_conditions import evaluate_conditions
 from app.services.team_access import team_access_predicate
 
 AUTOMATION_EVENTS = frozenset(
@@ -26,6 +26,7 @@ def preserve_saved_automation_request(db, *, webhook, delivery) -> bool:
     if (
         webhook.payload_mode == "automation_v1"
         or delivery.event_type_snapshot in AUTOMATION_EVENTS
+        or delivery.event_type_snapshot == "article.ai.ready"
     ):
         return True
     from app.models.integration import IntegrationDelivery
@@ -40,6 +41,9 @@ def preserve_saved_automation_request(db, *, webhook, delivery) -> bool:
         if generic and isinstance(generic.payload_json, dict)
         else {}
     )
+    from app.services.webhook_article_text import ARTICLE_TEXT_SNAPSHOT_KEY
+    if payload.get(ARTICLE_TEXT_SNAPSHOT_KEY) is True:
+        return True
     if payload.get(PAYLOAD_MODE_SNAPSHOT_KEY) == "automation_v1":
         return True
     if PAYLOAD_MODE_SNAPSHOT_KEY in payload:
@@ -119,6 +123,11 @@ def event_matches_webhook(db, *, event: IntegrationEvent, webhook) -> bool:
 
         if not automation_event_current(db, payload, event.event_type):
             return False
+    if event.event_type == "article.ai.ready":
+        from app.services.webhook_ai_events import ai_event_current
+
+        if not ai_event_current(db, payload):
+            return False
     try:
         condition = (
             WebhookConditionGroup.model_validate(webhook.conditions_json)
@@ -129,10 +138,13 @@ def event_matches_webhook(db, *, event: IntegrationEvent, webhook) -> bool:
         raise IntegrationEventContextError(
             "Saved webhook conditions are invalid; edit the subscription before retrying"
         ) from exc
+    from app.services.webhook_ai_events import condition_values_with_current_ai
+
     return evaluate_conditions(
         condition,
-        event_condition_values(
-            payload, created_at=event.created_at, event_type=event.event_type
+        condition_values_with_current_ai(
+            db, payload=payload, created_at=event.created_at,
+            event_type=event.event_type, conditions=condition,
         ),
     )[0]
 
@@ -153,6 +165,8 @@ def reserve_automation_deliveries(db, *, event: IntegrationEvent, webhooks):
     item = SimpleNamespace(
         id=uuid.UUID(payload["item_id"]),
         title=item_data.get("title", "Intelligence update"),
+        ai_relevance=payload.get("ai_relevance"),
+        article_text_reference=payload.get("article_text_reference"),
         **{
             key: item_data.get(key)
             for key in ("summary", "url", "canonical_url", "status")

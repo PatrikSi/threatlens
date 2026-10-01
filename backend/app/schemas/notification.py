@@ -6,7 +6,7 @@ from urllib.parse import parse_qsl, urlsplit, urlunsplit
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.schemas.webhook_automation import WebhookConditionGroup
 
-NotificationEventType = Literal["rss_item_new", "alert_match", "feed_failing", "webhook_failed", "daily_digest", "report_ready", "intel.extraction.ready", "intel.indicators.changed", "hunt.approved"]
+NotificationEventType = Literal["rss_item_new", "alert_match", "feed_failing", "webhook_failed", "daily_digest", "report_ready", "intel.extraction.ready", "intel.indicators.changed", "hunt.approved", "article.ai.ready"]
 LegacyNotificationEventType = Literal["rss_item_new", "alert_match", "feed_failing", "webhook_failed", "daily_digest", "report_ready"]
 NotificationMethod = Literal["GET", "POST", "PUT", "PATCH", "DELETE"]
 NotificationFeedScope = Literal["all", "selected"]

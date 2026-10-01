@@ -41,7 +41,8 @@ from app.services.webhook_automation import (
     MAX_AUTOMATION_BYTES,
     automation_envelope,
 )
-from app.services.webhook_conditions import evaluate_conditions, event_condition_values
+from app.services.webhook_conditions import evaluate_conditions
+from app.services.webhook_ai_events import condition_values_with_current_ai
 from app.services.webhook_credentials import credential_response, update_credential
 from app.services.webhook_request_authority import fence_webhook_request
 
@@ -169,7 +170,7 @@ def _require_event_permissions(
     authorization: AuthorizationContext, event_type: str
 ) -> None:
     permissions = ["read:notifications"]
-    if event_type in {"rss_item_new", "alert_match", *AUTOMATION_EVENTS}:
+    if event_type in {"rss_item_new", "alert_match", "article.ai.ready", *AUTOMATION_EVENTS}:
         permissions.append("read:items")
     if event_type == "alert_match":
         permissions.append("read:alerts")
@@ -316,8 +317,9 @@ def preview_webhook(
         raise HTTPException(404, "Event not found or unavailable") from exc
     matched, checks, missing = evaluate_conditions(
         payload.webhook.conditions,
-        event_condition_values(
-            data, created_at=event.created_at, event_type=event.event_type
+        condition_values_with_current_ai(
+            db, payload=data, created_at=event.created_at, event_type=event.event_type,
+            conditions=payload.webhook.conditions,
         ),
     )
     feed_match = (
@@ -327,6 +329,15 @@ def preview_webhook(
     )
     complete = data.get("indicators_complete") is not False
     current = True
+    if event.event_type == "article.ai.ready":
+        from app.services.webhook_ai_events import ai_event_current
+
+        current = ai_event_current(db, data)
+        checks.append(WebhookConditionCheck(
+            field="current_ai_result", matched=current,
+            reason="Article and AI result are current" if current else
+            "The article or successful AI result changed; this historical analysis will not be sent",
+        ))
     if event.event_type in AUTOMATION_EVENTS:
         from app.services.intel_event_eligibility import automation_event_current
 

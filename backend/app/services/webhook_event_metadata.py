@@ -9,7 +9,10 @@ from app.models.alert_occurrence import AlertOccurrence
 
 
 def add_routing_metadata(db, *, event_type: str, payload: dict) -> None:
-    if event_type not in {"rss_item_new", "alert_match"}:
+    from app.services.webhook_ai_events import capture_relevance_metadata
+
+    capture_relevance_metadata(db, event_type=event_type, payload=payload)
+    if event_type not in {"rss_item_new", "alert_match", "article.ai.ready"}:
         return
     try:
         item_id = uuid.UUID(str(payload.get("item_id")))

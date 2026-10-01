@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 MAX_EVENT_SCHEMA_VERSION_BY_TYPE = {
+    "article.ai.ready": 1,
     "intel.extraction.ready": 1,
     "intel.indicators.changed": 1,
     "hunt.approved": 1,
