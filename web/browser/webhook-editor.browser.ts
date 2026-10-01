@@ -43,6 +43,8 @@ test('builds AI relevance routing and includes extracted article text without re
   await expect(page.getByLabel('JSON body fields row 1 value')).toHaveValue('endpoint-triage')
   await page.getByText('Automation and event conditions', { exact: true }).click()
   await page.getByRole('button', { name: 'Add event conditions', exact: true }).click()
+  await expect(page.getByRole('combobox', { name: 'Field', exact: true })).toHaveValue('ai_relevance_score')
+  await expect(page.getByLabel('Threshold', { exact: true })).toHaveValue('0.8')
   await page.getByRole('combobox', { name: 'Field', exact: true }).selectOption('ai_relevance_label')
   await page.getByLabel('Search values', { exact: true }).fill('high')
   await page.getByRole('combobox', { name: 'Add a value', exact: true }).selectOption('high')

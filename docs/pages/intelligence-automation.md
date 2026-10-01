@@ -62,6 +62,9 @@ yet; adding an AI condition to that early event does not delay it until AI finis
 AI processing must be enabled and complete successfully to produce the AI-ready
 event. Creating a subscription does not analyze historical articles or invoke a
 provider.
+Revalidating a cached successful result against a refreshed, unchanged article
+also publishes its current evidence revision. This does not call the model again;
+repeated validation of the same accepted revision does not duplicate the event.
 Use this signal for triage or enrichment. A high relevance score does not approve
 a hunt; `hunt.approved` remains the trigger for analyst-approved execution.
 
@@ -88,6 +91,10 @@ AND/OR or exclusion semantics. Preview a recent event before enabling the
 destination: the event
 picker includes its captured article title and feed, and the result explains each
 condition and unavailable field. Preview sends no request to the receiver.
+The team destination editor offers the same preview to its current custodian.
+It evaluates the draft's conditions and body under the caller's current source
+access; destination, team and credential delivery policies are still checked
+when sending.
 
 ### Choose payload fields and article text
 
