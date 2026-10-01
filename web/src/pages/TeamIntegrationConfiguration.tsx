@@ -20,6 +20,7 @@ import { KeyValueEditor } from './NotificationWebhookShared'
 import { WebhookArticleTextOption } from './WebhookArticleTextOption'
 import { WebhookPayloadFieldPicker } from './WebhookPayloadFieldPicker'
 import { WebhookConditionBuilder } from './WebhookConditionBuilder'
+import { WebhookEventPreview } from './WebhookEventPreview'
 import { validateConditions } from './webhookConditionModel'
 import { TEAM_BUTTON } from './teamPresentation'
 const INPUT =
@@ -273,6 +274,7 @@ function ConfigurationEditor({
       )}
       {draft.payload_mode === 'automation_v1' && <WebhookArticleTextOption checked={draft.include_article_text ?? false} disabled={busy} onChange={(value) => change('include_article_text', value)} />}
       <WebhookConditionBuilder
+        eventType={draft.event_type}
         value={draft.conditions ?? null}
         onChange={(value) => change('conditions', value)}
         disabled={busy}
@@ -342,6 +344,7 @@ function ConfigurationEditor({
           )}
         </>
       )}
+      <WebhookEventPreview key={draft.event_type} draft={draft} disabled={busy} />
       <p className="text-sm">
         The destination retains its cloned signing and authentication profile.
         Rotate that profile in notification credential settings while acting as
