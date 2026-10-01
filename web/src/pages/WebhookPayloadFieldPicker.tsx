@@ -4,7 +4,7 @@ import { apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
 import type { NotificationTemplateVariable } from '../types/notifications'
 import type { NotificationWebhookDraft } from './notificationWebhookDraft'
-import { payloadFieldConflict, payloadVariableGroup, variableAppliesToEvent } from './webhookPayloadFields'
+import { matchesPayloadSearch, payloadFieldConflict, payloadVariableGroup, variableAppliesToEvent } from './webhookPayloadFields'
 
 const INPUT = 'mt-1 block w-full min-w-0 rounded border border-slate/30 bg-white p-2 text-sm dark:bg-[#072019]'
 const BUTTON = 'rounded border border-slate/30 px-3 py-1.5 text-sm disabled:opacity-50'
@@ -34,7 +34,7 @@ export function WebhookPayloadFieldPicker({ draft, onChange, disabled }: {
   const relevant = selected ? variableAppliesToEvent(selected, draft.event_type) : false
   const choices = variables.filter((variable) =>
     (showAll || variableAppliesToEvent(variable, draft.event_type)) &&
-    `${variable.key} ${variable.description} ${payloadVariableGroup(variable.key)}`.toLowerCase().includes(search.toLowerCase().trim()),
+    matchesPayloadSearch(variable, search),
   )
   const groups = [...new Set(choices.map((variable) => payloadVariableGroup(variable.key)))]
   const fieldMode = draft.body_mode === 'json' || draft.body_mode === 'form'

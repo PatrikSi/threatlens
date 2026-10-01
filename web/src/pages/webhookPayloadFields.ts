@@ -29,3 +29,9 @@ export function payloadFieldConflict(fields: NotificationWebhookField[], key: st
   })) return 'This key overlaps an existing JSON path. Choose a different key so existing fields are preserved.'
   return null
 }
+
+export function matchesPayloadSearch(variable: NotificationTemplateVariable, search: string): boolean {
+  const normalized = (value: string) => value.toLowerCase().replace(/[_.]/g, ' ')
+  const text = normalized(`${variable.key} ${variable.description} ${payloadVariableGroup(variable.key)}`)
+  return normalized(search).trim().split(/\s+/).every((token) => text.includes(token))
+}
