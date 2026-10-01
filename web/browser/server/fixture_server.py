@@ -38,6 +38,7 @@ from app.models.item import Item
 from app.models.oidc import OIDCProvider
 from app.models.user import User
 from editorial_fixture import install_editorial_controls
+from webhook_fixture import install_webhook_controls
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -78,6 +79,7 @@ def require_control(request: Request):
 
 
 install_editorial_controls(harness, require_control)
+install_webhook_controls(harness, require_control)
 
 
 @harness.get("/__browser__/ready")

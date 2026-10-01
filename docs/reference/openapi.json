@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "2.0.1",
-    "x-threatlens-contract-sha256": "6f8a70c74b5c002d51fa80475010bc5e95147b104fa12af1b76352fcb5e11754"
+    "x-threatlens-contract-sha256": "45ad64c72cc85243cba7b3fed7c3696de499b5caccf3572754d1c9404d7af3ee"
   },
   "servers": [
     {
@@ -3006,7 +3006,8 @@
                 "report_ready",
                 "intel.extraction.ready",
                 "intel.indicators.changed",
-                "hunt.approved"
+                "hunt.approved",
+                "article.ai.ready"
               ],
               "type": "string",
               "title": "Event Type"
@@ -55646,7 +55647,8 @@
               "report_ready",
               "intel.extraction.ready",
               "intel.indicators.changed",
-              "hunt.approved"
+              "hunt.approved",
+              "article.ai.ready"
             ],
             "title": "Event Type"
           },
@@ -55914,7 +55916,8 @@
               "report_ready",
               "intel.extraction.ready",
               "intel.indicators.changed",
-              "hunt.approved"
+              "hunt.approved",
+              "article.ai.ready"
             ],
             "title": "Event Type"
           },
@@ -56168,6 +56171,11 @@
       },
       "NotificationWebhookResponse": {
         "properties": {
+          "include_article_text": {
+            "type": "boolean",
+            "title": "Include Article Text",
+            "default": false
+          },
           "team_id": {
             "anyOf": [
               {
@@ -56252,7 +56260,8 @@
               "report_ready",
               "intel.extraction.ready",
               "intel.indicators.changed",
-              "hunt.approved"
+              "hunt.approved",
+              "article.ai.ready"
             ],
             "title": "Event Type"
           },
@@ -56515,6 +56524,11 @@
       },
       "NotificationWebhookWrite": {
         "properties": {
+          "include_article_text": {
+            "type": "boolean",
+            "title": "Include Article Text",
+            "default": false
+          },
           "payload_mode": {
             "type": "string",
             "enum": [
@@ -56568,7 +56582,8 @@
               "report_ready",
               "intel.extraction.ready",
               "intel.indicators.changed",
-              "hunt.approved"
+              "hunt.approved",
+              "article.ai.ready"
             ],
             "title": "Event Type",
             "default": "rss_item_new"
@@ -69912,7 +69927,9 @@
               "maliciousness_confidence",
               "freshness_seconds",
               "attack_technique",
-              "hunt_review_status"
+              "hunt_review_status",
+              "ai_relevance_score",
+              "ai_relevance_label"
             ],
             "title": "Field"
           },
@@ -70316,6 +70333,28 @@
               }
             ],
             "title": "Automation Payload"
+          },
+          "template_body": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Template Body"
+          },
+          "template_body_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Template Body Error"
           }
         },
         "type": "object",

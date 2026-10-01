@@ -5,7 +5,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ## Published Contract
 
 - Schema version: `2.0.1`
-- OpenAPI contract anchor: `openapi-sha256:6f8a70c74b5c002d51fa80475010bc5e95147b104fa12af1b76352fcb5e11754`
+- OpenAPI contract anchor: `openapi-sha256:45ad64c72cc85243cba7b3fed7c3696de499b5caccf3572754d1c9404d7af3ee`
 - API service base path: `/v1`
 - Web proxy base path: `/api/v1`
 - Bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`.
@@ -1919,7 +1919,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:notifications`
 - Parameters:
-  - `event_type` (query, required): string ('rss_item_new', 'alert_match', 'feed_failing', 'webhook_failed', 'daily_digest', 'report_ready', 'intel.extraction.ready', 'intel.indicators.changed', 'hunt.approved')
+  - `event_type` (query, required): string ('rss_item_new', 'alert_match', 'feed_failing', 'webhook_failed', 'daily_digest', 'report_ready', 'intel.extraction.ready', 'intel.indicators.changed', 'hunt.approved', 'article.ai.ready')
   - `limit` (query, optional): integer
 - Responses: `200` `application/json` -> unspecified, `401` `application/json` -> ApiErrorResponse, `403` `application/json` -> ApiErrorResponse, `422` `application/json` -> ApiErrorResponse, `503` `application/json` -> ApiErrorResponse
 ### `POST /v1/notifications/webhooks/preview`
