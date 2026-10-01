@@ -162,6 +162,7 @@ def redact_notification_test_response(
 def notification_webhook_write_from_model(webhook: NotificationWebhook) -> NotificationWebhookWrite:
     upgrade_notification_webhook_secret_storage(webhook)
     return NotificationWebhookWrite(
+        include_article_text=bool(webhook.include_article_text),
         payload_mode=webhook.payload_mode or "template",
         conditions=webhook.conditions_json,
         credential_profile_id=webhook.credential_profile_id,
@@ -193,6 +194,7 @@ def notification_webhook_response_from_model(
         visible = frozenset(accessible_feed_ids)
         feed_ids = [feed_id for feed_id in feed_ids if feed_id in visible]
     return NotificationWebhookResponse(
+        include_article_text=payload.include_article_text,
         payload_mode=payload.payload_mode,
         conditions=payload.conditions,
         credential_profile_id=payload.credential_profile_id,
@@ -262,6 +264,7 @@ def notification_webhook_delivery_response_from_model(
 
 def build_notification_webhook(user_id: uuid.UUID, payload: NotificationWebhookWrite) -> NotificationWebhook:
     return NotificationWebhook(
+        include_article_text=payload.include_article_text,
         payload_mode=payload.payload_mode,
         conditions_json=payload.conditions.model_dump(mode="json") if payload.conditions else None,
         credential_profile_id=payload.credential_profile_id,
@@ -283,6 +286,8 @@ def build_notification_webhook(user_id: uuid.UUID, payload: NotificationWebhookW
 
 
 def apply_notification_webhook_updates(webhook: NotificationWebhook, payload: NotificationWebhookWrite) -> None:
+    if "include_article_text" in payload.model_fields_set:
+        webhook.include_article_text = payload.include_article_text
     if "payload_mode" in payload.model_fields_set:
         webhook.payload_mode = payload.payload_mode
     if "conditions" in payload.model_fields_set:

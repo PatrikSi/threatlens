@@ -179,3 +179,5 @@ class WebhookPreviewResponse(BaseModel):
     checks: list[WebhookConditionCheck]
     missing_fields: list[str]
     automation_payload: dict | None = None
+    template_body: str | None = None
+    template_body_error: str | None = None

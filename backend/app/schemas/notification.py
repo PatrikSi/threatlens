@@ -28,6 +28,7 @@ class NotificationTemplateVariable(BaseModel):
 
 
 class NotificationWebhookWrite(BaseModel):
+    include_article_text: bool = False
     payload_mode: Literal["template", "automation_v1"] = "template"
     conditions: WebhookConditionGroup | None = None
     credential_profile_id: uuid.UUID | None = None
@@ -102,6 +103,7 @@ class NotificationWebhookWrite(BaseModel):
 
 
 class NotificationWebhookResponse(BaseModel):
+    include_article_text: bool = False
     team_id: uuid.UUID | None = None
     ownership_revision: int = 1
     model_config = ConfigDict(from_attributes=True)

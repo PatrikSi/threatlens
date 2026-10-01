@@ -33,6 +33,8 @@ def validate_notification_webhook_payload(
             raise ValueError("One or more selected feeds are unavailable")
 
     validate_notification_target_url(payload.url_template)
+    from app.services.webhook_article_text import validate_article_text_placement
+    validate_article_text_placement(payload)
 
     unknown_variables = sorted(find_unknown_template_variables(payload))
     if unknown_variables:

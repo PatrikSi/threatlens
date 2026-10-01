@@ -88,6 +88,7 @@ class NotificationWebhookTestSourceRefs:
     feed_id: uuid.UUID | None = None
     item_id: uuid.UUID | None = None
     daily_brief_id: uuid.UUID | None = None
+    required_permissions: tuple[str, ...] = ()
 
     @property
     def data_access_governed(self) -> bool:
@@ -98,6 +99,7 @@ class NotificationWebhookTestSourceRefs:
 
     def as_metadata(self) -> dict[str, list[str]]:
         return {
+            **({"required_permissions": list(self.required_permissions)} if self.required_permissions else {}),
             "feed_ids": [str(self.feed_id)] if self.feed_id is not None else [],
             "item_ids": [str(self.item_id)] if self.item_id is not None else [],
             "daily_brief_ids": (
@@ -172,10 +174,13 @@ def authorize_notification_webhook_test(
                 authorization=authorization,
                 data_access=data_access,
                 snapshot=credential_snapshot,
+                required_permissions=(SCOPE_WRITE_NOTIFICATIONS, *source_refs.required_permissions),
             )
         except ExportJobAccessDenied as exc:
             raise NotificationWebhookTestCredentialChanged(
-                "Webhook test credentials expired, were revoked, or lost access. Refresh your session before retrying."
+                "Webhook test credentials expired, were revoked, or lost required access"
+                + (f" ({', '.join(source_refs.required_permissions)})" if source_refs.required_permissions else "")
+                + ". Refresh your session before retrying."
             ) from exc
 
     if (
@@ -186,6 +191,10 @@ def authorize_notification_webhook_test(
     ):
         raise NotificationWebhookTestPolicyUnavailable(
             "Webhook test authorization does not match the current actor."
+        )
+    if not all(authorization.has(permission) for permission in source_refs.required_permissions):
+        raise NotificationWebhookTestCredentialChanged(
+            "Webhook article content requires current read:items permission. Refresh your credentials before retrying."
         )
 
     locked_user = db.scalar(

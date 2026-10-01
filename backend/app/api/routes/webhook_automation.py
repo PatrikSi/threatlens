@@ -168,7 +168,7 @@ class WebhookPreviewRequest(BaseModel):
 
 def _require_event_permissions(
     authorization: AuthorizationContext, event_type: str
-) -> None:
+) -> tuple[str, ...]:
     permissions = ["read:notifications"]
     if event_type in {"rss_item_new", "alert_match", "article.ai.ready", *AUTOMATION_EVENTS}:
         permissions.append("read:items")
@@ -180,10 +180,15 @@ def _require_event_permissions(
         permissions.append("read:reports")
     if event_type == "daily_digest":
         permissions.append("read:ai")
+    # These optional grants permit _event_query to expose team-owned snapshots.
+    # Revalidate them against current credential scopes under the same fence.
+    if authorization.has("read:teams") and authorization.has("read:ai"):
+        permissions.extend(("read:teams", "read:ai"))
     if not all(authorization.has(permission) for permission in permissions):
         raise HTTPException(
             403, "Current permissions do not allow previewing this event type"
         )
+    return tuple(permissions)
 
 
 def _event_query(
@@ -244,13 +249,14 @@ def list_webhook_events(
     data_access: DataAccessContext = Depends(get_data_access_context),
     _scope=Depends(require_token_scopes("read:notifications")),
 ):
-    _require_event_permissions(authorization, event_type)
+    permissions = _require_event_permissions(authorization, event_type)
     fence_webhook_request(
         db,
         request=request,
         authorization=authorization,
         data_access=data_access,
         permission="read:notifications",
+        additional_permissions=permissions,
     )
     rows = db.execute(
         _event_query(
@@ -263,6 +269,12 @@ def list_webhook_events(
             IntegrationEvent.id,
             IntegrationEvent.event_type,
             IntegrationEvent.created_at,
+            func.left(
+                IntegrationEvent.payload_json["item"]["title"].as_string(), 160
+            ).label("item_title"),
+            func.left(
+                IntegrationEvent.payload_json["feed"]["name"].as_string(), 80
+            ).label("feed_name"),
         )
         .order_by(IntegrationEvent.created_at.desc(), IntegrationEvent.id.desc())
         .limit(limit)
@@ -273,7 +285,16 @@ def list_webhook_events(
                 "id": row.id,
                 "event_type": row.event_type,
                 "created_at": row.created_at,
-                "label": f"{row.event_type} · {row.created_at.isoformat()}",
+                "label": " · ".join(
+                    value
+                    for value in (
+                        row.event_type,
+                        " ".join((row.item_title or "").split()),
+                        " ".join((row.feed_name or "").split()),
+                        row.created_at.isoformat(),
+                    )
+                    if value
+                ),
             }
             for row in rows
         ]
@@ -290,13 +311,14 @@ def preview_webhook(
     data_access: DataAccessContext = Depends(get_data_access_context),
     _scope=Depends(require_token_scopes("read:notifications")),
 ):
-    _require_event_permissions(authorization, payload.webhook.event_type)
+    permissions = _require_event_permissions(authorization, payload.webhook.event_type)
     fence_webhook_request(
         db,
         request=request,
         authorization=authorization,
         data_access=data_access,
         permission="read:notifications",
+        additional_permissions=permissions,
     )
     event = db.scalar(
         _event_query(
@@ -369,7 +391,13 @@ def preview_webhook(
             ),
         )
     )
+    template_body, template_body_error = None, None
     try:
+        from app.services.webhook_article_text import automation_payload_with_article_text
+        if payload.webhook.payload_mode == "automation_v1":
+            data = automation_payload_with_article_text(
+                db, event=event, payload=data, include=payload.webhook.include_article_text,
+            )
         envelope = (
             automation_envelope(event, payload=data)
             if payload.webhook.payload_mode == "automation_v1"
@@ -377,9 +405,19 @@ def preview_webhook(
         )
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
+    if payload.webhook.payload_mode == "template":
+        from app.services.webhook_template_preview import preview_template_body
+        try:
+            template_body = preview_template_body(
+                db, event=event, data=data, payload=payload.webhook, user=user,
+            )
+        except (ValueError, IntegrationEventContextError) as exc:
+            template_body_error = str(exc)
     return WebhookPreviewResponse(
         matches=matched and feed_match and complete and current,
         checks=checks,
         missing_fields=missing,
         automation_payload=envelope,
+        template_body=template_body,
+        template_body_error=template_body_error,
     )
