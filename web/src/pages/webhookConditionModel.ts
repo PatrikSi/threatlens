@@ -18,7 +18,7 @@ export const CONDITION_FIELDS: {
 }[] = [
   {
     value: 'feed_id',
-    label: 'Feed ID',
+    label: 'Feed',
     hint: 'Exact feed identifiers, separated by commas.',
   },
   {
@@ -33,12 +33,12 @@ export const CONDITION_FIELDS: {
   },
   {
     value: 'alert_rule_id',
-    label: 'Alert rule ID',
+    label: 'Alert rule',
     hint: 'Exact rule identifiers; unrelated alert rules will not match.',
   },
   {
     value: 'team_id',
-    label: 'Team ID',
+    label: 'Team',
     hint: 'Exact team identifiers. Team access is checked independently.',
   },
   {
@@ -67,6 +67,17 @@ export const CONDITION_FIELDS: {
     label: 'Maliciousness confidence',
     numeric: true,
     hint: '0–1, using the lowest available score. Every non-excluded indicator needs a score; missing confidence does not match.',
+  },
+  {
+    value: 'ai_relevance_score',
+    label: 'AI relevance score',
+    numeric: true,
+    hint: '0–1 from current shared AI article analysis, independent of team assessments. Missing or stale AI does not match. Use AI article analysis ready for reliable AI-based routing.',
+  },
+  {
+    value: 'ai_relevance_label',
+    label: 'AI relevance level',
+    hint: 'High, medium or low from current shared AI article analysis; this is not team-specific relevance. Missing or stale AI does not match.',
   },
   {
     value: 'freshness_seconds',
@@ -154,7 +165,7 @@ export function validateConditions(
       if (!Number.isFinite(node.value) || node.value < 0)
         return 'Enter a non-negative numeric condition.'
       if (node.field !== 'freshness_seconds' && node.value > 1)
-        return 'Confidence must be between 0 and 1.'
+        return node.field === 'ai_relevance_score' ? 'AI relevance score must be between 0 and 1.' : 'Confidence must be between 0 and 1.'
       if (node.field === 'freshness_seconds' && node.value > 31_536_000)
         return 'Evidence age cannot exceed 365 days (31536000 seconds).'
     } else {

@@ -37,6 +37,13 @@ describe('bounded webhook condition drafts', () => {
     expect(createRequestFromDraft(draft)).toMatchObject({ payload_mode: 'automation_v1', conditions: normalizeConditions(tree), credential_profile_id: 'profile' })
     expect(draft.conditions).not.toBe(tree)
   })
+  it('defaults full article text off for legacy destinations and preserves explicit opt-in through saves', () => {
+    const legacy = { ...createDefaultDraft(), id: 'hook', user_id: 'user', created_at: '', updated_at: '' } as NotificationWebhook
+    delete legacy.include_article_text
+    expect(createDraftFromWebhook(legacy).include_article_text).toBe(false)
+    const optedIn = createDraftFromWebhook({ ...legacy, include_article_text: true, event_type: 'article.ai.ready' })
+    expect(createRequestFromDraft(optedIn)).toMatchObject({ include_article_text: true, event_type: 'article.ai.ready' })
+  })
   it('keeps same-indicator predicates explicit and rejects cross-scope fields', () => {
     const scoped: WebhookConditionGroup = { op: 'indicators_any', conditions: [
       { field: 'ioc_type', operator: 'in', value: ['domain'] },

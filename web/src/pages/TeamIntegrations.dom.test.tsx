@@ -147,7 +147,7 @@ describe('team destination lifecycle', () => {
     vi.mocked(apiFetch).mockImplementation((path, options) =>
       options?.method === 'PUT'
         ? pending.promise
-        : Promise.resolve(path === '/feeds' ? [] : saved),
+        : Promise.resolve(path === '/feeds' || path === '/notifications/template-variables' ? [] : saved),
     )
     view = await mountIntel(
       <TeamIntegrationConfiguration

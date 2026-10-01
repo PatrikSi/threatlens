@@ -27,7 +27,7 @@ export function WebhookConditionBuilder({
 }) {
   const validation = validateConditions(value)
   return (
-    <fieldset disabled={disabled} className="space-y-2">
+    <fieldset disabled={disabled} className="min-w-0 space-y-2">
       <legend className="font-semibold">Event conditions</legend>
       <p className="text-xs">
         These conditions narrow the selected event and feed scope. Missing
@@ -106,14 +106,14 @@ function ConditionGroup({
   return (
     <div
       ref={groupRef}
-      className="space-y-2 rounded border border-slate/25 p-3"
+      className="min-w-0 space-y-2 rounded border border-slate/25 p-3"
     >
       <label htmlFor={id} className="mr-2 text-sm">
         Match
       </label>
       <select
         id={id}
-        className={INPUT}
+        className={`${INPUT} max-w-full`}
         value={value.op}
         onChange={(event) => {
           const op = event.target.value as WebhookConditionGroup['op']
@@ -141,7 +141,7 @@ function ConditionGroup({
         <p className="text-xs">Conditions below apply to the same indicator. Excluded indicators cannot match. The event payload remains complete.</p>
       )}
       {value.conditions.map((node, index) => (
-        <div key={index} className="space-y-2">
+        <div key={index} className="min-w-0 space-y-2">
           {'conditions' in node ? (
             <ConditionGroup
               value={node}

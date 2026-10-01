@@ -11,7 +11,7 @@ export interface NotificationTemplateVariable {
   example: string
 }
 
-export type NotificationEventType = 'rss_item_new' | 'alert_match' | 'feed_failing' | 'webhook_failed' | 'daily_digest' | 'report_ready' | 'intel.extraction.ready' | 'intel.indicators.changed' | 'hunt.approved'
+export type NotificationEventType = 'rss_item_new' | 'alert_match' | 'feed_failing' | 'webhook_failed' | 'daily_digest' | 'report_ready' | 'intel.extraction.ready' | 'intel.indicators.changed' | 'hunt.approved' | 'article.ai.ready'
 
 export interface NotificationWebhook {
   id: string
@@ -31,6 +31,7 @@ export interface NotificationWebhook {
   body_fields: NotificationWebhookField[]
   body_template: string | null
   timeout_seconds: number
+  include_article_text?: boolean
   payload_mode?: 'template' | 'automation_v1'
   conditions?: WebhookConditionGroup | null
   credential_profile_id?: string | null
@@ -53,6 +54,7 @@ export interface NotificationWebhookWriteRequest {
   body_fields: NotificationWebhookField[]
   body_template: string | null
   timeout_seconds: number
+  include_article_text?: boolean
   payload_mode?: 'template' | 'automation_v1'
   conditions?: WebhookConditionGroup | null
   credential_profile_id?: string | null

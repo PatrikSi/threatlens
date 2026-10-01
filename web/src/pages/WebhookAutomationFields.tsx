@@ -10,6 +10,7 @@ import type {
 } from '../types/webhookAutomation'
 import type { NotificationWebhooksController } from './useNotificationWebhooksController'
 import { createRequestFromDraft } from './notificationWebhookDraft'
+import { WebhookArticleTextOption } from './WebhookArticleTextOption'
 import { WebhookConditionBuilder } from './WebhookConditionBuilder'
 import { validateConditions } from './webhookConditionModel'
 
@@ -125,6 +126,11 @@ export function WebhookAutomationFields({
           delivery confirms HTTP acceptance, not hunt completion.
         </p>
       )}
+      {draft.payload_mode === 'automation_v1' && <WebhookArticleTextOption
+        checked={draft.include_article_text ?? false}
+        disabled={disabled}
+        onChange={(include_article_text) => setDraft((current) => ({ ...current, include_article_text }))}
+      />}
       <WebhookConditionBuilder
         value={draft.conditions ?? null}
         disabled={disabled}
@@ -280,6 +286,11 @@ function WebhookEventPreview({
           {result.missing_fields.length > 0 && (
             <p>Unavailable evidence: {result.missing_fields.join(', ')}.</p>
           )}
+          {result.template_body_error && <p role="alert">Payload could not be rendered: {result.template_body_error}</p>}
+          {result.template_body != null && <details>
+            <summary className="cursor-pointer">Rendered template payload</summary>
+            <pre tabIndex={0} aria-label="Template payload preview" className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded border p-2 text-xs">{result.template_body}</pre>
+          </details>}
           {result.automation_payload && (
             <details>
               <summary className="cursor-pointer">Structured payload</summary>

@@ -16,6 +16,7 @@ export const EVENT_OPTIONS: Array<{
   label: string
   description: string
 }> = [
+  { value: 'article.ai.ready', label: 'AI article analysis ready', description: 'Fire when current shared AI article analysis finishes. Use this event for AI relevance filters; it is independent of indicator changes.' },
   { value: 'rss_item_new', label: 'New RSS item', description: 'Fire when a new RSS item is ingested from a feed.' },
   { value: 'alert_match', label: 'Alert match', description: 'Fire when an item matches one or more of your alert interests.' },
   { value: 'feed_failing', label: 'Feed failing', description: 'Fire when a feed hits repeated fetch failures.' },
@@ -28,6 +29,7 @@ export const EVENT_OPTIONS: Array<{
 ]
 
 const EVENT_DEFAULT_JSON_FIELDS: Record<NotificationEventType, NotificationWebhookField[]> = {
+  'article.ai.ready': [{ key: 'event.type', value: '{{ event.type }}' }, { key: 'item.title', value: '{{ item.title }}' }, { key: 'item.url', value: '{{ item.url }}' }],
   'intel.extraction.ready': [{ key: 'event.type', value: '{{ event.type }}' }, { key: 'item.id', value: '{{ item.id }}' }],
   'intel.indicators.changed': [{ key: 'event.type', value: '{{ event.type }}' }, { key: 'item.id', value: '{{ item.id }}' }],
   'hunt.approved': [{ key: 'event.type', value: '{{ event.type }}' }, { key: 'item.id', value: '{{ item.id }}' }],
@@ -92,6 +94,7 @@ export function createDefaultDraft(): NotificationWebhookDraft {
     body_template: '',
     content_type: '',
     timeout_seconds: 10,
+    include_article_text: false,
     payload_mode: 'template',
     conditions: null,
     credential_profile_id: null,
@@ -115,6 +118,7 @@ export function createDraftFromWebhook(webhook: NotificationWebhook): Notificati
     body_template: webhook.body_template ?? '',
     content_type: contentType,
     timeout_seconds: webhook.timeout_seconds,
+    include_article_text: webhook.include_article_text ?? false,
     payload_mode: webhook.payload_mode ?? 'template',
     conditions: webhook.conditions ? structuredClone(webhook.conditions) : null,
     credential_profile_id: webhook.credential_profile_id ?? null,
@@ -140,6 +144,7 @@ export function createRequestFromDraft(draft: NotificationWebhookDraft): Notific
         : [],
     body_template: normalizedDraft.body_mode === 'raw' ? normalizedDraft.body_template : null,
     timeout_seconds: normalizedDraft.timeout_seconds,
+    include_article_text: normalizedDraft.include_article_text ?? false,
     payload_mode: normalizedDraft.payload_mode ?? 'template',
     conditions: normalizeConditions(normalizedDraft.conditions ?? null),
     credential_profile_id: normalizedDraft.credential_profile_id ?? null,
