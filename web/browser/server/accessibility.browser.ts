@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import type { Page, TestInfo } from '@playwright/test'
-import { test, expect, signIn, openEditor } from './fixtures'
+import { test, expect, signIn, openEditor, fixtureFeedEdit } from './fixtures'
 
 async function checkAccessibility(page: Page, info: TestInfo, state: string) {
   const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze()
@@ -23,7 +23,7 @@ test('login and rejected credentials expose semantic labels and announced errors
 test('feed editor and account settings support keyboard focus and accessible forms', async ({ page, identity }, info) => {
   await signIn(page, identity)
   await page.goto('/feeds')
-  const edit = page.getByRole('button', { name: 'Edit', exact: true })
+  const edit = fixtureFeedEdit(page)
   await expect(edit).toBeVisible()
   await checkAccessibility(page, info, 'feeds')
   await edit.focus()
