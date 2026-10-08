@@ -224,6 +224,76 @@ def test_reconcile_resumes_only_unsent_probes_after_a_checkpointed_crash(
     assert list(db_session.scalars(select(AIProviderAttemptReceipt.state))) == ["succeeded", "succeeded"]
 
 
+@pytest.mark.parametrize("snapshot_available", [True, False])
+def test_reconcile_resumes_a_reserved_probe_that_never_entered_provider_runtime(
+    db_session, setup_qualification, monkeypatch, snapshot_available,
+):
+    _, _, run_id = setup_qualification
+    request = ai_qualification.request_ai_json_with_usage
+
+    class WorkerCrash(BaseException):
+        """Lose the worker after its local checkpoint, before provider admission."""
+
+    def crash_before_provider(*args, **kwargs):
+        raise WorkerCrash()
+
+    monkeypatch.setattr(ai_qualification, "request_ai_json_with_usage", crash_before_provider)
+    with pytest.raises(WorkerCrash):
+        _invoke_worker(db_session, monkeypatch, run_id, delivery="lost-delivery")
+    row = db_session.get(AIQualification, run_id)
+    started = copy.deepcopy(row.results_json[0])
+    assert started["state"] == "started"
+    initial_reservation = row.reserved_tokens
+    assert initial_reservation > 0
+    assert db_session.scalar(select(AIProviderAttemptReceipt.id)) is None
+    run = db_session.get(AITaskRun, run_id)
+    _expire_worker(db_session, run)
+    _reconcile(db_session, snapshot_available=snapshot_available)
+    assert run.status == "queued"
+    delivery = run.celery_task_id
+    monkeypatch.setattr(ai_qualification, "request_ai_json_with_usage", request)
+    calls = _provider_recorder(monkeypatch)
+    assert _invoke_worker(db_session, monkeypatch, run_id, delivery="lost-delivery")["status"] == "skipped"
+    assert calls == []
+    assert _invoke_worker(db_session, monkeypatch, run_id, delivery=delivery)["status"] == "ready"
+    assert len(calls) == 2
+    assert row.results_json[0]["request_fingerprint"] == started["request_fingerprint"]
+    second = row.results_json[1]
+    assert row.reserved_tokens == initial_reservation + second["reserved_tokens"]
+    assert list(db_session.scalars(select(AIProviderAttemptReceipt.state))) == ["succeeded", "succeeded"]
+
+
+@pytest.mark.parametrize("fingerprint", [None, "changed"])
+def test_started_qualification_probe_requires_its_original_request_identity(
+    db_session, setup_qualification, monkeypatch, fingerprint,
+):
+    _, _, run_id = setup_qualification
+
+    class WorkerCrash(BaseException):
+        pass
+
+    def crash_before_provider(*args, **kwargs):
+        raise WorkerCrash()
+
+    monkeypatch.setattr(ai_qualification, "request_ai_json_with_usage", crash_before_provider)
+    with pytest.raises(WorkerCrash):
+        _invoke_worker(db_session, monkeypatch, run_id, delivery="lost-delivery")
+    row = db_session.get(AIQualification, run_id)
+    results = copy.deepcopy(row.results_json)
+    if fingerprint is None:
+        results[0].pop("request_fingerprint", None)
+    else:
+        results[0]["request_fingerprint"] = fingerprint
+    row.results_json = results
+    run = db_session.get(AITaskRun, run_id)
+    _expire_worker(db_session, run)
+    _reconcile(db_session)
+    calls = _provider_recorder(monkeypatch)
+    assert _invoke_worker(db_session, monkeypatch, run_id, delivery=run.celery_task_id)["status"] == "error"
+    assert run.reason == "qualification_failed"
+    assert calls == []
+
+
 @pytest.mark.parametrize("metadata", [{}, {"qualification": False}, {"qualification": None}])
 def test_reconcile_preserves_inline_connection_diagnostic_lifecycle(db_session, metadata):
     run = AITaskRun(
