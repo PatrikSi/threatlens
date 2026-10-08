@@ -23,6 +23,7 @@ const CONFIRMATION_COPY = {
   archive: ['Archive consumer', 'Remove this retired consumer after every withdrawal is acknowledged. The receiver credential will stop working.'],
   revoke: ['Revoke consumer credential', 'Immediately block this receiver credential. Outstanding withdrawals remain unacknowledged until access is restored by rotating its credential.'],
 } as const
+const SELECT_CLASS = 'rounded border bg-white p-2 text-black dark:bg-[#072019]'
 
 export function PublicationConsumers({ teamId, publications }: { teamId: string; publications: IndicatorPublication[] }) {
   const [open, setOpen] = useState(false)
@@ -138,11 +139,11 @@ function ConsumerManager({ teamId, publications }: { teamId: string; publication
       {values.length === 0 && <p>No registered consumers.</p>}
       <fieldset disabled={blocked} className="flex flex-wrap gap-2">
         <legend className="font-medium">Subscribe a consumer to an approved publication</legend>
-        <label>Consumer <select className="rounded border p-2 text-black" value={consumerId} onChange={(e) => setConsumerId(e.target.value)}>
+        <label>Consumer <select className={SELECT_CLASS} value={consumerId} onChange={(e) => setConsumerId(e.target.value)}>
           <option value="">Select consumer</option>
           {eligibleConsumers.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
         </select></label>
-        <label>Publication <select className="rounded border p-2 text-black" value={publicationId} onChange={(e) => setPublicationId(e.target.value)}>
+        <label>Publication <select className={SELECT_CLASS} value={publicationId} onChange={(e) => setPublicationId(e.target.value)}>
           <option value="">Select publication on this page</option>
           {currentPublications.map((row) => <option key={row.id} value={row.id}>{row.format} · revision {row.revision} · {new Date(row.created_at).toLocaleString()}</option>)}
         </select></label>

@@ -4,6 +4,9 @@ import { apiFetch } from '../api/client'
 import { accessibleQueryData } from '../api/queryData'
 import { resolveApiErrorMessage } from '../api/errors'
 import { DialogSurface } from '../components/ConfirmDialog'
+import { useCurrentUser } from '../hooks/useCurrentUser'
+import type { InvestigationSummary } from '../types/investigations'
+import { hasRequiredPermissions } from '../workspace/workspaceModel'
 
 type Execution = {
   id: string
@@ -19,22 +22,22 @@ type Execution = {
   updated_at: string
 }
 type ExecutionPage = { items: Execution[]; next_cursor: string | null }
-type Investigation = {
-  id: string
-  title: string
-  version: number
-  status: string
-}
+type Investigation = Pick<
+  InvestigationSummary,
+  'id' | 'title' | 'version' | 'status' | 'current_user_role' | 'team_id'
+>
 const BUTTON =
   'rounded border border-slate/30 px-3 py-1.5 text-sm disabled:opacity-50'
 
 function Findings({
   execution,
   writable,
+  teamWritable,
   onSaved,
 }: {
   execution: Execution
   writable: boolean
+  teamWritable: boolean
   onSaved: () => void
 }) {
   const [selection, setSelection] = useState('')
@@ -51,9 +54,15 @@ function Findings({
     enabled: writable && !execution.investigation_note_id,
   })
   const data = accessibleQueryData(query)
-  const selected = data?.investigations.find((entry) => entry.id === selection)
+  const destinations = data?.investigations.filter(
+    (entry) =>
+      entry.status !== 'archived' &&
+      (entry.current_user_role === 'owner' || entry.current_user_role === 'editor') &&
+      (!entry.team_id || teamWritable),
+  ) ?? []
+  const selected = destinations.find((entry) => entry.id === selection)
   async function attach() {
-    if (!selected || busy) return
+    if (!writable || !selected || busy) return
     setBusy(true)
     setError('')
     try {
@@ -100,13 +109,11 @@ function Findings({
                 onChange={(event) => setSelection(event.target.value)}
               >
                 <option value="">Select investigation</option>
-                {data?.investigations
-                  .filter((entry) => entry.status !== 'archived')
-                  .map((entry) => (
-                    <option value={entry.id} key={entry.id}>
-                      {entry.title}
-                    </option>
-                  ))}
+                {destinations.map((entry) => (
+                  <option value={entry.id} key={entry.id}>
+                    {entry.title}
+                  </option>
+                ))}
               </select>
             </label>
             <div className="flex flex-wrap gap-2">
@@ -166,6 +173,17 @@ export function AutomationExecutions({
   writable: boolean
   webhookId?: string
 }) {
+  const currentUser = useCurrentUser()
+  const permissions = currentUser.data?.access?.permissions ?? []
+  const canAttach =
+    writable &&
+    !currentUser.isError &&
+    hasRequiredPermissions(permissions, [
+      'write:notifications',
+      'read:items',
+      'read:investigations',
+      'write:investigations',
+    ])
   const [includeArchived, setIncludeArchived] = useState(false)
   const [cursors, setCursors] = useState<(string | null)[]>([null])
   const cursor = cursors[cursors.length - 1]
@@ -246,9 +264,17 @@ export function AutomationExecutions({
               <Findings
                 key={`${entry.id}:${entry.sequence}`}
                 execution={entry}
-                writable={writable}
+                writable={canAttach}
+                teamWritable={hasRequiredPermissions(permissions, ['write:teams'])}
                 onSaved={() => void query.refetch()}
               />
+            )}
+            {entry.findings && !entry.investigation_note_id && writable && !canAttach && (
+              <p className="text-sm">
+                {currentUser.isError
+                  ? 'Attaching findings is paused until session verification recovers.'
+                  : 'Attaching findings requires article access and investigation read/write access.'}
+              </p>
             )}
           </article>
         ))}
