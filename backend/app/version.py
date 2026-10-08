@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 
 
-_DEFAULT_VERSION = "2.0.1"
+_DEFAULT_VERSION = "2.1.0"
 
 
 def _candidate_version_files() -> tuple[Path, ...]:

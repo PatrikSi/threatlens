@@ -50,6 +50,7 @@ This documentation covers:
 - [Backend API Reference](./reference/api.md)
 - [OpenAPI Schema](./reference/openapi.json)
 - [Release Process](./reference/release-process.md)
+- [2.1.0 Source Candidate and Upgrade Notes](./releases/2.1.0.md)
 - [Backend Runtime Inventory](./reference/backend-runtime-dependencies.txt)
 - [Frontend Runtime Inventory](./reference/frontend-runtime-dependencies.txt)
 - [Backend Runtime Package Metadata](./reference/backend-runtime-package-metadata.json)
