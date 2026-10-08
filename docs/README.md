@@ -26,6 +26,7 @@ This documentation covers:
 - [Development Image Builds](../docker/README.md)
 - [Browser Workflow Tests](./development/browser-testing.md)
 - [Concurrent Capacity Baseline](./reference/capacity-baseline.md)
+- [Code Review and Release Readiness — 2026-10-08](./reviews/2026-10-08-code-review.md)
 - [Independent Monitoring and Deployment Qualification](./reference/operational-qualification.md)
 - [Intelligence Expansion and Qualification — 2026-09-26](./reviews/2026-09-26-intelligence-expansion.md)
 - [Team AI, Automation and MCP Expansion — 2026-09-27](./reviews/2026-09-27-team-ai-automation-expansion.md)
