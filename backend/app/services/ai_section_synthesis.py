@@ -81,6 +81,7 @@ def synthesize_sections(db, active, *, progress: dict, completed: list[dict], it
                 active=synthesis_active, feature_type="item_enrichment", messages=messages, item_id=item_id,
                 daily_brief_id=None, report_id=None, requested_max_tokens=output),
             "previous_attempt_receipts": (previous or {}).get("previous_attempt_receipts", [])}
+        progress.pop("synthesis_deferred", None)
         save()
     try:
         result = request(db, synthesis_active, feature_type="item_enrichment", item_id=item_id, task_run_id=task_run_id,
