@@ -20,6 +20,11 @@ It stores feeds, extracts article text, and gives a single pane of glass to revi
   dead-letter replay, and retained metrics
 - Collaborative investigation collections with members, evidence snapshots, notes,
   lifecycle, and activity history
+- [Team intelligence](docs/pages/teams.md) with evidence-backed assessments,
+  reviewed hunt queues, analyst claims, and deadlines
+- Revisioned indicator evidence, analyst verdicts, suppression, and
+  [reviewed STIX/MISP publications](docs/pages/reviewed-publications.md) with
+  consumer revisions and withdrawal history
 - Filtered article export as CSV, JSONL, ThreatLens ZIP, STIX 2.1, MISP, or readable PDF bundles
 - Feed backup/restore plus webhook and multi-hook SMTP notifications
 - Role-based users: `admin`, `analyst`, and `viewer`, with scoped API tokens and
@@ -31,7 +36,12 @@ It stores feeds, extracts article text, and gives a single pane of glass to revi
 - Selective data lifecycle policies with aggregate previews, safeguards, bounded
   cleanup, cancellation, and auditable run history
 - Durable integration outbox, bounded retries, dead-letter replay, circuit breaking, and delivery metrics
-- Optional AI summaries, relevance scoring, task history, and daily briefs
+- Signed automation webhooks, [external execution tracking](docs/pages/automation-execution.md),
+  and an [OpenSearch hunt connector](docs/pages/opensearch-connector.md)
+- [Read-only MCP access](docs/pages/mcp.md) through scoped credentials and
+  registered OAuth clients
+- Optional AI summaries, relevance scoring, provider routing, shared quotas,
+  task history, and daily briefs
 - Prompted, sourced intelligence reports with templates, schedules, context-safe chunking, and Markdown/HTML/PDF artifacts
 
 ## Quick Start
