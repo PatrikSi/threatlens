@@ -235,7 +235,7 @@ model, but the external client may send the retrieved data to its own provider.
 | 404 before discovery | Confirm `MCP_ENABLED=true`, the API was recreated, and the endpoint path is correct. Unknown RPC methods also return 404 with JSON-RPC code `-32601`. |
 | 401 | Supply a current ThreatLens personal or service-account bearer credential. Cookies, JWTs, provider keys, and revoked/expired credentials are insufficient. |
 | 403 | Check the literal `read:mcp` credential scope, current principal permissions, and exact Origin allowlist. |
-| Tool missing or record unavailable | Check feature scopes, current membership, ownership, handling labels, and saved-source access. Service-account credentials expose only the two article tools. |
+| Tool missing or record unavailable | Check feature scopes, current membership, ownership, handling labels, and saved-source access. Service-account credentials expose `search_articles`, `get_article_evidence` and `lookup_attack_technique` when their current roles and scopes permit them. |
 | HTTP 400 with `-32020` | Correct missing or mismatched MCP headers. With `-32022`, select one of the error's supported protocol versions. |
 | HTTP 413 or a truncation marker | Reduce request size, `limit`, or `text_limit`; open the canonical record for omitted detail. |
 | HTTP 429 | Respect `Retry-After` and reduce request rate/concurrency. |
