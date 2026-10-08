@@ -2,6 +2,7 @@
 import copy
 import uuid
 from dataclasses import replace
+from typing import Literal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from app.models.ai_qualification import AIQualification
@@ -37,7 +38,8 @@ def qualification_fence(db: Session, run_id: uuid.UUID) -> AIQualification:
     return db.scalar(select(AIQualification).where(AIQualification.run_id == run_id).with_for_update().execution_options(populate_existing=True))
 
 
-def generate_qualification(db: Session, *, run_id: uuid.UUID) -> None:
+def generate_qualification(db: Session, *, run_id: uuid.UUID) -> Literal["ready", "error"]:
+    """Checkpoint contract probes and return their committed completion status."""
     row = qualification_fence(db, run_id)
     run = db.get(AITaskRun, run_id)
     if (run.metadata_json or {}).get("qualification_plan_sha256") != qualification_plan_fingerprint(row.features_json):
@@ -117,11 +119,13 @@ def generate_qualification(db: Session, *, run_id: uuid.UUID) -> None:
         db.commit()
     row = qualification_fence(db, run_id)
     passed = all(entry.get("contract_passed") for entry in row.results_json)
-    finish_ai_task_run(db, run_id=run_id, status="ready" if passed else "error",
+    status: Literal["ready", "error"] = "ready" if passed else "error"
+    finish_ai_task_run(db, run_id=run_id, status=status,
         reason="qualification_contracts_passed" if passed else "qualification_contracts_failed",
         error=None if passed else "One or more feature contracts failed. Review qualification results before using this provider.",
         metadata_updates={"qualification_contract_passed": passed, "semantic_quality_approved": False})
     db.commit()
+    return status
 
 
 def qualification_checkpointed_fingerprints(db: Session, run_id: uuid.UUID) -> set[str] | None:
