@@ -16,10 +16,15 @@ def main() -> int:
     parser.add_argument("--predictions", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--require-reviewed", action="store_true", help="Reject any corpus case lacking analyst approval.")
-    parser.add_argument("--prepare", action="store_true", help="Write case input/template JSONL instead of scoring.")
-    parser.add_argument("--gate", action="store_true", help="Fail closed unless exact dataset/claim approvals and thresholds pass.")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--prepare", action="store_true", help="Write case input/template JSONL instead of scoring.")
+    mode.add_argument("--gate", action="store_true", help="Fail closed unless exact dataset/claim approvals and thresholds pass.")
     parser.add_argument("--thresholds", type=Path, help="JSON QualityThresholds; unknown settings are rejected.")
     args = parser.parse_args()
+    if args.thresholds and not args.gate:
+        parser.error("--thresholds requires --gate")
+    if args.prepare and args.predictions:
+        parser.error("--predictions cannot be combined with --prepare")
     gate_failed = False
     try:
         dataset, digest = load_dataset(args.dataset, require_reviewed=args.require_reviewed)

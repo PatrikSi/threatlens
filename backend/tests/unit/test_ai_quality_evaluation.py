@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from app.services.ai_quality_evaluation import evaluate_predictions, load_dataset, load_predictions
+from app.services.ai_quality_gates import dataset_case_digest
 from tests.unit.test_ai_extraction import ARTICLE, extraction_payload
 
 CORPUS = Path(__file__).resolve().parents[2] / "evaluations/ai-quality/v1.json"
@@ -102,3 +103,35 @@ def test_prediction_artifacts_are_bounded(tmp_path):
     path.write_bytes(b" " * (10 * 1024 * 1024 + 1))
     with pytest.raises(ValueError, match="10 MiB"):
         load_predictions(path)
+
+
+@pytest.mark.parametrize("change", [
+    {"reviewed_sha256": None}, {"reviewed_by": "   "},
+    {"reviewed_at": "today"}, {"reviewed_at": "2999-01-01T00:00:00Z"},
+    {"reviewed_at": "2026-01-01T00:00:00"},
+    {"source": {"title": "Changed source", "summary": "", "article_text": ARTICLE}},
+])
+def test_reviewed_dataset_flags_require_approval_of_exact_current_content(tmp_path, change):
+    dataset, digest, prediction = fixture()
+    case = dataset["cases"][0]
+    case.update(review_status="analyst_approved", reviewed_by="unit reviewer",
+                reviewed_at="2026-01-01T00:00:00Z")
+    case["reviewed_sha256"] = dataset_case_digest(case)
+    case.update(change)
+    path = tmp_path / "dataset.json"
+    path.write_text(json.dumps(dataset))
+    with pytest.raises(ValueError, match="pending analyst review"):
+        load_dataset(path, require_reviewed=True)
+    assert evaluate_predictions(dataset, digest, [prediction])["dataset_analyst_approved"] is False
+
+
+@pytest.mark.parametrize("reviewer,reviewed_at", [
+    ("   ", "2026-01-01T00:00:00Z"), ("analyst", "today"),
+    ("analyst", "2026-01-01T00:00:00"), ("analyst", "2999-01-01T00:00:00Z"),
+])
+def test_comparison_rejects_invalid_analyst_review_provenance(reviewer, reviewed_at):
+    dataset, digest, prediction = fixture()
+    prediction["review"] = {"reviewer": reviewer, "reviewed_at": reviewed_at,
+                            "claim_verdicts": ["supported"], "hunt_usefulness": 4}
+    with pytest.raises(ValueError, match="provenance"):
+        evaluate_predictions(dataset, digest, [prediction])

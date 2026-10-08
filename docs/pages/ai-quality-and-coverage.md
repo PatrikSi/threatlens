@@ -139,7 +139,9 @@ incorrect/incomplete annotations, and record `review_status: analyst_approved`,
 `reviewed_by` and `reviewed_at`. Changes create a new content digest and should use
 a new dataset version. Review the corpus as code; avoid adding sensitive incident
 evidence or real API credentials. `--require-reviewed` fails until every case has
-explicit approval. This gate deliberately remains unsatisfied for the seed set.
+explicit approval of its exact current content, a named reviewer and a valid
+timezone-aware review timestamp. The comparison's `dataset_analyst_approved`
+flag uses these same checks. This gate deliberately remains unsatisfied for the seed set.
 
 Prepare inputs without contacting any provider:
 
@@ -176,6 +178,8 @@ well-grounded with benign explanations and gaps. Omit a score when no hunt was
 reviewed. The tool records review provenance; it cannot independently authenticate
 that a human performed the review. Production qualification requires normal
 review and approval of these artifacts.
+Malformed, future or timezone-free review timestamps and blank reviewer names are
+rejected before their judgments can contribute to a comparison.
 
 Compare multiple model/prompt combinations in one predictions JSONL file:
 
@@ -185,6 +189,10 @@ backend/.venv/bin/python backend/scripts/evaluate_ai_quality.py \
   --output /tmp/ai-quality-comparison.json
 # After analysts approve every corpus case, add --require-reviewed.
 ```
+
+Preparation and scoring are separate CLI modes: `--prepare` cannot be combined
+with `--gate` or `--predictions`; custom `--thresholds` require `--gate`. An invalid
+combination exits 2 without writing an output artifact.
 
 The result reports fixture entity precision/recall, exact-evidence validation
 rate, analyst-supported/unsupported/uncertain claim rates, hunt usefulness,

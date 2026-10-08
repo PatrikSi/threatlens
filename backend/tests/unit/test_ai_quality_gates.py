@@ -58,10 +58,9 @@ def test_duplicate_claim_judgments_fail_even_with_inflated_supported_count():
     assert not promotion_gate(dataset, [prediction], report, QualityThresholds())["passed"]
 
 
-def test_forged_reviewed_status_and_future_review_time_do_not_qualify():
+def test_forged_reviewed_status_does_not_qualify():
     dataset, digest, prediction = approved()
     dataset["cases"][0].pop("reviewed_sha256")
-    prediction["review"]["reviewed_at"] = "2999-01-01T00:00:00Z"
     report = evaluate_predictions(dataset, digest, [prediction])
     assert not promotion_gate(dataset, [prediction], report, QualityThresholds())["passed"]
 

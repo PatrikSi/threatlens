@@ -69,12 +69,16 @@ def dataset_case_digest(case: dict) -> str:
     return hashlib.sha256(json.dumps(content, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
+def dataset_case_approved(case: dict) -> bool:
+    return (case.get("review_status") == "analyst_approved"
+            and valid_review_identity(case.get("reviewed_by"), case.get("reviewed_at"))
+            and case.get("reviewed_sha256") == dataset_case_digest(case))
+
+
 def promotion_gate(dataset: dict, predictions: list[dict], report: dict, thresholds: QualityThresholds) -> dict:
     failures = []
     for case in dataset["cases"]:
-        if (case.get("review_status") != "analyst_approved"
-                or not valid_review_identity(case.get("reviewed_by"), case.get("reviewed_at"))
-                or case.get("reviewed_sha256") != dataset_case_digest(case)):
+        if not dataset_case_approved(case):
             failures.append(f"Dataset case {case['id']} lacks approval of its exact content revision.")
     for prediction in predictions:
         if not reviewed_claims(prediction):
