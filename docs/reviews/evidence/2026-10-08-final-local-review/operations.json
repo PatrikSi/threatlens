@@ -1,0 +1,103 @@
+{
+  "applicability": {
+    "checks_rerun_at_current_revision": false,
+    "current_application_revision": "31eb1bc698f1b3a246160863ccde144cafd05d9b",
+    "helper_sha256_checks": {
+      "scripts/operations/fleet.py": {
+        "current_source_sha256": "679c0561c034620c88b8d5a807301efc54ce9336a723d7c60dfd8ffff313792e",
+        "matches": true,
+        "measured_sha256": "679c0561c034620c88b8d5a807301efc54ce9336a723d7c60dfd8ffff313792e",
+        "tested_source_sha256": "679c0561c034620c88b8d5a807301efc54ce9336a723d7c60dfd8ffff313792e"
+      },
+      "scripts/operations/qualification_runtime.py": {
+        "current_source_sha256": "6ac996575d9611aa17ba7a6cb4940f73c45daea3c73b8bc7c4103eb483435f81",
+        "matches": true,
+        "measured_sha256": "6ac996575d9611aa17ba7a6cb4940f73c45daea3c73b8bc7c4103eb483435f81",
+        "tested_source_sha256": "6ac996575d9611aa17ba7a6cb4940f73c45daea3c73b8bc7c4103eb483435f81"
+      },
+      "scripts/operations/qualify_local_topology.py": {
+        "current_source_sha256": "76bf127b2ec93874c1c6f69b9d47f769d69ecd02dd2b70970e9af23b4d492ff6",
+        "matches": true,
+        "measured_sha256": "76bf127b2ec93874c1c6f69b9d47f769d69ecd02dd2b70970e9af23b4d492ff6",
+        "tested_source_sha256": "76bf127b2ec93874c1c6f69b9d47f769d69ecd02dd2b70970e9af23b4d492ff6"
+      },
+      "scripts/verify_mcp_proxy.py": {
+        "current_source_sha256": "564976442122bab050dd3a1a24eedcc95280bb3569fb23ae6a9be5a644980a00",
+        "matches": true,
+        "measured_sha256": "564976442122bab050dd3a1a24eedcc95280bb3569fb23ae6a9be5a644980a00",
+        "tested_source_sha256": "564976442122bab050dd3a1a24eedcc95280bb3569fb23ae6a9be5a644980a00"
+      },
+      "scripts/verify_runtime_isolation.py": {
+        "current_source_sha256": "949a81de2f8c491f0ab95f779c9d5ad82631cf32deb903e26a6e395999d58b05",
+        "matches": true,
+        "measured_sha256": "949a81de2f8c491f0ab95f779c9d5ad82631cf32deb903e26a6e395999d58b05",
+        "tested_source_sha256": "949a81de2f8c491f0ab95f779c9d5ad82631cf32deb903e26a6e395999d58b05"
+      }
+    },
+    "script_and_test_objects": {
+      "scripts/operations": {
+        "current_git_object": "64a82317366fb7eb51d083a7ecea1822d67e4144",
+        "matches": true,
+        "tested_git_object": "64a82317366fb7eb51d083a7ecea1822d67e4144"
+      },
+      "tests/operations": {
+        "current_git_object": "8fb5df72163a926f99af51b518632ee34a6c4537",
+        "matches": true,
+        "tested_git_object": "8fb5df72163a926f99af51b518632ee34a6c4537"
+      }
+    },
+    "system_test_sha256_checks": {
+      "tests/operations/test_image_proxy_cleanup.py": {
+        "current_source_sha256": "928f281ecd4c3096eb5fd587463c960903ad404a95d47c98300cd2c53b08698e",
+        "matches": true,
+        "tested_source_sha256": "928f281ecd4c3096eb5fd587463c960903ad404a95d47c98300cd2c53b08698e"
+      },
+      "tests/operations/test_local_topology_cleanup.py": {
+        "current_source_sha256": "957fddd3d7cd74f25c6123155bd9540227254b0078594742f6f1cbe2016f6576",
+        "matches": true,
+        "tested_source_sha256": "957fddd3d7cd74f25c6123155bd9540227254b0078594742f6f1cbe2016f6576"
+      }
+    }
+  },
+  "discovery": {
+    "discovered": 71,
+    "elapsed_seconds": 0.668,
+    "exit_code": 0,
+    "log_sha256": "0993cd3d7aeef90af81123a298c5d06697183193b42e5eefc95b56c07d7ec19a",
+    "passed": 70,
+    "skipped": 1,
+    "source_revision": "ec4721916d3c9e7b7c06769e169b7ed1ed341a5b",
+    "started_at_utc": "2026-10-08T21:37:35.435180+00:00"
+  },
+  "input_evidence": [
+    {
+      "artifact": "operations-final-result.json",
+      "sha256": "ec90e5d8f827b194b1e6b096639ec8b46cf2c39aa23ab9922a1ee70bbcbd8f69"
+    },
+    {
+      "artifact": "operations-final-system-result.json",
+      "sha256": "4502d74a6474756e4c73999c72c62d727ff38458a1e8b17ff104e9dd4abac4f3"
+    }
+  ],
+  "kind": "mock_operations_checks_with_exact_source_applicability",
+  "live_host_loss_qualification_status": "not_run",
+  "schema_version": 1,
+  "system_python_without_httpx": {
+    "commands": [
+      {
+        "elapsed_seconds": 0.216,
+        "exit_code": 0,
+        "name": "test_local_topology_cleanup.py",
+        "passed": 17
+      },
+      {
+        "elapsed_seconds": 0.166,
+        "exit_code": 0,
+        "name": "test_image_proxy_cleanup.py",
+        "passed": 11
+      }
+    ],
+    "source_revision": "1f50226feda5c784add911faf9e9ad4f21c628f7",
+    "system_httpx_available": false
+  }
+}

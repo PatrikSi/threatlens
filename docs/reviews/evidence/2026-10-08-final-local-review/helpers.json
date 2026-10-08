@@ -1,0 +1,101 @@
+{
+  "backend_image_id": "sha256:31bed1c414e6c78417cfb0eaf4783793e8e1a29eff9670a0efb19f4f73bb089e",
+  "commands": [
+    {
+      "elapsed_seconds": 1.52,
+      "exit_code": 0,
+      "log_sha256": "4a699055e538cfe1afe0106a67e71c402292c48c0c4a95f7b691dc0bba379b82",
+      "name": "inventory"
+    },
+    {
+      "elapsed_seconds": 2.72,
+      "exit_code": 0,
+      "log_sha256": "8f18300c2502b7cd125c190a250c0e70a7fd620f9e62e494fe5ba995fc4adb5b",
+      "name": "web-startup"
+    },
+    {
+      "elapsed_seconds": 12.0,
+      "exit_code": 0,
+      "log_sha256": "671277b8f16e039a472e3d27c45c45b45fb19de9b6de3bbaa2c812d9ddf0c509",
+      "name": "image-scans"
+    },
+    {
+      "checks": [
+        "Real nginx/Uvicorn 2026-07-28",
+        "Real nginx/Uvicorn 2025-11-25",
+        "Origin denial and allowed-origin CORS passed",
+        "OAuth discovery and credential challenge through nginx passed",
+        "Real cookie/CSRF consent, PKCE exchange, replay denial and MCP-only audience passed",
+        "Official SDK 2.2.0 real proxy: auto passed",
+        "Official SDK 2.2.0 real proxy: legacy passed",
+        "Credential-use commit and subsequent token revocation denial passed",
+        "MCP real proxy qualification passed",
+        "Disposable MCP proxy resources removed"
+      ],
+      "cleanup": {
+        "helper_cleanup_confirmation": true,
+        "remaining_owned_containers": 0,
+        "remaining_owned_networks": 0,
+        "requested_owned_networks": 2
+      },
+      "elapsed_seconds": 37.19,
+      "exit_code": 0,
+      "helper_sha256": "564976442122bab050dd3a1a24eedcc95280bb3569fb23ae6a9be5a644980a00",
+      "log_sha256": "fd28004806e31b7e3276334cb746d1547ff1b65379803a8d241599ea5848d3a4",
+      "name": "mcp-proxy",
+      "qualification_target": "disposable_current_source_mount_nginx_uvicorn_proxy",
+      "resource_caps": {
+        "api": {
+          "cpus": 0.5,
+          "independently_inspected": true,
+          "memory_mib": 512,
+          "no_swap": true,
+          "pids": 128
+        },
+        "db": {
+          "cpus": 0.5,
+          "independently_inspected": true,
+          "memory_mib": 512,
+          "no_swap": true,
+          "pids": 128
+        },
+        "redis": {
+          "cpus": 0.5,
+          "independently_inspected": true,
+          "memory_mib": 128,
+          "no_swap": true,
+          "pids": 128
+        },
+        "web": {
+          "cpus": 0.5,
+          "independently_inspected": true,
+          "memory_mib": 128,
+          "no_swap": true,
+          "pids": 128
+        }
+      },
+      "sdk": {
+        "httpx2": "2.7.0",
+        "mcp": "2.2.0",
+        "python": "3.12.3"
+      }
+    }
+  ],
+  "completed_at_utc": "2026-10-08T22:25:51.747763+00:00",
+  "image_build_revisions": {
+    "backend": "1f50226feda5c784add911faf9e9ad4f21c628f7",
+    "web": "31eb1bc698f1b3a246160863ccde144cafd05d9b"
+  },
+  "input_evidence": [
+    {
+      "artifact": "final-image-helpers-result.json",
+      "sha256": "32afa48243e7a9f5bafd6658f8fae3ce318b5d11f7aa8bd3494e36efff109b53"
+    }
+  ],
+  "kind": "current_image_inventory_startup_scan_and_disposable_mcp_qualification",
+  "schema_version": 1,
+  "source_revision": "31eb1bc698f1b3a246160863ccde144cafd05d9b",
+  "started_at_utc": "2026-10-08T22:24:58.287985+00:00",
+  "status": "passed",
+  "web_image_id": "sha256:e974899db4af6110f19772c881716dcd21028f295e294d3e44aabd22719bd462"
+}

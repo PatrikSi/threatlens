@@ -1,0 +1,173 @@
+{
+  "base_url": "http://127.0.0.1:3001",
+  "image_build_revisions": {
+    "backend": "1f50226feda5c784add911faf9e9ad4f21c628f7",
+    "web": "31eb1bc698f1b3a246160863ccde144cafd05d9b"
+  },
+  "input_evidence": [
+    {
+      "artifact": "final-runtime-result.json",
+      "sha256": "ad5566d0dedd329f28127cb7745bd3a4e9391fbd1066a83b788b5afefd09ea65"
+    }
+  ],
+  "kind": "owned_local_runtime_snapshot",
+  "matches_checked_in_openapi": true,
+  "migration_head": "0125_webhook_article_text",
+  "observed_at_utc": "2026-10-08T22:26:50.917531+00:00",
+  "platform": "linux/amd64",
+  "readiness_http_status": 200,
+  "running_service_count": 11,
+  "schema_version": 1,
+  "service_count": 12,
+  "services": {
+    "api": {
+      "cpu_nanos": 500000000,
+      "exit_code": 0,
+      "health": "healthy",
+      "image_id": "sha256:31bed1c414e6c78417cfb0eaf4783793e8e1a29eff9670a0efb19f4f73bb089e",
+      "memory_bytes": 536870912,
+      "memory_swap_bytes": 536870912,
+      "pids_limit": 256,
+      "read_only": true,
+      "running": true,
+      "user": "app"
+    },
+    "beat": {
+      "cpu_nanos": 250000000,
+      "exit_code": 0,
+      "health": "healthy",
+      "image_id": "sha256:31bed1c414e6c78417cfb0eaf4783793e8e1a29eff9670a0efb19f4f73bb089e",
+      "memory_bytes": 335544320,
+      "memory_swap_bytes": 335544320,
+      "pids_limit": 96,
+      "read_only": true,
+      "running": true,
+      "user": "app"
+    },
+    "db": {
+      "cpu_nanos": 500000000,
+      "exit_code": 0,
+      "health": "healthy",
+      "image_id": "sha256:b6ccf02e9b47eac0d67b5eaa0ef56fd59163bffa5506f64e96ceb5053130ec86",
+      "memory_bytes": 536870912,
+      "memory_swap_bytes": 536870912,
+      "pids_limit": 256,
+      "read_only": true,
+      "running": true,
+      "user": ""
+    },
+    "migrate": {
+      "cpu_nanos": 1000000000,
+      "exit_code": 0,
+      "health": null,
+      "image_id": "sha256:31bed1c414e6c78417cfb0eaf4783793e8e1a29eff9670a0efb19f4f73bb089e",
+      "memory_bytes": 536870912,
+      "memory_swap_bytes": 536870912,
+      "pids_limit": 64,
+      "read_only": true,
+      "running": false,
+      "user": "app"
+    },
+    "redis": {
+      "cpu_nanos": 250000000,
+      "exit_code": 0,
+      "health": "healthy",
+      "image_id": "sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99",
+      "memory_bytes": 134217728,
+      "memory_swap_bytes": 134217728,
+      "pids_limit": 128,
+      "read_only": true,
+      "running": true,
+      "user": ""
+    },
+    "review-source": {
+      "cpu_nanos": 100000000,
+      "exit_code": 0,
+      "health": null,
+      "image_id": "sha256:31bed1c414e6c78417cfb0eaf4783793e8e1a29eff9670a0efb19f4f73bb089e",
+      "memory_bytes": 67108864,
+      "memory_swap_bytes": 67108864,
+      "pids_limit": 32,
+      "read_only": true,
+      "running": true,
+      "user": "app"
+    },
+    "web": {
+      "cpu_nanos": 250000000,
+      "exit_code": 0,
+      "health": "healthy",
+      "image_id": "sha256:e974899db4af6110f19772c881716dcd21028f295e294d3e44aabd22719bd462",
+      "memory_bytes": 134217728,
+      "memory_swap_bytes": 134217728,
+      "pids_limit": 64,
+      "read_only": true,
+      "running": true,
+      "user": "nginx"
+    },
+    "worker": {
+      "cpu_nanos": 500000000,
+      "exit_code": 0,
+      "health": "healthy",
+      "image_id": "sha256:31bed1c414e6c78417cfb0eaf4783793e8e1a29eff9670a0efb19f4f73bb089e",
+      "memory_bytes": 536870912,
+      "memory_swap_bytes": 536870912,
+      "pids_limit": 256,
+      "read_only": true,
+      "running": true,
+      "user": "app"
+    },
+    "worker-ai": {
+      "cpu_nanos": 250000000,
+      "exit_code": 0,
+      "health": "healthy",
+      "image_id": "sha256:31bed1c414e6c78417cfb0eaf4783793e8e1a29eff9670a0efb19f4f73bb089e",
+      "memory_bytes": 536870912,
+      "memory_swap_bytes": 536870912,
+      "pids_limit": 128,
+      "read_only": true,
+      "running": true,
+      "user": "app"
+    },
+    "worker-exports": {
+      "cpu_nanos": 250000000,
+      "exit_code": 0,
+      "health": "healthy",
+      "image_id": "sha256:31bed1c414e6c78417cfb0eaf4783793e8e1a29eff9670a0efb19f4f73bb089e",
+      "memory_bytes": 536870912,
+      "memory_swap_bytes": 536870912,
+      "pids_limit": 128,
+      "read_only": true,
+      "running": true,
+      "user": "app"
+    },
+    "worker-maintenance": {
+      "cpu_nanos": 250000000,
+      "exit_code": 0,
+      "health": "healthy",
+      "image_id": "sha256:31bed1c414e6c78417cfb0eaf4783793e8e1a29eff9670a0efb19f4f73bb089e",
+      "memory_bytes": 536870912,
+      "memory_swap_bytes": 536870912,
+      "pids_limit": 128,
+      "read_only": true,
+      "running": true,
+      "user": "app"
+    },
+    "worker-notifications": {
+      "cpu_nanos": 250000000,
+      "exit_code": 0,
+      "health": "healthy",
+      "image_id": "sha256:31bed1c414e6c78417cfb0eaf4783793e8e1a29eff9670a0efb19f4f73bb089e",
+      "memory_bytes": 536870912,
+      "memory_swap_bytes": 536870912,
+      "pids_limit": 256,
+      "read_only": true,
+      "running": true,
+      "user": "app"
+    }
+  },
+  "source_revision": "31eb1bc698f1b3a246160863ccde144cafd05d9b",
+  "status": "passed",
+  "version": "2.1.0",
+  "versioned_contract_sha256": "a608ae21656a8d50f83919e01a16751720c1199a7f4cd552465770bd3df16aaa",
+  "worker_concurrency": 1
+}
