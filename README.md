@@ -225,6 +225,9 @@ ThreatLens works without AI.
 
 ## Useful Commands
 
+For the 2.1 source candidate, read the [release notes and upgrade steps](docs/releases/2.1.0.md).
+Published images remain at their existing version until the release is qualified and published.
+
 For the 2.0 upgrade, read the [release notes and compatibility changes](docs/releases/2.0.0.md)
 before replacing an existing installation.
 
@@ -370,6 +373,7 @@ npm run build
 - The default Docker setup runs PostgreSQL, Redis, the API, worker, scheduler, and web UI.
 - Published application images can be pinned with `THREATLENS_IMAGE_TAG`; `latest` tracks the newest default published image, while release tags and `sha-*` tags are immutable references.
 - The browser talks to the API through `/api/v1`.
+- The 2.1 UI requires Safari 16.4+, Chrome 111+, or Firefox 128+; see the [browser compatibility notes](docs/releases/2.1.0.md#qualification-and-boundaries).
 - Feed/article fetching, AI calls, webhook and SMTP delivery, and OIDC provider communication can make outbound network requests.
 - Private-network outbound access is off by default. Enable only what you trust in `.env` or your stack environment.
 - OIDC requires HTTPS by default. `ALLOW_INSECURE_HTTP_OIDC=true` is intended only for isolated local development; private IdPs remain separately controlled by `ALLOW_PRIVATE_NETWORK_OIDC`.
