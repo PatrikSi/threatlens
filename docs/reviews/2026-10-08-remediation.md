@@ -5,10 +5,12 @@ candidate is `65f4a755c4899373dba14b8128ac25575b130cb6`, with application versio
 **2.1.0** and the [reviewed upgrade notes](../releases/2.1.0.md). Changes are
 committed incrementally as `Patrik <patrik@local>`.
 
-The identified implementation findings are fixed and the 2.1.0 source candidate
-is prepared. The first sustained pair passes its absolute budgets, but the
-unchanged comparator flags successful-export p95 latency. An independent pair
-in reverse order is still running; capacity qualification remains open.
+**Decision: implementation findings are fixed and the 2.1.0 source candidate
+is prepared; merge/release qualification remains open.** Functional, dependency,
+browser, recovery, vendor and local image gates pass. Both sustained pairs pass
+their absolute budgets, but both comparisons flag metrics at the unchanged 20%
+threshold. A stable isolated-runner comparison and the intended source's hosted
+quality/platform gates remain required before merge and public release.
 No public tag, image promotion, remote merge or model promotion has been made.
 
 ## Changes completed
@@ -147,7 +149,7 @@ API and browser-policy [regeneration](evidence/2026-10-08-remediation/generated-
 is byte-identical in an owned clean working directory with synthetic settings.
 First-party remediation Ruff checks and the **1,004-file** source-size gate pass.
 
-The first sustained comparison ran two sequential 600-second workloads at
+Two sustained pairs ran sequential 600-second workloads at
 `35ac120` and `65f4a75`, with 21 identical harness/configuration files, the same
 final pinned Python environment, one application CPU, a 1,024 MiB RSS guard,
 512 MiB PostgreSQL and 128 MiB Redis limits, and the unchanged 20% regression
@@ -155,24 +157,56 @@ threshold. Its scope is review-remediation code under a common runtime. The
 historical baseline pinned older PyJWT/urllib3, and already contained the
 unreleased integration feature batch; this is not a full released-2.0-to-2.1
 dependency-stack or production-capacity comparison. Shared-host pressure is
-recorded before and after each run. The
-[baseline](capacity/2026-10-08-remediation-baseline-sustained.json) and
-[candidate](capacity/2026-10-08-remediation-candidate-sustained.json) workloads
-pass every absolute budget with zero task or sampler errors. The unchanged
-[comparator](capacity/2026-10-08-remediation-comparison.json) exits **1**:
-successful-export p95 rises from **288.198 ms to 439.536 ms (+52.512%)**.
-Aggregate export p95 falls from 459.499 ms to 454.799 ms; AI and governance
-p95 also fall. Policy-conflict counts differ (7 versus 4), so the aggregate and
-successful-export populations are not interchangeable.
+recorded before and after every run, with periodic observations through the
+reverse pair. All four workloads pass every absolute budget with zero task or
+sampler errors. Every run completes 301 successful AI operations, 300 governance
+updates, 480 ingested articles, 120 repair dispatches and six probes for each
+network-deadline stage. Policy-revision conflicts safely retire affected exports.
+
+| Pair / execution order | Workload seconds | Successful / conflicting exports | AI p95 ms | Export p95 ms, all outcomes | Successful-export p95 ms | Governance p95 ms |
+|---|---:|---:|---:|---:|---:|---:|
+| [First baseline](capacity/2026-10-08-remediation-baseline-sustained.json) | 604.352 | 294 / 7 | 271.730 | 459.499 | 288.198 | 112.034 |
+| [First candidate](capacity/2026-10-08-remediation-candidate-sustained.json) | 603.210 | 297 / 4 | 225.378 | 454.799 | 439.536 | 61.408 |
+| [Reverse candidate](capacity/2026-10-08-remediation-candidate-sustained-repeat.json) | 603.786 | 289 / 12 | 316.492 | 483.124 | 241.422 | 119.455 |
+| [Reverse baseline](capacity/2026-10-08-remediation-baseline-sustained-repeat.json) | 603.772 | 292 / 9 | 335.751 | 479.815 | 247.386 | 95.578 |
+
+Both unchanged comparators exit **1**. The
+[first comparison](capacity/2026-10-08-remediation-comparison.json) flags
+successful-export p95 at **+52.512%**. That flag is not reproduced in the
+[reverse comparison](capacity/2026-10-08-remediation-comparison-repeat.json),
+which flags the following five metrics. No metric or threshold is suppressed.
+
+| Reverse comparison flag | Baseline | Candidate | Change |
+|---|---:|---:|---:|
+| Governance p95 | 95.578 ms | 119.455 ms | +24.982% |
+| Processing-work queue-wait p95 | 2,684.636 ms | 3,250.032 ms | +21.060% |
+| Feed-fetch task p95 | 683.537 ms | 835.124 ms | +22.177% |
+| Post-load drain, single-run observation | 14.059 ms | 23.981 ms | +70.574% |
+| Queue-depth peak, single-run observation | 20 | 25 | +25.000% |
+
+The successful-export and aggregate populations differ with the conflict counts;
+their percentiles are not interchangeable. The first candidate's median and
+maximum successful-export times were nearly identical to its baseline even
+though its p95 differed. This is diagnostic context, not proof of a cause.
 
 The export implementation, workload and authorization/fence paths are unchanged.
 The changed label-archive reference check is not called by this workload's
 label-description updates. Host pressure differed substantially: CPU pressure's
 10-second average was 24.78% before the baseline and 0.90% before the candidate.
-Those observations do not establish the cause of the successful-export flag.
-An independent candidate-then-baseline pair uses the same durations, limits,
-runtime and comparator to investigate order and timing variation. Both pairs'
-results will be retained; the first flag is not suppressed.
+The reverse candidate starts at 38.33% CPU pressure and its periodic readings
+range from 20.30% to 52.96%; the reverse baseline also encounters variable
+pressure. The governance update, processing/queue and feed-fetch paths exercised
+by the repeat flags are unchanged. These observations do not establish the cause
+of any flag or demonstrate a performance improvement. All measured source trees
+are clean, all identities match, and all owned containers, volumes and networks
+are independently confirmed removed.
+
+**Comparative capacity remains unqualified.** The absolute-budget results are
+valid local workload evidence; they do not turn either failed comparison into
+a pass. Run the unchanged comparison on a stable isolated runner before using
+it to approve a release trend. Both pairs and their flags are retained. See the
+[qualification record](evidence/2026-10-08-remediation/local-gates.json) and
+[validation index](evidence/2026-10-08-remediation/validation.json).
 
 ## Execution history and limits
 
