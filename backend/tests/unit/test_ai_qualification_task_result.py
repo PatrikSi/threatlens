@@ -2,12 +2,16 @@
 
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from types import SimpleNamespace
 import uuid
 
 import pytest
 
 from app.services import ai_qualification
+from app.models.ai_task_run import AITaskRun
+from app.services.ai_egress_data_policy import AIEgressPolicyError
+from app.services.ai_provider_client import AIIntegrationError
 from app.tasks import ai_qualification_tasks
 
 
@@ -104,3 +108,140 @@ def test_worker_result_matches_persisted_contract_outcome(completed_probes, pass
     assert result == {"status": "ready" if passed else "error"}
     assert result["status"] == run.status
     assert run.metadata_json["semantic_quality_approved"] is False
+
+
+@pytest.fixture
+def running_worker(monkeypatch):
+    """Use real task finalization with mocked persistence and no provider I/O."""
+    run = AITaskRun(
+        id=uuid.uuid4(), task_type="connection_test", trigger_source="manual",
+        status="running", celery_task_id="qualification-error-test",
+        parent_run_id=None, started_at=datetime.now(timezone.utc), metadata_json={},
+    )
+
+    class Session:
+        def __init__(self):
+            self.selections = 0
+            self.committed = []
+            self.run_exists = True
+
+        def scalar(self, _statement):
+            self.selections += 1
+            assert self.selections <= 2
+            if not self.run_exists:
+                return None
+            return run.task_type if self.selections == 1 else run
+
+        def rollback(self):
+            pass
+
+        def commit(self):
+            self.committed.append((run.status, run.reason) if self.run_exists else None)
+
+        def add(self, _row):
+            pass
+
+        def flush(self):
+            pass
+
+    db = Session()
+
+    @contextmanager
+    def session():
+        yield db
+
+    monkeypatch.setattr(ai_qualification_tasks, "SessionLocal", session)
+    monkeypatch.setattr(ai_qualification_tasks.ai_ops, "start_ai_task_run", lambda *_args, **_kwargs: run)
+    monkeypatch.setattr(ai_qualification_tasks.ai_ops, "settle_pending_ai_resource", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(ai_qualification_tasks.ai_ops, "complete_ai_task_run_data_access", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(ai_qualification_tasks.ai_ops, "record_ai_task_event", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("app.services.ai_workflow_dispatch.complete_workflow_dispatch", lambda *_args: None)
+    return db, run
+
+
+def invoke_running_worker(run):
+    worker = ai_qualification_tasks.generate_ai_qualification
+    worker.push_request(id="qualification-error-test", hostname="qualification-error-test")
+    try:
+        return worker.run(str(run.id))
+    finally:
+        worker.pop_request()
+
+
+@pytest.mark.parametrize("failure_kind", ["integration", "unexpected"])
+def test_worker_error_respects_committed_cancellation(running_worker, monkeypatch, failure_kind):
+    db, run = running_worker
+
+    def canceled_probe(*_args, **_kwargs):
+        run.metadata_json = {"cancel_requested_at": datetime.now(timezone.utc).isoformat()}
+        run.reason = "cancel_requested"
+        if failure_kind == "integration":
+            raise AIEgressPolicyError("Provider qualification was canceled or replaced.", retryable=False)
+        raise RuntimeError("Synthetic probe failure after cancellation")
+
+    monkeypatch.setattr(ai_qualification_tasks, "generate_assessment", canceled_probe)
+    result = invoke_running_worker(run)
+
+    assert db.committed[-1] == ("skipped", "canceled")
+    assert result == {"status": "skipped", "reason": "canceled"}
+    assert run.error is None
+    assert run.finished_at is not None
+
+
+@pytest.mark.parametrize("failure_kind", ["integration", "unexpected"])
+def test_worker_genuine_error_matches_committed_failure(running_worker, monkeypatch, failure_kind):
+    db, run = running_worker
+
+    def failed_probe(*_args, **_kwargs):
+        if failure_kind == "integration":
+            raise AIIntegrationError("Synthetic provider failure", retryable=False)
+        raise RuntimeError("Synthetic worker failure")
+
+    monkeypatch.setattr(ai_qualification_tasks, "generate_assessment", failed_probe)
+    result = invoke_running_worker(run)
+    reason = "qualification_failed" if failure_kind == "integration" else "unexpected_error"
+
+    assert db.committed[-1] == ("error", reason)
+    assert result == {"status": "error", "reason": reason}
+    assert run.error
+    assert run.finished_at is not None
+
+
+@pytest.mark.parametrize("failure_kind", ["integration", "unexpected"])
+def test_worker_error_cannot_claim_a_superseded_delivery(running_worker, monkeypatch, failure_kind):
+    db, run = running_worker
+
+    def replaced_probe(*_args, **_kwargs):
+        run.celery_task_id = "replacement-delivery"
+        if failure_kind == "integration":
+            raise AIIntegrationError("Synthetic old-delivery failure", retryable=False)
+        raise RuntimeError("Synthetic old-worker failure")
+
+    monkeypatch.setattr(ai_qualification_tasks, "generate_assessment", replaced_probe)
+    result = invoke_running_worker(run)
+
+    assert db.committed[-1] == ("running", None)
+    assert result == {"status": "skipped", "reason": "superseded_delivery"}
+    assert run.celery_task_id == "replacement-delivery"
+    assert run.error is None
+    assert run.finished_at is None
+
+
+@pytest.mark.parametrize("failure_kind", ["integration", "unexpected"])
+def test_worker_error_handles_a_run_removed_during_the_probe(running_worker, monkeypatch, failure_kind):
+    db, run = running_worker
+
+    def removed_probe(*_args, **_kwargs):
+        db.run_exists = False
+        if failure_kind == "integration":
+            raise AIIntegrationError("Synthetic provider failure after removal", retryable=False)
+        raise RuntimeError("Synthetic worker failure after removal")
+
+    monkeypatch.setattr(ai_qualification_tasks, "generate_assessment", removed_probe)
+    result = invoke_running_worker(run)
+
+    assert db.selections == 2
+    assert db.committed[-1] is None
+    assert result == {"status": "skipped", "reason": "task_not_found"}
+    assert run.error is None
+    assert run.finished_at is None
