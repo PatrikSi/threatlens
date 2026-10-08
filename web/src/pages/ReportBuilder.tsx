@@ -239,7 +239,7 @@ function SectionsPanel({ sections, onChange }: { sections: ReportSectionConfig[]
           <div key={section.key} className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded border border-slate/15 px-2 py-1.5 dark:border-white/10">
             <input type="checkbox" className="h-4 w-4 accent-cyan" checked={section.enabled} onChange={(event) => onChange((current) => current.map((entry) => entry.key === section.key ? { ...entry, enabled: event.target.checked } : entry))} aria-label={`Enable ${section.title}`} />
             <input
-              className="min-w-0 bg-transparent text-sm font-semibold outline-none"
+              className="min-w-0 bg-transparent text-sm font-semibold outline-hidden"
               value={section.title}
               maxLength={255}
               onChange={(event) => onChange((current) => current.map((entry) => (

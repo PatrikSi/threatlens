@@ -77,7 +77,7 @@ export function DashboardToolbar({ controller }: { controller: DashboardPageCont
                 value={dashboardRollingDays}
                 onChange={(event) => updateDashboardRollingDaysValue(event.target.value)}
                 aria-label="Dashboard rolling time window in days"
-                className="w-full bg-transparent text-sm focus-visible:outline-none"
+                className="w-full bg-transparent text-sm focus-visible:outline-hidden"
               />
               <span className="ml-2 text-xs text-slate dark:text-white/60">days</span>
             </label>
@@ -141,7 +141,7 @@ export function DashboardToolbar({ controller }: { controller: DashboardPageCont
                     value={dashboardRollingDays}
                     onChange={(event) => updateDashboardRollingDaysValue(event.target.value)}
                     aria-label="Dashboard rolling time window in days"
-                    className="w-full bg-transparent text-xs focus-visible:outline-none"
+                    className="w-full bg-transparent text-xs focus-visible:outline-hidden"
                   />
                   <span className="ml-2 text-xs text-slate dark:text-white/60">days</span>
                 </label>

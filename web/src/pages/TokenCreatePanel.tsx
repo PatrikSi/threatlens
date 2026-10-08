@@ -339,7 +339,7 @@ export function TokenCreatePanel({
                   ref={createdTokenHeadingRef}
                   id="new-token-heading"
                   tabIndex={-1}
-                  className="font-semibold outline-none focus-visible:ring-2 focus-visible:ring-cyan"
+                  className="font-semibold outline-hidden focus-visible:ring-2 focus-visible:ring-cyan"
                 >
                   New token created
                 </h3>

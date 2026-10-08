@@ -214,7 +214,7 @@ function EvaluationDetail({ controller }: { controller: AlertOperationsControlle
       tabIndex={-1}
       role="region"
       aria-live="polite"
-      className="min-w-0 px-3 py-3 outline-none focus-visible:ring-2 focus-visible:ring-cyan sm:px-4"
+      className="min-w-0 px-3 py-3 outline-hidden focus-visible:ring-2 focus-visible:ring-cyan sm:px-4"
       aria-labelledby="alert-evaluation-detail-heading"
     >
       {controller.detailQuery.isError && (

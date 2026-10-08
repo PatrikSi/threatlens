@@ -1,6 +1,69 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/preflight.css' layer(base);
+/* Keep utilities alongside the existing application CSS in the normal cascade. */
+@import 'tailwindcss/utilities.css' source(none);
+@config '../tailwind.config.ts';
+
+@custom-variant dark (&:is(.dark *));
+@custom-variant hover (&:hover);
+
+@theme {
+  /* These names are single brand colors in the existing theme, not palettes. */
+  --color-cyan-*: initial;
+  --color-slate-*: initial;
+  --default-ring-width: 3px;
+  --default-ring-color: #3b82f6;
+}
+
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: #e5e7eb;
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: #9ca3af;
+  }
+
+  button:not(:disabled),
+  [role='button']:not(:disabled) {
+    cursor: pointer;
+  }
+
+  button,
+  input,
+  select,
+  optgroup,
+  textarea,
+  ::file-selector-button {
+    border-radius: revert;
+  }
+
+  input:not([type='button']):not([type='reset']):not([type='submit']),
+  select,
+  optgroup,
+  textarea {
+    background-color: revert;
+  }
+}
+
+/* Mobile density rules below depend on spacing between visible siblings. */
+@utility space-y-* {
+  & > :not(:last-child) {
+    margin-block-start: 0;
+    margin-block-end: 0;
+  }
+
+  & > :not([hidden]) ~ :not([hidden]) {
+    --tw-space-y-reverse: 0;
+    margin-top: calc(--spacing(--value(number)) * (1 - var(--tw-space-y-reverse)));
+    margin-bottom: calc(--spacing(--value(number)) * var(--tw-space-y-reverse));
+  }
+}
 
 @font-face {
   font-family: 'Source Sans 3';
