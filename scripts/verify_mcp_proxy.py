@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+from contextvars import ContextVar
 import hashlib
 from http.cookiejar import CookieJar
 import json
@@ -28,9 +29,12 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 from urllib.request import HTTPCookieProcessor, Request, build_opener, urlopen
 import uuid
 
+from operations.qualification_runtime import require_local_docker
+
 
 LATEST = "2026-07-28"
 LEGACY = "2025-11-25"
+DOCKER_ENVIRONMENT: ContextVar[dict[str, str] | None] = ContextVar("mcp_proxy_docker_environment", default=None)
 SEED = """
 from datetime import datetime, timedelta, timezone
 import json
@@ -82,7 +86,8 @@ asyncio.run(exercise())
 
 def run(*arguments: str, timeout: int = 60, input_text: str | None = None) -> str:
     result = subprocess.run(
-        arguments, text=True, input=input_text, capture_output=True, timeout=timeout
+        arguments, text=True, input=input_text, capture_output=True, timeout=timeout,
+        env=DOCKER_ENVIRONMENT.get() if arguments[0] == "docker" else None,
     )
     if result.returncode:
         raise RuntimeError(
@@ -113,7 +118,8 @@ def cleanup_owned_resources(containers, networks, original_error=None) -> None:
     ):
         try:
             subprocess.run(command, stdout=subprocess.DEVNULL,
-                           stderr=subprocess.DEVNULL, timeout=20, check=True)
+                           stderr=subprocess.DEVNULL, timeout=20, check=True,
+                           env=DOCKER_ENVIRONMENT.get())
         except (OSError, subprocess.SubprocessError) as error:
             failures.append(f"{command[-1]}: {type(error).__name__}")
     if failures:
@@ -326,6 +332,14 @@ def qualify_oauth(url: str, values: dict) -> None:
 
 
 def verify(args):
+    binding = DOCKER_ENVIRONMENT.set(dict(require_local_docker()))
+    try:
+        _verify(args)
+    finally:
+        DOCKER_ENVIRONMENT.reset(binding)
+
+
+def _verify(args):
     root = Path(__file__).resolve().parents[1]
     suffix = uuid.uuid4().hex[:12]
     network = f"threatlens-mcp-proxy-{suffix}"

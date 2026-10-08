@@ -17,6 +17,28 @@ def clean_environment() -> dict[str, str]:
     return {key: value for key, value in os.environ.items() if key in allowed or key.startswith(("DOCKER_", "LC_"))}
 
 
+def require_local_docker() -> dict[str, str]:
+    """Resolve context precedence before allowing disposable local creation."""
+    environment = clean_environment()
+    context = environment.get("DOCKER_CONTEXT")
+    host = environment.get("DOCKER_HOST")
+    if context or not host:
+        arguments = ["docker", "context", "inspect", *([context] if context else []),
+                     "--format", "{{.Endpoints.docker.Host}}"]
+        result = subprocess.run(arguments, capture_output=True, text=True, timeout=15,
+                                check=False, env=environment)
+        if result.returncode:
+            raise RuntimeError("Unable to establish the qualification Docker endpoint")
+        host = result.stdout.strip()
+    if not host.startswith("unix://"):
+        raise ValueError("Qualification requires a local Docker Unix socket")
+    # Bind all later create/inspect/remove calls to the validated socket. A
+    # concurrent context switch must not redirect resources or their cleanup.
+    environment.pop("DOCKER_CONTEXT", None)
+    environment["DOCKER_HOST"] = host
+    return environment
+
+
 def free_port() -> int:
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
@@ -24,8 +46,9 @@ def free_port() -> int:
 
 
 class DisposableTopology:
-    def __init__(self, directory: Path):
+    def __init__(self, directory: Path, *, docker_environment: dict[str, str] | None = None):
         self.directory = directory
+        self.docker_environment = dict(docker_environment) if docker_environment is not None else clean_environment()
         self.run_id = uuid.uuid4().hex
         self.containers: list[str] = []
         self.processes: dict[str, subprocess.Popen] = {}
@@ -35,7 +58,7 @@ class DisposableTopology:
 
     def docker(self, *args: str, timeout: int = 60) -> str:
         result = subprocess.run(["docker", *args], capture_output=True, text=True, timeout=timeout,
-                                env=clean_environment(), check=False)
+                                env=self.docker_environment, check=False)
         if result.returncode:
             raise RuntimeError(f"Disposable Docker operation {args[0]} failed")
         return result.stdout.strip()
@@ -120,7 +143,7 @@ class DisposableTopology:
                 try:
                     removed = subprocess.run(["docker", "rm", "--force", "--volumes", identity],
                                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                             timeout=30, check=False, env=clean_environment())
+                                             timeout=30, check=False, env=self.docker_environment)
                     if removed.returncode:
                         failures.append("container-removal")
                 except (OSError, subprocess.SubprocessError):

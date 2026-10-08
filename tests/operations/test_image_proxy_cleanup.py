@@ -2,6 +2,7 @@
 import importlib.util
 from pathlib import Path
 import subprocess
+import sys
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -12,15 +13,60 @@ ROOT = Path(__file__).resolve().parents[2]
 def load(name):
     spec = importlib.util.spec_from_file_location(name, ROOT / "scripts" / f"{name}.py")
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    with patch.object(sys, "path", [str(ROOT / "scripts"), *sys.path]):
+        spec.loader.exec_module(module)
     return module
 
 
 artifacts = load("verify_image_dependency_artifacts")
 proxy = load("verify_mcp_proxy")
+isolation = load("verify_runtime_isolation")
 
 
 class ImageProxyCleanupTests(unittest.TestCase):
+    def test_remote_mcp_daemon_is_refused_before_image_or_network_operations(self):
+        with patch.dict("os.environ", {"DOCKER_HOST": "ssh://remote.example"}, clear=True), patch.object(
+            proxy.subprocess, "run",
+        ) as run, self.assertRaisesRegex(ValueError, "local Docker Unix socket"):
+            proxy.verify(None)
+        run.assert_not_called()
+
+    def test_remote_runtime_daemon_is_refused_before_fixture_creation(self):
+        with patch.object(sys, "argv", ["verify_runtime_isolation", "--output", "/tmp/unused-runtime-qualification.json"]), patch.dict(
+            "os.environ", {"DOCKER_HOST": "tcp://remote.example:2376"}, clear=True,
+        ), patch.object(isolation.tempfile, "mkdtemp") as create, patch.object(
+            isolation.subprocess, "run",
+        ) as run, self.assertRaisesRegex(ValueError, "local Docker Unix socket"):
+            isolation.main()
+        create.assert_not_called()
+        run.assert_not_called()
+
+    def test_proxy_docker_and_cleanup_stay_on_the_validated_socket_and_sdk_environment_is_unchanged(self):
+        selected = {"DOCKER_HOST": "unix:///var/run/docker.sock"}
+
+        def exercise(_args):
+            with patch.dict("os.environ", {"DOCKER_CONTEXT": "remote"}, clear=True):
+                proxy.run("docker", "ps", "--quiet")
+                proxy.cleanup_owned_resources(["owned-container"], ["owned-network"])
+                proxy.run("sdk-python", "--version")
+
+        with patch.object(proxy, "require_local_docker", return_value=selected), patch.object(
+            proxy, "_verify", side_effect=exercise,
+        ), patch.object(proxy.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout="")) as run:
+            proxy.verify(None)
+        self.assertTrue(all(call.kwargs["env"] == selected for call in run.call_args_list[:-1]))
+        self.assertIsNone(run.call_args_list[-1].kwargs["env"])
+        self.assertIsNone(proxy.DOCKER_ENVIRONMENT.get())
+
+    def test_failed_proxy_verification_does_not_retain_a_daemon_binding(self):
+        original = ValueError("protocol failed")
+        with patch.object(proxy, "require_local_docker", return_value={"DOCKER_HOST": "unix:///var/run/docker.sock"}), patch.object(
+            proxy, "_verify", side_effect=original,
+        ), self.assertRaises(ValueError) as caught:
+            proxy.verify(None)
+        self.assertIs(caught.exception, original)
+        self.assertIsNone(proxy.DOCKER_ENVIRONMENT.get())
+
     def test_image_cleanup_nonzero_rejects_successful_artifact_check(self):
         def command(arguments, **kwargs):
             if arguments[:2] == ["docker", "rm"]:
@@ -87,7 +133,9 @@ class ImageProxyCleanupTests(unittest.TestCase):
 
         args = SimpleNamespace(backend_image="fixture-backend", web_image="fixture-web",
                                postgres_image="fixture-db", redis_image="fixture-redis", sdk_python=None)
-        with patch.object(proxy, "run", side_effect=command), patch.object(
+        with patch.object(proxy, "require_local_docker", return_value={"DOCKER_HOST": "unix:///var/run/docker.sock"}), patch.object(
+            proxy, "run", side_effect=command,
+        ), patch.object(
             proxy, "cleanup_owned_resources"
         ) as cleanup:
             with self.assertRaises(subprocess.TimeoutExpired):

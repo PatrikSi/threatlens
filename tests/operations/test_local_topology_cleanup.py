@@ -7,16 +7,62 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+from types import ModuleType
 import unittest
 from unittest.mock import MagicMock, patch
 
 OPERATIONS = Path(__file__).resolve().parents[2] / "scripts/operations"
 sys.path.insert(0, str(OPERATIONS))
 import qualification_runtime  # noqa: E402
-import qualify_local_topology  # noqa: E402
+
+# Recovery CI intentionally installs only cryptography. This test never makes
+# HTTP calls, so confine a synthetic client module to the CLI's mocked import.
+client_module = ModuleType("httpx")
+client_module.Client = MagicMock()
+with patch.dict(sys.modules, {"httpx": client_module}):
+    import qualify_local_topology
 
 
 class LocalTopologyCleanupTests(unittest.TestCase):
+    def test_remote_host_is_refused_before_any_docker_operation(self):
+        with patch.dict("os.environ", {"DOCKER_HOST": "tcp://remote.example:2376"}, clear=True), patch(
+            "qualification_runtime.subprocess.run",
+        ) as run, self.assertRaisesRegex(ValueError, "local Docker Unix socket"):
+            qualification_runtime.require_local_docker()
+        run.assert_not_called()
+
+    def test_remote_context_overrides_an_explicit_local_host_and_is_refused(self):
+        with patch.dict("os.environ", {"DOCKER_CONTEXT": "remote", "DOCKER_HOST": "unix:///var/run/docker.sock"}, clear=True), patch(
+            "qualification_runtime.subprocess.run", return_value=subprocess.CompletedProcess([], 0, stdout="ssh://remote.example\n"),
+        ) as run, self.assertRaisesRegex(ValueError, "local Docker Unix socket"):
+            qualification_runtime.require_local_docker()
+        self.assertEqual(run.call_args.args[0][:4], ["docker", "context", "inspect", "remote"])
+        self.assertEqual(run.call_args.kwargs["timeout"], 15)
+
+    def test_unknown_context_is_refused_and_local_socket_is_accepted(self):
+        with patch.dict("os.environ", {}, clear=True), patch(
+            "qualification_runtime.subprocess.run", return_value=subprocess.CompletedProcess([], 1, stdout=""),
+        ), self.assertRaisesRegex(RuntimeError, "Docker endpoint"):
+            qualification_runtime.require_local_docker()
+        with patch.dict("os.environ", {"DOCKER_HOST": "unix:///var/run/docker.sock"}, clear=True), patch(
+            "qualification_runtime.subprocess.run",
+        ) as run:
+            qualification_runtime.require_local_docker()
+        run.assert_not_called()
+
+    def test_validated_socket_stays_bound_after_the_callers_context_changes(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict("os.environ", {"DOCKER_CONTEXT": "local"}, clear=True), patch(
+            "qualification_runtime.subprocess.run", return_value=subprocess.CompletedProcess([], 0, stdout="unix:///var/run/docker.sock\n"),
+        ) as run:
+            environment = qualification_runtime.require_local_docker()
+            self.assertNotIn("DOCKER_CONTEXT", environment)
+            topology = qualification_runtime.DisposableTopology(Path(directory), docker_environment=environment)
+            environment["DOCKER_HOST"] = "tcp://remote.example:2376"
+            with patch.dict("os.environ", {"DOCKER_CONTEXT": "remote"}):
+                topology.docker("ps", "--quiet")
+            self.assertEqual(run.call_args.kwargs["env"]["DOCKER_HOST"], "unix:///var/run/docker.sock")
+            self.assertNotIn("DOCKER_CONTEXT", run.call_args.kwargs["env"])
+
     def test_nonzero_removal_fails_after_attempting_every_container(self):
         with tempfile.TemporaryDirectory() as directory:
             topology = qualification_runtime.DisposableTopology(Path(directory))
@@ -94,7 +140,7 @@ class LocalTopologyCleanupTests(unittest.TestCase):
             self.assertIsNone(topology.cleanup_result["remaining_container_ids"])
             self.assertIn("container-verification", topology.cleanup_result["errors"])
 
-    def run_qualification(self, *, workload_error=None, cleanup_error=None, diagnostic_error=False):
+    def run_qualification(self, *, workload_error=None, cleanup_error=None, diagnostic_error=False, docker_guard_error=None):
         with tempfile.TemporaryDirectory() as directory, ExitStack() as patches:
             output = Path(directory) / "result.json"
             topology = MagicMock()
@@ -104,7 +150,7 @@ class LocalTopologyCleanupTests(unittest.TestCase):
             topology.docker.return_value = "127.0.0.1:54321"
             topology.close.side_effect = cleanup_error
 
-            def construct(temporary):
+            def construct(temporary, *, docker_environment):
                 if diagnostic_error:
                     (temporary / "api.log").write_text("synthetic diagnostic")
                 return topology
@@ -112,6 +158,8 @@ class LocalTopologyCleanupTests(unittest.TestCase):
             patches.enter_context(patch.object(sys, "argv", ["qualify_local_topology", "--output", str(output),
                 "--duration-seconds", "10", "--target-id", "unit-test"]))
             patches.enter_context(patch.object(qualify_local_topology, "DisposableTopology", side_effect=construct))
+            patches.enter_context(patch.object(qualify_local_topology, "require_local_docker", side_effect=docker_guard_error,
+                return_value={"DOCKER_HOST": "unix:///var/run/docker.sock"}))
             patches.enter_context(patch.object(qualify_local_topology.platform, "platform", return_value="synthetic Linux"))
             patches.enter_context(patch.object(qualify_local_topology.subprocess, "check_output", side_effect=["a" * 40, ""]))
             patches.enter_context(patch.object(qualify_local_topology.shutil, "copytree"))
@@ -142,6 +190,12 @@ class LocalTopologyCleanupTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(result["status"], "failed")
         self.assertEqual(result["failure"]["message"], "cleanup failed")
+
+    def test_daemon_boundary_failure_is_recorded_before_fixture_creation(self):
+        code, result = self.run_qualification(docker_guard_error=ValueError("local daemon required"))
+        self.assertEqual(code, 1)
+        self.assertEqual(result["failure"], {"type": "ValueError", "message": "local daemon required"})
+        self.assertNotIn("run_id", result)
 
     def test_cleanup_preserves_the_original_workload_failure(self):
         code, result = self.run_qualification(workload_error=ValueError("workload failed"),
