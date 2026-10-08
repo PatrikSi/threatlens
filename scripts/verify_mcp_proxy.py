@@ -385,10 +385,12 @@ def verify(args):
         for key, value in environment.items():
             backend_options.extend(["-e", f"{key}={value}"])
         try:
-            run("docker", "network", "create", "--internal", network)
+            # A timed-out create may have succeeded in the daemon. Record the
+            # unique requested name before the call so cleanup still attempts it.
             created_networks.append(network)
-            run("docker", "network", "create", ingress_network)
+            run("docker", "network", "create", "--internal", network)
             created_networks.append(ingress_network)
+            run("docker", "network", "create", ingress_network)
             run(
                 "docker",
                 "run",
