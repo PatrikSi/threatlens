@@ -47,8 +47,11 @@ def test_ai_completion_emits_current_role_change_once_and_failed_refresh_stops_r
         .where(IntegrationEvent.source_id == str(item.id))
         .order_by(IntegrationEvent.created_at)
     ).all()
-    assert [row.event_type for row in events].count("intel.indicators.changed") == 2
-    latest = events[-1].payload_json
+    indicator_events = [
+        row for row in events if row.event_type == "intel.indicators.changed"
+    ]
+    assert len(indicator_events) == 2
+    latest = indicator_events[-1].payload_json
     reference = next(
         row for row in latest["indicators"] if row["value"] == "docs.example.org"
     )
@@ -146,7 +149,10 @@ def test_attack_conditions_use_current_verified_passages_not_inferred_descriptio
     assert current_ai_attack_techniques(db_session, item.id) == ["T1059.001"]
     event = db_session.scalar(
         select(IntegrationEvent)
-        .where(IntegrationEvent.source_id == str(item.id))
+        .where(
+            IntegrationEvent.source_id == str(item.id),
+            IntegrationEvent.event_type == "intel.indicators.changed",
+        )
         .order_by(IntegrationEvent.created_at.desc())
         .limit(1)
     )
