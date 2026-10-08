@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
 import { test, expect } from './fixtures'
 
 const request = new URLSearchParams({
@@ -43,6 +43,43 @@ async function openConsumers(page: Page) {
   await page.getByRole('combobox', { name: 'Publication team' }).selectOption('team-1')
   await page.getByRole('button', { name: 'Publication consumers', exact: true }).click()
 }
+
+async function expectReadableControl(control: Locator) {
+  const colors = await control.evaluate((element) => {
+    const context = document.createElement('canvas').getContext('2d')!
+    const pixel = (value: string) => {
+      context.clearRect(0, 0, 1, 1)
+      context.fillStyle = value
+      context.fillRect(0, 0, 1, 1)
+      return [...context.getImageData(0, 0, 1, 1).data]
+    }
+    const style = getComputedStyle(element)
+    const foreground = pixel(style.color)
+    const background = pixel(style.backgroundColor)
+    // Compositing a translucent dark control over white gives the weakest
+    // possible contrast for its light text, independent of panel placement.
+    const effectiveBackground = background.slice(0, 3).map((value) => value * background[3] / 255 + 255 * (1 - background[3] / 255))
+    const luminance = (channels: number[]) => channels.slice(0, 3).reduce((total, value, index) => {
+      const channel = value / 255
+      return total + (channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4) * [0.2126, 0.7152, 0.0722][index]
+    }, 0)
+    const text = luminance(foreground)
+    const fill = luminance(effectiveBackground)
+    return { foreground, background, ratio: (Math.max(text, fill) + 0.05) / (Math.min(text, fill) + 0.05) }
+  })
+  expect(colors.ratio, `Control text/background contrast: ${JSON.stringify(colors)}`).toBeGreaterThanOrEqual(4.5)
+}
+
+test('dark publication consumer selects retain readable text', async ({ page }) => {
+  await page.addInitScript(() => window.localStorage.setItem('threatlens.theme', 'dark'))
+  await page.route('**/api/v1/teams/team-1/publication-consumers', (route) => route.fulfill({ json: [consumer] }))
+  await openConsumers(page)
+  await expect(page.locator('html')).toHaveClass(/dark/)
+  await page.getByRole('combobox', { name: 'Consumer', exact: true }).selectOption('consumer-1')
+  await page.getByRole('combobox', { name: 'Publication', exact: true }).selectOption('publication-1')
+  await expectReadableControl(page.getByRole('combobox', { name: 'Consumer', exact: true }))
+  await expectReadableControl(page.getByRole('combobox', { name: 'Publication', exact: true }))
+})
 
 test('MCP consent rejects duplicated parameters and isolates a replacement request from late approval', async ({ page }) => {
   await page.routeWebSocket('**/*', (socket) => socket.close())
