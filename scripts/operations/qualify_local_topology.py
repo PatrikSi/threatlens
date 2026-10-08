@@ -140,21 +140,32 @@ def main() -> int:
                     if measured["http_errors"] or measured["latency_p95_ms"] > args.max_p95_ms:
                         raise RuntimeError("Mixed workload exceeded HTTP correctness/latency objectives")
                     result["status"] = "passed"
-            except Exception:
+            except Exception as error:
+                result["status"] = "failed"
+                result["failure"] = {"type": type(error).__name__, "message": str(error)[:400]}
                 # Preserve bounded logs for diagnosis without exposing credentials.
                 for path in directory.glob("*.log"):
-                    data = path.read_bytes()[-128_000:]
-                    # Framework startup/errors can contain test-only DSNs. These
-                    # logs stay private beside the artifact, never in stdout.
-                    target = output.with_name(output.stem + f"-{path.name}")
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    target.write_bytes(data)
-                    target.chmod(0o600)
-                raise
+                    try:
+                        data = path.read_bytes()[-128_000:]
+                        # Framework startup/errors can contain test-only DSNs.
+                        # Keep these logs private beside the artifact.
+                        target = output.with_name(output.stem + f"-{path.name}")
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        target.write_bytes(data)
+                        target.chmod(0o600)
+                    except OSError as diagnostic_error:
+                        result.setdefault("diagnostic_errors", []).append({"type": type(diagnostic_error).__name__})
             finally:
-                topology.close()
+                try:
+                    topology.close()
+                except Exception as cleanup_error:
+                    result["status"] = "failed"
+                    result["cleanup_failure"] = {"type": type(cleanup_error).__name__, "message": str(cleanup_error)[:400]}
+                    result.setdefault("failure", result["cleanup_failure"])
+                result["cleanup"] = topology.cleanup_result
     except Exception as error:
-        result["failure"] = {"type": type(error).__name__, "message": str(error)[:400]}
+        result["status"] = "failed"
+        result.setdefault("failure", {"type": type(error).__name__, "message": str(error)[:400]})
     result["finished_at"] = datetime.now(timezone.utc).isoformat()
     atomic_json(output, result)
     print(json.dumps({"status": result["status"], "scope": result["scope"], "artifact": str(output)}))

@@ -164,7 +164,8 @@ class HostMonitorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             topology = DisposableTopology(Path(directory))
             topology.containers = ["owned-first", "owned-second"]
-            with patch("qualification_runtime.subprocess.run", side_effect=[
+            with patch.object(topology, "docker", side_effect=["owned-first\nowned-second", ""]), patch(
+                "qualification_runtime.subprocess.run", side_effect=[
                 subprocess.TimeoutExpired("docker", 30), subprocess.CompletedProcess([], 0),
             ]) as remove, self.assertRaisesRegex(RuntimeError, "cleanup"):
                 topology.close()
