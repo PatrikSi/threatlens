@@ -10,6 +10,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session, load_only
 
 from app.core.api_errors import ApiHTTPException
+from app.models.ai_task_run import AITaskRun
 from app.models.article import Article
 from app.models.feed import Feed
 from app.models.investigation import Investigation
@@ -202,11 +203,13 @@ def list_team_hunts(
             claim.reminded_at,
             claim.reminder_acknowledged_at,
             owner_current.label("owner_current"),
+            AITaskRun.status.label("assessment_status"),
         )
         .join(Item, Item.id == row.item_id)
         .join(Feed, Feed.id == Item.feed_id)
         .outerjoin(Article, Article.item_id == Item.id)
         .outerjoin(TeamAIContext, TeamAIContext.team_id == row.team_id)
+        .outerjoin(AITaskRun, AITaskRun.id == row.task_run_id)
         .join(hunts, true())
         .outerjoin(claim, (claim.assessment_id == row.id) & (claim.hunt_id == hunt_id))
         .where(
@@ -307,6 +310,7 @@ def list_team_hunts(
                 can_claim=actor.authorization.has("write:teams")
                 and can_control
                 and candidate.effective_status != "stale"
+                and candidate.assessment_status not in {"queued", "running"}
                 and hunt.investigation_id is None,
                 can_release=actor.authorization.has("write:teams")
                 and can_control
