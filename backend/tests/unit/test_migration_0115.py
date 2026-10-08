@@ -42,6 +42,7 @@ LATER_REVISIONS = (
     "0122_mcp_delegation",
     "0123_item_identity_indexes",
     "0124_reconciliation_progress",
+    "0125_webhook_article_text",
 )
 
 
