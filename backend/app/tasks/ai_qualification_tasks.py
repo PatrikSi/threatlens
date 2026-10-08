@@ -39,7 +39,7 @@ def generate_ai_qualification(self, task_run_id: str, actor_user_id: str | None 
         if not can_run or stop:
             return {"status": "skipped", "reason": stop or "already_running"}
         try:
-            generate_assessment(db, run_id=run_id)
+            status = generate_assessment(db, run_id=run_id)
         except AIExecutionSuperseded:
             raise
         except AIWorkflowDeferred as exc:
@@ -56,4 +56,4 @@ def generate_ai_qualification(self, task_run_id: str, actor_user_id: str | None 
             logger.error("ai_qualification_failed run_id=%s error_type=%s", run_id, type(exc).__name__)
             _finish_error(db, run_id, reason="unexpected_error", error="Provider qualification could not finish. Retry, or ask an administrator to check this task's request reference.")
             return {"status": "error", "reason": "unexpected_error"}
-    return {"status": "ready"}
+    return {"status": status}
