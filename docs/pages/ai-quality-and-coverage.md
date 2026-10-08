@@ -217,6 +217,24 @@ leaves its group, including settled reservations retained for accounting.
 
 ## Strict promotion gates and analyst workflow
 
+The checked-in [review package](../../backend/evaluations/ai-quality/review-package/README.md)
+contains all twelve seed sources, expected annotations, case rubrics and exact
+content digests, plus blank capture and review forms. Every seed remains pending.
+Generate a reproducible package from a selected dataset into a fresh directory:
+
+```bash
+backend/.venv/bin/python backend/scripts/prepare_ai_quality_review.py \
+  --dataset backend/evaluations/ai-quality/v1.json --output-dir /tmp/ai-case-review
+```
+
+After personal case review, regenerate from the final approved dataset before
+capturing model outputs: approval metadata changes its byte digest. Add
+`--predictions PATH` to package captured JSONL unchanged and generate blank
+judgments keyed to each actual output claim. The manifest discloses missing cases
+per model/prompt and stores the capture digest. Existing directories are refused
+so regeneration cannot overwrite human work. The tool makes no provider calls
+and records no approvals; a named human still reviews both corpus and output.
+
 The existing `claim_verdicts` list remains accepted for historical comparisons,
 but cannot satisfy a promotion gate. Comparison reports now include stable claim
 IDs derived from each exact entity/relationship object. An analyst records

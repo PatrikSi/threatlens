@@ -1,0 +1,9 @@
+{
+  "minimum_validation_rate": 1,
+  "minimum_entity_precision": 0.95,
+  "minimum_entity_recall": 0.9,
+  "maximum_unsupported_claim_rate": 0,
+  "minimum_hunt_usefulness": 3,
+  "maximum_p95_latency_ms": 60000,
+  "maximum_total_cost_usd": 1
+}
