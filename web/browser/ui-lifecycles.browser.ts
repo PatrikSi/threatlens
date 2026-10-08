@@ -113,6 +113,32 @@ test('keeps mobile operation controls in the viewport and scrolls chart data wit
   expect(result.violations).toEqual([])
 })
 
+for (const theme of ['light', 'dark']) {
+  test(`keeps mobile access governance within the viewport and its table keyboard-scrollable in ${theme} mode`, async ({ page, api, appOrigin }) => {
+    api.identity = { ...api.identity, access: { permissions: ['read:iam'], account_eligible: true } }
+    for (const endpoint of ['permissions', 'roles', 'groups']) {
+      await page.route(`**/api/v1/iam/${endpoint}`, (route) => route.fulfill({ json: [] }))
+    }
+    await page.addInitScript(({ mode, origin }) => {
+      if (window === window.top && location.origin === origin) localStorage.setItem('threatlens.theme', mode)
+    }, { mode: theme, origin: appOrigin })
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto('/settings/access')
+    const attention = page.getByRole('region', { name: 'Items needing attention', exact: true })
+    await expect(attention.getByRole('table')).toBeVisible()
+    await expect.poll(() => page.evaluate(() => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth)))
+      .toBeLessThanOrEqual(392)
+    const wrapper = attention.getByRole('table').locator('..')
+    expect(await wrapper.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true)
+    await wrapper.focus()
+    await expect(wrapper).toBeFocused()
+    await page.keyboard.press('ArrowRight')
+    await expect.poll(() => wrapper.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0)
+    const result = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze()
+    expect(result.violations).toEqual([])
+  })
+}
+
 test('opens badge-free compact article details as a named mobile dialog and restores focus', async ({ page }) => {
   const item = { id: 'item-1', feed_id: 'browser-feed', feed_name: 'Browser fixture feed', title: 'Service behavior article', url: 'https://publisher.example.test/article', summary: 'A new service was observed.', published_at: '2026-09-16T10:00:00Z', first_seen_at: '2026-09-16T10:00:00Z', status: 'content_fetched', classification: null, is_read: true, is_starred: false, tags: [], ai_status: null }
   await page.route('**/api/v1/items?*', (route) => route.fulfill({ json: { items: [item], total: 1, page: 1, page_size: 100 } }))
