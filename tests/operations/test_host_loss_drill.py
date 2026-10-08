@@ -22,6 +22,21 @@ from record_evidence import key_probe, verify_key_probe  # noqa: E402
 from tests.recovery import test_recovery_docker_e2e as recovery_fixture  # noqa: E402
 
 
+def finish_qualification(helper, result, output, original_compose, restore_error):
+    try:
+        helper.tearDown()
+        result["cleanup"] = {"completed": True}
+    except Exception as error:
+        result["status"] = "failed"
+        result["cleanup"] = {"completed": False, "category": type(error).__name__}
+        if restore_error is None:
+            raise
+    finally:
+        recovery_fixture.COMPOSE_FILE = original_compose
+        result["finished_at"] = datetime.now(timezone.utc).isoformat()
+        atomic_json(output, result)
+
+
 @unittest.skipUnless(os.environ.get("THREATLENS_RUN_HOST_LOSS_QUALIFICATION") == "1",
                      "opt-in disposable source-loss reconstruction")
 class HostLossQualificationTests(unittest.TestCase):
@@ -34,12 +49,15 @@ class HostLossQualificationTests(unittest.TestCase):
         result = {"schema_version": 1, "kind": "host_loss_qualification", "status": "failed",
             "deployment": os.environ.get("THREATLENS_HOST_LOSS_DEPLOYMENT", "local-qualification"),
             "run_id": uuid.uuid4().hex, "scope": "disposable_local_fault_domain_simulation",
+            "compose_project": recovery_fixture.PROJECT,
             "production_qualified": False, "started_at": datetime.now(timezone.utc).isoformat(),
             "source_environment_removed": False, "restore_verified": False,
             "outbound_quarantined": False, "independent_key_used": False}
         output = Path(os.environ.get("THREATLENS_HOST_LOSS_OUTPUT", "/tmp/threatlens-host-loss-qualification.json"))
         helper.setUp()
         try:
+            result["source_revision"] = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True, timeout=15).strip()
             with tempfile.TemporaryDirectory(prefix="threatlens-independent-recovery-") as independent:
                 isolated = Path(independent)
                 # Absolute source-owned provisioning paths keep the test Compose
@@ -135,13 +153,11 @@ print('independent recovered key decrypted the restored database')
                 self.assertEqual(helper._psql("SELECT has_schema_privilege('threatlens_runtime','public','CREATE')::text;"), "false")
                 self.assertEqual(hashlib.sha256((copied / "database.dump").read_bytes()).hexdigest(), result["archive_sha256"])
                 result.update(status="passed", restore_verified=True, outbound_quarantined=True, independent_key_used=True)
+        except Exception as error:
+            result["failure"] = {"category": type(error).__name__}
+            raise
         finally:
-            try:
-                helper.tearDown()
-            finally:
-                recovery_fixture.COMPOSE_FILE = original_compose
-                result["finished_at"] = datetime.now(timezone.utc).isoformat()
-                atomic_json(output, result)
+            finish_qualification(helper, result, output, original_compose, sys.exc_info()[1])
 
 
 if __name__ == "__main__":
