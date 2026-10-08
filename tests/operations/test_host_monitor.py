@@ -7,7 +7,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts/operations"))
 from evidence import check_recovery, read_json, read_key, sign, verify
@@ -26,6 +26,30 @@ def config():
 
 
 class HostMonitorTests(unittest.TestCase):
+    def observe_empty_docker_output(self, **kwargs):
+        process = MagicMock()
+        process.wait.return_value = 0
+        process.poll.return_value = 0
+        with patch("fleet.subprocess.Popen") as start, patch("fleet.selectors.DefaultSelector") as selector, patch(
+            "fleet.os.read", return_value=b"",
+        ):
+            start.return_value.__enter__.return_value = process
+            selector.return_value.__enter__.return_value.select.return_value = [(None, None)]
+            self.assertEqual(docker("ps", **kwargs), "")
+        return start.call_args
+
+    def test_docker_observation_keeps_the_validated_socket_after_context_changes(self):
+        selected = {"DOCKER_HOST": "unix:///var/run/docker.sock"}
+        with patch.dict("os.environ", {"DOCKER_CONTEXT": "remote"}, clear=True):
+            started = self.observe_empty_docker_output(environment=selected)
+        self.assertEqual(started.kwargs["env"], selected)
+        self.assertNotIn("DOCKER_CONTEXT", started.kwargs["env"])
+
+    def test_normal_docker_observation_preserves_selected_context(self):
+        with patch.dict("os.environ", {"DOCKER_CONTEXT": "operator-context"}, clear=True):
+            started = self.observe_empty_docker_output()
+        self.assertIsNone(started.kwargs.get("env"))
+
     def test_docker_output_cap_terminates_the_owned_process(self):
         real_popen = subprocess.Popen
         children = []

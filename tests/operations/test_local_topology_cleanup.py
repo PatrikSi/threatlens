@@ -140,7 +140,8 @@ class LocalTopologyCleanupTests(unittest.TestCase):
             self.assertIsNone(topology.cleanup_result["remaining_container_ids"])
             self.assertIn("container-verification", topology.cleanup_result["errors"])
 
-    def run_qualification(self, *, workload_error=None, cleanup_error=None, diagnostic_error=False, docker_guard_error=None):
+    def run_qualification(self, *, workload_error=None, cleanup_error=None, diagnostic_error=False, docker_guard_error=None,
+                          monitor_calls=None):
         with tempfile.TemporaryDirectory() as directory, ExitStack() as patches:
             output = Path(directory) / "result.json"
             topology = MagicMock()
@@ -169,7 +170,7 @@ class LocalTopologyCleanupTests(unittest.TestCase):
             patches.enter_context(patch.object(qualify_local_topology, "wait_http"))
             patches.enter_context(patch.object(qualify_local_topology, "run_workload", side_effect=workload_error,
                 return_value={"http_errors": [], "latency_p95_ms": 1}))
-            patches.enter_context(patch.object(qualify_local_topology, "collect",
+            monitor = patches.enter_context(patch.object(qualify_local_topology, "collect",
                 return_value=({"fleet_available": True, "active_incidents": []}, None)))
             patches.enter_context(patch.dict("os.environ", {}, clear=True))
             patches.enter_context(patch("builtins.print"))
@@ -183,7 +184,23 @@ class LocalTopologyCleanupTests(unittest.TestCase):
 
                 patches.enter_context(patch.object(Path, "read_bytes", autospec=True, side_effect=read_diagnostic))
             code = qualify_local_topology.main()
+            if monitor_calls is not None:
+                monitor_calls.extend(monitor.call_args_list)
             return code, json.loads(output.read_text())
+
+    def test_independent_monitor_uses_the_qualification_socket_after_context_changes(self):
+        calls = []
+        code, _result = self.run_qualification(monitor_calls=calls)
+        self.assertEqual(code, 0)
+        self.assertEqual(len(calls), 1)
+        self.assertIn("fleet", calls[0].kwargs)
+        observer = calls[0].kwargs["fleet"]
+        with patch.dict("os.environ", {"DOCKER_CONTEXT": "remote"}, clear=True), patch(
+            "fleet.subprocess.Popen", side_effect=OSError("mock observation unavailable"),
+        ) as observe, self.assertRaises(OSError):
+            observer(calls[0].args[0])
+        self.assertEqual(observe.call_args.kwargs["env"], {"DOCKER_HOST": "unix:///var/run/docker.sock"})
+        self.assertNotIn("DOCKER_CONTEXT", observe.call_args.kwargs["env"])
 
     def test_cleanup_error_cannot_leave_passed_evidence(self):
         code, result = self.run_qualification(cleanup_error=RuntimeError("cleanup failed"))
