@@ -155,8 +155,11 @@ threshold. Its scope is review-remediation code under a common runtime. The
 historical baseline pinned older PyJWT/urllib3, and already contained the
 unreleased integration feature batch; this is not a full released-2.0-to-2.1
 dependency-stack or production-capacity comparison. Shared-host pressure is
-recorded before and after each run. Both workloads pass every absolute budget
-with zero task or sampler errors. The unchanged comparator exits **1**:
+recorded before and after each run. The
+[baseline](capacity/2026-10-08-remediation-baseline-sustained.json) and
+[candidate](capacity/2026-10-08-remediation-candidate-sustained.json) workloads
+pass every absolute budget with zero task or sampler errors. The unchanged
+[comparator](capacity/2026-10-08-remediation-comparison.json) exits **1**:
 successful-export p95 rises from **288.198 ms to 439.536 ms (+52.512%)**.
 Aggregate export p95 falls from 459.499 ms to 454.799 ms; AI and governance
 p95 also fall. Policy-conflict counts differ (7 versus 4), so the aggregate and
