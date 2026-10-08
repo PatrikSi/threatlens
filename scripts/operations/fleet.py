@@ -16,13 +16,13 @@ INSPECT_FORMAT = ('{"id":{{json .Id}},"service":{{json (index .Config.Labels "co
     '"health":{{with index .State "Health"}}{{json .Status}}{{else}}"none"{{end}}}')
 
 
-def docker(*arguments: str) -> str:
+def docker(*arguments: str, environment: dict[str, str] | None = None) -> str:
     # Inventory is privileged host input, but still cannot consume unlimited
     # memory or retain an observation forever. Discard diagnostics, which can
     # include paths or daemon-specific configuration.
     deadline = time.monotonic() + 15
     with subprocess.Popen(["docker", *arguments], stdout=subprocess.PIPE,
-                          stderr=subprocess.DEVNULL) as process:
+                          stderr=subprocess.DEVNULL, env=environment) as process:
         output = bytearray()
         try:
             with selectors.DefaultSelector() as selector:

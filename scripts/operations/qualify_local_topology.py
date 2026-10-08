@@ -15,11 +15,13 @@ import subprocess
 import sys
 import tempfile
 from datetime import datetime, timezone
+from functools import partial
 
 import httpx
 
 from monitor import atomic_json, collect
 from evidence import LABEL
+from fleet import docker as observe_docker, observe_fleet
 from qualification_runtime import DisposableTopology, ROOT, clean_environment, free_port, require_local_docker, wait_http
 from qualification_workload import run_workload
 
@@ -134,7 +136,8 @@ def main() -> int:
                         "compose_project": f"qualification-{topology.run_id}",
                         "services": {service: {"min_instances": 1, "memory_warning_ratio": .95}
                                      for service in ("postgres", "redis", "nginx")}}
-                    result["independent_host_monitor"], _ = collect(monitor_config, {}, now=datetime.now(timezone.utc))
+                    observer = partial(observe_fleet, invoke=partial(observe_docker, environment=docker_environment))
+                    result["independent_host_monitor"], _ = collect(monitor_config, {}, now=datetime.now(timezone.utc), fleet=observer)
                     if (not result["independent_host_monitor"]["fleet_available"]
                             or result["independent_host_monitor"]["active_incidents"]):
                         raise RuntimeError("Independent container monitoring did not satisfy qualification objectives")
