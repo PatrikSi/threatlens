@@ -50,8 +50,12 @@ class RecoveryDockerEndToEndTests(unittest.TestCase):
         self.env_file.chmod(0o600)
 
     def tearDown(self) -> None:
-        self._compose("down", "--volumes", "--remove-orphans", check=False)
-        self.temporary_directory.cleanup()
+        try:
+            result = self._compose("down", "--volumes", "--remove-orphans", check=False)
+            if result.returncode:
+                self.fail(f"Owned recovery Compose cleanup failed (exit {result.returncode})")
+        finally:
+            self.temporary_directory.cleanup()
 
     def _compose(
         self,
