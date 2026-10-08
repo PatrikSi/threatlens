@@ -31,9 +31,10 @@ class DisposableTopology:
         self.processes: dict[str, subprocess.Popen] = {}
         self.logs = []
         self.image_ids: dict[str, str] = {}
+        self.cleanup_result: dict = {"status": "not_attempted"}
 
-    def docker(self, *args: str) -> str:
-        result = subprocess.run(["docker", *args], capture_output=True, text=True, timeout=60,
+    def docker(self, *args: str, timeout: int = 60) -> str:
+        result = subprocess.run(["docker", *args], capture_output=True, text=True, timeout=timeout,
                                 env=clean_environment(), check=False)
         if result.returncode:
             raise RuntimeError(f"Disposable Docker operation {args[0]} failed")
@@ -102,14 +103,47 @@ class DisposableTopology:
                 self.stop(role)
             except (OSError, subprocess.SubprocessError):
                 failures.append(f"process:{role}")
-        for name in reversed(self.containers):
+        label = f"label=threatlens.qualification.run={self.run_id}"
+        # Discover actual ownership, including a daemon-accepted create whose
+        # client acknowledgement was lost. Never remove by a name alone.
+        try:
+            containers = self.docker("ps", "--all", "--quiet", "--filter", label, timeout=30).splitlines()
+        except (RuntimeError, OSError, subprocess.SubprocessError):
+            failures.append("container-discovery")
+            containers = []
+        remaining = None
+        # One additional sweep covers a create completing during the first
+        # observation/removal. A failed operation remains a failed gate even if
+        # a later attempt succeeds; cleanup still makes bounded best effort.
+        for _sweep in range(2):
+            for identity in containers:
+                try:
+                    removed = subprocess.run(["docker", "rm", "--force", "--volumes", identity],
+                                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                             timeout=30, check=False, env=clean_environment())
+                    if removed.returncode:
+                        failures.append("container-removal")
+                except (OSError, subprocess.SubprocessError):
+                    failures.append("container-removal")
             try:
-                subprocess.run(["docker", "rm", "--force", name], stdout=subprocess.DEVNULL,
-                               stderr=subprocess.DEVNULL, timeout=30, check=False, env=clean_environment())
-            except (OSError, subprocess.SubprocessError):
-                failures.append("container")
+                remaining = None
+                remaining = self.docker("ps", "--all", "--quiet", "--filter", label, timeout=30).splitlines()
+            except (RuntimeError, OSError, subprocess.SubprocessError):
+                failures.append("container-verification")
+                break
+            if not remaining:
+                break
+            containers = remaining
+        if remaining:
+            failures.append("containers-remain")
         for log in self.logs:
-            log.close()
+            try:
+                log.close()
+            except OSError:
+                failures.append("log-close")
+        self.cleanup_result = {"status": "failed" if failures else "passed",
+                               "exact_label": label.removeprefix("label="),
+                               "remaining_container_ids": remaining, "errors": failures}
         if failures:
             raise RuntimeError(f"Disposable cleanup could not complete {len(failures)} owned resource operations")
 
