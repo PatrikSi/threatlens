@@ -1,21 +1,21 @@
-C:Q1X5seVdghlT0uKx2zItrXCjtQQeo=
+C:Q1IMTJDqnSCp3ToE3q3yxsT2QjNkM=
 P:libssl3
-V:3.5.8-r0
+V:3.5.9-r0
 A:x86_64
-S:379265
-I:839544
+S:381860
+I:843640
 T:SSL shared libraries
 U:https://www.openssl.org/
 L:Apache-2.0
 o:openssl
 m:Natanael Copa <ncopa@alpinelinux.org>
-t:1787691537
-c:013edf8b29199933e8ea34dde460b5584b979042
+t:1790752173
+c:29b9ec24b1b5b39aeef51fa2a044210e2ec5258e
 k:100
-D:libcrypto3=3.5.8-r0 so:libc.musl-x86_64.so.1 so:libcrypto.so.3
+D:libcrypto3=3.5.9-r0 so:libc.musl-x86_64.so.1 so:libcrypto.so.3
 p:so:libssl.so.3=3
 F:usr
 F:usr/lib
 R:libssl.so.3
 a:0:0:755
-Z:Q1CRYQh9bHaXqz2uGNfMK2ImKbDxE=
+Z:Q15U8qVP78jUw0SEWMkk3KyMm0rC0=
