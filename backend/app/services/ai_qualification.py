@@ -5,6 +5,7 @@ from dataclasses import replace
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from app.models.ai_qualification import AIQualification
+from app.models.ai_provider_attempt_receipt import AIProviderAttemptReceipt
 from app.models.ai_task_run import AITaskRun
 from app.services.ai_config import load_active_ai_settings
 from app.services.ai_egress_data_policy import AIEgressPolicyError, lock_ai_egress_policy_fence
@@ -51,21 +52,40 @@ def generate_qualification(db: Session, *, run_id: uuid.UUID) -> None:
         row = qualification_fence(db, run_id)
         results = copy.deepcopy(row.results_json)
         existing = next((entry for entry in results if entry["feature"] == feature), None)
-        if existing:
-            if existing["state"] == "completed":
-                continue
-            raise AIIntegrationError("Qualification delivery was interrupted. Review its receipt before authorizing a new run; automatic replay is blocked.",
-                retryable=False, provider_io_outcome="not_sent", failure_category="qualification_delivery_unresolved")
+        if existing and existing["state"] == "completed":
+            continue
         messages = qualification_messages(feature)
         output = min(active.max_completion_tokens, 4096, provider_output_ceiling(active, messages))
         reservation = estimate_message_tokens(messages) + max(0, output)
-        if output < 128 or row.reserved_tokens + reservation > row.token_budget:
-            raise AIIntegrationError("The qualification token budget cannot fit the next contract probe. Completed results remain available.",
-                retryable=False, provider_io_outcome="not_sent", failure_category="qualification_budget_exhausted")
-        results.append({"feature": feature, "state": "started", "case_version": CASE_VERSION})
-        row.results_json = results
-        row.reserved_tokens += reservation
-        db.commit()
+        fingerprint = ai_request_fingerprint(active=active, feature_type="connection_test", messages=messages,
+            item_id=None, daily_brief_id=None, report_id=None, requested_max_tokens=output)
+        if existing:
+            # A lost worker can stop after reserving local tokens but before the
+            # receipt runtime begins. Reuse that exact reservation only with its
+            # persisted request identity and proof that no provider I/O occurred.
+            # Legacy starts without these fields remain unresolved.
+            receipts = list(db.scalars(select(AIProviderAttemptReceipt).where(
+                AIProviderAttemptReceipt.task_run_id_snapshot == run_id,
+                AIProviderAttemptReceipt.request_fingerprint == fingerprint,
+            )))
+            if (existing.get("state") != "started"
+                    or existing.get("request_fingerprint") != fingerprint
+                    or existing.get("output_tokens") != output
+                    or existing.get("reserved_tokens") != reservation
+                    or any(receipt.state != "voided" or receipt.io_outcome != "not_sent"
+                           or receipt.reconciliation_action is not None for receipt in receipts)):
+                raise AIIntegrationError("Qualification delivery was interrupted. Review its receipt before authorizing a new run; automatic replay is blocked.",
+                    retryable=False, provider_io_outcome="not_sent", failure_category="qualification_delivery_unresolved")
+        else:
+            if output < 128 or row.reserved_tokens + reservation > row.token_budget:
+                raise AIIntegrationError("The qualification token budget cannot fit the next contract probe. Completed results remain available.",
+                    retryable=False, provider_io_outcome="not_sent", failure_category="qualification_budget_exhausted")
+            results.append({"feature": feature, "state": "started", "case_version": CASE_VERSION,
+                            "request_fingerprint": fingerprint, "output_tokens": output,
+                            "reserved_tokens": reservation})
+            row.results_json = results
+            row.reserved_tokens += reservation
+            db.commit()
         def checkpoint() -> None:
             qualification_fence(db, run_id)
         try:
@@ -90,9 +110,7 @@ def generate_qualification(db: Session, *, run_id: uuid.UUID) -> None:
         row = qualification_fence(db, run_id)
         results = copy.deepcopy(row.results_json)
         result = next(entry for entry in results if entry["feature"] == feature)
-        result.update(request_fingerprint=ai_request_fingerprint(active=active, feature_type="connection_test", messages=messages,
-            item_id=None, daily_brief_id=None, report_id=None, requested_max_tokens=output),
-            state="completed", contract_passed=passed, error=error, model=completion.model,
+        result.update(request_fingerprint=fingerprint, state="completed", contract_passed=passed, error=error, model=completion.model,
             latency_ms=completion.latency_ms, prompt_tokens=completion.prompt_tokens,
             completion_tokens=completion.completion_tokens, total_tokens=completion.total_tokens)
         row.results_json = results
