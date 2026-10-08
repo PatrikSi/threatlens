@@ -20,6 +20,11 @@ works as `./build.sh web` from this directory or by absolute path elsewhere.
 
 PostgreSQL and Redis use upstream images. Each build context retains its own
 `.dockerignore`; the repository root is not sent as the build context.
+Both contexts exclude local `.env` files, their variants and named `*.env`
+configuration files, while retaining `.env.example` templates. The backend also
+excludes the unused local `uv.lock`; the web context excludes browser output.
+Supply release configuration through the documented build arguments and runtime
+environment.
 
 Check the resulting images:
 

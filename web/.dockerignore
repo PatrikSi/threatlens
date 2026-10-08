@@ -4,3 +4,11 @@ dist/
 *.tsbuildinfo
 vite.config.js
 vite.config.d.ts
+# Compose/build arguments supply release configuration.
+**/.env
+**/.env.*
+**/*.env
+!**/.env.example
+.vite/
+test-results/
+playwright-report/

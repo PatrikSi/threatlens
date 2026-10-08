@@ -10,3 +10,9 @@ __pycache__/
 htmlcov/
 tests/
 pytest.ini
+# Local configuration and the unused developer lock are not release inputs.
+**/.env
+**/.env.*
+**/*.env
+!**/.env.example
+uv.lock
