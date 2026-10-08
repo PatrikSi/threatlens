@@ -14,6 +14,7 @@ from pathlib import Path
 from statistics import mean
 
 from app.services.ai_extraction import ExtractionValidationError, validate_structured_extraction
+from app.services.ai_quality_gates import dataset_case_approved, valid_review_identity
 
 MAX_ARTIFACT_BYTES = 10 * 1024 * 1024
 MAX_PREDICTIONS = 2_000
@@ -34,8 +35,7 @@ def load_dataset(path: Path, *, require_reviewed: bool = False) -> tuple[dict, s
         seen.add(case["id"])
         if not isinstance(case.get("source"), dict) or not isinstance(case.get("expected_entities"), list):
             raise ValueError("Every case requires source fields and expected entity annotations.")
-        if require_reviewed and (case.get("review_status") != "analyst_approved"
-                                or not case.get("reviewed_by") or not case.get("reviewed_at")):
+        if require_reviewed and not dataset_case_approved(case):
             raise ValueError(f"Case {case['id']} is pending analyst review; release qualification is blocked.")
     return dataset, hashlib.sha256(raw).hexdigest()
 
@@ -115,8 +115,7 @@ def evaluate_predictions(dataset: dict, dataset_sha256: str, predictions: list[d
             "latency_p95_ms": _percentile(latencies, .95),
             "known_cost_usd": sum(costs) if costs else None, "cost_samples": len(costs), "cases": rows,
         })
-    approved = all(case.get("review_status") == "analyst_approved" and case.get("reviewed_by")
-                   and case.get("reviewed_at") for case in cases.values())
+    approved = all(dataset_case_approved(case) for case in cases.values())
     return {
         "schema_version": 1, "dataset_version": dataset["dataset_version"], "dataset_sha256": dataset_sha256,
         "dataset_analyst_approved": bool(approved), "comparisons": comparisons,
@@ -154,8 +153,8 @@ def _number(value: object, name: str, *, integer: bool = False) -> float | int |
 def _review(value: object) -> dict | None:
     if value is None:
         return None
-    if not isinstance(value, dict) or not value.get("reviewer") or not value.get("reviewed_at"):
-        raise ValueError("Analyst scores require reviewer and reviewed_at provenance.")
+    if not isinstance(value, dict) or not valid_review_identity(value.get("reviewer"), value.get("reviewed_at")):
+        raise ValueError("Analyst scores require named reviewer and valid, past timezone-aware reviewed_at provenance.")
     identified = value.get("claims")
     if identified is not None and (not isinstance(identified, list) or not all(isinstance(entry, dict) for entry in identified)):
         raise ValueError("Identified claim judgments must be objects.")
