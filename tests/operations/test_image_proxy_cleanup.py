@@ -2,6 +2,7 @@
 import importlib.util
 from pathlib import Path
 import subprocess
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -73,6 +74,31 @@ class ImageProxyCleanupTests(unittest.TestCase):
         with patch.object(proxy.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)) as run:
             proxy.cleanup_owned_resources(["api"], ["fixture-network"])
         self.assertTrue(all(call.kwargs["check"] for call in run.call_args_list))
+
+    def assert_ambiguous_network_cleanup(self, failed_creation):
+        requested = []
+
+        def command(*arguments, **kwargs):
+            if arguments[:3] == ("docker", "network", "create"):
+                requested.append(arguments[-1])
+                if len(requested) == failed_creation:
+                    raise subprocess.TimeoutExpired(arguments, 60)
+            return "sha256:fixture"
+
+        args = SimpleNamespace(backend_image="fixture-backend", web_image="fixture-web",
+                               postgres_image="fixture-db", redis_image="fixture-redis", sdk_python=None)
+        with patch.object(proxy, "run", side_effect=command), patch.object(
+            proxy, "cleanup_owned_resources"
+        ) as cleanup:
+            with self.assertRaises(subprocess.TimeoutExpired):
+                proxy.verify(args)
+        self.assertEqual(cleanup.call_args.args[1], requested)
+
+    def test_ambiguous_internal_network_creation_is_in_cleanup_scope(self):
+        self.assert_ambiguous_network_cleanup(1)
+
+    def test_ambiguous_ingress_network_creation_is_in_cleanup_scope(self):
+        self.assert_ambiguous_network_cleanup(2)
 
 
 if __name__ == "__main__":
