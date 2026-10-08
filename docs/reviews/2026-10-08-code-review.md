@@ -1,5 +1,9 @@
 # Code review and release readiness — 2026-10-08
 
+This is the original review checkpoint. See the
+[remediation follow-up](2026-10-08-remediation.md) for the audit correction,
+2.1.0 candidate and subsequent qualification results.
+
 **Decision: do not release or merge this batch yet.** The implemented feature
 set is substantially complete, but the configured frontend dependency audit
 still fails. The next version should be **2.1.0** after the remaining gates and

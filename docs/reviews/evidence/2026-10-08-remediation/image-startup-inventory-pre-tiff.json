@@ -1,0 +1,24 @@
+{
+  "status": "passed",
+  "source_revision": "46871e5681c62e7efdf2b689cef27955073f46d4",
+  "platform": "linux/amd64",
+  "backend_image_id": "sha256:ee5e1d2641f2dd0577d32a42084f5d1c4712fa9c8425e85087d578b1e124aef0",
+  "web_image_id": "sha256:983f105b86d279f4404e22eca828575b575aca1feea8fecaa23379cb0fb42fb8",
+  "checks": {
+    "dependency_inventories_and_bundled_legal_match": true,
+    "legacy_writable_root_nonroot_startup_restart": true,
+    "read_only_tmpfs_nonroot_startup_restart": true
+  },
+  "cleanup": {
+    "completed": true,
+    "remaining_matching_containers": {
+      "threatlens-artifacts-": [],
+      "threatlens-web-startup-": []
+    }
+  },
+  "log_sha256": {
+    "dependency_artifacts": "4a699055e538cfe1afe0106a67e71c402292c48c0c4a95f7b691dc0bba379b82",
+    "web_startup": "8f18300c2502b7cd125c190a250c0e70a7fd620f9e62e494fe5ba995fc4adb5b"
+  },
+  "production_qualified": false
+}

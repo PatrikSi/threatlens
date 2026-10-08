@@ -1,0 +1,32 @@
+{
+  "status": "passed",
+  "source_revision": "17f8aea3cec741a6739dfd8ceee8717eb4858133",
+  "backend_image_id": "sha256:d543b34901a1df2e51f5a723369189bb479642ae7acb6c9122aa969bd4c22509",
+  "web_image_id": "sha256:43e1a5130e4f8017d61cde5cc22c5d08c170b58360c7ecf4a15956c9b51322c7",
+  "scope": "Disposable nginx/Uvicorn with current application/alembic/nginx source mounted read-only; separate native-smoke qualifies image-only contents",
+  "sdk": {
+    "mcp": "2.2.0",
+    "httpx2": "2.7.0",
+    "python": "3.12.3"
+  },
+  "checks": [
+    "Real nginx/Uvicorn 2026-07-28",
+    "Real nginx/Uvicorn 2025-11-25",
+    "Origin denial and allowed-origin CORS passed",
+    "Real cookie/CSRF consent, PKCE exchange, replay denial and MCP-only audience passed",
+    "Official SDK 2.2.0 real proxy: auto passed",
+    "Official SDK 2.2.0 real proxy: legacy passed",
+    "Credential-use commit and subsequent token revocation denial passed",
+    "MCP real proxy qualification passed",
+    "Disposable MCP proxy resources removed"
+  ],
+  "cleanup": {
+    "completed": true,
+    "remaining_matching_resources": {
+      "containers": [],
+      "networks": []
+    }
+  },
+  "log_sha256": "fd28004806e31b7e3276334cb746d1547ff1b65379803a8d241599ea5848d3a4",
+  "production_qualified": false
+}
