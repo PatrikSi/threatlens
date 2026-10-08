@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 from pathlib import Path
 import secrets
 import subprocess
@@ -15,6 +14,8 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+
+from operations.qualification_runtime import require_local_docker
 
 
 def wait_for_initial_readiness(ready, *, seconds: int = 120) -> float:
@@ -41,11 +42,10 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     repo = Path(__file__).resolve().parents[1]
+    env = require_local_docker()
     directory = Path(tempfile.mkdtemp(prefix="threatlens-runtime-isolation-"))
     project = f"threatlens-isolation-{uuid.uuid4().hex[:12]}"
     pressure = f"{project}-memory-probe"
-    env = {key: value for key, value in os.environ.items()
-           if key in {"PATH", "HOME", "LANG", "XDG_RUNTIME_DIR"} or key.startswith("DOCKER_")}
     result = {"status": "failed", "project": project, "logs": str(directory)}
     compose: list[str] = []
     stress = None

@@ -20,7 +20,7 @@ import httpx
 
 from monitor import atomic_json, collect
 from evidence import LABEL
-from qualification_runtime import DisposableTopology, ROOT, clean_environment, free_port, wait_http
+from qualification_runtime import DisposableTopology, ROOT, clean_environment, free_port, require_local_docker, wait_http
 from qualification_workload import run_workload
 
 
@@ -50,6 +50,7 @@ def main() -> int:
         "limits": {"duration_seconds": args.duration_seconds, "concurrency": args.concurrency,
                    "process_rss_bytes": args.max_rss_mib * 1024**2, "latency_p95_ms": args.max_p95_ms}}
     try:
+        docker_environment = require_local_docker()
         with tempfile.TemporaryDirectory(prefix="threatlens-qualification-") as temporary:
             directory = Path(temporary)
             source = directory / "source"
@@ -62,7 +63,7 @@ def main() -> int:
                 if path.is_file():
                     source_digest.update(str(path.relative_to(source)).encode() + b"\0" + path.read_bytes())
             result["backend_source_snapshot_sha256"] = source_digest.hexdigest()
-            topology = DisposableTopology(directory)
+            topology = DisposableTopology(directory, docker_environment=docker_environment)
             result["run_id"] = topology.run_id
             try:
                 password = secrets.token_urlsafe(24)
