@@ -1,9 +1,12 @@
 from copy import deepcopy
+from datetime import datetime, timezone
 import uuid
 
+import pytest
 from sqlalchemy import select
 
 from app.models.audit_log import AuditLog
+from app.models.ai_task_run import AITaskRun
 from app.models.data_policy import UNRESTRICTED_HANDLING_LABEL_ID
 from app.models.feed import Feed
 from app.models.team_hunt_claim import TeamHuntClaim
@@ -131,6 +134,38 @@ def test_claim_blocks_other_reviewers_until_manager_release(
         ).status_code
         == 200
     )
+
+
+@pytest.mark.parametrize("terminal_status", ["ready", "error"])
+def test_queue_pauses_claims_while_a_retained_assessment_is_regenerating(
+    client, db_session, auth_headers, assessment_setup, terminal_status
+):
+    row, hunt_id = _ready(
+        db_session, _queue(client, assessment_setup, auth_headers["analyst"])
+    )
+    _queue(client, assessment_setup, auth_headers["analyst"], version=row.version)
+    db_session.refresh(row)
+    run = db_session.get(AITaskRun, row.task_run_id)
+    for status in ("queued", "running"):
+        run.status = status
+        db_session.commit()
+        response = _list(client, assessment_setup, auth_headers["analyst"])
+        assert response.status_code == 200, response.text
+        entry = response.json()["items"][0]
+        assert entry["hunt"]["id"] == hunt_id
+        assert entry["can_claim"] is False
+        blocked = _claim(client, assessment_setup, auth_headers["analyst"], row, hunt_id)
+        assert blocked.status_code == 409, blocked.text
+        assert blocked.json()["error"]["code"] == "team_assessment_in_progress"
+
+    # Current suggestions are claimable again after the task ends.
+    run.status = terminal_status
+    run.finished_at = datetime.now(timezone.utc)
+    db_session.commit()
+    response = _list(client, assessment_setup, auth_headers["analyst"])
+    assert response.json()["items"][0]["can_claim"] is True
+    accepted = _claim(client, assessment_setup, auth_headers["analyst"], row, hunt_id)
+    assert accepted.status_code == 200, accepted.text
 
 
 def test_keyset_page_filters_and_reviewer_metadata(
