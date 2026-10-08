@@ -1,0 +1,265 @@
+{
+  "application_version": "2.1.0",
+  "artifact_index": {
+    "docs/reviews/capacity/2026-10-08-remediation-baseline-sustained-repeat.json": {
+      "bytes": 16834,
+      "sha256": "5fbbb4485963762b95117801893bca6d84bde4a09df13c60f388f41ad0fba94a"
+    },
+    "docs/reviews/capacity/2026-10-08-remediation-baseline-sustained.json": {
+      "bytes": 10325,
+      "sha256": "f1ae9dad700fb5317c76a10d4f1bc4b899cff8e11c6204ddd509f98ebe0ea8ea"
+    },
+    "docs/reviews/capacity/2026-10-08-remediation-candidate-sustained-repeat.json": {
+      "bytes": 16777,
+      "sha256": "e695358c22f78c601481d3d9689613c865132dcf8edd95e86f42b921135a8582"
+    },
+    "docs/reviews/capacity/2026-10-08-remediation-candidate-sustained.json": {
+      "bytes": 10391,
+      "sha256": "b8b1644d724a543ed96eeeb878960ac9016f20ff7d12f1d212dc782310718618"
+    },
+    "docs/reviews/capacity/2026-10-08-remediation-comparison-repeat.json": {
+      "bytes": 9292,
+      "sha256": "d60853d4d85ad64df54239af3f2e5a6cc5507db5fedeb55f4207bcb05ac83acc"
+    },
+    "docs/reviews/capacity/2026-10-08-remediation-comparison.json": {
+      "bytes": 6571,
+      "sha256": "c874fa056636bcfe1337ef944b047a93ee51b45d3a23221fa39be3fe039aecd6"
+    },
+    "docs/reviews/evidence/2026-10-08-remediation/backend-coverage.json": {
+      "bytes": 9105,
+      "sha256": "8ad12f0b7c4202da8d704b1aa711ec6b352746679991fd1cb52bca57c3eff255"
+    },
+    "docs/reviews/evidence/2026-10-08-remediation/build-contexts.json": {
+      "bytes": 1881,
+      "sha256": "ba7dcae50409063b45b9e7ccf9a16711975c8e5678685a66ae1d37de31f1e02a"
+    },
+    "docs/reviews/evidence/2026-10-08-remediation/frontend.json": {
+      "bytes": 11489,
+      "sha256": "15cbd3c0d9bf9124bf968d3740c95f058fc5ecf598769984767e21dd102bb117"
+    },
+    "docs/reviews/evidence/2026-10-08-remediation/generated-artifacts.json": {
+      "bytes": 531,
+      "sha256": "034b76eb113630fa1f7a4456989b44a9d8542728449db9170a60515124672518"
+    },
+    "docs/reviews/evidence/2026-10-08-remediation/host-loss.json": {
+      "bytes": 2596,
+      "sha256": "84ccabcbaf1820b09d6f09009b915e102a4815b8fc4df5373e2610f682472b07"
+    },
+    "docs/reviews/evidence/2026-10-08-remediation/image-scans-initial.json": {
+      "bytes": 1146,
+      "sha256": "b10ccf3583ce5e28cb3b11b574ba325c00b09cfdff1c2507de483052269f24a2"
+    },
+    "docs/reviews/evidence/2026-10-08-remediation/image-scans-pre-tiff.json": {
+      "bytes": 1528,
+      "sha256": "a3f29ad703bc008bdab5e35746fc4c9dbaa7639879b8d5e716645da3a35c4f2a"
+    },
+    "docs/reviews/evidence/2026-10-08-remediation/image-scans.json": {
+      "bytes": 3544,
+      "sha256": "2df3fd25f0108c1a831366e84bb371f2555dcc7f050c77e082160535de6f7099"
+    },
+    "docs/reviews/evidence/2026-10-08-remediation/image-startup-inventory-pre-tiff.json": {
+      "bytes": 895,
+      "sha256": "7eab580a778cd9b1b817dc5e92ef01a40c4f710e99c6a0e261f2626936069f73"
+    },
+    "docs/reviews/evidence/2026-10-08-remediation/image-startup-inventory.json": {
+      "bytes": 1858,
+      "sha256": "686076ef330e1a8a7dc79e54b69623e2f1134cdac4a436458fd04b4fd4ee86ac"
+    },
+    "docs/reviews/evidence/2026-10-08-remediation/local-gates.json": {
+      "bytes": 57416,
+      "sha256": "a209427a81603a479c770e3e67dbddcd40b00eddead415c81646bd3a9bc3e36a"
+    },
+    "docs/reviews/evidence/2026-10-08-remediation/mcp-proxy-before-final-helper.json": {
+      "bytes": 1268,
+      "sha256": "461475503c894aa3aa1ad4e243e27bbfbf902807f17b0fc82412ef85dfc7df08"
+    },
+    "docs/reviews/evidence/2026-10-08-remediation/mcp-proxy-pre-tiff.json": {
+      "bytes": 1268,
+      "sha256": "9e9c6e02829967b25f53a552298bbed58d45db92c4e12374daa361efef70d6ed"
+    },
+    "docs/reviews/evidence/2026-10-08-remediation/mcp-proxy.json": {
+      "bytes": 1338,
+      "sha256": "43081b68db6c8e43d0b1c71bf38f1b80243d79ceaadd134e872014a3d448b415"
+    },
+    "docs/reviews/evidence/2026-10-08-remediation/native-smoke-pre-tiff.json": {
+      "bytes": 3615,
+      "sha256": "18746b489a3475d087b4e18c20d31e6aed552f3ca446a318ab64ea263460a067"
+    },
+    "docs/reviews/evidence/2026-10-08-remediation/native-smoke.json": {
+      "bytes": 4579,
+      "sha256": "fedec45351fc1c45f0fae06aad91484998011a9e6a688dbfac6430d67ba0db9d"
+    },
+    "docs/reviews/evidence/2026-10-08-remediation/opensearch.json": {
+      "bytes": 3034,
+      "sha256": "0fafcbce05ee99ee78828a5cfe29166680bc5de5a3437c19caf401631e731e2f"
+    }
+  },
+  "backend": {
+    "applicability": "Identical backend/API/isolation objects; startup function unchanged; later MCP cleanup covered separately.",
+    "completion_observed_revision": "46871e5681c62e7efdf2b689cef27955073f46d4",
+    "critical_module_floors_passed": true,
+    "elapsed_seconds": 1208.49,
+    "launch_revision": "04227b64578a6d9fdb519b5b0bb961708441d417",
+    "overall_coverage_percent": 87.04,
+    "passed": 4569,
+    "reporting_coverage_percent": 87.23,
+    "skipped": 2,
+    "status": "passed"
+  },
+  "capacity": {
+    "absolute_budgets_passed": true,
+    "all_four_workloads_passed": true,
+    "comparator_exit_codes": [
+      1,
+      1
+    ],
+    "duration_seconds_each": 600,
+    "initial_regressions": [
+      "export:succeeded"
+    ],
+    "interpretation": "Both failed comparisons retained. Original export flag did not reproduce; differing shared-host pressure and conditional outcome populations do not establish causation or a release trend.",
+    "owned_resource_cleanup": {
+      "2026-10-08-remediation-baseline-sustained-repeat.json": {
+        "exact_label": "threatlens.capacity.run_id=f4f06642e4ac4b7a9421de90ad3508da",
+        "observed_at": "2026-10-08T19:43:55.027041+00:00",
+        "passed": true,
+        "remaining_labelled_resources": {
+          "containers": [],
+          "network": [],
+          "volume": []
+        }
+      },
+      "2026-10-08-remediation-baseline-sustained.json": {
+        "exact_label": "threatlens.capacity.run_id=3624d92c8fcf4beea2dfc85adaa697e5",
+        "observed_at": "2026-10-08T19:43:55.022198+00:00",
+        "passed": true,
+        "remaining_labelled_resources": {
+          "containers": [],
+          "network": [],
+          "volume": []
+        }
+      },
+      "2026-10-08-remediation-candidate-sustained-repeat.json": {
+        "exact_label": "threatlens.capacity.run_id=ce2afd64691c483cbab75d52c6fee478",
+        "observed_at": "2026-10-08T19:43:55.023343+00:00",
+        "passed": true,
+        "remaining_labelled_resources": {
+          "containers": [],
+          "network": [],
+          "volume": []
+        }
+      },
+      "2026-10-08-remediation-candidate-sustained.json": {
+        "exact_label": "threatlens.capacity.run_id=9e4decf761ed46ce81703325999632ee",
+        "observed_at": "2026-10-08T19:43:55.023575+00:00",
+        "passed": true,
+        "remaining_labelled_resources": {
+          "containers": [],
+          "network": [],
+          "volume": []
+        }
+      }
+    },
+    "regression_threshold_percent": 20,
+    "reverse_pair_regressions": [
+      "governance",
+      "queue_wait:execute_processing_work",
+      "task:fetch_feed",
+      "queue.recovery_ms",
+      "queue.depth_peak"
+    ],
+    "runtime": "Common final pinned Python environment; historical baseline PyJWT/urllib3 versions differ.",
+    "scope": "baseline_and_candidate_code_under_common_final_locked_runtime; not full historical 2.0-to-2.1 dependency-stack performance",
+    "status": "comparative_capacity_unqualified"
+  },
+  "css_compatibility_observation": "24 states x 12 representative elements compared before host restart, zero compared-property differences; temporary raw files lost. Fresh browser matrices retained separately.",
+  "frontend": {
+    "audit_vulnerabilities": {
+      "critical": 0,
+      "high": 0,
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "total": 0
+    },
+    "browser_interactions_passed": 138,
+    "engines": [
+      "chromium",
+      "firefox",
+      "webkit"
+    ],
+    "real_server_browser_passed": 63,
+    "status": "passed",
+    "unit_files": 164,
+    "unit_passed": 1355
+  },
+  "implementation_findings": "fixed; no unexpected advertised runtime stub found",
+  "live_gates": {
+    "api_and_browser_policy_regeneration": "byte_identical",
+    "dependency_legal_and_two_startup_modes": "passed",
+    "host_loss": "passed",
+    "mcp_proxy_and_official_sdk": "passed",
+    "native_amd64_runtime_and_proxy": "passed",
+    "opensearch_3_8": "passed"
+  },
+  "merge_ready": false,
+  "native_images": {
+    "build_revision": "17f8aea3cec741a6739dfd8ceee8717eb4858133",
+    "database_updated_at": "2026-10-08T15:33:46.578791096Z",
+    "full_workflow_scanners": [
+      "vuln",
+      "secret"
+    ],
+    "images": {
+      "backend": {
+        "fixable_CRITICAL": 0,
+        "fixable_HIGH": 0,
+        "image_id": "sha256:d543b34901a1df2e51f5a723369189bb479642ae7acb6c9122aa969bd4c22509",
+        "matching_secrets": 0
+      },
+      "web": {
+        "fixable_CRITICAL": 0,
+        "fixable_HIGH": 0,
+        "image_id": "sha256:43e1a5130e4f8017d61cde5cc22c5d08c170b58360c7ecf4a15956c9b51322c7",
+        "matching_secrets": 0
+      }
+    },
+    "platform": "linux/amd64",
+    "scanner": "aquasec/trivy:0.70.0",
+    "source_applicability": "65f4a755c4899373dba14b8128ac25575b130cb6"
+  },
+  "operations_and_recovery": {
+    "operations": {
+      "passed_tests": 47,
+      "skipped_opt_in_tests": 1,
+      "source_revision": "65f4a755c4899373dba14b8128ac25575b130cb6",
+      "status": "passed"
+    },
+    "recovery": {
+      "passed_tests": 121,
+      "skipped_opt_in_tests": 4,
+      "source_revision": "46871e5681c62e7efdf2b689cef27955073f46d4",
+      "status": "passed"
+    }
+  },
+  "optional_model_promotion": {
+    "approvals_fabricated": false,
+    "ordinary_ingestion_requires_promotion": false,
+    "provider_calls_from_preparation": 0,
+    "seed_cases": 12,
+    "status": "pending_named_human_review_and_captured_outputs"
+  },
+  "preexisting_workspace_files": "backend/uv.lock and backups/ remain unstaged and untouched.",
+  "production_qualified": false,
+  "public_release_ready": false,
+  "recorded_at_utc": "2026-10-08T19:46:46.969756+00:00",
+  "remaining_merge_release_evidence": [
+    "Unchanged sustained comparison on a stable isolated runner",
+    "Exact-source hosted Python and JavaScript/TypeScript CodeQL",
+    "Exact-source ARM64 source-build smoke/scan",
+    "Publication workflow exact AMD64/ARM64 digest smoke/scan and promotion gates"
+  ],
+  "schema_version": 1,
+  "scope": "Local review remediation and qualification with owned disposable fixtures; no public release or exact-source hosted qualification.",
+  "source_candidate": "65f4a755c4899373dba14b8128ac25575b130cb6"
+}

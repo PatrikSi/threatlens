@@ -1,0 +1,1463 @@
+{
+  "actions_taken": [
+    "read-only GitHub queries",
+    "read-only local executable and binfmt inventory"
+  ],
+  "app_version": "2.1.0",
+  "capacity_plan": {
+    "additional_local_repeats_planned": false,
+    "all_absolute_budgets_passed": true,
+    "all_four_workloads_passed": true,
+    "artifacts": [
+      {
+        "artifact": "docs/reviews/capacity/2026-10-08-remediation-baseline-sustained.json",
+        "bytes": 10325,
+        "sha256": "f1ae9dad700fb5317c76a10d4f1bc4b899cff8e11c6204ddd509f98ebe0ea8ea"
+      },
+      {
+        "artifact": "docs/reviews/capacity/2026-10-08-remediation-candidate-sustained.json",
+        "bytes": 10391,
+        "sha256": "b8b1644d724a543ed96eeeb878960ac9016f20ff7d12f1d212dc782310718618"
+      },
+      {
+        "artifact": "docs/reviews/capacity/2026-10-08-remediation-comparison.json",
+        "bytes": 6571,
+        "sha256": "c874fa056636bcfe1337ef944b047a93ee51b45d3a23221fa39be3fe039aecd6"
+      },
+      {
+        "artifact": "docs/reviews/capacity/2026-10-08-remediation-candidate-sustained-repeat.json",
+        "bytes": 16777,
+        "sha256": "e695358c22f78c601481d3d9689613c865132dcf8edd95e86f42b921135a8582"
+      },
+      {
+        "artifact": "docs/reviews/capacity/2026-10-08-remediation-baseline-sustained-repeat.json",
+        "bytes": 16834,
+        "sha256": "5fbbb4485963762b95117801893bca6d84bde4a09df13c60f388f41ad0fba94a"
+      },
+      {
+        "artifact": "docs/reviews/capacity/2026-10-08-remediation-comparison-repeat.json",
+        "bytes": 9292,
+        "sha256": "d60853d4d85ad64df54239af3f2e5a6cc5507db5fedeb55f4207bcb05ac83acc"
+      }
+    ],
+    "baseline_command": [
+      "/tmp/threatlens-r03-exact-python/bin/python",
+      "/tmp/threatlens-r03-quiet-baseline-35ac120/backend/scripts/run_capacity_baseline.py",
+      "--profile",
+      "sustained",
+      "--duration-seconds",
+      "600",
+      "--target-id",
+      "local-shared-amd64-cpu1-pg512-redis128-rss1024",
+      "--cpu-count",
+      "1",
+      "--max-rss-mib",
+      "1024",
+      "--output",
+      "/home/patrik/threatlens/docs/reviews/capacity/2026-10-08-remediation-baseline-sustained.json"
+    ],
+    "baseline_outcomes": {
+      "ai_succeeded": 301,
+      "deadline_dns_observed": 6,
+      "deadline_headers_observed": 6,
+      "exports_policy_conflict": 7,
+      "exports_succeeded": 294,
+      "governance_succeeded": 300,
+      "ingestion_recovered": 1,
+      "processing_repair_dispatches": 120
+    },
+    "baseline_runtime_lock_sha256": "fe3c729cb00bfd23f7e65aead0f0f942156eca457d6b4deaa7177c02e871efa5",
+    "baseline_source_revision": "35ac120b28820b6e5b1222a50b5f70f7a6b85c3b",
+    "baseline_status": "passed",
+    "baseline_worktree": "/tmp/threatlens-r03-quiet-baseline-35ac120",
+    "candidate_command": [
+      "/tmp/threatlens-r03-exact-python/bin/python",
+      "/tmp/threatlens-r03-quiet-candidate-65f4a75/backend/scripts/run_capacity_baseline.py",
+      "--profile",
+      "sustained",
+      "--duration-seconds",
+      "600",
+      "--target-id",
+      "local-shared-amd64-cpu1-pg512-redis128-rss1024",
+      "--cpu-count",
+      "1",
+      "--max-rss-mib",
+      "1024",
+      "--output",
+      "/home/patrik/threatlens/docs/reviews/capacity/2026-10-08-remediation-candidate-sustained.json"
+    ],
+    "candidate_outcomes": {
+      "ai_succeeded": 301,
+      "deadline_dns_observed": 6,
+      "deadline_headers_observed": 6,
+      "exports_policy_conflict": 4,
+      "exports_succeeded": 297,
+      "governance_succeeded": 300,
+      "ingestion_recovered": 1,
+      "processing_repair_dispatches": 120
+    },
+    "candidate_runtime_pins_exact": true,
+    "candidate_source_revision": "65f4a755c4899373dba14b8128ac25575b130cb6",
+    "candidate_status": "passed",
+    "candidate_worktree": "/tmp/threatlens-r03-quiet-candidate-65f4a75",
+    "common_runtime_lock_sha256": "c42689b53244004ad12e17ba4f0ea5f12b8e30d16ee56565b93ca0d2d0ab1ef1",
+    "comparative_capacity_qualified": false,
+    "comparison_command": [
+      "/tmp/threatlens-r03-exact-python/bin/python",
+      "/tmp/threatlens-r03-quiet-candidate-65f4a75/backend/scripts/compare_capacity_runs.py",
+      "/home/patrik/threatlens/docs/reviews/capacity/2026-10-08-remediation-baseline-sustained.json",
+      "/home/patrik/threatlens/docs/reviews/capacity/2026-10-08-remediation-candidate-sustained.json",
+      "--regression-percent",
+      "20",
+      "--output",
+      "/home/patrik/threatlens/docs/reviews/capacity/2026-10-08-remediation-comparison.json"
+    ],
+    "comparison_fingerprint": "bf9de54de131cc9b26b9a8c217b12abbf0174a39266ce1033919cd7bfaec1137",
+    "development_and_mcp_versions": {
+      "httpx2": "2.7.0",
+      "mcp": "2.2.0",
+      "pytest": "8.4.1",
+      "pytest-cov": "6.2.1"
+    },
+    "duration_seconds_each": 600,
+    "final_external_cleanup_verification": {
+      "2026-10-08-remediation-baseline-sustained-repeat.json": {
+        "exact_label": "threatlens.capacity.run_id=f4f06642e4ac4b7a9421de90ad3508da",
+        "observed_at": "2026-10-08T19:43:55.027041+00:00",
+        "passed": true,
+        "remaining_labelled_resources": {
+          "containers": [],
+          "network": [],
+          "volume": []
+        }
+      },
+      "2026-10-08-remediation-baseline-sustained.json": {
+        "exact_label": "threatlens.capacity.run_id=3624d92c8fcf4beea2dfc85adaa697e5",
+        "observed_at": "2026-10-08T19:43:55.022198+00:00",
+        "passed": true,
+        "remaining_labelled_resources": {
+          "containers": [],
+          "network": [],
+          "volume": []
+        }
+      },
+      "2026-10-08-remediation-candidate-sustained-repeat.json": {
+        "exact_label": "threatlens.capacity.run_id=ce2afd64691c483cbab75d52c6fee478",
+        "observed_at": "2026-10-08T19:43:55.023343+00:00",
+        "passed": true,
+        "remaining_labelled_resources": {
+          "containers": [],
+          "network": [],
+          "volume": []
+        }
+      },
+      "2026-10-08-remediation-candidate-sustained.json": {
+        "exact_label": "threatlens.capacity.run_id=9e4decf761ed46ce81703325999632ee",
+        "observed_at": "2026-10-08T19:43:55.023575+00:00",
+        "passed": true,
+        "remaining_labelled_resources": {
+          "containers": [],
+          "network": [],
+          "volume": []
+        }
+      }
+    },
+    "finalized_at": "2026-10-08T19:44:54.808952+00:00",
+    "harness_and_budgets_changed": false,
+    "harness_file_sha256": {
+      "backend/pytest.ini": "c993dd7bd048d7f9178a8409fedb903c828cc2ce7dcadb5987a79ed2f4bf3c98",
+      "backend/scripts/capacity_process.py": "12ee063bdeec2e70f96a3e76bcb8e114628bee46a70d95f4ad850e857b7df486",
+      "backend/scripts/capacity_results.py": "ab930c352358003510a3ccb799f282d5a7c2c51055f76bc4b3046390a3950a72",
+      "backend/scripts/compare_capacity_runs.py": "7bf8b2edd1ddc8aa26f05fe5f3f9c5de9bf38cb4d053d196fd94665895c7eb53",
+      "backend/scripts/run_capacity_baseline.py": "28ee1c4ce4e9ba7147cf5b7ec8d63ee52b9a4e393bbac4a137b60eb690670e47",
+      "backend/tests/capacity/__init__.py": "197f3a6b2639a0b349c400d5aa9bba8e9a0099db3fdc9faf277259ab90077147",
+      "backend/tests/capacity/conftest.py": "13cbbad21563e00e92de5cdca6de32dd86e770a6c9b2ccfc29c647422d8a3024",
+      "backend/tests/capacity/deadline_probes.py": "fe1ad8527d98999e2b8be80441dddba8da7a9eec4454c44e440073bf45a99d2e",
+      "backend/tests/capacity/disjoint_exports.py": "4681610d0d21c463cb9075dd6bcf3ac5d0514fa1fbeca041825e8960250c47d7",
+      "backend/tests/capacity/docker_services.py": "383758f6805979edaec744b875b981df9cd92cf319343b372db08e5f30e92690",
+      "backend/tests/capacity/owned_worker.py": "9d46a19534c7b3626cbac546fab14553085ef0e498c8cc47afd8186c11965deb",
+      "backend/tests/capacity/sustained.py": "606c529a482a655afe6e1a973cc71750253184bd5d903539cfbf5bb3f31ba484",
+      "backend/tests/capacity/test_concurrent_workload.py": "2bdfa898018adefbcb480923865f6de53cc2f985d2c83362a25cfa38e4ff0327",
+      "backend/tests/capacity/test_container_cleanup.py": "49e8bd86008b5994a228a464efff09d696ea5f90f1625ab322e47dbd96f06f67",
+      "backend/tests/capacity/test_process_controls.py": "23a7189cae760ec826318d49849e3243f12d6f670faaaba712eb5ba49b3b773d",
+      "backend/tests/capacity/test_recovery_workload.py": "f56ac61a6b3c0928aee9770e4a8c1465bd5c8dc552ddd2ead33901c4b2902815",
+      "backend/tests/capacity/test_result_contract.py": "90620657979cb1bb1269cae8dd54ba7fb71c687946951394ff02b6819faa246c",
+      "backend/tests/capacity/worker_runtime.py": "93d331edcc24964e6ef3319f47b3e73b8adb58dc8a09403d35caa63a8a0c3dde",
+      "backend/tests/capacity/workload_support.py": "aa13e67bfc519f96600b6c0292e8d9755ee061c0de64fb3bc822ef74329f21ee",
+      "backend/tests/conftest.py": "9bb12f1167675088b8faef3c2388393e914ddc9b095846cbe98dad470274bded",
+      "docs/reviews/capacity/budgets.json": "c54a63690f0efdfe4ccca3ad5eb7ed5e6615e5d6946b573063b268debc1f4aef"
+    },
+    "historical_baseline_pin_differences": {
+      "PyJWT": {
+        "common_measured_pin": "2.15.1",
+        "historical_baseline_pin": "2.13.0"
+      },
+      "urllib3": {
+        "common_measured_pin": "2.8.0",
+        "historical_baseline_pin": "2.7.0"
+      }
+    },
+    "host_context_to_capture": [
+      "before and after /proc/loadavg",
+      "before and after /proc/pressure/cpu,memory,io",
+      "before and after /proc/stat CPU counters and selected /proc/meminfo"
+    ],
+    "host_observations": {
+      "baseline": {
+        "after": {
+          "allowed_cpu_affinity": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "cpu_ticks": {
+            "guest": 0,
+            "guest_nice": 0,
+            "idle": 6875703,
+            "iowait": 169486,
+            "irq": 0,
+            "nice": 15077,
+            "softirq": 26948,
+            "steal": 731,
+            "system": 450248,
+            "user": 1684941
+          },
+          "loadavg": "1.04 2.15 3.31 1/1558 941872",
+          "memory": {
+            "Buffers_bytes": 218017792,
+            "Cached_bytes": 5317984256,
+            "Dirty_bytes": 6635520,
+            "MemAvailable_bytes": 7051395072,
+            "MemTotal_bytes": 16770076672,
+            "SwapFree_bytes": 8867840,
+            "SwapTotal_bytes": 4105170944,
+            "Writeback_bytes": 0
+          },
+          "observed_at": "2026-10-08T19:03:27.372882+00:00",
+          "pressure": {
+            "cpu": "some avg10=0.22 avg60=3.03 avg300=8.46 total=1510365203\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+            "io": "some avg10=0.51 avg60=2.22 avg300=4.79 total=558569989\nfull avg10=0.11 avg60=1.78 avg300=3.65 total=439303154",
+            "memory": "some avg10=0.00 avg60=0.03 avg300=0.11 total=31423460\nfull avg10=0.00 avg60=0.02 avg300=0.06 total=24552506"
+          },
+          "uptime_seconds": 23241.01
+        },
+        "before": {
+          "allowed_cpu_affinity": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "cpu_ticks": {
+            "guest": 0,
+            "guest_nice": 0,
+            "idle": 6708433,
+            "iowait": 156960,
+            "irq": 0,
+            "nice": 3017,
+            "softirq": 24212,
+            "steal": 692,
+            "system": 433334,
+            "user": 1638164
+          },
+          "loadavg": "4.61 4.01 4.45 4/1799 913313",
+          "memory": {
+            "Buffers_bytes": 383787008,
+            "Cached_bytes": 4460838912,
+            "Dirty_bytes": 95444992,
+            "MemAvailable_bytes": 5354876928,
+            "MemTotal_bytes": 16770076672,
+            "SwapFree_bytes": 16506880,
+            "SwapTotal_bytes": 4105170944,
+            "Writeback_bytes": 401408
+          },
+          "observed_at": "2026-10-08T18:52:31.672528+00:00",
+          "pressure": {
+            "cpu": "some avg10=24.78 avg60=18.92 avg300=19.35 total=1444605288\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+            "io": "some avg10=10.14 avg60=6.22 avg300=3.55 total=518558589\nfull avg10=5.89 avg60=3.47 avg300=1.80 total=408568688",
+            "memory": "some avg10=0.04 avg60=0.08 avg300=0.12 total=29880555\nfull avg10=0.04 avg60=0.05 avg300=0.06 total=23397012"
+          },
+          "uptime_seconds": 22585.31
+        }
+      },
+      "baseline_repeat": {
+        "after": {
+          "allowed_cpu_affinity": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "cpu_ticks": {
+            "guest": 0,
+            "guest_nice": 0,
+            "idle": 7243673,
+            "iowait": 193884,
+            "irq": 0,
+            "nice": 53569,
+            "softirq": 60950,
+            "steal": 1007,
+            "system": 555796,
+            "user": 1981072
+          },
+          "loadavg": "4.35 4.91 4.55 3/1574 1037950",
+          "memory": {
+            "Buffers_bytes": 126414848,
+            "Cached_bytes": 5184245760,
+            "Dirty_bytes": 11583488,
+            "MemAvailable_bytes": 6817529856,
+            "MemTotal_bytes": 16770076672,
+            "SwapFree_bytes": 14757888,
+            "SwapTotal_bytes": 4105170944,
+            "Writeback_bytes": 0
+          },
+          "observed_at": "2026-10-08T19:40:32.423928+00:00",
+          "pressure": {
+            "cpu": "some avg10=12.27 avg60=22.61 avg300=28.41 total=2003258321\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+            "io": "some avg10=1.04 avg60=3.28 avg300=4.45 total=678099215\nfull avg10=0.10 avg60=1.07 avg300=1.48 total=500855203",
+            "memory": "some avg10=0.00 avg60=0.03 avg300=0.05 total=35219575\nfull avg10=0.00 avg60=0.01 avg300=0.00 total=27058536"
+          },
+          "uptime_seconds": 25466.06
+        },
+        "before": {
+          "allowed_cpu_affinity": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "cpu_ticks": {
+            "guest": 0,
+            "guest_nice": 0,
+            "idle": 7176251,
+            "iowait": 188573,
+            "irq": 0,
+            "nice": 40299,
+            "softirq": 47105,
+            "steal": 907,
+            "system": 514320,
+            "user": 1869883
+          },
+          "loadavg": "3.40 4.15 3.82 2/1580 1008104",
+          "memory": {
+            "Buffers_bytes": 442462208,
+            "Cached_bytes": 5053423616,
+            "Dirty_bytes": 5758976,
+            "MemAvailable_bytes": 6903660544,
+            "MemTotal_bytes": 16770076672,
+            "SwapFree_bytes": 54312960,
+            "SwapTotal_bytes": 4105170944,
+            "Writeback_bytes": 0
+          },
+          "observed_at": "2026-10-08T19:29:40.730708+00:00",
+          "pressure": {
+            "cpu": "some avg10=13.09 avg60=17.25 avg300=23.08 total=1793015045\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+            "io": "some avg10=0.42 avg60=1.66 avg300=4.16 total=643394230\nfull avg10=0.08 avg60=0.55 avg300=1.57 total=487114135",
+            "memory": "some avg10=0.00 avg60=0.00 avg300=0.02 total=33816991\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=26140315"
+          },
+          "uptime_seconds": 24814.37
+        },
+        "progress_01": {
+          "allowed_cpu_affinity": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "cpu_ticks": {
+            "guest": 0,
+            "guest_nice": 0,
+            "idle": 7188723,
+            "iowait": 189835,
+            "irq": 0,
+            "nice": 43569,
+            "softirq": 50065,
+            "steal": 928,
+            "system": 524103,
+            "user": 1896571
+          },
+          "loadavg": "5.70 4.87 4.14 4/1653 1015302",
+          "memory": {
+            "Buffers_bytes": 164433920,
+            "Cached_bytes": 5558222848,
+            "Dirty_bytes": 87351296,
+            "MemAvailable_bytes": 6396342272,
+            "MemTotal_bytes": 16770076672,
+            "SwapFree_bytes": 73728,
+            "SwapTotal_bytes": 4105170944,
+            "Writeback_bytes": 0
+          },
+          "observed_at": "2026-10-08T19:32:05.552577+00:00",
+          "pressure": {
+            "cpu": "some avg10=31.48 avg60=32.52 avg300=27.90 total=1845260192\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+            "io": "some avg10=4.73 avg60=4.53 avg300=4.64 total=652142587\nfull avg10=1.38 avg60=1.33 avg300=1.60 total=490396946",
+            "memory": "some avg10=0.00 avg60=0.11 avg300=0.08 total=34303665\nfull avg10=0.00 avg60=0.04 avg300=0.02 total=26447228"
+          },
+          "uptime_seconds": 24959.19
+        },
+        "progress_02": {
+          "allowed_cpu_affinity": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "cpu_ticks": {
+            "guest": 0,
+            "guest_nice": 0,
+            "idle": 7196399,
+            "iowait": 190448,
+            "irq": 0,
+            "nice": 45321,
+            "softirq": 51732,
+            "steal": 940,
+            "system": 529608,
+            "user": 1911529
+          },
+          "loadavg": "5.62 5.19 4.32 5/1659 1019872",
+          "memory": {
+            "Buffers_bytes": 139239424,
+            "Cached_bytes": 5288120320,
+            "Dirty_bytes": 59285504,
+            "MemAvailable_bytes": 6479417344,
+            "MemTotal_bytes": 16770076672,
+            "SwapFree_bytes": 1249280,
+            "SwapTotal_bytes": 4105170944,
+            "Writeback_bytes": 0
+          },
+          "observed_at": "2026-10-08T19:33:28.258785+00:00",
+          "pressure": {
+            "cpu": "some avg10=29.02 avg60=33.58 avg300=29.50 total=1874428013\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+            "io": "some avg10=3.99 avg60=4.44 avg300=4.62 total=656372549\nfull avg10=1.43 avg60=1.31 avg300=1.54 total=491971059",
+            "memory": "some avg10=0.00 avg60=0.06 avg300=0.06 total=34454164\nfull avg10=0.00 avg60=0.04 avg300=0.02 total=26554341"
+          },
+          "uptime_seconds": 25041.9
+        },
+        "progress_03": {
+          "allowed_cpu_affinity": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "cpu_ticks": {
+            "guest": 0,
+            "guest_nice": 0,
+            "idle": 7202571,
+            "iowait": 191005,
+            "irq": 0,
+            "nice": 46512,
+            "softirq": 53029,
+            "steal": 949,
+            "system": 533416,
+            "user": 1921465
+          },
+          "loadavg": "6.49 5.42 4.45 5/1785 1022296",
+          "memory": {
+            "Buffers_bytes": 139104256,
+            "Cached_bytes": 4995403776,
+            "Dirty_bytes": 5419008,
+            "MemAvailable_bytes": 5720850432,
+            "MemTotal_bytes": 16770076672,
+            "SwapFree_bytes": 28758016,
+            "SwapTotal_bytes": 4105170944,
+            "Writeback_bytes": 0
+          },
+          "observed_at": "2026-10-08T19:34:27.572865+00:00",
+          "pressure": {
+            "cpu": "some avg10=44.31 avg60=35.30 avg300=30.37 total=1894719213\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+            "io": "some avg10=7.92 avg60=5.59 avg300=4.84 total=660082808\nfull avg10=2.23 avg60=1.72 avg300=1.59 total=493417978",
+            "memory": "some avg10=0.14 avg60=0.15 avg300=0.08 total=34687464\nfull avg10=0.11 avg60=0.10 avg300=0.03 total=26704920"
+          },
+          "uptime_seconds": 25101.21
+        },
+        "progress_04": {
+          "allowed_cpu_affinity": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "cpu_ticks": {
+            "guest": 0,
+            "guest_nice": 0,
+            "idle": 7207551,
+            "iowait": 191474,
+            "irq": 0,
+            "nice": 47792,
+            "softirq": 54460,
+            "steal": 958,
+            "system": 537899,
+            "user": 1933160
+          },
+          "loadavg": "6.24 5.58 4.57 9/1665 1025263",
+          "memory": {
+            "Buffers_bytes": 163844096,
+            "Cached_bytes": 4944732160,
+            "Dirty_bytes": 58064896,
+            "MemAvailable_bytes": 5900873728,
+            "MemTotal_bytes": 16770076672,
+            "SwapFree_bytes": 27754496,
+            "SwapTotal_bytes": 4105170944,
+            "Writeback_bytes": 0
+          },
+          "observed_at": "2026-10-08T19:35:30.214837+00:00",
+          "pressure": {
+            "cpu": "some avg10=35.36 avg60=38.45 avg300=32.51 total=1921319255\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+            "io": "some avg10=4.98 avg60=5.32 avg300=4.90 total=663592946\nfull avg10=1.52 avg60=1.54 avg300=1.56 total=494634730",
+            "memory": "some avg10=0.02 avg60=0.14 avg300=0.09 total=34885873\nfull avg10=0.01 avg60=0.07 avg300=0.03 total=26823378"
+          },
+          "uptime_seconds": 25163.85
+        },
+        "progress_05": {
+          "allowed_cpu_affinity": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "cpu_ticks": {
+            "guest": 0,
+            "guest_nice": 0,
+            "idle": 7217663,
+            "iowait": 192186,
+            "irq": 0,
+            "nice": 49496,
+            "softirq": 56257,
+            "steal": 971,
+            "system": 543019,
+            "user": 1946504
+          },
+          "loadavg": "5.27 5.34 4.57 7/1666 1029682",
+          "memory": {
+            "Buffers_bytes": 180334592,
+            "Cached_bytes": 4881612800,
+            "Dirty_bytes": 36327424,
+            "MemAvailable_bytes": 6100840448,
+            "MemTotal_bytes": 16770076672,
+            "SwapFree_bytes": 26001408,
+            "SwapTotal_bytes": 4105170944,
+            "Writeback_bytes": 0
+          },
+          "observed_at": "2026-10-08T19:36:55.079926+00:00",
+          "pressure": {
+            "cpu": "some avg10=27.88 avg60=31.47 avg300=31.57 total=1945775930\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+            "io": "some avg10=4.27 avg60=4.97 avg300=4.86 total=667984415\nfull avg10=1.20 avg60=1.59 avg300=1.57 total=496476991",
+            "memory": "some avg10=0.00 avg60=0.04 avg300=0.06 total=34924612\nfull avg10=0.00 avg60=0.02 avg300=0.02 total=26851703"
+          },
+          "uptime_seconds": 25248.72
+        },
+        "progress_06": {
+          "allowed_cpu_affinity": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "cpu_ticks": {
+            "guest": 0,
+            "guest_nice": 0,
+            "idle": 7228652,
+            "iowait": 192829,
+            "irq": 0,
+            "nice": 51226,
+            "softirq": 58121,
+            "steal": 986,
+            "system": 547739,
+            "user": 1959203
+          },
+          "loadavg": "4.07 4.90 4.47 9/1668 1032625",
+          "memory": {
+            "Buffers_bytes": 201199616,
+            "Cached_bytes": 5010874368,
+            "Dirty_bytes": 43261952,
+            "MemAvailable_bytes": 6164885504,
+            "MemTotal_bytes": 16770076672,
+            "SwapFree_bytes": 28360704,
+            "SwapTotal_bytes": 4105170944,
+            "Writeback_bytes": 0
+          },
+          "observed_at": "2026-10-08T19:38:20.040690+00:00",
+          "pressure": {
+            "cpu": "some avg10=29.23 avg60=26.35 avg300=29.75 total=1966817957\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+            "io": "some avg10=4.46 avg60=4.19 avg300=4.62 total=671669687\nfull avg10=1.57 avg60=1.48 avg300=1.53 total=498130226",
+            "memory": "some avg10=0.18 avg60=0.04 avg300=0.05 total=34967084\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=26870556"
+          },
+          "uptime_seconds": 25333.68
+        },
+        "progress_07": {
+          "allowed_cpu_affinity": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "cpu_ticks": {
+            "guest": 0,
+            "guest_nice": 0,
+            "idle": 7233771,
+            "iowait": 193487,
+            "irq": 0,
+            "nice": 52384,
+            "softirq": 59312,
+            "steal": 995,
+            "system": 551559,
+            "user": 1969419
+          },
+          "loadavg": "5.25 5.12 4.58 3/1653 1035203",
+          "memory": {
+            "Buffers_bytes": 104734720,
+            "Cached_bytes": 5082767360,
+            "Dirty_bytes": 12115968,
+            "MemAvailable_bytes": 6276861952,
+            "MemTotal_bytes": 16770076672,
+            "SwapFree_bytes": 31649792,
+            "SwapTotal_bytes": 4105170944,
+            "Writeback_bytes": 0
+          },
+          "observed_at": "2026-10-08T19:39:17.200288+00:00",
+          "pressure": {
+            "cpu": "some avg10=29.32 avg60=30.18 avg300=30.39 total=1986281031\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+            "io": "some avg10=8.07 avg60=5.88 avg300=5.01 total=675822631\nfull avg10=3.05 avg60=2.09 avg300=1.69 total=499834411",
+            "memory": "some avg10=0.00 avg60=0.12 avg300=0.08 total=35189591\nfull avg10=0.00 avg60=0.06 avg300=0.02 total=27037832"
+          },
+          "uptime_seconds": 25390.84
+        }
+      },
+      "candidate": {
+        "after": {
+          "allowed_cpu_affinity": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "cpu_ticks": {
+            "guest": 0,
+            "guest_nice": 0,
+            "idle": 7058290,
+            "iowait": 179424,
+            "irq": 0,
+            "nice": 27175,
+            "softirq": 30222,
+            "steal": 779,
+            "system": 465678,
+            "user": 1735032
+          },
+          "loadavg": "1.74 2.22 2.77 1/1562 969808",
+          "memory": {
+            "Buffers_bytes": 234053632,
+            "Cached_bytes": 4798980096,
+            "Dirty_bytes": 8945664,
+            "MemAvailable_bytes": 6961442816,
+            "MemTotal_bytes": 16770076672,
+            "SwapFree_bytes": 85282816,
+            "SwapTotal_bytes": 4105170944,
+            "Writeback_bytes": 0
+          },
+          "observed_at": "2026-10-08T19:15:01.526919+00:00",
+          "pressure": {
+            "cpu": "some avg10=1.74 avg60=4.16 avg300=6.34 total=1563762000\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+            "io": "some avg10=0.52 avg60=2.55 avg300=3.67 total=589210756\nfull avg10=0.39 avg60=2.04 avg300=2.87 total=463512718",
+            "memory": "some avg10=0.00 avg60=0.00 avg300=0.00 total=31983868\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=25014369"
+          },
+          "uptime_seconds": 23935.17
+        },
+        "before": {
+          "allowed_cpu_affinity": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "cpu_ticks": {
+            "guest": 0,
+            "guest_nice": 0,
+            "idle": 6892199,
+            "iowait": 169716,
+            "irq": 0,
+            "nice": 15077,
+            "softirq": 26992,
+            "steal": 732,
+            "system": 450731,
+            "user": 1686392
+          },
+          "loadavg": "0.94 1.98 3.19 7/1571 943677",
+          "memory": {
+            "Buffers_bytes": 221700096,
+            "Cached_bytes": 5440000000,
+            "Dirty_bytes": 3305472,
+            "MemAvailable_bytes": 6875123712,
+            "MemTotal_bytes": 16770076672,
+            "SwapFree_bytes": 20332544,
+            "SwapTotal_bytes": 4105170944,
+            "Writeback_bytes": 4096
+          },
+          "observed_at": "2026-10-08T19:04:14.580170+00:00",
+          "pressure": {
+            "cpu": "some avg10=0.90 avg60=1.67 avg300=7.26 total=1510915392\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+            "io": "some avg10=1.81 avg60=1.50 avg300=4.18 total=559208736\nfull avg10=1.54 avg60=1.21 avg300=3.19 total=439899533",
+            "memory": "some avg10=0.00 avg60=0.01 avg300=0.08 total=31425291\nfull avg10=0.00 avg60=0.00 avg300=0.05 total=24554307"
+          },
+          "uptime_seconds": 23288.22
+        }
+      },
+      "candidate_repeat": {
+        "after": {
+          "allowed_cpu_affinity": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "cpu_ticks": {
+            "guest": 0,
+            "guest_nice": 0,
+            "idle": 7176212,
+            "iowait": 188572,
+            "irq": 0,
+            "nice": 40299,
+            "softirq": 47101,
+            "steal": 907,
+            "system": 514305,
+            "user": 1869859
+          },
+          "loadavg": "3.40 4.15 3.82 5/1580 1008069",
+          "memory": {
+            "Buffers_bytes": 442437632,
+            "Cached_bytes": 5053026304,
+            "Dirty_bytes": 5591040,
+            "MemAvailable_bytes": 6932389888,
+            "MemTotal_bytes": 16770076672,
+            "SwapFree_bytes": 54312960,
+            "SwapTotal_bytes": 4105170944,
+            "Writeback_bytes": 8192
+          },
+          "observed_at": "2026-10-08T19:29:40.515192+00:00",
+          "pressure": {
+            "cpu": "some avg10=13.09 avg60=17.25 avg300=23.08 total=1792991195\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+            "io": "some avg10=0.42 avg60=1.66 avg300=4.16 total=643389119\nfull avg10=0.08 avg60=0.55 avg300=1.57 total=487110456",
+            "memory": "some avg10=0.00 avg60=0.00 avg300=0.02 total=33816991\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=26140315"
+          },
+          "uptime_seconds": 24814.15
+        },
+        "before": {
+          "allowed_cpu_affinity": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "cpu_ticks": {
+            "guest": 0,
+            "guest_nice": 0,
+            "idle": 7092693,
+            "iowait": 181150,
+            "irq": 0,
+            "nice": 27175,
+            "softirq": 32205,
+            "steal": 797,
+            "system": 472014,
+            "user": 1754697
+          },
+          "loadavg": "4.33 2.77 2.87 4/1696 977071",
+          "memory": {
+            "Buffers_bytes": 252940288,
+            "Cached_bytes": 5081624576,
+            "Dirty_bytes": 2875392,
+            "MemAvailable_bytes": 6108925952,
+            "MemTotal_bytes": 16770076672,
+            "SwapFree_bytes": 333324288,
+            "SwapTotal_bytes": 4105170944,
+            "Writeback_bytes": 0
+          },
+          "observed_at": "2026-10-08T19:17:45.678099+00:00",
+          "pressure": {
+            "cpu": "some avg10=38.33 avg60=20.62 avg300=10.08 total=1586619204\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+            "io": "some avg10=4.68 avg60=4.01 avg300=3.69 total=596046983\nfull avg10=1.65 avg60=1.89 avg300=2.52 total=467946205",
+            "memory": "some avg10=0.28 avg60=0.10 avg300=0.02 total=32157898\nfull avg10=0.24 avg60=0.06 avg300=0.01 total=25161507"
+          },
+          "uptime_seconds": 24099.32
+        },
+        "progress_01": {
+          "allowed_cpu_affinity": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "cpu_ticks": {
+            "guest": 0,
+            "guest_nice": 0,
+            "idle": 7099936,
+            "iowait": 182875,
+            "irq": 0,
+            "nice": 29218,
+            "softirq": 33988,
+            "steal": 809,
+            "system": 478684,
+            "user": 1771017
+          },
+          "loadavg": "7.55 4.08 3.31 12/1718 982433",
+          "memory": {
+            "Buffers_bytes": 335020032,
+            "Cached_bytes": 4965056512,
+            "Dirty_bytes": 63242240,
+            "MemAvailable_bytes": 5872795648,
+            "MemTotal_bytes": 16770076672,
+            "SwapFree_bytes": 159735808,
+            "SwapTotal_bytes": 4105170944,
+            "Writeback_bytes": 0
+          },
+          "observed_at": "2026-10-08T19:19:17.589398+00:00",
+          "pressure": {
+            "cpu": "some avg10=52.96 avg60=35.67 avg300=17.80 total=1622912428\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+            "io": "some avg10=19.96 avg60=12.30 avg300=6.20 total=608345703\nfull avg10=5.46 avg60=4.26 avg300=3.04 total=472406174",
+            "memory": "some avg10=3.80 avg60=0.86 avg300=0.21 total=33078617\nfull avg10=1.57 avg60=0.36 avg300=0.08 total=25639280"
+          },
+          "uptime_seconds": 24191.23
+        },
+        "progress_02": {
+          "allowed_cpu_affinity": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "cpu_ticks": {
+            "guest": 0,
+            "guest_nice": 0,
+            "idle": 7109988,
+            "iowait": 184468,
+            "irq": 0,
+            "nice": 31448,
+            "softirq": 36097,
+            "steal": 824,
+            "system": 485864,
+            "user": 1789456
+          },
+          "loadavg": "4.35 4.20 3.46 2/1668 987689",
+          "memory": {
+            "Buffers_bytes": 448716800,
+            "Cached_bytes": 5198868480,
+            "Dirty_bytes": 6115328,
+            "MemAvailable_bytes": 6504140800,
+            "MemTotal_bytes": 16770076672,
+            "SwapFree_bytes": 30482432,
+            "SwapTotal_bytes": 4105170944,
+            "Writeback_bytes": 4096
+          },
+          "observed_at": "2026-10-08T19:21:04.613600+00:00",
+          "pressure": {
+            "cpu": "some avg10=24.03 avg60=30.66 avg300=22.60 total=1659896387\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+            "io": "some avg10=3.89 avg60=8.00 avg300=7.20 total=619473323\nfull avg10=1.52 avg60=2.81 avg300=3.08 total=476514590",
+            "memory": "some avg10=0.00 avg60=0.25 avg300=0.21 total=33415148\nfull avg10=0.00 avg60=0.15 avg300=0.11 total=25855273"
+          },
+          "uptime_seconds": 24298.25
+        },
+        "progress_03": {
+          "allowed_cpu_affinity": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "cpu_ticks": {
+            "guest": 0,
+            "guest_nice": 0,
+            "idle": 7123381,
+            "iowait": 185436,
+            "irq": 0,
+            "nice": 33750,
+            "softirq": 38547,
+            "steal": 841,
+            "system": 492556,
+            "user": 1808671
+          },
+          "loadavg": "4.99 4.37 3.60 9/1660 992625",
+          "memory": {
+            "Buffers_bytes": 369467392,
+            "Cached_bytes": 5126979584,
+            "Dirty_bytes": 6893568,
+            "MemAvailable_bytes": 6559473664,
+            "MemTotal_bytes": 16770076672,
+            "SwapFree_bytes": 2674688,
+            "SwapTotal_bytes": 4105170944,
+            "Writeback_bytes": 12288
+          },
+          "observed_at": "2026-10-08T19:23:00.679815+00:00",
+          "pressure": {
+            "cpu": "some avg10=25.60 avg60=31.53 avg300=25.11 total=1694951942\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+            "io": "some avg10=4.80 avg60=5.15 avg300=6.30 total=625154480\nfull avg10=1.95 avg60=1.85 avg300=2.59 total=479012609",
+            "memory": "some avg10=0.00 avg60=0.17 avg300=0.19 total=33721376\nfull avg10=0.00 avg60=0.10 avg300=0.10 total=26078733"
+          },
+          "uptime_seconds": 24414.32
+        },
+        "progress_04": {
+          "allowed_cpu_affinity": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "cpu_ticks": {
+            "guest": 0,
+            "guest_nice": 0,
+            "idle": 7132690,
+            "iowait": 186132,
+            "irq": 0,
+            "nice": 35212,
+            "softirq": 40115,
+            "steal": 853,
+            "system": 496641,
+            "user": 1819878
+          },
+          "loadavg": "4.84 4.36 3.65 8/1681 995836",
+          "memory": {
+            "Buffers_bytes": 406265856,
+            "Cached_bytes": 5197955072,
+            "Dirty_bytes": 28049408,
+            "MemAvailable_bytes": 6120120320,
+            "MemTotal_bytes": 16770076672,
+            "SwapFree_bytes": 7921664,
+            "SwapTotal_bytes": 4105170944,
+            "Writeback_bytes": 0
+          },
+          "observed_at": "2026-10-08T19:24:14.011105+00:00",
+          "pressure": {
+            "cpu": "some avg10=37.13 avg60=28.93 avg300=25.30 total=1714298042\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+            "io": "some avg10=10.78 avg60=5.73 avg300=6.07 total=629342015\nfull avg10=3.67 avg60=2.09 avg300=2.45 total=480810012",
+            "memory": "some avg10=0.00 avg60=0.04 avg300=0.14 total=33731005\nfull avg10=0.00 avg60=0.02 avg300=0.07 total=26083362"
+          },
+          "uptime_seconds": 24487.65
+        },
+        "progress_05": {
+          "allowed_cpu_affinity": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "cpu_ticks": {
+            "guest": 0,
+            "guest_nice": 0,
+            "idle": 7140846,
+            "iowait": 186994,
+            "irq": 0,
+            "nice": 36841,
+            "softirq": 41829,
+            "steal": 866,
+            "system": 501355,
+            "user": 1833211
+          },
+          "loadavg": "4.65 4.47 3.75 8/1668 999170",
+          "memory": {
+            "Buffers_bytes": 437002240,
+            "Cached_bytes": 5237288960,
+            "Dirty_bytes": 60252160,
+            "MemAvailable_bytes": 6376935424,
+            "MemTotal_bytes": 16770076672,
+            "SwapFree_bytes": 10625024,
+            "SwapTotal_bytes": 4105170944,
+            "Writeback_bytes": 0
+          },
+          "observed_at": "2026-10-08T19:25:32.694587+00:00",
+          "pressure": {
+            "cpu": "some avg10=40.67 avg60=32.16 avg300=26.83 total=1739380047\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+            "io": "some avg10=5.49 avg60=6.27 avg300=6.19 total=634838341\nfull avg10=1.60 avg60=2.16 avg300=2.40 total=483037201",
+            "memory": "some avg10=0.00 avg60=0.00 avg300=0.10 total=33743886\nfull avg10=0.00 avg60=0.00 avg300=0.05 total=26091329"
+          },
+          "uptime_seconds": 24566.33
+        },
+        "progress_06": {
+          "allowed_cpu_affinity": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "cpu_ticks": {
+            "guest": 0,
+            "guest_nice": 0,
+            "idle": 7151555,
+            "iowait": 187667,
+            "irq": 0,
+            "nice": 38472,
+            "softirq": 43644,
+            "steal": 879,
+            "system": 505833,
+            "user": 1845753
+          },
+          "loadavg": "4.65 4.55 3.84 4/1653 1002212",
+          "memory": {
+            "Buffers_bytes": 449585152,
+            "Cached_bytes": 5307719680,
+            "Dirty_bytes": 3731456,
+            "MemAvailable_bytes": 6419517440,
+            "MemTotal_bytes": 16770076672,
+            "SwapFree_bytes": 42811392,
+            "SwapTotal_bytes": 4105170944,
+            "Writeback_bytes": 0
+          },
+          "observed_at": "2026-10-08T19:26:55.436986+00:00",
+          "pressure": {
+            "cpu": "some avg10=20.30 avg60=25.62 avg300=26.32 total=1760439639\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+            "io": "some avg10=4.05 avg60=4.59 avg300=5.67 total=638622283\nfull avg10=1.75 avg60=1.77 avg300=2.20 total=484776553",
+            "memory": "some avg10=0.00 avg60=0.00 avg300=0.06 total=33760435\nfull avg10=0.00 avg60=0.00 avg300=0.03 total=26099878"
+          },
+          "uptime_seconds": 24649.08
+        },
+        "progress_07": {
+          "allowed_cpu_affinity": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "cpu_ticks": {
+            "guest": 0,
+            "guest_nice": 0,
+            "idle": 7162304,
+            "iowait": 188230,
+            "irq": 0,
+            "nice": 40273,
+            "softirq": 45360,
+            "steal": 892,
+            "system": 510068,
+            "user": 1857141
+          },
+          "loadavg": "4.43 4.53 3.90 6/1585 1005115",
+          "memory": {
+            "Buffers_bytes": 433016832,
+            "Cached_bytes": 5009596416,
+            "Dirty_bytes": 1978368,
+            "MemAvailable_bytes": 6580363264,
+            "MemTotal_bytes": 16770076672,
+            "SwapFree_bytes": 47849472,
+            "SwapTotal_bytes": 4105170944,
+            "Writeback_bytes": 0
+          },
+          "observed_at": "2026-10-08T19:28:14.647641+00:00",
+          "pressure": {
+            "cpu": "some avg10=23.61 avg60=24.52 avg300=25.63 total=1779025561\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0",
+            "io": "some avg10=2.87 avg60=3.80 avg300=5.17 total=641789202\nfull avg10=0.90 avg60=1.37 avg300=1.97 total=486224192",
+            "memory": "some avg10=0.00 avg60=0.00 avg300=0.04 total=33788636\nfull avg10=0.00 avg60=0.00 avg300=0.01 total=26120399"
+          },
+          "uptime_seconds": 24728.29
+        }
+      }
+    },
+    "host_pressure_interpretation": "Initial baseline CPU PSI avg10 fell from 24.78 to 0.22 percent and IO some/full from 10.14/5.89 to 0.51/0.11 percent; repeat observations also show substantial shared-host pressure variation. These observations limit interpretation and do not prove the cause of any comparator flag.",
+    "independent_reverse_repeat": {
+      "baseline_command": [
+        "/tmp/threatlens-r03-exact-python/bin/python",
+        "/tmp/threatlens-r03-quiet-baseline-35ac120/backend/scripts/run_capacity_baseline.py",
+        "--profile",
+        "sustained",
+        "--duration-seconds",
+        "600",
+        "--target-id",
+        "local-shared-amd64-cpu1-pg512-redis128-rss1024",
+        "--cpu-count",
+        "1",
+        "--max-rss-mib",
+        "1024",
+        "--output",
+        "/home/patrik/threatlens/docs/reviews/capacity/2026-10-08-remediation-baseline-sustained-repeat.json"
+      ],
+      "baseline_outcomes": {
+        "ai_succeeded": 301,
+        "deadline_dns_observed": 6,
+        "deadline_headers_observed": 6,
+        "exports_policy_conflict": 9,
+        "exports_succeeded": 292,
+        "governance_succeeded": 300,
+        "ingestion_recovered": 1,
+        "processing_repair_dispatches": 120
+      },
+      "baseline_status": "passed",
+      "candidate_command": [
+        "/tmp/threatlens-r03-exact-python/bin/python",
+        "/tmp/threatlens-r03-quiet-candidate-65f4a75/backend/scripts/run_capacity_baseline.py",
+        "--profile",
+        "sustained",
+        "--duration-seconds",
+        "600",
+        "--target-id",
+        "local-shared-amd64-cpu1-pg512-redis128-rss1024",
+        "--cpu-count",
+        "1",
+        "--max-rss-mib",
+        "1024",
+        "--output",
+        "/home/patrik/threatlens/docs/reviews/capacity/2026-10-08-remediation-candidate-sustained-repeat.json"
+      ],
+      "candidate_outcomes": {
+        "ai_succeeded": 301,
+        "deadline_dns_observed": 6,
+        "deadline_headers_observed": 6,
+        "exports_policy_conflict": 12,
+        "exports_succeeded": 289,
+        "governance_succeeded": 300,
+        "ingestion_recovered": 1,
+        "processing_repair_dispatches": 120
+      },
+      "candidate_status": "passed",
+      "comparison": {
+        "artifact": "docs/reviews/capacity/2026-10-08-remediation-comparison-repeat.json",
+        "artifact_sha256": "d60853d4d85ad64df54239af3f2e5a6cc5507db5fedeb55f4207bcb05ac83acc",
+        "compatible": true,
+        "conclusive": true,
+        "exit_code": 1,
+        "flagged_metrics": [
+          {
+            "baseline_p95_ms": 95.578,
+            "candidate_p95_ms": 119.455,
+            "change_percent": 24.982,
+            "name": "governance",
+            "regressed": true,
+            "status": "compared"
+          },
+          {
+            "baseline_p95_ms": 2684.636,
+            "candidate_p95_ms": 3250.032,
+            "change_percent": 21.06,
+            "name": "queue_wait:execute_processing_work",
+            "regressed": true,
+            "status": "compared"
+          },
+          {
+            "baseline_p95_ms": 683.537,
+            "candidate_p95_ms": 835.124,
+            "change_percent": 22.177,
+            "name": "task:fetch_feed",
+            "regressed": true,
+            "status": "compared"
+          },
+          {
+            "absolute_change": 9.922000000000002,
+            "baseline": 14.059,
+            "candidate": 23.981,
+            "change_percent": 70.574,
+            "name": "queue.recovery_ms",
+            "regressed": true,
+            "status": "single_run_observation"
+          },
+          {
+            "absolute_change": 5,
+            "baseline": 20,
+            "candidate": 25,
+            "change_percent": 25.0,
+            "name": "queue.depth_peak",
+            "regressed": true,
+            "status": "single_run_observation"
+          }
+        ],
+        "original_export_flag_reproduced": false,
+        "regressions": [
+          "governance",
+          "queue_wait:execute_processing_work",
+          "task:fetch_feed",
+          "queue.recovery_ms",
+          "queue.depth_peak"
+        ],
+        "successful_export_change_percent": -2.411
+      },
+      "comparison_command": [
+        "/tmp/threatlens-r03-exact-python/bin/python",
+        "/tmp/threatlens-r03-quiet-candidate-65f4a75/backend/scripts/compare_capacity_runs.py",
+        "/home/patrik/threatlens/docs/reviews/capacity/2026-10-08-remediation-baseline-sustained-repeat.json",
+        "/home/patrik/threatlens/docs/reviews/capacity/2026-10-08-remediation-candidate-sustained-repeat.json",
+        "--regression-percent",
+        "20",
+        "--output",
+        "/home/patrik/threatlens/docs/reviews/capacity/2026-10-08-remediation-comparison-repeat.json"
+      ],
+      "partial_diagnostics": {
+        "baseline": {
+          "bytes": 3380,
+          "local_path": "/tmp/threatlens-remediation-qualification-logs/2026-10-08-remediation-baseline-sustained-repeat.json.partial.json",
+          "retention": "completed-run partial diagnostic; final result preserved separately",
+          "sha256": "579bed8efe5ba755b351245f24084e91cb75885ef761cdf4b5ac01959d3575d8"
+        },
+        "candidate": {
+          "bytes": 3286,
+          "local_path": "/tmp/threatlens-remediation-qualification-logs/2026-10-08-remediation-candidate-sustained-repeat.json.partial.json",
+          "retention": "completed-run partial diagnostic; final result preserved separately",
+          "sha256": "a8e099106caa83d733f277cb5e606c774db206628f931c030d3ced79524639be"
+        }
+      },
+      "purpose": "one independent reverse-order pair diagnoses timing/order variation; preserve every outcome and flag",
+      "regression_percent": 20,
+      "run_order": [
+        "candidate_repeat",
+        "baseline_repeat"
+      ],
+      "status": "completed_comparison_flagged"
+    },
+    "initial_comparison": {
+      "artifact": "docs/reviews/capacity/2026-10-08-remediation-comparison.json",
+      "artifact_sha256": "c874fa056636bcfe1337ef944b047a93ee51b45d3a23221fa39be3fe039aecd6",
+      "compatible": true,
+      "conclusive": true,
+      "exit_code": 1,
+      "export_review": {
+        "interpretation": "Conditional success sample membership and timing/order variation are plausible contributors; cause unproven; preserve flag",
+        "policy_conflicts": {
+          "baseline": 7,
+          "candidate": 4
+        },
+        "source_review": "Export, query, authorization, final policy fence and harness are unchanged; added archived-publication reference count is not called by workload label-description updates; no grounded production change to optimize",
+        "successful_export_max_ms": {
+          "baseline": 521.951,
+          "candidate": 522.184
+        },
+        "successful_export_p50_ms": {
+          "baseline": 91.896,
+          "candidate": 90.937
+        },
+        "successful_export_p95_ms": {
+          "baseline": 288.198,
+          "candidate": 439.536,
+          "change_percent": 52.512
+        }
+      },
+      "flagged_metrics": [
+        {
+          "baseline_p95_ms": 288.198,
+          "candidate_p95_ms": 439.536,
+          "change_percent": 52.512,
+          "name": "export:succeeded",
+          "regressed": true,
+          "status": "compared"
+        }
+      ],
+      "regressions": [
+        "export:succeeded"
+      ]
+    },
+    "initial_partial_diagnostics": {
+      "baseline": {
+        "bytes": 3261,
+        "local_path": "/tmp/threatlens-remediation-qualification-logs/2026-10-08-remediation-baseline-sustained.json.partial.json",
+        "retention": "completed-run partial diagnostic; final result preserved separately",
+        "sha256": "c72960db24fe3c50e3156f645acc27c4efc437b01f372a139398a4ad5728eb7b"
+      },
+      "candidate": {
+        "bytes": 3372,
+        "local_path": "/tmp/threatlens-remediation-qualification-logs/2026-10-08-remediation-candidate-sustained.json.partial.json",
+        "retention": "completed-run partial diagnostic; final result preserved separately",
+        "sha256": "a25566efde0153eae4a9dfad0608ea9e7f49ef5de3b478bc7036adfe22545e3b"
+      }
+    },
+    "interpreter": "/tmp/threatlens-r03-exact-python/bin/python",
+    "limits": {
+      "container_cpus": 0.5,
+      "cpu_count": 1,
+      "max_rss_mib": 1024,
+      "postgres_memory_mib": 512,
+      "redis_memory_mib": 128
+    },
+    "prepared_at": "2026-10-08T18:22:59.002820+00:00",
+    "prior_pre_restart_observations": "unretained diagnostic observations only; overlapping shared-host pair had passed tasks but failing comparison and lost logs; does not qualify this comparison",
+    "profile": "sustained",
+    "regression_percent": 20,
+    "remaining_evidence": "Run the unchanged matched sustained comparison on a stable isolated runner; both local comparisons remain flagged and neither is a passing comparative-capacity gate.",
+    "runtime_lock_source_revision": "65f4a755c4899373dba14b8128ac25575b130cb6",
+    "runtime_pin_count": 93,
+    "scope": "baseline_and_candidate_code_under_common_final_locked_runtime; not full historical 2.0-to-2.1 dependency-stack performance",
+    "status": "comparative_capacity_unqualified",
+    "target_id": "local-shared-amd64-cpu1-pg512-redis128-rss1024"
+  },
+  "diagnostic_logs": {
+    "host-loss-unittest.log": {
+      "bytes": 297,
+      "local_path": "/tmp/threatlens-remediation-qualification-logs/host-loss-unittest.log",
+      "retention": "owned temporary diagnostics; not repository artifacts",
+      "sha256": "6319d6b1f005558ee5b75fac530511c25b7512b1970937d659ba96899383cce0"
+    },
+    "opensearch-runner.log": {
+      "bytes": 105,
+      "local_path": "/tmp/threatlens-remediation-qualification-logs/opensearch-runner.log",
+      "retention": "owned temporary diagnostics; not repository artifacts",
+      "sha256": "6ffe0ca1ad9ceffe07d57f0f589942281d54e8f772cd5c4baea04138aaa60395"
+    },
+    "opensearch.opensearch.log": {
+      "bytes": 63563,
+      "local_path": "/tmp/threatlens-remediation-qualification-logs/opensearch.opensearch.log",
+      "retention": "owned temporary diagnostics; not repository artifacts",
+      "sha256": "a7b3adb783c461496dd306c9d1e51a4dbcfd283ee8aad262a95b96b60a4fcb50"
+    },
+    "operations-final": {
+      "bytes": 8969,
+      "local_path": "/tmp/threatlens-remediation-operations-final.log",
+      "retention": "root-owned temporary diagnostics; not repository artifact",
+      "sha256": "c7353f78a15bae762a2d5f7ec1c20d5999996b44360c43786e0f6d5132df04ac"
+    },
+    "operations-unittest.log": {
+      "bytes": 8613,
+      "local_path": "/tmp/threatlens-remediation-qualification-logs/operations-unittest.log",
+      "retention": "owned temporary diagnostics; not repository artifacts",
+      "sha256": "90c0893baf3e61b1560332cc9ad7ec0cc91044902b554efd886bc5a4643c4d01"
+    },
+    "recovery-unittest.log": {
+      "bytes": 21493,
+      "local_path": "/tmp/threatlens-remediation-qualification-logs/recovery-unittest.log",
+      "retention": "owned temporary diagnostics; not repository artifacts",
+      "sha256": "88855f87cbb351375274d01e920656a9c042b051938a9dad46b4fbf026847b22"
+    }
+  },
+  "finalized_at": "2026-10-08T19:44:54.808952+00:00",
+  "github": {
+    "exact_source_runs": [],
+    "read_only_access": true,
+    "repository": "PatrikSi/threatlens",
+    "url": "https://github.com/PatrikSi/threatlens",
+    "visibility": "PUBLIC"
+  },
+  "global_emulation_changes_performed": false,
+  "historical_publish": {
+    "conclusion": "success",
+    "created_at": "2026-09-16T10:09:33Z",
+    "qualifies_this_candidate": false,
+    "source_revision": "4ccd249b713b98241f78c7592be9c57d3f941b8d",
+    "url": "https://github.com/PatrikSi/threatlens/actions/runs/35083448532"
+  },
+  "hosted_gates": [
+    {
+      "candidate_status": "no_exact_source_run",
+      "checks": [
+        "Python CodeQL",
+        "JavaScript/TypeScript CodeQL",
+        "amd64 and ARM64 source image smoke/scan",
+        "backend and contract",
+        "MCP SDK",
+        "OpenSearch vendor contract",
+        "frontend and browsers",
+        "migrations and recovery"
+      ],
+      "path": ".github/workflows/quality-gates.yml",
+      "triggers": [
+        "pull_request",
+        "push to dev",
+        "workflow_call"
+      ],
+      "workflow": "Quality gates"
+    },
+    {
+      "candidate_status": "no_exact_source_run",
+      "checks": [
+        "required reusable quality gates",
+        "four backend/web amd64/ARM64 platform digest builds and scans",
+        "both exact digest pair smoke tests",
+        "verified multi-architecture promotion"
+      ],
+      "path": ".github/workflows/publish-images.yml",
+      "side_effects": [
+        "publishes registry digests",
+        "promotes public image tags",
+        "version-tag runs publish a GitHub release"
+      ],
+      "triggers": [
+        "push to main",
+        "push v*.*.* tag",
+        "workflow_dispatch"
+      ],
+      "workflow": "Publish container images"
+    },
+    {
+      "candidate_status": "no_exact_source_run",
+      "inputs": [
+        "baseline_ref",
+        "candidate_ref",
+        "profile",
+        "target_id",
+        "runner"
+      ],
+      "local_counterpart": "All four 600-second workloads passed correctness and absolute budgets under common final locked runtime. Initial unchanged20-percent comparison flagged successful-export p95 +52.512%; the one reverse-order comparison flagged governance +24.982%, processing queue wait +21.060%, feed task +22.177%, drain time +70.574% and peak depth +25.000%. Both failing comparisons preserved; comparative capacity unqualified; stable isolated runner comparison remains required.",
+      "path": ".github/workflows/capacity-trends.yml",
+      "triggers": [
+        "workflow_dispatch"
+      ],
+      "workflow": "Capacity release comparison"
+    }
+  ],
+  "kind": "local_release_gate_inventory",
+  "local_tooling": {
+    "binfmt_handlers": [
+      "python3.12"
+    ],
+    "executables": {
+      "codeql": null,
+      "qemu-aarch64": null,
+      "qemu-aarch64-static": null
+    },
+    "platform": "x86_64"
+  },
+  "local_unit_suites": {
+    "operations": {
+      "command": "python -m unittest discover -s tests/operations -v",
+      "discovered_tests": 48,
+      "duration_seconds": 0.201,
+      "environment": "clean environment; host-loss opt-in absent; no Docker lifecycle",
+      "execution_owner": "root",
+      "exit_code": 0,
+      "interpreter": "/tmp/threatlens-r03-exact-python/bin/python",
+      "log": "/tmp/threatlens-remediation-operations-final.log",
+      "log_bytes": 8969,
+      "log_retention": "owned temporary diagnostics",
+      "log_sha256": "c7353f78a15bae762a2d5f7ec1c20d5999996b44360c43786e0f6d5132df04ac",
+      "passed_tests": 47,
+      "skipped_opt_in_tests": 1,
+      "source_revision": "65f4a755c4899373dba14b8128ac25575b130cb6",
+      "status": "passed"
+    },
+    "recovery": {
+      "command": "python -m unittest discover --start-directory /home/patrik/threatlens/tests/recovery --verbose",
+      "discovered_tests": 125,
+      "duration_seconds": 132.247,
+      "environment": "env -i; PATH/HOME/LANG/PYTHONDONTWRITEBYTECODE only; deployment URLs and all opt-ins absent",
+      "exit_code": 0,
+      "interpreter": "/tmp/threatlens-r03-exact-python/bin/python",
+      "log": "/tmp/threatlens-remediation-qualification-logs/recovery-unittest.log",
+      "log_retention": "owned temporary diagnostics",
+      "log_sha256": "88855f87cbb351375274d01e920656a9c042b051938a9dad46b4fbf026847b22",
+      "passed_tests": 121,
+      "skipped_opt_in_tests": 4,
+      "source_revision": "46871e5681c62e7efdf2b689cef27955073f46d4",
+      "status": "passed",
+      "working_directory": "/tmp"
+    }
+  },
+  "local_vendor_and_recovery": {
+    "host_loss": {
+      "applicable_candidate_revision": "65f4a755c4899373dba14b8128ac25575b130cb6",
+      "artifact": "docs/reviews/evidence/2026-10-08-remediation/host-loss.json",
+      "artifact_sha256": "84ccabcbaf1820b09d6f09009b915e102a4815b8fc4df5373e2610f682472b07",
+      "external_cleanup_verified": true,
+      "source_revision": "46871e5681c62e7efdf2b689cef27955073f46d4",
+      "status": "passed"
+    },
+    "opensearch": {
+      "applicable_candidate_revision": "65f4a755c4899373dba14b8128ac25575b130cb6",
+      "artifact": "docs/reviews/evidence/2026-10-08-remediation/opensearch.json",
+      "artifact_sha256": "0fafcbce05ee99ee78828a5cfe29166680bc5de5a3437c19caf401631e731e2f",
+      "external_cleanup_verified": true,
+      "source_revision": "46871e5681c62e7efdf2b689cef27955073f46d4",
+      "status": "passed"
+    }
+  },
+  "observed_at": "2026-10-08T18:38:20.749338+00:00",
+  "production_qualified": false,
+  "remote_writes_performed": false,
+  "schema_version": 1,
+  "scope": "read_only_local_tooling_and_hosted_run_inventory",
+  "source_revision": "65f4a755c4899373dba14b8128ac25575b130cb6",
+  "unit_evidence_updated_at": "2026-10-08T18:47:54.939894+00:00",
+  "workflow_sha256": {
+    ".github/workflows/capacity-trends.yml": "184a01fb7a8499237f7cc28eadd19ebfbbce42f21a4d11dfa98c328ff280b539",
+    ".github/workflows/publish-images.yml": "0b76031c6934b40ccbddef7deedc4a593445cd4e50f59fc3bcbebd763639e35e",
+    ".github/workflows/quality-gates.yml": "ba56130f22834911dd1b8ae08f94c21a52681076ccdc2842a79974e67f9cd95f"
+  }
+}
