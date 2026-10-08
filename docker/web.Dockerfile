@@ -41,7 +41,7 @@ RUN mkdir -p /tmp/frontend-docs \
 RUN npm run build
 
 FROM nginx:1.31.3-alpine
-RUN apk upgrade --no-cache libcrypto3 libssl3 libexpat libuuid
+RUN apk upgrade --no-cache libcrypto3 libssl3 libexpat libuuid pcre2
 ARG BUILD_DATE=unknown
 ARG APP_VERSION=2.0.1
 ARG VCS_REF=unknown
