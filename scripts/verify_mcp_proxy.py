@@ -20,6 +20,7 @@ import json
 from pathlib import Path
 import secrets
 import subprocess
+import sys
 import tempfile
 import time
 from urllib.error import HTTPError, URLError
@@ -102,6 +103,27 @@ def wait_until(check, *, seconds: int = 45) -> None:
     raise RuntimeError(
         "Disposable service did not become ready within its startup budget"
     )
+
+
+def cleanup_owned_resources(containers, networks, original_error=None) -> None:
+    failures = []
+    for command in (
+        *(["docker", "rm", "-f", name] for name in reversed(containers)),
+        *(["docker", "network", "rm", name] for name in reversed(networks)),
+    ):
+        try:
+            subprocess.run(command, stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL, timeout=20, check=True)
+        except (OSError, subprocess.SubprocessError) as error:
+            failures.append(f"{command[-1]}: {type(error).__name__}")
+    if failures:
+        message = f"Disposable MCP proxy cleanup failed: {', '.join(failures)}"
+        if original_error is not None:
+            original_error.add_note(message)
+        else:
+            raise RuntimeError(message)
+    else:
+        print("Disposable MCP proxy resources removed", flush=True)
 
 
 def rpc(
@@ -542,21 +564,7 @@ def verify(args):
             )
             print("MCP real proxy qualification passed", flush=True)
         finally:
-            for container in reversed(containers):
-                subprocess.run(
-                    ["docker", "rm", "-f", container],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    timeout=20,
-                )
-            for created_network in reversed(created_networks):
-                subprocess.run(
-                    ["docker", "network", "rm", created_network],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    timeout=20,
-                )
-            print("Disposable MCP proxy resources removed", flush=True)
+            cleanup_owned_resources(containers, created_networks, sys.exc_info()[1])
 
 
 if __name__ == "__main__":
