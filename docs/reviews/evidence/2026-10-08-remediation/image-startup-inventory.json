@@ -1,0 +1,41 @@
+{
+  "status": "passed",
+  "source_revision": "17f8aea3cec741a6739dfd8ceee8717eb4858133",
+  "platform": "linux/amd64",
+  "backend_image_id": "sha256:d543b34901a1df2e51f5a723369189bb479642ae7acb6c9122aa969bd4c22509",
+  "web_image_id": "sha256:43e1a5130e4f8017d61cde5cc22c5d08c170b58360c7ecf4a15956c9b51322c7",
+  "checks": {
+    "dependency_inventories_and_bundled_legal_match": true,
+    "legacy_writable_root_nonroot_startup_restart": true,
+    "read_only_tmpfs_nonroot_startup_restart": true
+  },
+  "cleanup": {
+    "completed": true,
+    "remaining_matching_containers": {
+      "threatlens-artifacts-": [],
+      "threatlens-web-startup-": []
+    }
+  },
+  "log_sha256": {
+    "dependency_artifacts": "4a699055e538cfe1afe0106a67e71c402292c48c0c4a95f7b691dc0bba379b82",
+    "web_startup": "8f18300c2502b7cd125c190a250c0e70a7fd620f9e62e494fe5ba995fc4adb5b"
+  },
+  "production_qualified": false,
+  "applicability": {
+    "candidate_revision": "65f4a755c4899373dba14b8128ac25575b130cb6",
+    "image_build_revision": "17f8aea3cec741a6739dfd8ceee8717eb4858133",
+    "identical_git_objects": {
+      "backend": "931d92f38a1151398557aac2a4ce9fc361965ebf",
+      "web": "9a85f4f78933be487ebe99a0feb3a64e2ce2316b",
+      "docker/backend.Dockerfile": "40c3c1fa1ecc97759e4d36cab42ba27ade37e900",
+      "docker/web.Dockerfile": "fffc09c62c17baa462d00edf4fe54863e77db652",
+      "docker-compose.yml": "9642be7dc79cce2082cb1e2d4c11a4f73449dd26",
+      "docker-compose.build.yml": "15b1b8a21d80a46680fdf528635b216383285131"
+    },
+    "changed_paths_outside_image_build_contexts": [
+      "scripts/verify_mcp_proxy.py",
+      "tests/operations/test_image_proxy_cleanup.py"
+    ],
+    "basis": "The candidate changes only the host MCP qualification helper and its operations tests; all image build inputs and Compose configuration retain the recorded build revision."
+  }
+}

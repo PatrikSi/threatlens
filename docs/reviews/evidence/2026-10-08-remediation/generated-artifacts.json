@@ -1,0 +1,10 @@
+{
+  "status": "passed",
+  "source_revision": "46871e5681c62e7efdf2b689cef27955073f46d4",
+  "method": "Fresh owned cwd and explicit synthetic environment; regeneration byte-identical",
+  "generated_artifact_sha256": {
+    "docs/reference/api.md": "bfe5c0455338befb44eb16b1b4dd5df2950139f14d8ce5d419de8fa5d969c795",
+    "docs/reference/openapi.json": "0e61be87290ac88864058898142e6b85c0729be56b5c10078255890e1633ef01",
+    "web/browser/preview-response.json": "3b1f2ac6ca3510c125728cd4db0266441936d299d00d0936600e3232c9984657"
+  }
+}

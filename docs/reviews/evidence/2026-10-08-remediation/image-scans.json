@@ -1,0 +1,105 @@
+{
+  "candidate_sha": "17f8aea3cec741a6739dfd8ceee8717eb4858133",
+  "version": "2.1.0",
+  "platform": "linux/amd64",
+  "scanner": "aquasec/trivy:0.70.0",
+  "scanner_image_id": "sha256:be1190afcb28352bfddc4ddeb71470835d16462af68d310f9f4bca710961a41e",
+  "threshold": {
+    "scanners": "vuln",
+    "severity": [
+      "HIGH",
+      "CRITICAL"
+    ],
+    "ignore_unfixed": true,
+    "exit_code": 1
+  },
+  "database": {
+    "Version": 2,
+    "NextUpdate": "2026-10-09T15:33:46.578790805Z",
+    "UpdatedAt": "2026-10-08T15:33:46.578791096Z",
+    "DownloadedAt": "2026-10-08T18:23:06.817143498Z"
+  },
+  "database_origin": "fresh mirror.gcr.io/aquasec/trivy-db:2 download18:23 reused without network for same-database before/after scan",
+  "images": {
+    "backend": {
+      "image_id": "sha256:d543b34901a1df2e51f5a723369189bb479642ae7acb6c9122aa969bd4c22509",
+      "exit_code": 0,
+      "counts": {
+        "HIGH": 0,
+        "CRITICAL": 0
+      },
+      "findings": []
+    },
+    "web": {
+      "image_id": "sha256:43e1a5130e4f8017d61cde5cc22c5d08c170b58360c7ecf4a15956c9b51322c7",
+      "exit_code": 0,
+      "counts": {
+        "HIGH": 0,
+        "CRITICAL": 0
+      },
+      "findings": []
+    }
+  },
+  "started_at": "2026-10-08T18:31:42.753252+00:00",
+  "status": "passed",
+  "cleanup": {
+    "completed": true,
+    "remaining_owned_containers": []
+  },
+  "finished_at": "2026-10-08T18:31:46.336741+00:00",
+  "applicability": {
+    "candidate_revision": "65f4a755c4899373dba14b8128ac25575b130cb6",
+    "image_build_revision": "17f8aea3cec741a6739dfd8ceee8717eb4858133",
+    "identical_git_objects": {
+      "backend": "931d92f38a1151398557aac2a4ce9fc361965ebf",
+      "web": "9a85f4f78933be487ebe99a0feb3a64e2ce2316b",
+      "docker/backend.Dockerfile": "40c3c1fa1ecc97759e4d36cab42ba27ade37e900",
+      "docker/web.Dockerfile": "fffc09c62c17baa462d00edf4fe54863e77db652",
+      "docker-compose.yml": "9642be7dc79cce2082cb1e2d4c11a4f73449dd26",
+      "docker-compose.build.yml": "15b1b8a21d80a46680fdf528635b216383285131"
+    },
+    "changed_paths_outside_image_build_contexts": [
+      "scripts/verify_mcp_proxy.py",
+      "tests/operations/test_image_proxy_cleanup.py"
+    ],
+    "basis": "The candidate changes only the host MCP qualification helper and its operations tests; all image build inputs and Compose configuration retain the recorded build revision."
+  },
+  "full_workflow_scanner_scope": {
+    "scanners": [
+      "vuln",
+      "secret"
+    ],
+    "pinned_action": "aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25",
+    "action_source": "https://raw.githubusercontent.com/aquasecurity/trivy-action/ed142fd0673e97e23eac54620cfb913e5ce36c25/action.yaml",
+    "version": "0.70.0",
+    "started_at": "2026-10-08T18:50:59.274274+00:00",
+    "status": "passed",
+    "images": {
+      "backend": {
+        "image_id": "sha256:d543b34901a1df2e51f5a723369189bb479642ae7acb6c9122aa969bd4c22509",
+        "exit_code": 0,
+        "vulnerability_counts": {
+          "HIGH": 0,
+          "CRITICAL": 0
+        },
+        "secret_count": 0,
+        "secret_rule_ids": []
+      },
+      "web": {
+        "image_id": "sha256:43e1a5130e4f8017d61cde5cc22c5d08c170b58360c7ecf4a15956c9b51322c7",
+        "exit_code": 0,
+        "vulnerability_counts": {
+          "HIGH": 0,
+          "CRITICAL": 0
+        },
+        "secret_count": 0,
+        "secret_rule_ids": []
+      }
+    },
+    "cleanup": {
+      "completed": true,
+      "remaining_owned_containers": []
+    },
+    "finished_at": "2026-10-08T18:51:05.899328+00:00"
+  }
+}

@@ -1,0 +1,239 @@
+{
+  "coverage": {
+    "branch_coverage": true,
+    "covered_branches": 12496,
+    "covered_lines": 57859,
+    "critical_module_floors_passed": true,
+    "overall_percent": 87.04,
+    "overall_required_percent": 79,
+    "policy_exit_code": 0,
+    "policy_result": "Coverage quality gate passed: overall 87.04%, reporting 87.23%.",
+    "reporting_percent": 87.23,
+    "reporting_required_percent": 63,
+    "total_branches": 16540,
+    "total_statements": 64290
+  },
+  "owned_fixture_cleanup": {
+    "all_matching_fixture_count": 0,
+    "cleanup_passed": true,
+    "observed_at": "2026-10-08T18:12:01.357688+00:00",
+    "recorded_fixture_ids": [
+      "1a805a034fb8f9173752b96b9fa5321a9331fabf2e21c76c07ee3f6c8d2e46ae",
+      "e82b1a6094cb749f2dd6155489109d3d5257dd5c2cc98ed831d5aef777996ff7"
+    ],
+    "remaining_owned_fixture_count": 0
+  },
+  "runtime": {
+    "all_declared_pins_verified": true,
+    "interpreter": "/tmp/threatlens-r03-exact-python/bin/python",
+    "pip_check_passed": true,
+    "python_version": "Python 3.12.3",
+    "verified_pin_counts": {
+      "requirements-dev.txt": 5,
+      "requirements-lock.txt": 93,
+      "requirements-mcp-test.txt": 2
+    },
+    "verified_pins": {
+      "requirements-dev.txt": {
+        "httpx2": "2.7.0",
+        "pypdf": "6.18.1",
+        "pytest": "8.4.1",
+        "pytest-cov": "6.2.1",
+        "ruff": "0.15.22"
+      },
+      "requirements-lock.txt": {
+        "Authlib": "1.7.2",
+        "Deprecated": "1.3.1",
+        "Mako": "1.3.12",
+        "MarkupSafe": "3.0.3",
+        "PyJWT": "2.15.1",
+        "PyYAML": "6.0.3",
+        "SQLAlchemy": "2.0.42",
+        "alembic": "1.16.4",
+        "amqp": "5.3.1",
+        "annotated-doc": "0.0.4",
+        "annotated-types": "0.7.0",
+        "antlr4-python3-runtime": "4.13.2",
+        "anyio": "4.14.2",
+        "argon2-cffi": "25.1.0",
+        "argon2-cffi-bindings": "25.1.0",
+        "babel": "2.18.0",
+        "bcrypt": "4.0.1",
+        "beautifulsoup4": "4.13.4",
+        "billiard": "4.2.4",
+        "celery": "5.5.3",
+        "certifi": "2026.6.17",
+        "cffi": "2.1.0",
+        "chardet": "7.4.3",
+        "charset-normalizer": "3.4.9",
+        "click": "8.4.2",
+        "click-didyoumean": "0.3.1",
+        "click-plugins": "1.1.1.2",
+        "click-repl": "0.3.0",
+        "courlan": "1.4.0",
+        "croniter": "3.0.3",
+        "cryptography": "50.0.0",
+        "cssselect": "1.4.0",
+        "dateparser": "1.4.1",
+        "dnspython": "2.8.0",
+        "email_validator": "2.2.0",
+        "fastapi": "0.139.2",
+        "feedparser": "6.0.11",
+        "greenlet": "3.5.3",
+        "h11": "0.16.0",
+        "htmldate": "1.10.0",
+        "httpcore": "1.0.9",
+        "httptools": "0.8.0",
+        "httpx": "0.28.1",
+        "idna": "3.18",
+        "joserfc": "1.7.4",
+        "jusText": "3.0.2",
+        "kombu": "5.5.4",
+        "lxml": "6.1.1",
+        "lxml_html_clean": "0.4.5",
+        "markdown-it-py": "4.0.0",
+        "mdurl": "0.1.2",
+        "packaging": "26.2",
+        "pillow": "12.3.0",
+        "prompt_toolkit": "3.0.52",
+        "psycopg": "3.2.9",
+        "psycopg-binary": "3.2.9",
+        "pwdlib": "0.3.0",
+        "pycparser": "3.0",
+        "pydantic": "2.13.4",
+        "pydantic-settings": "2.10.1",
+        "pydantic_core": "2.46.4",
+        "pymisp": "2.5.34.1",
+        "pyotp": "2.9.0",
+        "python-dateutil": "2.9.0.post0",
+        "python-dotenv": "1.2.2",
+        "python-multipart": "0.0.32",
+        "pytz": "2026.2",
+        "readability-lxml": "0.8.4.1",
+        "redis": "6.2.0",
+        "regex": "2026.7.10",
+        "reportlab": "4.4.10",
+        "requests": "2.34.2",
+        "sgmllib3k": "1.0.0",
+        "simplejson": "4.1.1",
+        "six": "1.17.0",
+        "soupsieve": "2.9",
+        "starlette": "1.3.1",
+        "stix2": "3.0.2",
+        "stix2-patterns": "2.1.2",
+        "tld": "0.13.2",
+        "trafilatura": "2.0.0",
+        "typing-inspection": "0.4.2",
+        "typing_extensions": "4.16.0",
+        "tzdata": "2026.3",
+        "tzlocal": "5.4.4",
+        "urllib3": "2.8.0",
+        "uvicorn": "0.35.0",
+        "uvloop": "0.22.1",
+        "vine": "5.1.0",
+        "watchfiles": "1.2.0",
+        "wcwidth": "0.8.2",
+        "websockets": "16.1",
+        "wrapt": "2.3.0"
+      },
+      "requirements-mcp-test.txt": {
+        "mcp": "2.2.0",
+        "pytest": "8.4.1"
+      }
+    }
+  },
+  "source_provenance": {
+    "applicability": {
+      "basis": "The candidate retains the tested backend tree, runtime-isolation helper, and generated API reference objects. The MCP helper has separate cleanup/bookkeeping amendments validated by operations regressions; its wait_until AST remains identical. The recorded full suite was run at its original starting revision; this comparison does not claim a new full-suite run or completed native MCP qualification.",
+      "candidate_git_objects": {
+        "backend": "931d92f38a1151398557aac2a4ce9fc361965ebf",
+        "docs/reference/api.md": "2749b7a9229924ccfcf9a5b5f22b76a400666444",
+        "docs/reference/openapi.json": "7d0f19b7c554e4ed719d257c2a738ee0375fde92",
+        "scripts/verify_mcp_proxy.py": "0eaabf896d0fba8779347d7defdaca5154cc4c49",
+        "scripts/verify_runtime_isolation.py": "031953b2598e33c15829d5e07a7fb9357418f406"
+      },
+      "candidate_revision": "65f4a755c4899373dba14b8128ac25575b130cb6",
+      "changed_paths_since_observed_suite_completion": [
+        "docker/web.Dockerfile",
+        "docs/reference/frontend-os-package-legal/tiff/APK-INFO",
+        "docs/reference/frontend-os-package-metadata.tsv",
+        "docs/reference/frontend-os-packages.txt",
+        "scripts/verify_mcp_proxy.py",
+        "tests/operations/test_image_proxy_cleanup.py"
+      ],
+      "comparison_revision": "46871e5681c62e7efdf2b689cef27955073f46d4",
+      "matches_observed_suite_completion": {
+        "backend": true,
+        "docs/reference/api.md": true,
+        "docs/reference/openapi.json": true,
+        "scripts/verify_mcp_proxy.py": false,
+        "scripts/verify_runtime_isolation.py": true
+      },
+      "mcp_cleanup_validation": {
+        "new_regressions_failed_before_fix": 2,
+        "scope": "Requested network names are recorded before Docker creation so failed or interrupted creation still permits owned cleanup. Native MCP qualification for this candidate is managed separately.",
+        "separate_operations_regressions_passed": 7,
+        "validation_reported_by": "root"
+      },
+      "mcp_live_qualification": {
+        "evidence": "mcp-proxy.json",
+        "source_revision": "65f4a755c4899373dba14b8128ac25575b130cb6",
+        "status": "passed"
+      },
+      "mcp_wait_until_ast_matches_start_and_observed_completion": true,
+      "verified_at": "2026-10-08T18:37:31.086173+00:00"
+    },
+    "backend_source_sha256": "313f698dc58fbd815b01d973f802b19a812de6806d3d63c0b06df096e7fb0414",
+    "backend_tree_unchanged": true,
+    "final_git_objects": {
+      "backend": "931d92f38a1151398557aac2a4ce9fc361965ebf",
+      "docs/reference/api.md": "2749b7a9229924ccfcf9a5b5f22b76a400666444",
+      "docs/reference/openapi.json": "7d0f19b7c554e4ed719d257c2a738ee0375fde92",
+      "scripts/verify_mcp_proxy.py": "ff6f09466cf6b1d8a87ebfece5507c34b87e7038",
+      "scripts/verify_runtime_isolation.py": "031953b2598e33c15829d5e07a7fb9357418f406"
+    },
+    "final_observed_revision": "46871e5681c62e7efdf2b689cef27955073f46d4",
+    "git_objects_unchanged": {
+      "backend": true,
+      "docs/reference/api.md": true,
+      "docs/reference/openapi.json": true,
+      "scripts/verify_mcp_proxy.py": false,
+      "scripts/verify_runtime_isolation.py": true
+    },
+    "mcp_cleanup_scope": "The final helper cleanup amendment has separate operations regressions; the full suite proves the unchanged backend tree and unchanged wait_until function.",
+    "mcp_cleanup_tested_separately": true,
+    "mcp_wait_until_ast_unchanged": true,
+    "starting_git_objects": {
+      "backend": "931d92f38a1151398557aac2a4ce9fc361965ebf",
+      "docs/reference/api.md": "2749b7a9229924ccfcf9a5b5f22b76a400666444",
+      "docs/reference/openapi.json": "7d0f19b7c554e4ed719d257c2a738ee0375fde92",
+      "scripts/verify_mcp_proxy.py": "f21fffdd121391ce80f4d9e96eeb99898e8f5ad2",
+      "scripts/verify_runtime_isolation.py": "031953b2598e33c15829d5e07a7fb9357418f406"
+    },
+    "starting_revision": "04227b64578a6d9fdb519b5b0bb961708441d417",
+    "tested_paths_working_tree_clean": true
+  },
+  "status": "passed",
+  "suite": {
+    "collected": 4571,
+    "completion_observed_at": "2026-10-08T18:12:01.357688+00:00",
+    "elapsed_seconds": 1208.49,
+    "exit_code": 0,
+    "failed": 0,
+    "passed": 4569,
+    "skip_reasons": [
+      {
+        "reason": "explicit capacity harness only",
+        "test": "tests/capacity/test_concurrent_workload.py"
+      },
+      {
+        "reason": "explicit recovery harness only",
+        "test": "tests/capacity/test_recovery_workload.py"
+      }
+    ],
+    "skipped": 2,
+    "started_at": "2026-10-08T17:50:56.069262+00:00",
+    "test_database_and_redis_overrides": "unset; disposable fixture defaults",
+    "timeout_seconds": 1500
+  }
+}

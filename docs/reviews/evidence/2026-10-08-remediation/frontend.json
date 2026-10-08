@@ -1,0 +1,308 @@
+{
+  "schema_version": 1,
+  "status": "passed",
+  "recorded_at_utc": "2026-10-08T18:50:01.511913+00:00",
+  "version": "2.1.0",
+  "source": {
+    "static_and_interaction_launch_sha": "17f8aea3cec741a6739dfd8ceee8717eb4858133",
+    "real_server_launch_sha": "65f4a755c4899373dba14b8128ac25575b130cb6",
+    "applicable_candidate_sha": "65f4a755c4899373dba14b8128ac25575b130cb6",
+    "tailwind_migration_commit": "f833e7b",
+    "git_object_comparison": {
+      "web": {
+        "launch_tree": "9a85f4f78933be487ebe99a0feb3a64e2ce2316b",
+        "applicable_tree": "9a85f4f78933be487ebe99a0feb3a64e2ce2316b",
+        "identical": true
+      },
+      "backend/app": {
+        "launch_tree": "b2e346bc5938c21aeb036550dea5b1c470471d1c",
+        "applicable_tree": "b2e346bc5938c21aeb036550dea5b1c470471d1c",
+        "identical": true
+      }
+    },
+    "unchanged_paths": [
+      "web",
+      "backend/app",
+      "backend/requirements.txt",
+      "backend/requirements-dev.txt",
+      "backend/pyproject.toml",
+      "VERSION"
+    ],
+    "note": "Candidate advanced only through operational qualification helper changes; tests are reported against their actual launch SHA, with unchanged tested app/tree applicability verified through Git objects."
+  },
+  "dependencies": {
+    "host_node": "22.23.0",
+    "docker_browser_node": "24.20.0",
+    "playwright": "1.63.0",
+    "browser_image": "mcr.microsoft.com/playwright:v1.63.0-noble",
+    "browser_image_id": "sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27",
+    "tailwindcss": "4.3.3",
+    "tailwind_postcss": "4.3.3",
+    "real_server_python": {
+      "fixture_executable": "/tmp/threatlens-r03-exact-python/bin/python",
+      "fixture_pythonpath": "/home/patrik/threatlens/backend",
+      "packages": {
+        "PyJWT": "2.15.1",
+        "urllib3": "2.8.0",
+        "markdown-it-py": "4.0.0",
+        "mcp": "2.2.0",
+        "httpx2": "2.7.0",
+        "fastapi": "0.139.2",
+        "pydantic": "2.13.4",
+        "sqlalchemy": "2.0.42"
+      }
+    }
+  },
+  "static": {
+    "launch_sha": "17f8aea3cec741a6739dfd8ceee8717eb4858133",
+    "unit": {
+      "files": 164,
+      "passed": 1355,
+      "failed": 0,
+      "vitest_reported_seconds": 91.14
+    },
+    "stages": [
+      {
+        "name": "unit",
+        "exit_code": 0,
+        "elapsed_seconds": 92.15,
+        "log": "/tmp/threatlens-remediation-frontend-final/unit.log"
+      },
+      {
+        "name": "lint",
+        "exit_code": 0,
+        "elapsed_seconds": 16.5,
+        "log": "/tmp/threatlens-remediation-frontend-final/lint.log"
+      },
+      {
+        "name": "build",
+        "exit_code": 0,
+        "elapsed_seconds": 26.86,
+        "log": "/tmp/threatlens-remediation-frontend-final/build.log"
+      },
+      {
+        "name": "dist",
+        "exit_code": 0,
+        "elapsed_seconds": 1.15,
+        "log": "/tmp/threatlens-remediation-frontend-final/dist.log"
+      },
+      {
+        "name": "audit-ci",
+        "exit_code": 0,
+        "elapsed_seconds": 1.63,
+        "log": "/tmp/threatlens-remediation-frontend-final/audit-ci.log"
+      },
+      {
+        "name": "audit",
+        "exit_code": 0,
+        "elapsed_seconds": 0.68,
+        "log": "/tmp/threatlens-remediation-frontend-final/audit.json"
+      }
+    ],
+    "audit_vulnerabilities": {
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "high": 0,
+      "critical": 0,
+      "total": 0
+    },
+    "unchanged_audit_ci_gate": "high=true",
+    "advisory_suppressions_added": 0,
+    "version_metadata": "VERSION, package.json, lock top-level and root-package version all 2.1.0",
+    "diff_check": "passed"
+  },
+  "browser": {
+    "interactions": {
+      "name": "interactions",
+      "exit_code": 0,
+      "elapsed_seconds": 183.84,
+      "log": "/tmp/threatlens-remediation-frontend-final/interactions-polling.log",
+      "output": "/tmp/threatlens-remediation-browser-artifacts/interactions-polling",
+      "watch_mode": "polling",
+      "launch_sha": "17f8aea3cec741a6739dfd8ceee8717eb4858133",
+      "passed": 138,
+      "failed": 0,
+      "engines": [
+        "chromium",
+        "firefox",
+        "webkit"
+      ],
+      "cases_per_engine": 46,
+      "reported_elapsed": "3.0m",
+      "workers": 3,
+      "test_timeout_ms": 30000
+    },
+    "real_server": {
+      "name": "real-server",
+      "exit_code": 0,
+      "elapsed_seconds": 427.1,
+      "log": "/tmp/threatlens-remediation-frontend-final/real-server.log",
+      "output": "/tmp/threatlens-remediation-browser-artifacts/real-server",
+      "launch_sha": "65f4a755c4899373dba14b8128ac25575b130cb6",
+      "interpreter": "/tmp/threatlens-r03-exact-python/bin/python",
+      "passed": 63,
+      "failed": 0,
+      "engines": [
+        "chromium",
+        "firefox",
+        "webkit"
+      ],
+      "cases_per_engine": 21,
+      "reported_elapsed": "6.9m",
+      "workers": 1,
+      "test_timeout_ms": 45000,
+      "accumulated_fixture_state_across_projects": true
+    },
+    "native_control_regression": {
+      "file": "web/browser/native-control-styles.browser.ts",
+      "fresh_matrix_passed": 3,
+      "engines": {
+        "chromium": 1,
+        "firefox": 1,
+        "webkit": 1
+      },
+      "scope": "Native input/select/textarea retain browser-white backgrounds; explicitly transparent inputs remain transparent."
+    },
+    "environment_adjustment": {
+      "CHOKIDAR_USEPOLLING": "1",
+      "reason": "Host inotify watcher limit exhausted at Vite startup",
+      "test_timeouts_changed": false,
+      "host_limits_changed": false,
+      "repository_sources_changed": false
+    },
+    "cleanup": {
+      "verified": true,
+      "browser_containers_remaining": 0,
+      "postgres_redis_fixture_containers_remaining": 0,
+      "fixture_launcher_processes_remaining": 0,
+      "verification": "Docker browser-run label and owned interaction-name filters plus exact fixture/launcher process argv; all empty after run.py returned."
+    }
+  },
+  "css_baseline_observation": {
+    "status": "completed_before_host_restart",
+    "comparisons": 24,
+    "elements_each": 12,
+    "engines": [
+      "chromium",
+      "firefox",
+      "webkit"
+    ],
+    "viewports": [
+      390,
+      1440
+    ],
+    "themes": [
+      "light",
+      "dark"
+    ],
+    "forced_colors_requests": [
+      "none",
+      "active"
+    ],
+    "final_computed_property_differences": 0,
+    "scope": "Representative synthetic HTML compared compiled Tailwind3 and Tailwind4 colors, native/explicit backgrounds, borders/radii/cursors/fonts/line heights/padding/margins/outlines. Inert transparent box-shadow serialization excluded; legacy theme shadow values retained.",
+    "provenance": "Observed completed comparison and result were reported before host restart. Temporary raw comparison logs, compiled baseline and script were lost; no retained raw-log claim is made. Fresh full browser matrices and native-control regression above corroborate current behavior."
+  },
+  "browser_support_floor": {
+    "safari": "16.4",
+    "chrome": "111",
+    "firefox": "128",
+    "source": "https://tailwindcss.com/docs/upgrade-guide#browser-requirements"
+  },
+  "unfinished_features": {
+    "unexpected_runtime_stubs_found": 0,
+    "scope": "Tracked TODO/FIXME/NotImplemented/coming-soon and empty production methods/frontend handlers, plus linked article-chatbot proposal. Protocol signatures, explained migration downgrade no-ops and receiver log suppression are intentional.",
+    "article_chatbot_proposal_status": "Explicitly a proposal, not implemented; proposed /conversations routes are design sketches, not existing endpoints.",
+    "references": [
+      "docs/reviews/2026-09-12-team-and-chatbot-proposal.md:3",
+      "docs/reviews/2026-09-12-team-and-chatbot-proposal.md:129",
+      "docs/pages/mcp.md:370",
+      "docs/reviews/2026-10-08-code-review.md:127"
+    ]
+  },
+  "error_history": [
+    {
+      "phase": "Final interaction initial startup",
+      "application_cases_run": 0,
+      "error": "Vite ENOSPC: system limit for file watchers reached",
+      "elapsed_seconds": 6.04,
+      "log": "/tmp/threatlens-remediation-frontend-final/interactions.log",
+      "resolution": "Verified installed Vite Chokidar code supports CHOKIDAR_USEPOLLING=1; full unchanged matrix then passed with fresh output/cache."
+    },
+    {
+      "phase": "Earlier baseline style comparison",
+      "error": "Tailwind4 preflight initially reset native form backgrounds to transparent",
+      "resolution": "Restored measured Tailwind3 native backgrounds and radii; final observed 24 comparisons had zero differences, and fresh native regression passed all engines."
+    },
+    {
+      "phase": "Earlier guessed version-test filter",
+      "error": "Nonexistent appVersion Vitest filter matched no files",
+      "resolution": "Used real metadata checks; no real version test failed."
+    },
+    {
+      "phase": "Pre-restart environment",
+      "error": "Raw temporary logs and CSS comparison files disappeared after host restart; earlier shared host/daemon transport failures prevented starting final browser matrices",
+      "resolution": "Recreated exact runtime/disposable browser environment; all static logs and full browser results above are fresh. Pre-restart CSS observation remains explicitly labeled."
+    }
+  ],
+  "fresh_log_artifacts": [
+    {
+      "path": "/tmp/threatlens-remediation-frontend-final/unit.log",
+      "sha256": "57baa70aed5e7be1d219db007a2b3750dcbc658c221181fcd2acd965296ec869",
+      "bytes": 273
+    },
+    {
+      "path": "/tmp/threatlens-remediation-frontend-final/lint.log",
+      "sha256": "a39a1ab58386d7cdcdff5e3326a0ebb1833906a175b563994aef16a47890ab2f",
+      "bytes": 75
+    },
+    {
+      "path": "/tmp/threatlens-remediation-frontend-final/build.log",
+      "sha256": "612071485455b7cb1941f8ccb974703a46f28493fb10cc93473af1d0cb990952",
+      "bytes": 4336
+    },
+    {
+      "path": "/tmp/threatlens-remediation-frontend-final/dist.log",
+      "sha256": "0f11169e22f06c06dcc37144678b7c27b10050f9a652ede5c4fad2f0d6a86745",
+      "bytes": 136
+    },
+    {
+      "path": "/tmp/threatlens-remediation-frontend-final/audit-ci.log",
+      "sha256": "3277ec02e4569b8343b827845102490c8b5c864846816a4c96c4cadc1ada4301",
+      "bytes": 471
+    },
+    {
+      "path": "/tmp/threatlens-remediation-frontend-final/audit.json",
+      "sha256": "dd66e8e8ae12aed6140bbe346b5aadae893832c0d3dd716e3e1e79e8668ab74b",
+      "bytes": 365
+    },
+    {
+      "path": "/tmp/threatlens-remediation-frontend-final/interactions.log",
+      "sha256": "5acf09662748ba0974dd87109ca7bc33ac68b3380661bd2a797ce40a04c22ea4",
+      "bytes": 2134
+    },
+    {
+      "path": "/tmp/threatlens-remediation-frontend-final/interactions-polling.log",
+      "sha256": "b08f150c331d6f29d5d9b90a4cad5a86753efd6a7d52989e6944431bcc5a2709",
+      "bytes": 22924
+    },
+    {
+      "path": "/tmp/threatlens-remediation-frontend-final/real-server.log",
+      "sha256": "3f5386d95b3dcb39efacc63671fee032ca763265d1ff8319db68e86d3dde521b",
+      "bytes": 10217
+    },
+    {
+      "path": "/tmp/threatlens-remediation-browser-artifacts/real-server-fixture.log",
+      "sha256": "aa658fce3213c9415feaf4c141884f7094364363e010a1ca01ae2e695dfed4b8",
+      "bytes": 27293
+    },
+    {
+      "path": "/tmp/threatlens-remediation-browser-artifacts/real-server-python-runtime.json",
+      "sha256": "c6e859269df986aeed5d9ba6938864ecb757fb64b66c76e44097b82d0631d61a",
+      "bytes": 354
+    }
+  ],
+  "remaining_frontend_issues": [],
+  "remaining_required_frontend_checks": []
+}

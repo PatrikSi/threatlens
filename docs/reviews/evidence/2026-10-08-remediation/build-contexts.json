@@ -1,0 +1,77 @@
+{
+  "baseline_sha": "d4b79adbc49413063e8a263fbfe39db6e1ecb696",
+  "fix_commit": "7769103",
+  "method": "Docker scratch build and stopped-container export using synthetic local files; never opened existing environment or developer lock files",
+  "before": {
+    "backend": {
+      "exposed_synthetic_files": [
+        ".env",
+        ".env.production",
+        "custom.env",
+        "nested/.env",
+        "nested/custom.env",
+        "uv.lock"
+      ],
+      "included_synthetic_examples_and_source": [
+        "source.txt",
+        ".env.example",
+        "nested/.env.example"
+      ],
+      "passed": true
+    },
+    "web": {
+      "exposed_synthetic_files": [
+        ".env",
+        ".env.production",
+        "custom.env",
+        "nested/.env",
+        "nested/custom.env",
+        ".vite/cache.json",
+        "test-results/fixture.txt",
+        "playwright-report/fixture.txt"
+      ],
+      "included_synthetic_examples_and_source": [
+        "source.txt",
+        ".env.example",
+        "nested/.env.example"
+      ],
+      "passed": true
+    }
+  },
+  "after": {
+    "backend": {
+      "excluded_synthetic_files": [
+        ".env",
+        ".env.production",
+        "custom.env",
+        "nested/.env",
+        "nested/custom.env",
+        "uv.lock"
+      ],
+      "included_synthetic_examples_and_source": [
+        "source.txt",
+        ".env.example",
+        "nested/.env.example"
+      ],
+      "passed": true
+    },
+    "web": {
+      "excluded_synthetic_files": [
+        ".env",
+        ".env.production",
+        "custom.env",
+        "nested/.env",
+        "nested/custom.env",
+        ".vite/cache.json",
+        "test-results/fixture.txt",
+        "playwright-report/fixture.txt"
+      ],
+      "included_synthetic_examples_and_source": [
+        "source.txt",
+        ".env.example",
+        "nested/.env.example"
+      ],
+      "passed": true
+    }
+  }
+}

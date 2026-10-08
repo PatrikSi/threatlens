@@ -1,0 +1,118 @@
+{
+  "status": "passed",
+  "project": "threatlens-isolation-fce300da5884",
+  "revision": "46871e5681c62e7efdf2b689cef27955073f46d4",
+  "images": {
+    "backend": {
+      "tag": "threatlens-isolation-fce300da5884-backend:test",
+      "id": "sha256:ee5e1d2641f2dd0577d32a42084f5d1c4712fa9c8425e85087d578b1e124aef0"
+    },
+    "web": {
+      "tag": "threatlens-isolation-fce300da5884-web:test",
+      "id": "sha256:983f105b86d279f4404e22eca828575b575aca1feea8fecaa23379cb0fb42fb8"
+    }
+  },
+  "budgets": {
+    "api": {
+      "Memory": 1073741824,
+      "NanoCpus": 2000000000,
+      "PidsLimit": 256
+    },
+    "beat": {
+      "Memory": 402653184,
+      "NanoCpus": 500000000,
+      "PidsLimit": 96
+    },
+    "db": {
+      "Memory": 2147483648,
+      "NanoCpus": 2000000000,
+      "PidsLimit": 256
+    },
+    "migrate": {
+      "Memory": 536870912,
+      "NanoCpus": 1000000000,
+      "PidsLimit": 64
+    },
+    "redis": {
+      "Memory": 536870912,
+      "NanoCpus": 1000000000,
+      "PidsLimit": 128
+    },
+    "web": {
+      "Memory": 134217728,
+      "NanoCpus": 500000000,
+      "PidsLimit": 64
+    },
+    "worker": {
+      "Memory": 2147483648,
+      "NanoCpus": 2000000000,
+      "PidsLimit": 256
+    },
+    "worker-ai": {
+      "Memory": 1073741824,
+      "NanoCpus": 1000000000,
+      "PidsLimit": 128
+    },
+    "worker-exports": {
+      "Memory": 2147483648,
+      "NanoCpus": 1000000000,
+      "PidsLimit": 128
+    },
+    "worker-maintenance": {
+      "Memory": 805306368,
+      "NanoCpus": 1000000000,
+      "PidsLimit": 128
+    },
+    "worker-notifications": {
+      "Memory": 1073741824,
+      "NanoCpus": 1000000000,
+      "PidsLimit": 256
+    }
+  },
+  "initial_readiness_ms": 2016.92,
+  "proxy_checks": {
+    "bootstrap_session_logout": true,
+    "bounded_report_upload": true,
+    "log_privacy": true,
+    "versioned_openapi": {
+      "title": "ThreatLens API",
+      "summary": "ThreatLens API contract.",
+      "description": "The published API contract is versioned under `/v1` on the backend service and `/api/v1` through the bundled web proxy. Authorization bearer credentials are scoped API tokens, while browser logins establish HttpOnly cookie sessions through `/v1/auth/login`. The bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`. Any unversioned backend-service compatibility aliases are intentionally excluded from the OpenAPI schema and shipped browser/runtime contract.",
+      "license": {
+        "name": "Apache-2.0",
+        "identifier": "Apache-2.0",
+        "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
+      },
+      "version": "2.1.0",
+      "x-threatlens-contract-sha256": "a608ae21656a8d50f83919e01a16751720c1199a7f4cd552465770bd3df16aaa"
+    },
+    "theme_initializer": true,
+    "migration_head": true,
+    "local_environment_and_uv_lock_absent": true,
+    "upstream_failure_log_privacy": true
+  },
+  "export_cpu_pressure_readiness": {
+    "requests": 8,
+    "max_ms": 2055.3
+  },
+  "oom_isolated": true,
+  "restart_recovered": true,
+  "cleanup": {
+    "completed": true,
+    "remaining_project_resources": {
+      "containers": [],
+      "volumes": [],
+      "networks": []
+    },
+    "remaining_pressure_containers": []
+  },
+  "kind": "fresh_native_image_proxy_and_runtime_isolation",
+  "scope": "owned_disposable_amd64_source_build",
+  "production_qualified": false,
+  "source_build": "git archive of recorded revision, tracked Dockerfiles and ignore rules",
+  "additional_tracked_proxy_helpers": [
+    "scripts/verify_bootstrap_login.py",
+    "scripts/verify_report_upload_proxy.py",
+    "scripts/verify_access_log_privacy.py"
+  ]
+}
