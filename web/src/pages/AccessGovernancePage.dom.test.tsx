@@ -370,6 +370,21 @@ afterEach(() => {
 })
 
 describe('AccessGovernancePage permission and policy workflows', () => {
+  it('groups posture metrics as valid description-list terms and values', () => {
+    const view = renderPage(['*:*'])
+    const list = view.querySelector('dl')!
+    const groups = [...list.children]
+
+    expect(groups).toHaveLength(6)
+    expect(groups.map((group) => [...group.children].map((child) => child.tagName)))
+      .toEqual(Array.from({ length: 6 }, () => ['DT', 'DD']))
+    expect([...list.querySelectorAll('dt')].map((term) => term.querySelector('span')?.textContent))
+      .toEqual(['Access roles', 'Groups', 'Machine identities', 'Review campaigns', 'Elevation requests', 'Approval requests'])
+    expect([...list.querySelectorAll('dd')].map((description) => description.textContent))
+      .toEqual(['2', '3', '0', '0', '0', '0'])
+    expect(groups[0].querySelector('dt')?.textContent).toContain('System and custom')
+  })
+
   it('does not expose data-policy controls or approval data for lookalike permissions', () => {
     const view = renderPage(['read:iam', 'read:action_approvals'])
 

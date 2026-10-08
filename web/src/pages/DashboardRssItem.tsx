@@ -325,7 +325,7 @@ function DashboardRssItemSummary({ detail }: { detail: ItemDetail }) {
                                           ({Math.round(detail.classification.confidence * 100)}% confidence)
                                         </p>
                                       )}
-                                      <div className="tl-rss-detail-reader rss-reader tl-reader-surface mt-2 rounded p-3">
+                                      <div role="region" aria-label={`RSS summary text for ${detail.title}`} tabIndex={0} className="tl-rss-detail-reader rss-reader tl-reader-surface mt-2 rounded p-3">
                                         <RichContent content={detail.summary || 'No summary.'} itemId={detail.id} section="summary" />
                                       </div>
                                     </div>
@@ -408,7 +408,7 @@ function DashboardRssItemArticle({
                                         </p>
                                       )}
                                       {detail.article?.text ? (
-                                        <div className="tl-rss-detail-reader rss-reader tl-reader-surface mt-2 rounded p-3">
+                                        <div role="region" aria-label={`Full article text for ${detail.title}`} tabIndex={0} className="tl-rss-detail-reader rss-reader tl-reader-surface mt-2 rounded p-3">
                                           <RichContent content={detail.article.text} itemId={detail.id} section="article" />
                                         </div>
                                       ) : detail.article?.content_purged_at ? (
