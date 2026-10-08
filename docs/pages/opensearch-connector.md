@@ -125,6 +125,20 @@ targets. This validates vendor API contracts, not your TLS, roles, index mapping
 production volume, backup recovery or SIEM outcome quality; qualify those in the
 intended deployment before enabling automatic hunts.
 
+To create the disposable local container as well, first ensure
+`opensearchproject/opensearch:3.8.0` exists in the local Docker image store, then run:
+
+```sh
+backend/.venv/bin/python scripts/operations/run_opensearch_qualification.py \
+  --output /tmp/threatlens-opensearch-qualification.json
+```
+
+The runner uses the same resource caps as CI, a random loopback port and an exact
+per-run ownership label. It records source and image identities, bounds readiness
+and the contract, and attempts scoped cleanup even if diagnostic log collection
+fails. Contract or cleanup failures produce failed evidence and a nonzero exit;
+an unresolved cleanup includes the exact label to inspect before retrying.
+
 The `OpenSearch connector vendor contract` quality gate repeats this test against
 pinned OpenSearch 3.8.0 on each quality-gate run. Its disposable service exposes
 only loopback HTTP, with a 512 MiB Java heap, 2 GiB memory limit, two CPUs and a
