@@ -1,0 +1,531 @@
+{
+  "browser_runtime": {
+    "cpus": 2,
+    "engine_versions": {
+      "chromium": "153.0.8010.12",
+      "firefox": "155.0",
+      "webkit": "26.6"
+    },
+    "image": "mcr.microsoft.com/playwright:v1.63.0-noble",
+    "memoryBytes": 3221225472,
+    "node": "v24.20.0",
+    "observed_local_docker_image_id": "sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27",
+    "observed_repository_digest": "mcr.microsoft.com/playwright@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27",
+    "pidsLimit": 768,
+    "playwright": "1.63.0",
+    "published_platform_digest_qualified": false,
+    "user": "1000:1000"
+  },
+  "cleanup": {
+    "all_owned_browser_sessions_finished": true,
+    "owned_remaining_browser_container_count": 0,
+    "production_instance_preserved": true
+  },
+  "fixture_interactions": {
+    "browserImage": "mcr.microsoft.com/playwright:v1.63.0-noble",
+    "caps": {
+      "cpus": 2,
+      "memoryBytes": 3221225472,
+      "network": "none",
+      "pidsLimit": 768,
+      "user": "1000:1000"
+    },
+    "cleanup": {
+      "owned_remaining_container_count": 0,
+      "verified": true
+    },
+    "elapsedSeconds": 537.861,
+    "engines": {
+      "chromium": {
+        "failed": 0,
+        "passed": 49,
+        "skipped": 0
+      },
+      "firefox": {
+        "failed": 0,
+        "passed": 49,
+        "skipped": 0
+      },
+      "webkit": {
+        "failed": 0,
+        "passed": 49,
+        "skipped": 0
+      }
+    },
+    "exitCode": 0,
+    "expectTimeoutMs": 5000,
+    "expectedTests": 147,
+    "live_backend_qualification": false,
+    "logSha256": "332b4e8c7fdcd70ac049254fb5cfabdcb95f95a603ea087ebbfd9be9dbdf14b1",
+    "node": "24.20.0",
+    "observed_local_docker_image_id": "sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27",
+    "observed_repository_digest": "mcr.microsoft.com/playwright@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27",
+    "playwright": "1.63.0",
+    "rawReportSha256": "f05e888933f285c067af0d30ec9f94ee6bb2d6fd38ee896ccecb4d45b02648ef",
+    "recordedAt": "2026-10-08T22:15:08.302282+00:00",
+    "sourceArchiveSha256": "f0dd93bbd50ca16ea5f2d34e108e0d23c492d791c683cf6b1f9cd8c6abb55790",
+    "sourceSha": "31eb1bc698f1b3a246160863ccde144cafd05d9b",
+    "stats": {
+      "duration": 537861.152,
+      "expected": 147,
+      "flaky": 0,
+      "skipped": 0,
+      "startTime": "2026-10-08T22:05:14.047Z",
+      "unexpected": 0
+    },
+    "status": "passed",
+    "testTimeoutMs": 30000,
+    "testTimeoutsChanged": false,
+    "version": "2.1.0",
+    "webTree": "12734f2e0521e91abf611326d043355681bf5100",
+    "workers": 1
+  },
+  "input_evidence": [
+    {
+      "artifact": "frontend-final-results.json",
+      "sha256": "c0ddb9af80f9490a650d2d62644f119f4d6a8e535303ac0078a8d802380dec3d"
+    }
+  ],
+  "kind": "source_fixture_interactions_and_live_native_image_checks",
+  "native33": {
+    "article_keyboard_proof": [
+      {
+        "engine": "chromium",
+        "fullArticleScrollable": true,
+        "fullArticleTabFocus": true,
+        "publisherScriptSandboxPreserved": true,
+        "publisherTextConfirmed": true,
+        "scrollAfter": 257,
+        "scrollBefore": 0,
+        "summaryTabFocus": true,
+        "theme": "light"
+      },
+      {
+        "engine": "chromium",
+        "fullArticleScrollable": true,
+        "fullArticleTabFocus": true,
+        "publisherScriptSandboxPreserved": true,
+        "publisherTextConfirmed": true,
+        "scrollAfter": 317,
+        "scrollBefore": 0,
+        "summaryTabFocus": true,
+        "theme": "dark"
+      },
+      {
+        "engine": "firefox",
+        "fullArticleScrollable": true,
+        "fullArticleTabFocus": true,
+        "publisherScriptSandboxPreserved": true,
+        "publisherTextConfirmed": true,
+        "scrollAfter": 130,
+        "scrollBefore": 0,
+        "summaryTabFocus": true,
+        "theme": "light"
+      },
+      {
+        "engine": "firefox",
+        "fullArticleScrollable": true,
+        "fullArticleTabFocus": true,
+        "publisherScriptSandboxPreserved": true,
+        "publisherTextConfirmed": true,
+        "scrollAfter": 177,
+        "scrollBefore": 0,
+        "summaryTabFocus": true,
+        "theme": "dark"
+      },
+      {
+        "engine": "webkit",
+        "fullArticleScrollable": true,
+        "fullArticleTabFocus": true,
+        "publisherScriptSandboxPreserved": true,
+        "publisherTextConfirmed": true,
+        "scrollAfter": 15,
+        "scrollBefore": 0,
+        "summaryTabFocus": true,
+        "theme": "light"
+      },
+      {
+        "engine": "webkit",
+        "fullArticleScrollable": true,
+        "fullArticleTabFocus": true,
+        "publisherScriptSandboxPreserved": true,
+        "publisherTextConfirmed": true,
+        "scrollAfter": 294,
+        "scrollBefore": 0,
+        "summaryTabFocus": true,
+        "theme": "dark"
+      }
+    ],
+    "axeViolations": 0,
+    "cleanup": {
+      "cleanupFailures": 0,
+      "createdResources": 0,
+      "ownedBrowserContainersRemoved": true,
+      "productionInstancePreserved": true
+    },
+    "completedChecks": 33,
+    "elapsedSeconds": 90.059,
+    "engines": {
+      "chromium": {
+        "failed": 0,
+        "passed": 11
+      },
+      "firefox": {
+        "failed": 0,
+        "passed": 11
+      },
+      "webkit": {
+        "failed": 0,
+        "passed": 11
+      }
+    },
+    "expectedChecks": 33,
+    "failedChecks": 0,
+    "finishedAt": "2026-10-08T22:04:14.559Z",
+    "launchedDriverSha256": "fa64844fc5d289b3339fc8fe6b01ba391f8c58c6e03e99b566587e8e720b718c",
+    "logSha256": "fbb4c60ac5fabfcb2dc5a73d6d3b5d75ae29ca46c276b1c4b4ef53cfb3ada0ae",
+    "mobile_proof": [
+      {
+        "after": 32,
+        "before": 0,
+        "clientWidth": 346,
+        "documentWidth": 390,
+        "engine": "chromium",
+        "keyboardTabFocusConfirmed": true,
+        "scrollWidth": 760,
+        "theme": "light",
+        "viewportWidth": 390
+      },
+      {
+        "after": 31,
+        "before": 0,
+        "clientWidth": 346,
+        "documentWidth": 390,
+        "engine": "chromium",
+        "keyboardTabFocusConfirmed": true,
+        "scrollWidth": 760,
+        "theme": "dark",
+        "viewportWidth": 390
+      },
+      {
+        "after": 40,
+        "before": 0,
+        "clientWidth": 346,
+        "documentWidth": 390,
+        "engine": "firefox",
+        "keyboardTabFocusConfirmed": true,
+        "scrollWidth": 760,
+        "theme": "light",
+        "viewportWidth": 390
+      },
+      {
+        "after": 7,
+        "before": 0,
+        "clientWidth": 346,
+        "documentWidth": 390,
+        "engine": "firefox",
+        "keyboardTabFocusConfirmed": true,
+        "scrollWidth": 760,
+        "theme": "dark",
+        "viewportWidth": 390
+      },
+      {
+        "after": 49,
+        "before": 0,
+        "clientWidth": 346,
+        "documentWidth": 390,
+        "engine": "webkit",
+        "keyboardTabFocusConfirmed": true,
+        "scrollWidth": 760,
+        "theme": "light",
+        "viewportWidth": 390
+      },
+      {
+        "after": 49,
+        "before": 0,
+        "clientWidth": 346,
+        "documentWidth": 390,
+        "engine": "webkit",
+        "keyboardTabFocusConfirmed": true,
+        "scrollWidth": 760,
+        "theme": "dark",
+        "viewportWidth": 390
+      }
+    ],
+    "observed_runtime_counts": {
+      "API500": 0,
+      "blockedExternalRequests": 0,
+      "consoleErrors": 0,
+      "pageErrors": 1
+    },
+    "originalErrorGateExitCode": 1,
+    "originalRawStatus": "failed",
+    "original_diagnostic_lifecycle_instrumentation_present": false,
+    "passedChecks": 33,
+    "providerDiscardChecksPassed": 3,
+    "publisher_iframe_excluded_from_injected_axe_only": true,
+    "rawResultsSha256": "64d7a4c0c6e6b3b2f20825ad6b2b4f816f434c334b14bef1edf834025138958a",
+    "retained_webkit_diagnostic": {
+      "apiPath": "/api/v1/auth/me",
+      "count": 1,
+      "engine": "webkit",
+      "route": "/",
+      "theme": "light"
+    },
+    "routes": [
+      "/",
+      "/settings/access",
+      "/export",
+      "/settings/ai",
+      "/settings/account"
+    ],
+    "select_contrast": [
+      {
+        "consumerRatio": 21,
+        "engine": "chromium",
+        "publicationRatio": 21,
+        "theme": "light"
+      },
+      {
+        "consumerRatio": 11.758486,
+        "engine": "chromium",
+        "publicationRatio": 11.758486,
+        "theme": "dark"
+      },
+      {
+        "consumerRatio": 21,
+        "engine": "firefox",
+        "publicationRatio": 21,
+        "theme": "light"
+      },
+      {
+        "consumerRatio": 11.863782,
+        "engine": "firefox",
+        "publicationRatio": 11.863782,
+        "theme": "dark"
+      },
+      {
+        "consumerRatio": 21,
+        "engine": "webkit",
+        "publicationRatio": 21,
+        "theme": "light"
+      },
+      {
+        "consumerRatio": 11.758486,
+        "engine": "webkit",
+        "publicationRatio": 11.758486,
+        "theme": "dark"
+      }
+    ],
+    "source": {
+      "backendBuildSha": "1f50226feda5c784add911faf9e9ad4f21c628f7",
+      "backendImage": "sha256:31bed1c414e6c78417cfb0eaf4783793e8e1a29eff9670a0efb19f4f73bb089e",
+      "sourceSha": "31eb1bc698f1b3a246160863ccde144cafd05d9b",
+      "version": "2.1.0",
+      "webBuildSha": "31eb1bc698f1b3a246160863ccde144cafd05d9b",
+      "webImage": "sha256:e974899db4af6110f19772c881716dcd21028f295e294d3e44aabd22719bd462",
+      "webTree": "12734f2e0521e91abf611326d043355681bf5100"
+    },
+    "startedAt": "2026-10-08T22:02:44.500Z",
+    "themes": [
+      "light",
+      "dark"
+    ],
+    "viewports": {
+      "desktop": {
+        "height": 1000,
+        "width": 1440
+      },
+      "mobile": {
+        "height": 844,
+        "width": 390
+      }
+    }
+  },
+  "native_source": {
+    "backendBuildSha": "1f50226feda5c784add911faf9e9ad4f21c628f7",
+    "backendImage": "sha256:31bed1c414e6c78417cfb0eaf4783793e8e1a29eff9670a0efb19f4f73bb089e",
+    "sourceSha": "31eb1bc698f1b3a246160863ccde144cafd05d9b",
+    "version": "2.1.0",
+    "webBuildSha": "31eb1bc698f1b3a246160863ccde144cafd05d9b",
+    "webImage": "sha256:e974899db4af6110f19772c881716dcd21028f295e294d3e44aabd22719bd462",
+    "webTree": "12734f2e0521e91abf611326d043355681bf5100"
+  },
+  "recorded_at": "2026-10-08T22:21:11.848273+00:00",
+  "schema_version": 1,
+  "status": "completed_with_retained_native_error_gate_failure",
+  "unqualified_startup_history": [
+    {
+      "executedChecks": 0,
+      "logSha256": "32454a74f9794cb4e811b5b46a48cb29d062e5fd48551f69adb320ecb4a905f8"
+    }
+  ],
+  "webkit_diagnostics": {
+    "classification": "retiring_document_network_diagnostic",
+    "classification_scope": "independently_reproduced_lifecycle_only",
+    "known_caught_retirement_control": {
+      "browserVersion": "26.6",
+      "caught_result": {
+        "elapsedMs": 1,
+        "name": "TypeError"
+      },
+      "distinctFromOrdinaryAbortController": true,
+      "driverSha256": "e856f8250fcc3ad576ae9e6fa7d155aeec891f185feb0a7fd13189ff2ae772df",
+      "engine": "webkit",
+      "finishedAt": "2026-10-08T22:17:21.900Z",
+      "logSha256": "c05dbbd27f48c84b83b5dd1f5cd52ddddb977d7367adaff80fa4b040e45848bc",
+      "observed_counts": {
+        "auth_me_response_200_count": 9,
+        "domErrors": 0,
+        "failedAuthMeRequests": 2,
+        "pageErrors": 1,
+        "securityPolicyViolations": 0,
+        "unhandledRejections": 0,
+        "webErrors": 1
+      },
+      "rawTraceSha256": "42d9cd9555d0b34f113182bc4b8883368fd236f4980d6ccd63ba79541c756662",
+      "rejection_handler_attached_immediately": true,
+      "replacementDocumentAuthMeStatus": 200,
+      "sameGenericWebKitDiagnosticReproduced": true,
+      "startedAt": "2026-10-08T22:17:15.370Z"
+    },
+    "natural_navigation": {
+      "browserVersion": "26.6",
+      "cycles": 3,
+      "driverSha256": "0a0e6e7317863196b7cf32e38a62f214bb6e207fcb0bb35eed57826bd7839fc1",
+      "engine": "webkit",
+      "failedFetchReachedNetworkProtocol": false,
+      "finishedAt": "2026-10-08T22:16:04.078Z",
+      "logSha256": "cf6349b0bd800b327de3e2b1a4b47a8ebc39fbbf99508fe3f4a0ea50186a4a30",
+      "naturalDiagnosticCount": 1,
+      "observed_counts": {
+        "auth_me_response_200_count": 61,
+        "domErrors": 0,
+        "failedAuthMeRequests": 6,
+        "pageErrors": 1,
+        "securityPolicyViolations": 0,
+        "unhandledRejections": 0,
+        "webErrors": 1
+      },
+      "ordinary_abort_controls": [
+        {
+          "cycle": 1,
+          "name": "AbortError",
+          "result": "caught"
+        },
+        {
+          "cycle": 2,
+          "name": "AbortError",
+          "result": "caught"
+        },
+        {
+          "cycle": 3,
+          "name": "AbortError",
+          "result": "caught"
+        }
+      ],
+      "rawTraceSha256": "a142af43d2effcf00adc6a493a3cbe3dc155dd9d98a90b132a376dd553fe29da",
+      "replacementDocumentAuthMeStatus": 200,
+      "retiring_document_timeline": [
+        {
+          "path": "/",
+          "timestamp": "2026-10-08T22:15:19.976Z",
+          "type": "navigation"
+        },
+        {
+          "documentPath": "/",
+          "timestamp": "2026-10-08T22:15:19.989Z",
+          "type": "beforeunload"
+        },
+        {
+          "documentPath": "/",
+          "timestamp": "2026-10-08T22:15:20.024Z",
+          "type": "authme-fetch-start"
+        },
+        {
+          "pagePath": "/",
+          "timestamp": "2026-10-08T22:15:20.037Z",
+          "type": "weberror"
+        },
+        {
+          "pagePath": "/",
+          "timestamp": "2026-10-08T22:15:20.039Z",
+          "type": "pageerror"
+        },
+        {
+          "documentPath": "/",
+          "timestamp": "2026-10-08T22:15:20.052Z",
+          "type": "pagehide"
+        },
+        {
+          "path": "/settings/access",
+          "timestamp": "2026-10-08T22:15:20.062Z",
+          "type": "navigation"
+        },
+        {
+          "documentPath": "/settings/access",
+          "timestamp": "2026-10-08T22:15:20.069Z",
+          "type": "document-start"
+        },
+        {
+          "path": "/settings/access",
+          "timestamp": "2026-10-08T22:15:20.175Z",
+          "type": "navigation"
+        },
+        {
+          "documentPath": "/settings/access",
+          "timestamp": "2026-10-08T22:15:20.176Z",
+          "type": "authme-fetch-start"
+        },
+        {
+          "path": "/api/v1/auth/me",
+          "status": 200,
+          "timestamp": "2026-10-08T22:15:20.212Z",
+          "type": "response"
+        }
+      ],
+      "startedAt": "2026-10-08T22:15:16.067Z"
+    },
+    "settled_spa": {
+      "axeOperationsCompleted": 5,
+      "axe_violation_counts_retained": false,
+      "browserVersion": "26.6",
+      "completedRouteChecks": 5,
+      "documentCount": 1,
+      "driverSha256": "dc00b10a721ab98b198d8d42b887224704d4e4b4b44518458276ab1528beee97",
+      "engine": "webkit",
+      "finishedAt": "2026-10-08T22:19:16.766Z",
+      "genericErrorListenersRetained": true,
+      "logSha256": "154a79a033930c762ed04757c516ee4b6f87ac240cfe36990db4e937bc644424",
+      "navigation_uses_visible_application_links": true,
+      "observed_counts": {
+        "auth_me_response_200_count": 10,
+        "domErrors": 0,
+        "failedAuthMeRequests": 0,
+        "pageErrors": 0,
+        "securityPolicyViolations": 0,
+        "unhandledRejections": 0,
+        "webErrors": 0
+      },
+      "rawTraceSha256": "791aeb9592054fbe0af29c9ab9875b4855fa4271c23ed86d88576bdcddd9d1eb",
+      "routes": [
+        "/settings/access",
+        "/",
+        "/export",
+        "/settings/account",
+        "/"
+      ],
+      "startedAt": "2026-10-08T22:19:05.147Z",
+      "status": "passed"
+    },
+    "source": {
+      "backendBuildSha": "1f50226feda5c784add911faf9e9ad4f21c628f7",
+      "backendImage": "sha256:31bed1c414e6c78417cfb0eaf4783793e8e1a29eff9670a0efb19f4f73bb089e",
+      "sourceSha": "31eb1bc698f1b3a246160863ccde144cafd05d9b",
+      "version": "2.1.0",
+      "webBuildSha": "31eb1bc698f1b3a246160863ccde144cafd05d9b",
+      "webImage": "sha256:e974899db4af6110f19772c881716dcd21028f295e294d3e44aabd22719bd462",
+      "webTree": "12734f2e0521e91abf611326d043355681bf5100"
+    }
+  }
+}

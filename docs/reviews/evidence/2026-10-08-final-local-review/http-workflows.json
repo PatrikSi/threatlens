@@ -1,0 +1,192 @@
+{
+  "backend_image_id": "sha256:31bed1c414e6c78417cfb0eaf4783793e8e1a29eff9670a0efb19f4f73bb089e",
+  "base_url": "http://127.0.0.1:3001",
+  "checks": [
+    {
+      "name": "anonymous_article_read_denied",
+      "passed": true,
+      "status": 401
+    },
+    {
+      "name": "invalid_bearer_article_read_denied",
+      "passed": true,
+      "status": 401
+    },
+    {
+      "name": "browser_login",
+      "passed": true,
+      "status": 200
+    },
+    {
+      "name": "cookie_csrf_missing_write_denied",
+      "passed": true,
+      "status": 403
+    },
+    {
+      "name": "current_user_read",
+      "passed": true,
+      "status": 200
+    },
+    {
+      "name": "feed_inventory_read",
+      "passed": true,
+      "status": 200
+    },
+    {
+      "name": "processed_article_inventory_read",
+      "passed": true,
+      "status": 200
+    },
+    {
+      "name": "article_detail_read",
+      "passed": true,
+      "status": 200
+    },
+    {
+      "name": "current_team_inventory_read",
+      "passed": true,
+      "status": 200
+    },
+    {
+      "name": "team_indicator_assessment_read",
+      "passed": true,
+      "status": 200
+    },
+    {
+      "name": "team_hunt_queue_read",
+      "passed": true,
+      "status": 200
+    },
+    {
+      "name": "reviewed_publication_inventory_read",
+      "passed": true,
+      "status": 200
+    },
+    {
+      "name": "automation_execution_inventory_read",
+      "passed": true,
+      "status": 200
+    },
+    {
+      "name": "automation_policy_update_read",
+      "passed": true,
+      "status": 200
+    },
+    {
+      "name": "investigation_create",
+      "passed": true,
+      "status": 201
+    },
+    {
+      "name": "investigation_attach_article",
+      "passed": true,
+      "status": 200
+    },
+    {
+      "name": "investigation_add_note",
+      "passed": true,
+      "status": 200
+    },
+    {
+      "name": "investigation_edit_note",
+      "passed": true,
+      "status": 200
+    },
+    {
+      "name": "investigation_stale_note_rejected",
+      "passed": true,
+      "status": 409
+    },
+    {
+      "name": "investigation_archive",
+      "passed": true,
+      "status": 200
+    },
+    {
+      "name": "archived_investigation_note_write_denied",
+      "passed": true,
+      "status": 409
+    },
+    {
+      "name": "oauth_consent_preview",
+      "passed": true,
+      "status": 200
+    },
+    {
+      "name": "oauth_consent_missing_csrf_denied",
+      "passed": true,
+      "status": 403
+    },
+    {
+      "name": "oauth_authorize_pkce",
+      "passed": true,
+      "status": 200
+    },
+    {
+      "name": "oauth_state_and_issuer_preserved",
+      "passed": true
+    },
+    {
+      "name": "oauth_wrong_pkce_denied_without_consuming_code",
+      "passed": true,
+      "status": 400
+    },
+    {
+      "name": "oauth_code_exchange",
+      "passed": true,
+      "status": 200
+    },
+    {
+      "name": "oauth_code_replay_denied",
+      "passed": true,
+      "status": 400
+    },
+    {
+      "name": "oauth_mcp_audience_denies_rest",
+      "passed": true,
+      "status": 401
+    },
+    {
+      "name": "oauth_mcp_tool_catalog",
+      "passed": true,
+      "status": 200
+    },
+    {
+      "name": "oauth_mcp_article_read",
+      "passed": true,
+      "status": 200
+    },
+    {
+      "name": "token_inventory_for_owned_grant",
+      "passed": true,
+      "status": 200
+    },
+    {
+      "name": "oauth_current_grant_revocation",
+      "passed": true,
+      "status": 204
+    },
+    {
+      "name": "oauth_revoked_mcp_read_denied",
+      "passed": true,
+      "status": 401
+    }
+  ],
+  "completed_at_utc": "2026-10-08T22:24:43.906107+00:00",
+  "elapsed_seconds": 2.007,
+  "image_build_revision": "1f50226feda5c784add911faf9e9ad4f21c628f7",
+  "input_evidence": [
+    {
+      "artifact": "http-backend-review.json",
+      "sha256": "4f6a668a613b463692fe587b0eac033363c1e596b224c775c291e0789b355ea9"
+    }
+  ],
+  "instance_source_revision": "31eb1bc698f1b3a246160863ccde144cafd05d9b",
+  "kind": "actual_owned_native_image_http_workflows",
+  "passed_checks": 34,
+  "review_source_revision": "31eb1bc698f1b3a246160863ccde144cafd05d9b",
+  "schema_version": 1,
+  "started_at_utc": "2026-10-08T22:24:41.898858+00:00",
+  "status": "passed",
+  "total_checks": 34
+}

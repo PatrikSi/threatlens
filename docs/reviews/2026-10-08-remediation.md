@@ -13,6 +13,12 @@ threshold. A stable isolated-runner comparison and the intended source's hosted
 quality/platform gates remain required before merge and public release.
 No public tag, image promotion, remote merge or model promotion has been made.
 
+The [final local review](2026-10-08-final-local-review.md) records subsequent
+runtime/browser findings, corrections and source-specific validation at
+`31eb1bc698f1b3a246160863ccde144cafd05d9b`. This checkpoint's historical
+counts and image/source identities remain unchanged; the remaining comparative
+capacity and hosted quality/platform gates still apply.
+
 ## Changes completed
 
 | Finding | Correction | Commit |

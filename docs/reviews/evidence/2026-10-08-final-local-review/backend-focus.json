@@ -1,0 +1,51 @@
+{
+  "cleanup": {
+    "error_count": 0,
+    "remaining_container_count": 0,
+    "remaining_volume_count": 0
+  },
+  "completed_at_utc": "2026-10-08T22:24:37.186360+00:00",
+  "driver_fixture_and_cleanup_elapsed_seconds": 30.76163,
+  "error_tests": 0,
+  "exit_code": 0,
+  "failed_tests": 0,
+  "files": [
+    "tests/unit/test_ai_qualification_task_result.py",
+    "tests/unit/test_ai_qualification_cases.py",
+    "tests/integration/test_ai_qualification.py",
+    "tests/integration/test_ai_qualification_recovery.py"
+  ],
+  "full_backend_suite_and_coverage_rerun": false,
+  "input_evidence": [
+    {
+      "artifact": "backend-focus-result.json",
+      "sha256": "0e8a7c8e167fd92f74e1152566c5c6b652ef1b2bc17b817f3f3b35eb08fd0e93"
+    }
+  ],
+  "junit_elapsed_seconds": 19.749,
+  "junit_sha256": "c94d0398c6bbe08a7887242bb0d99bcecec70a0d8c57e760f9e7bfc7dca1f4f2",
+  "kind": "focused_qualification_and_recovery_with_real_postgresql_redis_harness",
+  "log_sha256": "9a067ca2a9e04013e455338da4c138efa47d3c694d8a10aa99cdf7ce7790f619",
+  "passed_tests": 43,
+  "schema_version": 1,
+  "skipped_tests": 0,
+  "source_revision": "31eb1bc698f1b3a246160863ccde144cafd05d9b",
+  "started_at_utc": "2026-10-08T22:24:06.424730+00:00",
+  "suites": [
+    {
+      "errors": 0,
+      "failures": 0,
+      "junit_elapsed_seconds": 19.749,
+      "name": "pytest",
+      "skipped": 0,
+      "tests": 43,
+      "timestamp": "2026-10-08T22:24:13.680689+00:00"
+    }
+  ],
+  "test_source_sha256": {
+    "backend/tests/integration/test_ai_qualification.py": "9beec546447132737cb9de83c7b933529522a25060004171726db26e1bb4581b",
+    "backend/tests/integration/test_ai_qualification_recovery.py": "20337964a9e3dfa0b9b7f09d6753d8898c109665a30aba92e7b9f522b04b2364",
+    "backend/tests/unit/test_ai_qualification_cases.py": "65f3f6659113e006a55647ce2f1a5791364e398dc87f2f1836b25e5aba2e6b71",
+    "backend/tests/unit/test_ai_qualification_task_result.py": "16d4bee07d01adb87ad1f3cb4d379ff518541604d3694f10c709337d02df7854"
+  }
+}

@@ -1,0 +1,125 @@
+{
+  "historical_backend": {
+    "actual_observed_completion_revision": "46871e5681c62e7efdf2b689cef27955073f46d4",
+    "actual_starting_revision": "04227b64578a6d9fdb519b5b0bb961708441d417",
+    "backend_source_sha256": "313f698dc58fbd815b01d973f802b19a812de6806d3d63c0b06df096e7fb0414",
+    "backend_tree_unchanged_during_recorded_suite": true,
+    "completion_git_objects": {
+      "backend": "931d92f38a1151398557aac2a4ce9fc361965ebf",
+      "docs/reference/api.md": "2749b7a9229924ccfcf9a5b5f22b76a400666444",
+      "docs/reference/openapi.json": "7d0f19b7c554e4ed719d257c2a738ee0375fde92",
+      "scripts/verify_mcp_proxy.py": "ff6f09466cf6b1d8a87ebfece5507c34b87e7038",
+      "scripts/verify_runtime_isolation.py": "031953b2598e33c15829d5e07a7fb9357418f406"
+    },
+    "coverage": {
+      "branch_coverage": true,
+      "covered_branches": 12496,
+      "covered_lines": 57859,
+      "critical_module_floors_passed": true,
+      "overall_percent": 87.04,
+      "overall_required_percent": 79,
+      "policy_exit_code": 0,
+      "reporting_percent": 87.23,
+      "reporting_required_percent": 63,
+      "total_branches": 16540,
+      "total_statements": 64290
+    },
+    "current_application_applicability": {
+      "application_source_revision": "31eb1bc698f1b3a246160863ccde144cafd05d9b",
+      "backend_git_object": "ef81b9315e2bdf5b622ed7e171985125cbe6934e",
+      "changed_backend_paths_since_original_candidate": [
+        "backend/app/services/ai_qualification.py",
+        "backend/app/tasks/ai_qualification_tasks.py",
+        "backend/tests/unit/test_ai_qualification_task_result.py"
+      ],
+      "full_backend_suite_and_coverage_rerun": false,
+      "matches_historical_backend_tree": false
+    },
+    "original_candidate_applicability": {
+      "candidate_git_objects": {
+        "backend": "931d92f38a1151398557aac2a4ce9fc361965ebf",
+        "docs/reference/api.md": "2749b7a9229924ccfcf9a5b5f22b76a400666444",
+        "docs/reference/openapi.json": "7d0f19b7c554e4ed719d257c2a738ee0375fde92",
+        "scripts/verify_mcp_proxy.py": "0eaabf896d0fba8779347d7defdaca5154cc4c49",
+        "scripts/verify_runtime_isolation.py": "031953b2598e33c15829d5e07a7fb9357418f406"
+      },
+      "candidate_revision": "65f4a755c4899373dba14b8128ac25575b130cb6",
+      "comparison_revision": "46871e5681c62e7efdf2b689cef27955073f46d4",
+      "matches_observed_suite_completion": {
+        "backend": true,
+        "docs/reference/api.md": true,
+        "docs/reference/openapi.json": true,
+        "scripts/verify_mcp_proxy.py": false,
+        "scripts/verify_runtime_isolation.py": true
+      }
+    },
+    "starting_git_objects": {
+      "backend": "931d92f38a1151398557aac2a4ce9fc361965ebf",
+      "docs/reference/api.md": "2749b7a9229924ccfcf9a5b5f22b76a400666444",
+      "docs/reference/openapi.json": "7d0f19b7c554e4ed719d257c2a738ee0375fde92",
+      "scripts/verify_mcp_proxy.py": "f21fffdd121391ce80f4d9e96eeb99898e8f5ad2",
+      "scripts/verify_runtime_isolation.py": "031953b2598e33c15829d5e07a7fb9357418f406"
+    },
+    "status": "passed",
+    "suite": {
+      "collected": 4571,
+      "completion_observed_at": "2026-10-08T18:12:01.357688+00:00",
+      "elapsed_seconds": 1208.49,
+      "exit_code": 0,
+      "failed": 0,
+      "passed": 4569,
+      "skipped": 2,
+      "started_at": "2026-10-08T17:50:56.069262+00:00",
+      "timeout_seconds": 1500
+    }
+  },
+  "historical_native_smoke": {
+    "cleanup": {
+      "completed": true,
+      "remaining_container_count": 0,
+      "remaining_network_count": 0,
+      "remaining_pressure_container_count": 0,
+      "remaining_volume_count": 0
+    },
+    "historical_isolation_oom_restart_scenario_rerun_at_current_images": false,
+    "image_build_revision": "17f8aea3cec741a6739dfd8ceee8717eb4858133",
+    "images": {
+      "backend": {
+        "id": "sha256:d543b34901a1df2e51f5a723369189bb479642ae7acb6c9122aa969bd4c22509"
+      },
+      "web": {
+        "id": "sha256:43e1a5130e4f8017d61cde5cc22c5d08c170b58360c7ecf4a15956c9b51322c7"
+      }
+    },
+    "initial_readiness_ms": 2016.66,
+    "oom_isolated": true,
+    "original_candidate_applicability": {
+      "candidate_revision": "65f4a755c4899373dba14b8128ac25575b130cb6",
+      "identical_git_objects": {
+        "backend": "931d92f38a1151398557aac2a4ce9fc361965ebf",
+        "docker-compose.build.yml": "15b1b8a21d80a46680fdf528635b216383285131",
+        "docker-compose.yml": "9642be7dc79cce2082cb1e2d4c11a4f73449dd26",
+        "docker/backend.Dockerfile": "40c3c1fa1ecc97759e4d36cab42ba27ade37e900",
+        "docker/web.Dockerfile": "fffc09c62c17baa462d00edf4fe54863e77db652",
+        "web": "9a85f4f78933be487ebe99a0feb3a64e2ce2316b"
+      },
+      "image_build_revision": "17f8aea3cec741a6739dfd8ceee8717eb4858133"
+    },
+    "production_qualified": false,
+    "restart_recovered": true,
+    "status": "passed",
+    "versioned_contract_sha256": "a608ae21656a8d50f83919e01a16751720c1199a7f4cd552465770bd3df16aaa"
+  },
+  "input_evidence": [
+    {
+      "artifact": "backend-coverage.json",
+      "sha256": "8ad12f0b7c4202da8d704b1aa711ec6b352746679991fd1cb52bca57c3eff255"
+    },
+    {
+      "artifact": "native-smoke.json",
+      "sha256": "fedec45351fc1c45f0fae06aad91484998011a9e6a688dbfac6430d67ba0db9d"
+    }
+  ],
+  "kind": "historical_results_preserved_without_current_rerun_claim",
+  "schema_version": 1
+}
