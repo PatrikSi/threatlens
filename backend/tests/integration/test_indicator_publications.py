@@ -218,6 +218,80 @@ def test_publication_survives_source_retention_but_withholds_evidence(client, re
     assert db_session.get(IndicatorPublication, uuid.UUID(published["id"])) is not None
 
 
+def test_retained_publication_blocks_archiving_its_historical_handling_label(
+    client, intel_setup, auth_headers, db_session, seed_users, monkeypatch,  # noqa: F811
+):
+    from app.models.audit_log import AuditLogDataAccessLabel
+    from app.models.data_policy import (
+        DataAccessEnvelope,
+        DataAccessEnvelopeLabel,
+        UNRESTRICTED_HANDLING_LABEL_ID,
+    )
+    from app.models.feed import Feed
+    from app.models.item import Item
+    from app.schemas.data_policy import HandlingLabelStatusRequest
+    from app.services.data_access_policy import DataPolicyConflict, set_handling_label_status
+    from tests.integration.test_data_policy_read_coverage import _enable_enforcement
+    from tests.integration.test_indicator_intelligence import _extract
+
+    team, item, *_ = intel_setup
+    label = _enable_enforcement(db_session, seed_users, monkeypatch)
+    feed = db_session.get(Feed, item.feed_id)
+    feed.handling_label_id = label.id
+    item.classification_required_version += 1
+    db_session.flush()
+    _extract(db_session, item)
+    db_session.commit()
+    page = _page(client, intel_setup, auth_headers["admin"])
+    indicator = next(entry for entry in page["items"] if entry["value"] == "evil.net")
+    approved = client.patch(
+        f"/items/{item.id}/indicators/{indicator['id']}/assessment?team_id={team['id']}",
+        json=_command(page), headers=auth_headers["admin"],
+    )
+    assert approved.status_code == 200, approved.text
+    path, _, publication = publish(
+        client, (team, item), {"analyst": auth_headers["admin"]},
+    )
+    withdrawn = client.post(
+        f"{path}/{publication['id']}/withdraw", json={"expected_revision": 1},
+        headers=auth_headers["admin"],
+    )
+    assert withdrawn.status_code == 200, withdrawn.text
+
+    # Source retention and shorter-lived derived/audit history can leave only
+    # the publication's immutable historical access boundary behind.
+    feed.handling_label_id = UNRESTRICTED_HANDLING_LABEL_ID
+    db_session.execute(delete(Item).where(Item.id == item.id))
+    envelope_ids = select(DataAccessEnvelopeLabel.envelope_id).where(
+        DataAccessEnvelopeLabel.label_id == label.id,
+    )
+    db_session.execute(delete(DataAccessEnvelope).where(DataAccessEnvelope.id.in_(envelope_ids)))
+    audit_ids = select(AuditLogDataAccessLabel.audit_log_id).where(
+        AuditLogDataAccessLabel.label_id == label.id,
+    )
+    db_session.execute(delete(AuditLog).where(AuditLog.id.in_(audit_ids)))
+    db_session.commit()
+    assert db_session.get(IndicatorPublication, uuid.UUID(publication["id"])) is not None
+
+    with pytest.raises(DataPolicyConflict, match="retained by derived intelligence"):
+        set_handling_label_status(
+            db_session, label_id=label.id,
+            payload=HandlingLabelStatusRequest(expected_revision=label.revision, active=False),
+            actor_user_id=seed_users["admin"].id,
+        )
+    assert label.is_active is True
+
+    db_session.execute(delete(IndicatorPublication).where(
+        IndicatorPublication.id == uuid.UUID(publication["id"]),
+    ))
+    archived = set_handling_label_status(
+        db_session, label_id=label.id,
+        payload=HandlingLabelStatusRequest(expected_revision=label.revision, active=False),
+        actor_user_id=seed_users["admin"].id,
+    )
+    assert archived.changed is True and archived.label.is_active is False
+
+
 def test_reconciliation_prunes_only_old_withdrawn_history(client, reviewed, auth_headers, db_session):
     from app.services.indicator_publication_refresh import reconcile_publications
 
