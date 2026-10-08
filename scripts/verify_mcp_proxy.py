@@ -96,7 +96,7 @@ def wait_until(check, *, seconds: int = 45) -> None:
         try:
             if check():
                 return
-        except (RuntimeError, HTTPError, URLError, TimeoutError):
+        except (RuntimeError, HTTPError, URLError, TimeoutError, ConnectionResetError):
             pass
         time.sleep(0.3)
     raise RuntimeError(
