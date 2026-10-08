@@ -32,6 +32,7 @@ export function TeamHuntSavedViews({
   const [selected, setSelected] = useState<View | null>(null);
   const [deleting, setDeleting] = useState(false);
   const requestId = useRef<string | null>(null);
+  const pending = useRef(false);
   const query = useQuery({
     queryKey: ["team-hunt-views", teamId],
     enabled: !unavailable,
@@ -68,7 +69,13 @@ export function TeamHuntSavedViews({
       setDeleting(false);
       void client.invalidateQueries({ queryKey: ["team-hunt-views", teamId] });
     },
+    onSettled: () => { pending.current = false; },
   });
+  const submit = (remove: boolean) => {
+    if (pending.current || unavailable || query.isError) return;
+    pending.current = true;
+    mutation.mutate(remove);
+  };
   const lost =
     query.error instanceof ApiError &&
     [401, 403, 404].includes(query.error.status);
@@ -136,7 +143,7 @@ export function TeamHuntSavedViews({
               <button
                 className={TEAM_BUTTON}
                 disabled={!name.trim()}
-                onClick={() => mutation.mutate(false)}
+                onClick={() => submit(false)}
               >
                 {selected ? "Update saved hunt view" : "Save team hunt view"}
               </button>
@@ -157,8 +164,9 @@ export function TeamHuntSavedViews({
         title="Delete saved team hunt view?"
         description="This removes the shared filter preset. Hunts and reviews are retained."
         confirmLabel="Delete view"
+        isConfirming={mutation.isPending}
         onCancel={() => setDeleting(false)}
-        onConfirm={() => mutation.mutate(true)}
+        onConfirm={() => submit(true)}
       />
     </section>
   );
