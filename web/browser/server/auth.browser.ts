@@ -1,4 +1,4 @@
-import { test, expect, control, signIn, openEditor, pollSession } from './fixtures'
+import { test, expect, control, signIn, openEditor, pollSession, fixtureFeedEdit } from './fixtures'
 
 test('real cookies protect session credentials and reject missing or incorrect CSRF', async ({ page, context, identity }) => {
   await signIn(page, identity)
@@ -80,7 +80,7 @@ test('a real second-tab login rotates cookies and retires the first account edit
   const current = await page.request.get('/api/v1/auth/me')
   expect((await current.json()).id).toBe(second.id)
   expect((await context.cookies()).find((cookie) => cookie.name === 'threatlens_session')!.value).not.toBe(before)
-  await page.getByRole('button', { name: 'Edit', exact: true }).click()
+  await fixtureFeedEdit(page).click()
   await expect(page.getByLabel('Name', { exact: true })).not.toHaveValue('Private first-account draft')
   await secondTab.close()
 })
