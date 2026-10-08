@@ -292,11 +292,16 @@ docker compose down -v
 docker compose up -d
 ```
 
-Run migrations:
+Apply migrations with the dedicated migration identity after stopping writers:
 
 ```bash
-docker compose exec api alembic upgrade head
+docker compose stop --timeout 300 api beat worker worker-ai worker-exports worker-maintenance worker-notifications
+docker compose run --rm migrate
 ```
+
+Normal API/worker credentials cannot change the schema. Recreate the matching
+API and workers after migration with `docker compose up -d --wait`; see the
+[database upgrade guide](docs/pages/database-privileges.md).
 
 Stop the stack:
 
