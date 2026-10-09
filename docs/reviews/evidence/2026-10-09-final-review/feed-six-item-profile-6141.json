@@ -1,0 +1,393 @@
+{
+  "application_image_source_revision": "6141a7192e3d6970be9e67230da14b64da1c8894",
+  "attempts": 1,
+  "attribution": {
+    "exclusive_phase_wall_and_cpu_reconcile_to_fetch": true,
+    "first_fetch_duplicate_parser_thread_cpu_ms": 0.751709,
+    "first_fetch_lineage_queries": 132,
+    "first_fetch_lineage_thread_cpu_ms": 42.034912999999996,
+    "first_fetch_persistence_queries": 233,
+    "identical_replay_persistence_queries": 16,
+    "interpretation": "Per-event envelope lineage construction is the dominant measured persistence stage. Duplicate parsing is a small share of first-fetch CPU. This does not establish a cause for the failed capacity comparison.",
+    "production_query_totals_reconcile": true
+  },
+  "body_bytes": 1249,
+  "calling_process_limits": {
+    "address_space_bytes": 1073741824,
+    "affinity_cpus": 1,
+    "cpu_seconds_per_child": 40,
+    "total_deadline_seconds": 180,
+    "work_deadline_seconds": 150
+  },
+  "canonical_aliases_generated": 0,
+  "cleanup": {
+    "container_errors": [],
+    "errors": [],
+    "recorded_owned_anonymous_volume_count": 2,
+    "remaining_owned_anonymous_volume_count": 0,
+    "remaining_owned_container_count": 0,
+    "remaining_owned_rows": 0,
+    "remaining_redis_keys": 0
+  },
+  "complete_profile_test": {
+    "errors": 0,
+    "exit_code": 0,
+    "failures": 0,
+    "skipped": 0,
+    "tests": 1,
+    "timed_out": false
+  },
+  "evidence_hashes": {
+    "helper_sha256": {
+      "profile_recording.py": "e42d6270a1d6b265533ab4d0557e963c253932caa452d874112bc5f7b9ce0343",
+      "run_profile.py": "593c8fae9e9cba7701074825a9238ec737d674355915f12e8b2ce47dbb916ebc",
+      "test_feed_six_items.py": "dd15d68a1998a4951c06abf95daf87987a3c6c12b9c9f0e8207d626d9b9499b0",
+      "test_profile_recording.py": "cac8d85bbb80bd4501061f1cfa1d63d9fd6ec48c45611ae151601c231999d0f2"
+    },
+    "independent_phase_analysis_sha256": "9e3a9ced7d7220c8c52d6bda45d875f2b5d794553d5f24da2194c5509b982b16",
+    "independent_source_review_sha256": "2df7c41a696228eb6d90ba2d5d0aaf7e637575ecf4fce6c15ee7c26fc9a1273e",
+    "measurements_sha256": "2e7bc25ad7c18ccbb66b60f420cd4b29e87c650ddba307978d16cfc471255ccc",
+    "profile_xml_sha256": "24050534a23f413226f6ae03df40e5337596bbbf077ccc61bb1860fc487db973",
+    "recording_controls_xml_sha256": "31a06db7d0b3c8962a5757a7c9893824bfd7d801ddaec03eca862b3bd958b175",
+    "result_sha256": "86e13f468ea6061853df8241d05ec907b6caa0ce8456ae570b599c3fb3215ac2"
+  },
+  "executed_repository_revision": "fba2f00d4dad1f3adf4a0ad28c706101fc16fa86",
+  "fixture_actual_limits": {
+    "postgres": {
+      "Memory": 536870912,
+      "MemorySwap": 536870912,
+      "NanoCpus": 500000000,
+      "NetworkMode": "bridge",
+      "PidsLimit": 128
+    },
+    "redis": {
+      "Memory": 134217728,
+      "MemorySwap": 134217728,
+      "NanoCpus": 500000000,
+      "NetworkMode": "bridge",
+      "PidsLimit": 128
+    }
+  },
+  "fixture_images": {
+    "postgres": "sha256:b6ccf02e9b47eac0d67b5eaa0ef56fd59163bffa5506f64e96ceb5053130ec86",
+    "redis": "sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99"
+  },
+  "invariants_checked": [
+    "Real PostgreSQL ownership row locks and Redis feed/domain leases remain active.",
+    "Each of six events has one normalized source and aggregate label with the expected item/feed/digest/handling label and policy revision.",
+    "Independent connections see all six committed items, events, envelopes, normalized sources and aggregate labels before mocked publication callbacks.",
+    "Initial event order is preserved; identical replay adds no items or events and performs no policy-share statements.",
+    "Unexpected broker sends are rejected; HTTP responses and postcommit publication are fixed local test replacements."
+  ],
+  "limits": [
+    "One six-item fresh fetch and one identical replay are descriptive diagnostics, not a tail-latency, capacity or regression qualification.",
+    "Inclusive event, provenance and lineage times are nested and must not be added. Exclusive phase totals subtract directly nested recorded children. Query counts are assigned to the innermost phase.",
+    "SQL execute wall includes capture overhead, client/server/wait time and excludes result fetch/ORM hydration; it is not database CPU.",
+    "Calling-thread CPU excludes PostgreSQL and Redis renewal threads. Initial claim commit is included in fetch-exclusive; ownership_commit records the final commit only.",
+    "Synthetic committed-visibility query costs are excluded from production totals. Fetch timing still includes MockTransport and instrumentation and is not real HTTP or broker latency.",
+    "Earlier failed capacity results remain retained; this successful local profile does not clear their release gate."
+  ],
+  "measured_session_autoflush": false,
+  "offered_items": 6,
+  "passes": [
+    {
+      "instrumented_fetch_thread_cpu_excluding_synthetic_callbacks_ms": 106.132675,
+      "instrumented_fetch_wall_excluding_synthetic_callbacks_ms": 163.487029,
+      "leaf_parser_thread_cpu_share_percent": 2.6802038109375834,
+      "new_events": 6,
+      "new_items": 6,
+      "parser_calls": [
+        {
+          "index": 0,
+          "thread_cpu_ms": 2.092863,
+          "wall_ms": 2.613436
+        },
+        {
+          "index": 1,
+          "thread_cpu_ms": 0.751709,
+          "wall_ms": 0.751097
+        }
+      ],
+      "pass_index": 0,
+      "phase_totals": {
+        "article_callback": {
+          "count": 1,
+          "exclusive_thread_cpu_ms": 4.807045,
+          "exclusive_wall_ms": 7.341642,
+          "query_count": 5,
+          "query_execute_wall_ms": 2.981023,
+          "thread_cpu_ms": 4.807045,
+          "wall_ms": 7.341642
+        },
+        "article_reference": {
+          "count": 6,
+          "exclusive_thread_cpu_ms": 2.4534019999999996,
+          "exclusive_wall_ms": 3.920885,
+          "query_count": 6,
+          "query_execute_wall_ms": 2.218527,
+          "thread_cpu_ms": 2.4534019999999996,
+          "wall_ms": 3.920885
+        },
+        "document_parse": {
+          "count": 2,
+          "exclusive_thread_cpu_ms": 2.844572,
+          "exclusive_wall_ms": 3.364533,
+          "query_count": 0,
+          "query_execute_wall_ms": 0.0,
+          "thread_cpu_ms": 2.844572,
+          "wall_ms": 3.364533
+        },
+        "event_provenance": {
+          "count": 6,
+          "exclusive_thread_cpu_ms": 9.93448,
+          "exclusive_wall_ms": 15.492578000000002,
+          "query_count": 24,
+          "query_execute_wall_ms": 8.11746,
+          "thread_cpu_ms": 51.969393,
+          "wall_ms": 79.038973
+        },
+        "event_snapshot": {
+          "count": 6,
+          "exclusive_thread_cpu_ms": 1.085183,
+          "exclusive_wall_ms": 1.086095,
+          "query_count": 0,
+          "query_execute_wall_ms": 0.0,
+          "thread_cpu_ms": 1.085183,
+          "wall_ms": 1.086095
+        },
+        "feed_ownership": {
+          "count": 1,
+          "exclusive_thread_cpu_ms": 0.582261,
+          "exclusive_wall_ms": 0.72584,
+          "query_count": 1,
+          "query_execute_wall_ms": 0.265598,
+          "thread_cpu_ms": 0.582261,
+          "wall_ms": 0.72584
+        },
+        "fetch": {
+          "count": 1,
+          "exclusive_thread_cpu_ms": 10.35914,
+          "exclusive_wall_ms": 15.424109,
+          "query_count": 8,
+          "query_execute_wall_ms": 2.872709,
+          "thread_cpu_ms": 113.422707,
+          "wall_ms": 175.612972
+        },
+        "item_event": {
+          "count": 6,
+          "exclusive_thread_cpu_ms": 8.614778,
+          "exclusive_wall_ms": 13.475696,
+          "query_count": 24,
+          "query_execute_wall_ms": 7.402297000000002,
+          "thread_cpu_ms": 82.23797700000001,
+          "wall_ms": 124.86121999999999
+        },
+        "item_upsert": {
+          "count": 6,
+          "exclusive_thread_cpu_ms": 8.684506,
+          "exclusive_wall_ms": 15.385179,
+          "query_count": 25,
+          "query_execute_wall_ms": 9.197868,
+          "thread_cpu_ms": 8.684506,
+          "wall_ms": 15.385179
+        },
+        "lineage_write": {
+          "count": 6,
+          "exclusive_thread_cpu_ms": 42.034912999999996,
+          "exclusive_wall_ms": 63.546395,
+          "query_count": 132,
+          "query_execute_wall_ms": 35.27249300000001,
+          "thread_cpu_ms": 42.034912999999996,
+          "wall_ms": 63.546395
+        },
+        "metadata_parse": {
+          "count": 1,
+          "exclusive_thread_cpu_ms": 0.14941,
+          "exclusive_wall_ms": 0.148848,
+          "query_count": 0,
+          "query_execute_wall_ms": 0.0,
+          "thread_cpu_ms": 0.901119,
+          "wall_ms": 0.899945
+        },
+        "ownership_commit": {
+          "count": 1,
+          "exclusive_thread_cpu_ms": 0.697528,
+          "exclusive_wall_ms": 2.281274,
+          "query_count": 1,
+          "query_execute_wall_ms": 0.356177,
+          "thread_cpu_ms": 1.420071,
+          "wall_ms": 3.333334
+        },
+        "redis_lease": {
+          "count": 10,
+          "exclusive_thread_cpu_ms": 0.533629,
+          "exclusive_wall_ms": 1.251122,
+          "query_count": 0,
+          "query_execute_wall_ms": 0.0,
+          "thread_cpu_ms": 0.533629,
+          "wall_ms": 1.251122
+        },
+        "routing_callback": {
+          "count": 1,
+          "exclusive_thread_cpu_ms": 2.482987,
+          "exclusive_wall_ms": 4.784301,
+          "query_count": 5,
+          "query_execute_wall_ms": 2.780189,
+          "thread_cpu_ms": 2.482987,
+          "wall_ms": 4.784301
+        },
+        "routing_metadata": {
+          "count": 6,
+          "exclusive_thread_cpu_ms": 18.115221,
+          "exclusive_wall_ms": 27.339571,
+          "query_count": 12,
+          "query_execute_wall_ms": 12.897046000000001,
+          "thread_cpu_ms": 18.115221,
+          "wall_ms": 27.339571
+        },
+        "rss_poll": {
+          "count": 1,
+          "exclusive_thread_cpu_ms": 0.043652,
+          "exclusive_wall_ms": 0.044904,
+          "query_count": 0,
+          "query_execute_wall_ms": 0.0,
+          "thread_cpu_ms": 2.136515,
+          "wall_ms": 2.65834
+        }
+      },
+      "policy_shared_statement_count": 12,
+      "production_query_count": 233,
+      "synthetic_committed_visibility_query_count": 10
+    },
+    {
+      "instrumented_fetch_thread_cpu_excluding_synthetic_callbacks_ms": 10.701951000000001,
+      "instrumented_fetch_wall_excluding_synthetic_callbacks_ms": 18.186086000000003,
+      "leaf_parser_thread_cpu_share_percent": 24.523771413268477,
+      "new_events": 0,
+      "new_items": 0,
+      "parser_calls": [
+        {
+          "index": 0,
+          "thread_cpu_ms": 1.004304,
+          "wall_ms": 1.0037
+        },
+        {
+          "index": 1,
+          "thread_cpu_ms": 1.620218,
+          "wall_ms": 1.619554
+        }
+      ],
+      "pass_index": 1,
+      "phase_totals": {
+        "article_callback": {
+          "count": 1,
+          "exclusive_thread_cpu_ms": 2.654428,
+          "exclusive_wall_ms": 5.033348,
+          "query_count": 5,
+          "query_execute_wall_ms": 2.799712,
+          "thread_cpu_ms": 2.654428,
+          "wall_ms": 5.033348
+        },
+        "document_parse": {
+          "count": 2,
+          "exclusive_thread_cpu_ms": 2.624522,
+          "exclusive_wall_ms": 2.623254,
+          "query_count": 0,
+          "query_execute_wall_ms": 0.0,
+          "thread_cpu_ms": 2.624522,
+          "wall_ms": 2.623254
+        },
+        "feed_ownership": {
+          "count": 1,
+          "exclusive_thread_cpu_ms": 0.310433,
+          "exclusive_wall_ms": 0.499656,
+          "query_count": 1,
+          "query_execute_wall_ms": 0.291808,
+          "thread_cpu_ms": 0.310433,
+          "wall_ms": 0.499656
+        },
+        "fetch": {
+          "count": 1,
+          "exclusive_thread_cpu_ms": 4.385827,
+          "exclusive_wall_ms": 8.006902,
+          "query_count": 8,
+          "query_execute_wall_ms": 2.23218,
+          "thread_cpu_ms": 15.422484,
+          "wall_ms": 27.229085
+        },
+        "item_upsert": {
+          "count": 6,
+          "exclusive_thread_cpu_ms": 2.301696,
+          "exclusive_wall_ms": 3.6111530000000003,
+          "query_count": 6,
+          "query_execute_wall_ms": 2.082621,
+          "thread_cpu_ms": 2.301696,
+          "wall_ms": 3.6111530000000003
+        },
+        "metadata_parse": {
+          "count": 1,
+          "exclusive_thread_cpu_ms": 0.097443,
+          "exclusive_wall_ms": 0.098273,
+          "query_count": 0,
+          "query_execute_wall_ms": 0.0,
+          "thread_cpu_ms": 1.717661,
+          "wall_ms": 1.717827
+        },
+        "ownership_commit": {
+          "count": 1,
+          "exclusive_thread_cpu_ms": 0.446616,
+          "exclusive_wall_ms": 1.992933,
+          "query_count": 1,
+          "query_execute_wall_ms": 0.33609,
+          "thread_cpu_ms": 0.849093,
+          "wall_ms": 2.6904
+        },
+        "redis_lease": {
+          "count": 10,
+          "exclusive_thread_cpu_ms": 0.47840699999999997,
+          "exclusive_wall_ms": 1.296036,
+          "query_count": 0,
+          "query_execute_wall_ms": 0.0,
+          "thread_cpu_ms": 0.47840699999999997,
+          "wall_ms": 1.296036
+        },
+        "routing_callback": {
+          "count": 1,
+          "exclusive_thread_cpu_ms": 2.066105,
+          "exclusive_wall_ms": 4.009651,
+          "query_count": 5,
+          "query_execute_wall_ms": 2.48181,
+          "thread_cpu_ms": 2.066105,
+          "wall_ms": 4.009651
+        },
+        "rss_poll": {
+          "count": 1,
+          "exclusive_thread_cpu_ms": 0.057007,
+          "exclusive_wall_ms": 0.057879,
+          "query_count": 0,
+          "query_execute_wall_ms": 0.0,
+          "thread_cpu_ms": 1.061311,
+          "wall_ms": 1.061579
+        }
+      },
+      "policy_shared_statement_count": 0,
+      "production_query_count": 16,
+      "synthetic_committed_visibility_query_count": 10
+    }
+  ],
+  "recording_controls": {
+    "errors": 0,
+    "exit_code": 0,
+    "failures": 0,
+    "skipped": 0,
+    "tests": 5,
+    "timed_out": false
+  },
+  "schema": "feed-six-item-profile-6141-v1",
+  "source_difference_scope": [
+    "backend/tests/unit/test_beat_app.py"
+  ],
+  "started_at_utc": "2026-10-09T09:21:23.506574+00:00",
+  "status": "passed_descriptive_diagnostic_only",
+  "total_elapsed_seconds": 14.577
+}

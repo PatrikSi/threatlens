@@ -4,20 +4,21 @@ ThreatLens **2.1.0** is prepared, and the rebuilt synthetic local instance is
 running at **http://127.0.0.1:3001**. Current application/image candidate
 `6141a7192e3d6970be9e67230da14b64da1c8894` contains the Beat producer dependency
 correction and the shared-start capacity harness. Its actual native images have
-been rebuilt and basic readiness verified; fresh browser, permission and backend HTTP/helper qualification passes.
-Selected native image scan qualification is being completed at this checkpoint. Earlier
+been rebuilt and readiness verified; fresh browser, permission, backend HTTP/helper
+and selected image scan qualification passes. Earlier
 native evidence applies to `fec81ca` and its recorded equivalent image inputs.
 Images retain their actual build revision. All corrections were committed as
 `Patrik <patrik@local>`.
 
-**Decision at this checkpoint: held for backend validation and comparative
-capacity. Fresh quality at `6141a719` passes fourteen jobs, including the full
-ARM64 smoke/scan job, but fails one raw queue-configuration assertion in the
-backend suite. The uninstrumented 600-second pair fails two p95 comparisons,
+**Decision at this checkpoint: held for comparative capacity. Fresh quality at
+`508c7413` passes all fifteen jobs, including the full backend suite and ARM64
+smoke/scan job. The earlier raw queue-configuration assertion failure is retained
+and its test isolation correction is fully qualified. The uninstrumented
+600-second pair at application revision `6141a719` fails two p95 comparisons,
 at +21.064% and +22.583% against the unchanged 20% threshold.** Both reference
 workloads pass absolute budgets and independent cleanup. A test-only queue-normalization isolation correction passes its deterministic
-regression and all 67 focused Beat controls; fresh full backend qualification is
-still required. Capacity causes remain unassigned. Reviewed
+regression and all 67 focused Beat controls, followed by 4,733 passing backend
+cases in the fresh full run. Capacity causes remain unassigned. Reviewed
 CodeQL dispositions cleared its failure, leaving a neutral check with a
 baseline-configuration warning.
 Version 2.1.0 is already aligned across the version file, frontend metadata,
@@ -93,8 +94,18 @@ network-free backend image probe verifies the selected Beat loader imports zero
 of fifteen worker implementations, retains all 31 schedule entries and leaves
 the worker unfinalized. It also verifies TLS 1.2, certificate verification and
 hostname checking on Python 3.12.13/OpenSSL 3.0.20, without a handshake or task
-publication. Its container is removed. Selected native image scans are still
-being completed; these behavior checks do not clear comparative capacity.
+publication. Its container is removed.
+[Current native image scans](evidence/2026-10-09-final-review/native-image-scans-6141.json)
+qualify both exact images with zero selected HIGH/CRITICAL vulnerabilities or
+secrets, using the same unexpired database in network-free scan containers.
+Actual limits are 0.5 CPU, 768 MiB, no swap and 128 PIDs; both containers are
+removed without errors or remnants. Three preceding attempts remain failed:
+two storage preflights started no scanner, and one evidence guard compared
+Trivy's configuration digest with Docker's OCI manifest digest. The corrected
+guard verifies the manifest-to-configuration content hashes. Reusing the owned
+backend archive through a hardlink avoids duplicate storage; recorded archive
+hashes agree before and after scanning. The successful fourth attempt does not
+relabel the earlier outcomes. These checks do not clear comparative capacity.
 
 The following completed native qualification is retained for the earlier
 `fec81ca` image inputs. It does not qualify the changed Beat producer at `6141a719`.
@@ -139,7 +150,21 @@ selectors, assertions, deadlines and generic error listeners remain unchanged.
 
 ## Hosted quality and preserved failures
 
-Fresh [quality run 37903060980](https://github.com/PatrikSi/threatlens/actions/runs/37903060980)
+Fresh [quality run 37907945272](https://github.com/PatrikSi/threatlens/actions/runs/37907945272)
+at `508c7413` passes **all fifteen jobs**. Backend reports **4,733 passed / five
+skipped** in 1172.08 seconds, overall coverage **87.06%**, reporting coverage
+**87.21%**, and all **58 critical module floors**. Capacity smoke, generated
+OpenAPI, preview-policy agreement, runtime lock and Python audit also pass.
+Frontend passes **1,374 tests / 164 files** and its audit; browsers pass **210
+cases**, with six deliberate split skips and zero retries. Both platform image
+build, scan and stack smoke jobs pass. The
+[fresh full quality record](evidence/2026-10-09-final-review/hosted-quality-508.json)
+keeps immutable checkout identity, all fifteen job outcomes and log hashes.
+Only a Docker-excluded unit test and documentation changed from `6141a719`;
+the native images retain their actual `6141a719` labels. This full validation
+clears the earlier backend test failure while comparative capacity remains held.
+
+Earlier [quality run 37903060980](https://github.com/PatrikSi/threatlens/actions/runs/37903060980)
 at `6141a719` completes with **fourteen passed jobs and one backend failure**.
 All fifteen checkouts match the immutable synthetic merge tree, equal to the
 candidate tree. Backend pytest reports **4,732 passed / one failed / five skipped**
@@ -154,8 +179,8 @@ unchanged one-CPU, 1 GiB and 40 CPU-second bounds. Both independent source
 reviews are clear.
 [Test isolation evidence](evidence/2026-10-09-final-review/beat-queue-isolation-controls.json)
 retains the original failure and all before/after outcomes. The producer,
-watchdog and Docker inputs are unchanged; fresh full hosted validation remains
-required. This observation does not establish a broken production routing contract. Overall coverage reaches **87.07%** against the
+watchdog and Docker inputs are unchanged; the fresh full hosted run above passes.
+This observation does not establish a broken production routing contract. Overall coverage reaches **87.07%** against the
 79% floor. The 58 critical module rows are captured, but their strict coverage
 gate and subsequent capacity smoke, OpenAPI, lockfile, preview-policy and Python
 audit steps are **skipped** after the test failure.
@@ -356,8 +381,23 @@ limits and the unchanged 20% threshold are verified. The
 [current result record](evidence/2026-10-09-final-review/hosted-capacity-6141.json)
 retains the actual failed comparison and every metric. Here, `conclusive` means
 required samples exist; it does not establish statistical confidence or cause.
-Bounded task/query/phase diagnosis is planned; no causal performance correction
-or threshold change is claimed.
+A single bounded PostgreSQL/Redis six-item feed profile now passes, followed by
+an identical-body replay. The
+[phase record](evidence/2026-10-09-final-review/feed-six-item-profile-6141.json)
+retains five recorder controls, one actual profile, source hashes and cleanup.
+First ingestion persists six items, events and envelopes with **233 database
+executions**; replay adds none and uses **16**. Ten synthetic callback visibility
+queries are excluded from persistence counts. Callback-excluded descriptive
+wall/thread CPU time is **163.487/106.133 ms**; the nested lineage stage accounts
+for **132 queries and 63.546/42.035 ms**. Nested timings overlap and must not be
+added. The two parser calls total only **3.365/2.845 ms**.
+Twelve locked envelope lookups confirm a repeated known-absent lookup for every
+new envelope. A narrow correction is being developed for that redundancy and
+reads of known-empty, freshly inserted envelopes, while retaining policy/feed
+locks, unique-conflict reloads, persisted lineage validation and atomic commits.
+The profile does not establish either hosted regression's cause. Both owned
+fixture containers and their two anonymous volumes are removed, with zero row,
+Redis-key, cleanup error or remnant counts. No threshold change is claimed.
 
 The first private evidence predicate expected a nonexistent raw process-exit
 field and list-shaped budget violations. A retained-artifact-only projection
@@ -567,10 +607,10 @@ outputs and named human review of the twelve prepared cases. Provider-contract
 and configuration tests do not complete that approval; ordinary ingestion and
 classification do not require model promotion.
 
-The current unresolved gates are the full backend validation failure and the
-uninstrumented comparative capacity failure. Fresh `6141a719` ARM64 qualification
-passes; its earlier failed outcome remains recorded. Current native behavior and
-scan checks are still being completed. The earlier native qualification and
+The current unresolved gate is the uninstrumented comparative capacity failure.
+Fresh `508c7413` full backend validation and both platform jobs pass; the earlier
+failed outcomes remain recorded. Current `6141a719` native behavior and selected
+image scan checks pass. The earlier native qualification and
 `a6c07f7`/`b06b364` hosted results apply to their recorded runtime/image inputs;
 they do not replace the fresh candidate's failing or pending checks.
 The CodeQL neutral baseline-configuration warning and chosen-model
