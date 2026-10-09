@@ -54,6 +54,29 @@ def test_incompatible_hardware_workload_or_target_is_not_compared(field, value):
     assert result["metrics"] == []
 
 
+def test_shared_epoch_arrival_contract_requires_a_matching_baseline():
+    from tests.capacity.workload_support import PROFILES
+
+    previous, current = run(), run()
+    workload = deepcopy(PROFILES["sustained"])
+    assert workload["arrival_contract"] == "five-lanes-shared-monotonic-epoch-v2"
+    assert workload["start_gate_participants"] == 5
+    assert workload["start_gate_timeout_seconds"] == 30
+    current["comparison_identity"]["workload"].update(workload)
+    previous["comparison_identity"]["workload"].update({
+        key: value for key, value in workload.items()
+        if key not in {"arrival_contract", "start_gate_participants", "start_gate_timeout_seconds"}
+    })
+    for record in [previous, current]:
+        record["comparison_fingerprint"] = fingerprint(record["comparison_identity"])
+    result = compare_results(previous, current)
+    assert not result["compatible"]
+    assert result["metrics"] == []
+    matched = deepcopy(current)
+    matched["git_revision"] = "release-b"
+    assert compare_results(current, matched)["compatible"]
+
+
 @pytest.mark.parametrize(
     "mutation", ["schema", "fingerprint", "failed", "budget", "sampler", "dirty", "cleanup"]
 )
