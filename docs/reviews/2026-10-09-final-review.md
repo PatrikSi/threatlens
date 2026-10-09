@@ -131,6 +131,20 @@ records exact candidate/merge-tree applicability, per-job log hashes and counts.
 Successful analysis workflow jobs remain distinct from the aggregate CodeQL
 pull-request check.
 
+The frozen diagnostic-tooling head `b06b364` also completes all fifteen hosted
+quality jobs in [run 37885451758](https://github.com/PatrikSi/threatlens/actions/runs/37885451758).
+Backend again reports **4,674 passes / five skips**, with **87.06%** overall and
+**87.21%** reporting coverage and all 58 critical floors enforced. Frontend,
+all three browser engines, both architecture startup/image checks, migration,
+MCP, OpenSearch and recovery checks pass. Recovery unit discovery records
+121 passes / four opt-in skips; operations discovery records 113 passes / one
+opt-in skip. The separate disposable PostgreSQL/source-loss drills exercise
+all five omitted cases and pass without skips. This is disposable recovery
+simulation, not production fault-domain qualification. Its
+[exact-source evidence](evidence/2026-10-09-final-review/hosted-quality-b06.json)
+retains log hashes, checkout identity, selected vulnerability-scan scope and the
+separate neutral CodeQL aggregate warning.
+
 ## Security finding review
 
 CodeQL completed with **25 Python and one JavaScript high alerts**. The
@@ -227,6 +241,30 @@ of an operator's intended hardware. Earlier failures remain recorded. The
 [final planned pair](evidence/2026-10-09-final-review/hosted-capacity-a6.json)
 preserve exact sources, unchanged budgets, offered/completed work and flagged
 measurements.
+
+The single opt-in diagnostic pair
+[run 37885492555](https://github.com/PatrikSi/threatlens/actions/runs/37885492555)
+completed both unchanged 600-second workloads and their absolute budgets.
+Each capture contains all 300 governance operations and five unique lanes,
+zero query-execution/capture errors or drops, and verified owned-resource
+cleanup. The unchanged comparator still fails: `export:succeeded` p95 rises
+233.431 to 481.511 ms (+106.276%), and alert-evaluation task p95 rises 29.261
+to 44.890 ms (+53.412%). Overall export p95 falls 516.351 to 481.511 ms;
+baseline had nine slow policy-conflict outcomes, while candidate had none,
+so success-only samples cover different outcome populations. Governance p95
+falls 109.704 to 53.800 ms and sampled lock-query-age peak changes +4.847%.
+These observations do not clear the original failed pair. The
+[diagnostic evidence](evidence/2026-10-09-final-review/hosted-capacity-diagnostic-b06.json)
+preserves its failure and the frozen observer identity.
+
+The trace exposes a measurement defect: each paced lane starts an independent
+monotonic epoch on executor entry. Baseline lane entry spread is 2.890 ms;
+candidate spread is 304.392 ms, despite equal nominal workload fingerprints.
+Same-index governance starts about 500.660 versus 804.061 ms after export,
+changing actual overlap. A bounded five-lane readiness barrier with a shared
+epoch is being corrected under a new arrival contract. This requires a fresh,
+matched harness baseline; the prior failures remain recorded. The budget,
+600-second duration, nominal offsets and 20% threshold remain unchanged.
 
 ## Feature completion and release boundary
 
