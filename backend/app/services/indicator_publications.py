@@ -160,7 +160,13 @@ def list_publications(db: Session, *, actor: AssessmentRequest, team_id: uuid.UU
     query = select(IndicatorPublication).where(IndicatorPublication.team_id == team_id, publication_access(actor))
     if cursor:
         try:
-            value = json.loads(base64.urlsafe_b64decode(cursor.encode() + b"=" * (-len(cursor) % 4)))
+            value = json.loads(base64.b64decode(
+                cursor.encode() + b"=" * (-len(cursor) % 4), altchars=b"-_", validate=True,
+            ))
+            if not isinstance(value, dict) or not all(
+                isinstance(value.get(field), str) for field in ("team", "at", "id")
+            ):
+                raise ValueError("Invalid cursor fields")
             if value["team"] != str(team_id):
                 raise ValueError("Wrong team")
             at, identifier = datetime.fromisoformat(value["at"]), uuid.UUID(value["id"])
