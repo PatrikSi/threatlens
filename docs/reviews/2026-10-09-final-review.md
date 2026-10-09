@@ -184,6 +184,29 @@ is query age while waiting, not actual lock-wait duration. Neither finding is
 dismissed as noise; a bounded diagnostic capture is being prepared without
 changing workloads, authorization fences, budgets or comparison thresholds.
 
+The opt-in observer lives outside the backend/web build contexts and is supplied
+identically to both untouched frozen references. Twenty isolated observer
+controls and 23 wrapper/cleanup controls pass. The separately journaled
+[ten-second local integration probe](evidence/2026-10-09-final-review/diagnostic-local-validation.json)
+passes with all five governance operations captured, zero errors/drops and
+clean owned-resource teardown. Its recorded hooks total approximately 151 ms
+over about thirteen seconds of sampling. This validates injection and capture;
+it does not clear the sustained capacity gate. The observer records its own
+hash/overhead and bounded operation, query-category, waiter/blocker-alias and
+host counters. Original timers and result artifacts remain authoritative;
+observed transaction-end requests are not exact lock-release times.
+
+Diagnostic tooling is committed as `2993227`; its
+[source-object proof](evidence/2026-10-09-final-review/diagnostic-source-applicability.json)
+confirms unchanged application/image inputs. A clean Recovery-job environment
+initially failed seven new plugin controls because it installed only cryptography.
+The job now derives the exact declared pytest/SQLAlchemy pins and uses runtime
+constraints for their dependency closure. All **114 operations tests** and
+`pip check` pass in that fresh, twelve-package environment, without installing
+the full backend development stack or skipping controls. The
+[before/after proof](evidence/2026-10-09-final-review/diagnostic-clean-dependencies.json)
+retains both outcomes and the existing job deadline.
+
 Each pair has matching fingerprints internally, but the two hosted pairs used
 different CPU models. Cross-run absolute improvements cannot establish the
 effect of a fix. Both are GitHub-hosted reference comparisons, not qualification

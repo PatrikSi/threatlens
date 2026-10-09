@@ -1,0 +1,96 @@
+{
+  "after_exit_code": 0,
+  "before_exit_code": 1,
+  "binary_wheels_only": true,
+  "direct_pins": [
+    "cryptography==50.0.0",
+    "SQLAlchemy==2.0.42",
+    "pytest==8.4.1"
+  ],
+  "existing_recovery_job_timeout_minutes": 15,
+  "fresh_python_version": "Python 3.12.3",
+  "installed_packages": [
+    {
+      "name": "cffi",
+      "version": "2.1.0"
+    },
+    {
+      "name": "cryptography",
+      "version": "50.0.0"
+    },
+    {
+      "name": "greenlet",
+      "version": "3.5.3"
+    },
+    {
+      "name": "iniconfig",
+      "version": "2.3.1"
+    },
+    {
+      "name": "packaging",
+      "version": "26.2"
+    },
+    {
+      "name": "pip",
+      "version": "24.0"
+    },
+    {
+      "name": "pluggy",
+      "version": "1.6.0"
+    },
+    {
+      "name": "pycparser",
+      "version": "3.0"
+    },
+    {
+      "name": "Pygments",
+      "version": "2.21.0"
+    },
+    {
+      "name": "pytest",
+      "version": "8.4.1"
+    },
+    {
+      "name": "SQLAlchemy",
+      "version": "2.0.42"
+    },
+    {
+      "name": "typing_extensions",
+      "version": "4.16.0"
+    }
+  ],
+  "installer_timeout_seconds": 120,
+  "kind": "clean_recovery_job_dependency_regression",
+  "log_sha256": {
+    "operations-clean-after.log": "a956061728841e945879822556d869b2fdad4a44bd668b1cec40e86fbd283bf5",
+    "operations-clean-before.log": "887d86ee706d7a560aae2f9db525a6a8493043eddc61d3c09e0135a14e5f2703",
+    "operations-clean-new-install.log": "9393f8a159a971162b67037751161ca989e361e535e089b5c7a2fe1d2365689a",
+    "operations-clean-old-install.log": "64485be8de263b8c9618a87acda5518a78cc34539e75b2aa6e0f945fea0f1c5d",
+    "operations-clean-pipcheck.log": "9261363b733079a641c2e4cc9bc46ffa1d8336945a87f807b6cf68847dbc9b09"
+  },
+  "missing_before": {
+    "pytest": true,
+    "sqlalchemy": true
+  },
+  "no_database_docker_build_or_capacity_workload_run": true,
+  "old_install_exit_code": 0,
+  "pip_check_exit_code": 0,
+  "revised_install_exit_code": 0,
+  "runtime_constraints_applied": true,
+  "schema_version": 1,
+  "source_sha256": "6b4b5e0d5d50f994666ac81401bf3a79bf864bf751ead20d3ed3be37a80d9602",
+  "test_summaries": {
+    "after": {
+      "duration_seconds": 0.749,
+      "missing_pytest_errors": 0,
+      "missing_sqlalchemy_errors": 0,
+      "tests_run": 114
+    },
+    "before": {
+      "duration_seconds": 0.584,
+      "missing_pytest_errors": 7,
+      "missing_sqlalchemy_errors": 0,
+      "tests_run": 114
+    }
+  }
+}
