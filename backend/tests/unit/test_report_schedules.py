@@ -65,6 +65,50 @@ def test_monthly_next_run_advances_to_next_month_after_due_time():
     assert result == datetime(2026, 2, 15, 8, 0, tzinfo=timezone.utc)
 
 
+@pytest.mark.parametrize("cadence", ["weekly", "monthly"])
+def test_next_run_during_repeated_hour_never_returns_a_past_instant(cadence):
+    schedule = _schedule(
+        cadence=cadence, day_of_week=6, day_of_month=25, hour=2, minute=30,
+    )
+    # This is the second 02:15 on the fall-back day. The schedule's first
+    # 02:30 already happened; wall-clock comparison would return it again.
+    after = datetime(2026, 10, 25, 1, 15, tzinfo=timezone.utc)
+    result = next_schedule_run(schedule, after=after)
+    expected = (
+        datetime(2026, 11, 1, 1, 30, tzinfo=timezone.utc)
+        if cadence == "weekly"
+        else datetime(2026, 11, 25, 1, 30, tzinfo=timezone.utc)
+    )
+    assert result == expected
+    assert result > after
+
+
+@pytest.mark.parametrize("cadence", ["weekly", "monthly"])
+def test_next_run_during_dst_gap_keeps_the_upcoming_normalized_instant(cadence):
+    schedule = _schedule(
+        cadence=cadence, day_of_week=6, day_of_month=29, hour=2, minute=30,
+    )
+    # Nonexistent 02:30 rolls forward to 03:30 local, or 01:30 UTC. At
+    # 03:00 local that occurrence is still ahead of us.
+    after = datetime(2026, 3, 29, 1, 0, tzinfo=timezone.utc)
+    result = next_schedule_run(schedule, after=after)
+    assert result == datetime(2026, 3, 29, 1, 30, tzinfo=timezone.utc)
+    assert result > after
+
+
+@pytest.mark.parametrize("cadence", ["weekly", "monthly"])
+def test_repeated_hour_is_scheduled_once_at_its_first_occurrence(cadence):
+    schedule = _schedule(
+        cadence=cadence, day_of_week=6, day_of_month=25, hour=2, minute=30,
+    )
+    first = next_schedule_run(
+        schedule, after=datetime(2026, 10, 25, 0, 15, tzinfo=timezone.utc),
+    )
+    assert first == datetime(2026, 10, 25, 0, 30, tzinfo=timezone.utc)
+    following = next_schedule_run(schedule, after=first)
+    assert following.date() > first.date()
+
+
 def test_previous_complete_week_uses_local_calendar_boundaries():
     schedule = _schedule()
 
