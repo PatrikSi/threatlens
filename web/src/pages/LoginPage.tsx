@@ -119,7 +119,7 @@ export function LoginPage() {
       setPassword('')
       clearPendingOidcReturnDestination()
       markAuthenticated()
-      navigate(resolvePostLoginDestination(location.state), { replace: true })
+      navigate(resolvePostLoginDestination(location.state), { replace: true, flushSync: true })
     },
     onError: (error) => setLoginErrorMessage(resolveLoginError(error)),
     onSettled: () =>
@@ -143,7 +143,7 @@ export function LoginPage() {
       setMfaCode('')
       clearPendingOidcReturnDestination()
       markAuthenticated()
-      navigate(resolvePostLoginDestination(location.state), { replace: true })
+      navigate(resolvePostLoginDestination(location.state), { replace: true, flushSync: true })
     },
     onError: (error) =>
       setMfaErrorState({
